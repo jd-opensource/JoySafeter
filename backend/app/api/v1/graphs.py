@@ -27,6 +27,7 @@ from app.models.auth import AuthUser as User
 from app.models.enums import CopilotSessionStatus
 from app.models.graph import AgentGraph, GraphNode
 from app.models.workspace import WorkspaceMemberRole
+from app.repositories.agent_run import AgentRunRepository
 from app.repositories.workspace import WorkspaceRepository
 from app.services.copilot_service import CopilotService
 from app.services.graph_service import GraphService
@@ -577,19 +578,6 @@ async def get_copilot_history(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Get Copilot conversation history for a specific graph.
-
-    Returns all previous messages with their actions, thought steps, and tool calls.
-    This enables the frontend to restore the conversation when re-entering the graph.
-
-    Args:
-        graph_id: The graph ID to get history for
-        current_user: Authenticated user
-
-    Returns:
-        CopilotHistoryResponse with messages array
-    """
     log = _bind_log(request, user_id=str(current_user.id), graph_id=str(graph_id))
     log.info("copilot.history.get start")
 
@@ -599,14 +587,36 @@ async def get_copilot_history(
         raise NotFoundException("Graph not found")
     await graph_service._ensure_access(graph, current_user, WorkspaceMemberRole.viewer)
 
-    service = CopilotService(user_id=str(current_user.id), db=db)
-    result = await service.get_history_for_api(str(graph_id))
+    repo = AgentRunRepository(db)
+    runs = await repo.list_recent_runs_for_user(
+        user_id=str(current_user.id),
+        agent_name="copilot",
+        graph_id=graph_id,
+        limit=100,
+    )
 
-    if result["data"]["messages"]:
-        log.info(f"copilot.history.get success messages_count={len(result['data']['messages'])}")
-    else:
-        log.info("copilot.history.get success no_history")
-    return result
+    messages = []
+    for run in reversed(list(runs)):  # oldest first
+        snapshot = await repo.get_snapshot(run.id)
+        if not snapshot or not snapshot.projection:
+            continue
+        p = snapshot.projection
+        messages.append({
+            "role": "user",
+            "content": run.title or "",
+            "created_at": run.created_at.isoformat() if run.created_at else None,
+        })
+        messages.append({
+            "role": "assistant",
+            "content": p.get("result_message") or p.get("content", ""),
+            "created_at": run.updated_at.isoformat() if run.updated_at else None,
+            "actions": p.get("result_actions", []),
+            "thought_steps": p.get("thought_steps", []),
+            "tool_calls": p.get("tool_calls", []),
+        })
+
+    log.info(f"copilot.history.get success messages_count={len(messages)}")
+    return {"data": {"graph_id": str(graph_id), "messages": messages}}
 
 
 @router.delete("/{graph_id}/copilot/history")
@@ -616,18 +626,6 @@ async def clear_copilot_history(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Clear Copilot conversation history for a specific graph.
-
-    This resets the conversation, useful when starting fresh.
-
-    Args:
-        graph_id: The graph ID to clear history for
-        current_user: Authenticated user
-
-    Returns:
-        Success status
-    """
     log = _bind_log(request, user_id=str(current_user.id), graph_id=str(graph_id))
     log.info("copilot.history.clear start")
 
@@ -637,11 +635,15 @@ async def clear_copilot_history(
         raise NotFoundException("Graph not found")
     await graph_service._ensure_access(graph, current_user, WorkspaceMemberRole.member)
 
-    service = CopilotService(user_id=str(current_user.id), db=db)
-    success = await service.clear_history(str(graph_id))
+    repo = AgentRunRepository(db)
+    deleted = await repo.delete_runs_for_graph(
+        user_id=str(current_user.id),
+        agent_name="copilot",
+        graph_id=graph_id,
+    )
 
-    log.info(f"copilot.history.clear success={success}")
-    return {"success": success}
+    log.info(f"copilot.history.clear success deleted={deleted}")
+    return {"success": True}
 
 
 @router.post("/{graph_id}/copilot/messages")

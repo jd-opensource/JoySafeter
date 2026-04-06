@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from typing import Optional, Sequence
 
-from sqlalchemy import and_, desc, or_, select
+from sqlalchemy import and_, delete as sa_delete, desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent_run import AgentRun, AgentRunEvent, AgentRunSnapshot, AgentRunStatus
@@ -98,6 +98,7 @@ class AgentRunRepository(BaseRepository[AgentRun]):
         agent_name: Optional[str] = None,
         status: Optional[str] = None,
         search: Optional[str] = None,
+        graph_id: Optional[uuid.UUID] = None,
         limit: int = 50,
     ) -> Sequence[AgentRun]:
         query = select(AgentRun).where(AgentRun.user_id == user_id)
@@ -109,8 +110,28 @@ class AgentRunRepository(BaseRepository[AgentRun]):
             query = query.where(AgentRun.status == status)
         if search:
             query = query.where(AgentRun.title.ilike(f"%{search}%"))
+        if graph_id:
+            query = query.where(AgentRun.graph_id == graph_id)
         result = await self.db.execute(query.order_by(desc(AgentRun.updated_at)).limit(limit))
         return result.scalars().all()
+
+    async def delete_runs_for_graph(
+        self,
+        *,
+        user_id: str,
+        agent_name: str,
+        graph_id: uuid.UUID,
+    ) -> int:
+        """Hard-delete all runs (and cascaded events/snapshots) for a graph."""
+        result = await self.db.execute(
+            sa_delete(AgentRun).where(
+                AgentRun.user_id == user_id,
+                AgentRun.agent_name == agent_name,
+                AgentRun.graph_id == graph_id,
+            )
+        )
+        await self.db.commit()
+        return result.rowcount
 
     async def list_recoverable_stale_runs(
         self,
