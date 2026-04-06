@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useMemo } from 'react'
 
-import type { ChatSendInput, SkillCreatorExtension } from '@/lib/ws/chat/types'
+import type { ChatSendInput, SkillCreatorExtension, ChatExtension } from '@/lib/ws/chat/types'
 
 import type { ChatState, ChatAction } from './hooks/useChatReducer'
 import { useChatReducer } from './hooks/useChatReducer'
@@ -23,11 +23,12 @@ interface ChatStreamContextValue {
   isSubmitting: boolean
   isConnected: boolean
   activeRequestId: string | null
+  runId: string | null
   sendMessage: (opts: {
     input: ChatSendInput
     threadId?: string | null
     graphId?: string | null
-    extension?: SkillCreatorExtension | null
+    extension?: SkillCreatorExtension | ChatExtension | null
     metadata?: Record<string, unknown>
   }) => Promise<{ requestId: string }>
   stopMessage: (requestId: string | null) => void
@@ -58,6 +59,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       isSubmitting: state.streaming.isSubmitting,
       isConnected: ws.isConnected,
       activeRequestId: ws.activeRequestId,
+      runId: ws.chatRunId,
       sendMessage: ws.sendMessage,
       stopMessage: ws.stopMessage,
       resumeChat: ws.resumeChat,
@@ -68,6 +70,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       state.streaming.isSubmitting,
       ws.isConnected,
       ws.activeRequestId,
+      ws.chatRunId,
       ws.sendMessage,
       ws.stopMessage,
       ws.resumeChat,

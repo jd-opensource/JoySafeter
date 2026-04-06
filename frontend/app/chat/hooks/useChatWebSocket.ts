@@ -4,9 +4,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { generateUUID } from '@/lib/utils/uuid'
 import { getChatWsClient } from '@/lib/ws/chat/chatWsClient'
-import type { ChatSendInput, IncomingChatWsEvent, SkillCreatorExtension } from '@/lib/ws/chat/types'
+import type { ChatSendInput, IncomingChatWsEvent, SkillCreatorExtension, ChatExtension } from '@/lib/ws/chat/types'
 import { toastError } from '@/lib/utils/toast'
 import { useTranslation } from '@/lib/i18n'
+import { runService } from '@/services/runService'
 import type {
   ChatStreamEvent,
   CommandEventData,
@@ -36,7 +37,7 @@ interface SendMessageOpts {
   input: ChatSendInput
   threadId?: string | null
   graphId?: string | null
-  extension?: SkillCreatorExtension | null
+  extension?: SkillCreatorExtension | ChatExtension | null
   metadata?: Record<string, unknown>
 }
 
@@ -48,6 +49,7 @@ interface ResumeOpts {
 export interface UseChatWebSocketReturn {
   isConnected: boolean
   activeRequestId: string | null
+  chatRunId: string | null
   sendMessage: (opts: SendMessageOpts) => Promise<{ requestId: string }>
   stopMessage: (requestId: string | null) => void
   resumeChat: (opts: ResumeOpts) => Promise<{ requestId: string }>
@@ -60,8 +62,10 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
   const activeByThreadRef = useRef(new Map<string, string>())
   const activeThreadIdRef = useRef<string | null>(null)
   const currentRequestIdRef = useRef<string | null>(null)
+  const chatRunIdRef = useRef<string | null>(null)
   const [isConnected, setIsConnected] = useState(clientRef.current.getConnectionState().isConnected)
   const [activeRequestId, setActiveRequestIdState] = useState<string | null>(null)
+  const [chatRunId, setChatRunId] = useState<string | null>(null)
 
   const setCurrentRequestId = useCallback((requestId: string | null) => {
     currentRequestIdRef.current = requestId
@@ -431,10 +435,33 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
       }
 
       try {
+        // Create chat run before sending WS frame (only for regular chat, not skill_creator)
+        let resolvedExtension = extension
+        if (!extension || extension.kind !== 'skill_creator') {
+          let newChatRunId: string | null = null
+          try {
+            const runResponse = await runService.createRun({
+              agent_name: 'chat',
+              graph_id: graphId || undefined,
+              message: input.message,
+              thread_id: threadId || undefined,
+            })
+            newChatRunId = runResponse.run_id
+          } catch (err) {
+            console.warn('[Chat] Failed to create chat run, proceeding without persistence', err)
+          }
+          chatRunIdRef.current = newChatRunId
+          setChatRunId(newChatRunId)
+          const chatExtension: ChatExtension | undefined = newChatRunId
+            ? { kind: 'chat' as const, runId: newChatRunId }
+            : undefined
+          resolvedExtension = chatExtension
+        }
+
         const result = await clientRef.current.sendChat({
           requestId,
           input,
-          extension,
+          extension: resolvedExtension,
           threadId,
           graphId,
           metadata,
@@ -517,6 +544,7 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
   return {
     isConnected,
     activeRequestId,
+    chatRunId,
     sendMessage,
     stopMessage,
     resumeChat,

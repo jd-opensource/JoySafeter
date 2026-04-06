@@ -59,7 +59,7 @@ export interface AgentListResponse {
 
 export interface CreateRunPayload {
   agent_name: string
-  graph_id: string
+  graph_id?: string | null
   message: string
   thread_id?: string | null
   input?: Record<string, unknown> | null
@@ -132,13 +132,13 @@ export const runService = {
 
   async findActiveRun(params: {
     agentName: string
-    graphId: string
+    graphId?: string | null
     threadId?: string | null
   }): Promise<RunSummary | null> {
     const query = new URLSearchParams({
       agent_name: params.agentName,
-      graph_id: params.graphId,
     })
+    if (params.graphId) query.set('graph_id', params.graphId)
     if (params.threadId) query.set('thread_id', params.threadId)
     return apiGet<RunSummary | null>(`${API_ENDPOINTS.runs}/active?${query.toString()}`)
   },
@@ -147,6 +147,13 @@ export const runService = {
     return this.findActiveRun({
       agentName: 'skill_creator',
       graphId: params.graphId,
+      threadId: params.threadId,
+    })
+  },
+
+  async findActiveChatRun(params: { threadId: string }): Promise<RunSummary | null> {
+    return this.findActiveRun({
+      agentName: 'chat',
       threadId: params.threadId,
     })
   },
