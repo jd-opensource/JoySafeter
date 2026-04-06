@@ -77,7 +77,7 @@ import type { workspaceChatWsService as WorkspaceChatWsServiceType } from '../wo
 describe('workspaceChatWsService', () => {
   afterEach(async () => {
     const { getChatWsClient } = await import('@/lib/ws/chat/chatWsClient')
-    getChatWsClient().dispose()
+    getChatWsClient().disconnect()
     vi.resetModules()
   })
 

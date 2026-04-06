@@ -4,8 +4,8 @@ import { generateUUID } from '@/lib/utils/uuid'
 import { getWsChatUrl } from '@/lib/utils/wsUrl'
 import type { ChatStreamEvent } from '@/services/chatBackend'
 
+import { BaseWsClient } from '../base'
 import { ChatWsError } from './errors'
-import { HEARTBEAT, UNRECOVERABLE_CLOSE_CODES, WS_CLOSE_CODE } from '../constants'
 import type {
   ChatExtension,
   ChatResumeParams,
@@ -28,126 +28,60 @@ interface PendingRequest {
   reject: (error: Error) => void
 }
 
-const MAX_RECONNECT_DELAY_MS = 15000
-
-class SharedChatWsClient implements ChatWsClient {
-  private ws: WebSocket | null = null
-  private connectPromise: Promise<void> | null = null
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  private heartbeatTimer: ReturnType<typeof setInterval> | null = null
-  private reconnectAttempts = 0
-  private isDisposed = false
-  private lastPongTime = Date.now()
-  private consecutiveParseFailures = 0
-  private static readonly MAX_RECONNECT_ATTEMPTS = 20
+class SharedChatWsClient extends BaseWsClient<ConnectionState> implements ChatWsClient {
   private static readonly MAX_PARSE_FAILURES = 10
+  private consecutiveParseFailures = 0
   private pending = new Map<string, PendingRequest>()
   private threadToRequest = new Map<string, string>()
-  private state: ConnectionState = { isConnected: false }
-  private stateListeners = new Set<(state: ConnectionState) => void>()
 
-  connect(): Promise<void> {
-    if (this.isDisposed) {
-      this.isDisposed = false
-    }
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      return Promise.resolve()
-    }
-    if (this.connectPromise) {
-      return this.connectPromise
-    }
-
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer)
-      this.reconnectTimer = null
-    }
-
-    this.connectPromise = getWsChatUrl().then(
-      (wsUrl) =>
-        new Promise<void>((resolve, reject) => {
-          const ws = new WebSocket(wsUrl)
-          this.ws = ws
-
-          ws.onopen = () => {
-            this.reconnectAttempts = 0
-            this.setConnectionState(true)
-            this.startHeartbeat()
-            this.connectPromise = null
-            resolve()
-          }
-
-          ws.onmessage = (event) => {
-            try {
-              const parsed = JSON.parse(event.data) as IncomingChatWsEvent
-              this.consecutiveParseFailures = 0
-              this.handleInboundMessage(parsed)
-            } catch {
-              this.consecutiveParseFailures++
-              console.warn(`[ChatWS] Malformed frame (${this.consecutiveParseFailures} consecutive)`)
-              if (this.consecutiveParseFailures >= SharedChatWsClient.MAX_PARSE_FAILURES) {
-                console.error('[ChatWS] Too many consecutive parse failures, reconnecting')
-                this.consecutiveParseFailures = 0
-                this.ws?.close()
-              }
-            }
-          }
-
-          ws.onerror = () => {
-            this.setConnectionState(false)
-            if (this.connectPromise) {
-              this.connectPromise = null
-              reject(new ChatWsError('WS_CONNECTION_FAILED', 'WebSocket connection failed'))
-            }
-          }
-
-          ws.onclose = (event) => {
-            this.stopHeartbeat()
-            this.ws = null
-
-            if (this.connectPromise) {
-              this.connectPromise = null
-              reject(new ChatWsError('WS_CONNECTION_FAILED', `WebSocket connection failed (${event.code})`))
-            }
-
-            if (event.code === WS_CLOSE_CODE.UNAUTHORIZED) {
-              this.state = { isConnected: false, authExpired: true }
-              this.stateListeners.forEach((l) => l(this.state))
-              this.rejectAllPending(new ChatWsError('WS_CONNECTION_LOST', 'Authentication expired'))
-              return
-            }
-
-            this.setConnectionState(false)
-
-            if (event.code === WS_CLOSE_CODE.NORMAL || this.isDisposed) {
-              return
-            }
-
-            this.rejectAllPending(
-              new ChatWsError('WS_CONNECTION_LOST', 'WebSocket disconnected'),
-            )
-
-            if (UNRECOVERABLE_CLOSE_CODES.includes(event.code as (typeof UNRECOVERABLE_CLOSE_CODES)[number])) {
-              return
-            }
-
-            this.scheduleReconnect()
-          }
-        }),
-    )
-
-    return this.connectPromise
+  constructor() {
+    super({
+      maxReconnectAttempts: 20,
+      name: '[ChatWS]',
+    })
   }
 
-  getConnectionState(): ConnectionState {
-    return this.state
+  protected createInitialState(): ConnectionState {
+    return { isConnected: false }
   }
 
-  subscribeConnectionState(listener: (state: ConnectionState) => void): () => void {
-    this.stateListeners.add(listener)
-    listener(this.state)
-    return () => {
-      this.stateListeners.delete(listener)
+  protected async getWsUrl(): Promise<string> {
+    return getWsChatUrl()
+  }
+
+  protected handleMessage(evt: IncomingChatWsEvent): void {
+    this.consecutiveParseFailures = 0
+    this.handleInboundMessage(evt)
+  }
+
+  protected override onParseError(): void {
+    this.consecutiveParseFailures++
+    console.warn(`[ChatWS] Malformed frame (${this.consecutiveParseFailures} consecutive)`)
+    if (this.consecutiveParseFailures >= SharedChatWsClient.MAX_PARSE_FAILURES) {
+      console.error('[ChatWS] Too many consecutive parse failures, reconnecting')
+      this.consecutiveParseFailures = 0
+      this.ws?.close()
     }
+  }
+
+  protected override onAuthExpired(): void {
+    this.rejectAllPending(new ChatWsError('WS_CONNECTION_LOST', 'Authentication expired'))
+  }
+
+  protected override onUnexpectedClose(): void {
+    this.rejectAllPending(new ChatWsError('WS_CONNECTION_LOST', 'WebSocket disconnected'))
+  }
+
+  protected override onReconnectExhausted(): void {
+    this.rejectAllPending(new ChatWsError('WS_CONNECTION_LOST', 'Connection lost. Please refresh the page.'))
+  }
+
+  protected override onDispose(): void {
+    this.rejectAllPending(new ChatWsError('WS_CONNECTION_LOST', 'Chat session closed'))
+  }
+
+  protected override createConnectionError(message: string): Error {
+    return new ChatWsError('WS_CONNECTION_FAILED', message)
   }
 
   async sendChat(params: ChatSendParams): Promise<ChatTerminalResult> {
@@ -169,7 +103,6 @@ class SharedChatWsClient implements ChatWsClient {
       if (params.threadId) {
         this.threadToRequest.set(params.threadId, requestId)
       }
-
       try {
         this.sendFrame({
           type: 'chat.start',
@@ -190,7 +123,6 @@ class SharedChatWsClient implements ChatWsClient {
   async sendResume(params: ChatResumeParams): Promise<ChatTerminalResult> {
     await this.connect()
     const requestId = params.requestId || generateUUID()
-
     return new Promise((resolve, reject) => {
       this.pending.set(requestId, {
         requestId,
@@ -201,7 +133,6 @@ class SharedChatWsClient implements ChatWsClient {
         reject,
       })
       this.threadToRequest.set(params.threadId, requestId)
-
       try {
         this.sendFrame({
           type: 'chat.resume',
@@ -227,91 +158,13 @@ class SharedChatWsClient implements ChatWsClient {
     try {
       this.sendFrame({ type: 'chat.stop', request_id: requestId })
     } catch {
-      // Ignore stop failures; caller state will be reconciled on disconnect/error.
+      // Ignore stop failures
     }
-  }
-
-  dispose(): void {
-    this.isDisposed = true
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer)
-      this.reconnectTimer = null
-    }
-    this.stopHeartbeat()
-    if (this.ws) {
-      this.ws.onopen = null
-      this.ws.onmessage = null
-      this.ws.onerror = null
-      this.ws.onclose = null
-      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
-        this.ws.close()
-      }
-      this.ws = null
-    }
-    this.connectPromise = null
-    this.setConnectionState(false)
-    this.rejectAllPending(new ChatWsError('WS_CONNECTION_LOST', 'Chat session closed'))
-  }
-
-  private setConnectionState(isConnected: boolean) {
-    this.state = { isConnected }
-    this.stateListeners.forEach((listener) => listener(this.state))
-  }
-
-  private startHeartbeat() {
-    this.stopHeartbeat()
-    this.lastPongTime = Date.now()
-    this.heartbeatTimer = setInterval(() => {
-      if (this.ws?.readyState !== WebSocket.OPEN) return
-
-      if (Date.now() - this.lastPongTime > HEARTBEAT.PONG_TIMEOUT_MS) {
-        console.warn('[ChatWS] Heartbeat timeout — no pong in 60s, reconnecting')
-        this.ws.close()
-        return
-      }
-
-      this.ws.send(JSON.stringify({ type: 'ping' }))
-    }, HEARTBEAT.PING_INTERVAL_MS)
-  }
-
-  private stopHeartbeat() {
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer)
-      this.heartbeatTimer = null
-    }
-  }
-
-  private scheduleReconnect() {
-    if (this.isDisposed || this.reconnectTimer) return
-
-    if (this.reconnectAttempts >= SharedChatWsClient.MAX_RECONNECT_ATTEMPTS) {
-      console.error('[ChatWS] Max reconnect attempts reached')
-      this.rejectAllPending(new ChatWsError('WS_CONNECTION_LOST', 'Connection lost. Please refresh the page.'))
-      return
-    }
-
-    const delay = Math.min(1000 * 2 ** this.reconnectAttempts, MAX_RECONNECT_DELAY_MS)
-    this.reconnectAttempts += 1
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null
-      void this.connect().catch(() => {})
-    }, delay)
-  }
-
-  private sendFrame(payload: Record<string, unknown>) {
-    if (this.ws?.readyState !== WebSocket.OPEN) {
-      throw new ChatWsError('WS_NOT_CONNECTED', 'WebSocket not connected')
-    }
-    this.ws.send(JSON.stringify(payload))
   }
 
   private handleInboundMessage(evt: IncomingChatWsEvent) {
     const type: string | undefined = evt.type
     if (!type) return
-    if (type === 'pong') {
-      this.lastPongTime = Date.now()
-      return
-    }
 
     const requestId = evt.request_id
     if (type === 'ws_error') {
@@ -344,21 +197,16 @@ class SharedChatWsClient implements ChatWsClient {
       this.resolvePending(requestId, 'interrupt')
       return
     }
-
     if (type === 'done') {
       this.resolvePending(requestId, 'done')
       return
     }
-
     if (type === 'error') {
       const message = (evt.data as { message?: string } | undefined)?.message || 'Unknown error'
       if (message === 'Stream stopped' || message.includes('stopped')) {
         this.resolvePending(requestId, 'stopped')
       } else {
-        this.rejectPending(
-          requestId,
-          new ChatWsError('CHAT_EXECUTION_ERROR', message, { evt }),
-        )
+        this.rejectPending(requestId, new ChatWsError('CHAT_EXECUTION_ERROR', message, { evt }))
       }
     }
   }
@@ -367,11 +215,7 @@ class SharedChatWsClient implements ChatWsClient {
     const pending = this.pending.get(requestId)
     if (!pending) return
     this.clearPending(requestId)
-    pending.resolve({
-      requestId,
-      threadId: pending.threadId,
-      terminal,
-    })
+    pending.resolve({ requestId, threadId: pending.threadId, terminal })
   }
 
   private rejectPending(requestId: string, error: Error) {
@@ -408,35 +252,21 @@ function serializeInput(input: ChatSendParams['input']): Record<string, unknown>
 }
 
 function serializeExtension(extension?: SkillCreatorExtension | ChatExtension | CopilotExtension | null): Record<string, unknown> | null {
-  if (!extension) {
-    return null
-  }
-
+  if (!extension) return null
   if (extension.kind === 'skill_creator') {
-    return {
-      kind: extension.kind,
-      run_id: extension.runId ?? null,
-      edit_skill_id: extension.editSkillId ?? null,
-    }
+    return { kind: extension.kind, run_id: extension.runId ?? null, edit_skill_id: extension.editSkillId ?? null }
   }
-
   if (extension.kind === 'chat') {
-    return {
-      kind: extension.kind,
-      run_id: extension.runId ?? null,
-    }
+    return { kind: extension.kind, run_id: extension.runId ?? null }
   }
-
   if (extension.kind === 'copilot') {
     return {
-      kind: extension.kind,
-      run_id: extension.runId ?? null,
+      kind: extension.kind, run_id: extension.runId ?? null,
       graph_context: extension.graphContext,
       conversation_history: extension.conversationHistory,
       mode: extension.mode,
     }
   }
-
   return null
 }
 

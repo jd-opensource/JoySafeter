@@ -98,5 +98,5 @@ export interface ChatWsClient {
   sendResume(params: ChatResumeParams): Promise<ChatTerminalResult>
   stopByThreadId(threadId: string): void
   stopByRequestId(requestId: string): void
-  dispose(): void
+  disconnect(): void
 }

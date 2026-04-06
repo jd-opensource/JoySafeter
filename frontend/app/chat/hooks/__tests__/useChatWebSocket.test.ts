@@ -91,7 +91,7 @@ describe('useChatWebSocket', () => {
   afterEach(async () => {
     vi.clearAllMocks()
     const { getChatWsClient } = await import('@/lib/ws/chat/chatWsClient')
-    getChatWsClient().dispose()
+    getChatWsClient().disconnect()
   })
 
   // -------------------------------------------------------------------------
