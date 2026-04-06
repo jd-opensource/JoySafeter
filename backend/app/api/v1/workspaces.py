@@ -8,6 +8,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user, require_workspace_role
+from app.common.exceptions import BadRequestException, ForbiddenException
 from app.common.pagination import PaginationParams
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
@@ -73,8 +74,6 @@ async def create_workspace(
         try:
             workspace_type = WorkspaceType(payload.type)
         except ValueError:
-            from app.common.exceptions import BadRequestException
-
             raise BadRequestException(f"Invalid workspace type: {payload.type}. Must be 'personal' or 'team'")
 
     service = WorkspaceService(db)
@@ -139,7 +138,7 @@ async def delete_workspace(
     workspace_id: uuid.UUID,
     payload: DeleteWorkspaceRequest = Body(default_factory=DeleteWorkspaceRequest),
     db: AsyncSession = Depends(get_db),
-    current_user: User = require_workspace_role(WorkspaceMemberRole.admin),
+    current_user: User = require_workspace_role(WorkspaceMemberRole.owner),
 ):
     """Delete a workspace and all related data."""
     service = WorkspaceService(db)
@@ -156,7 +155,7 @@ async def duplicate_workspace(
     workspace_id: uuid.UUID,
     payload: dict = Body(default_factory=dict),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = require_workspace_role(WorkspaceMemberRole.member),
 ):
     """Duplicate a workspace."""
     service = WorkspaceService(db)
@@ -215,7 +214,6 @@ async def get_my_permission(
             "isOwner": boolean
         }
     """
-    from app.common.exceptions import ForbiddenException
     from app.common.response import success_response
 
     service = WorkspaceService(db)
@@ -286,13 +284,17 @@ async def update_member_role(
     current_user: User = Depends(get_current_user),
 ):
     """Update a workspace member's role (admin only)."""
-    from app.models.workspace import WorkspaceMemberRole
+    from app.services.workspace_permission import check_workspace_access
+
+    has_access = await check_workspace_access(
+        db, payload.workspaceId, current_user, WorkspaceMemberRole.admin,
+    )
+    if not has_access:
+        raise ForbiddenException("Insufficient workspace permission")
 
     try:
         new_role = WorkspaceMemberRole(payload.role)
     except ValueError:
-        from app.common.exceptions import BadRequestException
-
         raise BadRequestException(f"Invalid role: {payload.role}")
 
     service = WorkspaceService(db)
@@ -313,6 +315,16 @@ async def remove_member(
     current_user: User = Depends(get_current_user),
 ):
     """Remove a workspace member (admin can remove others, members can remove themselves)."""
+    # Allow self-removal without admin check; otherwise require admin role
+    if str(user_id) != str(current_user.id):
+        from app.services.workspace_permission import check_workspace_access
+
+        has_access = await check_workspace_access(
+            db, payload.workspaceId, current_user, WorkspaceMemberRole.admin,
+        )
+        if not has_access:
+            raise ForbiddenException("Insufficient workspace permission")
+
     service = WorkspaceService(db)
     await service.remove_member(
         workspace_id=payload.workspaceId,

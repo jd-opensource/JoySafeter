@@ -183,7 +183,17 @@ export default function WorkspaceMembersPage() {
       setPage(1)
       refetch()
     },
-    onError: (error: Error) => {
+    onError: (error: any) => {
+      const status = error?.status || error?.response?.status
+      if (status === 403) {
+        toast({
+          title: t('workspace.updateFailed'),
+          description: t('workspace.insufficientPermission'),
+          variant: 'destructive',
+        })
+        refetch()
+        return
+      }
       toast({
         title: t('workspace.updateFailed'),
         description: error.message,
@@ -206,7 +216,17 @@ export default function WorkspaceMembersPage() {
       setPage(1)
       refetch()
     },
-    onError: (error: Error) => {
+    onError: (error: any) => {
+      const status = error?.status || error?.response?.status
+      if (status === 403) {
+        toast({
+          title: t('workspace.removeFailed'),
+          description: t('workspace.insufficientPermission'),
+          variant: 'destructive',
+        })
+        refetch()
+        return
+      }
       toast({
         title: t('workspace.removeFailed'),
         description: error.message,
@@ -237,6 +257,14 @@ export default function WorkspaceMembersPage() {
   const members = membersData?.items || []
   const totalMembers = membersData?.total || 0
   const totalPages = membersData?.pages || 0
+
+  if (permissionsLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-[var(--text-muted)]" />
+      </div>
+    )
+  }
 
   if (!userPermissions.canRead) {
     return (

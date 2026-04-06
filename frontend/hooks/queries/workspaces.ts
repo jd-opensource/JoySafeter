@@ -24,6 +24,7 @@ interface BackendWorkspace {
   description?: string
   owner_id?: string
   ownerId?: string
+  role?: string
   is_personal?: boolean
   members?: Array<{ user_id: string }>
   created_at?: string
@@ -42,6 +43,7 @@ export interface Workspace {
   ownerId: string
   description?: string
   type?: string // 'personal' | 'team'
+  role?: string // 'owner' | 'admin' | 'member' | 'viewer'
   createdAt: Date
   updatedAt: Date
 }
@@ -66,6 +68,7 @@ function mapWorkspace(workspace: BackendWorkspace): Workspace {
     ownerId: workspace.ownerId || workspace.owner_id || '',
     description: workspace.description,
     type: workspace.type, // 'personal' | 'team'
+    role: workspace.role,
     createdAt: new Date(workspace.createdAt || workspace.created_at || Date.now()),
     updatedAt: new Date(workspace.updatedAt || workspace.updated_at || Date.now()),
   }

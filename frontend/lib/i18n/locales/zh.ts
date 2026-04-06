@@ -747,6 +747,7 @@ const zh = {
       memberRemoved: '成员已移除',
       memberRemovedDescription: '成员已从工作空间移除',
       removeFailed: '移除失败',
+      insufficientPermission: '您没有足够的权限执行此操作',
       enterEmail: '请输入邮箱',
       noAccess: '无权限访问',
       noAccessDescription: '您没有查看工作空间成员的权限',

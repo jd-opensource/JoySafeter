@@ -300,6 +300,10 @@ class GraphService(BaseService):
         """Internal method: execute the actual save graph state logic."""
         # get the graph
         graph = await self.graph_repo.get(graph_id)
+        if graph:
+            # permission check: ensure user has write access to the existing graph
+            if current_user:
+                await self._ensure_access(graph, current_user, WorkspaceMemberRole.member)
         if not graph:
             # upsert mode: if the graph does not exist, auto-create a new graph
             if current_user:

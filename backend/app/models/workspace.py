@@ -6,7 +6,7 @@ import uuid
 from enum import Enum as PyEnum
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -112,6 +112,10 @@ class WorkspaceMember(BaseModel):
     user: Mapped["AuthUser"] = relationship(
         "AuthUser",
         back_populates="workspace_memberships",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "user_id", name="uq_workspace_member"),
     )
 
 

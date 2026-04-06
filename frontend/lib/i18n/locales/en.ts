@@ -764,6 +764,7 @@ const en = {
       memberRemoved: 'Member Removed',
       memberRemovedDescription: 'Member has been removed from the workspace',
       removeFailed: 'Remove Failed',
+      insufficientPermission: 'You do not have sufficient permission for this action',
       enterEmail: 'Please enter email',
       noAccess: 'No Access',
       noAccessDescription: 'You do not have permission to view workspace members',

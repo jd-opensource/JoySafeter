@@ -3,8 +3,6 @@
 /**
  * Workspace Permissions Provider
  *
- * Status: pending integration
- *
  * Purpose: manage workspace permission system
  *
  * Features:
@@ -20,23 +18,7 @@
  * - canManageMembers: whether the user can manage members
  * - isOfflineMode: offline mode flag
  *
- * Current status:
- * - Code is complete and functional
- * - Not yet integrated into the app layout
- * - Depends on multiple hooks and stores
- *
- * Integration:
- * ```tsx
- * import { WorkspacePermissionsProvider } from './providers/workspace-permissions-provider'
- *
- * export default function Layout({ children }) {
- *   return (
- *     <WorkspacePermissionsProvider>
- *       {children}
- *     </WorkspacePermissionsProvider>
- *   )
- * }
- * ```
+ * Integrated in workspace layout.tsx as a top-level provider.
  */
 
 import { useParams } from 'next/navigation'
