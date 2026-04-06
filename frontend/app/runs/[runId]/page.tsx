@@ -350,44 +350,137 @@ export default function RunDetailPage() {
               </TabsContent>
 
               <TabsContent value="overview" className="mt-0">
-                <Card className="border-[var(--border)] bg-[var(--surface-1)] p-4">
-                  <dl className="grid gap-4 lg:grid-cols-2">
-                    <div>
-                      <dt className="text-xs text-[var(--text-muted)]">Run ID</dt>
-                      <dd className="mt-1 break-all text-sm text-[var(--text-primary)]">{run.run_id}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs text-[var(--text-muted)]">{t('runs.typeLabel', 'Type')}</dt>
-                      <dd className="mt-1 text-sm text-[var(--text-primary)]">{run.run_type}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs text-[var(--text-muted)]">{t('runs.startedAt', 'Started')}</dt>
-                      <dd className="mt-1 text-sm text-[var(--text-primary)]">{formatDateTime(run.started_at)}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs text-[var(--text-muted)]">{t('runs.finishedAt', 'Finished')}</dt>
-                      <dd className="mt-1 text-sm text-[var(--text-primary)]">{formatDateTime(run.finished_at)}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs text-[var(--text-muted)]">{t('runs.lastHeartbeat', 'Heartbeat')}</dt>
-                      <dd className="mt-1 text-sm text-[var(--text-primary)]">
-                        {formatDateTime(run.last_heartbeat_at)}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs text-[var(--text-muted)]">Thread ID</dt>
-                      <dd className="mt-1 break-all text-sm text-[var(--text-primary)]">{run.thread_id || '-'}</dd>
-                    </div>
-                    <div className="lg:col-span-2">
-                      <dt className="text-xs text-[var(--text-muted)]">Graph ID</dt>
-                      <dd className="mt-1 break-all text-sm text-[var(--text-primary)]">{run.graph_id || '-'}</dd>
-                    </div>
-                    <div className="lg:col-span-2">
-                      <dt className="text-xs text-[var(--text-muted)]">{t('runs.errorLabel', 'Error')}</dt>
-                      <dd className="mt-1 text-sm text-[var(--text-primary)]">{run.error_message || '-'}</dd>
-                    </div>
-                  </dl>
-                </Card>
+                <div className="space-y-4">
+                  <Card className="border-[var(--border)] bg-[var(--surface-1)] p-4">
+                    <dl className="grid gap-4 lg:grid-cols-2">
+                      <div>
+                        <dt className="text-xs text-[var(--text-muted)]">Run ID</dt>
+                        <dd className="mt-1 break-all text-sm text-[var(--text-primary)]">{run.run_id}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-[var(--text-muted)]">{t('runs.typeLabel', 'Type')}</dt>
+                        <dd className="mt-1 text-sm text-[var(--text-primary)]">{run.run_type}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-[var(--text-muted)]">{t('runs.startedAt', 'Started')}</dt>
+                        <dd className="mt-1 text-sm text-[var(--text-primary)]">{formatDateTime(run.started_at)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-[var(--text-muted)]">{t('runs.finishedAt', 'Finished')}</dt>
+                        <dd className="mt-1 text-sm text-[var(--text-primary)]">{formatDateTime(run.finished_at)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-[var(--text-muted)]">{t('runs.lastHeartbeat', 'Heartbeat')}</dt>
+                        <dd className="mt-1 text-sm text-[var(--text-primary)]">
+                          {formatDateTime(run.last_heartbeat_at)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-[var(--text-muted)]">Thread ID</dt>
+                        <dd className="mt-1 break-all text-sm text-[var(--text-primary)]">{run.thread_id || '-'}</dd>
+                      </div>
+                      <div className="lg:col-span-2">
+                        <dt className="text-xs text-[var(--text-muted)]">Graph ID</dt>
+                        <dd className="mt-1 break-all text-sm text-[var(--text-primary)]">{run.graph_id || '-'}</dd>
+                      </div>
+                      <div className="lg:col-span-2">
+                        <dt className="text-xs text-[var(--text-muted)]">{t('runs.errorLabel', 'Error')}</dt>
+                        <dd className="mt-1 text-sm text-[var(--text-primary)]">{run.error_message || '-'}</dd>
+                      </div>
+                    </dl>
+                  </Card>
+
+                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                  {(snapshot?.projection as any)?.run_type === 'chat_turn' && (() => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const projection = snapshot?.projection as any
+                    return (
+                      <div className="space-y-4">
+                        {/* User message */}
+                        {projection.user_message && (
+                          <Card className="p-4">
+                            <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('runs.chat.userMessage', 'User Message')}</h4>
+                            <p className="text-sm whitespace-pre-wrap">{projection.user_message.content}</p>
+                          </Card>
+                        )}
+
+                        {/* Assistant message */}
+                        {projection.assistant_message && (
+                          <Card className="p-4">
+                            <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('runs.chat.assistantResponse', 'Assistant Response')}</h4>
+                            <p className="text-sm whitespace-pre-wrap">{projection.assistant_message.content}</p>
+
+                            {/* Tool calls */}
+                            {projection.assistant_message.tool_calls?.length > 0 && (
+                              <div className="mt-3 space-y-2">
+                                <h5 className="text-xs font-medium text-muted-foreground">{t('runs.chat.toolCalls', 'Tool Calls')}</h5>
+                                {projection.assistant_message.tool_calls.map((tool: any, i: number) => (
+                                  <details key={tool.id || i} className="text-xs border rounded p-2">
+                                    <summary className="cursor-pointer font-medium">
+                                      {tool.name} — {tool.status}
+                                    </summary>
+                                    {tool.args && (
+                                      <pre className="mt-1 text-muted-foreground overflow-x-auto">
+                                        {JSON.stringify(tool.args, null, 2)}
+                                      </pre>
+                                    )}
+                                    {tool.result && (
+                                      <pre className="mt-1 text-muted-foreground overflow-x-auto">
+                                        {JSON.stringify(tool.result, null, 2)}
+                                      </pre>
+                                    )}
+                                  </details>
+                                ))}
+                              </div>
+                            )}
+                          </Card>
+                        )}
+
+                        {/* File tree */}
+                        {projection.file_tree && Object.keys(projection.file_tree).length > 0 && (
+                          <Card className="p-4">
+                            <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('runs.chat.files', 'Files')}</h4>
+                            <ul className="text-xs space-y-1">
+                              {Object.entries(projection.file_tree).map(([path, info]: [string, any]) => (
+                                <li key={path} className="flex items-center gap-2">
+                                  <Badge variant="outline" className="text-[10px]">{info.action}</Badge>
+                                  <span className="font-mono truncate">{path}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </Card>
+                        )}
+
+                        {/* Preview data */}
+                        {projection.preview_data && (
+                          <Card className="p-4">
+                            <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('runs.chat.preview', 'Preview')}</h4>
+                            <pre className="text-xs overflow-x-auto">
+                              {JSON.stringify(projection.preview_data, null, 2)}
+                            </pre>
+                          </Card>
+                        )}
+
+                        {/* Node execution log */}
+                        {projection.node_execution_log?.length > 0 && (
+                          <Card className="p-4">
+                            <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('runs.chat.executionLog', 'Execution Log')}</h4>
+                            <ul className="text-xs space-y-1">
+                              {projection.node_execution_log.map((entry: any, i: number) => (
+                                <li key={i} className="flex items-center gap-2">
+                                  <Badge variant={entry.status === 'completed' ? 'default' : 'secondary'} className="text-[10px]">
+                                    {entry.status}
+                                  </Badge>
+                                  <span className="font-mono">{entry.node_name}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </Card>
+                        )}
+                      </div>
+                    )
+                  })()}
+                </div>
               </TabsContent>
             </Tabs>
           </div>

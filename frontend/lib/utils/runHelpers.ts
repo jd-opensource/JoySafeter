@@ -51,9 +51,11 @@ export function formatRelativeTime(value: string, t?: TFn): string {
 // ---------------------------------------------------------------------------
 
 export function buildRunHref(run: { run_id: string; run_type?: string; agent_name?: string | null }): string {
-  // run_type fallback is for legacy records created before agent_name was backfilled.
   if (run.agent_name === 'skill_creator' || run.run_type === 'skill_creator') {
     return `/skills/creator?run=${encodeURIComponent(run.run_id)}`
+  }
+  if (run.agent_name === 'chat' || run.run_type === 'chat_turn') {
+    return `/runs/${encodeURIComponent(run.run_id)}`
   }
   return '#'
 }
