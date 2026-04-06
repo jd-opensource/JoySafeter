@@ -21,6 +21,7 @@ flowchart TB
         subgraph API["API 层 (FastAPI)"]
             direction TB
             REST["REST APIs<br/>Auth/Graphs/Chat/Skills"]
+            WS["WebSocket<br/>Chat/Copilot/Runs"]
             SSE["SSE Stream<br/>实时事件"]
             CodeAPI["Code API<br/>保存/运行"]
         end
@@ -70,9 +71,10 @@ flowchart TB
     CodeEditor --> CodeAPI
     Trace --> SSE
     Workspace --> REST
-    Copilot --> REST
+    Copilot --> WS
 
     REST --> Services
+    WS --> Services
     SSE --> Services
     CodeAPI --> Services
 
@@ -230,18 +232,21 @@ sequenceDiagram
 
 **前端 ↔ 后端：**
 - **REST API**：图配置、技能管理、工具管理、工作空间操作
+- **WebSocket (`/ws/chat`)**：共享聊天协议，用于 Chat、Copilot 和 Skill Creator 会话；Copilot 通过 `extension: { kind: "copilot" }` 复用同一 WS 连接
+- **WebSocket (`/ws/runs`)**：实时运行观测 — 活跃 agent run 的事件回放和状态更新
 - **Code API**：保存和运行用户 LangGraph 代码
 - **SSE Stream**：实时执行状态、流式输出、节点执行事件
 
 **后端内部：**
 - **Code 模式**：`code_executor.execute_code()` → `StateGraph.compile()` → `ainvoke()`
 - **画布模式**：`build_deep_agents_graph()` → `create_deep_agent()` → `compile()` → `ainvoke()`
+- **Copilot 回合**：`execute_copilot_turn()` → `CopilotService._get_copilot_stream()` → 事件通过 Run Center 持久化到 `agent_run_events`
 - **LangGraph Runtime → MCP Servers → Tools**：工具调用和执行
 - **Middleware → Agent → Model**：请求处理管道
 
 **后端 ↔ 数据层：**
-- **PostgreSQL**：图配置、技能、记忆、会话、工作空间
-- **Redis**：缓存、限流、会话状态、临时数据
+- **PostgreSQL**：图配置、技能、记忆、会话、工作空间、agent runs/events/snapshots（Run Center）
+- **Redis**：缓存、限流、临时数据
 
 ### 后端文件结构（图模块）
 

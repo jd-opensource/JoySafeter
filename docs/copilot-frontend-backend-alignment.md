@@ -1,103 +1,193 @@
-# Copilot 前后端逻辑对照与不对应项
+# Copilot 前后端架构对照
 
-本文档梳理前后端 Copilot 在事件、API、类型、行为上的一致性与不对应之处，便于逐项修复或约定。
+本文档梳理 Copilot 前后端在通信、事件、API、类型上的架构对齐关系。
 
----
-
-## 1. 流式事件 (WebSocket / SSE)
-
-### 1.1 事件类型与字段
-
-| 事件类型 | 后端 (action_types.py / 实际发送) | 前端 (use-copilot-websocket.ts) | 对齐情况 |
-|----------|-----------------------------------|----------------------------------|----------|
-| status | type, stage, message | stage, message → onStatus(stage, message) | 一致 |
-| content | type, content | content → onContent | 一致 |
-| thought_step | type, step: {index, content} | step → onThoughtStep | 一致 |
-| tool_call | type, tool, input | tool, input → onToolCall | 一致 |
-| tool_result | type, action: {type, payload, reasoning?} | action → onToolResult | 一致 |
-| result | type, message, actions[], batch? | message, actions → onResult | 见 1.2 |
-| done | type | 触发 cleanup，不回调 | 一致 |
-| error | type, message, code | message, code → onError，按 code 分支 | 见 1.3 |
-
-### 1.2 result 事件：空 message 或空 actions
-
-- **后端**：`CopilotResultEvent` 中 `message: str` 必填，`actions` 默认 `[]`，可发 `message=""` 且 `actions=[...]`。
-- **前端**：`if (data.message && data.actions)` 才调用 `onResult`。在 JS 中 `"" && data.actions` 为 `""`（falsy），会跳过 onResult。
-- **不对应**：当后端发送 `result` 且 `message=""`、`actions` 非空时，前端不会执行 onResult，导致不落盘、不执行 actions。
-- **建议**：前端改为按事件类型处理，例如 `if (data.type === 'result')` 则调用 `onResult({ message: data.message ?? '', actions: data.actions ?? [] })`，不依赖 `data.message && data.actions`。
-
-### 1.3 error 事件与错误码
-
-- **后端发送的 code**：`CREDENTIAL_ERROR`、`AGENT_ERROR`、`REDIS_UNAVAILABLE`、`UNKNOWN_ERROR`（见 copilot_service.py）。
-- **前端处理**：对 `CREDENTIAL_ERROR`、`AGENT_ERROR`、`REDIS_UNAVAILABLE`、`CANCELLED` 有专属文案；其余走 `systemError: ${error}`。后端未发 `CANCELLED`，前端保留可接受。
-- **不对应**：`UNKNOWN_ERROR` 未在前端做专门文案，会落入通用错误；若需统一体验可加一条。非必须。
-- **一致**：错误码字段名、关键码处理一致。
+> **架构说明**：Copilot 已迁移至 Run Center 模型。前端通过共享 `/ws/chat` WebSocket 发送 `extension: { kind: "copilot" }` 消息，后端通过 `execute_copilot_turn` 消费 `CopilotService._get_copilot_stream()`，事件持久化到 `agent_run_events` 表，状态投影存储于 `agent_run_snapshots`。
 
 ---
 
-## 2. API 契约
+## 1. 通信架构
 
-### 2.1 创建任务 POST graphs/copilot/actions/create
+### 1.1 消息发送流程
 
-- **后端**：`CopilotRequest`: prompt, graph_context, graph_id?, conversation_history?, mode?。返回 session_id, status, created_at。
-- **前端**：传 prompt, graph_context, graph_id, conversation_history，可选 mode。期望 session_id, status, created_at。
-- **一致**：字段与路径一致。conversation_history 见 2.3。
+```
+前端 CopilotPanel
+  → useCopilotActions.handleSendWithInput()
+    → runService.createRun({ agent_name: "copilot", graph_id, message })   // REST: 创建 run
+    → getChatWsClient().sendChat({
+        requestId,
+        input: { message, model },
+        graphId,
+        extension: { kind: "copilot", runId, graphContext, conversationHistory, mode }
+      })                                                                     // WS: chat.start 帧
+```
 
-### 2.2 获取会话 GET graphs/copilot/sessions/:id
+### 1.2 后端处理链路
 
-- **后端**：从 Redis 取 status, content, error。仅当 `status == "generating"` 时返回 content；否则返回 status + content: null，**未在响应中带出 error**。
-- **前端**：useCopilotEffects 在 `sessionData?.status === 'failed'` 时用 `sessionData.error || '...'` 展示。
-- **不对应**：status 为 failed 时后端未返回 `error`，前端拿不到具体错误信息。
-- **建议**：后端在返回会话时若 `session_data.get("status") == "failed"`，在响应中增加 `error: session_data.get("error")`。
+```
+/ws/chat → ChatWsHandler
+  → chat_protocol.parse_client_frame()  → ParsedCopilotExtension
+  → chat_commands.build_command_from_parsed_frame()  → CopilotTurnCommand
+  → chat_turn_executor.execute_copilot_turn()
+    → CopilotService._get_copilot_stream()
+    → _emit_event() per event  →  WS 推送 + _mirror_run_stream_event() 持久化
+  → _finalize_task()  →  更新 run status (completed/failed)
+```
 
-### 2.3 对话历史格式 (conversation_history / history API)
+### 1.3 页面刷新恢复（Live Event Replay）
 
-- **后端**：`CopilotRequest.conversation_history` 类型为 `List[Dict[str, str]]`，实际只使用 `role`、`content`（见 message_builder.py）。get_history 返回的 messages 含 role('user'|'assistant'), content, actions, thought_steps, tool_calls。
-- **前端**：convertConversationHistory 发送 `{ role: 'user'|'assistant', content, actions? }`；历史加载时把 assistant 映射为 model，并读 thought_steps。
-- **不对应**：类型标注上后端写的是 Dict[str, str]，实际可含 actions（list），类型与实现不一致。
-- **建议**：后端将 conversation_history 类型改为更宽松（如 List[Dict[str, Any]]）或在文档中明确“仅使用 role、content，其余忽略”，避免误导。
-
-### 2.4 历史消息 role 命名
-
-- **后端**：持久化与 API 使用 `user` | `assistant`。
-- **前端**：UI 与 state 使用 `user` | `model`；发 API 时转为 `assistant`；加载历史时把 `assistant` 转为 `model`。
-- **一致**：转换逻辑明确，无行为不对应。
-
----
-
-## 3. GraphAction 与 Apply 逻辑
-
-- **类型**：后端 GraphActionType + GraphAction，前端 GraphActionType | GraphAction；payload 结构一致（id, type, label, position, config, source, target 等）。
-- **Apply**：后端 action_applier.apply_actions_to_graph_state，前端 ActionProcessor.processActions；契约测试与 fixtures 已覆盖，行为对齐。
-- **节点默认配置**：后端 NODE_DEFAULT_CONFIGS / NODE_LABELS 与前端 nodeRegistry 需人工同步，已写在 docs/schemas/README.md。
-
----
-
-## 4. Stage 与 UI 状态
-
-- **后端**：status 事件的 stage 为任意字符串（如 thinking, processing, analyzing, planning, validating）。
-- **前端**：StageType = 'thinking' | 'processing' | 'generating' | 'analyzing' | 'planning' | 'validating'；setCurrentStage 时把 stage 转为 StageType。
-- **潜在不对应**：若后端新增未在 StageType 中的 stage，前端会以 string 传入，可能影响类型或展示。当前 DeepAgents 与 standard 使用的 stage 均在 StageType 内，可接受。
+```
+前端 useCopilotEffects
+  → 检测 state.currentRunId
+  → runService.getRunSnapshot(runId)  // REST: 获取快照
+  → 若 status 为 running/queued:
+    → getRunWsClient().subscribe(runId, afterSeq, { onEvent, onStatus })  // /ws/runs 订阅
+    → runEventToChatEvent() 适配器将 RunEventFrame → ChatStreamEvent
+    → handleCopilotEvent() 驱动 UI 更新
+```
 
 ---
 
-## 5. 汇总：已完成的修复（高质量架构约束下）
+## 2. 流式事件契约（WebSocket）
 
-| 优先级 | 项 | 位置 | 已做修改 |
-|--------|-----|------|----------|
-| 高 | result 事件在 message 为空时未触发 onResult | 前端 [use-copilot-websocket.ts](frontend/hooks/use-copilot-websocket.ts) | 按 type === 'result' 统一调用 onResult，message/actions 用 ?? 兜底，满足契约 |
-| 高 | 会话失败时无 error 字段 | 后端 [graphs.py get_copilot_session](backend/app/api/v1/graphs.py) | status 为 failed 时响应中增加 error: session_data.get("error") |
-| 中 | conversation_history 类型标注与实现不符 | 后端 [action_types.py CopilotRequest](backend/app/core/copilot/action_types.py) | 改为 List[Dict[str, Any]]，description 注明仅使用 role/content |
-| 低 | UNKNOWN_ERROR 无专属前端文案 | 前端 use-copilot-websocket.ts | 错误码统一走 messageByCode 映射，新增 UNKNOWN_ERROR 文案 |
+### 2.1 事件类型与字段
 
-**架构原则**：流式事件以 backend 契约为准，前端按事件 type 分支、不依赖可选字段的真值；错误码与 session 响应与后端约定一致，便于扩展新 code 与字段。
+| 事件类型 | 后端 `_get_copilot_stream` 发出 | 前端 `handleCopilotEvent` 处理 | 持久化事件类型 |
+|----------|-------------------------------|-------------------------------|--------------|
+| `status` | `{ type, stage?, message }` | `onStatus(stage, message)` → 更新 stage 指示器 | `status` |
+| `content` | `{ type, content }` | `onContent(content)` → 追加流式内容 | `content_delta` |
+| `thought_step` | `{ type, step: { index, content } }` | `onThoughtStep(step)` → 追加思考步骤 | `thought_step` |
+| `tool_call` | `{ type, tool, input }` | `onToolCall(tool, input)` → 显示工具调用 | `tool_call` |
+| `tool_result` | `{ type, action: { type, payload, reasoning? } }` | `onToolResult(action)` → 显示工具结果 | `tool_result` |
+| `result` | `{ type, message, actions[] }` | `onResult({ message, actions })` → 最终结果和图操作 | `result` |
+| `error` | `{ type, message, code? }` | `onError(message)` → 显示错误 | `error` |
+| `done` | `{ type }` | `onDone()` → 清理状态 | `done` |
+
+### 2.2 事件持久化映射 (`_mirror_run_stream_event`)
+
+后端 `ChatWsHandler._mirror_run_stream_event` 将 WS 事件翻译为持久化 payload：
+
+- **`content`** → 存储为 `content_delta`，payload: `{ message_id, delta }`（`delta` 取自 `data.delta` 或 `data.content`）
+- **`status`** → 区分是否有 `stage`：有则 `{ stage, message }`，无则 `{ message, status }`
+- **`thought_step / tool_call / tool_result / result`** → 直接透传 `data` 作为 payload
+- **`error`** → `{ message, code }`
+- **`done`** → `{}`
+
+前端 `/ws/runs` 回放时通过 `runEventToChatEvent()` 反向映射 `content_delta` → `content`。
+
+### 2.3 Copilot Reducer（投影状态）
+
+`backend/app/services/run_reducers/copilot.py` 维护 run 投影：
+
+```python
+{
+    "version": 1,
+    "run_type": "copilot_turn",
+    "status": "queued | running | completed | failed",
+    "stage": "thinking | processing | analyzing | ...",
+    "content": "",           # 累积的流式内容
+    "thought_steps": [],     # 思考步骤列表
+    "tool_calls": [],        # 工具调用列表 { tool, input }
+    "tool_results": [],      # 工具结果/图操作列表
+    "result_message": None,  # 最终结果消息
+    "result_actions": [],    # 最终图操作列表
+    "error": None,
+    "graph_id": None,
+    "mode": None,            # "standard" | "deepagents"
+}
+```
 
 ---
 
-## 6. 已对齐或无需改动
+## 3. REST API 契约
 
-- 流式事件类型与字段（除 result 条件、error 的 code 覆盖）。
-- 创建任务请求/响应、WebSocket 路径与心跳。
-- 历史 API 的 messages 结构与 role 映射。
-- GraphAction 与 apply 双端逻辑（含契约测试）。
-- 错误码 CREDENTIAL_ERROR、AGENT_ERROR、REDIS_UNAVAILABLE 的前端处理与后端发送一致。
+### 3.1 创建 Run
+
+```
+POST /api/v1/runs
+Body: { agent_name: "copilot", graph_id: "<uuid>", message: "<user prompt>" }
+Response: { run_id: "<uuid>", status: "queued", ... }
+```
+
+### 3.2 获取历史
+
+```
+GET /api/v1/graphs/{graph_id}/copilot/history
+Response: { data: { graph_id, messages: [ { role, content, created_at, actions?, thought_steps?, tool_calls? } ] } }
+```
+
+历史从 `agent_runs` + `agent_run_snapshots` 表组装，按时间正序返回 user/assistant 消息对。
+
+### 3.3 清除历史
+
+```
+DELETE /api/v1/graphs/{graph_id}/copilot/history
+Response: { success: true }
+```
+
+硬删除该 graph 下所有 `agent_name="copilot"` 的 runs 及关联的 events/snapshots（级联删除）。
+
+---
+
+## 4. 取消机制（handleStop）
+
+```
+前端 useCopilotActions.handleStop()
+  → getChatWsClient().stopByRequestId(activeRequestId)   // 发送 chat.stop 帧
+  → 后端 ChatWsHandler 取消 asyncio task
+  → execute_copilot_turn 的 CancelledError 分支发出 done 事件
+  → _finalize_task 根据 StreamState.stopped 标记 run 为 completed
+```
+
+前端通过 `useRef<string>(activeRequestIdRef)` 跟踪当前请求 ID，在 `handleSendWithInput` 开始时设置，`finally` 块中清除。
+
+---
+
+## 5. GraphAction 与 Apply 逻辑
+
+- **类型**：后端 `GraphActionType` + `GraphAction`，前端 `GraphActionType` | `GraphAction`；payload 结构一致
+- **Apply**：后端 `action_applier.apply_actions_to_graph_state`，前端 `ActionProcessor.processActions`
+- **节点默认配置**：后端 `NODE_DEFAULT_CONFIGS` / `NODE_LABELS` 与前端 `nodeRegistry` 需人工同步
+
+---
+
+## 6. Stage 与 UI 状态
+
+- **后端**：`status` 事件的 `stage` 为字符串（如 `thinking`, `processing`, `analyzing`, `planning`, `validating`）
+- **前端**：`StageType = 'thinking' | 'processing' | 'generating' | 'analyzing' | 'planning' | 'validating'`
+- 若后端新增未在 `StageType` 中的 stage，前端会以 string 传入，当前已有的 stage 均在 `StageType` 内
+
+---
+
+## 7. 关键文件索引
+
+### 后端
+| 文件 | 职责 |
+|------|------|
+| `app/websocket/chat_protocol.py` | `ParsedCopilotExtension` 解析 |
+| `app/websocket/chat_commands.py` | `CopilotTurnCommand` 派发 |
+| `app/websocket/chat_turn_executor.py` | `execute_copilot_turn` 执行 |
+| `app/websocket/chat_ws_handler.py` | `_mirror_run_stream_event` 事件持久化 |
+| `app/services/run_reducers/copilot.py` | Copilot reducer 投影 |
+| `app/services/copilot_service.py` | `_get_copilot_stream` 流式生成、`execute_copilot_turn` 入口 |
+| `app/api/v1/graphs.py` | 历史 API（从 `agent_runs` 读取） |
+
+### 前端
+| 文件 | 职责 |
+|------|------|
+| `lib/ws/chat/types.ts` | `CopilotExtension` 类型定义 |
+| `lib/ws/chat/chatWsClient.ts` | `serializeExtension` copilot 分支 |
+| `hooks/copilot/useCopilotSession.ts` | `currentRunId` + localStorage 持久化 |
+| `app/workspace/.../hooks/useCopilotState.ts` | 统一状态管理 |
+| `app/workspace/.../hooks/useCopilotActions.ts` | `runService.createRun` + `sendChat` |
+| `app/workspace/.../hooks/useCopilotWebSocketHandler.ts` | `handleCopilotEvent` 事件桥接 |
+| `app/workspace/.../hooks/useCopilotEffects.ts` | Run snapshot 恢复 + `/ws/runs` 订阅 |
+
+### 测试
+| 文件 | 覆盖范围 |
+|------|---------|
+| `tests/test_services/test_copilot_run_reducer.py` | Reducer 单元测试 |
+| `tests/test_api/test_chat_protocol_copilot_extension.py` | 协议解析测试 |
+| `tests/test_api/test_chat_commands_copilot.py` | 命令派发测试 |
+| `tests/test_api/test_copilot_event_mirroring.py` | 事件镜像 + reducer 集成测试 |
+| `tests/test_api/test_copilot_history_from_runs.py` | 历史 API 单元测试 |

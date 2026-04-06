@@ -79,7 +79,7 @@
 
 **Reference:** `backend/app/services/run_reducers/chat.py` for pattern.
 
-- [ ] **Step 1: Write reducer tests**
+- [x] **Step 1: Write reducer tests**
 
 ```python
 """Tests for copilot run projection reducer."""
@@ -168,7 +168,7 @@ def test_copilot_reducer_done_preserves_failed():
     assert p["status"] == "failed"
 ```
 
-- [ ] **Step 2: Run tests — verify they fail**
+- [x] **Step 2: Run tests — verify they fail**
 
 ```bash
 cd backend && python -m pytest tests/test_services/test_copilot_run_reducer.py -v --no-header
@@ -176,7 +176,7 @@ cd backend && python -m pytest tests/test_services/test_copilot_run_reducer.py -
 
 Expected: `ModuleNotFoundError: No module named 'app.services.run_reducers.copilot'`
 
-- [ ] **Step 3: Write copilot reducer**
+- [x] **Step 3: Write copilot reducer**
 
 Create `backend/app/services/run_reducers/copilot.py`:
 
@@ -286,7 +286,7 @@ def apply_copilot_event(
     return next_p
 ```
 
-- [ ] **Step 4: Register in `__init__.py`**
+- [x] **Step 4: Register in `__init__.py`**
 
 Add to `backend/app/services/run_reducers/__init__.py`:
 
@@ -306,7 +306,7 @@ agent_registry.register(
 
 Add to `__all__`: `"apply_copilot_event"`, `"copilot_make_initial_projection"`.
 
-- [ ] **Step 5: Run tests — verify they pass**
+- [x] **Step 5: Run tests — verify they pass**
 
 ```bash
 cd backend && python -m pytest tests/test_services/test_copilot_run_reducer.py -v --no-header
@@ -314,7 +314,7 @@ cd backend && python -m pytest tests/test_services/test_copilot_run_reducer.py -
 
 Expected: 12 passed
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/app/services/run_reducers/copilot.py backend/app/services/run_reducers/__init__.py backend/tests/test_services/test_copilot_run_reducer.py
@@ -331,7 +331,7 @@ git commit -m "feat: add copilot reducer and agent registry entry"
 
 **Reference:** Existing `ParsedChatExtension` and `ParsedSkillCreatorExtension` in `chat_protocol.py`.
 
-- [ ] **Step 1: Write protocol tests**
+- [x] **Step 1: Write protocol tests**
 
 ```python
 """Tests for copilot extension parsing in chat protocol."""
@@ -412,7 +412,7 @@ def test_existing_extensions_still_work():
     assert result.extension.kind == "chat"
 ```
 
-- [ ] **Step 2: Run tests — verify they fail**
+- [x] **Step 2: Run tests — verify they fail**
 
 ```bash
 cd backend && python -m pytest tests/test_api/test_chat_protocol_copilot_extension.py -v --no-header
@@ -420,7 +420,7 @@ cd backend && python -m pytest tests/test_api/test_chat_protocol_copilot_extensi
 
 Expected: FAIL — `ParsedCopilotExtension` not found, `kind == "copilot"` raises `unsupported extension kind`
 
-- [ ] **Step 3: Add ParsedCopilotExtension to chat_protocol.py**
+- [x] **Step 3: Add ParsedCopilotExtension to chat_protocol.py**
 
 After `ParsedChatExtension`, add:
 
@@ -463,7 +463,7 @@ if kind == "copilot":
 
 Update `_parse_extension` return type annotation to include `ParsedCopilotExtension`.
 
-- [ ] **Step 4: Run tests — verify they pass**
+- [x] **Step 4: Run tests — verify they pass**
 
 ```bash
 cd backend && python -m pytest tests/test_api/test_chat_protocol_copilot_extension.py -v --no-header
@@ -471,7 +471,7 @@ cd backend && python -m pytest tests/test_api/test_chat_protocol_copilot_extensi
 
 Expected: 5 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/websocket/chat_protocol.py backend/tests/test_api/test_chat_protocol_copilot_extension.py
@@ -488,7 +488,7 @@ git commit -m "feat: add ParsedCopilotExtension to chat protocol"
 
 **Reference:** Existing `ChatRunTurnCommand` and `build_command_from_parsed_frame` in `chat_commands.py`.
 
-- [ ] **Step 1: Write command tests**
+- [x] **Step 1: Write command tests**
 
 ```python
 """Tests for copilot command dispatch."""
@@ -548,7 +548,7 @@ def test_chat_extension_still_chat_run():
     assert isinstance(cmd, ChatRunTurnCommand)
 ```
 
-- [ ] **Step 2: Run tests — verify they fail**
+- [x] **Step 2: Run tests — verify they fail**
 
 ```bash
 cd backend && python -m pytest tests/test_api/test_chat_commands_copilot.py -v --no-header
@@ -556,7 +556,7 @@ cd backend && python -m pytest tests/test_api/test_chat_commands_copilot.py -v -
 
 Expected: FAIL — `CopilotTurnCommand` not importable
 
-- [ ] **Step 3: Add CopilotTurnCommand to chat_commands.py**
+- [x] **Step 3: Add CopilotTurnCommand to chat_commands.py**
 
 Import `ParsedCopilotExtension` from `chat_protocol`:
 
@@ -600,7 +600,7 @@ if isinstance(extension, ParsedCopilotExtension):
     )
 ```
 
-- [ ] **Step 4: Run tests — verify they pass**
+- [x] **Step 4: Run tests — verify they pass**
 
 ```bash
 cd backend && python -m pytest tests/test_api/test_chat_commands_copilot.py -v --no-header
@@ -608,7 +608,7 @@ cd backend && python -m pytest tests/test_api/test_chat_commands_copilot.py -v -
 
 Expected: 3 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/websocket/chat_commands.py backend/tests/test_api/test_chat_commands_copilot.py
@@ -625,7 +625,7 @@ git commit -m "feat: add CopilotTurnCommand and dispatch branch"
 
 **Reference:** `execute_standard_turn` in `chat_turn_executor.py` for the event loop pattern. `CopilotService._get_copilot_stream` in `copilot_service.py:87-152` for the stream source. `_consume_stream_and_publish_to_redis` in `copilot_service.py:949-987` for the event collection logic.
 
-- [ ] **Step 1: Add CopilotTurnCommand to prepare_standard_turn**
+- [x] **Step 1: Add CopilotTurnCommand to prepare_standard_turn**
 
 In `chat_turn_executor.py`, import `CopilotTurnCommand`:
 
@@ -641,7 +641,7 @@ elif isinstance(command, CopilotTurnCommand):
     persist_on_disconnect = run_id is not None
 ```
 
-- [ ] **Step 2: Write execute_copilot_turn method**
+- [x] **Step 2: Write execute_copilot_turn method**
 
 Add new method to `ChatTurnExecutor`. This is the core migration — it replaces `generate_actions_async` + Redis Pub/Sub with direct `_emit_event` calls.
 
@@ -865,7 +865,7 @@ async def execute_copilot_turn(
 
 Note: Add required imports at the top: `from typing import Any` (if not present), ensure `asyncio`, `time`, `uuid_lib` are imported.
 
-- [ ] **Step 3: Route CopilotTurnCommand in run_standard_turn or handler**
+- [x] **Step 3: Route CopilotTurnCommand in run_standard_turn or handler**
 
 In `ChatTurnExecutor.run_standard_turn`, add a check:
 
@@ -895,7 +895,7 @@ if isinstance(command, CopilotTurnCommand):
 
 Import `CopilotTurnCommand` in `chat_ws_handler.py`.
 
-- [ ] **Step 4: Verify syntax**
+- [x] **Step 4: Verify syntax**
 
 ```bash
 cd backend && python -m py_compile app/websocket/chat_turn_executor.py && python -m py_compile app/websocket/chat_ws_handler.py && echo "OK"
@@ -903,7 +903,7 @@ cd backend && python -m py_compile app/websocket/chat_turn_executor.py && python
 
 Expected: OK
 
-- [ ] **Step 5: Run all existing tests to verify no regressions**
+- [x] **Step 5: Run all existing tests to verify no regressions**
 
 ```bash
 cd backend && python -m pytest tests/test_services/test_copilot_run_reducer.py tests/test_api/test_chat_protocol_copilot_extension.py tests/test_api/test_chat_commands_copilot.py -v --no-header
@@ -911,7 +911,7 @@ cd backend && python -m pytest tests/test_services/test_copilot_run_reducer.py t
 
 Expected: All pass (20+)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/app/websocket/chat_turn_executor.py backend/app/websocket/chat_ws_handler.py
@@ -926,7 +926,7 @@ git commit -m "feat: add execute_copilot_turn and WS handler routing"
 - Modify: `frontend/lib/ws/chat/types.ts`
 - Modify: `frontend/lib/ws/chat/chatWsClient.ts`
 
-- [ ] **Step 1: Add CopilotExtension interface**
+- [x] **Step 1: Add CopilotExtension interface**
 
 In `frontend/lib/ws/chat/types.ts`, add after the `ChatExtension` interface:
 
@@ -946,7 +946,7 @@ Widen the `ChatSendParams.extension` type:
 extension?: SkillCreatorExtension | ChatExtension | CopilotExtension | null
 ```
 
-- [ ] **Step 2: Add copilot branch in serializeExtension**
+- [x] **Step 2: Add copilot branch in serializeExtension**
 
 In `frontend/lib/ws/chat/chatWsClient.ts`, import `CopilotExtension`:
 
@@ -985,7 +985,7 @@ Add copilot branch after the `chat` branch:
   }
 ```
 
-- [ ] **Step 3: Verify TypeScript compilation**
+- [x] **Step 3: Verify TypeScript compilation**
 
 ```bash
 cd frontend && npx tsc --noEmit --pretty 2>&1 | head -30
@@ -993,7 +993,7 @@ cd frontend && npx tsc --noEmit --pretty 2>&1 | head -30
 
 Expected: No errors related to types.ts or chatWsClient.ts
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add frontend/lib/ws/chat/types.ts frontend/lib/ws/chat/chatWsClient.ts
@@ -1015,7 +1015,7 @@ git commit -m "feat: add CopilotExtension type and WS serialization"
 
 #### 6a: Migrate useCopilotSession (session_id → run_id)
 
-- [ ] **Step 1: Rename session to run in useCopilotSession**
+- [x] **Step 1: Rename session to run in useCopilotSession**
 
 Replace `useCopilotSession` to use `run_id` instead of `session_id`. The localStorage key changes from `copilot_session_{graphId}` to `copilot_run_{graphId}`:
 
@@ -1071,7 +1071,7 @@ In `frontend/app/workspace/[workspaceId]/[agentId]/hooks/useCopilotState.ts`:
 
 The property rename is `currentSessionId` → `currentRunId` throughout.
 
-- [ ] **Step 2: Verify compilation**
+- [x] **Step 2: Verify compilation**
 
 ```bash
 cd frontend && npx tsc --noEmit --pretty 2>&1 | grep -i "copilotSession\|currentSessionId\|copilot_session" | head -20
@@ -1079,7 +1079,7 @@ cd frontend && npx tsc --noEmit --pretty 2>&1 | grep -i "copilotSession\|current
 
 Fix any remaining references to `currentSessionId` in files that consume the hook.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add frontend/hooks/copilot/useCopilotSession.ts
@@ -1088,7 +1088,7 @@ git commit -m "refactor: rename copilot session_id to run_id in useCopilotSessio
 
 #### 6b: Migrate useCopilotActions (createCopilotTask → runService + sendChat)
 
-- [ ] **Step 4: Rewrite handleSendWithInput**
+- [x] **Step 4: Rewrite handleSendWithInput**
 
 In `useCopilotActions.ts`, replace `copilotService.createCopilotTask` with `runService.createRun` + `getChatWsClient().sendChat`. The key changes:
 
@@ -1245,13 +1245,13 @@ const handleStop = useCallback(() => {
 }, [actions, refs, t])
 ```
 
-- [ ] **Step 5: Verify compilation**
+- [x] **Step 5: Verify compilation**
 
 ```bash
 cd frontend && npx tsc --noEmit --pretty 2>&1 | grep -i "copilotActions\|useCopilotActions" | head -20
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/app/workspace/*/[agentId]/hooks/useCopilotActions.ts
@@ -1260,7 +1260,7 @@ git commit -m "feat: migrate useCopilotActions to Run Center + chat WS"
 
 #### 6c: Migrate useCopilotWebSocketHandler (receive from chat WS onEvent)
 
-- [ ] **Step 7: Wire copilot callbacks to chat WS events**
+- [x] **Step 7: Wire copilot callbacks to chat WS events**
 
 The `useCopilotWebSocketHandler` currently defines callbacks (`onStatus`, `onContent`, etc.) that are consumed by `use-copilot-websocket.ts`. After migration, these same callbacks are invoked by `handleCopilotEvent` which receives `ChatStreamEvent` from the chat WS `onEvent`.
 
@@ -1314,13 +1314,13 @@ const handleCopilotEvent = useCallback(
 return { ...callbacks, handleCopilotEvent }
 ```
 
-- [ ] **Step 8: Verify compilation**
+- [x] **Step 8: Verify compilation**
 
 ```bash
 cd frontend && npx tsc --noEmit --pretty 2>&1 | grep -i "WebSocketHandler" | head -20
 ```
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add frontend/app/workspace/*/[agentId]/hooks/useCopilotWebSocketHandler.ts
@@ -1329,7 +1329,7 @@ git commit -m "feat: add handleCopilotEvent bridge in useCopilotWebSocketHandler
 
 #### 6d: Migrate useCopilotEffects (session recovery → run snapshot)
 
-- [ ] **Step 10: Replace session recovery with run snapshot**
+- [x] **Step 10: Replace session recovery with run snapshot**
 
 In `useCopilotEffects.ts`, replace `copilotService.getSession(sessionId)` with `runService.getRunSnapshot(runId)`:
 
@@ -1413,13 +1413,13 @@ useEffect(() => {
 
 Note: The `state.currentSessionId` reference must be updated to `state.currentRunId` — this depends on the `useCopilotState` type also being updated from step 1.
 
-- [ ] **Step 11: Verify compilation**
+- [x] **Step 11: Verify compilation**
 
 ```bash
 cd frontend && npx tsc --noEmit --pretty 2>&1 | grep -i "copilotEffects\|useCopilotEffects" | head -20
 ```
 
-- [ ] **Step 12: Commit**
+- [x] **Step 12: Commit**
 
 ```bash
 git add frontend/app/workspace/*/[agentId]/hooks/useCopilotEffects.ts
@@ -1437,7 +1437,7 @@ git commit -m "feat: migrate copilot session recovery to run snapshot"
 
 **Reference:** Design spec section 5 (History API Rewrite). Existing `agent_run.py:93-113` for `list_recent_runs_for_user`. The response format must match existing `CopilotHistoryResponse` so frontend `useCopilotHistory` is unchanged.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_api/test_copilot_history_from_runs.py`:
 
@@ -1539,7 +1539,7 @@ def test_build_history_skips_runs_without_snapshot():
     assert len(messages) == 0
 ```
 
-- [ ] **Step 2: Run tests to verify they pass (unit logic)**
+- [x] **Step 2: Run tests to verify they pass (unit logic)**
 
 ```bash
 cd backend && python -m pytest tests/test_api/test_copilot_history_from_runs.py -v --no-header
@@ -1547,7 +1547,7 @@ cd backend && python -m pytest tests/test_api/test_copilot_history_from_runs.py 
 
 Expected: 3 passed
 
-- [ ] **Step 3: Add graph_id filter to list_recent_runs_for_user**
+- [x] **Step 3: Add graph_id filter to list_recent_runs_for_user**
 
 In `backend/app/repositories/agent_run.py`, add `graph_id` parameter to `list_recent_runs_for_user`:
 
@@ -1578,7 +1578,7 @@ async def list_recent_runs_for_user(
     return result.scalars().all()
 ```
 
-- [ ] **Step 4: Add delete_runs_for_graph method**
+- [x] **Step 4: Add delete_runs_for_graph method**
 
 In `backend/app/repositories/agent_run.py`, add a bulk delete method:
 
@@ -1604,7 +1604,7 @@ async def delete_runs_for_graph(
     return result.rowcount
 ```
 
-- [ ] **Step 5: Rewrite GET copilot/history endpoint**
+- [x] **Step 5: Rewrite GET copilot/history endpoint**
 
 In `backend/app/api/v1/graphs.py`, replace the `get_copilot_history` function body. The imports needed:
 
@@ -1663,7 +1663,7 @@ async def get_copilot_history(
     return {"data": {"graph_id": str(graph_id), "messages": messages}}
 ```
 
-- [ ] **Step 6: Rewrite DELETE copilot/history endpoint**
+- [x] **Step 6: Rewrite DELETE copilot/history endpoint**
 
 ```python
 @router.delete("/{graph_id}/copilot/history")
@@ -1693,7 +1693,7 @@ async def clear_copilot_history(
     return {"success": True}
 ```
 
-- [ ] **Step 7: Verify syntax**
+- [x] **Step 7: Verify syntax**
 
 ```bash
 cd backend && python -m py_compile app/api/v1/graphs.py && python -m py_compile app/repositories/agent_run.py && echo "OK"
@@ -1701,7 +1701,7 @@ cd backend && python -m py_compile app/api/v1/graphs.py && python -m py_compile 
 
 Expected: OK
 
-- [ ] **Step 8: Run tests**
+- [x] **Step 8: Run tests**
 
 ```bash
 cd backend && python -m pytest tests/test_api/test_copilot_history_from_runs.py -v --no-header
@@ -1709,7 +1709,7 @@ cd backend && python -m pytest tests/test_api/test_copilot_history_from_runs.py 
 
 Expected: 3 passed
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add backend/app/api/v1/graphs.py backend/app/repositories/agent_run.py backend/tests/test_api/test_copilot_history_from_runs.py
@@ -1726,7 +1726,7 @@ git commit -m "feat: rewrite copilot history API to use agent_runs"
 
 **Reference:** Design spec section 6 (Run Center Visibility). Existing `buildRunHref` in `runHelpers.ts:53-61` and `ChatTurnOverview` in `page.tsx`.
 
-- [ ] **Step 1: Add copilot_turn case to buildRunHref**
+- [x] **Step 1: Add copilot_turn case to buildRunHref**
 
 In `frontend/lib/utils/runHelpers.ts`, add a copilot branch before the fallback `return '#'`:
 
@@ -1745,7 +1745,7 @@ export function buildRunHref(run: { run_id: string; run_type?: string; agent_nam
 }
 ```
 
-- [ ] **Step 2: Add CopilotTurnOverview component**
+- [x] **Step 2: Add CopilotTurnOverview component**
 
 In `frontend/app/runs/[runId]/page.tsx`, add a `CopilotTurnOverview` component. This follows the same pattern as the existing `ChatTurnOverview`.
 
@@ -1876,7 +1876,7 @@ Then in the `RunDetailPage` component, add a `copilot_turn` branch alongside the
 )}
 ```
 
-- [ ] **Step 3: Verify TypeScript compilation**
+- [x] **Step 3: Verify TypeScript compilation**
 
 ```bash
 cd frontend && npx tsc --noEmit --pretty 2>&1 | head -30
@@ -1884,7 +1884,7 @@ cd frontend && npx tsc --noEmit --pretty 2>&1 | head -30
 
 Expected: No errors
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add frontend/lib/utils/runHelpers.ts frontend/app/runs/[runId]/page.tsx
@@ -1906,13 +1906,13 @@ git commit -m "feat: add copilot_turn visibility in Run Center"
 
 **Reference:** Design spec section 7 (Deleted Code).
 
-- [ ] **Step 1: Delete copilot_handler.py**
+- [x] **Step 1: Delete copilot_handler.py**
 
 ```bash
 rm backend/app/websocket/copilot_handler.py
 ```
 
-- [ ] **Step 2: Remove WS route from main.py**
+- [x] **Step 2: Remove WS route from main.py**
 
 In `backend/app/main.py`, remove the import:
 
@@ -1928,7 +1928,7 @@ async def copilot_websocket_endpoint(websocket: WebSocket, session_id: str):
     ...
 ```
 
-- [ ] **Step 3: Remove copilot Redis methods from redis.py**
+- [x] **Step 3: Remove copilot Redis methods from redis.py**
 
 In `backend/app/core/redis.py`, delete the entire `# ==================== Copilot Session Methods ====================` block (lines 176-294 approximately). This removes:
 - `append_copilot_content`
@@ -1943,7 +1943,7 @@ In `backend/app/core/redis.py`, delete the entire `# ==================== Copilo
 - `get_copilot_session`
 - `cleanup_copilot_session`
 
-- [ ] **Step 4: Remove old API endpoints from graphs.py**
+- [x] **Step 4: Remove old API endpoints from graphs.py**
 
 In `backend/app/api/v1/graphs.py`, delete these three endpoints entirely:
 - `POST /copilot/actions/create` (the `create_copilot_task` function)
@@ -1955,7 +1955,7 @@ Keep `GET /{graph_id}/copilot/history` and `DELETE /{graph_id}/copilot/history` 
 
 Also remove now-unused imports: `BackgroundTasks`, `RedisClient` (if only used by copilot), `CopilotSessionStatus`, `CopilotRequest` etc. Check each import's usage before removing.
 
-- [ ] **Step 5: Remove Redis/persist methods from copilot_service.py**
+- [x] **Step 5: Remove Redis/persist methods from copilot_service.py**
 
 In `backend/app/services/copilot_service.py`, delete these methods:
 - `generate_actions_async` (~160 lines)
@@ -1968,7 +1968,7 @@ In `backend/app/services/copilot_service.py`, delete these methods:
 
 Also remove imports used only by deleted methods: `RedisClient`, `CopilotSessionStatus`, `CopilotChatRepository`, etc.
 
-- [ ] **Step 6: Delete frontend use-copilot-websocket.ts**
+- [x] **Step 6: Delete frontend use-copilot-websocket.ts**
 
 ```bash
 rm frontend/hooks/use-copilot-websocket.ts
@@ -1980,7 +1980,7 @@ Check for any remaining imports of `useCopilotWebSocket` or `use-copilot-websock
 cd frontend && grep -r "use-copilot-websocket\|useCopilotWebSocket" --include="*.ts" --include="*.tsx" -l
 ```
 
-- [ ] **Step 7: Remove createCopilotTask and getSession from copilotService.ts**
+- [x] **Step 7: Remove createCopilotTask and getSession from copilotService.ts**
 
 In `frontend/services/copilotService.ts`, delete:
 - `createCopilotTask` method
@@ -1990,7 +1990,7 @@ Keep `clearHistory` and `convertConversationHistory` — they are still used.
 
 Remove now-unused imports (e.g., `apiGet` if only used by `getSession`).
 
-- [ ] **Step 8: Verify syntax — backend**
+- [x] **Step 8: Verify syntax — backend**
 
 ```bash
 cd backend && python -m py_compile app/main.py && python -m py_compile app/core/redis.py && python -m py_compile app/api/v1/graphs.py && python -m py_compile app/services/copilot_service.py && echo "OK"
@@ -1998,7 +1998,7 @@ cd backend && python -m py_compile app/main.py && python -m py_compile app/core/
 
 Expected: OK
 
-- [ ] **Step 9: Verify TypeScript — frontend**
+- [x] **Step 9: Verify TypeScript — frontend**
 
 ```bash
 cd frontend && npx tsc --noEmit --pretty 2>&1 | head -30
@@ -2006,7 +2006,7 @@ cd frontend && npx tsc --noEmit --pretty 2>&1 | head -30
 
 Expected: No errors
 
-- [ ] **Step 10: Run all copilot tests**
+- [x] **Step 10: Run all copilot tests**
 
 ```bash
 cd backend && python -m pytest tests/ -k "copilot" -v --no-header
@@ -2014,7 +2014,7 @@ cd backend && python -m pytest tests/ -k "copilot" -v --no-header
 
 Expected: All pass (some old tests may need to be deleted — see step 11)
 
-- [ ] **Step 11: Delete tests for removed code**
+- [x] **Step 11: Delete tests for removed code**
 
 Delete any test files that test removed functionality (copilot_handler tests, Redis copilot method tests, copilot_chat_repository tests). Grep for test files:
 
@@ -2025,7 +2025,7 @@ find backend/tests -name "*copilot*" -type f
 Keep: `test_copilot_run_reducer.py`, `test_chat_protocol_copilot_extension.py`, `test_chat_commands_copilot.py`, `test_copilot_history_from_runs.py`.
 Delete any others that test removed Redis/WS/session code.
 
-- [ ] **Step 12: Commit**
+- [x] **Step 12: Commit**
 
 ```bash
 git add -A
@@ -2043,11 +2043,11 @@ git commit -m "chore: delete old copilot infrastructure (Redis, WS handler, copi
 
 **Reference:** Design spec section 7 (Deleted Code). Existing migration `20260405_000000_drop_graph_test_cases.py` for pattern.
 
-- [ ] **Step 1: Delete CopilotChat model from chat.py**
+- [x] **Step 1: Delete CopilotChat model from chat.py**
 
 In `backend/app/models/chat.py`, remove the `CopilotChat` class definition (starting at line 50). Keep other models in the file.
 
-- [ ] **Step 2: Delete copilot_chat_repository.py**
+- [x] **Step 2: Delete copilot_chat_repository.py**
 
 ```bash
 rm backend/app/repositories/copilot_chat_repository.py
@@ -2061,7 +2061,7 @@ cd backend && grep -r "CopilotChatRepository\|copilot_chat_repository" --include
 
 Remove all found references.
 
-- [ ] **Step 3: Create Alembic migration**
+- [x] **Step 3: Create Alembic migration**
 
 Create `backend/alembic/versions/20260406_000000_drop_copilot_chats_table.py`:
 
@@ -2115,7 +2115,7 @@ def downgrade() -> None:
 
 **Important:** Before committing, run `alembic heads` to get the correct `down_revision` value and update it. Also verify the `copilot_chats` table columns match what's in the model — adjust the `downgrade` schema if needed.
 
-- [ ] **Step 4: Generate correct revision chain**
+- [x] **Step 4: Generate correct revision chain**
 
 ```bash
 cd backend && alembic heads
@@ -2129,7 +2129,7 @@ cd backend && alembic revision --autogenerate -m "drop_copilot_chats_table" --re
 
 If auto-generate works, use the generated file instead.
 
-- [ ] **Step 5: Verify migration syntax**
+- [x] **Step 5: Verify migration syntax**
 
 ```bash
 cd backend && python -m py_compile alembic/versions/20260406_000000_drop_copilot_chats_table.py && echo "OK"
@@ -2137,7 +2137,7 @@ cd backend && python -m py_compile alembic/versions/20260406_000000_drop_copilot
 
 Expected: OK
 
-- [ ] **Step 6: Verify the full model compiles**
+- [x] **Step 6: Verify the full model compiles**
 
 ```bash
 cd backend && python -m py_compile app/models/chat.py && echo "OK"
@@ -2145,7 +2145,7 @@ cd backend && python -m py_compile app/models/chat.py && echo "OK"
 
 Expected: OK
 
-- [ ] **Step 7: Run all tests**
+- [x] **Step 7: Run all tests**
 
 ```bash
 cd backend && python -m pytest tests/ -k "copilot" -v --no-header
@@ -2153,7 +2153,7 @@ cd backend && python -m pytest tests/ -k "copilot" -v --no-header
 
 Expected: All new tests pass, no old tests fail (they should have been deleted in Task 9)
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add -A

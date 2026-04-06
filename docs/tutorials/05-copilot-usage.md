@@ -13,23 +13,40 @@
 
 ---
 
-## 1. 核心架构与实现原理（“Under the Hood”）
+## 1. 核心架构与实现原理（”Under the Hood”）
 
-为了兼顾“快速简单修改”与“复杂架构生成”，后端的 Copilot 被设计为了**双引擎模式（Dual-Mode Engine）**：
+Copilot 已全面迁移至 **Run Center 模型**，与 Chat 和 Skill Creator 共享同一 WebSocket 通信层。
 
-### 1.1 标准模式（Standard Mode - WebSocket）
-- **触发条件**：UI 点击“应用建议”并在画板上发起小范围针对性修改。
-- **通信方式**：通过 WebSocket (`copilot_handler.py`) 全双工双向通信，采用后台任务并发处理。
-- **特点**：速度快，专注于上下文更新。LLM 会直接在当前图的基础上，下发单一工具调用（如只修改某一个 node 的 `systemPrompt`），然后通过前端 `ActionApplier` 将补丁无缝还原到此时的 ReactFlow 画布上。
+### 1.1 通信架构（Shared Chat WS + Run Center）
 
-### 1.2 高级模式（DeepAgents Mode - SSE 流式编排）
-当检测到需要”从初创生成一个完整工作流”、或”明确构建多智能体团队”时，就会触发这条更重、更专业的链路。系统通过 `/v1/graphs/copilot/actions/create` 创建异步会话，并以 session-based 模式（`/v1/graphs/copilot/sessions/{session_id}`）推送实时状态。
+所有 Copilot 交互都通过 **`/ws/chat` 共享 WebSocket** 进行：
 
-此模式完全基于 **LangChain DeepAgents (多智能体树形编排)** 实现深度思考：
-1. **需求分析师（requirements-analyst）**：首先拦截用户的 Prompt 和画布现状，分析这是 `create` 还是 `update` 模式？复杂度几何？是否需要多代理？此步骤会将结果格式化并“落盘”写入沙盒的 `/analysis.json`。
-2. **架构设计师（workflow-architect）**：接手分析报告，负责勾勒节点/边结构，更重要的是为每个独立 Agent 节点编写详细到极致的 `systemPrompt`。设计手稿存入 `/blueprint.json`。
-3. **质检员循环（Validator & Reflexion Loop）**：在发送给前端之前，质检 Agent 会读取蓝图，并按照极严苛的规则进行“健康检查”（例如系统提示词长度是否 < 100 字符、是否存在无头节点/孤立节点等）。**如果发现异常，它会自动打回给“架构设计师”返工修复，最大支持 3 次内循环重试（Reflexion Pattern）**。最终输出 `/validation.json`。
-4. **渲染指令下发**：只有全部校验通过的完善 JSON，才会最终被 Manager 转化为标准的 `GraphAction` 指令流经由 SSE（Server-Sent Events）推送给浏览器端，触发大规模重绘。此外，系统还会自动应用 `apply_auto_layout` 算法（节点间距计算 x=300, y=150），确保复杂图景依然整洁。
+1. **创建 Run**：前端调用 `runService.createRun({ agent_name: “copilot”, graph_id, message })` 在 Run Center 注册本次任务。
+2. **发送消息**：通过 `getChatWsClient().sendChat()` 发送 `chat.start` 帧，携带 `extension: { kind: “copilot”, runId, graphContext, conversationHistory, mode }`。
+3. **后端执行**：`ChatWsHandler` 解析协议后路由到 `execute_copilot_turn()`，消费 `CopilotService._get_copilot_stream()` 产生的事件流。
+4. **事件持久化**：每个事件通过 `_emit_event()` 同时推送到 WS 客户端，并通过 `_mirror_run_stream_event()` 持久化到 `agent_run_events` 表。
+5. **状态投影**：`run_reducers/copilot.py` 维护实时投影（stage、content、thought_steps、tool_calls 等），存储于 `agent_run_snapshots`。
+
+### 1.2 标准模式 vs DeepAgents 模式
+
+为了兼顾”快速简单修改”与”复杂架构生成”，后端的 Copilot 被设计为**双引擎模式（Dual-Mode Engine）**：
+
+**标准模式（Standard Mode）**
+- **触发条件**：小范围针对性修改（如修改单个节点配置）。
+- **特点**：速度快，LLM 直接在当前图基础上下发单一工具调用（如只修改某一个 node 的 `systemPrompt`），然后通过前端 `ActionProcessor` 应用到 ReactFlow 画布上。
+
+**DeepAgents 高级模式**
+当检测到需要”从零生成完整工作流”或”构建多智能体团队”时，触发深度编排链路：
+1. **需求分析师（requirements-analyst）**：分析 Prompt 和画布现状，判断是 `create` 还是 `update` 模式，输出 `/analysis.json`。
+2. **架构设计师（workflow-architect）**：勾勒节点/边结构，为每个 Agent 编写详细的 `systemPrompt`，输出 `/blueprint.json`。
+3. **质检员循环（Validator & Reflexion Loop）**：严格校验蓝图（prompt 长度、无头节点、孤立节点等），不合格自动打回修复，最大 3 次重试。
+4. **渲染指令下发**：校验通过的 JSON 转化为 `GraphAction` 指令流通过 WS 事件推送给浏览器，触发画布重绘。系统自动应用 `apply_auto_layout` 算法确保布局整洁。
+
+### 1.3 页面刷新恢复
+
+得益于 Run Center 持久化，Copilot 支持页面刷新后无缝恢复：
+- 前端检测到未完成的 `currentRunId` 后，先获取 `runService.getRunSnapshot()` 恢复最新状态。
+- 若 run 仍在执行中，通过 `/ws/runs` 订阅后续实时事件。
 
 ---
 

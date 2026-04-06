@@ -21,6 +21,7 @@ flowchart TB
         subgraph API["API Layer (FastAPI)"]
             direction TB
             REST["REST APIs<br/>Auth/Graphs/Chat/Skills"]
+            WS["WebSocket<br/>Chat/Copilot/Runs"]
             SSE["SSE Stream<br/>Real-time Events"]
             CodeAPI["Code API<br/>Save/Run"]
         end
@@ -70,9 +71,10 @@ flowchart TB
     CodeEditor --> CodeAPI
     Trace --> SSE
     Workspace --> REST
-    Copilot --> REST
+    Copilot --> WS
 
     REST --> Services
+    WS --> Services
     SSE --> Services
     CodeAPI --> Services
 
@@ -299,18 +301,21 @@ sequenceDiagram
 
 **Frontend ↔ Backend:**
 - **REST API**: Graph configuration, skill management, tool management, workspace operations
+- **WebSocket (`/ws/chat`)**: Shared chat protocol for Chat, Copilot, and Skill Creator turns; Copilot sends `extension: { kind: "copilot" }` through the same WS
+- **WebSocket (`/ws/runs`)**: Real-time run observation — event replay and status updates for active agent runs
 - **Code API**: Save and run user LangGraph code
 - **SSE Stream**: Real-time execution status, streaming output, node execution events
 
 **Backend Internal:**
 - **Code Mode**: `code_executor.execute_code()` → `StateGraph.compile()` → `ainvoke()`
 - **Canvas Mode**: `build_deep_agents_graph()` → `create_deep_agent()` → `compile()` → `ainvoke()`
+- **Copilot Turn**: `execute_copilot_turn()` → `CopilotService._get_copilot_stream()` → events persisted to `agent_run_events` via Run Center
 - **LangGraph Runtime → MCP Servers → Tools**: Tool invocation and execution
 - **Middleware → Agent → Model**: Request processing pipeline
 
 **Backend ↔ Data Layer:**
-- **PostgreSQL**: Graph configurations, skills, memories, sessions, workspaces
-- **Redis**: Cache, rate limiting, session state, temporary data
+- **PostgreSQL**: Graph configurations, skills, memories, sessions, workspaces, agent runs/events/snapshots (Run Center)
+- **Redis**: Cache, rate limiting, temporary data
 
 ### Backend File Structure (Graph Module)
 
