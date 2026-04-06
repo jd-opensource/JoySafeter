@@ -50,12 +50,20 @@ export interface ChatExtension {
   runId?: string | null
 }
 
+export interface CopilotExtension {
+  kind: 'copilot'
+  runId?: string | null
+  graphContext: Record<string, unknown>
+  conversationHistory: Array<Record<string, unknown>>
+  mode: string
+}
+
 export interface ChatSendParams {
   requestId?: string
   threadId?: string | null
   graphId?: string | null
   input: ChatSendInput
-  extension?: SkillCreatorExtension | ChatExtension | null
+  extension?: SkillCreatorExtension | ChatExtension | CopilotExtension | null
   metadata?: Record<string, unknown>
   onEvent?: (evt: ChatStreamEvent) => void
   onAccepted?: (evt: IncomingChatAcceptedEvent) => void

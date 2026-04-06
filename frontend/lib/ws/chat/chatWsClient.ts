@@ -13,6 +13,7 @@ import type {
   ChatTerminalResult,
   ChatWsClient,
   ConnectionState,
+  CopilotExtension,
   IncomingChatAcceptedEvent,
   IncomingChatWsEvent,
   SkillCreatorExtension,
@@ -406,7 +407,7 @@ function serializeInput(input: ChatSendParams['input']): Record<string, unknown>
   return result
 }
 
-function serializeExtension(extension?: SkillCreatorExtension | ChatExtension | null): Record<string, unknown> | null {
+function serializeExtension(extension?: SkillCreatorExtension | ChatExtension | CopilotExtension | null): Record<string, unknown> | null {
   if (!extension) {
     return null
   }
@@ -423,6 +424,16 @@ function serializeExtension(extension?: SkillCreatorExtension | ChatExtension | 
     return {
       kind: extension.kind,
       run_id: extension.runId ?? null,
+    }
+  }
+
+  if (extension.kind === 'copilot') {
+    return {
+      kind: extension.kind,
+      run_id: extension.runId ?? null,
+      graph_context: extension.graphContext,
+      conversation_history: extension.conversationHistory,
+      mode: extension.mode,
     }
   }
 
