@@ -2,6 +2,7 @@
  * useCopilotActions - Business logic hook for Copilot actions
  *
  * Handles all user interactions: send, stop, reset, AI decision, etc.
+ * Uses Run Center (runService.createRun) + shared chat WS (getChatWsClient) for execution.
  */
 
 import { useQueryClient } from '@tanstack/react-query'
@@ -10,7 +11,11 @@ import { useCallback } from 'react'
 
 import { graphKeys } from '@/hooks/queries/graphs'
 import { useTranslation } from '@/lib/i18n'
+import { getChatWsClient } from '@/lib/ws/chat/chatWsClient'
+import type { CopilotExtension } from '@/lib/ws/chat/types'
+import type { ChatStreamEvent } from '@/services/chatBackend'
 import { copilotService } from '@/services/copilotService'
+import { runService } from '@/services/runService'
 
 import { useBuilderStore } from '../stores/builderStore'
 
@@ -25,6 +30,7 @@ interface UseCopilotActionsOptions {
   graphId?: string
   copilotMode?: CopilotMode
   selectedModel?: string
+  onCopilotEvent?: (evt: ChatStreamEvent) => void
 }
 
 export function useCopilotActions({
@@ -34,6 +40,7 @@ export function useCopilotActions({
   graphId,
   copilotMode = 'deepagents',
   selectedModel,
+  onCopilotEvent,
 }: UseCopilotActionsOptions) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -73,27 +80,51 @@ export function useCopilotActions({
         // Convert conversation history to OpenAI format
         const historyMessages = copilotService.convertConversationHistory(state.messages)
 
-        // Create Copilot session
-        const sessionResult = await copilotService.createCopilotTask({
-          userPrompt: userText,
-          graphContext,
-          conversationHistory: historyMessages,
-          graphId: graphId || null,
-          mode: copilotMode,
-          model: selectedModel,
-        })
+        // 1. Create run via Run Center
+        let runId: string | null = null
+        try {
+          const runResponse = await runService.createRun({
+            agent_name: 'copilot',
+            graph_id: graphId || storeGraphId,
+            message: userText,
+          })
+          runId = runResponse.run_id
+        } catch (err) {
+          console.warn('[Copilot] Failed to create run, proceeding without persistence', err)
+        }
 
         // Check if component is still mounted
         if (!refs.isMountedRef.current) return
 
-        const sessionId = sessionResult.session_id
-        actions.setSession(sessionId)
+        // Save run_id
+        if (runId) {
+          actions.setSession(runId)
+        }
 
         // Show initial loading state
         actions.setCurrentStage({ stage: 'thinking', message: 'Connecting...' })
         actions.setThinkingMessage()
+
+        // 2. Send via shared chat WS
+        const extension: CopilotExtension = {
+          kind: 'copilot',
+          runId,
+          graphContext,
+          conversationHistory: historyMessages as unknown as Array<Record<string, unknown>>,
+          mode: copilotMode || 'deepagents',
+        }
+
+        await getChatWsClient().sendChat({
+          input: {
+            message: userText,
+            model: selectedModel,
+          },
+          graphId: graphId || storeGraphId,
+          extension,
+          onEvent: (evt) => onCopilotEvent?.(evt),
+        })
       } catch (e: unknown) {
-        console.error('[CopilotPanel] Failed to create Copilot session:', e)
+        console.error('[CopilotPanel] Failed to send copilot message:', e)
 
         if (!refs.isMountedRef.current) return
 
@@ -105,11 +136,7 @@ export function useCopilotActions({
 
         if (e && typeof e === 'object') {
           const error = e as { response?: { status?: number }; message?: string }
-          if (error.response?.status === 503) {
-            errorMessage = t('workspace.copilot.error.redis', {
-              defaultValue: 'Service temporarily unavailable. Please try again later.',
-            })
-          } else if (error.response?.status === 401 || error.response?.status === 403) {
+          if (error.response?.status === 401 || error.response?.status === 403) {
             errorMessage = t('workspace.copilot.error.auth', {
               defaultValue: 'Authentication error. Please check your credentials.',
             })
@@ -125,7 +152,7 @@ export function useCopilotActions({
         actions.clearSession()
       }
     },
-    [state.loading, state.messages, actions, refs, graphId, copilotMode, getGraphContext, t],
+    [state.loading, state.messages, actions, refs, graphId, copilotMode, selectedModel, getGraphContext, t, onCopilotEvent],
   )
 
   const handleSend = useCallback(async () => {
