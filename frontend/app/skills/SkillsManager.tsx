@@ -74,7 +74,7 @@ import {
   parseSkillMd,
 } from '@/services/skillService'
 import { SkillFile } from '@/types'
-import { getSkillValidationMessage } from '@/utils/skillValidationI18n'
+import { getSkillValidationMessage } from '@/lib/utils/skillValidationI18n'
 
 // Import extracted components and hooks
 import { CollaboratorsTab } from './components/CollaboratorsTab'

@@ -9,7 +9,7 @@
 import type { Node, Edge } from 'reactflow'
 
 import type { StateField } from '@/app/workspace/[workspaceId]/[agentId]/types/graph'
-import { computeGraphStateHash } from '@/utils/graphStateHash'
+import { computeGraphStateHash } from '@/lib/utils/graphStateHash'
 
 import { agentService } from '../services/agentService'
 

@@ -8,7 +8,7 @@ import {
   convertFilesToSkillFiles,
   ValidationResult,
 } from '@/services/skillService'
-import { getSkillValidationMessage } from '@/utils/skillValidationI18n'
+import { getSkillValidationMessage } from '@/lib/utils/skillValidationI18n'
 
 /**
  * Hook for managing skill import functionality

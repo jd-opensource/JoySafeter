@@ -36,7 +36,7 @@ import { create } from 'zustand'
 import { i18n } from '@/lib/i18n'
 import { generateUUID } from '@/lib/utils/uuid'
 import { useSidebarStore } from '@/stores/sidebar/store'
-import { computeGraphStateHash } from '@/utils/graphStateHash'
+import { computeGraphStateHash } from '@/lib/utils/graphStateHash'
 
 import { agentService } from '../services/agentService'
 import { nodeRegistry } from '../services/nodeRegistry'

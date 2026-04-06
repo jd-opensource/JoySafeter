@@ -20,7 +20,7 @@ import {
   MAX_SKILL_NAME_LENGTH,
   MAX_SKILL_DESCRIPTION_LENGTH,
   MAX_COMPATIBILITY_LENGTH,
-} from '@/utils/skillValidators'
+} from '@/lib/utils/skillValidators'
 
 import { SkillFormData } from '../schemas/skillFormSchema'
 

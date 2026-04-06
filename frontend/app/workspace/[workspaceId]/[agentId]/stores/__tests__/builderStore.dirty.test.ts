@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useBuilderStore } from '../builderStore'
-import { computeGraphStateHash } from '@/utils/graphStateHash'
+import { computeGraphStateHash } from '@/lib/utils/graphStateHash'
 
 // SaveManager makes real API calls — mock the whole module
 vi.mock('../../services/agentService', () => ({

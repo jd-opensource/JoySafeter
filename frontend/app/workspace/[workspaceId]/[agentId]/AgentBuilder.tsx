@@ -19,7 +19,7 @@ import {
 import { useGraphs, useDeploymentStatus, useGraphState, graphKeys } from '@/hooks/queries/graphs'
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
-import { computeGraphStateHash } from '@/utils/graphStateHash'
+import { computeGraphStateHash } from '@/lib/utils/graphStateHash'
 
 import { BuilderCanvas } from './components/BuilderCanvas'
 import { BuilderSidebarTabs } from './components/BuilderSidebarTabs'

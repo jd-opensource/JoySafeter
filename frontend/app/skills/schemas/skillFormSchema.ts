@@ -4,7 +4,7 @@ import {
   validateSkillName,
   validateSkillDescription,
   validateCompatibility,
-} from '@/utils/skillValidators'
+} from '@/lib/utils/skillValidators'
 
 /**
  * Skill form schema using Zod validation

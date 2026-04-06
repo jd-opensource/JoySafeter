@@ -4,7 +4,7 @@ import { ArrowRight, Square, Paperclip, X, Loader2 } from 'lucide-react'
 import React, { useRef, useEffect, useState, useCallback } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { ALLOWED_EXTENSIONS_STRING } from '@/lib/constants/upload-limits'
+import { ALLOWED_EXTENSIONS_STRING } from '@/lib/core/constants/upload-limits'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 

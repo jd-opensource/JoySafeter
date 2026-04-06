@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from 'react'
 
 import { API_BASE, apiUpload } from '@/lib/api-client'
-import { isAllowedFile, UPLOAD_LIMITS } from '@/lib/constants/upload-limits'
+import { isAllowedFile, UPLOAD_LIMITS } from '@/lib/core/constants/upload-limits'
 import { useTranslation } from '@/lib/i18n'
 import { toastSuccess, toastError } from '@/lib/utils/toast'
 

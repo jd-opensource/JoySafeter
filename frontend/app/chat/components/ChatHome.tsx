@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useDeployedGraphs, useWorkspaces } from '@/hooks/queries'
-import { ALLOWED_EXTENSIONS_STRING } from '@/lib/constants/upload-limits'
+import { ALLOWED_EXTENSIONS_STRING } from '@/lib/core/constants/upload-limits'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { toastError } from '@/lib/utils/toast'

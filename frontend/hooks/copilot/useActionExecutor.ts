@@ -7,7 +7,7 @@ import { Node, Edge } from 'reactflow'
 
 import { useBuilderStore } from '@/app/workspace/[workspaceId]/[agentId]/stores/builderStore'
 import type { GraphAction } from '@/types/copilot'
-import { ActionProcessor } from '@/utils/copilot/actionProcessor'
+import { ActionProcessor } from '@/lib/utils/copilot/actionProcessor'
 
 export function useActionExecutor(expectedGraphId?: string) {
   const [executingActions, setExecutingActions] = useState(false)
