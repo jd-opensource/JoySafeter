@@ -25,12 +25,6 @@ export const UNRECOVERABLE_CLOSE_CODES = [
   WS_CLOSE_CODE.NOT_FOUND,
 ] as const
 
-/** Close codes where reconnection should be skipped (normal + unrecoverable) */
-export const NO_RECONNECT_CLOSE_CODES = [
-  WS_CLOSE_CODE.NORMAL,
-  ...UNRECOVERABLE_CLOSE_CODES,
-] as const
-
 /** Heartbeat configuration */
 export const HEARTBEAT = {
   /** Interval between ping sends (ms) */
