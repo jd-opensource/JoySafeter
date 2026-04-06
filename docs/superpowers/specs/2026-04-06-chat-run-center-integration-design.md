@@ -150,7 +150,7 @@ In `prepare_standard_turn`, detect `ChatRunTurnCommand`:
 - Start heartbeat task via `_run_persisted_run_heartbeat`
 - Mirror events to `agent_run_events` via `_mirror_run_stream_event`
 
-This logic is largely shared with `SkillCreatorTurnCommand` — extract a common helper for "persisted run" setup.
+This logic is largely shared with `SkillCreatorTurnCommand` — extract a common helper for "persisted run" setup. Note: the existing `_finalize_task` has a hardcoded "Skill Creator run failed" error message that must be generalized when extracting the common helper.
 
 ### 2.4 Resume Turn Handling
 
@@ -290,6 +290,8 @@ Chat run `title` = first 80 characters of user message content. Truncated with `
 | `backend/app/websocket/chat_commands.py` | Add `ChatRunTurnCommand`, update union type and routing |
 | `backend/app/websocket/chat_turn_executor.py` | Extract shared persisted-run setup, handle `ChatRunTurnCommand`, wire resume turns |
 | `backend/app/api/v1/runs.py` | Make `graph_id` optional on `GET /v1/runs/active` endpoint |
+| `backend/app/services/run_service.py` | Make `graph_id` optional in `find_latest_active_run` |
+| `backend/app/repositories/agent_run.py` | Make `graph_id` optional in repository query |
 
 ### Frontend (modified files)
 
