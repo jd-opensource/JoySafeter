@@ -73,7 +73,6 @@ function syncSettingsToZustand(settings: GeneralSettings) {
     isErrorNotificationsEnabled: settings.errorNotificationsEnabled,
   })
 
-  // Sync theme via localStorage — next-themes picks up the change automatically
   syncThemeToNextThemes(settings.theme)
 }
 

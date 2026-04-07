@@ -28,6 +28,7 @@ import { apiPost } from '@/lib/api-client'
 import { useSession, client } from '@/lib/auth/auth-client'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { useGeneralStore } from '@/stores/settings/general/store'
 import { toastSuccess, toastError } from '@/lib/utils/toast'
 
 /**
@@ -342,7 +343,12 @@ export function ProfilePage() {
             <ToggleGroup
               type="single"
               value={theme ?? 'system'}
-              onValueChange={(val) => { if (val) setTheme(val) }}
+              onValueChange={(val) => {
+                if (val) {
+                  setTheme(val)
+                  useGeneralStore.getState().setSettings({ theme: val as 'light' | 'dark' | 'system' })
+                }
+              }}
             >
               <ToggleGroupItem value="light" aria-label={t('settings.themeLight')}>
                 <Sun size={14} />

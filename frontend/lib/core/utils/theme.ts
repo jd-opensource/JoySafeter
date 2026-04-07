@@ -16,13 +16,10 @@ export function syncThemeToNextThemes(theme: 'light' | 'dark' | 'system'): void 
   try {
     const storageKey = 'joysafeter-theme'
 
-    if (theme === 'system') {
-      localStorage.setItem(storageKey, 'system')
-    } else {
-      localStorage.setItem(storageKey, theme)
-    }
+    if (localStorage.getItem(storageKey) === theme) return
 
-    // Trigger next-themes to pick up the change
+    localStorage.setItem(storageKey, theme)
+
     window.dispatchEvent(
       new StorageEvent('storage', {
         key: storageKey,
