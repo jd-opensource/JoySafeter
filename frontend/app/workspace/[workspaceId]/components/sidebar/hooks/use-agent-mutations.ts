@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast'
 import { graphKeys } from '@/hooks/queries/graphs'
 import { useTranslation } from '@/lib/i18n'
 import { createLogger } from '@/lib/logs/console/logger'
+import { isPermissionError } from '@/lib/utils/is-permission-error'
 
 const logger = createLogger('Sidebar')
 
@@ -64,14 +65,7 @@ export function useAgentMutations(workspaceId: string) {
     onError: (error: unknown) => {
       let errorMessage = t('workspace.cannotCreateAgent')
       if (error instanceof Error) {
-        const isPermissionError =
-          error.message.includes('403') ||
-          error.message.includes('permission') ||
-          error.message.includes('Forbidden') ||
-          error.message.includes('insufficient') ||
-          error.message.includes('Insufficient')
-
-        if (isPermissionError) {
+        if (isPermissionError(error)) {
           errorMessage = t('workspace.cannotCreateAgent')
         } else {
           errorMessage = error.message || errorMessage
@@ -139,14 +133,7 @@ export function useAgentMutations(workspaceId: string) {
     onError: (error: unknown) => {
       let errorMessage = t('workspace.cannotDeleteAgent')
       if (error instanceof Error) {
-        const isPermissionError =
-          error.message.includes('403') ||
-          error.message.includes('permission') ||
-          error.message.includes('Forbidden') ||
-          error.message.includes('insufficient') ||
-          error.message.includes('Insufficient')
-
-        if (isPermissionError) {
+        if (isPermissionError(error)) {
           errorMessage = t('workspace.cannotDeleteAgent')
         } else {
           errorMessage = error.message || errorMessage
@@ -174,14 +161,7 @@ export function useAgentMutations(workspaceId: string) {
     onError: (error: unknown) => {
       let errorMessage = t('workspace.agentDuplicateFailed')
       if (error instanceof Error) {
-        const isPermissionError =
-          error.message.includes('403') ||
-          error.message.includes('permission') ||
-          error.message.includes('Forbidden') ||
-          error.message.includes('insufficient') ||
-          error.message.includes('Insufficient')
-
-        if (isPermissionError) {
+        if (isPermissionError(error)) {
           errorMessage = t('workspace.cannotCreateAgent')
         } else {
           errorMessage = error.message || errorMessage

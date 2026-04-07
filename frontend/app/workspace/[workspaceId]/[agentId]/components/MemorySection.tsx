@@ -4,6 +4,8 @@ import { BrainCircuit } from 'lucide-react'
 import React from 'react'
 import { Node, Edge } from 'reactflow'
 
+import { useTranslation } from '@/lib/i18n'
+
 import { FieldSchema } from '../services/nodeRegistry'
 import type { StateField } from '../types/graph'
 
@@ -16,7 +18,6 @@ interface MemorySectionProps {
   enableMemory: boolean
   updateConfig: (key: string, value: unknown) => void
   canEdit: boolean
-  t: (key: string, options?: Record<string, unknown>) => string
   nodes: Node[]
   edges: Edge[]
   currentNodeId: string
@@ -30,13 +31,14 @@ export const MemorySection = React.memo(function MemorySection({
   enableMemory,
   updateConfig,
   canEdit,
-  t,
   nodes,
   edges,
   currentNodeId,
   graphStateFields,
   onMemoryModelChange,
 }: MemorySectionProps) {
+  const { t } = useTranslation()
+
   if (memoryFields.length === 0) return null
 
   return (

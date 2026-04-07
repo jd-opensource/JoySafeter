@@ -1,7 +1,7 @@
 'use client'
 
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 
 import { useToast } from '@/hooks/use-toast'
 import { useDeploymentStatus, useDeploymentVersions, graphKeys } from '@/hooks/queries/graphs'
@@ -62,14 +62,13 @@ export function useDeploymentHistory(
 
   const [undeployConfirmOpen, setUndeployConfirmOpen] = useState(false)
 
-  const versionCacheRef = useRef<Map<number, GraphVersionState>>(new Map())
-  const [, forceUpdate] = useState({})
+  const [versionCache, setVersionCache] = useState<Record<number, GraphVersionState>>({})
 
   const rfInstance = useBuilderStore((state) => state.rfInstance)
   const currentNodes = useBuilderStore((state) => state.nodes)
   const currentEdges = useBuilderStore((state) => state.edges)
 
-  const currentState: GraphVersionState = {
+  const currentState: GraphVersionState = useMemo(() => ({
     nodes: currentNodes.map((node) => ({
       id: node.id,
       type: node.type || 'custom',
@@ -81,22 +80,21 @@ export function useDeploymentHistory(
       source: edge.source,
       target: edge.target,
     })),
-  }
+  }), [currentNodes, currentEdges])
 
   const cachedSelectedState =
-    selectedVersion !== null ? versionCacheRef.current.get(selectedVersion) : null
+    selectedVersion !== null ? versionCache[selectedVersion] ?? null : null
 
   const fetchVersionState = useCallback(
     async (version: number) => {
       if (!graphId) return
-      if (versionCacheRef.current.has(version)) return
+      if (versionCache[version]) return
 
       setIsLoadingPreview(true)
       try {
         const response = await graphDeploymentService.getVersionState(graphId, version)
         if (response.state) {
-          versionCacheRef.current.set(version, response.state)
-          forceUpdate({})
+          setVersionCache((prev) => ({ ...prev, [version]: response.state }))
         }
       } catch (error) {
         console.error('Failed to fetch version state:', error)
@@ -104,7 +102,7 @@ export function useDeploymentHistory(
         setIsLoadingPreview(false)
       }
     },
-    [graphId],
+    [graphId, versionCache],
   )
 
   useEffect(() => {
@@ -122,7 +120,7 @@ export function useDeploymentHistory(
       setSelectedVersion(null)
       setPreviewMode('current')
     } else if (!open) {
-      versionCacheRef.current.clear()
+      setVersionCache({})
       setSelectedVersion(null)
       setPreviewMode('current')
     }

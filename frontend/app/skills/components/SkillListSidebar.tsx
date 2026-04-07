@@ -1,9 +1,9 @@
 'use client'
 
-import { Search, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import React from 'react'
 
-import { Input } from '@/components/ui/input'
+import { SearchInput } from '@/components/ui/search-input'
 import { useTranslation } from '@/lib/i18n'
 import { Skill } from '@/types'
 
@@ -33,15 +33,12 @@ export function SkillListSidebar({
   return (
     <>
       <div className="border-b border-[var(--border-muted)] bg-[var(--surface-2)] p-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" size={14} />
-          <Input
-            placeholder={t('skills.searchCapabilities')}
-            className="h-9 border-[var(--border)] bg-[var(--surface-1)] pl-9 text-xs"
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-          />
-        </div>
+        <SearchInput
+          placeholder={t('skills.searchCapabilities')}
+          className="h-9 border-[var(--border)] bg-[var(--surface-1)] text-xs"
+          value={searchQuery}
+          onValueChange={onSearchChange}
+        />
       </div>
 
       <div className="custom-scrollbar flex-1 overflow-y-auto p-2">

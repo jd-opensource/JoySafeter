@@ -2,7 +2,7 @@
 
 import { X, AlertCircle, Settings, Hammer, Sparkles } from 'lucide-react'
 import { useParams } from 'next/navigation'
-import React, { useMemo } from 'react'
+import React, { useCallback, useMemo } from 'react'
 import { Node, Edge } from 'reactflow'
 
 import { Button } from '@/components/ui/button'
@@ -148,25 +148,29 @@ export default function PropertiesPanel({
 
   if (!node || !nodeData) return null
 
-  const updateConfig = (key: string, value: unknown) => {
+  const updateConfig = useCallback((key: string, value: unknown) => {
     if (!userPermissions.canEdit) {
       toast({ title: t('workspace.noPermission'), description: t('workspace.cannotEditNode'), variant: 'destructive' })
       return
     }
-    onUpdate(node.id, { label: nodeData.label || '', config: { ...config, [key]: value } })
-  }
+    onUpdate(node.id, { label: nodeData?.label || '', config: { ...config, [key]: value } })
+  }, [userPermissions.canEdit, toast, t, onUpdate, node.id, nodeData?.label, config])
 
-  const updateModelConfig = (modelName: string, providerName: string) => {
-    if (!userPermissions.canEdit) {
-      toast({ title: t('workspace.noPermission'), description: t('workspace.cannotEditNode'), variant: 'destructive' })
-      return
-    }
+  const updateModelConfig = useCallback((modelName: string, providerName: string) => {
     const combinedModelId = `${providerName}:${modelName}`
     onUpdate(node.id, {
-      label: nodeData.label || '',
+      label: nodeData?.label || '',
       config: { ...config, model_name: modelName, provider_name: providerName, model: combinedModelId, provider: providerName },
     })
-  }
+  }, [onUpdate, node.id, nodeData?.label, config])
+
+  const handleMemoryModelChange = useCallback((modelName: string, providerName: string) => {
+    const combinedModelId = `${providerName}:${modelName}`
+    onUpdate(node.id, {
+      label: nodeData?.label || '',
+      config: { ...config, memoryModel: combinedModelId, memoryProvider: providerName },
+    })
+  }, [onUpdate, node.id, nodeData?.label, config])
 
   const Icon = def?.icon || AlertCircle
   const enableMemory = config.enableMemory === true
@@ -320,18 +324,11 @@ export default function PropertiesPanel({
           enableMemory={enableMemory}
           updateConfig={updateConfig}
           canEdit={userPermissions.canEdit}
-          t={t}
           nodes={nodes}
           edges={edges}
           currentNodeId={node.id}
           graphStateFields={graphStateFields}
-          onMemoryModelChange={(modelName, providerName) => {
-            const combinedModelId = `${providerName}:${modelName}`
-            onUpdate(node.id, {
-              label: nodeData.label || '',
-              config: { ...config, memoryModel: combinedModelId, memoryProvider: providerName },
-            })
-          }}
+          onMemoryModelChange={handleMemoryModelChange}
         />
       </div>
 

@@ -8,6 +8,7 @@ import {
   useDuplicateFolderMutation as useDuplicateFolder,
 } from '@/hooks/queries/folders'
 import { useTranslation } from '@/lib/i18n'
+import { isPermissionError } from '@/lib/utils/is-permission-error'
 import { useFolderStore, type WorkflowFolder } from '@/stores/folders/store'
 
 export function useFolderHandlers(
@@ -76,14 +77,7 @@ export function useFolderHandlers(
           onError: (error: unknown) => {
             let errorMessage = t('workspace.cannotDeleteFolder')
             if (error instanceof Error) {
-              const isPermissionError =
-                error.message.includes('403') ||
-                error.message.includes('permission') ||
-                error.message.includes('Forbidden') ||
-                error.message.includes('insufficient') ||
-                error.message.includes('Insufficient')
-
-              if (isPermissionError) {
+              if (isPermissionError(error)) {
                 errorMessage = t('workspace.cannotDeleteFolder')
               } else {
                 errorMessage = error.message || errorMessage
@@ -128,14 +122,7 @@ export function useFolderHandlers(
           onError: (error: unknown) => {
             let errorMessage = t('workspace.cannotCreateFolder')
             if (error instanceof Error) {
-              const isPermissionError =
-                error.message.includes('403') ||
-                error.message.includes('permission') ||
-                error.message.includes('Forbidden') ||
-                error.message.includes('insufficient') ||
-                error.message.includes('Insufficient')
-
-              if (isPermissionError) {
+              if (isPermissionError(error)) {
                 errorMessage = t('workspace.cannotCreateFolder')
               } else {
                 errorMessage = error.message || errorMessage

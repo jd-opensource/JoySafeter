@@ -4,6 +4,7 @@ import {
   History,
   Loader2,
 } from 'lucide-react'
+import { useCallback } from 'react'
 
 import {
   AlertDialog,
@@ -62,7 +63,6 @@ export function DeploymentHistoryPanel({
     handleStartEdit,
     handleCancelEdit,
     handleSaveName,
-    formatDate,
     revertConfirmOpen,
     setRevertConfirmOpen,
     versionToRevert,
@@ -79,6 +79,24 @@ export function DeploymentHistoryPanel({
     setUndeployConfirmOpen,
     handleConfirmUndeploy,
   } = useDeploymentHistory(graphId, open, onOpenChange)
+
+  const handleUndeployClick = useCallback(() => {
+    setUndeployConfirmOpen(true)
+  }, [setUndeployConfirmOpen])
+
+  const handleRevertCancel = useCallback(() => {
+    setRevertConfirmOpen(false)
+    setVersionToRevert(null)
+  }, [setRevertConfirmOpen, setVersionToRevert])
+
+  const handleDeleteCancel = useCallback(() => {
+    setDeleteConfirmOpen(false)
+    setVersionToDelete(null)
+  }, [setDeleteConfirmOpen, setVersionToDelete])
+
+  const handleUndeployCancel = useCallback(() => {
+    setUndeployConfirmOpen(false)
+  }, [setUndeployConfirmOpen])
 
   return (
     <>
@@ -125,10 +143,8 @@ export function DeploymentHistoryPanel({
                 onSaveName={handleSaveName}
                 onEditNameChange={setEditName}
                 onDeleteClick={handleDeleteClick}
-                onUndeployClick={() => setUndeployConfirmOpen(true)}
+                onUndeployClick={handleUndeployClick}
                 onPageChange={handlePageChange}
-                formatDate={formatDate}
-                t={t}
               />
             </div>
           </div>
@@ -157,10 +173,7 @@ export function DeploymentHistoryPanel({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel
-              onClick={() => {
-                setRevertConfirmOpen(false)
-                setVersionToRevert(null)
-              }}
+              onClick={handleRevertCancel}
               disabled={isReverting}
             >
               {t('workspace.cancel')}
@@ -205,10 +218,7 @@ export function DeploymentHistoryPanel({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel
-              onClick={() => {
-                setDeleteConfirmOpen(false)
-                setVersionToDelete(null)
-              }}
+              onClick={handleDeleteCancel}
               disabled={isDeleting}
             >
               {t('workspace.cancel')}
@@ -240,7 +250,7 @@ export function DeploymentHistoryPanel({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel
-              onClick={() => setUndeployConfirmOpen(false)}
+              onClick={handleUndeployCancel}
               disabled={isUndeploying}
             >
               {t('workspace.cancel')}

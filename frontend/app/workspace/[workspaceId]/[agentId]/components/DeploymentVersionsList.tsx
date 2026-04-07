@@ -11,8 +11,6 @@ import {
   Clock,
   User,
   Eye,
-  ChevronLeft,
-  ChevronRight,
   Rocket,
   Trash2,
   XCircle,
@@ -20,9 +18,21 @@ import {
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Pagination } from '@/components/ui/pagination'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
 import type { GraphDeploymentVersion, GraphDeploymentStatus } from '@/services/graphDeploymentService'
+
+function formatDeploymentDate(dateString: string): string {
+  const date = new Date(dateString)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day} ${hours}:${minutes}`
+}
 
 interface DeploymentVersionsListProps {
   versions: GraphDeploymentVersion[]
@@ -45,8 +55,6 @@ interface DeploymentVersionsListProps {
   onDeleteClick: (version: number) => void
   onUndeployClick: () => void
   onPageChange: (page: number) => void
-  formatDate: (dateString: string) => string
-  t: (key: string, options?: Record<string, unknown>) => string
 }
 
 export const DeploymentVersionsList = React.memo(function DeploymentVersionsList({
@@ -70,9 +78,8 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
   onDeleteClick,
   onUndeployClick,
   onPageChange,
-  formatDate,
-  t,
 }: DeploymentVersionsListProps) {
+  const { t } = useTranslation()
   return (
     <div className="space-y-3">
       {/* Current deployment status */}
@@ -212,7 +219,7 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
                   <div className="flex items-center gap-2 text-2xs text-[var(--text-secondary)]">
                     <div className="flex items-center gap-0.5">
                       <Clock size={10} />
-                      <span>{formatDate(version.createdAt)}</span>
+                      <span>{formatDeploymentDate(version.createdAt)}</span>
                     </div>
                     {(version.createdByName || version.createdBy) && (
                       <div className="flex items-center gap-0.5">
@@ -268,34 +275,15 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
 
       {/* Pagination controls */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-[var(--border-muted)] pt-2">
-          <span className="text-2xs text-[var(--text-muted)]">
-            {t('workspace.totalVersions', { total: totalVersions })}
-          </span>
-          <div className="flex items-center gap-1">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 w-6 p-0"
-              onClick={() => onPageChange(currentPage - 1)}
-              disabled={currentPage <= 1 || isLoadingVersions}
-            >
-              <ChevronLeft size={14} />
-            </Button>
-            <span className="min-w-[50px] text-center text-2xs text-[var(--text-tertiary)]">
-              {currentPage} / {totalPages}
-            </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 w-6 p-0"
-              onClick={() => onPageChange(currentPage + 1)}
-              disabled={currentPage >= totalPages || isLoadingVersions}
-            >
-              <ChevronRight size={14} />
-            </Button>
-          </div>
-        </div>
+        <Pagination
+          page={currentPage}
+          totalPages={totalPages}
+          total={totalVersions}
+          pageSize={Math.ceil(totalVersions / totalPages)}
+          isLoading={isLoadingVersions}
+          onPageChange={onPageChange}
+          className="border-t border-[var(--border-muted)] pt-2"
+        />
       )}
     </div>
   )
