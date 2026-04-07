@@ -267,12 +267,12 @@ export function ProfilePage() {
     <div className="flex-1 overflow-y-auto p-6">
       <div className="mx-auto max-w-2xl space-y-8">
         {/* User Profile Section */}
-        <div className="space-y-6">
+        <div className="flex flex-col gap-6 border-b border-border pb-8 sm:flex-row sm:items-center sm:justify-between">
           {/* User Avatar and Info */}
-          <div className="flex items-center gap-4">
-            <Avatar className="h-16 w-16 flex-shrink-0">
+          <div className="flex items-center gap-5">
+            <Avatar className="h-16 w-16 flex-shrink-0 shadow-sm ring-1 ring-border/50">
               {user?.image && <AvatarImage src={user.image} alt={user?.name || t('user.user')} />}
-              <AvatarFallback className="bg-pink-500 text-lg font-medium text-white">
+              <AvatarFallback className="bg-gradient-to-br from-violet-500 to-indigo-500 text-lg font-medium text-white">
                 {getInitials(user?.name, user?.email)}
               </AvatarFallback>
             </Avatar>
@@ -294,7 +294,7 @@ export function ProfilePage() {
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
-                  <span className="text-lg font-medium text-foreground">
+                  <span className="text-xl font-semibold tracking-tight text-foreground">
                     {displayName || user?.name || t('user.user')}
                   </span>
                   <button
@@ -309,61 +309,71 @@ export function ProfilePage() {
               <p className="text-sm text-muted-foreground">{user?.email}</p>
             </div>
           </div>
-        </div>
 
-        {/* Action Buttons */}
-        <div className="flex flex-wrap items-center gap-2 border-t border-border pt-6">
-          <Button variant="outline" onClick={handleLogout} className="gap-2">
-            <LogOut size={16} />
-            {t('user.logout')}
-          </Button>
-          <Button onClick={handleResetPasswordClick} className="gap-2">
-            <KeyRound size={16} />
+          <Button variant="secondary" onClick={handleResetPasswordClick} className="gap-2 self-start sm:self-center">
+            <KeyRound size={16} className="text-muted-foreground" />
             {t('auth.resetPassword')}
           </Button>
         </div>
 
         {/* Preferences */}
-        <div className="space-y-4 border-t border-border pt-6">
-          <h3 className="text-sm font-semibold text-foreground">{t('settings.preferences')}</h3>
-          <div className="flex items-center justify-between">
-            <Label className="text-sm text-muted-foreground">{t('common.language')}</Label>
-            <Select value={i18n.language} onValueChange={(lang) => i18n.changeLanguage(lang)}>
-              <SelectTrigger className="w-36">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="en">English</SelectItem>
-                <SelectItem value="zh">中文</SelectItem>
-              </SelectContent>
-            </Select>
+        <div className="space-y-6 pt-2">
+          <div className="space-y-1">
+            <h3 className="text-lg font-semibold tracking-tight text-foreground">{t('settings.preferences')}</h3>
           </div>
-          <div className="flex items-center justify-between">
-            <Label className="text-sm text-muted-foreground">{t('settings.theme')}</Label>
-            <ToggleGroup
-              type="single"
-              value={theme ?? 'system'}
-              onValueChange={(val) => {
-                if (val) {
-                  setTheme(val)
-                  useGeneralStore.getState().setSettings({ theme: val as 'light' | 'dark' | 'system' })
-                }
-              }}
-            >
-              <ToggleGroupItem value="light" aria-label={t('settings.themeLight')}>
-                <Sun size={14} />
-                <span>{t('settings.themeLight')}</span>
-              </ToggleGroupItem>
-              <ToggleGroupItem value="dark" aria-label={t('settings.themeDark')}>
-                <Moon size={14} />
-                <span>{t('settings.themeDark')}</span>
-              </ToggleGroupItem>
-              <ToggleGroupItem value="system" aria-label={t('settings.themeSystem')}>
-                <Monitor size={14} />
-                <span>{t('settings.themeSystem')}</span>
-              </ToggleGroupItem>
-            </ToggleGroup>
+          
+          <div className="flex flex-col rounded-2xl bg-muted/30 ring-1 ring-border/20 p-1">
+            <div className="flex items-center justify-between rounded-xl px-4 py-3 hover:bg-muted/50 transition-colors">
+              <Label className="text-sm font-medium text-foreground">{t('common.language')}</Label>
+              <Select value={i18n.language} onValueChange={(lang) => i18n.changeLanguage(lang)}>
+                <SelectTrigger className="w-40 bg-background border-border/50 shadow-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="en">English</SelectItem>
+                  <SelectItem value="zh">中文</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="mx-4 h-px bg-border/40" />
+
+            <div className="flex items-center justify-between rounded-xl px-4 py-3 hover:bg-muted/50 transition-colors">
+              <Label className="text-sm font-medium text-foreground">{t('settings.theme')}</Label>
+              <ToggleGroup
+                type="single"
+                value={theme ?? 'system'}
+                onValueChange={(val) => {
+                  if (val) {
+                    setTheme(val)
+                    useGeneralStore.getState().setSettings({ theme: val as 'light' | 'dark' | 'system' })
+                  }
+                }}
+                className="bg-background border border-border/50 shadow-sm rounded-lg p-0.5"
+              >
+                <ToggleGroupItem value="light" aria-label={t('settings.themeLight')} className="gap-2 h-8 px-3 rounded-md">
+                  <Sun size={14} />
+                  <span className="text-xs font-medium">{t('settings.themeLight')}</span>
+                </ToggleGroupItem>
+                <ToggleGroupItem value="dark" aria-label={t('settings.themeDark')} className="gap-2 h-8 px-3 rounded-md">
+                  <Moon size={14} />
+                  <span className="text-xs font-medium">{t('settings.themeDark')}</span>
+                </ToggleGroupItem>
+                <ToggleGroupItem value="system" aria-label={t('settings.themeSystem')} className="gap-2 h-8 px-3 rounded-md">
+                  <Monitor size={14} />
+                  <span className="text-xs font-medium">{t('settings.themeSystem')}</span>
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </div>
           </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex items-center pt-8">
+          <Button variant="ghost" onClick={handleLogout} className="gap-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+            <LogOut size={16} />
+            {t('user.logout')}
+          </Button>
         </div>
       </div>
 
