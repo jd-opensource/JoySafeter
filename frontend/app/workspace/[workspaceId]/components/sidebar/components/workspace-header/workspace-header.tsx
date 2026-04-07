@@ -1,8 +1,9 @@
 'use client'
 
-import { Check, ChevronDown, PanelLeft, Pencil, X } from 'lucide-react'
+import { ChevronDown, PanelLeft, Pencil } from 'lucide-react'
 import { useState, useCallback } from 'react'
 
+import { InlineRenameInput } from '@/components/ui/inline-rename-input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -60,9 +61,9 @@ export function WorkspaceHeader({
   }, [activeWorkspace?.type, workspaceId, onRenameWorkspace])
 
   const {
-    isEditing: isRenaming, editName, setEditName, inputRef: headerInputRef,
+    isEditing: isRenaming, editName, setEditName,
     startEditing: handleStartHeaderRename, handleSave: handleSaveHeaderRename,
-    handleCancel: handleCancelHeaderRename, handleKeyDown: handleHeaderKeyDown,
+    handleCancel: handleCancelHeaderRename,
   } = useInlineRename(activeWorkspace?.name || '', handleHeaderRename)
 
   const {
@@ -89,33 +90,13 @@ export function WorkspaceHeader({
     <div className="relative flex min-w-0 items-center justify-between gap-1.5">
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
         {isRenaming ? (
-          <div className="flex flex-1 items-center gap-1">
-            <input
-              type="text"
-              ref={headerInputRef}
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              onBlur={() => { setTimeout(() => handleSaveHeaderRename(), 200) }}
-              onKeyDown={handleHeaderKeyDown}
-              className="flex-1 rounded-sm border border-[var(--brand-primary)] bg-transparent px-[5px] py-[2px] text-small font-medium text-[var(--text-primary)] outline-none"
-              autoFocus
-              onClick={(e) => e.stopPropagation()}
-            />
-            <button
-              type="button"
-              className="rounded-sm p-0.5 text-[var(--brand-primary)] transition-colors hover:bg-[var(--surface-5)]"
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleSaveHeaderRename() }}
-            >
-              <Check className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              className="rounded-sm p-0.5 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--surface-5)]"
-              onClick={handleCancelHeaderRename}
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
+          <InlineRenameInput
+            value={editName}
+            onChange={setEditName}
+            onSave={handleSaveHeaderRename}
+            onCancel={handleCancelHeaderRename}
+            size="sm"
+          />
         ) : (
           <div className="group flex min-w-0 flex-1 items-center gap-1">
             <div className="flex min-w-0 items-center gap-1">

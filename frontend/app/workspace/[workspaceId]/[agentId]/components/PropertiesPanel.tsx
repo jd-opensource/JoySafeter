@@ -146,8 +146,6 @@ export default function PropertiesPanel({
     return errors
   }, [def, config, t])
 
-  if (!node || !nodeData) return null
-
   const updateConfig = useCallback((key: string, value: unknown) => {
     if (!userPermissions.canEdit) {
       toast({ title: t('workspace.noPermission'), description: t('workspace.cannotEditNode'), variant: 'destructive' })
@@ -171,6 +169,8 @@ export default function PropertiesPanel({
       config: { ...config, memoryModel: combinedModelId, memoryProvider: providerName },
     })
   }, [onUpdate, node.id, nodeData?.label, config])
+
+  if (!node || !nodeData) return null
 
   const Icon = def?.icon || AlertCircle
   const enableMemory = config.enableMemory === true

@@ -14,6 +14,7 @@ import {
 import { useRouter } from 'next/navigation'
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 
+import { InlineRenameInput } from '@/components/ui/inline-rename-input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -73,7 +74,6 @@ export function WorkspaceDropdown({
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState<string | null>(null)
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const renameInputRef = useRef<HTMLInputElement>(null)
   const menuButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({})
 
   useEffect(() => {
@@ -81,13 +81,6 @@ export function WorkspaceDropdown({
       setTimeout(() => searchInputRef.current?.focus(), 100)
     }
   }, [])
-
-  useEffect(() => {
-    if (editingWorkspaceId && renameInputRef.current) {
-      renameInputRef.current.focus()
-      renameInputRef.current.select()
-    }
-  }, [editingWorkspaceId])
 
   const filteredWorkspaces = useMemo(() => {
     if (!searchQuery.trim()) return workspaces
@@ -200,40 +193,13 @@ export function WorkspaceDropdown({
               >
                 {editingWorkspaceId === workspace.id ? (
                   <div className="flex flex-1 items-center gap-1 px-2 py-1.5">
-                    <input
-                      ref={renameInputRef}
-                      type="text"
+                    <InlineRenameInput
                       value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      onBlur={() => {
-                        setTimeout(() => {
-                          onSaveWorkspaceRename(workspace.id)
-                        }, 200)
-                      }}
-                      onKeyDown={(e) => onRenameKeyDown(e, workspace.id)}
-                      className="flex-1 rounded-sm border border-[var(--brand-primary)] bg-transparent px-[4px] py-[1px] text-xs-plus font-medium text-[var(--text-primary)] outline-none"
-                      onClick={(e) => e.stopPropagation()}
+                      onChange={(v) => setEditName(v)}
+                      onSave={() => onSaveWorkspaceRename(workspace.id)}
+                      onCancel={onCancelWorkspaceRename}
+                      size="sm"
                     />
-                    <button
-                      type="button"
-                      className="rounded-sm p-0.5 text-[var(--brand-primary)] transition-colors hover:bg-[var(--surface-5)]"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onSaveWorkspaceRename(workspace.id)
-                      }}
-                    >
-                      <Check className="h-3 w-3" />
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-sm p-0.5 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--surface-5)]"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onCancelWorkspaceRename()
-                      }}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
                   </div>
                 ) : (
                   <>

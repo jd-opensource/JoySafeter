@@ -2,16 +2,15 @@
 
 import {
   Bot,
-  Check,
   GripVertical,
   MoreHorizontal,
-  X,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import React, { useCallback, useState } from 'react'
 
 import type { AgentMetadata } from '@/app/workspace/[workspaceId]/components/sidebar/sidebar'
+import { InlineRenameInput } from '@/components/ui/inline-rename-input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
@@ -56,7 +55,7 @@ const AgentItem = React.memo(function AgentItem({
     onRename?.(agent.id, newName)
   }, [agent.id, onRename])
 
-  const { isEditing, editName, setEditName, inputRef, startEditing, handleSave: handleSaveRename, handleCancel: handleCancelRename, handleKeyDown } = useInlineRename(agent.name, handleRename)
+  const { isEditing, editName, setEditName, startEditing, handleSave: handleSaveRename, handleCancel: handleCancelRename } = useInlineRename(agent.name, handleRename)
 
   const handleDragStart = (e: React.DragEvent) => {
     if (isEditing) {
@@ -119,39 +118,15 @@ const AgentItem = React.memo(function AgentItem({
         </div>
 
         {isEditing ? (
-          <div className="flex flex-1 items-center gap-1.5 py-[3px] pr-[6px] duration-150 animate-in fade-in">
+          <div className="flex flex-1 items-center gap-1.5 py-[3px] pr-[6px]">
             <Bot className="ml-[2px] h-3.5 w-3.5 flex-shrink-0 text-[var(--brand-500)]" />
-            <div className="relative flex flex-1 items-center">
-              <input
-                ref={inputRef}
-                type="text"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                onBlur={handleSaveRename}
-                onKeyDown={handleKeyDown}
-                className="border-[var(--brand-primary)] ring-[var(--brand-primary)] focus:ring-[var(--brand-primary)] w-full rounded-md border bg-[var(--surface-1)] px-2 py-1 text-xs-plus font-medium text-[var(--text-primary)] shadow-sm outline-none ring-2 transition-all placeholder:text-[var(--text-subtle)] focus:border-[var(--brand-primary)]"
-                onClick={(e) => e.stopPropagation()}
-                placeholder="Enter name..."
-              />
-            </div>
-            <div className="flex items-center gap-[2px]">
-              <button
-                type="button"
-                className="hover:bg-[var(--brand-primary)] flex h-[24px] w-[24px] items-center justify-center rounded-md bg-[var(--brand-primary)] text-white shadow-sm transition-all hover:shadow active:scale-95"
-                onClick={handleSaveRename}
-                title="Save"
-              >
-                <Check className="h-3 w-3" strokeWidth={2.5} />
-              </button>
-              <button
-                type="button"
-                className="flex h-[24px] w-[24px] items-center justify-center rounded-md bg-[var(--surface-5)] text-[var(--text-tertiary)] transition-all hover:bg-[var(--surface-9)] hover:text-[var(--text-secondary)] active:scale-95"
-                onClick={handleCancelRename}
-                title="Cancel"
-              >
-                <X className="h-3 w-3" strokeWidth={2.5} />
-              </button>
-            </div>
+            <InlineRenameInput
+              value={editName}
+              onChange={setEditName}
+              onSave={handleSaveRename}
+              onCancel={handleCancelRename}
+              placeholder="Enter name..."
+            />
           </div>
         ) : (
           <TooltipProvider delayDuration={400}>
