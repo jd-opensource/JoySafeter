@@ -12,6 +12,7 @@ import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
 import { useDropZone } from '../../hooks/use-drop-zone'
+import { AgentListProvider, type AgentListActions } from './agent-list-context'
 import { AgentItem } from './agent-item'
 import { FolderItem } from './folder-item'
 
@@ -152,43 +153,38 @@ export function AgentList({
     )
   }
 
-  return (
-    <div className="space-y-[4px]">
-      {rootFolders.map((folder) => (
-        <FolderItem
-          key={folder.id}
-          folder={folder}
-          agents={getAgentsInFolder(folder.id)}
-          subfolders={getSubfolders(folder.id)}
-          allFolders={folders}
-          activeAgentId={agentId}
-          depth={0}
-          maxDepth={maxFolderDepth}
-          onToggle={() => onToggleFolder?.(folder.id)}
-          onRename={(newName) => onRenameFolder?.(folder.id, newName)}
-          onDelete={() => onDeleteFolder?.(folder.id)}
-          onCreateSubfolder={() => onCreateSubfolder?.(folder.id)}
-          onDuplicate={() => onDuplicateFolder?.(folder.id)}
-          onDropAgent={(aId) => onMoveAgentToFolder?.(aId, folder.id)}
-          onDragAgentStart={handleDragStart}
-          onDragAgentEnd={handleDragEnd}
-          isDragActive={isDragActive}
-          getAgentsInFolder={getAgentsInFolder}
-          getSubfolders={getSubfolders}
-          onToggleFolder={(id) => onToggleFolder?.(id)}
-          onRenameFolder={(id, name) => onRenameFolder?.(id, name)}
-          onDeleteFolder={(id) => onDeleteFolder?.(id)}
-          onCreateSubfolderFor={(id) => onCreateSubfolder?.(id)}
-          onDuplicateFolder={(id) => onDuplicateFolder?.(id)}
-          onMoveAgentToFolder={(aId, fId) => onMoveAgentToFolder?.(aId, fId)}
-          onRenameAgent={onRenameAgent}
-          onDeleteAgent={onDeleteAgent}
-          onDuplicateAgent={onDuplicateAgent}
-          canEdit={canEdit}
-        />
-      ))}
+  const actionsValue = useMemo<AgentListActions>(() => ({
+    onToggleFolder: (id) => onToggleFolder?.(id),
+    onRenameFolder: (id, name) => onRenameFolder?.(id, name),
+    onDeleteFolder: (id) => onDeleteFolder?.(id),
+    onCreateSubfolder: (id) => onCreateSubfolder?.(id),
+    onDuplicateFolder: (id) => onDuplicateFolder?.(id),
+    onMoveAgentToFolder: (aId, fId) => onMoveAgentToFolder?.(aId, fId),
+    onDragAgentStart: handleDragStart,
+    onDragAgentEnd: handleDragEnd,
+    onRenameAgent,
+    onDeleteAgent,
+    onDuplicateAgent,
+    getAgentsInFolder,
+    getSubfolders,
+    canEdit,
+  }), [onToggleFolder, onRenameFolder, onDeleteFolder, onCreateSubfolder, onDuplicateFolder, onMoveAgentToFolder, handleDragStart, handleDragEnd, onRenameAgent, onDeleteAgent, onDuplicateAgent, getAgentsInFolder, getSubfolders, canEdit])
 
-      {rootAgents.length > 0 && (
+  return (
+    <AgentListProvider value={actionsValue}>
+      <div className="space-y-[4px]">
+        {rootFolders.map((folder) => (
+          <FolderItem
+            key={folder.id}
+            folder={folder}
+            activeAgentId={agentId}
+            depth={0}
+            maxDepth={maxFolderDepth}
+            isDragActive={isDragActive}
+          />
+        ))}
+
+        {rootAgents.length > 0 && (
         <RootDropZone
           isDragActive={isDragActive && rootFolders.length > 0}
           onDropAgent={(aId) => onMoveAgentToFolder?.(aId, null)}
@@ -223,6 +219,7 @@ export function AgentList({
           </div>
         </RootDropZone>
       )}
-    </div>
+      </div>
+    </AgentListProvider>
   )
 }
