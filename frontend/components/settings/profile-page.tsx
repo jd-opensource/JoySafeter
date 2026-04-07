@@ -321,7 +321,7 @@ export function ProfilePage() {
           <div className="space-y-1">
             <h3 className="text-lg font-semibold tracking-tight text-foreground">{t('settings.preferences')}</h3>
           </div>
-          
+
           <div className="flex flex-col rounded-2xl bg-muted/30 ring-1 ring-border/20 p-1">
             <div className="flex items-center justify-between rounded-xl px-4 py-3 hover:bg-muted/50 transition-colors">
               <Label className="text-sm font-medium text-foreground">{t('common.language')}</Label>
