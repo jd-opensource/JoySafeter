@@ -39,19 +39,11 @@ function getInitials(name?: string | null, email?: string): string {
 }
 
 /**
- * Language options
- */
-const languages = [
-  { code: 'en', label: 'English' },
-  { code: 'zh', label: '中文' },
-]
-
-/**
  * User info component
  */
 export function UserInfo({ isCollapsed: _isCollapsed = false, showContent = true }: UserInfoProps) {
   const session = useSession()
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   const user = session.data?.user
@@ -69,10 +61,6 @@ export function UserInfo({ isCollapsed: _isCollapsed = false, showContent = true
       // Even on error, redirect to login page (cookies may have been deleted)
       window.location.href = '/signin'
     }
-  }
-
-  const handleLanguageChange = (langCode: string) => {
-    i18n.changeLanguage(langCode)
   }
 
   const handleSettingsClick = () => {
@@ -122,33 +110,6 @@ export function UserInfo({ isCollapsed: _isCollapsed = false, showContent = true
                 <p className="truncate text-[13px] font-medium">{user?.name || t('user.user')}</p>
                 <p className="truncate text-[11px] text-[var(--text-muted)]">{user?.email}</p>
               </div>
-              <DropdownMenuSeparator />
-
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger className="flex items-center gap-2 text-[13px]">
-                  <Languages className="h-3.5 w-3.5" />
-                  <span>{t('common.language')}</span>
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent
-                  sideOffset={4}
-                  alignOffset={-5}
-                  className="min-w-[110px] bg-[var(--surface-1)]"
-                >
-                  {languages.map((lang) => (
-                    <DropdownMenuItem
-                      key={lang.code}
-                      onClick={() => handleLanguageChange(lang.code)}
-                      className="flex cursor-pointer items-center justify-between gap-2 text-[13px]"
-                    >
-                      <span>{lang.label}</span>
-                      {i18n.language === lang.code && (
-                        <Check className="h-3.5 w-3.5 text-[var(--brand-600)]" />
-                      )}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={handleSettingsClick}
