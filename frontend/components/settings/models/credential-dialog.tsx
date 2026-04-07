@@ -3,14 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { UnifiedDialog } from '@/components/ui/unified-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -97,72 +90,71 @@ export function CredentialDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[480px]">
-        <DialogHeader>
-          <DialogTitle>Configure {provider.display_name} Credential</DialogTitle>
-          {provider.description && (
-            <DialogDescription>{provider.description}</DialogDescription>
-          )}
-        </DialogHeader>
-
-        <div className="space-y-4 py-2">
-          {formFields.map((field) => (
-            <div key={field.key} className="space-y-1.5">
-              <Label htmlFor={field.key}>
-                {field.title}
-                {field.required && <span className="text-destructive ml-1">*</span>}
-              </Label>
-              {field.enum ? (
-                <Select
-                  value={fields[field.key] || ''}
-                  onValueChange={(val) =>
-                    setFields((f) => ({ ...f, [field.key]: val }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={`Select ${field.title}`} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {field.enum.map((val, i) => (
-                      <SelectItem key={val} value={val}>
-                        {field.enumNames?.[i] || val}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input
-                  id={field.key}
-                  type={
-                    field.key.toLowerCase().includes('key') ||
-                    field.key.toLowerCase().includes('secret')
-                      ? 'password'
-                      : 'text'
-                  }
-                  placeholder={field.description}
-                  value={fields[field.key] ?? ''}
-                  onChange={(e) =>
-                    setFields((f) => ({ ...f, [field.key]: e.target.value }))
-                  }
-                />
-              )}
-              {field.description && !field.enum && (
-                <p className="text-xs text-muted-foreground">{field.description}</p>
-              )}
-            </div>
-          ))}
-        </div>
-
-        <DialogFooter className="gap-2">
+    <UnifiedDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      maxWidth="md"
+      title={`Configure ${provider.display_name} Credential`}
+      description={provider.description}
+      showContentBg={false}
+      footer={
+        <>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button onClick={handleSave} disabled={createCredential.isPending || !canSubmit}>
             {createCredential.isPending ? 'Saving...' : 'Save'}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {formFields.map((field) => (
+          <div key={field.key} className="space-y-1.5">
+            <Label htmlFor={field.key}>
+              {field.title}
+              {field.required && <span className="text-destructive ml-1">*</span>}
+            </Label>
+            {field.enum ? (
+              <Select
+                value={fields[field.key] || ''}
+                onValueChange={(val) =>
+                  setFields((f) => ({ ...f, [field.key]: val }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={`Select ${field.title}`} />
+                </SelectTrigger>
+                <SelectContent>
+                  {field.enum.map((val, i) => (
+                    <SelectItem key={val} value={val}>
+                      {field.enumNames?.[i] || val}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                id={field.key}
+                type={
+                  field.key.toLowerCase().includes('key') ||
+                  field.key.toLowerCase().includes('secret')
+                    ? 'password'
+                    : 'text'
+                }
+                placeholder={field.description}
+                value={fields[field.key] ?? ''}
+                onChange={(e) =>
+                  setFields((f) => ({ ...f, [field.key]: e.target.value }))
+                }
+              />
+            )}
+            {field.description && !field.enum && (
+              <p className="text-xs text-muted-foreground">{field.description}</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </UnifiedDialog>
   )
 }

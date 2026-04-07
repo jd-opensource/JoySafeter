@@ -17,16 +17,7 @@ import {
 } from 'lucide-react'
 import React, { useEffect, useState } from 'react'
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -565,44 +556,29 @@ export const SandboxesPage = () => {
         </div>
 
         {/* Confirm Dialog */}
-        <AlertDialog
+        <ConfirmDialog
           open={confirmDialog.open}
           onOpenChange={(open) => setConfirmDialog((prev) => ({ ...prev, open }))}
-        >
-          <AlertDialogContent className="rounded-xl border-0 shadow-xl">
-            <AlertDialogHeader>
-              <AlertDialogTitle className="text-lg font-semibold">
-                {confirmDialog.type === 'stop' && t('settings.sandboxes.stop')}
-                {confirmDialog.type === 'restart' && t('settings.sandboxes.restart')}
-                {confirmDialog.type === 'rebuild' && t('settings.sandboxes.rebuild')}
-                {confirmDialog.type === 'delete' && t('settings.sandboxes.delete')}
-              </AlertDialogTitle>
-              <AlertDialogDescription className="text-sm text-[var(--text-tertiary)]">
-                {confirmDialog.type === 'stop' && t('settings.sandboxes.stopConfirm')}
-                {confirmDialog.type === 'restart' && t('settings.sandboxes.restartConfirm')}
-                {confirmDialog.type === 'rebuild' && t('settings.sandboxes.rebuildConfirm')}
-                {confirmDialog.type === 'delete' && t('settings.sandboxes.deleteConfirm')}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel className="rounded-lg">
-                {t('common.cancel', 'Cancel')}
-              </AlertDialogCancel>
-              <AlertDialogAction
-                onClick={handleAction}
-                className={cn(
-                  'rounded-lg text-white',
-                  confirmDialog.type === 'delete'
-                    ? 'bg-red-600 hover:bg-red-700'
-                    : 'bg-violet-600 hover:bg-violet-700',
-                )}
-              >
-                {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {t('common.confirm', 'Confirm')}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+          title={
+            (confirmDialog.type === 'stop' && t('settings.sandboxes.stop')) ||
+            (confirmDialog.type === 'restart' && t('settings.sandboxes.restart')) ||
+            (confirmDialog.type === 'rebuild' && t('settings.sandboxes.rebuild')) ||
+            (confirmDialog.type === 'delete' && t('settings.sandboxes.delete')) ||
+            ''
+          }
+          description={
+            (confirmDialog.type === 'stop' && t('settings.sandboxes.stopConfirm')) ||
+            (confirmDialog.type === 'restart' && t('settings.sandboxes.restartConfirm')) ||
+            (confirmDialog.type === 'rebuild' && t('settings.sandboxes.rebuildConfirm')) ||
+            (confirmDialog.type === 'delete' && t('settings.sandboxes.deleteConfirm')) ||
+            ''
+          }
+          confirmLabel={t('common.confirm', 'Confirm')}
+          cancelLabel={t('common.cancel', 'Cancel')}
+          variant={confirmDialog.type === 'delete' ? 'destructive' : 'default'}
+          loading={!!actionLoading}
+          onConfirm={handleAction}
+        />
       </div>
     </TooltipProvider>
   )

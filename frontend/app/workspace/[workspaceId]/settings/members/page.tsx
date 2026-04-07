@@ -16,16 +16,7 @@ import { Users, UserPlus, Shield, Crown, Eye, Edit, Trash2, Loader2, Check } fro
 import { useParams } from 'next/navigation'
 import { useState, useEffect, useRef } from 'react'
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -678,34 +669,21 @@ export default function WorkspaceMembersPage() {
         )}
       </div>
 
-      <AlertDialog
+      <ConfirmDialog
         open={!!removeMemberId}
         onOpenChange={(open) => !open && setRemoveMemberId(null)}
-      >
-        <AlertDialogContent variant="destructive">
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('workspace.confirmRemoveMember')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('workspace.confirmRemoveMemberDescription')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setRemoveMemberId(null)}>
-              {t('workspace.cancel')}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (removeMemberId) {
-                  handleRemoveMember(removeMemberId)
-                }
-              }}
-              className="bg-[var(--status-error)] text-white hover:bg-[var(--status-error-hover)]"
-            >
-              {t('workspace.confirmRemove')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title={t('workspace.confirmRemoveMember')}
+        description={t('workspace.confirmRemoveMemberDescription')}
+        confirmLabel={t('workspace.confirmRemove')}
+        cancelLabel={t('workspace.cancel')}
+        variant="destructive"
+        onConfirm={() => {
+          if (removeMemberId) {
+            handleRemoveMember(removeMemberId)
+          }
+        }}
+        onCancel={() => setRemoveMemberId(null)}
+      />
     </div>
   )
 }

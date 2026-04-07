@@ -3,16 +3,7 @@
 import { Key, Loader2, Trash2, Copy, Check } from 'lucide-react'
 import { useState } from 'react'
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
@@ -190,28 +181,17 @@ export function TokenList({ resourceType, resourceId, header }: TokenListProps) 
         </div>
       )}
 
-      <AlertDialog open={revokeDialogOpen} onOpenChange={setRevokeDialogOpen}>
-        <AlertDialogContent className="rounded-xl border-0 shadow-xl">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-lg font-semibold">
-              {t('settings.tokens.revokeConfirmTitle')}
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-sm text-[var(--text-tertiary)]">
-              {t('settings.tokens.revokeConfirmMessage')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="rounded-lg">{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleRevokeConfirm}
-              className="rounded-lg bg-red-600 text-white hover:bg-red-700"
-            >
-              {revokeToken.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {t('settings.tokens.revoke')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={revokeDialogOpen}
+        onOpenChange={setRevokeDialogOpen}
+        title={t('settings.tokens.revokeConfirmTitle')}
+        description={t('settings.tokens.revokeConfirmMessage')}
+        confirmLabel={t('settings.tokens.revoke')}
+        cancelLabel={t('common.cancel')}
+        variant="destructive"
+        loading={revokeToken.isPending}
+        onConfirm={handleRevokeConfirm}
+      />
     </div>
   )
 }

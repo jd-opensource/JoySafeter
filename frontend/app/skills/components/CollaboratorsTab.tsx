@@ -3,16 +3,7 @@
 import { Crown, Edit, Eye, Plus, Shield, UserPlus, Users, X } from 'lucide-react'
 import React, { useState } from 'react'
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -304,28 +295,16 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
       )}
 
       {/* Remove confirm dialog */}
-      <AlertDialog
+      <ConfirmDialog
         open={removeTarget.open}
         onOpenChange={(open) => setRemoveTarget((prev) => ({ ...prev, open }))}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('skillCollaborators.removeConfirmTitle')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('skillCollaborators.removeConfirmMessage')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleRemove}
-              className="bg-red-600 text-white hover:bg-red-700"
-            >
-              {t('skillCollaborators.remove')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title={t('skillCollaborators.removeConfirmTitle')}
+        description={t('skillCollaborators.removeConfirmMessage')}
+        confirmLabel={t('skillCollaborators.remove')}
+        cancelLabel={t('common.cancel')}
+        variant="destructive"
+        onConfirm={handleRemove}
+      />
 
       {/* Transfer ownership dialog */}
       <Dialog open={transferDialog} onOpenChange={setTransferDialog}>

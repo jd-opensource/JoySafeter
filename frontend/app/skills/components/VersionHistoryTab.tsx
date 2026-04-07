@@ -5,16 +5,7 @@ import React, { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -211,42 +202,30 @@ export function VersionHistoryTab({ skillId, userRole }: VersionHistoryTabProps)
       )}
 
       {/* Confirm dialog */}
-      <AlertDialog
+      <ConfirmDialog
         open={confirmDialog.open}
         onOpenChange={(open) => setConfirmDialog((prev) => ({ ...prev, open }))}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {confirmDialog.type === 'restore'
-                ? t('skillVersions.restoreConfirmTitle')
-                : t('skillVersions.deleteConfirmTitle')}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {confirmDialog.type === 'restore'
-                ? t('skillVersions.restoreConfirmMessage', {
-                    version: confirmDialog.version,
-                  })
-                : t('skillVersions.deleteConfirmMessage')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmAction}
-              className={
-                confirmDialog.type === 'delete'
-                  ? 'bg-red-600 text-white hover:bg-red-700'
-                  : ''
-              }
-            >
-              {confirmDialog.type === 'restore'
-                ? t('skillVersions.restore')
-                : t('skillVersions.delete')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title={
+          confirmDialog.type === 'restore'
+            ? t('skillVersions.restoreConfirmTitle')
+            : t('skillVersions.deleteConfirmTitle')
+        }
+        description={
+          confirmDialog.type === 'restore'
+            ? t('skillVersions.restoreConfirmMessage', {
+                version: confirmDialog.version,
+              })
+            : t('skillVersions.deleteConfirmMessage')
+        }
+        confirmLabel={
+          confirmDialog.type === 'restore'
+            ? t('skillVersions.restore')
+            : t('skillVersions.delete')
+        }
+        cancelLabel={t('common.cancel')}
+        variant={confirmDialog.type === 'delete' ? 'destructive' : 'default'}
+        onConfirm={handleConfirmAction}
+      />
     </div>
   )
 }

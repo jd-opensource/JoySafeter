@@ -4,7 +4,7 @@ import { FolderOpen, Loader2, Box, Clock, Trash2 } from 'lucide-react'
 import React, { useState, useEffect } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { UnifiedDialog } from '@/components/ui/unified-dialog'
 import { ToastAction } from '@/components/ui/toast'
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
@@ -74,59 +74,59 @@ export function LoadModal({ onClose, onLoad }: LoadModalProps) {
   }
 
   return (
-    <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-[var(--text-primary)]">
-            <FolderOpen size={18} className="text-primary" />
-            {t('workspace.loadSavedGraph')}
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="custom-scrollbar max-h-[60vh] min-h-[200px] overflow-y-auto p-1">
-          {loading ? (
-            <div className="flex h-40 flex-col items-center justify-center gap-2 text-[var(--text-muted)]">
-              <Loader2 size={24} className="animate-spin text-primary" />
-              <span className="text-sm">{t('workspace.fetchingProjects')}</span>
-            </div>
-          ) : graphs.length === 0 ? (
-            <div className="flex h-40 flex-col items-center justify-center gap-2 text-[var(--text-muted)]">
-              <Box size={32} className="opacity-20" />
-              <span className="text-sm">{t('workspace.noSavedGraphs')}</span>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {graphs.map((g) => (
-                <div
-                  key={g.id}
-                  onClick={() => onLoad(g)}
-                  className="group flex cursor-pointer items-center justify-between rounded-xl border border-transparent p-3 transition-all hover:border-primary/20 hover:bg-primary/5"
-                >
-                  <div className="flex flex-col gap-1">
-                    <span className="text-sm font-medium text-[var(--text-secondary)]">{g.name}</span>
-                    <div className="flex items-center gap-2 text-2xs text-[var(--text-muted)]">
-                      <Clock size={10} />
-                      <span>{new Date(g.createdAt).toLocaleString()}</span>
-                      <span className="h-1 w-1 rounded-full bg-[var(--text-subtle)]" />
-                      <span>
-                        {g.nodeCount ?? 0} {t('workspace.nodes')}
-                      </span>
-                    </div>
+    <UnifiedDialog
+      open={true}
+      onOpenChange={(open) => !open && onClose()}
+      maxWidth="md"
+      title={t('workspace.loadSavedGraph')}
+      icon={<FolderOpen size={18} />}
+      iconBgColor="bg-primary/10"
+      iconColor="text-primary"
+      showContentBg={false}
+    >
+      <div className="custom-scrollbar max-h-[60vh] min-h-[200px] overflow-y-auto p-1">
+        {loading ? (
+          <div className="flex h-40 flex-col items-center justify-center gap-2 text-[var(--text-muted)]">
+            <Loader2 size={24} className="animate-spin text-primary" />
+            <span className="text-sm">{t('workspace.fetchingProjects')}</span>
+          </div>
+        ) : graphs.length === 0 ? (
+          <div className="flex h-40 flex-col items-center justify-center gap-2 text-[var(--text-muted)]">
+            <Box size={32} className="opacity-20" />
+            <span className="text-sm">{t('workspace.noSavedGraphs')}</span>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {graphs.map((g) => (
+              <div
+                key={g.id}
+                onClick={() => onLoad(g)}
+                className="group flex cursor-pointer items-center justify-between rounded-xl border border-transparent p-3 transition-all hover:border-primary/20 hover:bg-primary/5"
+              >
+                <div className="flex flex-col gap-1">
+                  <span className="text-sm font-medium text-[var(--text-secondary)]">{g.name}</span>
+                  <div className="flex items-center gap-2 text-2xs text-[var(--text-muted)]">
+                    <Clock size={10} />
+                    <span>{new Date(g.createdAt).toLocaleString()}</span>
+                    <span className="h-1 w-1 rounded-full bg-[var(--text-subtle)]" />
+                    <span>
+                      {g.nodeCount ?? 0} {t('workspace.nodes')}
+                    </span>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={(e) => handleDeleteRequest(e, g.id, g.name)}
-                    className="h-8 w-8 text-[var(--text-muted)] opacity-0 transition-all hover:bg-[var(--status-error-bg)] hover:text-[var(--status-error)] group-hover:opacity-100"
-                  >
-                    <Trash2 size={14} />
-                  </Button>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => handleDeleteRequest(e, g.id, g.name)}
+                  className="h-8 w-8 text-[var(--text-muted)] opacity-0 transition-all hover:bg-[var(--status-error-bg)] hover:text-[var(--status-error)] group-hover:opacity-100"
+                >
+                  <Trash2 size={14} />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </UnifiedDialog>
   )
 }
