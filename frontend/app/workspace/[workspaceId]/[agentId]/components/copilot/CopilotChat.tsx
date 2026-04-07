@@ -169,7 +169,7 @@ export function CopilotChat({
             {/* Thought steps */}
             {m.thoughtSteps && m.thoughtSteps.length > 0 && (
               <div className="space-y-2 rounded-xl border border-[var(--brand-100)] bg-[var(--brand-50)] p-3 duration-300 animate-in fade-in slide-in-from-top-2">
-                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--brand-700)]">
+                <div className="flex items-center gap-1.5 text-2xs font-bold uppercase tracking-wider text-[var(--brand-700)]">
                   <Sparkles size={10} className="fill-current" /> {t('workspace.thinkingProcess')}
                 </div>
                 <div className="space-y-1.5">
@@ -178,10 +178,10 @@ export function CopilotChat({
                       key={idx}
                       className="flex gap-2 rounded-lg border border-[var(--brand-200)] bg-[var(--surface-elevated)] p-2"
                     >
-                      <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-[var(--brand-100)] text-[10px] font-bold text-[var(--brand-600)]">
+                      <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-[var(--brand-100)] text-2xs font-bold text-[var(--brand-600)]">
                         {step.index}
                       </div>
-                      <p className="flex-1 text-[10px] leading-relaxed text-[var(--text-secondary)]">
+                      <p className="flex-1 text-2xs leading-relaxed text-[var(--text-secondary)]">
                         {step.content}
                       </p>
                     </div>
@@ -194,10 +194,10 @@ export function CopilotChat({
             {m.actions && m.actions.length > 0 && (
               <div className="space-y-2 rounded-xl border border-[var(--brand-100)] bg-[var(--brand-50)] p-3 duration-300 animate-in fade-in slide-in-from-top-2">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--brand-700)]">
+                  <div className="flex items-center gap-1.5 text-2xs font-bold uppercase tracking-wider text-[var(--brand-700)]">
                     <Zap size={10} className="fill-current" /> {t('workspace.actionsExecuted')}
                     {m.actions.length > 0 && (
-                      <span className="rounded bg-[var(--brand-100)] px-1.5 py-0.5 text-[9px] font-normal normal-case text-[var(--brand-600)]">
+                      <span className="rounded bg-[var(--brand-100)] px-1.5 py-0.5 text-micro font-normal normal-case text-[var(--brand-600)]">
                         {m.actions.length} items
                       </span>
                     )}
@@ -212,10 +212,10 @@ export function CopilotChat({
                   getKey={(action, idx) => `action-${i}-${idx}`}
                   renderItem={(action, idx) => (
                     <div className="flex gap-2 rounded-lg border border-[var(--brand-200)] bg-[var(--surface-elevated)] p-2">
-                      <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-[var(--brand-100)] text-[10px] font-bold text-[var(--brand-600)]">
+                      <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-[var(--brand-100)] text-2xs font-bold text-[var(--brand-600)]">
                         {idx + 1}
                       </div>
-                      <p className="flex-1 text-[10px] leading-relaxed text-[var(--text-secondary)]">
+                      <p className="flex-1 text-2xs leading-relaxed text-[var(--text-secondary)]">
                         {formatActionContent(action)}
                       </p>
                     </div>

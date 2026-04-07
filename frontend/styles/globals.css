@@ -138,6 +138,36 @@
     /* Text extras */
     --text-disabled: #d1d5db;
 
+    /* Brand gradients */
+    --gradient-brand-from: #6f3dfa;
+    --gradient-brand-to: #0ea5e9;
+    --gradient-brand-accent: #a78bfa;
+    --gradient-secondary-from: #0ea5e9;
+    --gradient-secondary-to: #67e8f9;
+
+    /* Code/dialog surfaces */
+    --code-bg: #0d1117;
+    --surface-dialog: #F9F9FA;
+
+    /* Canvas */
+    --canvas-dot: #cbd5e1;
+    --edge-color: #cbd5e1;
+    --edge-active: #3b82f6;
+
+    /* Agent palette */
+    --agent-1: #3972F6;
+    --agent-2: #10B981;
+    --agent-3: #F59E0B;
+    --agent-4: #EF4444;
+    --agent-5: #8B5CF6;
+    --agent-6: #EC4899;
+    --agent-7: #06B6D4;
+    --agent-8: #84CC16;
+    --agent-9: #F97316;
+    --agent-10: #6366F1;
+    --agent-11: #14B8A6;
+    --agent-12: #A855F7;
+
     /* Utility */
     --white: #ffffff;
     --radius: 0.5rem;
@@ -237,6 +267,36 @@
     /* Text extras */
     --text-disabled: #354252;
 
+    /* Brand gradients */
+    --gradient-brand-from: #0ea5e9;
+    --gradient-brand-to: #06b6d4;
+    --gradient-brand-accent: #38bdf8;
+    --gradient-secondary-from: #06b6d4;
+    --gradient-secondary-to: #22d3ee;
+
+    /* Code/dialog surfaces */
+    --code-bg: #0a0e14;
+    --surface-dialog: #1a222b;
+
+    /* Canvas */
+    --canvas-dot: #334252;
+    --edge-color: #405263;
+    --edge-active: #60a5fa;
+
+    /* Agent palette (same in both themes) */
+    --agent-1: #3972F6;
+    --agent-2: #10B981;
+    --agent-3: #F59E0B;
+    --agent-4: #EF4444;
+    --agent-5: #8B5CF6;
+    --agent-6: #EC4899;
+    --agent-7: #06B6D4;
+    --agent-8: #84CC16;
+    --agent-9: #F97316;
+    --agent-10: #6366F1;
+    --agent-11: #14B8A6;
+    --agent-12: #A855F7;
+
     /* Utility */
     --white: #ffffff;
 
@@ -259,6 +319,18 @@
     --destructive-foreground: 210 20% 98%;
     --input: 210 18% 18%;
     --ring: 199 89% 48%;
+  }
+}
+
+@layer utilities {
+  .brand-gradient {
+    background-image: linear-gradient(to bottom right, var(--gradient-brand-from), var(--gradient-brand-to));
+  }
+  .brand-gradient-text {
+    background-image: linear-gradient(to right, var(--gradient-brand-from), var(--gradient-brand-to));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
   }
 }
 
@@ -285,7 +357,7 @@
 
 .react-flow__handle:hover {
   /* Use box-shadow instead of scale to avoid jumping */
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.3);
 }
 
 .react-flow__edge-path {

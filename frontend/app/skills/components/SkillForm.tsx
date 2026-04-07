@@ -55,11 +55,11 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
             render={({ field }) => (
               <FormItem>
                 <div className="flex items-center justify-between">
-                  <FormLabel className="text-[10px] font-bold uppercase text-[var(--text-muted)]">
+                  <FormLabel className="text-2xs font-bold uppercase text-[var(--text-muted)]">
                     {t('skills.name') || 'Name'} *
                   </FormLabel>
                   <span
-                    className={`text-[10px] ${
+                    className={`text-2xs ${
                       (name?.length || 0) > MAX_SKILL_NAME_LENGTH
                         ? 'text-red-500'
                         : (name?.length || 0) > 50
@@ -78,7 +78,7 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                     maxLength={MAX_SKILL_NAME_LENGTH}
                   />
                 </FormControl>
-                <FormMessage className="text-[10px]" />
+                <FormMessage className="text-2xs" />
               </FormItem>
             )}
           />
@@ -90,11 +90,11 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
             render={({ field }) => (
               <FormItem>
                 <div className="flex items-center justify-between">
-                  <FormLabel className="text-[10px] font-bold uppercase text-[var(--text-muted)]">
+                  <FormLabel className="text-2xs font-bold uppercase text-[var(--text-muted)]">
                     {t('skills.description') || 'Description'} *
                   </FormLabel>
                   <span
-                    className={`text-[10px] ${
+                    className={`text-2xs ${
                       (description?.length || 0) > MAX_SKILL_DESCRIPTION_LENGTH
                         ? 'text-red-500'
                         : (description?.length || 0) > 900
@@ -113,7 +113,7 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                     maxLength={MAX_SKILL_DESCRIPTION_LENGTH}
                   />
                 </FormControl>
-                <FormMessage className="text-[10px]" />
+                <FormMessage className="text-2xs" />
               </FormItem>
             )}
           />
@@ -124,7 +124,7 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
             name="license"
             render={({ field }) => (
               <FormItem>
-                <FormLabel className="text-[10px] font-bold uppercase text-[var(--text-muted)]">
+                <FormLabel className="text-2xs font-bold uppercase text-[var(--text-muted)]">
                   {t('skills.license') || 'License'}
                 </FormLabel>
                 <FormControl>
@@ -135,7 +135,7 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                     placeholder="MIT, Apache-2.0, Proprietary, etc."
                   />
                 </FormControl>
-                <FormMessage className="text-[10px]" />
+                <FormMessage className="text-2xs" />
               </FormItem>
             )}
           />
@@ -144,7 +144,7 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
           <button
             type="button"
             onClick={onToggleAdvancedFields}
-            className="mt-2 flex items-center gap-2 text-[10px] text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-secondary)]"
+            className="mt-2 flex items-center gap-2 text-2xs text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-secondary)]"
           >
             <ChevronDown
               size={12}
@@ -163,12 +163,12 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                 render={({ field }) => (
                   <FormItem>
                     <div className="flex items-center justify-between">
-                      <FormLabel className="text-[10px] font-bold uppercase text-[var(--text-muted)]">
+                      <FormLabel className="text-2xs font-bold uppercase text-[var(--text-muted)]">
                         Compatibility
                         <span className="ml-1 font-normal text-[var(--text-muted)]">(optional)</span>
                       </FormLabel>
                       <span
-                        className={`text-[10px] ${
+                        className={`text-2xs ${
                           (compatibility?.length || 0) > MAX_COMPATIBILITY_LENGTH
                             ? 'text-red-500'
                             : (compatibility?.length || 0) > 450
@@ -188,10 +188,10 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                         maxLength={MAX_COMPATIBILITY_LENGTH}
                       />
                     </FormControl>
-                    <FormDescription className="text-[10px] text-[var(--text-tertiary)]">
+                    <FormDescription className="text-2xs text-[var(--text-tertiary)]">
                       Environment requirements (max {MAX_COMPATIBILITY_LENGTH} chars)
                     </FormDescription>
-                    <FormMessage className="text-[10px]" />
+                    <FormMessage className="text-2xs" />
                   </FormItem>
                 )}
               />
@@ -202,7 +202,7 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                 name="allowed_tools"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-[10px] font-bold uppercase text-[var(--text-muted)]">
+                    <FormLabel className="text-2xs font-bold uppercase text-[var(--text-muted)]">
                       Allowed Tools
                       <span className="ml-1 font-normal text-[var(--text-muted)]">
                         (optional, experimental)
@@ -220,10 +220,10 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                         placeholder="search read write (space-separated)"
                       />
                     </FormControl>
-                    <FormDescription className="text-[10px] text-[var(--text-tertiary)]">
+                    <FormDescription className="text-2xs text-[var(--text-tertiary)]">
                       Space-delimited list of pre-approved tools
                     </FormDescription>
-                    <FormMessage className="text-[10px]" />
+                    <FormMessage className="text-2xs" />
                   </FormItem>
                 )}
               />
@@ -234,7 +234,7 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                 name="metadata"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-[10px] font-bold uppercase text-[var(--text-muted)]">
+                    <FormLabel className="text-2xs font-bold uppercase text-[var(--text-muted)]">
                       Metadata
                       <span className="ml-1 font-normal text-[var(--text-muted)]">(optional, JSON)</span>
                     </FormLabel>
@@ -263,10 +263,10 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                         placeholder='{\n  "version": "1.0",\n  "author": "team-name"\n}'
                       />
                     </FormControl>
-                    <FormDescription className="text-[10px] text-[var(--text-tertiary)]">
+                    <FormDescription className="text-2xs text-[var(--text-tertiary)]">
                       Key-value pairs (all values must be strings)
                     </FormDescription>
-                    <FormMessage className="text-[10px]" />
+                    <FormMessage className="text-2xs" />
                   </FormItem>
                 )}
               />

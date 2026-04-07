@@ -40,7 +40,7 @@ export default function OpenClawPage() {
       {/* Right Sidebar */}
       <div
         className={cn(
-          'relative flex shrink-0 flex-col border-l border-[var(--border)] bg-[#fafafa] transition-all duration-300 ease-in-out dark:bg-[var(--surface-1)]',
+          'relative flex shrink-0 flex-col border-l border-[var(--border)] bg-[var(--surface-2)] transition-all duration-300 ease-in-out dark:bg-[var(--surface-1)]',
           isRightSidebarOpen
             ? 'w-[320px] sm:w-[380px]'
             : 'w-0 overflow-hidden border-l-0 opacity-0',

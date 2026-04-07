@@ -35,7 +35,7 @@ export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreat
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-w-2xl gap-0 overflow-hidden border-0 bg-[#F9F9FA] p-0 shadow-2xl sm:rounded-2xl"
+        className="max-w-2xl gap-0 overflow-hidden border-0 bg-[var(--surface-dialog)] p-0 shadow-2xl sm:rounded-2xl"
         hideCloseButton
       >
         {/* Header */}
@@ -55,7 +55,7 @@ export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreat
         </div>
 
         {/* Content */}
-        <div className="space-y-4 bg-[#F9F9FA] p-6">
+        <div className="space-y-4 bg-[var(--surface-dialog)] p-6">
           <p className="text-sm text-amber-700 bg-amber-50 rounded-lg px-4 py-3 border border-amber-200">
             {t('settings.tokens.tokenCreatedMessage')}
           </p>
@@ -99,7 +99,7 @@ export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreat
                           <Badge
                             key={scope}
                             variant="outline"
-                            className="rounded-full border-indigo-200 bg-indigo-50 px-2 py-0 text-[10px] font-medium text-indigo-700"
+                            className="rounded-full border-indigo-200 bg-indigo-50 px-2 py-0 text-2xs font-medium text-indigo-700"
                           >
                             {scope}
                           </Badge>

@@ -346,18 +346,18 @@ export function Sidebar() {
 
   const generateRandomColor = useCallback(() => {
     const colors = [
-      '#3972F6',
-      '#10B981',
-      '#F59E0B',
-      '#EF4444',
-      '#8B5CF6',
-      '#EC4899',
-      '#06B6D4',
-      '#84CC16',
-      '#F97316',
-      '#6366F1',
-      '#14B8A6',
-      '#A855F7',
+      'var(--agent-1)',
+      'var(--agent-2)',
+      'var(--agent-3)',
+      'var(--agent-4)',
+      'var(--agent-5)',
+      'var(--agent-6)',
+      'var(--agent-7)',
+      'var(--agent-8)',
+      'var(--agent-9)',
+      'var(--agent-10)',
+      'var(--agent-11)',
+      'var(--agent-12)',
     ]
     return colors[Math.floor(Math.random() * colors.length)]
   }, [])
@@ -745,7 +745,7 @@ export function Sidebar() {
   if (isCollapsed) {
     return (
       <div
-        className="fixed top-[14px] z-10 max-w-[232px] rounded-[8px] border border-[var(--border)] bg-[var(--surface-2)] px-[12px] py-[8px] transition-all duration-300"
+        className="fixed top-[14px] z-10 max-w-[232px] rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-[12px] py-[8px] transition-all duration-300"
         style={{
           left: isAppSidebarCollapsed ? '78px' : '154px',
         }}
@@ -819,7 +819,7 @@ export function Sidebar() {
           <div className="relative mt-[14px] flex flex-1 flex-col overflow-hidden">
             {/* Header */}
             <div className="flex flex-shrink-0 items-center justify-between px-[10px]">
-              <span className="text-[12px] font-medium text-[var(--text-tertiary)]">
+              <span className="text-xs-plus font-medium text-[var(--text-tertiary)]">
                 {t('workspace.agents')}
               </span>
               <div className="flex items-center gap-[8px]">
@@ -828,7 +828,7 @@ export function Sidebar() {
                     <TooltipTrigger asChild>
                       <button
                         type="button"
-                        className={`rounded-[4px] p-[2px] transition-colors ${
+                        className={`rounded-sm p-[2px] transition-colors ${
                           createFolderMutation.isPending || !userPermissions.canEdit
                             ? 'cursor-not-allowed opacity-50'
                             : 'hover:bg-[var(--surface-5)]'
@@ -842,7 +842,7 @@ export function Sidebar() {
                     <TooltipContent
                       side="bottom"
                       sideOffset={4}
-                      className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-[12px] font-medium text-[var(--text-primary)] shadow-lg"
+                      className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-xs-plus font-medium text-[var(--text-primary)] shadow-lg"
                     >
                       {t('workspace.createFolder')}
                     </TooltipContent>
@@ -853,7 +853,7 @@ export function Sidebar() {
                     <TooltipTrigger asChild>
                       <button
                         type="button"
-                        className={`rounded-[4px] border border-[var(--border)] p-[2px] transition-colors ${
+                        className={`rounded-sm border border-[var(--border)] p-[2px] transition-colors ${
                           createAgentMutation.isPending || !userPermissions.canEdit
                             ? 'cursor-not-allowed opacity-50'
                             : 'hover:bg-[var(--surface-5)]'
@@ -867,7 +867,7 @@ export function Sidebar() {
                     <TooltipContent
                       side="bottom"
                       sideOffset={4}
-                      className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-[12px] font-medium text-[var(--text-primary)] shadow-lg"
+                      className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-xs-plus font-medium text-[var(--text-primary)] shadow-lg"
                     >
                       {t('workspace.createAgent')}
                     </TooltipContent>
@@ -923,7 +923,7 @@ export function Sidebar() {
               {agentToDelete ? (
                 <>
                   {t('workspace.deleteAgentConfirmMessagePrefix')}{' '}
-                  <span className="font-semibold text-[#ef4444]">{agentToDelete.name}</span>{' '}
+                  <span className="font-semibold text-[var(--status-error)]">{agentToDelete.name}</span>{' '}
                   {t('workspace.deleteAgentConfirmMessageSuffix')}
                 </>
               ) : (
@@ -942,7 +942,7 @@ export function Sidebar() {
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleConfirmDeleteAgent}
-              className="bg-[#ef4444] text-white hover:bg-[#dc2626]"
+              className="bg-[var(--status-error)] text-white hover:bg-[var(--status-error-hover)]"
             >
               {t('workspace.delete')}
             </AlertDialogAction>
@@ -974,7 +974,7 @@ export function Sidebar() {
                 )}
               >
                 <span className="text-sm font-medium">Canvas</span>
-                <span className="text-[11px] leading-tight text-[var(--text-muted)]">
+                <span className="text-app-xs leading-tight text-[var(--text-muted)]">
                   Drag-and-drop DeepAgents builder
                 </span>
               </button>
@@ -989,7 +989,7 @@ export function Sidebar() {
                 )}
               >
                 <span className="text-sm font-medium">Code</span>
-                <span className="text-[11px] leading-tight text-[var(--text-muted)]">
+                <span className="text-app-xs leading-tight text-[var(--text-muted)]">
                   Python code to define graph structure
                 </span>
               </button>

@@ -288,7 +288,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
           'absolute -top-[46px] right-0',
           'flex flex-row items-center',
           'opacity-0 transition-opacity duration-200 group-hover:opacity-100',
-          'gap-[5px] rounded-[10px] border border-[var(--border)] bg-[var(--surface-elevated)] p-[5px] shadow-sm',
+          'gap-[5px] rounded-auth border border-[var(--border)] bg-[var(--surface-elevated)] p-[5px] shadow-sm',
           'pointer-events-auto z-10',
         )}
       >
@@ -309,7 +309,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
                   }
                   duplicateNode(id)
                 }}
-                className={`flex h-[23px] w-[23px] items-center justify-center rounded-[8px] bg-transparent p-0 transition-colors ${
+                className={`flex h-[23px] w-[23px] items-center justify-center rounded-lg bg-transparent p-0 transition-colors ${
                   userPermissions.canEdit
                     ? 'text-[var(--text-tertiary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]'
                     : 'cursor-not-allowed text-[var(--text-disabled)] opacity-50'
@@ -339,7 +339,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
                   }
                   setShowDeleteConfirm(true)
                 }}
-                className={`flex h-[23px] w-[23px] items-center justify-center rounded-[8px] bg-transparent p-0 transition-colors ${
+                className={`flex h-[23px] w-[23px] items-center justify-center rounded-lg bg-transparent p-0 transition-colors ${
                   userPermissions.canEdit
                     ? 'text-[var(--status-error)] hover:bg-[var(--status-error-bg)] hover:text-[var(--status-error-hover)]'
                     : 'cursor-not-allowed text-[var(--text-disabled)] opacity-50'
@@ -356,8 +356,8 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
       {/* Dynamic Animated Border for Execution */}
       {isExecuting && (
         <div className="pointer-events-none absolute -inset-[2px] z-0 overflow-hidden rounded-xl">
-          <div className="absolute inset-[-200%] animate-[spin_3s_linear_infinite] bg-[conic-gradient(from_0deg,transparent_20%,#3b82f6_50%,transparent_80%)]" />
-          <div className="absolute inset-[2px] rounded-[10px] bg-[var(--surface-elevated)]" />
+          <div className="absolute inset-[-200%] animate-[spin_3s_linear_infinite] bg-[conic-gradient(from_0deg,transparent_20%,var(--edge-active)_50%,transparent_80%)]" />
+          <div className="absolute inset-[2px] rounded-auth bg-[var(--surface-elevated)]" />
         </div>
       )}
 
@@ -365,13 +365,13 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
       <div className="relative z-10 p-3">
         {/* Execution Status Badge */}
         {isExecuting && (
-          <div className="absolute -top-2.5 left-1/2 flex -translate-x-1/2 animate-pulse items-center gap-1 rounded-full border border-white bg-[var(--brand-600)] px-2 py-0.5 text-[8px] font-bold text-white shadow-lg">
+          <div className="absolute -top-2.5 left-1/2 flex -translate-x-1/2 animate-pulse items-center gap-1 rounded-full border border-white bg-[var(--brand-600)] px-2 py-0.5 text-xxs font-bold text-white shadow-lg">
             <Zap size={8} className="fill-current" />
             {t('workspace.running')}
           </div>
         )}
         {isInterrupted && (
-          <div className="absolute -top-2.5 left-1/2 flex -translate-x-1/2 animate-pulse items-center gap-1 rounded-full border border-white bg-[var(--status-warning)] px-2 py-0.5 text-[8px] font-bold text-white shadow-lg">
+          <div className="absolute -top-2.5 left-1/2 flex -translate-x-1/2 animate-pulse items-center gap-1 rounded-full border border-white bg-[var(--status-warning)] px-2 py-0.5 text-xxs font-bold text-white shadow-lg">
             <PauseCircle className="h-2.5 w-2.5" />
             {t('workspace.waiting', { defaultValue: 'Waiting' })}
           </div>
@@ -388,7 +388,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-1.5">
-              <div className="min-w-0 flex-1 truncate text-[10px] font-bold leading-tight text-[var(--text-primary)]">
+              <div className="min-w-0 flex-1 truncate text-2xs font-bold leading-tight text-[var(--text-primary)]">
                 {title}
               </div>
               {useDeepAgents && (

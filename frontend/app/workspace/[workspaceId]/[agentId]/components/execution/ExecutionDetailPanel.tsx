@@ -48,7 +48,7 @@ function JsonView({ data, label }: { data: any; label?: string }) {
   return (
     <div className="space-y-1">
       {label && (
-        <div className="px-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+        <div className="px-1 text-2xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
           {label}
         </div>
       )}
@@ -92,7 +92,7 @@ function FormattedView({ data, label }: { data: any; label?: string }) {
     return (
       <div className="space-y-1">
         {label && (
-          <div className="px-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+          <div className="px-1 text-2xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
             {label}
           </div>
         )}
@@ -357,10 +357,10 @@ function MetadataTab() {
             key={key}
             className="flex items-start gap-3 border-b border-[var(--border-muted)] py-1.5 last:border-b-0"
           >
-            <span className="w-24 shrink-0 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+            <span className="w-24 shrink-0 pt-0.5 text-2xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
               {key}
             </span>
-            <span className="break-all font-mono text-[11px] text-[var(--text-secondary)]">
+            <span className="break-all font-mono text-app-xs text-[var(--text-secondary)]">
               {value === null ? <span className="italic text-[var(--text-subtle)]">null</span> : String(value)}
             </span>
           </div>
@@ -370,7 +370,7 @@ function MetadataTab() {
       {/* Raw data section */}
       {step.data && (
         <div className="mt-4">
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+          <div className="mb-2 text-2xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
             Raw Data
           </div>
           <JsonView data={step.data} />
@@ -420,10 +420,10 @@ export function ExecutionDetailPanel() {
       <div className="flex h-9 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface-2)] px-3">
         <div className="flex min-w-0 items-center gap-2">
           <AlignLeft size={13} className="shrink-0 text-[var(--text-tertiary)]" />
-          <span className="truncate text-[11px] font-semibold text-[var(--text-primary)]">
+          <span className="truncate text-app-xs font-semibold text-[var(--text-primary)]">
             {step.title || step.nodeLabel}
           </span>
-          <span className="shrink-0 rounded border border-[var(--border)] bg-[var(--surface-3)] px-1.5 py-0.5 font-mono text-[9px] text-[var(--text-muted)]">
+          <span className="shrink-0 rounded border border-[var(--border)] bg-[var(--surface-3)] px-1.5 py-0.5 font-mono text-micro text-[var(--text-muted)]">
             {step.stepType}
           </span>
         </div>
@@ -433,7 +433,7 @@ export function ExecutionDetailPanel() {
           <button
             onClick={() => setJsonViewMode('formatted')}
             className={cn(
-              'rounded px-2 py-0.5 text-[9px] font-medium transition-colors',
+              'rounded px-2 py-0.5 text-micro font-medium transition-colors',
               jsonViewMode === 'formatted'
                 ? 'bg-[var(--surface-elevated)] text-[var(--text-primary)] shadow-sm'
                 : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
@@ -445,7 +445,7 @@ export function ExecutionDetailPanel() {
           <button
             onClick={() => setJsonViewMode('json')}
             className={cn(
-              'rounded px-2 py-0.5 text-[9px] font-medium transition-colors',
+              'rounded px-2 py-0.5 text-micro font-medium transition-colors',
               jsonViewMode === 'json'
                 ? 'bg-[var(--surface-elevated)] text-[var(--text-primary)] shadow-sm'
                 : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
@@ -466,21 +466,21 @@ export function ExecutionDetailPanel() {
         <TabsList className="h-8 shrink-0 justify-start gap-0 rounded-none border-b border-[var(--border)] bg-transparent px-3">
           <TabsTrigger
             value="preview"
-            className="h-8 rounded-none border-b-2 border-transparent px-3 text-[11px] data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            className="h-8 rounded-none border-b-2 border-transparent px-3 text-app-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
           >
             <Eye size={12} className="mr-1" />
             Preview
           </TabsTrigger>
           <TabsTrigger
             value="output"
-            className="h-8 rounded-none border-b-2 border-transparent px-3 text-[11px] data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            className="h-8 rounded-none border-b-2 border-transparent px-3 text-app-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
           >
             <AlignLeft size={12} className="mr-1" />
             Output
           </TabsTrigger>
           <TabsTrigger
             value="metadata"
-            className="h-8 rounded-none border-b-2 border-transparent px-3 text-[11px] data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            className="h-8 rounded-none border-b-2 border-transparent px-3 text-app-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
           >
             <Info size={12} className="mr-1" />
             Metadata

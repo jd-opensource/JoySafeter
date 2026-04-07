@@ -15,9 +15,19 @@ export default {
         mono: ['var(--font-geist-mono)'],
       },
       fontSize: {
-        xs: '11px',
-        small: '13px',
-        base: '15px',
+        'xxs': ['8px', { lineHeight: '12px' }],
+        'micro': ['9px', { lineHeight: '14px' }],
+        '2xs': ['10px', { lineHeight: '14px' }],
+        'app-xs': ['11px', { lineHeight: '16px' }],
+        'xs-plus': ['12px', { lineHeight: '16px' }],
+        'small': ['13px', { lineHeight: '18px' }],
+        'sm-app': ['14px', { lineHeight: '20px' }],
+        'app-base': ['15px', { lineHeight: '22px' }],
+        'md-app': ['16px', { lineHeight: '24px' }],
+        'lg-app': ['17px', { lineHeight: '24px' }],
+        'xl-app': ['22px', { lineHeight: '28px' }],
+        '2xl-app': ['26px', { lineHeight: '32px' }],
+        '3xl-app': ['32px', { lineHeight: '40px' }],
       },
       colors: {
         background: 'hsl(var(--background))',
@@ -65,6 +75,8 @@ export default {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
+        xs: '2px',
+        auth: '10px',
       },
       keyframes: {
         'caret-blink': {

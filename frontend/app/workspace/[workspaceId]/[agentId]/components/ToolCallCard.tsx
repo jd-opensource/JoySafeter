@@ -127,19 +127,19 @@ export function ToolCallCard({
             )}
             <div className="flex min-w-0 flex-1 items-center gap-1.5">
               {getStatusIcon()}
-              <span className="truncate text-[11px] font-semibold text-[var(--text-secondary)]">{step.title}</span>
+              <span className="truncate text-app-xs font-semibold text-[var(--text-secondary)]">{step.title}</span>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {duration !== undefined && (
-              <div className="flex items-center gap-1 text-[9px] text-[var(--text-tertiary)]">
+              <div className="flex items-center gap-1 text-micro text-[var(--text-tertiary)]">
                 <Clock size={10} />
                 <span className="font-mono">{duration}ms</span>
               </div>
             )}
             <div
               className={cn(
-                'rounded px-1.5 py-0.5 text-[9px] font-medium',
+                'rounded px-1.5 py-0.5 text-micro font-medium',
                 step.status === 'running' && 'bg-cyan-100 text-cyan-700',
                 step.status === 'success' && 'bg-emerald-100 text-emerald-700',
                 step.status === 'error' && 'bg-red-100 text-red-700',
@@ -158,7 +158,7 @@ export function ToolCallCard({
           {input !== undefined && (
             <div className="space-y-1.5">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-amber-600">
+                <span className="text-2xs font-bold uppercase tracking-widest text-amber-600">
                   {t('workspace.input', { defaultValue: 'Input' })}
                 </span>
                 <div className="h-[1px] flex-1 bg-amber-100" />
@@ -178,7 +178,7 @@ export function ToolCallCard({
                   customStyle={{
                     margin: 0,
                     padding: '0.75rem',
-                    background: '#fffbeb',
+                    background: 'var(--status-warning-bg)',
                     fontSize: '11px',
                     lineHeight: '1.5',
                     fontFamily: 'JetBrains Mono, monospace',
@@ -200,7 +200,7 @@ export function ToolCallCard({
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <div className="flex flex-1 items-center gap-2">
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">
+                  <span className="text-2xs font-bold uppercase tracking-widest text-emerald-600">
                     {t('workspace.output', { defaultValue: 'Output' })}
                   </span>
                   <div className="h-[1px] flex-1 bg-emerald-100" />
@@ -208,7 +208,7 @@ export function ToolCallCard({
                 {shouldAutoCollapse && (
                   <button
                     onClick={() => setOutputCollapsed(!outputCollapsed)}
-                    className="rounded px-2 py-0.5 text-[9px] font-medium text-emerald-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700"
+                    className="rounded px-2 py-0.5 text-micro font-medium text-emerald-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700"
                   >
                     {outputCollapsed
                       ? t('tool.expand', { defaultValue: 'Expand' })
@@ -218,12 +218,12 @@ export function ToolCallCard({
               </div>
               {outputCollapsed ? (
                 <div className="rounded-md border border-emerald-200 bg-emerald-50 p-2">
-                  <p className="line-clamp-3 font-mono text-[10px] text-emerald-700">
+                  <p className="line-clamp-3 font-mono text-2xs text-emerald-700">
                     {outputString.slice(0, 200)}...
                   </p>
                   <button
                     onClick={() => setOutputCollapsed(false)}
-                    className="mt-1 text-[9px] font-medium text-emerald-600 hover:text-emerald-700"
+                    className="mt-1 text-micro font-medium text-emerald-600 hover:text-emerald-700"
                   >
                     {t('tool.clickToExpand', { defaultValue: 'Click to expand full output' })}
                   </button>
@@ -244,7 +244,7 @@ export function ToolCallCard({
                     customStyle={{
                       margin: 0,
                       padding: '0.75rem',
-                      background: '#ecfdf5',
+                      background: 'var(--status-success-bg)',
                       fontSize: '11px',
                       lineHeight: '1.5',
                       fontFamily: 'JetBrains Mono, monospace',
@@ -263,7 +263,7 @@ export function ToolCallCard({
           ) : step.status === 'running' ? (
             <div className="flex items-center gap-2 py-2 text-[var(--text-muted)]">
               <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyan-500" />
-              <span className="font-mono text-[10px]">
+              <span className="font-mono text-2xs">
                 {t('workspace.waitingForResponse', { defaultValue: 'Waiting for response...' })}
               </span>
             </div>

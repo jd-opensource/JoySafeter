@@ -80,7 +80,7 @@ export function SkillApiAccessDialog({
                 <h3 className="text-sm font-semibold text-[var(--text-primary)]">Base URL</h3>
                 <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-2.5">
                   <div className="flex flex-col gap-1 overflow-hidden">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+                    <span className="text-2xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                       ENDPOINT
                     </span>
                     <code
@@ -158,7 +158,7 @@ export function SkillApiAccessDialog({
                       </Tooltip>
                     </TooltipProvider>
                   </div>
-                  <pre className="overflow-x-auto bg-[#0d1117] p-4 font-mono text-xs text-gray-300">
+                  <pre className="overflow-x-auto bg-[var(--code-bg)] p-4 font-mono text-xs text-gray-300">
                     <code>{curlExample}</code>
                   </pre>
                 </div>

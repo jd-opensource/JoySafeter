@@ -69,7 +69,7 @@ export function RequestResetForm({
             type="email"
             disabled={isSubmitting}
             required
-            className="rounded-[10px] shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]"
+            className="rounded-auth shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]"
           />
           <p className="text-sm text-muted-foreground" suppressHydrationWarning>
             {mounted
@@ -84,7 +84,7 @@ export function RequestResetForm({
         disabled={isSubmitting}
         onMouseEnter={() => setIsButtonHovered(true)}
         onMouseLeave={() => setIsButtonHovered(false)}
-        className="group inline-flex w-full items-center justify-center gap-2 rounded-[10px] border border-[#6F3DFA] bg-gradient-to-b from-[#8357FF] to-[#6F3DFA] py-[6px] pl-[12px] pr-[10px] text-[15px] text-white shadow-[inset_0_2px_4px_0_#9B77FF] transition-all"
+        className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-500)] bg-gradient-to-b from-[var(--brand-400)] to-[var(--brand-500)] py-[6px] pl-[12px] pr-[10px] text-app-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
       >
         <span className="flex items-center gap-1" suppressHydrationWarning>
           {isSubmitting
@@ -225,7 +225,7 @@ export function SetNewPasswordForm({
               required
               placeholder={mounted ? t('auth.enterNewPassword') : 'Enter new password'}
               className={cn(
-                'rounded-[10px] pr-10 shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]',
+                'rounded-auth pr-10 shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]',
                 validationMessage &&
                   'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
               )}
@@ -259,7 +259,7 @@ export function SetNewPasswordForm({
               required
               placeholder={mounted ? t('auth.confirmNewPassword') : 'Confirm new password'}
               className={cn(
-                'rounded-[10px] pr-10 shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]',
+                'rounded-auth pr-10 shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]',
                 validationMessage &&
                   'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
               )}
@@ -281,7 +281,7 @@ export function SetNewPasswordForm({
         type="submit"
         onMouseEnter={() => setIsButtonHovered(true)}
         onMouseLeave={() => setIsButtonHovered(false)}
-        className="group inline-flex w-full items-center justify-center gap-2 rounded-[10px] border border-[#6F3DFA] bg-gradient-to-b from-[#8357FF] to-[#6F3DFA] py-[6px] pl-[12px] pr-[10px] text-[15px] text-white shadow-[inset_0_2px_4px_0_#9B77FF] transition-all"
+        className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-500)] bg-gradient-to-b from-[var(--brand-400)] to-[var(--brand-500)] py-[6px] pl-[12px] pr-[10px] text-app-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
       >
         <span className="flex items-center gap-1" suppressHydrationWarning>
           {isSubmitting

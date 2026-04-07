@@ -343,7 +343,7 @@ export default function ChatHome({
         {/* Background kept clean — no gradient */}
         <div className="relative flex w-full max-w-3xl flex-col gap-8">
           <div className="text-center">
-            <h1 className="mb-2 text-[32px] font-semibold tracking-tight text-[var(--text-primary)]">
+            <h1 className="mb-2 text-3xl-app font-semibold tracking-tight text-[var(--text-primary)]">
               {t('chat.createSomethingAwesome')}
             </h1>
           </div>

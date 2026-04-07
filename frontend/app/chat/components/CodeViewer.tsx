@@ -75,7 +75,7 @@ function LanguageBadge({ language }: { language: string }) {
   const colorClass = colors[language.toLowerCase()] || 'bg-[var(--surface-3)] text-[var(--text-secondary)] border-[var(--border)]'
 
   return (
-    <span className={cn('rounded border px-2 py-0.5 text-[10px] font-medium', colorClass)}>
+    <span className={cn('rounded border px-2 py-0.5 text-2xs font-medium', colorClass)}>
       {language}
     </span>
   )
@@ -137,7 +137,7 @@ export default function CodeViewer({
             {filename || 'untitled'}
           </span>
           <LanguageBadge language={prismLanguage} />
-          <span className="text-[10px] text-[var(--text-muted)]">{lineCount} lines</span>
+          <span className="text-2xs text-[var(--text-muted)]">{lineCount} lines</span>
         </div>
         <Button
           variant="ghost"
@@ -148,12 +148,12 @@ export default function CodeViewer({
           {copied ? (
             <>
               <Check size={12} className="text-emerald-600" />
-              <span className="text-[10px]">Copied</span>
+              <span className="text-2xs">Copied</span>
             </>
           ) : (
             <>
               <Copy size={12} />
-              <span className="text-[10px]">Copy</span>
+              <span className="text-2xs">Copy</span>
             </>
           )}
         </Button>
@@ -170,7 +170,7 @@ export default function CodeViewer({
             lineNumberStyle={{
               minWidth: '2.5em',
               paddingRight: '1em',
-              color: '#9ca3af',
+              color: 'var(--text-muted)',
               fontSize: '11px',
               textAlign: 'right',
               userSelect: 'none',
@@ -182,7 +182,7 @@ export default function CodeViewer({
             customStyle={{
               margin: 0,
               padding: '0.75rem 1rem',
-              background: '#ffffff',
+              background: 'var(--white)',
               fontSize: '12px',
               lineHeight: '1.6',
               fontFamily: 'JetBrains Mono, Menlo, Monaco, Consolas, monospace',

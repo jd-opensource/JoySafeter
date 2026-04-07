@@ -77,7 +77,7 @@ function DataSection({
       >
         <div className="flex items-center gap-2">
           <span className={iconColor}>{icon}</span>
-          <span className="text-[10px] font-semibold uppercase text-[var(--text-secondary)]">{title}</span>
+          <span className="text-2xs font-semibold uppercase text-[var(--text-secondary)]">{title}</span>
         </div>
         {collapsed ? (
           <ChevronRight size={12} className="text-[var(--text-muted)]" />
@@ -148,11 +148,11 @@ export function ModelIOCard({
           <div className="flex items-center gap-2 border-b border-[var(--border)] pb-2">
             <Brain size={14} className="text-purple-600" />
             <span className="text-xs font-semibold text-[var(--text-secondary)]">Model I/O</span>
-            <span className="font-mono text-[10px] text-[var(--text-tertiary)]">
+            <span className="font-mono text-2xs text-[var(--text-tertiary)]">
               ({modelProvider}/{modelName})
             </span>
             {isRunning && (
-              <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+              <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-2xs font-medium text-amber-700">
                 Awaiting output...
               </span>
             )}
@@ -213,25 +213,25 @@ export function ModelIOCard({
           )}
           <Brain size={14} className="shrink-0 text-purple-600" />
           <span className="truncate text-xs font-semibold text-[var(--text-secondary)]">Model I/O</span>
-          <span className="truncate font-mono text-[10px] text-[var(--text-tertiary)]">
+          <span className="truncate font-mono text-2xs text-[var(--text-tertiary)]">
             {modelProvider}/{modelName}
           </span>
 
           {/* Status indicator */}
           <div className="ml-auto flex items-center gap-1">
             {hasInput && (
-              <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[9px] font-medium text-blue-700">
+              <span className="rounded bg-blue-100 px-1.5 py-0.5 text-micro font-medium text-blue-700">
                 IN
               </span>
             )}
             {hasInput && hasOutput && <ArrowRight size={10} className="text-[var(--text-muted)]" />}
             {hasOutput ? (
-              <span className="rounded bg-purple-100 px-1.5 py-0.5 text-[9px] font-medium text-purple-700">
+              <span className="rounded bg-purple-100 px-1.5 py-0.5 text-micro font-medium text-purple-700">
                 OUT
               </span>
             ) : (
               hasInput && (
-                <span className="animate-pulse rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700">
+                <span className="animate-pulse rounded bg-amber-100 px-1.5 py-0.5 text-micro font-medium text-amber-700">
                   ...
                 </span>
               )
@@ -270,7 +270,7 @@ export function ModelIOCard({
           {!hasOutput && hasInput && (
             <div className="flex items-center gap-2 rounded border border-amber-200 bg-amber-50 p-2">
               <div className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-              <span className="text-[10px] text-amber-700">Awaiting model response...</span>
+              <span className="text-2xs text-amber-700">Awaiting model response...</span>
             </div>
           )}
         </div>

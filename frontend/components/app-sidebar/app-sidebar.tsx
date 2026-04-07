@@ -100,7 +100,7 @@ export function AppSidebar({ isCollapsed = false }: AppSidebarProps) {
                   <Link
                     href={item.href}
                     className={cn(
-                      'flex items-center gap-2 rounded-lg px-2 py-2 text-[13px] font-medium transition-colors',
+                      'flex items-center gap-2 rounded-lg px-2 py-2 text-small font-medium transition-colors',
                       isCollapsed ? 'justify-center' : '',
                       isActive
                         ? 'bg-[var(--surface-5)] text-[var(--text-primary)]'

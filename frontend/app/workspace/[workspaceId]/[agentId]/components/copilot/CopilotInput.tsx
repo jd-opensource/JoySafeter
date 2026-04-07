@@ -69,7 +69,7 @@ export function CopilotInput({
   const { t } = useTranslation()
 
   const chipBase =
-    'flex-shrink-0 text-[11px] px-2.5 py-1 rounded-full transition flex items-center gap-1 whitespace-nowrap'
+    'flex-shrink-0 text-app-xs px-2.5 py-1 rounded-full transition flex items-center gap-1 whitespace-nowrap'
 
   return (
     <div className="flex-shrink-0 border-t border-[var(--border-muted)] bg-[var(--surface-elevated)] px-1 py-0 backdrop-blur">
@@ -90,7 +90,7 @@ export function CopilotInput({
             onValueChange={(value) => onModeChange(value as CopilotMode)}
             disabled={loading || executingActions}
           >
-            <SelectTrigger className="h-6 min-w-[5rem] max-w-[5.5rem] border-[var(--border)] px-2 py-0.5 text-[10px] text-[var(--text-secondary)]">
+            <SelectTrigger className="h-6 min-w-[5rem] max-w-[5.5rem] border-[var(--border)] px-2 py-0.5 text-2xs text-[var(--text-secondary)]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -110,7 +110,7 @@ export function CopilotInput({
               onValueChange={(value) => onModelChange(value)}
               disabled={loading || executingActions}
             >
-              <SelectTrigger className="h-6 min-w-[6rem] max-w-[8rem] border-[var(--border)] px-2 py-0.5 text-[10px] text-[var(--text-secondary)]">
+              <SelectTrigger className="h-6 min-w-[6rem] max-w-[8rem] border-[var(--border)] px-2 py-0.5 text-2xs text-[var(--text-secondary)]">
                 <SelectValue placeholder={t('workspace.selectModel', { defaultValue: 'Select model' })} />
               </SelectTrigger>
               <SelectContent>
@@ -179,7 +179,7 @@ export function CopilotInput({
         )}
       </div>
       {/* Status bar: Mode + default model */}
-      <div className="mt-2 flex items-center justify-between px-1 text-[10px] text-[var(--text-tertiary)]">
+      <div className="mt-2 flex items-center justify-between px-1 text-2xs text-[var(--text-tertiary)]">
         <span className="flex items-center gap-1">
           <LayoutGrid size={10} className="shrink-0" />
           {t('workspace.copilotStatusMode')}

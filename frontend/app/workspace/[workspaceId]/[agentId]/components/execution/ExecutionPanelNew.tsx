@@ -129,11 +129,11 @@ function ExecutionPanelContent() {
             <div className="flex h-9 shrink-0 select-none items-center justify-between border-b border-[var(--border)] bg-[var(--surface-2)] px-3 backdrop-blur-sm">
               <div className="flex items-center gap-2">
                 <Activity size={13} className="text-primary" />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)]">
+                <span className="text-2xs font-bold uppercase tracking-widest text-[var(--text-secondary)]">
                   {t('workspace.executionStream', { defaultValue: 'Trace' })}
                 </span>
                 <div className="h-3 w-[1px] bg-[var(--border-strong)]" />
-                <span className="font-mono text-[9px] text-[var(--text-tertiary)]">
+                <span className="font-mono text-micro text-[var(--text-tertiary)]">
                   {deferredSteps.length} {t('workspace.ops', { defaultValue: 'OPS' })}
                 </span>
                 {isExecuting && (
@@ -203,7 +203,7 @@ function ExecutionPanelContent() {
                   title={t('workspace.closePanel', { defaultValue: 'Close Panel' })}
                 >
                   <ChevronDown size={12} />
-                  <span className="text-[9px] font-medium">
+                  <span className="text-micro font-medium">
                     {t('workspace.close', { defaultValue: 'Close' })}
                   </span>
                 </button>
@@ -220,7 +220,7 @@ function ExecutionPanelContent() {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search steps..."
-                  className="flex-1 bg-transparent font-mono text-[11px] text-[var(--text-secondary)] outline-none placeholder:text-[var(--text-subtle)]"
+                  className="flex-1 bg-transparent font-mono text-app-xs text-[var(--text-secondary)] outline-none placeholder:text-[var(--text-subtle)]"
                   onKeyDown={(e) => {
                     if (e.key === 'Escape') {
                       setIsSearching(false)

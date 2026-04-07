@@ -78,7 +78,7 @@ function FileTreeNodeComponent({
           onClick={() => setIsExpanded(!isExpanded)}
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
         >
-          <div className="flex items-center gap-1.5 text-[10px] font-medium text-[var(--text-secondary)]">
+          <div className="flex items-center gap-1.5 text-2xs font-medium text-[var(--text-secondary)]">
             {isExpanded ? (
               <ChevronDown size={12} className="text-[var(--text-muted)]" />
             ) : (

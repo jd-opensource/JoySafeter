@@ -14,9 +14,9 @@ export function AppLogo({ isCollapsed = false }: AppLogoProps) {
     <div className="flex h-[60px] min-w-0 items-center pl-2 pr-4">
       <Link href="/chat" className="flex min-w-0 flex-1 items-center gap-1.5">
         <div className="relative flex h-8 w-8 flex-shrink-0 items-center justify-center">
-          <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-[#6f3dfa] to-[#0ea5e9] opacity-100" />
+          <div className="absolute inset-0 rounded-lg brand-gradient opacity-100" />
 
-          <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-[#6f3dfa] to-[#0ea5e9] opacity-20 blur-md" />
+          <div className="absolute inset-0 rounded-lg brand-gradient opacity-20 blur-md" />
 
           <svg
             className="relative z-10 h-5 w-5 text-white"
@@ -26,8 +26,8 @@ export function AppLogo({ isCollapsed = false }: AppLogoProps) {
           >
             <defs>
               <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#6f3dfa" />
-                <stop offset="100%" stopColor="#0ea5e9" />
+                <stop offset="0%" stopColor="var(--gradient-brand-from)" />
+                <stop offset="100%" stopColor="var(--gradient-brand-to)" />
               </linearGradient>
             </defs>
 
@@ -61,7 +61,7 @@ export function AppLogo({ isCollapsed = false }: AppLogoProps) {
         </div>
 
         {!isCollapsed && (
-          <span className="whitespace-nowrap bg-gradient-to-r from-[#6f3dfa] to-[#0ea5e9] bg-clip-text text-[17px] font-bold tracking-tight text-transparent">
+          <span className="whitespace-nowrap brand-gradient-text text-lg-app font-bold tracking-tight">
             JoySafeter
           </span>
         )}

@@ -410,13 +410,13 @@ export function WorkspaceHeader({
                 }, 200)
               }}
               onKeyDown={(e) => handleRenameKeyDown(e, workspaceId, true)}
-              className="flex-1 rounded-[4px] border border-[var(--brand-primary)] bg-transparent px-[5px] py-[2px] text-[13px] font-medium text-[var(--text-primary)] outline-none"
+              className="flex-1 rounded-sm border border-[var(--brand-primary)] bg-transparent px-[5px] py-[2px] text-small font-medium text-[var(--text-primary)] outline-none"
               autoFocus
               onClick={(e) => e.stopPropagation()}
             />
             <button
               type="button"
-              className="rounded-[4px] p-[2px] text-[var(--brand-primary)] transition-colors hover:bg-[var(--surface-5)]"
+              className="rounded-sm p-[2px] text-[var(--brand-primary)] transition-colors hover:bg-[var(--surface-5)]"
               onClick={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
@@ -427,7 +427,7 @@ export function WorkspaceHeader({
             </button>
             <button
               type="button"
-              className="rounded-[4px] p-[2px] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--surface-5)]"
+              className="rounded-sm p-[2px] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--surface-5)]"
               onClick={handleCancelHeaderRename}
             >
               <X className="h-[14px] w-[14px]" />
@@ -439,7 +439,7 @@ export function WorkspaceHeader({
               <TooltipProvider delayDuration={100}>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <h2 className="flex-1 truncate text-[13px] font-medium text-[var(--text-primary)]">
+                    <h2 className="flex-1 truncate text-small font-medium text-[var(--text-primary)]">
                       {activeWorkspace
                         ? getWorkspaceDisplayName(activeWorkspace)
                         : t('workspace.workspace')}
@@ -448,7 +448,7 @@ export function WorkspaceHeader({
                   <TooltipContent
                     side="bottom"
                     sideOffset={4}
-                    className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-[12px] font-medium text-[var(--text-primary)] shadow-lg"
+                    className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-xs-plus font-medium text-[var(--text-primary)] shadow-lg"
                   >
                     {activeWorkspace
                       ? getWorkspaceDisplayName(activeWorkspace)
@@ -457,11 +457,11 @@ export function WorkspaceHeader({
                 </Tooltip>
               </TooltipProvider>
               {activeWorkspace?.type === 'personal' ? (
-                <span className="w-[32px] shrink-0 rounded-[4px] bg-[var(--brand-100)] px-[3px] py-[1px] text-center text-[9px] font-medium text-[var(--brand-600)]">
+                <span className="w-[32px] shrink-0 rounded-sm bg-[var(--brand-100)] px-[3px] py-[1px] text-center text-micro font-medium text-[var(--brand-600)]">
                   {t('workspace.personal')}
                 </span>
               ) : activeWorkspace?.type === 'team' ? (
-                <span className="w-[32px] shrink-0 rounded-[4px] bg-purple-100 px-[3px] py-[1px] text-center text-[9px] font-medium text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">
+                <span className="w-[32px] shrink-0 rounded-sm bg-purple-100 px-[3px] py-[1px] text-center text-micro font-medium text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">
                   {t('workspace.team')}
                 </span>
               ) : null}
@@ -472,7 +472,7 @@ export function WorkspaceHeader({
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      className="rounded-[4px] p-[2px] opacity-0 transition-opacity hover:bg-[var(--surface-5)] group-hover:opacity-100"
+                      className="rounded-sm p-[2px] opacity-0 transition-opacity hover:bg-[var(--surface-5)] group-hover:opacity-100"
                       onClick={handleStartHeaderRename}
                     >
                       <Pencil className="h-[12px] w-[12px] text-[var(--text-tertiary)]" />
@@ -481,7 +481,7 @@ export function WorkspaceHeader({
                   <TooltipContent
                     side="bottom"
                     sideOffset={4}
-                    className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-[12px] font-medium text-[var(--text-primary)] shadow-lg"
+                    className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-xs-plus font-medium text-[var(--text-primary)] shadow-lg"
                   >
                     {t('workspace.renameWorkspace')}
                   </TooltipContent>
@@ -500,7 +500,7 @@ export function WorkspaceHeader({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                className="flex items-center justify-center rounded-[4px] p-[4px] transition-colors hover:bg-[var(--surface-5)]"
+                className="flex items-center justify-center rounded-sm p-[4px] transition-colors hover:bg-[var(--surface-5)]"
                 onClick={() => setIsDropdownOpen(!isDropdownOpen)}
               >
                 <ChevronDown
@@ -514,7 +514,7 @@ export function WorkspaceHeader({
             <TooltipContent
               side="bottom"
               sideOffset={4}
-              className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-[12px] font-medium text-[var(--text-primary)] shadow-lg"
+              className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-xs-plus font-medium text-[var(--text-primary)] shadow-lg"
             >
               {t('workspace.switchWorkspace')}
             </TooltipContent>
@@ -528,7 +528,7 @@ export function WorkspaceHeader({
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  className="flex items-center justify-center rounded-[4px] p-[4px] transition-colors hover:bg-[var(--surface-5)]"
+                  className="flex items-center justify-center rounded-sm p-[4px] transition-colors hover:bg-[var(--surface-5)]"
                   onClick={onToggleCollapse}
                 >
                   <PanelLeft className="h-[14px] w-[14px] text-[var(--text-secondary)]" />
@@ -537,7 +537,7 @@ export function WorkspaceHeader({
               <TooltipContent
                 side="bottom"
                 sideOffset={4}
-                className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-[12px] font-medium text-[var(--text-primary)] shadow-lg"
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-xs-plus font-medium text-[var(--text-primary)] shadow-lg"
               >
                 {isCollapsed ? t('workspace.expandSidebar') : t('workspace.collapseSidebar')}
               </TooltipContent>
@@ -549,9 +549,9 @@ export function WorkspaceHeader({
       {isDropdownOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={handleCloseDropdown} />
-          <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 rounded-[8px] border border-[var(--border)] bg-[var(--surface-1)] p-[4px] shadow-lg">
+          <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-[4px] shadow-lg">
             <div className="flex items-center justify-between px-[8px] py-[4px]">
-              <span className="text-[11px] font-medium text-[var(--text-tertiary)]">
+              <span className="text-app-xs font-medium text-[var(--text-tertiary)]">
                 {t('workspace.workspaces')}
               </span>
               <TooltipProvider delayDuration={100}>
@@ -559,7 +559,7 @@ export function WorkspaceHeader({
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      className="rounded-[4px] p-[2px] transition-colors hover:bg-[var(--surface-5)]"
+                      className="rounded-sm p-[2px] transition-colors hover:bg-[var(--surface-5)]"
                       onClick={async () => {
                         if (onCreateWorkspace) {
                           await onCreateWorkspace()
@@ -573,7 +573,7 @@ export function WorkspaceHeader({
                   <TooltipContent
                     side="bottom"
                     sideOffset={4}
-                    className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-[12px] font-medium text-[var(--text-primary)] shadow-lg"
+                    className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-xs-plus font-medium text-[var(--text-primary)] shadow-lg"
                   >
                     {t('workspace.createWorkspace')}
                   </TooltipContent>
@@ -582,7 +582,7 @@ export function WorkspaceHeader({
             </div>
 
             <div className="mx-[4px] mb-[8px] mt-[4px]">
-              <div className="flex items-center gap-[6px] rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-[8px] py-[5px]">
+              <div className="flex items-center gap-[6px] rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-[8px] py-[5px]">
                 <Search className="h-[12px] w-[12px] flex-shrink-0 text-[var(--text-tertiary)]" />
                 <input
                   ref={searchInputRef}
@@ -590,12 +590,12 @@ export function WorkspaceHeader({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder={t('workspace.searchWorkspaces')}
-                  className="flex-1 bg-transparent text-[12px] font-medium text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)]"
+                  className="flex-1 bg-transparent text-xs-plus font-medium text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)]"
                 />
                 {searchQuery && (
                   <button
                     type="button"
-                    className="rounded-[2px] p-[1px] transition-colors hover:bg-[var(--surface-5)]"
+                    className="rounded-xs p-[1px] transition-colors hover:bg-[var(--surface-5)]"
                     onClick={() => setSearchQuery('')}
                   >
                     <X className="h-[10px] w-[10px] text-[var(--text-tertiary)]" />
@@ -606,11 +606,11 @@ export function WorkspaceHeader({
 
             <div className="max-h-[240px] overflow-y-auto">
               {isWorkspacesLoading ? (
-                <div className="px-[8px] py-[6px] text-[12px] text-[var(--text-tertiary)]">
+                <div className="px-[8px] py-[6px] text-xs-plus text-[var(--text-tertiary)]">
                   {t('workspace.loadingAgents')}
                 </div>
               ) : filteredWorkspaces.length === 0 ? (
-                <div className="px-[8px] py-[6px] text-[12px] text-[var(--text-tertiary)]">
+                <div className="px-[8px] py-[6px] text-xs-plus text-[var(--text-tertiary)]">
                   {searchQuery ? t('workspace.noWorkspacesFound') : t('workspace.noWorkspaces')}
                 </div>
               ) : (
@@ -618,7 +618,7 @@ export function WorkspaceHeader({
                   <div
                     key={workspace.id}
                     className={cn(
-                      'group relative grid grid-cols-[1fr_auto_auto] items-center gap-[4px] rounded-[6px] transition-colors',
+                      'group relative grid grid-cols-[1fr_auto_auto] items-center gap-[4px] rounded-md transition-colors',
                       workspace.id === workspaceId
                         ? 'bg-[var(--surface-9)]'
                         : 'hover:bg-[var(--surface-5)]',
@@ -637,12 +637,12 @@ export function WorkspaceHeader({
                             }, 200)
                           }}
                           onKeyDown={(e) => handleRenameKeyDown(e, workspace.id)}
-                          className="flex-1 rounded-[4px] border border-[var(--brand-primary)] bg-transparent px-[4px] py-[1px] text-[12px] font-medium text-[var(--text-primary)] outline-none"
+                          className="flex-1 rounded-sm border border-[var(--brand-primary)] bg-transparent px-[4px] py-[1px] text-xs-plus font-medium text-[var(--text-primary)] outline-none"
                           onClick={(e) => e.stopPropagation()}
                         />
                         <button
                           type="button"
-                          className="rounded-[4px] p-[2px] text-[var(--brand-primary)] transition-colors hover:bg-[var(--surface-5)]"
+                          className="rounded-sm p-[2px] text-[var(--brand-primary)] transition-colors hover:bg-[var(--surface-5)]"
                           onClick={(e) => {
                             e.stopPropagation()
                             handleSaveWorkspaceRename(workspace.id)
@@ -652,7 +652,7 @@ export function WorkspaceHeader({
                         </button>
                         <button
                           type="button"
-                          className="rounded-[4px] p-[2px] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--surface-5)]"
+                          className="rounded-sm p-[2px] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--surface-5)]"
                           onClick={(e) => {
                             e.stopPropagation()
                             handleCancelWorkspaceRename()
@@ -669,7 +669,7 @@ export function WorkspaceHeader({
                               <button
                                 type="button"
                                 className={cn(
-                                  'flex min-w-0 items-center px-[8px] py-[6px] text-left text-[12px] font-medium',
+                                  'flex min-w-0 items-center px-[8px] py-[6px] text-left text-xs-plus font-medium',
                                   workspace.id === workspaceId
                                     ? 'text-[var(--text-primary)]'
                                     : 'text-[var(--text-secondary)]',
@@ -689,7 +689,7 @@ export function WorkspaceHeader({
                             <TooltipContent
                               side="right"
                               sideOffset={8}
-                              className="max-w-[280px] break-words rounded-[8px] border border-[var(--border)] bg-[var(--surface-1)] px-[10px] py-[6px] text-[12px] font-medium text-[var(--text-primary)] shadow-lg"
+                              className="max-w-[280px] break-words rounded-lg border border-[var(--border)] bg-[var(--surface-1)] px-[10px] py-[6px] text-xs-plus font-medium text-[var(--text-primary)] shadow-lg"
                             >
                               {getWorkspaceDisplayName(workspace)}
                             </TooltipContent>
@@ -698,11 +698,11 @@ export function WorkspaceHeader({
 
                         <div className="flex w-[44px] shrink-0 justify-center">
                           {workspace.type === 'personal' ? (
-                            <span className="w-[36px] rounded-[4px] bg-[var(--brand-100)] px-[4px] py-[1px] text-center text-[10px] font-medium text-[var(--brand-600)]">
+                            <span className="w-[36px] rounded-sm bg-[var(--brand-100)] px-[4px] py-[1px] text-center text-2xs font-medium text-[var(--brand-600)]">
                               {t('workspace.personal')}
                             </span>
                           ) : workspace.type === 'team' ? (
-                            <span className="w-[36px] rounded-[4px] bg-purple-100 px-[4px] py-[1px] text-center text-[10px] font-medium text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">
+                            <span className="w-[36px] rounded-sm bg-purple-100 px-[4px] py-[1px] text-center text-2xs font-medium text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">
                               {t('workspace.team')}
                             </span>
                           ) : null}
@@ -716,7 +716,7 @@ export function WorkspaceHeader({
                               }}
                               data-workspace-menu-button
                               type="button"
-                              className="rounded-[4px] p-[4px] opacity-0 transition-opacity hover:bg-[var(--surface-9)] group-hover:opacity-100"
+                              className="rounded-sm p-[4px] opacity-0 transition-opacity hover:bg-[var(--surface-9)] group-hover:opacity-100"
                               onClick={(e) => {
                                 e.stopPropagation()
                                 const button = menuButtonRefs.current[workspace.id]
@@ -757,7 +757,7 @@ export function WorkspaceHeader({
           />
           <div
             data-workspace-menu
-            className="fixed z-[101] min-w-[120px] rounded-[8px] border border-[var(--border)] bg-[var(--surface-1)] p-[4px] shadow-lg"
+            className="fixed z-[101] min-w-[120px] rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-[4px] shadow-lg"
             style={{
               left: `${menuPosition.x}px`,
               top: `${menuPosition.y}px`,
@@ -777,7 +777,7 @@ export function WorkspaceHeader({
                     <>
                       <button
                         type="button"
-                        className="flex w-full items-center gap-[8px] rounded-[6px] px-[8px] py-[6px] text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]"
+                        className="flex w-full items-center gap-[8px] rounded-md px-[8px] py-[6px] text-xs-plus font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]"
                         onClick={(e) => {
                           e.stopPropagation()
                           router.push(`/workspace/${workspace.id}/settings/members`)
@@ -793,7 +793,7 @@ export function WorkspaceHeader({
                   )}
                   <button
                     type="button"
-                    className="flex w-full items-center gap-[8px] rounded-[6px] px-[8px] py-[6px] text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]"
+                    className="flex w-full items-center gap-[8px] rounded-md px-[8px] py-[6px] text-xs-plus font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]"
                     onClick={(e) => {
                       e.stopPropagation()
                       handleStartWorkspaceRenameWithClose(workspace)
@@ -804,7 +804,7 @@ export function WorkspaceHeader({
                   </button>
                   <button
                     type="button"
-                    className="flex w-full items-center gap-[8px] rounded-[6px] px-[8px] py-[6px] text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]"
+                    className="flex w-full items-center gap-[8px] rounded-md px-[8px] py-[6px] text-xs-plus font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]"
                     onClick={(e) => {
                       e.stopPropagation()
                       handleDuplicateWorkspace(workspace.id)
@@ -816,7 +816,7 @@ export function WorkspaceHeader({
                   <div className="my-[4px] h-[1px] bg-[var(--border)]" />
                   <button
                     type="button"
-                    className="flex w-full items-center gap-[8px] rounded-[6px] px-[8px] py-[6px] text-[12px] font-medium text-[#ef4444] transition-colors hover:bg-[var(--surface-5)]"
+                    className="flex w-full items-center gap-[8px] rounded-md px-[8px] py-[6px] text-xs-plus font-medium text-[var(--status-error)] transition-colors hover:bg-[var(--surface-5)]"
                     onClick={(e) => {
                       e.stopPropagation()
                       handleDeleteWorkspace(workspace.id)
@@ -840,7 +840,7 @@ export function WorkspaceHeader({
               {workspaceToDelete ? (
                 <>
                   {t('workspace.deleteConfirmMessagePrefix')}{' '}
-                  <span className="font-semibold text-[#ef4444]">{workspaceToDelete.name}</span>
+                  <span className="font-semibold text-[var(--status-error)]">{workspaceToDelete.name}</span>
                   {t('workspace.deleteConfirmMessageSuffix')}
                 </>
               ) : (
@@ -859,7 +859,7 @@ export function WorkspaceHeader({
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleConfirmDelete}
-              className="bg-[#ef4444] text-white hover:bg-[#dc2626]"
+              className="bg-[var(--status-error)] text-white hover:bg-[var(--status-error-hover)]"
             >
               {t('workspace.delete')}
             </AlertDialogAction>

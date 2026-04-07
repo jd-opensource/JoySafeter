@@ -60,7 +60,7 @@ export function CreateTokenDialog({ open, onOpenChange, onSubmit, isPending }: C
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-w-md gap-0 overflow-hidden border-0 bg-[#F9F9FA] p-0 shadow-2xl sm:rounded-2xl"
+        className="max-w-md gap-0 overflow-hidden border-0 bg-[var(--surface-dialog)] p-0 shadow-2xl sm:rounded-2xl"
         hideCloseButton
       >
         {/* Header */}
@@ -80,7 +80,7 @@ export function CreateTokenDialog({ open, onOpenChange, onSubmit, isPending }: C
         </div>
 
         {/* Content */}
-        <div className="space-y-5 bg-[#F9F9FA] p-6">
+        <div className="space-y-5 bg-[var(--surface-dialog)] p-6">
           {/* Name */}
           <div className="space-y-1.5">
             <Label className="flex items-center gap-1 text-xs font-semibold text-[var(--text-secondary)]">
@@ -133,7 +133,7 @@ export function CreateTokenDialog({ open, onOpenChange, onSubmit, isPending }: C
               placeholder={t('settings.tokens.noExpiry')}
             />
             {!expiresAt && (
-              <p className="text-[11px] text-[var(--text-muted)]">{t('settings.tokens.noExpiry')}</p>
+              <p className="text-app-xs text-[var(--text-muted)]">{t('settings.tokens.noExpiry')}</p>
             )}
           </div>
         </div>

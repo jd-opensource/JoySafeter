@@ -417,7 +417,7 @@ export function BuilderCanvas() {
         }}
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="#cbd5e1" gap={20} size={1} variant={BackgroundVariant.Dots} />
+        <Background color="var(--canvas-dot)" gap={20} size={1} variant={BackgroundVariant.Dots} />
         {/* Custom Controls with Zoom + Undo/Redo - Bottom Center */}
         <CustomControls
           past={past}

@@ -54,7 +54,7 @@ const PreviewNode = ({
           <Icon size={12} />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[9px] font-semibold text-[var(--text-primary)]">{label}</div>
+          <div className="truncate text-micro font-semibold text-[var(--text-primary)]">{label}</div>
           <div className="text-[7px] uppercase tracking-wider text-[var(--text-muted)]">
             {def?.subLabel || data.type}
           </div>
@@ -189,7 +189,7 @@ export function GraphPreview({
         target: edge.target,
         type: 'default', // Use Bezier curves to avoid SmoothStep's strange corners
         animated: true,
-        style: { stroke: '#cbd5e1', strokeWidth: 1.5 },
+        style: { stroke: 'var(--edge-color)', strokeWidth: 1.5 },
       })
     }
 

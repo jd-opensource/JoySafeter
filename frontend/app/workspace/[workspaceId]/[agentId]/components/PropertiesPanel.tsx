@@ -134,7 +134,7 @@ const SchemaFieldRenderer = ({
           )}
           onClick={() => onChange(!value)}
         >
-          <span className="text-[11px] font-medium text-[var(--text-secondary)]">
+          <span className="text-app-xs font-medium text-[var(--text-secondary)]">
             {value ? t('workspace.enabled') : t('workspace.disabled')}
           </span>
           <div
@@ -267,12 +267,12 @@ const SchemaFieldRenderer = ({
 
   return (
     <div className="space-y-1.5 duration-200 animate-in fade-in">
-      <Label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+      <Label className="flex items-center gap-1.5 text-2xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
         {translatedLabel} {schema.required && <span className="text-[var(--status-error)]">*</span>}
       </Label>
       {input}
       {schema.description && (
-        <p className="text-[9px] italic leading-tight text-[var(--text-muted)]">{schema.description}</p>
+        <p className="text-micro italic leading-tight text-[var(--text-muted)]">{schema.description}</p>
       )}
     </div>
   )
@@ -290,7 +290,7 @@ const SectionHeader = ({
   <div className="mb-3 mt-2 flex items-center gap-2">
     <Icon size={14} className="text-[var(--text-muted)]" />
     <div className="flex items-center gap-1.5">
-      <h4 className="text-[11px] font-bold uppercase tracking-[0.1em] text-[var(--text-muted)]">{title}</h4>
+      <h4 className="text-app-xs font-bold uppercase tracking-[0.1em] text-[var(--text-muted)]">{title}</h4>
       {tooltip && (
         <TooltipProvider delayDuration={300}>
           <Tooltip>
@@ -299,7 +299,7 @@ const SectionHeader = ({
             </TooltipTrigger>
             <TooltipContent
               side="top"
-              className="max-w-[200px] text-[11px] font-normal normal-case leading-relaxed tracking-normal text-[var(--text-secondary)]"
+              className="max-w-[200px] text-app-xs font-normal normal-case leading-relaxed tracking-normal text-[var(--text-secondary)]"
             >
               {tooltip}
             </TooltipContent>
@@ -467,7 +467,7 @@ export default function PropertiesPanel({
             <h3 className="truncate text-sm font-bold leading-tight">
               {nodeData.label || def?.label}
             </h3>
-            <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
+            <span className="text-micro font-bold uppercase tracking-widest text-[var(--text-muted)]">
               {def?.label}
             </span>
           </div>
@@ -489,7 +489,7 @@ export default function PropertiesPanel({
         {/* Configuration Templates */}
         {templates.length > 0 && (
           <div className="space-y-2">
-            <Label className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+            <Label className="text-2xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
               Quick Templates
             </Label>
             <div className="space-y-1">
@@ -511,7 +511,7 @@ export default function PropertiesPanel({
         {/* Validation Errors */}
         {validationErrors.length > 0 && (
           <div className="space-y-2">
-            <Label className="text-[10px] font-bold uppercase tracking-wider text-[var(--status-error)]">
+            <Label className="text-2xs font-bold uppercase tracking-wider text-[var(--status-error)]">
               Configuration Errors
             </Label>
             <div className="space-y-1">
@@ -536,7 +536,7 @@ export default function PropertiesPanel({
           <SectionHeader icon={Settings} title={t('workspace.general')} />
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+              <Label className="text-2xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
                 {t('workspace.displayName')}
               </Label>
               <Input
@@ -712,7 +712,7 @@ export default function PropertiesPanel({
             )}
 
             {!enableMemory && (
-              <p className="rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-2 text-[10px] italic text-[var(--text-muted)]">
+              <p className="rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-2 text-2xs italic text-[var(--text-muted)]">
                 {t('workspace.memoryDisabled')}
               </p>
             )}
@@ -723,7 +723,7 @@ export default function PropertiesPanel({
       </div>
 
       {/* Footer Info */}
-      <div className="flex items-center justify-between border-t border-[var(--border)] bg-[var(--surface-2)] px-4 py-2 font-mono text-[9px] text-[var(--text-muted)]">
+      <div className="flex items-center justify-between border-t border-[var(--border)] bg-[var(--surface-2)] px-4 py-2 font-mono text-micro text-[var(--text-muted)]">
         <span className="truncate">TYPE: {nodeData.type}</span>
         <span className="flex items-center gap-1">
           <div className="h-1.5 w-1.5 rounded-full bg-[var(--status-success)]" /> {t('workspace.synced')}

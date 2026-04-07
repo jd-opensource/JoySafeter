@@ -366,7 +366,7 @@ export default function WorkspaceMembersPage() {
                                       {user.name || user.email}
                                     </p>
                                     {user.name && (
-                                      <p className="truncate text-[10px] text-[var(--text-tertiary)]">
+                                      <p className="truncate text-2xs text-[var(--text-tertiary)]">
                                         {user.email}
                                       </p>
                                     )}
@@ -699,7 +699,7 @@ export default function WorkspaceMembersPage() {
                   handleRemoveMember(removeMemberId)
                 }
               }}
-              className="bg-[#ef4444] text-white hover:bg-[#dc2626]"
+              className="bg-[var(--status-error)] text-white hover:bg-[var(--status-error-hover)]"
             >
               {t('workspace.confirmRemove')}
             </AlertDialogAction>

@@ -118,7 +118,7 @@ function ChatTurnOverview({ projection: p, t }: { projection: Record<string, unk
           <ul className="text-xs space-y-1">
             {Object.entries(projection.file_tree).map(([path, info]) => (
               <li key={path} className="flex items-center gap-2">
-                <Badge variant="outline" className="text-[10px]">{info.action}</Badge>
+                <Badge variant="outline" className="text-2xs">{info.action}</Badge>
                 <span className="font-mono truncate">{path}</span>
               </li>
             ))}
@@ -141,7 +141,7 @@ function ChatTurnOverview({ projection: p, t }: { projection: Record<string, unk
           <ul className="text-xs space-y-1">
             {projection.node_execution_log.map((entry, i) => (
               <li key={i} className="flex items-center gap-2">
-                <Badge variant={entry.status === 'completed' ? 'default' : 'secondary'} className="text-[10px]">
+                <Badge variant={entry.status === 'completed' ? 'default' : 'secondary'} className="text-2xs">
                   {entry.status}
                 </Badge>
                 <span className="font-mono">{entry.node_name}</span>
@@ -527,7 +527,7 @@ export default function RunDetailPage() {
                           >
                             <div className="mb-2 flex flex-wrap items-center gap-2">
                               <Badge variant="outline">#{event.seq}</Badge>
-                              <Badge variant="outline" className="text-[10px]">
+                              <Badge variant="outline" className="text-2xs">
                                 {event.event_type}
                               </Badge>
                               <span className="text-xs text-[var(--text-muted)]">

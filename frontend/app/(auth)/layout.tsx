@@ -41,8 +41,8 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
               {/* Brand identity */}
               <div className="flex items-center gap-3">
                 <div className="relative flex h-12 w-12 flex-shrink-0 items-center justify-center">
-                  <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-[#6f3dfa] to-[#0ea5e9] opacity-100" />
-                  <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-[#6f3dfa] to-[#0ea5e9] opacity-20 blur-md" />
+                  <div className="absolute inset-0 rounded-xl brand-gradient opacity-100" />
+                  <div className="absolute inset-0 rounded-xl brand-gradient opacity-20 blur-md" />
                   <svg
                     className="relative z-10 h-6 w-6 text-white"
                     viewBox="0 0 24 24"
@@ -51,8 +51,8 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                   >
                     <defs>
                       <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stopColor="#6f3dfa" />
-                        <stop offset="100%" stopColor="#0ea5e9" />
+                        <stop offset="0%" stopColor="var(--gradient-brand-from)" />
+                        <stop offset="100%" stopColor="var(--gradient-brand-to)" />
                       </linearGradient>
                     </defs>
                     <g transform="translate(12, 12)">
@@ -80,7 +80,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                 </div>
                 <div>
                   <span
-                    className={`${soehne.className} bg-gradient-to-r from-[#6f3dfa] to-[#0ea5e9] bg-clip-text text-2xl font-bold text-transparent`}
+                    className={`${soehne.className} brand-gradient-text text-2xl font-bold`}
                   >
                     JoySafeter
                   </span>
@@ -93,7 +93,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
               {/* Main title area */}
               <div className="space-y-5">
                 <h1
-                  className={`${soehne.className} whitespace-nowrap text-[22px] font-bold leading-tight tracking-tight text-[var(--text-primary)] xl:text-[26px]`}
+                  className={`${soehne.className} whitespace-nowrap text-xl-app font-bold leading-tight tracking-tight text-[var(--text-primary)] xl:text-2xl-app`}
                   suppressHydrationWarning
                 >
                   {mounted ? t('auth.platformTitle') : 'Your Intelligent Security Command Center'}
@@ -114,11 +114,11 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
               <div className="space-y-2.5">
                 <div className="group flex items-center gap-4">
                   <div className="relative">
-                    <div className="h-[3px] w-10 rounded-full bg-gradient-to-r from-[#6f3dfa] to-[#a78bfa] shadow-sm shadow-violet-400/50" />
-                    <div className="absolute inset-0 h-[3px] w-10 rounded-full bg-gradient-to-r from-[#6f3dfa] to-[#a78bfa] opacity-60 blur-sm" />
+                    <div className="h-[3px] w-10 rounded-full bg-gradient-to-r from-[var(--gradient-brand-from)] to-[var(--gradient-brand-accent)] shadow-sm shadow-violet-400/50" />
+                    <div className="absolute inset-0 h-[3px] w-10 rounded-full bg-gradient-to-r from-[var(--gradient-brand-from)] to-[var(--gradient-brand-accent)] opacity-60 blur-sm" />
                   </div>
                   <p
-                    className={`${soehne.className} text-[15px] font-medium text-[var(--text-secondary)] transition-colors group-hover:text-[var(--text-primary)]`}
+                    className={`${soehne.className} text-app-base font-medium text-[var(--text-secondary)] transition-colors group-hover:text-[var(--text-primary)]`}
                     suppressHydrationWarning
                   >
                     {mounted
@@ -128,11 +128,11 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                 </div>
                 <div className="group flex items-center gap-4">
                   <div className="relative">
-                    <div className="h-[3px] w-10 rounded-full bg-gradient-to-r from-[#0ea5e9] to-[#67e8f9] shadow-sm shadow-cyan-400/50" />
-                    <div className="absolute inset-0 h-[3px] w-10 rounded-full bg-gradient-to-r from-[#0ea5e9] to-[#67e8f9] opacity-60 blur-sm" />
+                    <div className="h-[3px] w-10 rounded-full bg-gradient-to-r from-[var(--gradient-secondary-from)] to-[var(--gradient-secondary-to)] shadow-sm shadow-cyan-400/50" />
+                    <div className="absolute inset-0 h-[3px] w-10 rounded-full bg-gradient-to-r from-[var(--gradient-secondary-from)] to-[var(--gradient-secondary-to)] opacity-60 blur-sm" />
                   </div>
                   <p
-                    className={`${soehne.className} text-[15px] font-medium text-[var(--text-secondary)] transition-colors group-hover:text-[var(--text-primary)]`}
+                    className={`${soehne.className} text-app-base font-medium text-[var(--text-secondary)] transition-colors group-hover:text-[var(--text-primary)]`}
                     suppressHydrationWarning
                   >
                     {mounted

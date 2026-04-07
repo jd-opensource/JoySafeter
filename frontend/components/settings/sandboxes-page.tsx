@@ -280,19 +280,19 @@ export const SandboxesPage = () => {
             <Table>
               <TableHeader>
                 <TableRow className="bg-[var(--surface-1)] hover:bg-[var(--surface-1)]">
-                  <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+                  <TableHead className="py-3 text-app-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                     {t('settings.sandboxes.user')}
                   </TableHead>
-                  <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+                  <TableHead className="py-3 text-app-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                     {t('settings.sandboxes.status')}
                   </TableHead>
-                  <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+                  <TableHead className="py-3 text-app-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                     {t('settings.sandboxes.image')}
                   </TableHead>
-                  <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+                  <TableHead className="py-3 text-app-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                     {t('settings.sandboxes.runtime')}
                   </TableHead>
-                  <TableHead className="py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+                  <TableHead className="py-3 text-right text-app-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                     {t('settings.sandboxes.actions')}
                   </TableHead>
                 </TableRow>
@@ -328,11 +328,11 @@ export const SandboxesPage = () => {
                               <span className="text-sm font-medium text-[var(--text-primary)]">
                                 {sandbox.user_name || sandbox.user_email || 'Unknown'}
                               </span>
-                              <span className="font-mono text-[10px] text-[var(--text-muted)]">
+                              <span className="font-mono text-2xs text-[var(--text-muted)]">
                                 {sandbox.id.substring(0, 8)}...
                               </span>
                               {sandbox.container_id && (
-                                <span className="font-mono text-[10px] text-[var(--text-muted)]" title={sandbox.container_id}>
+                                <span className="font-mono text-2xs text-[var(--text-muted)]" title={sandbox.container_id}>
                                   {sandbox.container_id.substring(0, 12)}
                                 </span>
                               )}
@@ -343,7 +343,7 @@ export const SandboxesPage = () => {
                           <Badge
                             variant="outline"
                             className={cn(
-                              'gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium',
+                              'gap-1.5 rounded-full px-2 py-0.5 text-app-xs font-medium',
                               statusConfig.color,
                             )}
                           >
@@ -440,7 +440,7 @@ export const SandboxesPage = () => {
                               {needsRebuild.has(sandbox.id) && (
                                 <Badge
                                   variant="outline"
-                                  className="shrink-0 rounded-md border-amber-200 bg-amber-50 text-[10px] font-medium text-amber-700"
+                                  className="shrink-0 rounded-md border-amber-200 bg-amber-50 text-2xs font-medium text-amber-700"
                                 >
                                   {t('settings.sandboxes.needsRebuild')}
                                 </Badge>

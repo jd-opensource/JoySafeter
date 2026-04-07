@@ -53,8 +53,8 @@ export const DraggableItem = ({ def }: { def: NodeDefinition }) => {
         <Icon size={16} />
       </div>
       <div className="flex min-w-0 flex-col">
-        <span className="truncate text-[13px] font-semibold text-[var(--text-secondary)]">{translatedLabel}</span>
-        <span className="truncate text-[10px] text-[var(--text-muted)]">{t('workspace.dragToAdd')}</span>
+        <span className="truncate text-small font-semibold text-[var(--text-secondary)]">{translatedLabel}</span>
+        <span className="truncate text-2xs text-[var(--text-muted)]">{t('workspace.dragToAdd')}</span>
       </div>
       <GripVertical
         size={12}

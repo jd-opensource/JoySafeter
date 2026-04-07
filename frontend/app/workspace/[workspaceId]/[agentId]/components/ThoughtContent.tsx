@@ -19,11 +19,11 @@ export function ThoughtContent({ step, showHeader = true }: ThoughtContentProps)
       {showHeader && (
         <div className="flex items-center gap-2">
           <BrainCircuit size={14} className="text-purple-500" />
-          <span className="text-[11px] font-semibold text-purple-600">{step.title}</span>
+          <span className="text-app-xs font-semibold text-purple-600">{step.title}</span>
           {isStreaming && (
             <div className="flex items-center gap-1.5">
               <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-purple-500" />
-              <span className="text-[9px] font-medium text-purple-500">Thinking...</span>
+              <span className="text-micro font-medium text-purple-500">Thinking...</span>
             </div>
           )}
         </div>

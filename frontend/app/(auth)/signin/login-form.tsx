@@ -375,13 +375,13 @@ export default function LoginPage() {
     <>
       <div className="space-y-1 text-center">
         <h1
-          className={`${soehne.className} text-[32px] font-medium tracking-tight text-[var(--text-primary)]`}
+          className={`${soehne.className} text-3xl-app font-medium tracking-tight text-[var(--text-primary)]`}
           suppressHydrationWarning
         >
           {mounted ? t('auth.signIn') : 'Sign In'}
         </h1>
         <p
-          className={`${inter.className} text-[16px] font-[380] text-muted-foreground`}
+          className={`${inter.className} text-md-app font-[380] text-muted-foreground`}
           suppressHydrationWarning
         >
           {mounted ? t('auth.enterYourDetails') : 'Enter your details'}
@@ -413,7 +413,7 @@ export default function LoginPage() {
                 autoCorrect="off"
                 {...form.register('email')}
                 className={cn(
-                  'rounded-[10px] shadow-sm transition-colors focus:border-[var(--brand-400)] focus:ring-2 focus:ring-[var(--brand-100)]',
+                  'rounded-auth shadow-sm transition-colors focus:border-[var(--brand-400)] focus:ring-2 focus:ring-[var(--brand-100)]',
                     'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
                 )}
               />
@@ -442,7 +442,7 @@ export default function LoginPage() {
                   placeholder={mounted ? t('auth.enterYourPassword') : 'Enter your password'}
                   {...form.register('password')}
                   className={cn(
-                    'rounded-[10px] pr-10 shadow-sm transition-colors focus:border-[var(--brand-400)] focus:ring-2 focus:ring-[var(--brand-100)]',
+                    'rounded-auth pr-10 shadow-sm transition-colors focus:border-[var(--brand-400)] focus:ring-2 focus:ring-[var(--brand-100)]',
                     form.formState.errors.password &&
                       'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
                   )}
@@ -463,7 +463,7 @@ export default function LoginPage() {
             type="submit"
             onMouseEnter={() => setIsButtonHovered(true)}
             onMouseLeave={() => setIsButtonHovered(false)}
-            className="group inline-flex w-full items-center justify-center gap-2 rounded-[10px] border border-[var(--brand-600)] bg-gradient-to-b from-[var(--brand-500)] to-[var(--brand-600)] py-[6px] pl-[12px] pr-[10px] text-[15px] text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
+            className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-600)] bg-gradient-to-b from-[var(--brand-500)] to-[var(--brand-600)] py-[6px] pl-[12px] pr-[10px] text-app-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
             disabled={isLoading}
             suppressHydrationWarning
           >
@@ -495,7 +495,7 @@ export default function LoginPage() {
 
       {!isFalsy(getEnv('NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED')) && (
         <div
-          className={`${inter.className} pt-6 text-center text-[14px] font-light`}
+          className={`${inter.className} pt-6 text-center text-sm-app font-light`}
           suppressHydrationWarning
         >
           <span className="font-normal">
@@ -511,7 +511,7 @@ export default function LoginPage() {
       )}
 
       <Dialog open={forgotPasswordOpen} onOpenChange={setForgotPasswordOpen}>
-        <DialogContent className="auth-card auth-card-shadow max-w-[540px] rounded-[10px] border backdrop-blur-sm">
+        <DialogContent className="auth-card auth-card-shadow max-w-[540px] rounded-auth border backdrop-blur-sm">
           <DialogHeader>
             <DialogTitle
               className="auth-text-primary text-xl font-semibold tracking-tight"
@@ -540,7 +540,7 @@ export default function LoginPage() {
                 required
                 type="email"
                 className={cn(
-                  'rounded-[10px] shadow-sm transition-colors focus:border-[var(--brand-400)] focus:ring-2 focus:ring-[var(--brand-100)]',
+                  'rounded-auth shadow-sm transition-colors focus:border-[var(--brand-400)] focus:ring-2 focus:ring-[var(--brand-100)]',
                     'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
                 )}
               />
@@ -550,7 +550,7 @@ export default function LoginPage() {
               onClick={handleForgotPassword}
               onMouseEnter={() => setIsResetButtonHovered(true)}
               onMouseLeave={() => setIsResetButtonHovered(false)}
-              className="group inline-flex w-full items-center justify-center gap-2 rounded-[10px] border border-[var(--brand-600)] bg-gradient-to-b from-[var(--brand-500)] to-[var(--brand-600)] py-[6px] pl-[12px] pr-[10px] text-[15px] text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
+              className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-600)] bg-gradient-to-b from-[var(--brand-500)] to-[var(--brand-600)] py-[6px] pl-[12px] pr-[10px] text-app-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
               disabled={isSubmittingReset}
             >
               <span className="flex items-center gap-1" suppressHydrationWarning>

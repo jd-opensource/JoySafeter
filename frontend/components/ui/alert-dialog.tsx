@@ -115,7 +115,7 @@ const AlertDialogContent = React.forwardRef<
               'absolute left-0 right-0 top-0 h-1',
               variant === 'destructive'
                 ? 'bg-gradient-to-r from-red-500 via-rose-500 to-red-400'
-                : 'bg-gradient-to-r from-[#8e4cfb] via-[#6f3dfa] to-[#33b4ff] dark:from-[#38bdf8] dark:via-[#0ea5e9] dark:to-[#06b6d4]',
+                : 'bg-gradient-to-r from-[var(--brand-400)] via-[var(--gradient-brand-from)] to-[var(--brand-secondary)]',
             )}
           />
           {children}

@@ -20,7 +20,7 @@ export function ComponentsSidebar({ showHeader = true }: ComponentsSidebarProps)
       {showHeader && (
         <div className="flex items-center gap-2 border-b border-[var(--border-muted)] px-3 py-3">
           <Wrench size={14} className="text-[var(--text-tertiary)]" />
-          <span className="text-[13px] font-medium text-[var(--text-secondary)]">{t('workspace.components')}</span>
+          <span className="text-small font-medium text-[var(--text-secondary)]">{t('workspace.components')}</span>
         </div>
       )}
 
@@ -30,7 +30,7 @@ export function ComponentsSidebar({ showHeader = true }: ComponentsSidebarProps)
 
           return (
             <div key={category} className="space-y-2">
-              <div className="pl-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+              <div className="pl-1 text-2xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
                 {category}
               </div>
               {items.map((def) => (

@@ -28,7 +28,7 @@ export function CollapsibleList<T>({
   defaultVisibleCount = 2,
   expandKey,
   className = '',
-  buttonClassName = 'flex items-center gap-1.5 text-[9px] text-purple-600 hover:text-purple-700 hover:bg-purple-100/50 px-2 py-1 rounded transition-colors w-full text-left',
+  buttonClassName = 'flex items-center gap-1.5 text-micro text-purple-600 hover:text-purple-700 hover:bg-purple-100/50 px-2 py-1 rounded transition-colors w-full text-left',
   expandText,
   collapseText,
 }: CollapsibleListProps<T>) {

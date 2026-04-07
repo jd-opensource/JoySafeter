@@ -13,8 +13,8 @@ import type { EdgeData } from '../types/graph'
 // ── Edge Style Constants ────────────────────────────────────────────
 
 export const EDGE_COLORS = {
-  normal: '#cbd5e1', // gray-300
-  conditional: '#3b82f6', // blue-500
+  normal: 'var(--edge-color)', // gray-300
+  conditional: 'var(--edge-active)', // blue-500
 } as const
 
 // ── Core Helper ─────────────────────────────────────────────────────

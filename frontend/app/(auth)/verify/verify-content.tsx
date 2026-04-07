@@ -100,10 +100,10 @@ function VerificationForm({
   return (
     <>
       <div className="space-y-1 text-center">
-        <h1 className={`${soehne.className} text-[32px] font-medium tracking-tight text-[var(--text-primary)]`}>
+        <h1 className={`${soehne.className} text-3xl-app font-medium tracking-tight text-[var(--text-primary)]`}>
           {isVerified ? 'Email Verified!' : 'Verify Your Email'}
         </h1>
-        <p className={`${inter.className} text-[16px] font-[380] text-muted-foreground`}>
+        <p className={`${inter.className} text-md-app font-[380] text-muted-foreground`}>
           {isVerified
             ? 'Your email has been verified. Redirecting to dashboard...'
             : !isEmailVerificationEnabled
@@ -132,11 +132,11 @@ function VerificationForm({
                 disabled={isLoading}
                 className={cn('gap-2', isInvalidOtp && 'otp-error')}
               >
-                <InputOTPGroup className="gap-2 [&>div]:!rounded-[10px]">
+                <InputOTPGroup className="gap-2 [&>div]:!rounded-auth">
                   <InputOTPSlot
                     index={0}
                     className={cn(
-                      'h-12 w-12 !rounded-[10px] border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
+                      'h-12 w-12 !rounded-auth border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
                       'border-[var(--border-strong)] hover:border-[var(--border-strong)]',
                       'focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-muted)]',
                       isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
@@ -145,7 +145,7 @@ function VerificationForm({
                   <InputOTPSlot
                     index={1}
                     className={cn(
-                      'h-12 w-12 !rounded-[10px] border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
+                      'h-12 w-12 !rounded-auth border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
                       'border-[var(--border-strong)] hover:border-[var(--border-strong)]',
                       'focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-muted)]',
                       isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
@@ -154,7 +154,7 @@ function VerificationForm({
                   <InputOTPSlot
                     index={2}
                     className={cn(
-                      'h-12 w-12 !rounded-[10px] border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
+                      'h-12 w-12 !rounded-auth border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
                       'border-[var(--border-strong)] hover:border-[var(--border-strong)]',
                       'focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-muted)]',
                       isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
@@ -163,7 +163,7 @@ function VerificationForm({
                   <InputOTPSlot
                     index={3}
                     className={cn(
-                      'h-12 w-12 !rounded-[10px] border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
+                      'h-12 w-12 !rounded-auth border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
                       'border-[var(--border-strong)] hover:border-[var(--border-strong)]',
                       'focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-muted)]',
                       isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
@@ -172,7 +172,7 @@ function VerificationForm({
                   <InputOTPSlot
                     index={4}
                     className={cn(
-                      'h-12 w-12 !rounded-[10px] border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
+                      'h-12 w-12 !rounded-auth border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
                       'border-[var(--border-strong)] hover:border-[var(--border-strong)]',
                       'focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-muted)]',
                       isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
@@ -181,7 +181,7 @@ function VerificationForm({
                   <InputOTPSlot
                     index={5}
                     className={cn(
-                      'h-12 w-12 !rounded-[10px] border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
+                      'h-12 w-12 !rounded-auth border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
                       'border-[var(--border-strong)] hover:border-[var(--border-strong)]',
                       'focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-muted)]',
                       isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
@@ -194,7 +194,7 @@ function VerificationForm({
 
           <Button
             onClick={verifyCode}
-            className={`${buttonClass} flex w-full items-center justify-center gap-2 rounded-[10px] border text-[15px] font-medium text-white transition-all duration-200`}
+            className={`${buttonClass} flex w-full items-center justify-center gap-2 rounded-auth border text-app-base font-medium text-white transition-all duration-200`}
             disabled={!isOtpComplete || isLoading}
           >
             {isLoading ? 'Verifying...' : 'Verify Email'}
@@ -221,7 +221,7 @@ function VerificationForm({
             </div>
           )}
 
-          <div className="text-center text-[14px] font-light">
+          <div className="text-center text-sm-app font-light">
             <button
               onClick={() => {
                 if (typeof window !== 'undefined') {

@@ -108,12 +108,12 @@ export function DeviceManager() {
                     <p className="text-sm font-medium text-[var(--text-primary)]">
                       {d.name || d.id}
                     </p>
-                    {d.type && <p className="text-[10px] text-[var(--text-tertiary)]">{d.type}</p>}
+                    {d.type && <p className="text-2xs text-[var(--text-tertiary)]">{d.type}</p>}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   {d.status && (
-                    <Badge variant="outline" className="text-[10px]">
+                    <Badge variant="outline" className="text-2xs">
                       {d.status}
                     </Badge>
                   )}

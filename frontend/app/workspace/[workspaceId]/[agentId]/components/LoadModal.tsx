@@ -104,7 +104,7 @@ export function LoadModal({ onClose, onLoad }: LoadModalProps) {
                 >
                   <div className="flex flex-col gap-1">
                     <span className="text-sm font-medium text-[var(--text-secondary)]">{g.name}</span>
-                    <div className="flex items-center gap-2 text-[10px] text-[var(--text-muted)]">
+                    <div className="flex items-center gap-2 text-2xs text-[var(--text-muted)]">
                       <Clock size={10} />
                       <span>{new Date(g.createdAt).toLocaleString()}</span>
                       <span className="h-1 w-1 rounded-full bg-[var(--text-subtle)]" />

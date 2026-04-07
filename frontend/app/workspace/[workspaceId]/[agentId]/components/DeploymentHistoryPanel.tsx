@@ -512,7 +512,7 @@ export function DeploymentHistoryPanel({
                             <div className="mb-0.5 flex items-center gap-1.5">
                               <span className="text-xs font-medium">v{version.version}</span>
                               {version.isActive && (
-                                <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-700">
+                                <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-2xs font-medium text-green-700">
                                   {t('workspace.active')}
                                 </span>
                               )}
@@ -566,7 +566,7 @@ export function DeploymentHistoryPanel({
                             )}
 
                             {/* Time and username */}
-                            <div className="flex items-center gap-2 text-[10px] text-[var(--text-secondary)]">
+                            <div className="flex items-center gap-2 text-2xs text-[var(--text-secondary)]">
                               <div className="flex items-center gap-0.5">
                                 <Clock size={10} />
                                 <span>{formatDate(version.createdAt)}</span>
@@ -626,7 +626,7 @@ export function DeploymentHistoryPanel({
                 {/* Pagination controls */}
                 {totalPages > 1 && (
                   <div className="flex items-center justify-between border-t border-[var(--border-muted)] pt-2">
-                    <span className="text-[10px] text-[var(--text-muted)]">
+                    <span className="text-2xs text-[var(--text-muted)]">
                       {t('workspace.totalVersions', { total: totalVersions })}
                     </span>
                     <div className="flex items-center gap-1">
@@ -639,7 +639,7 @@ export function DeploymentHistoryPanel({
                       >
                         <ChevronLeft size={14} />
                       </Button>
-                      <span className="min-w-[50px] text-center text-[10px] text-[var(--text-tertiary)]">
+                      <span className="min-w-[50px] text-center text-2xs text-[var(--text-tertiary)]">
                         {currentPage} / {totalPages}
                       </span>
                       <Button

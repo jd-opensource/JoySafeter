@@ -119,15 +119,15 @@ export function CopilotStreaming({
               >
                 <div className="flex items-center gap-2">
                   <Loader2 size={12} className="shrink-0 animate-spin text-amber-600" />
-                  <span className="text-[10px] font-medium text-amber-700">
+                  <span className="text-2xs font-medium text-amber-700">
                     {t('workspace.callingTool') || 'Calling Tool'}:
                   </span>
-                  <span className="truncate font-mono text-[10px] font-bold text-amber-900">
+                  <span className="truncate font-mono text-2xs font-bold text-amber-900">
                     {currentToolCall.tool}
                   </span>
                 </div>
                 {Object.keys(currentToolCall.input).length > 0 && (
-                  <div className="mt-1.5 max-h-16 overflow-y-auto rounded bg-amber-100/50 px-2 py-1 font-mono text-[9px] text-amber-800/70">
+                  <div className="mt-1.5 max-h-16 overflow-y-auto rounded bg-amber-100/50 px-2 py-1 font-mono text-micro text-amber-800/70">
                     {JSON.stringify(currentToolCall.input, null, 2)}
                   </div>
                 )}
@@ -165,7 +165,7 @@ export function CopilotStreaming({
         {/* Tool results display - grouped by type with collapse */}
         {toolResults.length > 0 && (
           <div className="space-y-1.5 rounded-xl border border-green-200 bg-green-50 p-2 duration-200 animate-in fade-in">
-            <div className="flex items-center gap-1.5 px-1 text-[10px] font-bold uppercase tracking-wider text-green-700">
+            <div className="flex items-center gap-1.5 px-1 text-2xs font-bold uppercase tracking-wider text-green-700">
               <Check size={10} /> {t('workspace.toolResults') || 'Tool Results'}
             </div>
             {types.map((type) => {
@@ -188,17 +188,17 @@ export function CopilotStreaming({
                       </div>
                       <div className="flex min-w-0 flex-1 flex-col">
                         <div className="flex items-center gap-2">
-                          <span className="font-mono text-[10px] font-medium text-green-900">
+                          <span className="font-mono text-2xs font-medium text-green-900">
                             {result.type}
                           </span>
                           {hasMultiple && !isExpanded && idx === visibleResults.length - 1 && (
-                            <span className="rounded bg-green-100/50 px-1.5 py-0.5 text-[9px] font-medium text-green-600">
+                            <span className="rounded bg-green-100/50 px-1.5 py-0.5 text-micro font-medium text-green-600">
                               {results.length} items
                             </span>
                           )}
                         </div>
                         {result.reasoning && (
-                          <span className="mt-0.5 line-clamp-2 text-[9px] text-green-700">
+                          <span className="mt-0.5 line-clamp-2 text-micro text-green-700">
                             {result.reasoning}
                           </span>
                         )}
@@ -208,7 +208,7 @@ export function CopilotStreaming({
                   {hiddenCount > 0 && (
                     <button
                       onClick={() => onToggleToolType(type)}
-                      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[9px] text-green-600 transition-colors hover:bg-green-100/50 hover:text-green-700"
+                      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-micro text-green-600 transition-colors hover:bg-green-100/50 hover:text-green-700"
                     >
                       <ChevronDown size={10} />
                       <span>
@@ -219,7 +219,7 @@ export function CopilotStreaming({
                   {isExpanded && hasMultiple && (
                     <button
                       onClick={() => onToggleToolType(type)}
-                      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[9px] text-green-600 transition-colors hover:bg-green-100/50 hover:text-green-700"
+                      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-micro text-green-600 transition-colors hover:bg-green-100/50 hover:text-green-700"
                     >
                       <ChevronUp size={10} />
                       <span>

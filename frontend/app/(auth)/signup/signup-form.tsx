@@ -330,13 +330,13 @@ function SignupFormContent() {
     <>
       <div className="space-y-1 text-center">
         <h1
-          className={`${soehne.className} text-[32px] font-medium tracking-tight text-[var(--text-primary)]`}
+          className={`${soehne.className} text-3xl-app font-medium tracking-tight text-[var(--text-primary)]`}
           suppressHydrationWarning
         >
           {mounted ? t('auth.createAccount') : 'Create Account'}
         </h1>
         <p
-          className={`${inter.className} text-[16px] font-[380] text-muted-foreground`}
+          className={`${inter.className} text-md-app font-[380] text-muted-foreground`}
           suppressHydrationWarning
         >
           {mounted ? t('auth.enterYourDetails') : 'Enter your details'}
@@ -363,7 +363,7 @@ function SignupFormContent() {
                 value={name}
                 onChange={handleNameChange}
                 className={cn(
-                  'rounded-[10px] shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]',
+                  'rounded-auth shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]',
                   showNameValidationError &&
                     nameErrors.length > 0 &&
                     'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
@@ -386,7 +386,7 @@ function SignupFormContent() {
                 value={email}
                 onChange={handleEmailChange}
                 className={cn(
-                  'rounded-[10px] shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]',
+                  'rounded-auth shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]',
                   (emailError || (showEmailValidationError && emailErrors.length > 0)) &&
                     'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
                 )}
@@ -410,7 +410,7 @@ function SignupFormContent() {
                   value={password}
                   onChange={handlePasswordChange}
                   className={cn(
-                    'rounded-[10px] pr-10 shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]',
+                    'rounded-auth pr-10 shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]',
                     showValidationError &&
                       passwordErrors.length > 0 &&
                       'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
@@ -432,7 +432,7 @@ function SignupFormContent() {
             type="submit"
             onMouseEnter={() => setIsButtonHovered(true)}
             onMouseLeave={() => setIsButtonHovered(false)}
-            className="group inline-flex w-full items-center justify-center gap-2 rounded-[10px] border border-[#6F3DFA] bg-gradient-to-b from-[#8357FF] to-[#6F3DFA] py-[6px] pl-[12px] pr-[10px] text-[15px] text-white shadow-[inset_0_2px_4px_0_#9B77FF] transition-all"
+            className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-500)] bg-gradient-to-b from-[var(--brand-400)] to-[var(--brand-500)] py-[6px] pl-[12px] pr-[10px] text-app-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
             disabled={isLoading}
             suppressHydrationWarning
           >
@@ -457,7 +457,7 @@ function SignupFormContent() {
       )}
 
       <div
-        className={`${inter.className} pt-6 text-center text-[14px] font-light`}
+        className={`${inter.className} pt-6 text-center text-sm-app font-light`}
         suppressHydrationWarning
       >
         <span className="font-normal">

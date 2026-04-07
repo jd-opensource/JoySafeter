@@ -56,19 +56,19 @@ export function Sidebar() {
   if (isCollapsed) {
     return (
       <div
-        className="fixed top-[14px] z-10 rounded-[8px] border border-[var(--border)] bg-[var(--surface-2)] px-[12px] py-[8px] transition-all duration-300"
+        className="fixed top-[14px] z-10 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-[12px] py-[8px] transition-all duration-300"
         style={{
           left: isAppSidebarCollapsed ? '78px' : '154px',
         }}
       >
         <div className="flex items-center gap-[6px]">
-          <h2 className="truncate text-[13px] font-medium text-[var(--text-primary)]">OpenClaw</h2>
+          <h2 className="truncate text-small font-medium text-[var(--text-primary)]">OpenClaw</h2>
           <TooltipProvider delayDuration={100}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  className="flex items-center justify-center rounded-[4px] p-[4px] transition-colors hover:bg-[var(--surface-5)]"
+                  className="flex items-center justify-center rounded-sm p-[4px] transition-colors hover:bg-[var(--surface-5)]"
                   onClick={handleToggleCollapse}
                 >
                   <PanelLeft className="h-[14px] w-[14px] text-[var(--text-secondary)]" />
@@ -77,7 +77,7 @@ export function Sidebar() {
               <TooltipContent
                 side="bottom"
                 sideOffset={4}
-                className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-[12px] font-medium text-[var(--text-primary)] shadow-lg"
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-xs-plus font-medium text-[var(--text-primary)] shadow-lg"
               >
                 {t('sidebar.expand')}
               </TooltipContent>
@@ -108,7 +108,7 @@ export function Sidebar() {
         {/* Header */}
         <div className="flex-shrink-0 border-b border-[var(--border)] px-[14px] pb-[10px]">
           <div className="flex items-center justify-between gap-[6px]">
-            <h2 className="truncate text-[14px] font-semibold text-[var(--text-primary)]">
+            <h2 className="truncate text-sm-app font-semibold text-[var(--text-primary)]">
               OpenClaw
             </h2>
 
@@ -117,7 +117,7 @@ export function Sidebar() {
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    className="flex items-center justify-center rounded-[4px] p-[4px] transition-colors hover:bg-[var(--surface-5)]"
+                    className="flex items-center justify-center rounded-sm p-[4px] transition-colors hover:bg-[var(--surface-5)]"
                     onClick={handleToggleCollapse}
                   >
                     <PanelLeft className="h-[14px] w-[14px] text-[var(--text-secondary)]" />
@@ -126,7 +126,7 @@ export function Sidebar() {
                 <TooltipContent
                   side="bottom"
                   sideOffset={4}
-                  className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-[12px] font-medium text-[var(--text-primary)] shadow-lg"
+                  className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-xs-plus font-medium text-[var(--text-primary)] shadow-lg"
                 >
                   {t('sidebar.collapse')}
                 </TooltipContent>

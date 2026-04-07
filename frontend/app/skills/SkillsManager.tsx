@@ -541,7 +541,7 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                       {skill.is_public && (
                         <Badge
                           variant="outline"
-                          className="h-3.5 shrink-0 border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] px-1 py-0 text-[8px] text-[var(--skill-brand-600)]"
+                          className="h-3.5 shrink-0 border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] px-1 py-0 text-xxs text-[var(--skill-brand-600)]"
                         >
                           <Globe size={8} className="mr-0.5" />
                           {t('skills.published')}
@@ -558,11 +558,11 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                       <Trash2 size={12} />
                     </button>
                   </div>
-                  <p className="line-clamp-2 min-w-0 text-[10px] text-[var(--text-tertiary)]">
+                  <p className="line-clamp-2 min-w-0 text-2xs text-[var(--text-tertiary)]">
                     {skill.description}
                   </p>
                   {skill.files && skill.files.length > 0 && (
-                    <div className="mt-1.5 flex items-center gap-1 text-[9px] text-[var(--text-muted)]">
+                    <div className="mt-1.5 flex items-center gap-1 text-micro text-[var(--text-muted)]">
                       <Folder size={10} />
                       <span>{skill.files.length} files</span>
                     </div>
@@ -584,7 +584,7 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                 {/* Hierarchical File Explorer */}
                 <ResizablePanel defaultSize={20} minSize={10} maxSize={30} className="flex shrink-0 flex-col border-r border-[var(--border-muted)] bg-[var(--surface-2)]">
               <div className="flex items-center justify-between border-b border-[var(--border-muted)] p-3">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
+                <span className="text-2xs font-bold uppercase tracking-widest text-[var(--text-muted)]">
                   {t('skills.workspace') || 'Workspace'}
                 </span>
                 <Button
@@ -617,7 +617,7 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                         <h1 className="text-sm font-bold leading-tight text-[var(--text-primary)] line-clamp-1 max-w-[200px]" title={formData.name}>
                           {formData.name}
                         </h1>
-                        <div className="flex items-center gap-1.5 font-mono text-[9px] text-[var(--text-muted)]">
+                        <div className="flex items-center gap-1.5 font-mono text-micro text-[var(--text-muted)]">
                           <ChevronRight size={10} /> <span className="truncate max-w-[180px]">{activeFilePath || 'No file selected'}</span>
                         </div>
                       </div>
@@ -690,7 +690,7 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                         key={tab}
                         onClick={() => setActiveTab(tab)}
                         className={cn(
-                          'px-3 py-2 text-[10px] font-medium transition-colors whitespace-nowrap',
+                          'px-3 py-2 text-2xs font-medium transition-colors whitespace-nowrap',
                           activeTab === tab
                             ? 'border-b-2 border-blue-500 text-blue-600'
                             : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
@@ -772,7 +772,7 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                 {/* Skill Structure Info */}
                 <div className="mt-12 max-w-md rounded-xl border border-[var(--border-muted)] bg-[var(--surface-elevated)] p-6 text-left shadow-sm">
                   <h4 className="mb-3 text-xs font-bold text-[var(--text-secondary)]">Skill Structure</h4>
-                  <pre className="font-mono text-[10px] leading-relaxed text-[var(--text-tertiary)]">
+                  <pre className="font-mono text-2xs leading-relaxed text-[var(--text-tertiary)]">
                     {`skill-name/
 ├── SKILL.md (required)
 │   ├── YAML frontmatter (name, description)
@@ -780,7 +780,7 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
 └── Any files/folders (optional)
     └── Organize as you like!`}
                   </pre>
-                  <p className="mt-2 text-[10px] text-[var(--text-muted)]">
+                  <p className="mt-2 text-2xs text-[var(--text-muted)]">
                     You can use any directory structure. Only SKILL.md is required.
                   </p>
                 </div>

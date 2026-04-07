@@ -63,7 +63,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           </div>
 
           <div className="flex-1 space-y-1">
-            <div className="mb-2 mt-4 px-3 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+            <div className="mb-2 mt-4 px-3 text-2xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
               {t('settings.account')}
             </div>
             <MenuItem
@@ -73,7 +73,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               onClick={() => setActiveTab('profile')}
             />
 
-            <div className="mb-2 mt-6 px-3 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+            <div className="mb-2 mt-6 px-3 text-2xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
               {t('settings.workspace')}
             </div>
             <MenuItem

@@ -115,7 +115,7 @@ export function ToolsField({ value, onChange }: ToolsFieldProps) {
             <Badge
               key={id}
               variant="secondary"
-              className="gap-1 border-primary/20 bg-primary/5 py-0.5 pl-2 pr-1 text-[10px] text-primary shadow-sm"
+              className="gap-1 border-primary/20 bg-primary/5 py-0.5 pl-2 pr-1 text-2xs text-primary shadow-sm"
             >
               <Hammer size={10} className="shrink-0" />
               {getToolLabel(id)}
@@ -134,7 +134,7 @@ export function ToolsField({ value, onChange }: ToolsFieldProps) {
               <Badge
                 key={toolId}
                 variant="secondary"
-                className="gap-1 border-purple-200 bg-purple-50 py-0.5 pl-2 pr-1 text-[10px] text-purple-700 shadow-sm"
+                className="gap-1 border-purple-200 bg-purple-50 py-0.5 pl-2 pr-1 text-2xs text-purple-700 shadow-sm"
               >
                 <Server size={10} className="shrink-0" />
                 {displayName}
@@ -158,7 +158,7 @@ export function ToolsField({ value, onChange }: ToolsFieldProps) {
         />
         <Input
           placeholder={t('workspace.searchTools')}
-          className="h-8 border-[var(--border)] bg-[var(--surface-elevated)] pl-8 text-[11px] shadow-none focus-visible:ring-primary/10"
+          className="h-8 border-[var(--border)] bg-[var(--surface-elevated)] pl-8 text-app-xs shadow-none focus-visible:ring-primary/10"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
@@ -169,12 +169,12 @@ export function ToolsField({ value, onChange }: ToolsFieldProps) {
         {isLoadingData ? (
           <div className="flex flex-col items-center justify-center gap-2 p-4 text-[var(--text-muted)]">
             <Loader2 size={14} className="animate-spin text-primary" />
-            <span className="text-[10px] font-medium tracking-tight">
+            <span className="text-2xs font-medium tracking-tight">
               {t('workspace.syncingCatalog')}
             </span>
           </div>
         ) : filteredTools.length === 0 ? (
-          <div className="p-6 text-center text-[10px] italic text-[var(--text-muted)]">
+          <div className="p-6 text-center text-2xs italic text-[var(--text-muted)]">
             {searchQuery ? t('workspace.noMatchingCapabilities') : t('workspace.catalogEmpty')}
           </div>
         ) : (
@@ -216,7 +216,7 @@ export function ToolsField({ value, onChange }: ToolsFieldProps) {
                     )}
                     <span
                       className={cn(
-                        'truncate text-[11px] font-medium',
+                        'truncate text-app-xs font-medium',
                         isSelected ? 'text-primary' : 'text-[var(--text-secondary)]',
                       )}
                     >
@@ -224,7 +224,7 @@ export function ToolsField({ value, onChange }: ToolsFieldProps) {
                     </span>
                   </div>
                   {tool.description && (
-                    <p className="mt-0.5 truncate pl-4 text-[9px] text-[var(--text-muted)]">
+                    <p className="mt-0.5 truncate pl-4 text-micro text-[var(--text-muted)]">
                       {tool.description}
                     </p>
                   )}

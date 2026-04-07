@@ -70,7 +70,7 @@ export function McpServerCard({
             <h3 className="text-sm font-bold text-[var(--text-primary)]">{server.name}</h3>
             <Badge
               variant="outline"
-              className="border-purple-100 bg-purple-50 px-1.5 py-0 text-[9px] text-purple-600"
+              className="border-purple-100 bg-purple-50 px-1.5 py-0 text-micro text-purple-600"
             >
               {t('settings.mcpTag')}
             </Badge>
@@ -82,7 +82,7 @@ export function McpServerCard({
             {displayToolCount > 0 && (
               <Badge
                 variant="outline"
-                className="border-blue-100 bg-[var(--brand-50)] px-1.5 py-0 text-[9px] text-[var(--brand-600)]"
+                className="border-blue-100 bg-[var(--brand-50)] px-1.5 py-0 text-micro text-[var(--brand-600)]"
               >
                 {formatToolCount(displayToolCount, t)}
               </Badge>
@@ -95,7 +95,7 @@ export function McpServerCard({
         {/* Connection Status */}
         <div className="flex items-center gap-1.5 rounded-md border border-[var(--border-muted)] bg-[var(--surface-1)] px-2 py-1">
           {getConnectionStatusIcon(connectionStatus)}
-          <span className="text-[10px] font-medium text-[var(--text-secondary)]">
+          <span className="text-2xs font-medium text-[var(--text-secondary)]">
             {getConnectionStatusText(connectionStatus, t)}
           </span>
         </div>
@@ -105,7 +105,7 @@ export function McpServerCard({
           <div
             className={cn('h-1.5 w-1.5 rounded-full', isActive ? 'bg-emerald-500' : 'bg-[var(--text-subtle)]')}
           />
-          <span className="text-[10px] font-medium uppercase text-[var(--text-secondary)]">
+          <span className="text-2xs font-medium uppercase text-[var(--text-secondary)]">
             {isActive ? t('settings.active') : t('settings.inactive')}
           </span>
         </div>
@@ -192,7 +192,7 @@ export function BuiltinToolCard({
                   <h3 className="text-sm font-bold text-[var(--text-primary)]">{displayName}</h3>
                   <Badge
                     variant="outline"
-                    className="bg-[var(--surface-3)] px-1.5 py-0 text-[9px] text-[var(--text-tertiary)]"
+                    className="bg-[var(--surface-3)] px-1.5 py-0 text-micro text-[var(--text-tertiary)]"
                   >
                     {t('settings.builtinTag')}
                   </Badge>
@@ -204,7 +204,7 @@ export function BuiltinToolCard({
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5 rounded-md border border-[var(--border-muted)] bg-[var(--surface-1)] px-2 py-1">
                 <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                <span className="text-[10px] font-medium uppercase text-[var(--text-secondary)]">
+                <span className="text-2xs font-medium uppercase text-[var(--text-secondary)]">
                   {t('settings.active')}
                 </span>
               </div>
@@ -216,13 +216,13 @@ export function BuiltinToolCard({
           align="start"
           className="max-w-[90vw] space-y-1 rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] p-3 text-[var(--text-primary)] shadow-lg dark:border-slate-700 dark:bg-slate-900 dark:text-slate-50 sm:max-w-md"
         >
-          <div className="text-[11px] font-semibold">{name || label || id}</div>
+          <div className="text-app-xs font-semibold">{name || label || id}</div>
           {fullDescription && (
-            <div className="whitespace-pre-line text-[11px] text-[var(--text-secondary)] dark:text-slate-100/80">
+            <div className="whitespace-pre-line text-app-xs text-[var(--text-secondary)] dark:text-slate-100/80">
               {fullDescription}
             </div>
           )}
-          <div className="pt-1 text-[9px] text-primary-foreground/60">ID: {id}</div>
+          <div className="pt-1 text-micro text-primary-foreground/60">ID: {id}</div>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

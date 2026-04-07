@@ -77,7 +77,7 @@ function ConversationItem({
             <div className="min-w-0 flex-1 truncate text-xs">
               {conv.title || t('chat.newChat')}
             </div>
-            <div className="flex-shrink-0 text-[10px] text-[var(--text-muted)]">
+            <div className="flex-shrink-0 text-2xs text-[var(--text-muted)]">
               {formatTime(conv.updated_at)}
             </div>
           </>
@@ -110,7 +110,7 @@ function ConversationItem({
               <AlertDialogTitle>{t('chat.deleteConfirmTitle')}</AlertDialogTitle>
               <AlertDialogDescription>
                 {t('chat.deleteConfirmMessage')}{' '}
-                <span className="font-semibold text-[#ef4444]">
+                <span className="font-semibold text-[var(--status-error)]">
                   {conv.title || t('chat.newChat')}
                 </span>
                 {'?'}
@@ -122,7 +122,7 @@ function ConversationItem({
               </AlertDialogCancel>
               <AlertDialogAction
                 onClick={onConfirmDelete}
-                className="bg-[#ef4444] text-white hover:bg-[#dc2626]"
+                className="bg-[var(--status-error)] text-white hover:bg-[var(--status-error-hover)]"
               >
                 {t('chat.delete')}
               </AlertDialogAction>
@@ -178,7 +178,7 @@ export default function ConversationGroup({
       {!isCollapsed && (
         <button
           onClick={onToggleExpand}
-          className="mb-1.5 flex w-full items-center justify-between px-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]"
+          className="mb-1.5 flex w-full items-center justify-between px-1.5 text-2xs font-medium uppercase tracking-wider text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]"
         >
           <span>{label}</span>
           {isExpanded ? (

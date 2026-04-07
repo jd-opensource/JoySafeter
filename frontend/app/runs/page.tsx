@@ -53,7 +53,7 @@ function RunRow({
             <Badge
               variant="outline"
               className={cn(
-                'text-[10px]',
+                'text-2xs',
                 isActive
                   ? 'border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] text-[var(--skill-brand-700)]'
                   : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-secondary)]',
@@ -63,7 +63,7 @@ function RunRow({
             </Badge>
             <Badge
               variant="outline"
-              className="border-[var(--border)] bg-[var(--surface-2)] text-[10px] text-[var(--text-secondary)]"
+              className="border-[var(--border)] bg-[var(--surface-2)] text-2xs text-[var(--text-secondary)]"
             >
               {run.agent_display_name || run.agent_name}
             </Badge>
