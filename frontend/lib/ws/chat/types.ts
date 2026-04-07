@@ -16,7 +16,7 @@ export type IncomingChatWsEvent = Partial<ChatStreamEvent> & {
   request_id?: string
   message?: string
   thread_id?: string
-  data?: any
+  data?: Record<string, unknown>
   run_id?: string
   node_name?: string
   timestamp?: number

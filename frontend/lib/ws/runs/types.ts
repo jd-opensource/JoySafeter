@@ -7,7 +7,7 @@ export interface RunSnapshotFrame {
   type: 'snapshot'
   run_id: string
   last_seq: number
-  data: Record<string, any>
+  data: Record<string, unknown>
 }
 
 export interface RunEventFrame {
@@ -15,7 +15,7 @@ export interface RunEventFrame {
   run_id: string
   seq: number
   event_type: string
-  data: Record<string, any>
+  data: Record<string, unknown>
   trace_id?: string | null
   observation_id?: string | null
   parent_observation_id?: string | null

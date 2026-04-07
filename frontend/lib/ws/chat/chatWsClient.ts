@@ -202,7 +202,7 @@ class SharedChatWsClient extends BaseWsClient<ConnectionState> implements ChatWs
       return
     }
     if (type === 'error') {
-      const message = (evt.data as { message?: string } | undefined)?.message || 'Unknown error'
+      const message = (typeof evt.data?.message === 'string' ? evt.data.message : null) || 'Unknown error'
       if (message === 'Stream stopped' || message.includes('stopped')) {
         this.resolvePending(requestId, 'stopped')
       } else {

@@ -7,7 +7,7 @@ import type { BaseConnectionState } from '../base'
 
 export interface NotificationMessage {
   type: string
-  data?: any
+  data?: Record<string, unknown>
   message?: string
   timestamp?: string
 }
