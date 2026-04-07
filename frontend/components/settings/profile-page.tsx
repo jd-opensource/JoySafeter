@@ -1,9 +1,9 @@
 'use client'
 
 import CryptoJS from 'crypto-js'
-import { Pencil, LogOut, KeyRound, Eye, EyeOff } from 'lucide-react'
+import { Pencil, LogOut, KeyRound, Eye, EyeOff, Sun, Moon, Monitor } from 'lucide-react'
+import { useTheme } from 'next-themes'
 import React, { useState } from 'react'
-
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -16,6 +16,14 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { apiPost } from '@/lib/api-client'
 import { useSession, client } from '@/lib/auth/auth-client'
 import { useTranslation } from '@/lib/i18n'
@@ -89,8 +97,9 @@ function getInitials(name?: string | null, email?: string): string {
 }
 
 export function ProfilePage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const session = useSession()
+  const { theme, setTheme } = useTheme()
 
   const user = session.data?.user
   const [isEditingName, setIsEditingName] = useState(false)
@@ -312,13 +321,51 @@ export function ProfilePage() {
             {t('auth.resetPassword')}
           </Button>
         </div>
+
+        {/* Preferences */}
+        <div className="space-y-4 border-t border-border pt-6">
+          <h3 className="text-sm font-semibold text-foreground">{t('settings.preferences')}</h3>
+          <div className="flex items-center justify-between">
+            <Label className="text-sm text-muted-foreground">{t('common.language')}</Label>
+            <Select value={i18n.language} onValueChange={(lang) => i18n.changeLanguage(lang)}>
+              <SelectTrigger className="w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="en">English</SelectItem>
+                <SelectItem value="zh">中文</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center justify-between">
+            <Label className="text-sm text-muted-foreground">{t('settings.theme')}</Label>
+            <ToggleGroup
+              type="single"
+              value={theme ?? 'system'}
+              onValueChange={(val) => { if (val) setTheme(val) }}
+            >
+              <ToggleGroupItem value="light" aria-label={t('settings.themeLight')}>
+                <Sun size={14} />
+                <span>{t('settings.themeLight')}</span>
+              </ToggleGroupItem>
+              <ToggleGroupItem value="dark" aria-label={t('settings.themeDark')}>
+                <Moon size={14} />
+                <span>{t('settings.themeDark')}</span>
+              </ToggleGroupItem>
+              <ToggleGroupItem value="system" aria-label={t('settings.themeSystem')}>
+                <Monitor size={14} />
+                <span>{t('settings.themeSystem')}</span>
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+        </div>
       </div>
 
       {/* Reset Password Dialog */}
       <Dialog open={isResetDialogOpen} onOpenChange={handleCloseDialog}>
         <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-0 shadow-2xl sm:max-w-[425px]">
           <DialogHeader className="flex shrink-0 flex-row items-center gap-3 border-b border-[var(--border-muted)] px-6 py-4">
-            <div className="shrink-0 rounded-lg border border-[var(--surface-1)] bg-violet-50 p-1.5 text-violet-600 shadow-sm">
+            <div className="shrink-0 rounded-lg border border-[var(--surface-1)] bg-violet-50 dark:bg-violet-900/30 p-1.5 text-violet-600 dark:text-violet-400 shadow-sm">
               <KeyRound size={14} />
             </div>
             <div className="flex min-w-0 flex-col">

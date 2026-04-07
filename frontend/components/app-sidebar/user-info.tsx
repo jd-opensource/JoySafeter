@@ -1,8 +1,7 @@
 'use client'
 
-import { Settings, LogOut, ChevronDown, Languages, Check } from 'lucide-react'
+import { Settings, LogOut, ChevronDown } from 'lucide-react'
 import { useState } from 'react'
-
 
 import { SettingsDialog } from '@/components/settings'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -12,9 +11,6 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useSession, client } from '@/lib/auth/auth-client'
 import { useTranslation } from '@/lib/i18n'
