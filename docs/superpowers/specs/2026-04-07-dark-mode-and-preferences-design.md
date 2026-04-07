@@ -40,15 +40,15 @@ Enable dark mode switching and consolidate user preferences (language + theme) i
 
 - Change default `theme` from `'dark'` to `'system'` to match the ThemeProvider default and avoid a flash of dark mode before query data arrives
 
-### 4. Standardize theme sync on next-themes `setTheme()`
+### 4. Simplify theme sync utility
 
 **File:** `lib/core/utils/theme.ts`
 
-- Refactor `syncThemeToNextThemes()` to use next-themes' own `setTheme()` mechanism instead of manually manipulating localStorage and HTML classes. This avoids dual-write conflicts between the query sync path and the profile page UI.
+- Remove manual HTML class manipulation from `syncThemeToNextThemes()`. With next-themes unlocked, writing to localStorage + dispatching a StorageEvent is sufficient — next-themes handles the class toggle automatically. (Using `setTheme()` from the `useTheme()` hook is not possible here since this utility is called from non-React contexts like `syncSettingsToZustand()`.)
 
 **File:** `hooks/queries/general-settings.ts`
 
-- Update `syncSettingsToZustand()` to use the refactored utility consistently
+- Add clarifying comment on the `syncThemeToNextThemes()` call in `syncSettingsToZustand()`
 
 ### 5. Add Preferences section to Profile page
 
