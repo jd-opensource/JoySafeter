@@ -48,8 +48,7 @@ async function fetchGeneralSettings(): Promise<GeneralSettings> {
     autoConnect: data.autoConnect ?? true,
     showTrainingControls: data.showTrainingControls ?? false,
     superUserModeEnabled: data.superUserModeEnabled ?? true,
-    // dark mode only
-    theme: 'dark' as const,
+    theme: data.theme ?? 'system',
     telemetryEnabled: data.telemetryEnabled ?? true,
     billingUsageNotificationsEnabled: data.billingUsageNotificationsEnabled ?? true,
     errorNotificationsEnabled: data.errorNotificationsEnabled ?? true,

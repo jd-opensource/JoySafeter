@@ -20,7 +20,7 @@ const defaultState: GeneralSettingsState = {
   isAutoConnectEnabled: true,
   showTrainingControls: false,
   superUserModeEnabled: true,
-  theme: 'dark',
+  theme: 'system',
   telemetryEnabled: true,
   isBillingUsageNotificationsEnabled: true,
   isErrorNotificationsEnabled: true,
