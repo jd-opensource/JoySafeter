@@ -18,6 +18,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
+import { SidebarContextMenu, type MenuItemConfig } from '../sidebar-context-menu'
+
 interface Workspace {
   id: string
   name: string
@@ -316,95 +318,50 @@ export function WorkspaceDropdown({
         </div>
       </div>
 
-      {showWorkspaceMenu && menuPosition && (
-        <>
-          <div
-            className="fixed inset-0 z-[100]"
-            onClick={() => {
-              setShowWorkspaceMenu(null)
-              setMenuPosition(null)
-            }}
+      {showWorkspaceMenu && menuPosition && (() => {
+        const workspace = workspaces.find((w) => w.id === showWorkspaceMenu)
+        if (!workspace || workspace.type === 'personal') return null
+
+        const closeMenu = () => {
+          setShowWorkspaceMenu(null)
+          setMenuPosition(null)
+        }
+
+        const items: MenuItemConfig[] = []
+        if (workspace.role === 'owner' || workspace.role === 'admin') {
+          items.push({
+            label: t('workspace.membersManagement'),
+            icon: <Users className="h-3 w-3" />,
+            onClick: () => router.push(`/workspace/${workspace.id}/settings/members`),
+          })
+        }
+        items.push({
+          label: t('workspace.rename'),
+          icon: <Pencil className="h-3 w-3" />,
+          onClick: () => onStartRenameWithClose(workspace),
+          separator: items.length > 0,
+        })
+        items.push({
+          label: t('workspace.duplicate'),
+          icon: <Copy className="h-3 w-3" />,
+          onClick: () => onDuplicateWorkspace(workspace.id),
+        })
+        items.push({
+          label: t('workspace.delete'),
+          icon: <Trash2 className="h-3 w-3" />,
+          onClick: () => onDeleteWorkspace(workspace.id),
+          variant: 'destructive',
+          separator: true,
+        })
+
+        return (
+          <SidebarContextMenu
+            items={items}
+            onClose={closeMenu}
+            position={menuPosition}
           />
-          <div
-            data-workspace-menu
-            className="fixed z-[101] min-w-[120px] rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-[4px] shadow-lg"
-            style={{
-              left: `${menuPosition.x}px`,
-              top: `${menuPosition.y}px`,
-            }}
-          >
-            {(() => {
-              const workspace = workspaces.find((w) => w.id === showWorkspaceMenu)
-              if (!workspace) return null
-
-              if (workspace.type === 'personal') {
-                return null
-              }
-
-              return (
-                <>
-                  {(workspace.role === 'owner' || workspace.role === 'admin') && (
-                    <>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs-plus font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          router.push(`/workspace/${workspace.id}/settings/members`)
-                          setShowWorkspaceMenu(null)
-                          setMenuPosition(null)
-                        }}
-                      >
-                        <Users className="h-3 w-3" />
-                        {t('workspace.membersManagement')}
-                      </button>
-                      <div className="my-[4px] h-[1px] bg-[var(--border)]" />
-                    </>
-                  )}
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs-plus font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onStartRenameWithClose(workspace)
-                    }}
-                  >
-                    <Pencil className="h-3 w-3" />
-                    {t('workspace.rename')}
-                  </button>
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs-plus font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onDuplicateWorkspace(workspace.id)
-                      setShowWorkspaceMenu(null)
-                      setMenuPosition(null)
-                    }}
-                  >
-                    <Copy className="h-3 w-3" />
-                    {t('workspace.duplicate')}
-                  </button>
-                  <div className="my-[4px] h-[1px] bg-[var(--border)]" />
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs-plus font-medium text-[var(--status-error)] transition-colors hover:bg-[var(--surface-5)]"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onDeleteWorkspace(workspace.id)
-                      setShowWorkspaceMenu(null)
-                      setMenuPosition(null)
-                    }}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                    {t('workspace.delete')}
-                  </button>
-                </>
-              )
-            })()}
-          </div>
-        </>
-      )}
+        )
+      })()}
     </>
   )
 }

@@ -9,12 +9,13 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import React, { useCallback, useState, useRef, useEffect } from 'react'
+import React, { useCallback, useState } from 'react'
 
 import type { AgentMetadata } from '@/app/workspace/[workspaceId]/components/sidebar/sidebar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
+import { useInlineRename } from '../inline-rename-input'
 import { AgentContextMenu } from './agent-context-menu'
 
 /**
@@ -50,17 +51,12 @@ const AgentItem = React.memo(function AgentItem({
   const [isDragging, setIsDragging] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 })
-  const [isEditing, setIsEditing] = useState(false)
-  const [editName, setEditName] = useState(agent.name)
-  const inputRef = useRef<HTMLInputElement>(null)
 
-  // Focus input when editing starts
-  useEffect(() => {
-    if (isEditing && inputRef.current) {
-      inputRef.current.focus()
-      inputRef.current.select()
-    }
-  }, [isEditing])
+  const handleRename = useCallback((newName: string) => {
+    onRename?.(agent.id, newName)
+  }, [agent.id, onRename])
+
+  const { isEditing, editName, setEditName, inputRef, startEditing, handleSave: handleSaveRename, handleCancel: handleCancelRename, handleKeyDown } = useInlineRename(agent.name, handleRename)
 
   const handleDragStart = (e: React.DragEvent) => {
     if (isEditing) {
@@ -87,32 +83,8 @@ const AgentItem = React.memo(function AgentItem({
 
   const handleStartRename = useCallback(() => {
     setShowMenu(false)
-    setEditName(agent.name)
-    setIsEditing(true)
-  }, [agent.name])
-
-  const handleSaveRename = useCallback(() => {
-    if (editName.trim() && editName !== agent.name && onRename) {
-      onRename(agent.id, editName.trim())
-    }
-    setIsEditing(false)
-  }, [editName, agent.id, agent.name, onRename])
-
-  const handleCancelRename = useCallback(() => {
-    setEditName(agent.name)
-    setIsEditing(false)
-  }, [agent.name])
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter') {
-        handleSaveRename()
-      } else if (e.key === 'Escape') {
-        handleCancelRename()
-      }
-    },
-    [handleSaveRename, handleCancelRename],
-  )
+    startEditing()
+  }, [startEditing])
 
   const handleDelete = useCallback(() => {
     setShowMenu(false)

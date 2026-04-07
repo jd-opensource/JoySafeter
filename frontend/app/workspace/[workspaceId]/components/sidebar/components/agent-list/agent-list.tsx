@@ -11,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
+import { useDropZone } from '../../hooks/use-drop-zone'
 import { AgentItem } from './agent-item'
 import { FolderItem } from './folder-item'
 
@@ -25,26 +26,7 @@ interface RootDropZoneProps {
 
 function RootDropZone({ children, isDragActive, onDropAgent }: RootDropZoneProps) {
   const { t } = useTranslation()
-  const [isDragOver, setIsDragOver] = useState(false)
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-    setIsDragOver(true)
-  }
-
-  const handleDragLeave = () => {
-    setIsDragOver(false)
-  }
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
-    const agentId = e.dataTransfer.getData('agentId')
-    if (agentId) {
-      onDropAgent?.(agentId)
-    }
-  }
+  const { isDragOver, handleDragOver, handleDragLeave, handleDrop } = useDropZone(onDropAgent)
 
   if (!isDragActive) {
     return <>{children}</>

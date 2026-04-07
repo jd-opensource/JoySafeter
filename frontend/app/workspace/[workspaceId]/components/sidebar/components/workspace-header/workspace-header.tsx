@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
+import { useInlineRename } from '../inline-rename-input'
 import { useWorkspaceRename } from './use-workspace-rename'
 import { WorkspaceDialogs } from './workspace-dialogs'
 import { WorkspaceDropdown } from './workspace-dropdown'
@@ -53,12 +54,22 @@ export function WorkspaceHeader({
   const { t } = useTranslation()
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
 
+  const handleHeaderRename = useCallback((newName: string) => {
+    if (activeWorkspace?.type === 'personal') return
+    onRenameWorkspace?.(workspaceId, newName)
+  }, [activeWorkspace?.type, workspaceId, onRenameWorkspace])
+
   const {
-    isRenaming, editingWorkspaceId, setEditingWorkspaceId,
-    editName, setEditName,
+    isEditing: isRenaming, editName, setEditName, inputRef: headerInputRef,
+    startEditing: handleStartHeaderRename, handleSave: handleSaveHeaderRename,
+    handleCancel: handleCancelHeaderRename, handleKeyDown: handleHeaderKeyDown,
+  } = useInlineRename(activeWorkspace?.name || '', handleHeaderRename)
+
+  const {
+    editingWorkspaceId, setEditingWorkspaceId,
+    editName: dropdownEditName, setEditName: setDropdownEditName,
     deleteConfirmOpen, setDeleteConfirmOpen,
     workspaceToDelete, setWorkspaceToDelete,
-    handleStartHeaderRename, handleSaveHeaderRename, handleCancelHeaderRename,
     handleSaveWorkspaceRename, handleCancelWorkspaceRename,
     handleDeleteWorkspace, handleConfirmDelete, handleDuplicateWorkspace,
     handleStartWorkspaceRenameWithClose, handleRenameKeyDown,
@@ -81,10 +92,11 @@ export function WorkspaceHeader({
           <div className="flex flex-1 items-center gap-1">
             <input
               type="text"
+              ref={headerInputRef}
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
               onBlur={() => { setTimeout(() => handleSaveHeaderRename(), 200) }}
-              onKeyDown={(e) => handleRenameKeyDown(e, workspaceId, true)}
+              onKeyDown={handleHeaderKeyDown}
               className="flex-1 rounded-sm border border-[var(--brand-primary)] bg-transparent px-[5px] py-[2px] text-small font-medium text-[var(--text-primary)] outline-none"
               autoFocus
               onClick={(e) => e.stopPropagation()}
@@ -203,8 +215,8 @@ export function WorkspaceHeader({
           onDeleteWorkspace={handleDeleteWorkspace}
           onDuplicateWorkspace={handleDuplicateWorkspace}
           editingWorkspaceId={editingWorkspaceId}
-          editName={editName}
-          setEditName={setEditName}
+          editName={dropdownEditName}
+          setEditName={setDropdownEditName}
           onSaveWorkspaceRename={handleSaveWorkspaceRename}
           onCancelWorkspaceRename={handleCancelWorkspaceRename}
           onRenameKeyDown={handleRenameKeyDown}

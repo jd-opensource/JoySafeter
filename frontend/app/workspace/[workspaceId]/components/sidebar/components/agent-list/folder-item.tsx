@@ -13,7 +13,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 
 import type {
   Folder as FolderType,
@@ -23,6 +23,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
+import { useInlineRename } from '../inline-rename-input'
+import { useDropZone } from '../../hooks/use-drop-zone'
+import { SidebarContextMenu } from '../sidebar-context-menu'
 import { AgentItem } from './agent-item'
 
 export interface FolderItemProps {
@@ -88,50 +91,10 @@ export function FolderItem({
 }: FolderItemProps) {
   const { t } = useTranslation()
   const canCreateSubfolder = depth < maxDepth - 1
-  const [isEditing, setIsEditing] = useState(false)
-  const [editName, setEditName] = useState(folder.name)
   const [showMenu, setShowMenu] = useState(false)
-  const [isDragOver, setIsDragOver] = useState(false)
 
-  const handleSaveRename = useCallback(() => {
-    if (editName.trim() && editName !== folder.name) {
-      onRename(editName.trim())
-    } else {
-      setEditName(folder.name)
-    }
-    setIsEditing(false)
-  }, [editName, folder.name, onRename])
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter') {
-        handleSaveRename()
-      } else if (e.key === 'Escape') {
-        setEditName(folder.name)
-        setIsEditing(false)
-      }
-    },
-    [handleSaveRename, folder.name],
-  )
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-    setIsDragOver(true)
-  }
-
-  const handleDragLeave = () => {
-    setIsDragOver(false)
-  }
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
-    const agentId = e.dataTransfer.getData('agentId')
-    if (agentId) {
-      onDropAgent?.(agentId)
-    }
-  }
+  const { isEditing, editName, setEditName, inputRef, startEditing, handleSave: handleSaveRename, handleCancel: handleCancelRename, handleKeyDown } = useInlineRename(folder.name, onRename)
+  const { isDragOver, handleDragOver, handleDragLeave, handleDrop } = useDropZone(onDropAgent)
 
   const indentPadding = depth * 12
 
@@ -166,6 +129,7 @@ export function FolderItem({
             <div className="flex flex-1 items-center gap-1 duration-150 animate-in fade-in">
               <input
                 type="text"
+                ref={inputRef}
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
                 onBlur={handleSaveRename}
@@ -189,8 +153,7 @@ export function FolderItem({
                 className="flex h-5 w-5 items-center justify-center rounded-sm bg-[var(--surface-5)] text-[var(--text-tertiary)] transition-all hover:bg-[var(--surface-9)] active:scale-95"
                 onClick={(e) => {
                   e.stopPropagation()
-                  setEditName(folder.name)
-                  setIsEditing(false)
+                  handleCancelRename()
                 }}
               >
                 <X className="h-[10px] w-[10px]" strokeWidth={2.5} />
@@ -227,58 +190,18 @@ export function FolderItem({
           </button>
 
           {showMenu && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
-              <div className="absolute right-0 top-[24px] z-50 min-w-[140px] rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-[4px] shadow-lg">
-                {canCreateSubfolder && (
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-[5px] text-xs-plus font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]"
-                    onClick={() => {
-                      setShowMenu(false)
-                      onCreateSubfolder?.()
-                    }}
-                  >
-                    <FolderPlus className="h-3 w-3" />
-                    {t('workspace.newSubfolder')}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-[5px] text-xs-plus font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]"
-                  onClick={() => {
-                    setShowMenu(false)
-                    onDuplicate?.()
-                  }}
-                >
-                  <Copy className="h-3 w-3" />
-                  {t('workspace.duplicate')}
-                </button>
-                <div className="my-[4px] h-[1px] bg-[var(--border)]" />
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-[5px] text-xs-plus font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]"
-                  onClick={() => {
-                    setShowMenu(false)
-                    setIsEditing(true)
-                  }}
-                >
-                  <Pencil className="h-3 w-3" />
-                  {t('workspace.rename')}
-                </button>
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-[5px] text-xs-plus font-medium text-[var(--status-error)] transition-colors hover:bg-[var(--surface-5)]"
-                  onClick={() => {
-                    setShowMenu(false)
-                    onDelete()
-                  }}
-                >
-                  <Trash2 className="h-3 w-3" />
-                  {t('workspace.delete')}
-                </button>
-              </div>
-            </>
+            <SidebarContextMenu
+              items={[
+                ...(canCreateSubfolder
+                  ? [{ label: t('workspace.newSubfolder'), icon: <FolderPlus className="h-3 w-3" />, onClick: () => onCreateSubfolder?.() }]
+                  : []),
+                { label: t('workspace.duplicate'), icon: <Copy className="h-3 w-3" />, onClick: () => onDuplicate?.() },
+                { label: t('workspace.rename'), icon: <Pencil className="h-3 w-3" />, onClick: () => startEditing(), separator: true },
+                { label: t('workspace.delete'), icon: <Trash2 className="h-3 w-3" />, onClick: onDelete, variant: 'destructive' as const },
+              ]}
+              onClose={() => setShowMenu(false)}
+              className="right-0 top-[24px] min-w-[140px]"
+            />
           )}
         </div>
       </div>
