@@ -32,6 +32,8 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
     onNotificationRef.current = onNotification
   }, [onNotification])
 
+  const unsubRef = useRef<(() => void) | null>(null)
+
   const getClient = useCallback(() => {
     if (!clientRef.current) {
       clientRef.current = new NotificationWsClient()
@@ -40,6 +42,8 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
   }, [])
 
   const cleanup = useCallback(() => {
+    unsubRef.current?.()
+    unsubRef.current = null
     if (clientRef.current) {
       clientRef.current.disconnect()
       clientRef.current = null
@@ -56,9 +60,11 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
       onNotificationRef.current?.(notification)
     })
 
-    client.subscribeConnectionState((state) => {
-      setIsConnected(state.isConnected)
-    })
+    if (!unsubRef.current) {
+      unsubRef.current = client.subscribeConnectionState((state) => {
+        setIsConnected(state.isConnected)
+      })
+    }
 
     void client.connect().catch(() => {})
   }, [userId, getClient])
