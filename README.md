@@ -213,7 +213,7 @@ All modes support remote deployment scenarios:
 ## Architecture
 
 <p align="center">
-  <img src="docs/assets/joysafter.png" alt="JoySafeter Architecture" width="800" />
+  <img src="docs/architecture-diagram.png" alt="JoySafeter System Architecture" width="900" />
 </p>
 
 > Full architecture details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
@@ -223,6 +223,14 @@ All modes support remote deployment scenarios:
 - **Graph-based execution** — every agent workflow is a stateful LangGraph, enabling pause, resume, and branch
 - **Glass-box observability** — real-time Langfuse tracing of every agent decision and state transition
 - **Layered skill system** — skills are versioned units that compose into workflows without coupling
+
+### User Journey — Quick Start in 9 Steps
+
+<p align="center">
+  <img src="docs/user-journey-quickstart.png" alt="JoySafeter Quick Start User Journey" width="900" />
+</p>
+
+> **Login** → **Configure Models** → **MCP Tools** → **Skill Management** → **Build Agent** → **Self-Test (Langfuse Trace)** → **Publish** → **Chat UI** → **Run Center**
 
 ---
 
@@ -288,9 +296,9 @@ See [docs/tutorials/](docs/tutorials/) for step-by-step guides on model setup, M
 Join the WeChat user group for questions and discussion:
 
 <p align="center">
-  <img src="docs/assets/wechat-group-3.png" alt="JoySafeter User Group 1" width="280" />
+  <img src="docs/assets/wechat-group-3.png" alt="JoySafeter User Group 3" width="280" />
   &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/assets/wechat-group-4.png" alt="JoySafeter User Group 2" width="280" />
+  <img src="docs/assets/wechat-group-4.png" alt="JoySafeter User Group 4" width="280" />
 </p>
 
 ---

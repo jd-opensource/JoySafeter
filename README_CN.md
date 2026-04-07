@@ -213,7 +213,7 @@
 ## 架构概览
 
 <p align="center">
-  <img src="docs/assets/joysafter.png" alt="JoySafeter 架构图" width="800" />
+  <img src="docs/architecture-diagram.png" alt="JoySafeter 系统架构图" width="900" />
 </p>
 
 > 详细架构：[docs/ARCHITECTURE_CN.md](docs/ARCHITECTURE_CN.md)
@@ -223,6 +223,14 @@
 - **图式执行** —— 每个 Agent 工作流都是有状态的 LangGraph，支持暂停、恢复与分支
 - **白盒可观测性** —— 基于 Langfuse 实时追踪每一步 Agent 决策与状态流转
 - **分层技能体系** —— 技能是版本化单元，可自由组合成工作流，互不耦合
+
+### 用户操作路径 —— 9 步快速入门
+
+<p align="center">
+  <img src="docs/user-journey-quickstart.png" alt="JoySafeter 快速入门用户路径" width="900" />
+</p>
+
+> **登录** → **配置模型** → **MCP 工具** → **Skill 管理** → **构建 Agent** → **自测 (Langfuse Trace)** → **发布** → **Chat 运行** → **Run Center**
 
 ---
 
@@ -288,9 +296,9 @@
 如有问题或想与其他用户交流，欢迎扫码加入微信交流群：
 
 <p align="center">
-  <img src="docs/assets/wechat-group-3.png" alt="JoySafeter 用户交流群 1" width="280" />
+  <img src="docs/assets/wechat-group-3.png" alt="JoySafeter 用户交流群 3" width="280" />
   &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/assets/wechat-group-4.png" alt="JoySafeter 用户交流群 2" width="280" />
+  <img src="docs/assets/wechat-group-4.png" alt="JoySafeter 用户交流群 4" width="280" />
 </p>
 
 ---

@@ -1,0 +1,284 @@
+<mxGraphModel>
+  <root>
+    <mxCell id="0" />
+    <mxCell id="1" parent="0" />
+
+    <!-- ========== TITLE ========== -->
+    <mxCell id="title" value="JoySafeter — AI-Native Security Operations Platform — System Architecture" style="text;html=1;fontSize=20;fontStyle=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#1a1a2e;" vertex="1" parent="1">
+      <mxGeometry x="200" y="10" width="1200" height="40" as="geometry" />
+    </mxCell>
+
+    <!-- ========== CLIENT LAYER (Browser) ========== -->
+    <mxCell id="client-group" value="" style="rounded=1;whiteSpace=wrap;fillColor=#f0f4ff;strokeColor=#4361ee;strokeWidth=2;dashed=1;arcSize=8;" vertex="1" parent="1">
+      <mxGeometry x="40" y="70" width="1520" height="200" as="geometry" />
+    </mxCell>
+    <mxCell id="client-label" value="Client Layer — Browser (Next.js 16 / React 19 / TypeScript)" style="text;html=1;fontSize=14;fontStyle=1;align=left;verticalAlign=top;fillColor=none;strokeColor=none;fontColor=#4361ee;" vertex="1" parent="1">
+      <mxGeometry x="60" y="75" width="500" height="24" as="geometry" />
+    </mxCell>
+
+    <!-- Frontend modules -->
+    <mxCell id="chat-ui" value="&lt;b&gt;Chat UI&lt;/b&gt;&lt;br/&gt;Streaming Messages&lt;br/&gt;Agent Workbench" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="60" y="110" width="140" height="65" as="geometry" /></mxCell>
+    <mxCell id="canvas-ui" value="&lt;b&gt;Graph Canvas&lt;/b&gt;&lt;br/&gt;ReactFlow&lt;br/&gt;Node/Edge Editor" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="220" y="110" width="140" height="65" as="geometry" /></mxCell>
+    <mxCell id="copilot-ui" value="&lt;b&gt;Copilot Panel&lt;/b&gt;&lt;br/&gt;AI Graph Assistant&lt;br/&gt;Rapid Mode" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="380" y="110" width="140" height="65" as="geometry" /></mxCell>
+    <mxCell id="skill-ui" value="&lt;b&gt;Skill Library&lt;/b&gt;&lt;br/&gt;Creator / Editor&lt;br/&gt;Discover" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="540" y="110" width="140" height="65" as="geometry" /></mxCell>
+    <mxCell id="run-ui" value="&lt;b&gt;Run Center&lt;/b&gt;&lt;br/&gt;History / Replay&lt;br/&gt;Event Stream" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="700" y="110" width="140" height="65" as="geometry" /></mxCell>
+    <mxCell id="settings-ui" value="&lt;b&gt;Settings&lt;/b&gt;&lt;br/&gt;Models / MCP&lt;br/&gt;Profile / Org" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="860" y="110" width="140" height="65" as="geometry" /></mxCell>
+    <mxCell id="openclaw-ui" value="&lt;b&gt;OpenClaw&lt;/b&gt;&lt;br/&gt;Device Mgmt&lt;br/&gt;Dashboard" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="1020" y="110" width="140" height="65" as="geometry" /></mxCell>
+    <mxCell id="memory-ui" value="&lt;b&gt;Memory &amp;amp; Tools&lt;/b&gt;&lt;br/&gt;Fact/Procedure&lt;br/&gt;Tool Manager" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="1180" y="110" width="140" height="65" as="geometry" /></mxCell>
+    <mxCell id="auth-ui" value="&lt;b&gt;Auth Pages&lt;/b&gt;&lt;br/&gt;Login / Register&lt;br/&gt;OAuth / Verify" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="1340" y="110" width="140" height="65" as="geometry" /></mxCell>
+
+    <!-- Frontend infra -->
+    <mxCell id="ws-clients" value="&lt;b&gt;WebSocket Clients (BaseWsClient)&lt;/b&gt;&lt;br/&gt;chatWsClient · runWsClient · NotificationWsClient" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;fontSize=11;arcSize=8;" vertex="1" parent="1"><mxGeometry x="60" y="195" width="400" height="55" as="geometry" /></mxCell>
+    <mxCell id="state-mgmt" value="&lt;b&gt;State Management&lt;/b&gt;&lt;br/&gt;Zustand Stores · TanStack Query · React Context" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;fontSize=11;arcSize=8;" vertex="1" parent="1"><mxGeometry x="480" y="195" width="350" height="55" as="geometry" /></mxCell>
+    <mxCell id="api-client" value="&lt;b&gt;API / Service Layer&lt;/b&gt;&lt;br/&gt;api-client.ts · REST services · i18next" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;fontSize=11;arcSize=8;" vertex="1" parent="1"><mxGeometry x="850" y="195" width="350" height="55" as="geometry" /></mxCell>
+    <mxCell id="nextjs-mw" value="&lt;b&gt;Next.js Middleware&lt;/b&gt;&lt;br/&gt;CSP · Auth Guard · Redirect" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;fontSize=11;arcSize=8;" vertex="1" parent="1"><mxGeometry x="1220" y="195" width="300" height="55" as="geometry" /></mxCell>
+
+    <!-- ========== COMMUNICATION CHANNELS ========== -->
+    <mxCell id="ws-arrow-chat" value="" style="endArrow=classic;startArrow=classic;curved=1;strokeColor=#e65100;strokeWidth=2;exitX=0.15;exitY=1;entryX=0.15;entryY=0;" edge="1" parent="1" source="client-group" target="backend-group">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="ws-arrow-chat-label" value="WS /ws/chat" style="text;fontSize=10;fontStyle=1;fontColor=#e65100;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="100" y="283" width="80" height="20" as="geometry" />
+    </mxCell>
+
+    <mxCell id="ws-arrow-run" value="" style="endArrow=classic;startArrow=classic;curved=1;strokeColor=#e65100;strokeWidth=2;exitX=0.35;exitY=1;entryX=0.35;entryY=0;" edge="1" parent="1" source="client-group" target="backend-group">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="ws-arrow-run-label" value="WS /ws/runs" style="text;fontSize=10;fontStyle=1;fontColor=#e65100;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="395" y="283" width="80" height="20" as="geometry" />
+    </mxCell>
+
+    <mxCell id="ws-arrow-notif" value="" style="endArrow=classic;curved=1;strokeColor=#e65100;strokeWidth=2;exitX=0.55;exitY=1;entryX=0.55;entryY=0;" edge="1" parent="1" source="client-group" target="backend-group">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="ws-arrow-notif-label" value="WS /ws/notifications" style="text;fontSize=10;fontStyle=1;fontColor=#e65100;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="660" y="283" width="130" height="20" as="geometry" />
+    </mxCell>
+
+    <mxCell id="rest-arrow" value="" style="endArrow=classic;startArrow=classic;curved=1;strokeColor=#1565c0;strokeWidth=2;exitX=0.75;exitY=1;entryX=0.75;entryY=0;" edge="1" parent="1" source="client-group" target="backend-group">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="rest-arrow-label" value="REST /api/v1/*" style="text;fontSize=10;fontStyle=1;fontColor=#1565c0;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="990" y="283" width="100" height="20" as="geometry" />
+    </mxCell>
+
+    <mxCell id="ws-arrow-openclaw" value="" style="endArrow=classic;startArrow=classic;curved=1;strokeColor=#9c27b0;strokeWidth=2;exitX=0.92;exitY=1;entryX=0.92;entryY=0;" edge="1" parent="1" source="client-group" target="backend-group">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="ws-arrow-openclaw-label" value="WS /ws/openclaw/*" style="text;fontSize=10;fontStyle=1;fontColor=#9c27b0;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="1310" y="283" width="120" height="20" as="geometry" />
+    </mxCell>
+
+    <!-- ========== BACKEND LAYER ========== -->
+    <mxCell id="backend-group" value="" style="rounded=1;whiteSpace=wrap;fillColor=#f5fff5;strokeColor=#2e7d32;strokeWidth=2;dashed=1;arcSize=6;" vertex="1" parent="1">
+      <mxGeometry x="40" y="310" width="1520" height="520" as="geometry" />
+    </mxCell>
+    <mxCell id="backend-label" value="Backend Layer — FastAPI (Python 3.12+) / Uvicorn / Gunicorn" style="text;html=1;fontSize=14;fontStyle=1;align=left;verticalAlign=top;fillColor=none;strokeColor=none;fontColor=#2e7d32;" vertex="1" parent="1">
+      <mxGeometry x="60" y="315" width="500" height="24" as="geometry" />
+    </mxCell>
+
+    <!-- API Gateway sublayer -->
+    <mxCell id="api-gw-group" value="" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#388e3c;strokeWidth=1;arcSize=8;" vertex="1" parent="1">
+      <mxGeometry x="60" y="348" width="1480" height="80" as="geometry" />
+    </mxCell>
+    <mxCell id="api-gw-label" value="API Gateway &amp; WebSocket Handlers" style="text;html=1;fontSize=12;fontStyle=1;align=left;fillColor=none;strokeColor=none;fontColor=#388e3c;" vertex="1" parent="1">
+      <mxGeometry x="70" y="350" width="300" height="20" as="geometry" />
+    </mxCell>
+
+    <mxCell id="chat-ws-handler" value="&lt;b&gt;ChatWsHandler&lt;/b&gt;&lt;br/&gt;chat.start / resume / stop" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="70" y="375" width="175" height="45" as="geometry" /></mxCell>
+    <mxCell id="run-ws-handler" value="&lt;b&gt;RunSubscriptionHandler&lt;/b&gt;&lt;br/&gt;subscribe / replay / live" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="260" y="375" width="175" height="45" as="geometry" /></mxCell>
+    <mxCell id="notif-handler" value="&lt;b&gt;NotificationManager&lt;/b&gt;&lt;br/&gt;push / heartbeat" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="450" y="375" width="160" height="45" as="geometry" /></mxCell>
+    <mxCell id="rest-routes" value="&lt;b&gt;REST API v1&lt;/b&gt;&lt;br/&gt;33+ Routers" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="625" y="375" width="450" height="45" as="geometry" /></mxCell>
+    <mxCell id="openclaw-bridge" value="&lt;b&gt;OpenClaw Bridge&lt;/b&gt;&lt;br/&gt;WS Proxy" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="1090" y="375" width="130" height="45" as="geometry" /></mxCell>
+    <mxCell id="security-layer" value="&lt;b&gt;Security / Middleware&lt;/b&gt;&lt;br/&gt;JWT · RBAC · Rate Limit · CSRF" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffebee;strokeColor=#c62828;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="1235" y="375" width="290" height="45" as="geometry" /></mxCell>
+
+    <!-- Service Layer -->
+    <mxCell id="svc-group" value="" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#388e3c;strokeWidth=1;arcSize=8;" vertex="1" parent="1">
+      <mxGeometry x="60" y="445" width="1480" height="80" as="geometry" />
+    </mxCell>
+    <mxCell id="svc-label" value="Service Layer (Business Logic — 40+ Services)" style="text;html=1;fontSize=12;fontStyle=1;align=left;fillColor=none;strokeColor=none;fontColor=#388e3c;" vertex="1" parent="1">
+      <mxGeometry x="70" y="447" width="400" height="20" as="geometry" />
+    </mxCell>
+
+    <mxCell id="chat-svc" value="&lt;b&gt;ChatTurn&lt;br/&gt;Executor&lt;/b&gt;&lt;br/&gt;Supervisor" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="70" y="472" width="100" height="48" as="geometry" /></mxCell>
+    <mxCell id="graph-svc" value="&lt;b&gt;GraphService&lt;/b&gt;&lt;br/&gt;Compile · Cache&lt;br/&gt;Deploy" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="180" y="472" width="115" height="48" as="geometry" /></mxCell>
+    <mxCell id="copilot-svc" value="&lt;b&gt;CopilotService&lt;/b&gt;&lt;br/&gt;Graph Actions&lt;br/&gt;DeepAgents" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="305" y="472" width="115" height="48" as="geometry" /></mxCell>
+    <mxCell id="skill-svc" value="&lt;b&gt;SkillService&lt;/b&gt;&lt;br/&gt;Sandbox Loader&lt;br/&gt;Versions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="430" y="472" width="110" height="48" as="geometry" /></mxCell>
+    <mxCell id="run-svc" value="&lt;b&gt;RunService&lt;/b&gt;&lt;br/&gt;Heartbeat&lt;br/&gt;Recovery" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="550" y="472" width="105" height="48" as="geometry" /></mxCell>
+    <mxCell id="model-svc" value="&lt;b&gt;ModelProvider&lt;br/&gt;Service&lt;/b&gt;&lt;br/&gt;Sync · Resolve" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="665" y="472" width="110" height="48" as="geometry" /></mxCell>
+    <mxCell id="tool-svc" value="&lt;b&gt;ToolRegistry&lt;/b&gt;&lt;br/&gt;MCP Client&lt;br/&gt;Builtin / Custom" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="785" y="472" width="115" height="48" as="geometry" /></mxCell>
+    <mxCell id="memory-svc" value="&lt;b&gt;MemoryService&lt;/b&gt;&lt;br/&gt;Fact / Procedure&lt;br/&gt;Episodic" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="910" y="472" width="110" height="48" as="geometry" /></mxCell>
+    <mxCell id="workspace-svc" value="&lt;b&gt;WorkspaceService&lt;/b&gt;&lt;br/&gt;RBAC · Folders&lt;br/&gt;Files" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="1030" y="472" width="115" height="48" as="geometry" /></mxCell>
+    <mxCell id="auth-svc" value="&lt;b&gt;AuthService&lt;/b&gt;&lt;br/&gt;JWT · OAuth&lt;br/&gt;Session" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="1155" y="472" width="100" height="48" as="geometry" /></mxCell>
+    <mxCell id="sandbox-svc" value="&lt;b&gt;SandboxManager&lt;/b&gt;&lt;br/&gt;Docker SDK&lt;br/&gt;FS Sandbox" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="1265" y="472" width="110" height="48" as="geometry" /></mxCell>
+    <mxCell id="trace-svc" value="&lt;b&gt;TraceService&lt;/b&gt;&lt;br/&gt;Langfuse&lt;br/&gt;Observability" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="1385" y="472" width="110" height="48" as="geometry" /></mxCell>
+
+    <!-- Core Engine Layer -->
+    <mxCell id="engine-group" value="" style="rounded=1;whiteSpace=wrap;fillColor=#fff8e1;strokeColor=#f57f17;strokeWidth=2;arcSize=6;" vertex="1" parent="1">
+      <mxGeometry x="60" y="543" width="1480" height="120" as="geometry" />
+    </mxCell>
+    <mxCell id="engine-label" value="Core AI Engine (LangChain / LangGraph / DeepAgents)" style="text;html=1;fontSize=12;fontStyle=1;align=left;fillColor=none;strokeColor=none;fontColor=#f57f17;" vertex="1" parent="1">
+      <mxGeometry x="70" y="546" width="400" height="20" as="geometry" />
+    </mxCell>
+
+    <mxCell id="deep-agents" value="&lt;b&gt;DeepAgents Builder&lt;/b&gt;&lt;br/&gt;resolve_configs → setup_sandbox → preload_skills&lt;br/&gt;→ ModelResolver → agent_factory → compile" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#f57f17;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="70" y="572" width="350" height="55" as="geometry" /></mxCell>
+    <mxCell id="code-exec" value="&lt;b&gt;Code Executor&lt;/b&gt;&lt;br/&gt;Restricted exec()&lt;br/&gt;10s timeout · Import guard" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#f57f17;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="435" y="572" width="170" height="55" as="geometry" /></mxCell>
+    <mxCell id="agent-middleware" value="&lt;b&gt;Agent Middleware Stack&lt;/b&gt;&lt;br/&gt;SkillsMiddleware · MemoryMiddleware&lt;br/&gt;LoggingMiddleware" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#f57f17;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="620" y="572" width="220" height="55" as="geometry" /></mxCell>
+    <mxCell id="checkpointer" value="&lt;b&gt;Checkpointer&lt;/b&gt;&lt;br/&gt;PostgreSQL-backed&lt;br/&gt;LangGraph state" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#f57f17;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="855" y="572" width="140" height="55" as="geometry" /></mxCell>
+    <mxCell id="ai-adapter" value="&lt;b&gt;AI Adapter&lt;/b&gt;&lt;br/&gt;Model Factory&lt;br/&gt;Credential Resolver" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#f57f17;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="1010" y="572" width="150" height="55" as="geometry" /></mxCell>
+    <mxCell id="a2a-client" value="&lt;b&gt;A2A Client&lt;/b&gt;&lt;br/&gt;Google A2A Spec&lt;br/&gt;External Agents" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#f57f17;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="1175" y="572" width="140" height="55" as="geometry" /></mxCell>
+    <mxCell id="copilot-engine" value="&lt;b&gt;Copilot Engine&lt;/b&gt;&lt;br/&gt;Graph Tools · Parser&lt;br/&gt;Validator · Applier" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#f57f17;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="1330" y="572" width="145" height="55" as="geometry" /></mxCell>
+
+    <!-- Repository Layer -->
+    <mxCell id="repo-layer" value="&lt;b&gt;Repository Layer&lt;/b&gt; — SQLAlchemy ORM · 30+ models (AuthUser, AgentGraph, GraphNode, Skill, AgentRun, AgentRunEvent, Memory, McpServer, ModelProvider, OpenClawInstance, ...)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#efebe9;strokeColor=#5d4037;fontSize=10;arcSize=8;" vertex="1" parent="1"><mxGeometry x="60" y="678" width="1480" height="40" as="geometry" /></mxCell>
+
+    <!-- Alembic Migrations -->
+    <mxCell id="alembic" value="&lt;b&gt;Alembic Migrations&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#efebe9;strokeColor=#5d4037;fontSize=10;arcSize=8;" vertex="1" parent="1"><mxGeometry x="60" y="730" width="150" height="30" as="geometry" /></mxCell>
+
+    <!-- ========== INFRASTRUCTURE LAYER ========== -->
+    <mxCell id="infra-group" value="" style="rounded=1;whiteSpace=wrap;fillColor=#fce4ec;strokeColor=#c62828;strokeWidth=2;dashed=1;arcSize=6;" vertex="1" parent="1">
+      <mxGeometry x="40" y="860" width="1520" height="150" as="geometry" />
+    </mxCell>
+    <mxCell id="infra-label" value="Infrastructure Layer (Docker Compose)" style="text;html=1;fontSize=14;fontStyle=1;align=left;verticalAlign=top;fillColor=none;strokeColor=none;fontColor=#c62828;" vertex="1" parent="1">
+      <mxGeometry x="60" y="865" width="400" height="24" as="geometry" />
+    </mxCell>
+
+    <mxCell id="postgres" value="&lt;b&gt;PostgreSQL 15&lt;/b&gt;&lt;br/&gt;User Data · Graphs&lt;br/&gt;Runs · Events&lt;br/&gt;LangGraph Checkpoints" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=10;arcSize=10;size=12;" vertex="1" parent="1"><mxGeometry x="80" y="895" width="150" height="100" as="geometry" /></mxCell>
+    <mxCell id="redis" value="&lt;b&gt;Redis 7&lt;/b&gt;&lt;br/&gt;Cache · Rate Limit&lt;br/&gt;Distributed Locks&lt;br/&gt;Refresh Tokens" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=10;arcSize=10;size=12;" vertex="1" parent="1"><mxGeometry x="260" y="895" width="150" height="100" as="geometry" /></mxCell>
+
+    <mxCell id="mcp-server" value="&lt;b&gt;MCP Server Container&lt;/b&gt;&lt;br/&gt;Ports 8001–8010&lt;br/&gt;Scanner · JEB · Demo Tools&lt;br/&gt;Shared backend-files volume" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#7b1fa2;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="450" y="900" width="200" height="80" as="geometry" /></mxCell>
+    <mxCell id="openclaw-container" value="&lt;b&gt;OpenClaw Containers&lt;/b&gt;&lt;br/&gt;Per-user Docker instances&lt;br/&gt;Ports 19001–19999&lt;br/&gt;Security Analysis Env" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#7b1fa2;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="680" y="900" width="200" height="80" as="geometry" /></mxCell>
+    <mxCell id="docker-sandbox" value="&lt;b&gt;Docker Sandboxes&lt;/b&gt;&lt;br/&gt;Agent Code Execution&lt;br/&gt;/workspace/skills/ mount&lt;br/&gt;Filesystem isolation" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#7b1fa2;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="910" y="900" width="200" height="80" as="geometry" /></mxCell>
+
+    <!-- ========== EXTERNAL SERVICES ========== -->
+    <mxCell id="ext-group" value="" style="rounded=1;whiteSpace=wrap;fillColor=#ede7f6;strokeColor=#4527a0;strokeWidth=2;dashed=1;arcSize=6;" vertex="1" parent="1">
+      <mxGeometry x="40" y="1040" width="1520" height="110" as="geometry" />
+    </mxCell>
+    <mxCell id="ext-label" value="External Services &amp; LLM Providers" style="text;html=1;fontSize=14;fontStyle=1;align=left;verticalAlign=top;fillColor=none;strokeColor=none;fontColor=#4527a0;" vertex="1" parent="1">
+      <mxGeometry x="60" y="1045" width="400" height="24" as="geometry" />
+    </mxCell>
+
+    <mxCell id="openai" value="&lt;b&gt;OpenAI&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d1c4e9;strokeColor=#4527a0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="70" y="1080" width="100" height="40" as="geometry" /></mxCell>
+    <mxCell id="anthropic" value="&lt;b&gt;Anthropic&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d1c4e9;strokeColor=#4527a0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="185" y="1080" width="100" height="40" as="geometry" /></mxCell>
+    <mxCell id="gemini" value="&lt;b&gt;Google Gemini&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d1c4e9;strokeColor=#4527a0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="300" y="1080" width="110" height="40" as="geometry" /></mxCell>
+    <mxCell id="ollama" value="&lt;b&gt;Ollama&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d1c4e9;strokeColor=#4527a0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="425" y="1080" width="100" height="40" as="geometry" /></mxCell>
+    <mxCell id="zhipu" value="&lt;b&gt;Zhipu AI&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d1c4e9;strokeColor=#4527a0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="540" y="1080" width="100" height="40" as="geometry" /></mxCell>
+    <mxCell id="custom-llm" value="&lt;b&gt;Custom OpenAI&lt;/b&gt;&lt;br/&gt;&lt;b&gt;Compatible&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d1c4e9;strokeColor=#4527a0;fontSize=10;arcSize=12;" vertex="1" parent="1"><mxGeometry x="655" y="1080" width="110" height="40" as="geometry" /></mxCell>
+    <mxCell id="langfuse" value="&lt;b&gt;Langfuse&lt;/b&gt;&lt;br/&gt;Observability" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d1c4e9;strokeColor=#4527a0;fontSize=10;arcSize=12;" vertex="1" parent="1"><mxGeometry x="790" y="1080" width="110" height="40" as="geometry" /></mxCell>
+    <mxCell id="oauth-providers" value="&lt;b&gt;OAuth Providers&lt;/b&gt;&lt;br/&gt;Social Login" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d1c4e9;strokeColor=#4527a0;fontSize=10;arcSize=12;" vertex="1" parent="1"><mxGeometry x="920" y="1080" width="110" height="40" as="geometry" /></mxCell>
+    <mxCell id="a2a-agents" value="&lt;b&gt;A2A External&lt;/b&gt;&lt;br/&gt;&lt;b&gt;Agents&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d1c4e9;strokeColor=#4527a0;fontSize=10;arcSize=12;" vertex="1" parent="1"><mxGeometry x="1050" y="1080" width="110" height="40" as="geometry" /></mxCell>
+    <mxCell id="email-svc" value="&lt;b&gt;Email&lt;/b&gt;&lt;br/&gt;SMTP / Azure / Resend" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d1c4e9;strokeColor=#4527a0;fontSize=10;arcSize=12;" vertex="1" parent="1"><mxGeometry x="1180" y="1080" width="140" height="40" as="geometry" /></mxCell>
+    <mxCell id="tavily" value="&lt;b&gt;Tavily Search&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d1c4e9;strokeColor=#4527a0;fontSize=10;arcSize=12;" vertex="1" parent="1"><mxGeometry x="1340" y="1080" width="100" height="40" as="geometry" /></mxCell>
+
+    <!-- ========== CONNECTING EDGES (Backend to Infra) ========== -->
+    <mxCell id="be-to-pg" value="" style="endArrow=classic;startArrow=classic;curved=1;strokeColor=#c62828;strokeWidth=1.5;exitX=0.12;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="backend-group" target="postgres">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="be-to-redis" value="" style="endArrow=classic;startArrow=classic;curved=1;strokeColor=#c62828;strokeWidth=1.5;exitX=0.22;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="backend-group" target="redis">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="be-to-mcp" value="" style="endArrow=classic;startArrow=classic;curved=1;strokeColor=#7b1fa2;strokeWidth=1.5;exitX=0.38;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="backend-group" target="mcp-server">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="mcp-proto-label" value="MCP Protocol" style="text;fontSize=9;fontColor=#7b1fa2;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="520" y="848" width="80" height="15" as="geometry" />
+    </mxCell>
+
+    <mxCell id="be-to-openclaw" value="" style="endArrow=classic;startArrow=classic;curved=1;strokeColor=#7b1fa2;strokeWidth=1.5;exitX=0.55;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="backend-group" target="openclaw-container">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="docker-label" value="Docker SDK" style="text;fontSize=9;fontColor=#7b1fa2;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="738" y="848" width="80" height="15" as="geometry" />
+    </mxCell>
+
+    <mxCell id="be-to-sandbox" value="" style="endArrow=classic;startArrow=classic;curved=1;strokeColor=#7b1fa2;strokeWidth=1.5;exitX=0.7;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="backend-group" target="docker-sandbox">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Backend to External -->
+    <mxCell id="be-to-llm" value="" style="endArrow=classic;startArrow=classic;curved=1;strokeColor=#4527a0;strokeWidth=1.5;exitX=0.3;exitY=1;entryX=0.3;entryY=0;" edge="1" parent="1" source="infra-group" target="ext-group">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="llm-calls-label" value="HTTPS (LLM API Calls)" style="text;fontSize=9;fontStyle=1;fontColor=#4527a0;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="340" y="1020" width="130" height="15" as="geometry" />
+    </mxCell>
+
+    <mxCell id="be-to-a2a" value="" style="endArrow=classic;startArrow=classic;curved=1;strokeColor=#4527a0;strokeWidth=1.5;exitX=0.7;exitY=1;entryX=0.7;entryY=0;" edge="1" parent="1" source="infra-group" target="ext-group">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="a2a-label" value="A2A Protocol / HTTP" style="text;fontSize=9;fontStyle=1;fontColor=#4527a0;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="1000" y="1020" width="130" height="15" as="geometry" />
+    </mxCell>
+
+    <!-- ========== INTERNAL ENGINE EDGES ========== -->
+    <mxCell id="chat-to-graph" value="" style="endArrow=classic;curved=1;strokeColor=#2e7d32;strokeWidth=1;exitX=0.5;exitY=1;entryX=0.1;entryY=0;" edge="1" parent="1" source="chat-svc" target="deep-agents">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="graph-to-deep" value="" style="endArrow=classic;curved=1;strokeColor=#2e7d32;strokeWidth=1;exitX=0.5;exitY=1;entryX=0.35;entryY=0;" edge="1" parent="1" source="graph-svc" target="deep-agents">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="copilot-to-engine" value="" style="endArrow=classic;curved=1;strokeColor=#2e7d32;strokeWidth=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="copilot-svc" target="copilot-engine">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="model-to-adapter" value="" style="endArrow=classic;curved=1;strokeColor=#f57f17;strokeWidth=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="model-svc" target="ai-adapter">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="run-to-checkpoint" value="" style="endArrow=classic;curved=1;strokeColor=#f57f17;strokeWidth=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="run-svc" target="checkpointer">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- ========== FLOW LEGEND ========== -->
+    <mxCell id="legend-group" value="" style="rounded=1;whiteSpace=wrap;fillColor=#fafafa;strokeColor=#9e9e9e;strokeWidth=1;arcSize=8;" vertex="1" parent="1">
+      <mxGeometry x="1150" y="860" width="400" height="150" as="geometry" />
+    </mxCell>
+    <mxCell id="legend-title" value="&lt;b&gt;Legend&lt;/b&gt;" style="text;html=1;fontSize=12;fontStyle=1;fillColor=none;strokeColor=none;fontColor=#333;" vertex="1" parent="1">
+      <mxGeometry x="1160" y="865" width="80" height="20" as="geometry" />
+    </mxCell>
+    <mxCell id="legend-ws" value="" style="endArrow=classic;startArrow=classic;strokeColor=#e65100;strokeWidth=2;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="1170" y="900" as="sourcePoint" />
+        <mxPoint x="1230" y="900" as="targetPoint" />
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="legend-ws-text" value="WebSocket" style="text;fontSize=10;fontColor=#e65100;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="1240" y="892" width="80" height="16" as="geometry" />
+    </mxCell>
+    <mxCell id="legend-rest" value="" style="endArrow=classic;startArrow=classic;strokeColor=#1565c0;strokeWidth=2;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="1170" y="920" as="sourcePoint" />
+        <mxPoint x="1230" y="920" as="targetPoint" />
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="legend-rest-text" value="REST API" style="text;fontSize=10;fontColor=#1565c0;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="1240" y="912" width="80" height="16" as="geometry" />
+    </mxCell>
+    <mxCell id="legend-docker" value="" style="endArrow=classic;startArrow=classic;strokeColor=#7b1fa2;strokeWidth=2;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="1170" y="940" as="sourcePoint" />
+        <mxPoint x="1230" y="940" as="targetPoint" />
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="legend-docker-text" value="Docker SDK / MCP Protocol" style="text;fontSize=10;fontColor=#7b1fa2;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="1240" y="932" width="160" height="16" as="geometry" />
+    </mxCell>
+    <mxCell id="legend-ext" value="" style="endArrow=classic;startArrow=classic;strokeColor=#4527a0;strokeWidth=2;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="1170" y="960" as="sourcePoint" />
+        <mxPoint x="1230" y="960" as="targetPoint" />
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="legend-ext-text" value="External HTTPS (LLM / A2A)" style="text;fontSize=10;fontColor=#4527a0;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="1240" y="952" width="170" height="16" as="geometry" />
+    </mxCell>
+    <mxCell id="legend-int" value="" style="endArrow=classic;strokeColor=#2e7d32;strokeWidth=1;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="1170" y="980" as="sourcePoint" />
+        <mxPoint x="1230" y="980" as="targetPoint" />
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="legend-int-text" value="Internal module call" style="text;fontSize=10;fontColor=#2e7d32;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="1240" y="972" width="120" height="16" as="geometry" />
+    </mxCell>
+
+  </root>
+</mxGraphModel>

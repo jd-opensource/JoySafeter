@@ -1,0 +1,150 @@
+<mxGraphModel>
+<root>
+<mxCell id="0"/>
+<mxCell id="1" parent="0"/>
+
+<!-- TITLE -->
+<mxCell id="title" value="JoySafeter 快速入门 — 用户操作路径全流程" style="text;html=1;fontSize=22;fontStyle=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#1a237e;" vertex="1" parent="1">
+  <mxGeometry x="200" y="8" width="1200" height="38" as="geometry"/>
+</mxCell>
+<mxCell id="subtitle" value="从登录到查看运行结果的 9 个关键步骤" style="text;html=1;fontSize=12;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#757575;" vertex="1" parent="1">
+  <mxGeometry x="400" y="40" width="700" height="20" as="geometry"/>
+</mxCell>
+
+<!-- ============ ROW 1: STEPS 1-5 ============ -->
+
+<!-- STEP 1: Login -->
+<mxCell id="s1" value="" style="rounded=1;whiteSpace=wrap;fillColor=#e3f2fd;strokeColor=#1565c0;strokeWidth=2;arcSize=8;" vertex="1" parent="1">
+  <mxGeometry x="20" y="75" width="270" height="370" as="geometry"/>
+</mxCell>
+<mxCell id="s1h" value="&lt;b&gt;STEP 1&lt;/b&gt;  登录  /signin" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1565c0;fontColor=#ffffff;fontSize=12;arcSize=15;" vertex="1" parent="1">
+  <mxGeometry x="30" y="85" width="250" height="30" as="geometry"/>
+</mxCell>
+<mxCell id="s1c" value="&lt;b&gt;邮箱 + 密码登录&lt;/b&gt;&lt;br/&gt;输入 Email / Password → Sign In&lt;br/&gt;&lt;br/&gt;&lt;b&gt;OAuth 快捷登录&lt;/b&gt;&lt;br/&gt;支持 GitHub / Google 一键授权&lt;br/&gt;&lt;br/&gt;&lt;b&gt;首次注册需验证邮箱&lt;/b&gt;&lt;br/&gt;验证邮件 → 点击链接激活&lt;br/&gt;&lt;br/&gt;&lt;b&gt;登录成功&lt;/b&gt;&lt;br/&gt;→ 自动跳转 /chat 主页&lt;br/&gt;&lt;br/&gt;&lt;i&gt;也支持: 忘记密码 / 重置&lt;/i&gt;" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;overflow=hidden;fontSize=11;spacing=6;" vertex="1" parent="1">
+  <mxGeometry x="30" y="123" width="250" height="312" as="geometry"/>
+</mxCell>
+
+<!-- STEP 2: Configure Models -->
+<mxCell id="s2" value="" style="rounded=1;whiteSpace=wrap;fillColor=#f3e5f5;strokeColor=#7b1fa2;strokeWidth=2;arcSize=8;" vertex="1" parent="1">
+  <mxGeometry x="310" y="75" width="270" height="370" as="geometry"/>
+</mxCell>
+<mxCell id="s2h" value="&lt;b&gt;STEP 2&lt;/b&gt;  配置模型  /settings/models" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#7b1fa2;fontColor=#ffffff;fontSize=12;arcSize=15;" vertex="1" parent="1">
+  <mxGeometry x="320" y="85" width="250" height="30" as="geometry"/>
+</mxCell>
+<mxCell id="s2c" value="&lt;b&gt;左侧: 选择 Provider&lt;/b&gt;&lt;br/&gt;OpenAI / Anthropic / Gemini&lt;br/&gt;Ollama / Zhipu AI / Custom&lt;br/&gt;&lt;br/&gt;&lt;b&gt;右侧: 填写凭证&lt;/b&gt;&lt;br/&gt;API Key + Base URL&lt;br/&gt;&lt;br/&gt;&lt;b&gt;同步模型列表&lt;/b&gt;&lt;br/&gt;点击 Sync → 拉取可用模型&lt;br/&gt;gpt-4o / claude-sonnet 等&lt;br/&gt;&lt;br/&gt;&lt;b&gt;→ 模型就绪&lt;/b&gt;&lt;br/&gt;Agent 节点可直接选用" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;overflow=hidden;fontSize=11;spacing=6;" vertex="1" parent="1">
+  <mxGeometry x="325" y="123" width="250" height="312" as="geometry"/>
+</mxCell>
+
+<!-- STEP 3: MCP Tools -->
+<mxCell id="s3" value="" style="rounded=1;whiteSpace=wrap;fillColor=#e0f2f1;strokeColor=#00695c;strokeWidth=2;arcSize=8;" vertex="1" parent="1">
+  <mxGeometry x="600" y="75" width="270" height="370" as="geometry"/>
+</mxCell>
+<mxCell id="s3h" value="&lt;b&gt;STEP 3&lt;/b&gt;  MCP 工具  /tools" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#00695c;fontColor=#ffffff;fontSize=12;arcSize=15;" vertex="1" parent="1">
+  <mxGeometry x="610" y="85" width="250" height="30" as="geometry"/>
+</mxCell>
+<mxCell id="s3c" value="&lt;b&gt;查看 MCP Server 列表&lt;/b&gt;&lt;br/&gt;已注册工具服务一览&lt;br/&gt;&lt;br/&gt;&lt;b&gt;添加新 MCP Server&lt;/b&gt;&lt;br/&gt;Name / URL / Port&lt;br/&gt;协议: stdio / sse / streamable-http&lt;br/&gt;&lt;br/&gt;&lt;b&gt;查看工具清单&lt;/b&gt;&lt;br/&gt;每个 Server 挂载的工具&lt;br/&gt;&lt;br/&gt;&lt;b&gt;启用 / 禁用&lt;/b&gt;&lt;br/&gt;按需开关单个工具&lt;br/&gt;&lt;br/&gt;&lt;b&gt;→ 工具就绪&lt;/b&gt;&lt;br/&gt;Agent 可连接使用" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;overflow=hidden;fontSize=11;spacing=6;" vertex="1" parent="1">
+  <mxGeometry x="610" y="123" width="250" height="312" as="geometry"/>
+</mxCell>
+
+<!-- STEP 4: Skills (NEW!) -->
+<mxCell id="s4" value="" style="rounded=1;whiteSpace=wrap;fillColor=#fce4ec;strokeColor=#ad1457;strokeWidth=2;arcSize=8;" vertex="1" parent="1">
+  <mxGeometry x="890" y="75" width="270" height="370" as="geometry"/>
+</mxCell>
+<mxCell id="s4h" value="&lt;b&gt;STEP 4&lt;/b&gt;  Skill 管理  /skills" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ad1457;fontColor=#ffffff;fontSize=12;arcSize=15;" vertex="1" parent="1">
+  <mxGeometry x="900" y="85" width="250" height="30" as="geometry"/>
+</mxCell>
+<mxCell id="s4c" value="&lt;b&gt;创建 Skill&lt;/b&gt;&lt;br/&gt;AI 辅助创建 (SkillCreator Chat)&lt;br/&gt;或手动编写 Skill 文件&lt;br/&gt;&lt;br/&gt;&lt;b&gt;编辑 Skill 内容&lt;/b&gt;&lt;br/&gt;SkillEditor 代码编辑器&lt;br/&gt;SkillForm 配置 (名称/描述/标签)&lt;br/&gt;&lt;br/&gt;&lt;b&gt;版本管理&lt;/b&gt;&lt;br/&gt;发布版本 → VersionHistoryTab&lt;br/&gt;多版本并存, 可回溯&lt;br/&gt;&lt;br/&gt;&lt;b&gt;导入 Skill&lt;/b&gt;&lt;br/&gt;从文件导入已有 Skill 模板&lt;br/&gt;&lt;br/&gt;&lt;b&gt;→ Skill 就绪&lt;/b&gt;&lt;br/&gt;Agent 节点可连接 Skills" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;overflow=hidden;fontSize=11;spacing=6;" vertex="1" parent="1">
+  <mxGeometry x="900" y="123" width="250" height="312" as="geometry"/>
+</mxCell>
+
+<!-- STEP 5: Build Agent -->
+<mxCell id="s5" value="" style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#e65100;strokeWidth=2;arcSize=8;" vertex="1" parent="1">
+  <mxGeometry x="1180" y="75" width="380" height="370" as="geometry"/>
+</mxCell>
+<mxCell id="s5h" value="&lt;b&gt;STEP 5&lt;/b&gt;  构建 Agent  /workspace" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e65100;fontColor=#ffffff;fontSize=12;arcSize=15;" vertex="1" parent="1">
+  <mxGeometry x="1190" y="85" width="360" height="30" as="geometry"/>
+</mxCell>
+<mxCell id="s5c" value="&lt;b&gt;进入 Workspace → 新建 Agent&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;&lt;b&gt;左侧组件栏 (拖放)&lt;/b&gt;&lt;br/&gt;Agent / Code Agent / A2A Agent&lt;br/&gt;&lt;br/&gt;&lt;b&gt;中间: ReactFlow 画布&lt;/b&gt;&lt;br/&gt;拖入节点 → 连线 → 构建图&lt;br/&gt;可视化编排多 Agent 协作&lt;br/&gt;&lt;br/&gt;&lt;b&gt;右侧: 属性面板&lt;/b&gt;&lt;br/&gt;Model / System Prompt&lt;br/&gt;Tools / Skills / DeepAgents&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Copilot AI 助手&lt;/b&gt;&lt;br/&gt;自然语言 → AI 自动编排" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;overflow=hidden;fontSize=11;spacing=6;" vertex="1" parent="1">
+  <mxGeometry x="1190" y="123" width="360" height="312" as="geometry"/>
+</mxCell>
+
+<!-- ============ ROW 1 ARROWS ============ -->
+<mxCell id="a12" value="" style="endArrow=classic;strokeColor=#424242;strokeWidth=2;curved=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="s1" target="s2">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="a23" value="" style="endArrow=classic;strokeColor=#424242;strokeWidth=2;curved=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="s2" target="s3">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="a34" value="" style="endArrow=classic;strokeColor=#424242;strokeWidth=2;curved=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="s3" target="s4">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="a45" value="" style="endArrow=classic;strokeColor=#424242;strokeWidth=2;curved=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="s4" target="s5">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+
+<!-- Turn arrow: Row 1 → Row 2 -->
+<mxCell id="a5turn" value="&lt;b&gt;构建完成, 开始测试&lt;/b&gt;" style="endArrow=classic;strokeColor=#424242;strokeWidth=2.5;dashed=1;dashPattern=8 4;curved=1;fontSize=11;fontColor=#424242;labelBackgroundColor=#ffffff;html=1;exitX=0.15;exitY=1;entryX=0.85;entryY=0;" edge="1" parent="1" source="s5" target="s6">
+  <mxGeometry x="-0.2" relative="1" as="geometry">
+    <mxPoint as="offset"/>
+  </mxGeometry>
+</mxCell>
+
+<!-- ============ ROW 2: STEPS 6-9 ============ -->
+
+<!-- STEP 6: Self-Test -->
+<mxCell id="s6" value="" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#2e7d32;strokeWidth=2;arcSize=8;" vertex="1" parent="1">
+  <mxGeometry x="20" y="520" width="370" height="370" as="geometry"/>
+</mxCell>
+<mxCell id="s6h" value="&lt;b&gt;STEP 6&lt;/b&gt;  自测 (Langfuse 风格 Trace)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2e7d32;fontColor=#ffffff;fontSize=12;arcSize=15;" vertex="1" parent="1">
+  <mxGeometry x="30" y="530" width="350" height="30" as="geometry"/>
+</mxCell>
+<mxCell id="s6c" value="&lt;b&gt;点击 Run 按钮&lt;/b&gt;&lt;br/&gt;RunInputModal → 输入测试消息&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Execution Panel 展开&lt;/b&gt;&lt;br/&gt;Langfuse 风格实时追踪&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Tree View — 执行树&lt;/b&gt;&lt;br/&gt;输入 → LLM → 工具调用 → 输出&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Timeline View — 瀑布时间轴&lt;/b&gt;&lt;br/&gt;耗时 / Token / 并发可视化&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Detail Panel&lt;/b&gt;&lt;br/&gt;Preview / Output / Metadata&lt;br/&gt;&lt;br/&gt;&lt;b&gt;实时流式 (WS /ws/chat)&lt;/b&gt;&lt;br/&gt;边执行边查看" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;overflow=hidden;fontSize=11;spacing=6;" vertex="1" parent="1">
+  <mxGeometry x="30" y="568" width="350" height="312" as="geometry"/>
+</mxCell>
+
+<!-- STEP 7: Publish -->
+<mxCell id="s7" value="" style="rounded=1;whiteSpace=wrap;fillColor=#ffebee;strokeColor=#c62828;strokeWidth=2;arcSize=8;" vertex="1" parent="1">
+  <mxGeometry x="410" y="520" width="270" height="370" as="geometry"/>
+</mxCell>
+<mxCell id="s7h" value="&lt;b&gt;STEP 7&lt;/b&gt;  发布 Publish" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c62828;fontColor=#ffffff;fontSize=12;arcSize=15;" vertex="1" parent="1">
+  <mxGeometry x="420" y="530" width="250" height="30" as="geometry"/>
+</mxCell>
+<mxCell id="s7c" value="&lt;b&gt;点击 Publish 按钮&lt;/b&gt;&lt;br/&gt;创建版本化快照 v1, v2, v3&lt;br/&gt;&lt;br/&gt;&lt;b&gt;发布状态指示&lt;/b&gt;&lt;br/&gt;灰色 Publish → 绿色 Published&lt;br/&gt;修改后 → Publish Update&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Deployment History&lt;/b&gt;&lt;br/&gt;版本列表 + 回滚能力&lt;br/&gt;&lt;br/&gt;&lt;b&gt;API Access&lt;/b&gt;&lt;br/&gt;获取 REST API 端点地址&lt;br/&gt;&lt;br/&gt;&lt;b&gt;→ Agent 正式上线!&lt;/b&gt;" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;overflow=hidden;fontSize=11;spacing=6;" vertex="1" parent="1">
+  <mxGeometry x="420" y="568" width="250" height="312" as="geometry"/>
+</mxCell>
+
+<!-- STEP 8: Chat Running (NEW!) -->
+<mxCell id="s8" value="" style="rounded=1;whiteSpace=wrap;fillColor=#fff8e1;strokeColor=#f57f17;strokeWidth=2;arcSize=8;" vertex="1" parent="1">
+  <mxGeometry x="700" y="520" width="310" height="370" as="geometry"/>
+</mxCell>
+<mxCell id="s8h" value="&lt;b&gt;STEP 8&lt;/b&gt;  Chat 运行  /chat" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f57f17;fontColor=#ffffff;fontSize=12;arcSize=15;" vertex="1" parent="1">
+  <mxGeometry x="710" y="530" width="290" height="30" as="geometry"/>
+</mxCell>
+<mxCell id="s8c" value="&lt;b&gt;进入 /chat 对话页面&lt;/b&gt;&lt;br/&gt;选择已发布的 Agent&lt;br/&gt;&lt;br/&gt;&lt;b&gt;发送消息&lt;/b&gt;&lt;br/&gt;ChatInput 输入框 → 发送&lt;br/&gt;支持多种模式 (Agent / Simple)&lt;br/&gt;&lt;br/&gt;&lt;b&gt;流式响应&lt;/b&gt;&lt;br/&gt;WebSocket 实时推送回复&lt;br/&gt;Tool Call 实时展示&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Artifact Panel&lt;/b&gt;&lt;br/&gt;代码预览 / 文件浏览&lt;br/&gt;&lt;br/&gt;&lt;b&gt;会话管理&lt;/b&gt;&lt;br/&gt;ChatSidebar 历史会话列表&lt;br/&gt;自动保存 + 继续对话" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;overflow=hidden;fontSize=11;spacing=6;" vertex="1" parent="1">
+  <mxGeometry x="710" y="568" width="290" height="312" as="geometry"/>
+</mxCell>
+
+<!-- STEP 9: Run Center -->
+<mxCell id="s9" value="" style="rounded=1;whiteSpace=wrap;fillColor=#e8eaf6;strokeColor=#283593;strokeWidth=2;arcSize=8;" vertex="1" parent="1">
+  <mxGeometry x="1030" y="520" width="530" height="370" as="geometry"/>
+</mxCell>
+<mxCell id="s9h" value="&lt;b&gt;STEP 9&lt;/b&gt;  Run Center 详情  /runs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#283593;fontColor=#ffffff;fontSize=12;arcSize=15;" vertex="1" parent="1">
+  <mxGeometry x="1040" y="530" width="510" height="30" as="geometry"/>
+</mxCell>
+<mxCell id="s9c" value="&lt;b&gt;进入 /runs — Run Center&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;&lt;b&gt;筛选过滤&lt;/b&gt;&lt;br/&gt;Agent 名称 / Status (Running/Completed/Failed)&lt;br/&gt;&lt;br/&gt;&lt;b&gt;运行列表 (实时更新)&lt;/b&gt;&lt;br/&gt;RunRow 卡片: 标题 / 状态 / Agent名 / 心跳&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Details → /runs/[runId]&lt;/b&gt;&lt;br/&gt;Overview: 消息 → 回复 → 工具调用&lt;br/&gt;Events: 全部事件流 (JSON)&lt;br/&gt;Snapshot: 运行时状态&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Tool Calls 展开&lt;/b&gt;&lt;br/&gt;工具名 / 参数 / 结果&lt;br/&gt;&lt;br/&gt;&lt;b&gt;实时 WS /ws/runs&lt;/b&gt;&lt;br/&gt;WebSocket 推送状态变更" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;overflow=hidden;fontSize=11;spacing=6;" vertex="1" parent="1">
+  <mxGeometry x="1040" y="568" width="510" height="312" as="geometry"/>
+</mxCell>
+
+<!-- ============ ROW 2 ARROWS ============ -->
+<mxCell id="a67" value="" style="endArrow=classic;strokeColor=#424242;strokeWidth=2;curved=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="s6" target="s7">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="a78" value="" style="endArrow=classic;strokeColor=#424242;strokeWidth=2;curved=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="s7" target="s8">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="a89" value="" style="endArrow=classic;strokeColor=#424242;strokeWidth=2;curved=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="s8" target="s9">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+
+</root>
+</mxGraphModel>
