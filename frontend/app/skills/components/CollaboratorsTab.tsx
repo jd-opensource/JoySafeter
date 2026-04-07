@@ -174,7 +174,7 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
                   </SelectContent>
                 </Select>
               </div>
-              <Button size="sm" onClick={handleAdd} disabled={addMutation.isPending}>
+              <Button size="sm" onClick={handleAdd} disabled={addMutation.isPending} aria-label="Add collaborator">
                 <Plus size={14} />
               </Button>
             </div>
@@ -265,6 +265,7 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
                   size="sm"
                   className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-red-500"
                   onClick={() => setRemoveTarget({ userId: c.userId, open: true })}
+                  aria-label="Remove collaborator"
                 >
                   <X size={14} />
                 </Button>

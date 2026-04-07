@@ -63,7 +63,7 @@ export function ModelRow({ model, onEditParams }: ModelRowProps) {
           </TooltipProvider>
         )}
 
-        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onEditParams}>
+        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onEditParams} aria-label="Edit model parameters">
           <Settings className="h-3.5 w-3.5" />
         </Button>
       </div>

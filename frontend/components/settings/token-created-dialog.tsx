@@ -89,6 +89,7 @@ export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreat
                       size="icon"
                       onClick={handleCopy}
                       className="h-8 w-8 shrink-0 text-[var(--text-tertiary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)]"
+                      aria-label="Copy token"
                     >
                       {copied ? <Check size={15} className="text-emerald-600" /> : <Copy size={15} />}
                     </Button>

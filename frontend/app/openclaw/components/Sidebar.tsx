@@ -70,6 +70,7 @@ export function Sidebar() {
                   type="button"
                   className="flex items-center justify-center rounded-sm p-[4px] transition-colors hover:bg-[var(--surface-5)]"
                   onClick={handleToggleCollapse}
+                  aria-label="Expand sidebar"
                 >
                   <PanelLeft className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
                 </button>
@@ -119,6 +120,7 @@ export function Sidebar() {
                     type="button"
                     className="flex items-center justify-center rounded-sm p-[4px] transition-colors hover:bg-[var(--surface-5)]"
                     onClick={handleToggleCollapse}
+                    aria-label="Collapse sidebar"
                   >
                     <PanelLeft className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
                   </button>

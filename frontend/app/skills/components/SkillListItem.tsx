@@ -61,6 +61,7 @@ export const SkillListItem = React.memo(function SkillListItem({
             onDelete(skill.id)
           }}
           className="shrink-0 p-1 text-[var(--text-muted)] opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
+          aria-label="Delete skill"
         >
           <Trash2 size={12} />
         </button>

@@ -399,6 +399,7 @@ export const SandboxesPage = () => {
                                   className="h-7 px-2 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
                                   onClick={handleInlineSave}
                                   disabled={inlineSaving}
+                                  aria-label="Save image"
                                 >
                                   {inlineSaving ? (
                                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -412,6 +413,7 @@ export const SandboxesPage = () => {
                                   className="h-7 px-2 text-[var(--text-tertiary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)]"
                                   onClick={() => setInlineEdit(null)}
                                   disabled={inlineSaving}
+                                  aria-label="Cancel editing"
                                 >
                                   <X className="h-3.5 w-3.5" />
                                 </Button>
@@ -468,6 +470,7 @@ export const SandboxesPage = () => {
                                       })
                                     }
                                     disabled={actionLoading === sandbox.id}
+                                    aria-label="Stop sandbox"
                                   >
                                     <StopCircle className="h-3.5 w-3.5" />
                                   </Button>
@@ -491,6 +494,7 @@ export const SandboxesPage = () => {
                                       })
                                     }
                                     disabled={actionLoading === sandbox.id}
+                                    aria-label="Restart sandbox"
                                   >
                                     <PlayCircle className="h-3.5 w-3.5" />
                                   </Button>
@@ -514,6 +518,7 @@ export const SandboxesPage = () => {
                                     })
                                   }
                                   disabled={actionLoading === sandbox.id}
+                                  aria-label="Rebuild sandbox"
                                 >
                                   <RotateCcw className="h-3.5 w-3.5" />
                                 </Button>
@@ -536,6 +541,7 @@ export const SandboxesPage = () => {
                                     })
                                   }
                                   disabled={actionLoading === sandbox.id}
+                                  aria-label="Delete sandbox"
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
