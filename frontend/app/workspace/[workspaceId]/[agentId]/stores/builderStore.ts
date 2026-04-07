@@ -34,6 +34,7 @@ import {
 import { create } from 'zustand'
 
 import { i18n } from '@/lib/i18n'
+import { createLogger } from '@/lib/logs/console/logger'
 import { generateUUID } from '@/lib/utils/uuid'
 import { useSidebarStore } from '@/stores/sidebar/store'
 import { computeGraphStateHash } from '@/lib/utils/graphStateHash'
@@ -46,6 +47,8 @@ import { determineEdgeTypeAndRouteKey, autoWireConnection } from '../utils/conne
 import { getEdgeStyleByType, processEdgesForReactFlow } from '../utils/edgeStyles'
 import { exportGraphToJson, parseImportedGraph } from '../utils/graphImportExport'
 import { SaveManager, type GraphState as SaveManagerGraphState } from '../utils/saveManager'
+
+const logger = createLogger('BuilderStore')
 
 /** Typed shape of graph variables stored alongside canvas state. */
 interface BuilderVariables {
@@ -79,7 +82,7 @@ function migrateLegacyContextToStateFields(variables: BuilderVariables): StateFi
     description: v?.description || '',
     defaultValue: v?.value,
   }))
-  console.warn('[builderStore] Migrated legacy context variables to state fields:', migrated.length)
+  logger.info('Migrated legacy context variables to state fields:', migrated.length)
   return migrated
 }
 

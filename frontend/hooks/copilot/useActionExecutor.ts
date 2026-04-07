@@ -7,7 +7,10 @@ import { Node, Edge } from 'reactflow'
 
 import { useBuilderStore } from '@/app/workspace/[workspaceId]/[agentId]/stores/builderStore'
 import type { GraphAction } from '@/types/copilot'
+import { createLogger } from '@/lib/logs/console/logger'
 import { ActionProcessor } from '@/lib/utils/copilot/actionProcessor'
+
+const logger = createLogger('useActionExecutor')
 
 export function useActionExecutor(expectedGraphId?: string) {
   const [executingActions, setExecutingActions] = useState(false)
@@ -19,7 +22,7 @@ export function useActionExecutor(expectedGraphId?: string) {
       const currentGraphId = currentState.graphId
 
       if (expectedGraphId && currentGraphId !== expectedGraphId) {
-        console.warn('[useActionExecutor] graphId mismatch, skipping actions', {
+        logger.debug('graphId mismatch, skipping actions', {
           expectedGraphId,
           currentGraphId,
           actionsCount: actions.length,
@@ -27,7 +30,7 @@ export function useActionExecutor(expectedGraphId?: string) {
         return
       }
 
-      console.warn('[useActionExecutor] executeActions called', {
+      logger.debug('executeActions called', {
         actionsCount: actions.length,
         actions: actions,
         currentNodesCount: currentState.nodes.length,
@@ -46,7 +49,7 @@ export function useActionExecutor(expectedGraphId?: string) {
         currentEdges,
       )
 
-      console.warn('[useActionExecutor] Actions processed', {
+      logger.debug('Actions processed', {
         newNodesCount: processedNodes.length,
         newEdgesCount: processedEdges.length,
         nodesAdded: processedNodes.length - currentNodes.length,
@@ -54,12 +57,12 @@ export function useActionExecutor(expectedGraphId?: string) {
       })
 
       // Apply to store
-      console.warn('[useActionExecutor] Calling applyAIChanges', {
+      logger.debug('Calling applyAIChanges', {
         nodes: processedNodes.length,
         edges: processedEdges.length,
       })
       applyAIChanges({ nodes: processedNodes, edges: processedEdges })
-      console.warn('[useActionExecutor] applyAIChanges completed')
+      logger.debug('applyAIChanges completed')
 
       setExecutingActions(false)
     },

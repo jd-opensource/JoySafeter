@@ -9,6 +9,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { useEffect, useRef } from 'react'
 
 import { useToast } from '@/hooks/use-toast'
+import { createLogger } from '@/lib/logs/console/logger'
 import type { RunEventFrame, RunStatusFrame } from '@/lib/ws/runs/types'
 import { getRunWsClient } from '@/lib/ws/runs/runWsClient'
 import type { ChatStreamEvent } from '@/services/chatBackend'
@@ -17,6 +18,8 @@ import { runService } from '@/services/runService'
 import { hasCurrentMessage } from '../utils/copilotUtils'
 
 import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotState'
+
+const logger = createLogger('CopilotEffects')
 
 interface UseCopilotEffectsOptions {
   state: CopilotState
@@ -68,7 +71,7 @@ export function useCopilotEffects({
       return
 
     const restoreSession = async () => {
-      console.warn('[useCopilotEffects] Restoring from run snapshot:', currentRunId)
+      logger.debug('Restoring from run snapshot:', currentRunId)
       lastRestoredSessionIdRef.current = currentRunId
 
       try {
@@ -137,11 +140,11 @@ export function useCopilotEffects({
                 }
               },
               onError: (message: string) => {
-                console.warn('[useCopilotEffects] Run subscription error:', message)
+                logger.warn('Run subscription error:', message)
               },
             })
             .catch((err) => {
-              console.warn('[useCopilotEffects] Failed to subscribe to run events:', err)
+              logger.warn('Failed to subscribe to run events:', err)
             })
         } else if (status === 'completed') {
           if (projection) {
@@ -162,7 +165,7 @@ export function useCopilotEffects({
           actions.clearSession()
         }
       } catch (error) {
-        console.warn('[CopilotPanel] Failed to restore from run snapshot:', error)
+        logger.warn('Failed to restore from run snapshot:', error)
       } finally {
         if (refs.isMountedRef.current) actions.setLoading(false)
       }

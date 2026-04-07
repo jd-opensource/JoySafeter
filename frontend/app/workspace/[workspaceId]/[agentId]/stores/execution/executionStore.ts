@@ -391,6 +391,18 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       const graphId = store.currentGraphId || agentService.getCachedGraphId()
       if (!graphId) {
         console.error('No graph_id available for execution')
+        // Surface error in the execution panel so the user sees feedback
+        store.togglePanel(true)
+        store.addStep({
+          id: generateId('error'),
+          nodeId: 'system',
+          nodeLabel: 'Error',
+          stepType: 'system_log',
+          title: 'Execution Error',
+          status: 'error',
+          startTime: Date.now(),
+          content: 'No graph available for execution. Please save your graph first.',
+        })
         return
       }
 
