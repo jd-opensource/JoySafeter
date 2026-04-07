@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from app.services.run_reducers.copilot import apply_copilot_event, make_initial_projection
 
 
@@ -50,10 +48,12 @@ def _mirror_event_to_payload(
 
 # --- Mirror translation tests ---
 
+
 def test_copilot_status_with_stage():
     """Copilot status events preserve the 'stage' field."""
     event_type, payload = _mirror_event_to_payload(
-        "status", {"type": "status", "stage": "thinking", "message": "Analyzing..."},
+        "status",
+        {"type": "status", "stage": "thinking", "message": "Analyzing..."},
     )
     assert event_type == "status"
     assert payload == {"stage": "thinking", "message": "Analyzing..."}
@@ -62,7 +62,8 @@ def test_copilot_status_with_stage():
 def test_chat_status_without_stage():
     """Chat status events (no stage) still work."""
     event_type, payload = _mirror_event_to_payload(
-        "status", {"status": "processing"},
+        "status",
+        {"status": "processing"},
     )
     assert event_type == "status"
     assert payload == {"message": "processing", "status": "processing"}
@@ -71,7 +72,8 @@ def test_chat_status_without_stage():
 def test_copilot_content_uses_content_key():
     """Copilot content events use 'content' key instead of 'delta'."""
     event_type, payload = _mirror_event_to_payload(
-        "content", {"type": "content", "content": "Hello"},
+        "content",
+        {"type": "content", "content": "Hello"},
     )
     assert event_type == "content_delta"
     assert payload is not None
@@ -81,7 +83,8 @@ def test_copilot_content_uses_content_key():
 def test_chat_content_uses_delta_key():
     """Chat content events with 'delta' still work."""
     event_type, payload = _mirror_event_to_payload(
-        "content", {"delta": "chunk"},
+        "content",
+        {"delta": "chunk"},
     )
     assert event_type == "content_delta"
     assert payload is not None
@@ -128,6 +131,7 @@ def test_unknown_event_type_dropped():
 
 # --- End-to-end: mirror → reducer integration ---
 
+
 def test_copilot_event_flow_mirror_to_reducer():
     """Full pipeline: copilot events → mirror translation → reducer produces correct projection."""
     events = [
@@ -137,7 +141,10 @@ def test_copilot_event_flow_mirror_to_reducer():
         ("thought_step", {"type": "thought_step", "step": "Analyzed requirements"}),
         ("tool_call", {"type": "tool_call", "tool": "add_node", "input": {"name": "n1"}}),
         ("tool_result", {"type": "tool_result", "action": {"type": "add_node", "payload": {"name": "n1"}}}),
-        ("result", {"type": "result", "message": "Built your pipeline.", "actions": [{"type": "add_node", "payload": {}}]}),
+        (
+            "result",
+            {"type": "result", "message": "Built your pipeline.", "actions": [{"type": "add_node", "payload": {}}]},
+        ),
         ("done", {}),
     ]
 
