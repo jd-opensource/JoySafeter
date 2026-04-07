@@ -26,68 +26,52 @@ import { useInlineRename } from '../inline-rename-input'
 import { useDropZone } from '../../hooks/use-drop-zone'
 import { SidebarContextMenu } from '../sidebar-context-menu'
 import { AgentItem } from './agent-item'
+import { useAgentListContext } from './agent-list-context'
 
 export interface FolderItemProps {
   folder: FolderType
   agents: AgentMetadata[]
   subfolders: FolderType[]
-  allFolders: FolderType[]
-  activeAgentId?: string
   depth?: number
-  maxDepth: number
   onToggle: () => void
   onRename: (newName: string) => void
   onDelete: () => void
   onCreateSubfolder?: () => void
   onDuplicate?: () => void
   onDropAgent?: (agentId: string) => void
-  onDragAgentStart?: (agentId: string) => void
-  onDragAgentEnd?: () => void
-  isDragActive?: boolean
-  getAgentsInFolder: (folderId: string) => AgentMetadata[]
-  getSubfolders: (parentId: string) => FolderType[]
-  onToggleFolder: (folderId: string) => void
-  onRenameFolder: (folderId: string, newName: string) => void
-  onDeleteFolder: (folderId: string) => void
-  onCreateSubfolderFor: (parentId: string) => void
-  onDuplicateFolder: (folderId: string) => void
-  onMoveAgentToFolder: (agentId: string, folderId: string) => void
-  onRenameAgent?: (id: string, newName: string) => void
-  onDeleteAgent?: (id: string) => void
-  onDuplicateAgent?: (id: string) => void
-  canEdit?: boolean
 }
 
 export function FolderItem({
   folder,
   agents,
   subfolders,
-  allFolders,
-  activeAgentId,
   depth = 0,
-  maxDepth,
   onToggle,
   onRename,
   onDelete,
   onCreateSubfolder,
   onDuplicate,
   onDropAgent,
-  onDragAgentStart,
-  onDragAgentEnd,
-  isDragActive = false,
-  getAgentsInFolder,
-  getSubfolders,
-  onToggleFolder,
-  onRenameFolder,
-  onDeleteFolder,
-  onCreateSubfolderFor,
-  onDuplicateFolder,
-  onMoveAgentToFolder,
-  onRenameAgent,
-  onDeleteAgent,
-  onDuplicateAgent,
-  canEdit = true,
 }: FolderItemProps) {
+  const {
+    activeAgentId,
+    maxDepth,
+    isDragActive,
+    canEdit,
+    getAgentsInFolder,
+    getSubfolders,
+    onToggleFolder,
+    onRenameFolder,
+    onDeleteFolder,
+    onCreateSubfolderFor,
+    onDuplicateFolder,
+    onMoveAgentToFolder,
+    onRenameAgent,
+    onDeleteAgent,
+    onDuplicateAgent,
+    onDragAgentStart,
+    onDragAgentEnd,
+  } = useAgentListContext()
   const { t } = useTranslation()
   const canCreateSubfolder = depth < maxDepth - 1
   const [showMenu, setShowMenu] = useState(false)
@@ -189,31 +173,13 @@ export function FolderItem({
                 folder={subfolder}
                 agents={getAgentsInFolder(subfolder.id)}
                 subfolders={getSubfolders(subfolder.id)}
-                allFolders={allFolders}
-                activeAgentId={activeAgentId}
                 depth={depth + 1}
-                maxDepth={maxDepth}
                 onToggle={() => onToggleFolder(subfolder.id)}
                 onRename={(newName) => onRenameFolder(subfolder.id, newName)}
                 onDelete={() => onDeleteFolder(subfolder.id)}
                 onCreateSubfolder={() => onCreateSubfolderFor(subfolder.id)}
                 onDuplicate={() => onDuplicateFolder(subfolder.id)}
                 onDropAgent={(aId) => onMoveAgentToFolder(aId, subfolder.id)}
-                onDragAgentStart={onDragAgentStart}
-                onDragAgentEnd={onDragAgentEnd}
-                isDragActive={isDragActive}
-                getAgentsInFolder={getAgentsInFolder}
-                getSubfolders={getSubfolders}
-                onToggleFolder={onToggleFolder}
-                onRenameFolder={onRenameFolder}
-                onDeleteFolder={onDeleteFolder}
-                onCreateSubfolderFor={onCreateSubfolderFor}
-                onDuplicateFolder={onDuplicateFolder}
-                onMoveAgentToFolder={onMoveAgentToFolder}
-                onRenameAgent={onRenameAgent}
-                onDeleteAgent={onDeleteAgent}
-                onDuplicateAgent={onDuplicateAgent}
-                canEdit={canEdit}
               />
             ))}
 

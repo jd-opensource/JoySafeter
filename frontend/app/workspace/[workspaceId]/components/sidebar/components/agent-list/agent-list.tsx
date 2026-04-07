@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils'
 
 import { useDropZone } from '../../hooks/use-drop-zone'
 import { AgentItem } from './agent-item'
+import { AgentListProvider } from './agent-list-context'
 import { FolderItem } from './folder-item'
 
 /**
@@ -129,6 +130,49 @@ export function AgentList({
   const handleDragStart = useCallback(() => setIsDragActive(true), [])
   const handleDragEnd = useCallback(() => setIsDragActive(false), [])
 
+  const agentListContextValue = useMemo(
+    () => ({
+      getAgentsInFolder,
+      getSubfolders,
+      allFolders: folders,
+      activeAgentId: agentId,
+      maxDepth: maxFolderDepth,
+      onToggleFolder: (id: string) => onToggleFolder?.(id),
+      onRenameFolder: (id: string, name: string) => onRenameFolder?.(id, name),
+      onDeleteFolder: (id: string) => onDeleteFolder?.(id),
+      onCreateSubfolderFor: (id: string) => onCreateSubfolder?.(id),
+      onDuplicateFolder: (id: string) => onDuplicateFolder?.(id),
+      onMoveAgentToFolder: (aId: string, fId: string) => onMoveAgentToFolder?.(aId, fId),
+      onRenameAgent,
+      onDeleteAgent,
+      onDuplicateAgent,
+      onDragAgentStart: handleDragStart,
+      onDragAgentEnd: handleDragEnd,
+      isDragActive,
+      canEdit,
+    }),
+    [
+      getAgentsInFolder,
+      getSubfolders,
+      folders,
+      agentId,
+      maxFolderDepth,
+      onToggleFolder,
+      onRenameFolder,
+      onDeleteFolder,
+      onCreateSubfolder,
+      onDuplicateFolder,
+      onMoveAgentToFolder,
+      onRenameAgent,
+      onDeleteAgent,
+      onDuplicateAgent,
+      handleDragStart,
+      handleDragEnd,
+      isDragActive,
+      canEdit,
+    ],
+  )
+
   if (isLoading) {
     return (
       <div className="space-y-[4px]">
@@ -154,39 +198,23 @@ export function AgentList({
 
   return (
     <div className="space-y-[4px]">
-      {rootFolders.map((folder) => (
-        <FolderItem
-          key={folder.id}
-          folder={folder}
-          agents={getAgentsInFolder(folder.id)}
-          subfolders={getSubfolders(folder.id)}
-          allFolders={folders}
-          activeAgentId={agentId}
-          depth={0}
-          maxDepth={maxFolderDepth}
-          onToggle={() => onToggleFolder?.(folder.id)}
-          onRename={(newName) => onRenameFolder?.(folder.id, newName)}
-          onDelete={() => onDeleteFolder?.(folder.id)}
-          onCreateSubfolder={() => onCreateSubfolder?.(folder.id)}
-          onDuplicate={() => onDuplicateFolder?.(folder.id)}
-          onDropAgent={(aId) => onMoveAgentToFolder?.(aId, folder.id)}
-          onDragAgentStart={handleDragStart}
-          onDragAgentEnd={handleDragEnd}
-          isDragActive={isDragActive}
-          getAgentsInFolder={getAgentsInFolder}
-          getSubfolders={getSubfolders}
-          onToggleFolder={(id) => onToggleFolder?.(id)}
-          onRenameFolder={(id, name) => onRenameFolder?.(id, name)}
-          onDeleteFolder={(id) => onDeleteFolder?.(id)}
-          onCreateSubfolderFor={(id) => onCreateSubfolder?.(id)}
-          onDuplicateFolder={(id) => onDuplicateFolder?.(id)}
-          onMoveAgentToFolder={(aId, fId) => onMoveAgentToFolder?.(aId, fId)}
-          onRenameAgent={onRenameAgent}
-          onDeleteAgent={onDeleteAgent}
-          onDuplicateAgent={onDuplicateAgent}
-          canEdit={canEdit}
-        />
-      ))}
+      <AgentListProvider value={agentListContextValue}>
+        {rootFolders.map((folder) => (
+          <FolderItem
+            key={folder.id}
+            folder={folder}
+            agents={getAgentsInFolder(folder.id)}
+            subfolders={getSubfolders(folder.id)}
+            depth={0}
+            onToggle={() => onToggleFolder?.(folder.id)}
+            onRename={(newName) => onRenameFolder?.(folder.id, newName)}
+            onDelete={() => onDeleteFolder?.(folder.id)}
+            onCreateSubfolder={() => onCreateSubfolder?.(folder.id)}
+            onDuplicate={() => onDuplicateFolder?.(folder.id)}
+            onDropAgent={(aId) => onMoveAgentToFolder?.(aId, folder.id)}
+          />
+        ))}
+      </AgentListProvider>
 
       {rootAgents.length > 0 && (
         <RootDropZone
