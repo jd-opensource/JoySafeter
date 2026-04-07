@@ -79,6 +79,7 @@ export function UserInfo({ isCollapsed: _isCollapsed = false, showContent = true
                   'flex w-full items-center rounded-lg px-2 py-2 transition-colors hover:bg-[var(--surface-3)]',
                   showContent ? 'gap-2' : 'justify-center',
                 )}
+                aria-label={t('user.userMenu', { defaultValue: 'User menu' })}
               >
                 <Avatar className="h-8 w-8 flex-shrink-0">
                   {user?.image && (

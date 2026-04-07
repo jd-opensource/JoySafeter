@@ -126,6 +126,7 @@ export default function CodeViewer({
             <button
               onClick={() => setIsCollapsed(!isCollapsed)}
               className="rounded p-0.5 transition-colors hover:bg-[var(--surface-5)]"
+              aria-label={isCollapsed ? 'Expand code' : 'Collapse code'}
             >
               {isCollapsed ? (
                 <ChevronRight size={14} className="text-[var(--text-tertiary)]" />

@@ -205,7 +205,7 @@ export default function PropertiesPanel({
             <span className="text-micro font-bold uppercase tracking-widest text-[var(--text-muted)]">{def?.label}</span>
           </div>
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose} className="h-7 w-7 text-[var(--text-disabled)] hover:bg-[var(--surface-2)] hover:text-[var(--text-secondary)]">
+        <Button variant="ghost" size="icon" onClick={onClose} className="h-7 w-7 text-[var(--text-disabled)] hover:bg-[var(--surface-2)] hover:text-[var(--text-secondary)]" aria-label={t('workspace.closePanel', { defaultValue: 'Close panel' })}>
           <X size={16} />
         </Button>
       </div>

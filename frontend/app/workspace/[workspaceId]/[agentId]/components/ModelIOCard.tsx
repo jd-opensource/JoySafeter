@@ -74,6 +74,7 @@ function DataSection({
       <button
         onClick={() => setCollapsed(!collapsed)}
         className="flex w-full items-center justify-between p-2 transition-colors hover:bg-[var(--surface-3)]"
+        aria-label={collapsed ? 'Expand section' : 'Collapse section'}
       >
         <div className="flex items-center gap-2">
           <span className={iconColor}>{icon}</span>
@@ -204,6 +205,7 @@ export function ModelIOCard({
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
         className="flex w-full items-center justify-between p-3 transition-colors hover:bg-opacity-80"
+        aria-label={isCollapsed ? 'Expand Model I/O' : 'Collapse Model I/O'}
       >
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {isCollapsed ? (

@@ -209,6 +209,7 @@ export function ToolCallCard({
                   <button
                     onClick={() => setOutputCollapsed(!outputCollapsed)}
                     className="rounded px-2 py-0.5 text-micro font-medium text-emerald-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700"
+                    aria-label={outputCollapsed ? 'Expand output' : 'Collapse output'}
                   >
                     {outputCollapsed
                       ? t('tool.expand', { defaultValue: 'Expand' })
@@ -224,6 +225,7 @@ export function ToolCallCard({
                   <button
                     onClick={() => setOutputCollapsed(false)}
                     className="mt-1 text-micro font-medium text-emerald-600 hover:text-emerald-700"
+                    aria-label="Expand full output"
                   >
                     {t('tool.clickToExpand', { defaultValue: 'Click to expand full output' })}
                   </button>

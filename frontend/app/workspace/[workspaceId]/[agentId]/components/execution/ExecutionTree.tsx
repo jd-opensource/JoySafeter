@@ -164,6 +164,7 @@ export function ExecutionTree({ searchQuery = '' }: ExecutionTreeProps) {
                         toggleCollapse(node.id)
                       }}
                       className="rounded p-0.5 transition-colors hover:bg-[var(--surface-3)]"
+                      aria-label={isExpanded ? 'Collapse' : 'Expand'}
                     >
                       <ChevronRight
                         size={12}

@@ -399,7 +399,7 @@ export default function RunDetailPage() {
           <div>
             <div className="flex items-center gap-2">
               <Button asChild variant="ghost" size="sm" className="px-2">
-                <Link href="/runs">
+                <Link href="/runs" aria-label={t('runs.backToList', 'Back to runs')}>
                   <ArrowLeft className="h-4 w-4" />
                 </Link>
               </Button>

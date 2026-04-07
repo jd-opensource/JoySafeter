@@ -348,7 +348,7 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                       size="icon"
                       className="h-6 w-6 hover:bg-[var(--surface-3)]"
                       onClick={() => fileOps.handleAddFile(null)}
-                      title="Add file to root"
+                      aria-label="Add file"
                     >
                       <Plus size={14} />
                     </Button>

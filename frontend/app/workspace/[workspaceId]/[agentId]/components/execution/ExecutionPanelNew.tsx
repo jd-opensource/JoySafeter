@@ -232,6 +232,7 @@ function ExecutionPanelContent() {
                   <button
                     onClick={() => setSearchQuery('')}
                     className="p-0.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                    aria-label={t('workspace.clearSearch', { defaultValue: 'Clear search' })}
                   >
                     <X size={10} />
                   </button>

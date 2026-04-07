@@ -202,6 +202,7 @@ export function SkillCard({
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7 text-[var(--text-muted)] opacity-0 transition-opacity hover:text-[var(--text-primary)] group-hover:opacity-100 focus-visible:opacity-100"
+                aria-label={t('skills.moreOptions', { defaultValue: 'More options' })}
               >
                 <MoreHorizontal size={14} />
               </Button>

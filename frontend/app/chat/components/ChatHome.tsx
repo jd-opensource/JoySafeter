@@ -518,6 +518,7 @@ export default function ChatHome({
                           onClick={handleSubmit}
                           disabled={!state.input.trim() || isProcessing || state.isRedirecting}
                           size="sm"
+                          aria-label={t('chat.send', { defaultValue: 'Send message' })}
                           className={cn(
                             'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
                             state.input.trim() && !isProcessing && !state.isRedirecting

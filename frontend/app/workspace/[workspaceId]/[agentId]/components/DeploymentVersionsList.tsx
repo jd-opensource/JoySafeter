@@ -190,6 +190,7 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
                         className="h-6 w-6 p-0"
                         onClick={onSaveName}
                         disabled={isSaving}
+                        aria-label={t('workspace.saveName', { defaultValue: 'Save name' })}
                       >
                         {isSaving ? (
                           <Loader2 size={12} className="animate-spin" />
@@ -203,6 +204,7 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
                         className="h-6 w-6 p-0"
                         onClick={onCancelEdit}
                         disabled={isSaving}
+                        aria-label={t('workspace.cancelEdit', { defaultValue: 'Cancel edit' })}
                       >
                         <X size={12} />
                       </Button>

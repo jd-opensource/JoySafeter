@@ -164,6 +164,7 @@ export function WorkspaceDropdown({
                 type="button"
                 className="rounded-xs p-px transition-colors hover:bg-[var(--surface-5)]"
                 onClick={() => setSearchQuery('')}
+                aria-label={t('workspace.clearSearch', { defaultValue: 'Clear search' })}
               >
                 <X className="h-[10px] w-[10px] text-[var(--text-tertiary)]" />
               </button>
@@ -257,6 +258,7 @@ export function WorkspaceDropdown({
                           data-workspace-menu-button
                           type="button"
                           className="rounded-sm p-[4px] opacity-0 transition-opacity hover:bg-[var(--surface-9)] group-hover:opacity-100"
+                          aria-label={t('workspace.moreOptions', { defaultValue: 'More options' })}
                           onClick={(e) => {
                             e.stopPropagation()
                             const button = menuButtonRefs.current[workspace.id]

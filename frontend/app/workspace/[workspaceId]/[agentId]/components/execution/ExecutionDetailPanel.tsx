@@ -85,6 +85,7 @@ export function ExecutionDetailPanel() {
                 ? 'bg-[var(--surface-elevated)] text-[var(--text-primary)] shadow-sm'
                 : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
             )}
+            aria-label="Formatted view"
           >
             <FileText size={10} className="mr-1 inline" />
             Formatted
@@ -97,6 +98,7 @@ export function ExecutionDetailPanel() {
                 ? 'bg-[var(--surface-elevated)] text-[var(--text-primary)] shadow-sm'
                 : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
             )}
+            aria-label="JSON view"
           >
             <Code2 size={10} className="mr-1 inline" />
             JSON

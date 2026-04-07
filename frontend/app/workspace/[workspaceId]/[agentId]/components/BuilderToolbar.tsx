@@ -185,6 +185,7 @@ export function BuilderToolbar({
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7 rounded-md hover:bg-[var(--surface-2)]"
+                  aria-label={t('workspace.moreOptions', { defaultValue: 'More options' })}
                 >
                   <MoreHorizontal size={16} className="text-[var(--text-secondary)]" />
                 </Button>
@@ -273,6 +274,7 @@ export function BuilderToolbar({
                           : 'border border-l-0 border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success-strong)] hover:bg-[var(--status-success-bg)]'
                         : 'border border-l-0 border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)]',
                     )}
+                    aria-label={t('workspace.deployOptions', { defaultValue: 'Deploy options' })}
                   >
                     <ChevronDown size={14} />
                   </Button>

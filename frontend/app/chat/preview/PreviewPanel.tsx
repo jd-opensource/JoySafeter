@@ -52,6 +52,7 @@ export default function PreviewPanel() {
         <button
           onClick={() => dispatch({ type: 'HIDE_PREVIEW' })}
           className="rounded-md p-1 text-[var(--text-muted)] hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)]"
+          aria-label="Close"
         >
           <X size={16} />
         </button>

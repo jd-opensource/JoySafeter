@@ -50,6 +50,7 @@ export function RunInputModal({
             size="icon"
             onClick={onClose}
             className="h-6 w-6 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            aria-label={t('workspace.close', { defaultValue: 'Close' })}
           >
             <X size={12} />
           </Button>

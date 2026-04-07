@@ -365,6 +365,7 @@ export function AddMcpDialog({ open, onOpenChange, editingServer }: AddMcpDialog
                       size="icon"
                       className="h-9 w-9 text-[var(--text-muted)] hover:bg-red-50 hover:text-red-500"
                       onClick={() => handleHeaderRemove(idx)}
+                      aria-label={t('settings.removeHeader', { defaultValue: 'Remove header' })}
                     >
                       <Trash2 size={14} />
                     </Button>

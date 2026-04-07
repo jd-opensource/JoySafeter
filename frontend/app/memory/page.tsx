@@ -403,6 +403,7 @@ export default function KnowledgePage() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 text-[var(--text-muted)] opacity-0 transition-opacity hover:text-[var(--text-primary)] group-hover:opacity-100"
+                      aria-label={t('memory.moreOptions', { defaultValue: 'More options' })}
                     >
                       <MoreHorizontal size={16} />
                     </Button>

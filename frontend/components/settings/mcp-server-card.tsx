@@ -118,6 +118,7 @@ export function McpServerCard({
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                aria-label={t('settings.moreOptions', { defaultValue: 'More options' })}
               >
                 <MoreHorizontal size={16} />
               </Button>
