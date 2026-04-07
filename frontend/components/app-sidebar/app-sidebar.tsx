@@ -107,7 +107,7 @@ export function AppSidebar({ isCollapsed = false }: AppSidebarProps) {
                         : 'text-[var(--text-tertiary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)] font-normal',
                     )}
                   >
-                    <Icon className="h-[14px] w-[14px] flex-shrink-0" strokeWidth={isActive ? 2 : 1.75} />
+                    <Icon className="h-3.5 w-3.5 flex-shrink-0" strokeWidth={isActive ? 2 : 1.75} />
                     {!isCollapsed && <span className="truncate">{label}</span>}
                   </Link>
                 )

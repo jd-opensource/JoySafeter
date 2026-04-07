@@ -38,12 +38,12 @@ const SearchInput = React.forwardRef<HTMLInputElement, SearchInputProps>(
     return (
       <div
         className={cn(
-          'relative flex items-center gap-[6px] rounded-md border border-[var(--border)] bg-transparent px-[8px] py-[6px]',
+          'relative flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-transparent px-2 py-1.5',
           className,
         )}
       >
         {showSearchIcon && (
-          <Search className="h-[14px] w-[14px] flex-shrink-0 text-[var(--text-subtle)]" />
+          <Search className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-subtle)]" />
         )}
         <input
           ref={ref}
@@ -59,9 +59,9 @@ const SearchInput = React.forwardRef<HTMLInputElement, SearchInputProps>(
           <button
             type="button"
             onClick={handleClear}
-            className="absolute right-[8px] flex-shrink-0 rounded-sm p-[2px] transition-colors hover:bg-[var(--surface-5)]"
+            className="absolute right-[8px] flex-shrink-0 rounded-sm p-0.5 transition-colors hover:bg-[var(--surface-5)]"
           >
-            <X className="h-[12px] w-[12px] text-[var(--text-tertiary)]" />
+            <X className="h-3 w-3 text-[var(--text-tertiary)]" />
           </button>
         )}
       </div>

@@ -59,7 +59,7 @@ export function GraphStatusBar() {
       return (
         <span className="flex items-center gap-1 text-amber-600">
           <WifiOff size={12} />
-          {t('status.offline', { defaultValue: 'Offline' })}
+          {t('workspace.offline')}
         </span>
       )
     }
@@ -69,7 +69,7 @@ export function GraphStatusBar() {
       return (
         <span className="flex items-center gap-1 text-primary">
           <Loader2 size={12} className="animate-spin" />
-          {t('status.saving', { defaultValue: 'Saving...' })}
+          {t('workspace.saving')}
         </span>
       )
     }
@@ -79,7 +79,7 @@ export function GraphStatusBar() {
       return (
         <span className="flex items-center gap-1 text-red-500" title={lastSaveError}>
           <AlertCircle size={12} />
-          {t('status.saveFailed', { defaultValue: 'Save failed' })}
+          {t('workspace.saveFailedStatus')}
         </span>
       )
     }
@@ -88,7 +88,7 @@ export function GraphStatusBar() {
     if (saveRetryCount > 0 && saveRetryCount < 3) {
       return (
         <span className="text-amber-500">
-          {t('status.retrying', { defaultValue: 'Retrying' })} ({saveRetryCount}/3)
+          {t('workspace.retrying')} ({saveRetryCount}/3)
         </span>
       )
     }
@@ -96,8 +96,8 @@ export function GraphStatusBar() {
     // Graph not ready for saving
     if (!isGraphReady) {
       return (
-        <span className="text-[var(--text-muted)]" title="Waiting for graph initialization...">
-          {t('status.waiting', { defaultValue: 'Waiting...' })}
+        <span className="text-[var(--text-muted)]" title={t('workspace.waiting')}>
+          {t('workspace.waiting')}
         </span>
       )
     }
@@ -106,7 +106,7 @@ export function GraphStatusBar() {
     if (hasPendingChanges) {
       return (
         <span className="flex items-center gap-1.5 text-[var(--text-muted)]">
-          {t('status.unsavedChanges', { defaultValue: 'Unsaved changes' })}
+          {t('workspace.unsavedChanges')}
           <Button
             variant="ghost"
             size="sm"
@@ -114,7 +114,7 @@ export function GraphStatusBar() {
             className="h-5 px-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]"
           >
             <Save size={11} className="mr-1" />
-            {t('status.save', { defaultValue: 'Save' })}
+            {t('workspace.save')}
           </Button>
         </span>
       )

@@ -407,7 +407,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
         {displayProperties.length > 0 && (
           <div className="mt-2 space-y-1 border-t border-[var(--divider)] pt-2">
             {displayProperties.map((prop) => (
-              <div key={prop.key} className="flex items-center gap-[8px]">
+              <div key={prop.key} className="flex items-center gap-2">
                 <span
                   className="min-w-0 truncate text-[7px] capitalize leading-tight text-[var(--text-muted)]"
                   title={prop.label}

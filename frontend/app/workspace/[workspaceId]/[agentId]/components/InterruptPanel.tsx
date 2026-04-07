@@ -202,8 +202,8 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
       )
       removeInterrupt(interrupt.nodeId)
       toast({
-        title: 'Execution Resumed',
-        description: `Continued execution from node "${interrupt.nodeLabel}"`,
+        title: t('workspace.executionResumed'),
+        description: t('workspace.continuedFromNode', { nodeLabel: interrupt.nodeLabel }),
       })
       onClose?.()
     } catch (error: unknown) {
@@ -232,8 +232,8 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
       )
       removeInterrupt(interrupt.nodeId)
       toast({
-        title: 'Execution Resumed',
-        description: `Continued execution from node "${interrupt.nodeLabel}" with updated state`,
+        title: t('workspace.executionResumed'),
+        description: t('workspace.continuedWithUpdatedState', { nodeLabel: interrupt.nodeLabel }),
       })
       setIsEditing(false)
       onClose?.()
@@ -254,8 +254,8 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
     const nodeId = targetNodeId || selectedNodeId
     if (!nodeId) {
       toast({
-        title: 'Please Select a Node',
-        description: 'Please select a node to jump to first',
+        title: t('workspace.pleaseSelectNode'),
+        description: t('workspace.pleaseSelectNodeFirst'),
         variant: 'destructive',
       })
       return
@@ -284,8 +284,8 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
       )
       removeInterrupt(interrupt.nodeId)
       toast({
-        title: 'Execution Jumped',
-        description: `Jumped to node: ${(targetNode?.data as { label?: string })?.label || nodeName}`,
+        title: t('workspace.executionJumped'),
+        description: t('workspace.jumpedToNode', { nodeLabel: (targetNode?.data as { label?: string })?.label || nodeName }),
       })
       setShowGotoSelector(false)
       onClose?.()
@@ -293,8 +293,8 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
       setExecuting(false)
       const err = error as { message?: string }
       toast({
-        title: 'Jump Failed',
-        description: err?.message || 'Unable to jump to specified node',
+        title: t('workspace.jumpFailed'),
+        description: err?.message || t('workspace.cannotJumpToNode'),
         variant: 'destructive',
       })
     } finally {
@@ -319,7 +319,7 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
         {/* State Summary */}
         {!isEditing && keyStateFields.length > 0 && (
           <div className="space-y-2">
-            <label className="text-sm font-medium text-[var(--text-secondary)]">State Summary</label>
+            <label className="text-sm font-medium text-[var(--text-secondary)]">{t('workspace.stateSummary')}</label>
             <div className="space-y-1 rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] p-3">
               {keyStateFields.slice(0, 5).map((field, idx) => (
                 <div key={idx} className="text-xs">
@@ -329,7 +329,7 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
               ))}
               {keyStateFields.length > 5 && (
                 <div className="pt-1 text-xs text-[var(--text-tertiary)]">
-                  and {keyStateFields.length - 5} more fields...
+                  {t('workspace.andMoreFields', { count: keyStateFields.length - 5 })}
                 </div>
               )}
             </div>
@@ -340,7 +340,7 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <label className="text-sm font-medium text-[var(--text-secondary)]">
-              {isEditing ? 'Edit State (JSON)' : 'Full State'}
+              {isEditing ? t('workspace.editStateJson') : t('workspace.fullState')}
             </label>
             {!isEditing && (
               <Button
@@ -350,7 +350,7 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
                 className="h-7 text-xs"
               >
                 <Edit className="mr-1 h-3 w-3" />
-                Edit
+                {t('workspace.edit')}
               </Button>
             )}
           </div>
@@ -366,7 +366,7 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
                   }
                 }}
                 className="h-32 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-elevated)] p-2 font-mono text-xs"
-                placeholder="Edit state JSON..."
+                placeholder={t('workspace.editStatePlaceholder')}
               />
               <div className="flex gap-2">
                 <Button
@@ -376,7 +376,7 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
                   className="h-7 text-xs"
                 >
                   <Play className="mr-1 h-3 w-3" />
-                  Apply and Continue
+                  {t('workspace.applyAndContinue')}
                 </Button>
                 <Button
                   size="sm"
@@ -388,7 +388,7 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
                   disabled={isResuming}
                   className="h-7 text-xs"
                 >
-                  Cancel
+                  {t('workspace.cancel')}
                 </Button>
               </div>
             </div>
@@ -412,17 +412,17 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
               disabled={isResuming}
             >
               <SkipForward className="mr-2 h-4 w-4" />
-              Jump to Other Node
+              {t('workspace.jumpToOtherNode')}
             </Button>
           </div>
         )}
 
         {showGotoSelector && (
           <div className="space-y-2 rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] p-3">
-            <label className="text-sm font-medium text-[var(--text-secondary)]">Select Node to Jump To</label>
+            <label className="text-sm font-medium text-[var(--text-secondary)]">{t('workspace.selectNodeToJumpTo')}</label>
             <Select value={selectedNodeId} onValueChange={setSelectedNodeId}>
               <SelectTrigger>
-                <SelectValue placeholder="Select node..." />
+                <SelectValue placeholder={t('workspace.selectNodePlaceholder')} />
               </SelectTrigger>
               <SelectContent>
                 {availableNodes.map((node) => (
@@ -440,7 +440,7 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
                 className="flex-1"
               >
                 <ArrowRight className="mr-1 h-3 w-3" />
-                Jump
+                {t('workspace.jump')}
               </Button>
               <Button
                 size="sm"
@@ -451,7 +451,7 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
                 }}
                 disabled={isResuming}
               >
-                Cancel
+                {t('workspace.cancel')}
               </Button>
             </div>
           </div>
@@ -463,7 +463,7 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
             <div className="flex items-center gap-2">
               <MessageSquare className="h-4 w-4 text-indigo-500" />
               <label className="text-sm font-medium text-[var(--text-secondary)]">
-                {gateMode === 'input' ? 'Your Response' : 'Review Feedback'}
+                {gateMode === 'input' ? t('workspace.yourResponse') : t('workspace.reviewFeedback')}
               </label>
             </div>
             <Textarea
@@ -471,8 +471,8 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
               onChange={(e) => setFeedback(e.target.value)}
               placeholder={
                 gateMode === 'input'
-                  ? 'Type your response here…'
-                  : 'Optional: Provide feedback or revision notes…'
+                  ? t('workspace.typeYourResponse')
+                  : t('workspace.optionalFeedback')
               }
               className="h-20 resize-none text-sm"
             />
@@ -489,10 +489,10 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
             >
               <CheckCircle className="mr-2 h-4 w-4" />
               {gateMode === 'approval'
-                ? 'Approve'
+                ? t('workspace.approve')
                 : gateMode === 'input'
-                  ? 'Send Response'
-                  : 'Approve & Continue'}
+                  ? t('workspace.sendResponse')
+                  : t('workspace.approveAndContinue')}
             </Button>
             <Button
               onClick={async () => {
@@ -514,16 +514,16 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
                   )
                   removeInterrupt(interrupt.nodeId)
                   toast({
-                    title: 'Execution Rejected',
-                    description: `Rejected at node "${interrupt.nodeLabel}"`,
+                    title: t('workspace.executionRejected'),
+                    description: t('workspace.rejectedAtNode', { nodeLabel: interrupt.nodeLabel }),
                   })
                   onClose?.()
                 } catch (error: unknown) {
                   setExecuting(false)
                   const err = error as { message?: string }
                   toast({
-                    title: 'Reject Failed',
-                    description: err?.message || 'Cannot reject execution',
+                    title: t('workspace.rejectFailed'),
+                    description: err?.message || t('workspace.cannotRejectExecution'),
                     variant: 'destructive',
                   })
                 } finally {
@@ -535,7 +535,7 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
               className="flex-1"
             >
               <XCircle className="mr-2 h-4 w-4" />
-              {gateMode === 'approval' ? 'Reject' : 'Stop Execution'}
+              {gateMode === 'approval' ? t('workspace.reject') : t('workspace.stopExecution')}
             </Button>
           </div>
         )}

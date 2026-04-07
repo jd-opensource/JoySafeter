@@ -1,23 +1,9 @@
 'use client'
 
-import { useQueryClient } from '@tanstack/react-query'
 import {
   History,
-  RotateCcw,
-  Edit2,
-  Check,
-  X,
   Loader2,
-  Clock,
-  User,
-  Eye,
-  ChevronLeft,
-  ChevronRight,
-  Rocket,
-  Trash2,
-  XCircle,
 } from 'lucide-react'
-import { useEffect, useState, useCallback, useRef } from 'react'
 
 import {
   AlertDialog,
@@ -29,24 +15,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { useToast } from '@/hooks/use-toast'
-import { useDeploymentStatus, useDeploymentVersions, graphKeys } from '@/hooks/queries/graphs'
-import { useTranslation } from '@/lib/i18n'
-import { cn } from '@/lib/utils'
-import {
-  graphDeploymentService,
-  type GraphDeploymentVersion,
-  type GraphVersionState,
-} from '@/services/graphDeploymentService'
-import { useDeploymentStore } from '@/stores/deploymentStore'
 
-import { agentService } from '../services/agentService'
-import { useBuilderStore } from '../stores/builderStore'
+import { useDeploymentHistory } from '../hooks/useDeploymentHistory'
 
-import { GraphPreview } from './GraphPreview'
+import { DeploymentPreview } from './DeploymentPreview'
+import { DeploymentVersionsList } from './DeploymentVersionsList'
 
 interface DeploymentHistoryPanelProps {
   graphId: string
@@ -55,327 +29,56 @@ interface DeploymentHistoryPanelProps {
   nodesCount?: number
 }
 
-type PreviewMode = 'current' | 'selected'
-
 export function DeploymentHistoryPanel({
   graphId,
   open,
   onOpenChange,
   nodesCount: _nodesCount = 0,
 }: DeploymentHistoryPanelProps) {
-  const { t } = useTranslation()
-  const { toast } = useToast()
-  const queryClient = useQueryClient()
-
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(1)
-  const pageSize = 10
-
-  // Use React Query hooks to fetch data
-  // Key optimization: Only execute queries when panel is open, avoiding unnecessary API requests
-  const { data: deploymentStatus } = useDeploymentStatus(graphId, { enabled: open })
   const {
-    data: versionsData,
-    isLoading: isLoadingVersions,
-  } = useDeploymentVersions(graphId, currentPage, pageSize, { enabled: open })
-
-  const versions = versionsData?.versions || []
-  const totalVersions = versionsData?.total || 0
-  const totalPages = versionsData?.totalPages || 1
-
-  // Get UI state and operation methods from Zustand store
-  const { revertToVersion, renameVersion, deleteVersion, undeploy, isUndeploying } =
-    useDeploymentStore()
-
-  const [editingVersion, setEditingVersion] = useState<number | null>(null)
-  const [editName, setEditName] = useState('')
-  const [isSaving, setIsSaving] = useState(false)
-
-  // Version preview related state
-  const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
-  const [previewMode, setPreviewMode] = useState<PreviewMode>('current')
-  const [isLoadingPreview, setIsLoadingPreview] = useState(false)
-
-  // Revert confirmation dialog state
-  const [revertConfirmOpen, setRevertConfirmOpen] = useState(false)
-  const [versionToRevert, setVersionToRevert] = useState<number | null>(null)
-  const [isReverting, setIsReverting] = useState(false)
-
-  // Delete version confirmation dialog state
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
-  const [versionToDelete, setVersionToDelete] = useState<number | null>(null)
-  const [isDeleting, setIsDeleting] = useState(false)
-
-  // Undeploy graph confirmation dialog state
-  const [undeployConfirmOpen, setUndeployConfirmOpen] = useState(false)
-
-  // Version state cache
-  const versionCacheRef = useRef<Map<number, GraphVersionState>>(new Map())
-  const [, forceUpdate] = useState({})
-
-  // Get rfInstance and current nodes for preview
-  const rfInstance = useBuilderStore((state) => state.rfInstance)
-  const currentNodes = useBuilderStore((state) => state.nodes)
-  const currentEdges = useBuilderStore((state) => state.edges)
-
-  // Current editing state
-  const currentState: GraphVersionState = {
-    nodes: currentNodes.map((node) => ({
-      id: node.id,
-      type: node.type || 'custom',
-      position: node.position,
-      data: node.data as Record<string, unknown>,
-    })),
-    edges: currentEdges.map((edge) => ({
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-    })),
-  }
-
-  // Get cached state of selected version
-  const cachedSelectedState =
-    selectedVersion !== null ? versionCacheRef.current.get(selectedVersion) : null
-
-  // Fetch state of selected version
-  const fetchVersionState = useCallback(
-    async (version: number) => {
-      if (!graphId) return
-      if (versionCacheRef.current.has(version)) return
-
-      setIsLoadingPreview(true)
-      try {
-        const response = await graphDeploymentService.getVersionState(graphId, version)
-        if (response.state) {
-          versionCacheRef.current.set(version, response.state)
-          forceUpdate({})
-        }
-      } catch (error) {
-        console.error('Failed to fetch version state:', error)
-      } finally {
-        setIsLoadingPreview(false)
-      }
-    },
-    [graphId],
-  )
-
-  // Load state when selecting version
-  useEffect(() => {
-    if (selectedVersion !== null) {
-      fetchVersionState(selectedVersion)
-      setPreviewMode('selected')
-    } else {
-      setPreviewMode('current')
-    }
-  }, [selectedVersion, fetchVersionState])
-
-  useEffect(() => {
-    if (open && graphId) {
-      // React Query will automatically fetch data, just need to reset pagination and selection state
-      setCurrentPage(1)
-      setSelectedVersion(null)
-      setPreviewMode('current')
-    } else if (!open) {
-      // Clear cache when dialog closes to avoid memory leaks
-      versionCacheRef.current.clear()
-      setSelectedVersion(null)
-      setPreviewMode('current')
-    }
-  }, [open, graphId])
-
-  const handleSelectVersion = useCallback(
-    (version: number) => {
-      if (selectedVersion === version) {
-        // Click again to cancel selection
-        setSelectedVersion(null)
-      } else {
-        setSelectedVersion(version)
-      }
-    },
-    [selectedVersion],
-  )
-
-  // Pagination handling
-  const handlePageChange = useCallback(
-    (page: number) => {
-      if (page >= 1 && page <= totalPages) {
-        setCurrentPage(page)
-      }
-    },
-    [totalPages],
-  )
-
-  // Open revert confirmation dialog
-  const handleRevertClick = (version: number) => {
-    setVersionToRevert(version)
-    setRevertConfirmOpen(true)
-  }
-
-  // Open delete confirmation dialog
-  const handleDeleteClick = (version: number) => {
-    setVersionToDelete(version)
-    setDeleteConfirmOpen(true)
-  }
-
-  // Confirm delete version
-  const handleConfirmDelete = async () => {
-    if (versionToDelete === null) return
-
-    setIsDeleting(true)
-    try {
-      await deleteVersion(graphId, versionToDelete)
-
-      // Refresh deployment versions cache after successful delete
-      queryClient.invalidateQueries({ queryKey: graphKeys.versions(graphId) })
-
-      toast({
-        title: t('workspace.deleteVersionSuccess'),
-        description: t('workspace.deleteVersionSuccessDescription', { version: versionToDelete }),
-        variant: 'success',
-      })
-      setDeleteConfirmOpen(false)
-      setVersionToDelete(null)
-      // If deleting the selected version, clear selection state
-      if (selectedVersion === versionToDelete) {
-        setSelectedVersion(null)
-        setPreviewMode('current')
-      }
-    } catch (error) {
-      console.error('Failed to delete version:', error)
-      toast({
-        title: t('workspace.deleteVersionFailed'),
-        description: t('workspace.deleteVersionFailedDescription'),
-        variant: 'destructive',
-      })
-    } finally {
-      setIsDeleting(false)
-    }
-  }
-
-  // Confirm undeploy graph
-  const handleConfirmUndeploy = async () => {
-    try {
-      await undeploy(graphId)
-
-      // Refresh deployment status cache after successful undeploy
-      queryClient.invalidateQueries({ queryKey: graphKeys.deployment(graphId) })
-      queryClient.invalidateQueries({ queryKey: graphKeys.versions(graphId) })
-      queryClient.invalidateQueries({ queryKey: graphKeys.deployed() })
-
-      toast({
-        title: t('workspace.undeploySuccess'),
-        description: t('workspace.undeploySuccessDescription'),
-        variant: 'success',
-      })
-      setUndeployConfirmOpen(false)
-    } catch (error) {
-      console.error('Failed to undeploy:', error)
-      toast({
-        title: t('workspace.undeployFailed'),
-        description: t('workspace.undeployFailedDescription'),
-        variant: 'destructive',
-      })
-    }
-  }
-
-  // Confirm revert
-  const handleConfirmRevert = async () => {
-    if (versionToRevert === null) return
-
-    setIsReverting(true)
-    try {
-      await revertToVersion(graphId, versionToRevert)
-
-      // Refresh deployment status cache after successful revert
-      queryClient.invalidateQueries({ queryKey: graphKeys.deployment(graphId) })
-      queryClient.invalidateQueries({ queryKey: graphKeys.versions(graphId) })
-      queryClient.invalidateQueries({ queryKey: graphKeys.deployed() })
-
-      // Reload graph data after successful revert
-      const state = await agentService.loadGraphState(graphId)
-
-      useBuilderStore.setState({
-        nodes: state.nodes || [],
-        edges: state.edges || [],
-        past: [],
-        future: [],
-        selectedNodeId: null,
-      })
-
-      if (state.viewport && rfInstance) {
-        rfInstance.setViewport(state.viewport)
-      } else if (rfInstance) {
-        setTimeout(() => {
-          rfInstance?.fitView({ padding: 0.2 })
-        }, 100)
-      }
-
-      toast({
-        title: t('workspace.revertSuccess'),
-        description: t('workspace.revertSuccessDescription', { version: versionToRevert }),
-        variant: 'success',
-      })
-
-      // Close dialog and panel
-      setRevertConfirmOpen(false)
-      setVersionToRevert(null)
-      onOpenChange(false)
-    } catch (error) {
-      console.error('Failed to revert version:', error)
-      toast({
-        title: t('workspace.revertFailed'),
-        description: t('workspace.revertFailedDescription'),
-        variant: 'destructive',
-      })
-    } finally {
-      setIsReverting(false)
-    }
-  }
-
-  const handleStartEdit = (version: GraphDeploymentVersion) => {
-    setEditingVersion(version.version)
-    setEditName(version.name || '')
-  }
-
-  const handleCancelEdit = () => {
-    setEditingVersion(null)
-    setEditName('')
-  }
-
-  const handleSaveName = async () => {
-    if (!editingVersion) return
-    setIsSaving(true)
-    try {
-      await renameVersion(graphId, editingVersion, editName)
-
-      // Refresh deployment versions cache after successful rename
-      queryClient.invalidateQueries({ queryKey: graphKeys.versions(graphId) })
-    } catch (error) {
-      console.error('Failed to rename version:', error)
-    } finally {
-      setIsSaving(false)
-      setEditingVersion(null)
-      setEditName('')
-    }
-  }
-
-  // Format to specific time
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString)
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    const hours = String(date.getHours()).padStart(2, '0')
-    const minutes = String(date.getMinutes()).padStart(2, '0')
-    return `${year}-${month}-${day} ${hours}:${minutes}`
-  }
-
-  // Preview state to display
-  const previewState =
-    previewMode === 'selected' && cachedSelectedState ? cachedSelectedState : currentState
-
-  const selectedVersionInfo = versions.find((v) => v.version === selectedVersion)
-  const showToggle = selectedVersion !== null
+    t,
+    deploymentStatus,
+    versions,
+    totalVersions,
+    totalPages,
+    isLoadingVersions,
+    previewMode,
+    setPreviewMode,
+    selectedVersion,
+    selectedVersionInfo,
+    showToggle,
+    isLoadingPreview,
+    previewState,
+    editingVersion,
+    editName,
+    setEditName,
+    isSaving,
+    isUndeploying,
+    currentPage,
+    handleSelectVersion,
+    handlePageChange,
+    handleRevertClick,
+    handleDeleteClick,
+    handleStartEdit,
+    handleCancelEdit,
+    handleSaveName,
+    formatDate,
+    revertConfirmOpen,
+    setRevertConfirmOpen,
+    versionToRevert,
+    setVersionToRevert,
+    isReverting,
+    handleConfirmRevert,
+    deleteConfirmOpen,
+    setDeleteConfirmOpen,
+    versionToDelete,
+    setVersionToDelete,
+    isDeleting,
+    handleConfirmDelete,
+    undeployConfirmOpen,
+    setUndeployConfirmOpen,
+    handleConfirmUndeploy,
+  } = useDeploymentHistory(graphId, open, onOpenChange)
 
   return (
     <>
@@ -391,270 +94,42 @@ export function DeploymentHistoryPanel({
           <div className="custom-scrollbar flex-1 overflow-y-auto px-4 py-4">
             <div className="grid grid-cols-2 gap-4">
               {/* Left: Preview area */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-[var(--text-secondary)]">
-                    {previewMode === 'selected' && selectedVersionInfo
-                      ? selectedVersionInfo.name || `v${selectedVersion}`
-                      : t('workspace.currentDraft')}
-                  </span>
-                  {showToggle && (
-                    <div className="flex gap-1">
-                      <Button
-                        size="sm"
-                        variant={previewMode === 'current' ? 'default' : 'ghost'}
-                        className="h-6 px-2 text-xs"
-                        onClick={() => setPreviewMode('current')}
-                      >
-                        {t('workspace.current')}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant={previewMode === 'selected' ? 'default' : 'ghost'}
-                        className="h-6 px-2 text-xs"
-                        onClick={() => setPreviewMode('selected')}
-                      >
-                        v{selectedVersion}
-                      </Button>
-                    </div>
-                  )}
-                </div>
-
-                <div className="relative">
-                  {isLoadingPreview && previewMode === 'selected' && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-[var(--surface-elevated)]">
-                      <Loader2 size={24} className="animate-spin text-[var(--text-muted)]" />
-                    </div>
-                  )}
-                  <GraphPreview state={previewState} height={300} className="bg-[var(--surface-2)]" />
-                </div>
-              </div>
+              <DeploymentPreview
+                previewMode={previewMode}
+                selectedVersion={selectedVersion}
+                selectedVersionName={selectedVersionInfo?.name || (selectedVersion ? `v${selectedVersion}` : undefined)}
+                showToggle={showToggle}
+                isLoadingPreview={isLoadingPreview}
+                previewState={previewState}
+                onSetPreviewMode={setPreviewMode}
+                t={t}
+              />
 
               {/* Right: Version list */}
-              <div className="space-y-3">
-                {/* Current deployment status */}
-                {deploymentStatus && (
-                  <div className="rounded-lg border bg-[var(--surface-2)] p-2 text-sm">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Rocket
-                          size={14}
-                          className={
-                            deploymentStatus.isDeployed ? 'text-green-600' : 'text-[var(--text-muted)]'
-                          }
-                        />
-                        <span className="font-medium">
-                          {deploymentStatus.isDeployed
-                            ? t('workspace.deployed')
-                            : t('workspace.notDeployed')}
-                        </span>
-                        {deploymentStatus.deployment && (
-                          <span className="text-xs text-[var(--text-tertiary)]">
-                            v{deploymentStatus.deployment.version}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {deploymentStatus.needsRedeployment && deploymentStatus.isDeployed && (
-                          <span className="rounded bg-orange-50 px-2 py-0.5 text-xs text-orange-600">
-                            {t('workspace.needsRedeployment')}
-                          </span>
-                        )}
-                        {deploymentStatus.isDeployed && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-6 px-2 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
-                            onClick={() => setUndeployConfirmOpen(true)}
-                            disabled={isUndeploying}
-                          >
-                            {isUndeploying ? (
-                              <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                              <XCircle size={12} className="mr-1" />
-                            )}
-                            {t('workspace.undeploy')}
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Version list */}
-                <div className="max-h-[240px] space-y-1.5 overflow-y-auto">
-                  {isLoadingVersions ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 size={24} className="animate-spin text-[var(--text-muted)]" />
-                    </div>
-                  ) : versions.length === 0 ? (
-                    <div className="py-8 text-center text-[var(--text-tertiary)]">
-                      <History size={32} className="mx-auto mb-2 opacity-50" />
-                      <p className="text-xs">{t('workspace.noDeployments')}</p>
-                    </div>
-                  ) : (
-                    versions.map((version) => (
-                      <div
-                        key={version.id}
-                        className={cn(
-                          'cursor-pointer rounded-lg border-2 p-2 transition-all',
-                          version.isActive
-                            ? 'border-green-500 bg-green-50 shadow-sm shadow-green-100'
-                            : 'border-[var(--border)] bg-[var(--surface-elevated)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)]',
-                          selectedVersion === version.version &&
-                            'ring-2 ring-primary ring-offset-1',
-                        )}
-                        onClick={() => handleSelectVersion(version.version)}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          {/* Version info */}
-                          <div className="min-w-0 flex-1">
-                            <div className="mb-0.5 flex items-center gap-1.5">
-                              <span className="text-xs font-medium">v{version.version}</span>
-                              {version.isActive && (
-                                <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-2xs font-medium text-green-700">
-                                  {t('workspace.active')}
-                                </span>
-                              )}
-                              {selectedVersion === version.version && (
-                                <Eye size={12} className="text-blue-500" />
-                              )}
-                            </div>
-
-                            {/* Name editing */}
-                            {editingVersion === version.version ? (
-                              <div
-                                className="mb-1 flex items-center gap-1"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <Input
-                                  value={editName}
-                                  onChange={(e) => setEditName(e.target.value)}
-                                  placeholder={t('workspace.versionName')}
-                                  className="h-6 text-xs"
-                                  autoFocus
-                                />
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 w-6 p-0"
-                                  onClick={handleSaveName}
-                                  disabled={isSaving}
-                                >
-                                  {isSaving ? (
-                                    <Loader2 size={12} className="animate-spin" />
-                                  ) : (
-                                    <Check size={12} />
-                                  )}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 w-6 p-0"
-                                  onClick={handleCancelEdit}
-                                  disabled={isSaving}
-                                >
-                                  <X size={12} />
-                                </Button>
-                              </div>
-                            ) : (
-                              version.name && (
-                                <p className="mb-0.5 truncate text-xs text-[var(--text-secondary)]">
-                                  {version.name}
-                                </p>
-                              )
-                            )}
-
-                            {/* Time and username */}
-                            <div className="flex items-center gap-2 text-2xs text-[var(--text-secondary)]">
-                              <div className="flex items-center gap-0.5">
-                                <Clock size={10} />
-                                <span>{formatDate(version.createdAt)}</span>
-                              </div>
-                              {(version.createdByName || version.createdBy) && (
-                                <div className="flex items-center gap-0.5">
-                                  <User size={10} />
-                                  <span className="max-w-[80px] truncate">
-                                    {version.createdByName || version.createdBy}
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Action buttons */}
-                          <div
-                            className="flex items-center gap-0.5"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-6 w-6 p-0"
-                              onClick={() => handleRevertClick(version.version)}
-                              title={t('workspace.revertToThisVersion')}
-                            >
-                              <RotateCcw size={12} />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-6 w-6 p-0"
-                              onClick={() => handleStartEdit(version)}
-                              title={t('workspace.rename')}
-                            >
-                              <Edit2 size={12} />
-                            </Button>
-                            {!version.isActive && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 w-6 p-0 text-[var(--text-muted)] hover:bg-[var(--status-error-bg)] hover:text-[var(--status-error)]"
-                                onClick={() => handleDeleteClick(version.version)}
-                                title={t('workspace.deleteVersion')}
-                              >
-                                <Trash2 size={12} />
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                {/* Pagination controls */}
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-between border-t border-[var(--border-muted)] pt-2">
-                    <span className="text-2xs text-[var(--text-muted)]">
-                      {t('workspace.totalVersions', { total: totalVersions })}
-                    </span>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-6 w-6 p-0"
-                        onClick={() => handlePageChange(currentPage - 1)}
-                        disabled={currentPage <= 1 || isLoadingVersions}
-                      >
-                        <ChevronLeft size={14} />
-                      </Button>
-                      <span className="min-w-[50px] text-center text-2xs text-[var(--text-tertiary)]">
-                        {currentPage} / {totalPages}
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-6 w-6 p-0"
-                        onClick={() => handlePageChange(currentPage + 1)}
-                        disabled={currentPage >= totalPages || isLoadingVersions}
-                      >
-                        <ChevronRight size={14} />
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <DeploymentVersionsList
+                versions={versions}
+                isLoadingVersions={isLoadingVersions}
+                selectedVersion={selectedVersion}
+                editingVersion={editingVersion}
+                editName={editName}
+                isSaving={isSaving}
+                deploymentStatus={deploymentStatus}
+                isUndeploying={isUndeploying}
+                totalPages={totalPages}
+                totalVersions={totalVersions}
+                currentPage={currentPage}
+                onSelectVersion={handleSelectVersion}
+                onRevertClick={handleRevertClick}
+                onStartEdit={handleStartEdit}
+                onCancelEdit={handleCancelEdit}
+                onSaveName={handleSaveName}
+                onEditNameChange={setEditName}
+                onDeleteClick={handleDeleteClick}
+                onUndeployClick={() => setUndeployConfirmOpen(true)}
+                onPageChange={handlePageChange}
+                formatDate={formatDate}
+                t={t}
+              />
             </div>
           </div>
         </DialogContent>

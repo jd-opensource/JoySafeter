@@ -87,12 +87,10 @@ export function ApiAccessDialog({
     <div>
       <div className="mb-4">
         <h3 className="text-sm font-medium text-[var(--text-primary)]">
-          {t('workspace.apiKeys', { defaultValue: 'API Tokens' })}
+          {t('workspace.apiKeys')}
         </h3>
         <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-          {t('workspace.apiKeysDescription', {
-            defaultValue: "Manage API tokens that have access to this workspace's resources.",
-          })}
+          {t('workspace.apiKeysDescription')}
         </p>
       </div>
       <Button
@@ -115,22 +113,22 @@ export function ApiAccessDialog({
             <Input
               value={tokenName}
               onChange={(e) => setTokenName(e.target.value)}
-              placeholder={t('settings.tokens.namePlaceholder', { defaultValue: 'e.g. Production Key' })}
+              placeholder={t('settings.tokens.namePlaceholder')}
               className="mt-1"
             />
           </div>
           <div className="w-32">
-            <Label className="text-xs">{t('settings.tokens.role', { defaultValue: 'Role' })}</Label>
+            <Label className="text-xs">{t('settings.tokens.type')}</Label>
             <Select value={tokenScope} onValueChange={setTokenScope}>
               <SelectTrigger className="mt-1 bg-[var(--surface-elevated)]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="graphs:execute">
-                  {t('settings.tokens.roles.executor', { defaultValue: 'Executor' })}
+                  {t('settings.tokens.scopeRead')}
                 </SelectItem>
                 <SelectItem value="graphs:read">
-                  {t('settings.tokens.roles.viewer', { defaultValue: 'Viewer' })}
+                  {t('settings.tokens.scopeRead')}
                 </SelectItem>
               </SelectContent>
             </Select>
@@ -153,12 +151,10 @@ export function ApiAccessDialog({
             </div>
             <div>
               <DialogTitle className="text-xl">
-                {t('workspace.apiAccess', { defaultValue: 'API Access' })}
+                {t('workspace.apiAccess')}
               </DialogTitle>
               <DialogDescription>
-                {t('workspace.apiAccessDescription', {
-                  defaultValue: 'Access and execute this graph remotely via REST API.',
-                })}
+                {t('workspace.apiAccessDescription')}
               </DialogDescription>
             </div>
           </div>
@@ -169,18 +165,18 @@ export function ApiAccessDialog({
             <TabsList className="mb-6 grid w-[400px] grid-cols-2">
               <TabsTrigger value="integration">
                 <Terminal className="mr-2 h-4 w-4" />
-                Integration Guide
+                {t('workspace.integrationGuide')}
               </TabsTrigger>
               <TabsTrigger value="keys">
                 <Key className="mr-2 h-4 w-4" />
-                API Tokens
+                {t('workspace.apiTokens')}
               </TabsTrigger>
             </TabsList>
 
             <TabsContent value="integration" className="space-y-6">
               {/* Endpoint Information */}
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Base URL</h3>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t('workspace.baseUrl')}</h3>
                 <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-2.5">
                   <div className="flex flex-col gap-1 overflow-hidden">
                     <span className="text-2xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
@@ -210,7 +206,7 @@ export function ApiAccessDialog({
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent>
-                        {t('workspace.copy', { defaultValue: 'Copy' })}
+                        {t('workspace.copy')}
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -219,13 +215,12 @@ export function ApiAccessDialog({
 
               {/* Authentication */}
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Authentication</h3>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t('workspace.authentication')}</h3>
                 <p className="text-sm text-[var(--text-tertiary)]">
-                  Authenticate your API requests by including your API Token in the{' '}
+                  {t('workspace.authenticationDescription', { header: '' })}
                   <code className="rounded bg-[var(--surface-3)] px-1 py-0.5 text-[var(--text-primary)]">
                     Authorization
-                  </code>{' '}
-                  HTTP header as a Bearer token.
+                  </code>
                 </p>
                 <div className="rounded-lg border border-[var(--brand-100)] bg-[var(--brand-50)] p-4">
                   <code className="font-mono text-sm font-semibold text-[var(--brand-600)]">
@@ -236,7 +231,7 @@ export function ApiAccessDialog({
 
               {/* Example Request */}
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Example Request</h3>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t('workspace.exampleRequest')}</h3>
                 <div className="relative overflow-hidden rounded-lg border border-[var(--border)]">
                   <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-3)] px-4 py-2">
                     <span className="text-mono text-xs font-semibold text-[var(--text-secondary)]">cURL</span>
@@ -257,7 +252,7 @@ export function ApiAccessDialog({
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>
-                          {t('workspace.copyCode', { defaultValue: 'Copy Code' })}
+                          {t('workspace.copyCode')}
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -276,7 +271,7 @@ export function ApiAccessDialog({
                   rel="noopener noreferrer"
                   className="inline-flex items-center text-sm font-medium text-[var(--brand-600)] hover:text-[var(--brand-600)] hover:underline"
                 >
-                  {t('workspace.viewFullApiDocs', { defaultValue: 'View Full API Documentation' })}
+                  {t('workspace.viewFullApiDocs')}
                   <svg
                     className="ml-1 h-4 w-4"
                     fill="none"

@@ -1,6 +1,6 @@
 'use client'
 
-import { X, AlertCircle, Settings, BrainCircuit, Hammer, Sparkles, Database } from 'lucide-react'
+import { X, AlertCircle, Settings, Hammer, Sparkles } from 'lucide-react'
 import { useParams } from 'next/navigation'
 import React, { useMemo } from 'react'
 import { Node, Edge } from 'reactflow'
@@ -8,15 +8,6 @@ import { Node, Edge } from 'reactflow'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Textarea } from '@/components/ui/textarea'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useToast } from '@/hooks/use-toast'
 import { useUserPermissions } from '@/hooks/use-user-permissions'
 import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
@@ -25,11 +16,13 @@ import { cn } from '@/lib/utils'
 
 import { nodeRegistry, FieldSchema } from '../services/nodeRegistry'
 import { useBuilderStore } from '../stores/builderStore'
-import { EdgeData } from '../types/graph'
 
-import { ModelSelectField } from './fields/ModelSelectField'
-import { SkillsField } from './fields/SkillsField'
-import { ToolsField } from './fields/ToolsField'
+import { MemorySection } from './MemorySection'
+import { SchemaFieldRenderer } from './SchemaFieldRenderer'
+import { SectionHeader } from './SectionHeader'
+
+// Re-export SectionHeader for any existing consumers
+export { SectionHeader } from './SectionHeader'
 
 interface PropertiesPanelProps {
   node: Node
@@ -43,10 +36,6 @@ interface PropertiesPanelProps {
 // Utility Functions
 // ============================================================================
 
-/**
- * Normalize a value for comparison (handles boolean strings, types)
- * Converts 'true'/'false' strings to boolean, preserves other types
- */
 function normalizeValue(value: unknown): string | boolean | number {
   if (typeof value === 'boolean') return value
   if (typeof value === 'number') return value
@@ -57,259 +46,65 @@ function normalizeValue(value: unknown): string | boolean | number {
   return String(value)
 }
 
-/**
- * Check if a field should be shown based on showWhen condition
- */
 function shouldShowField(field: FieldSchema, config: Record<string, unknown>): boolean {
   if (!field.showWhen) return true
-
   const dependentValue = config[field.showWhen.field]
   const normalizedDependent = normalizeValue(dependentValue)
-
-  return field.showWhen.values.some((val) => {
-    const normalizedVal = normalizeValue(val)
-    return normalizedVal === normalizedDependent
-  })
+  return field.showWhen.values.some((val) => normalizeValue(val) === normalizedDependent)
 }
 
 // ============================================================================
-// Components
+// Sub-components
 // ============================================================================
 
-const SchemaFieldRenderer = ({
-  schema,
-  value,
-  onChange,
-  disabled = false,
-  canEdit = true,
+/** Renders a list of SchemaFieldRenderer items under a SectionHeader */
+const FieldListSection = React.memo(function FieldListSection({
+  icon,
+  title,
+  fields,
+  config,
+  updateConfig,
+  canEdit,
   t,
-  onModelChange, // New: For updating both provider_name and model_name when selecting model
   nodes,
   edges,
   currentNodeId,
-  onCreateEdge, // New: Callback for creating edges
   graphStateFields,
-}: {
-  schema: FieldSchema
-  value: unknown
-  onChange: (val: unknown) => void
-  disabled?: boolean
-  canEdit?: boolean
-  t: (key: string, options?: Record<string, unknown>) => string
-  onModelChange?: (modelName: string, providerName: string) => void // New
-  nodes?: Node[]
-  edges?: Edge[]
-  currentNodeId?: string
-  onCreateEdge?: (targetNodeId: string, routeKey: string) => void // New
-  graphStateFields?: import('../types/graph').StateField[]
-}) => {
-  let input = null
-
-  if (disabled || !canEdit) return null
-
-  // Get translated field label
-  const getFieldLabel = (key: string) => {
-    const fieldKey = `workspace.nodeFields.${key}`
-    try {
-      const translated = t(fieldKey)
-      // If translation exists and is different from key, use it
-      if (translated && translated !== fieldKey) {
-        return translated
-      }
-    } catch {
-      // Translation key doesn't exist, use default
-    }
-    return schema.label
-  }
-
-  const translatedLabel = getFieldLabel(schema.key)
-
-  switch (schema.type) {
-    case 'boolean':
-      input = (
-        <div
-          className={cn(
-            'flex cursor-pointer select-none items-center justify-between rounded-lg border p-2 transition-all',
-            value ? 'border-[var(--brand-200)] bg-[var(--brand-50)]' : 'border-[var(--border)] bg-[var(--surface-2)]',
-          )}
-          onClick={() => onChange(!value)}
-        >
-          <span className="text-app-xs font-medium text-[var(--text-secondary)]">
-            {value ? t('workspace.enabled') : t('workspace.disabled')}
-          </span>
-          <div
-            className={cn(
-              'relative h-4 w-7 rounded-full border transition-all',
-              value ? 'border-[var(--brand-600)] bg-[var(--brand-500)]' : 'border-[var(--border-strong)] bg-[var(--surface-4)]',
-            )}
-          >
-            <div
-              className={cn(
-                'absolute top-[2px] h-2.5 w-2.5 rounded-full bg-[var(--surface-1)] transition-all',
-                value ? 'right-[2px]' : 'left-[2px]',
-              )}
-            />
-          </div>
-        </div>
-      )
-      break
-    case 'text':
-      input = (
-        <Input
-          value={(value as string) || ''}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={schema.placeholder}
-          className="h-8 text-xs focus-visible:ring-1"
-        />
-      )
-      break
-    case 'textarea':
-      // Check if variable input support is needed (for expression fields)
-      const needsVariableSupport = [
-        'expression',
-        'prompt',
-        'template',
-      ].includes(schema.key)
-
-      if (needsVariableSupport && nodes && edges && currentNodeId) {
-        input = (
-          <Textarea
-            value={(value as string) || ''}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder={schema.placeholder}
-            className="min-h-[60px] resize-none py-2 font-mono text-xs focus-visible:ring-1"
-          />
-        )
-      } else {
-        input = (
-          <Textarea
-            value={(value as string) || ''}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder={schema.placeholder}
-            className="min-h-[60px] resize-none py-2 text-xs focus-visible:ring-1"
-          />
-        )
-      }
-      break
-    case 'select':
-      input = (
-        <Select value={(value as string) || ''} onValueChange={onChange}>
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue
-              placeholder={t('workspace.selectOption', { defaultValue: 'Select option' })}
-            />
-          </SelectTrigger>
-          <SelectContent>
-            {schema.options?.map((opt) => (
-              <SelectItem key={opt} value={opt} className="text-xs">
-                {opt}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )
-      break
-    case 'number':
-      input = (
-        <Input
-          type="number"
-          value={(value as number) ?? ''}
-          onChange={(e) => onChange(e.target.value ? Number(e.target.value) : undefined)}
-          min={schema.min}
-          max={schema.max}
-          step={schema.step || 1}
-          placeholder={schema.placeholder}
-          className="h-8 text-xs"
-        />
-      )
-      break
-    case 'modelSelect':
-      // Save both provider_name and model_name simultaneously
-      // Note: Need to determine if it's 'model' or 'memoryModel' based on field name
-      input = (
-        <ModelSelectField
-          value={value as string}
-          onChange={(modelName) => {
-            // Only call onChange if onModelChange is not handling the update
-            // to avoid two competing state updates that race
-            if (!onModelChange) {
-              onChange(modelName)
-            }
-          }}
-          onModelChange={(modelName, providerName) => {
-            // Update both model_name and provider_name simultaneously
-            if (onModelChange) {
-              onModelChange(modelName, providerName)
-            } else {
-              // Fallback: just update the field value with combined id
-              onChange(`${providerName}:${modelName}`)
-            }
-          }}
-        />
-      )
-      break
-    case 'toolSelector':
-      input = <ToolsField value={value} onChange={onChange} />
-      break
-    case 'skillSelector':
-      input = <SkillsField value={value} onChange={onChange} />
-      break
-    default:
-      input = (
-        <div className="text-xs text-[var(--status-error)]">
-          {t('workspace.unknownFieldType', {
-            type: schema.type,
-            defaultValue: `Unknown field type: ${schema.type}`,
-          })}
-        </div>
-      )
-  }
-
-  return (
-    <div className="space-y-1.5 duration-200 animate-in fade-in">
-      <Label className="flex items-center gap-1.5 text-2xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
-        {translatedLabel} {schema.required && <span className="text-[var(--status-error)]">*</span>}
-      </Label>
-      {input}
-      {schema.description && (
-        <p className="text-micro italic leading-tight text-[var(--text-muted)]">{schema.description}</p>
-      )}
-    </div>
-  )
-}
-
-const SectionHeader = ({
-  icon: Icon,
-  title,
-  tooltip,
 }: {
   icon: React.ElementType
   title: string
-  tooltip?: string
-}) => (
-  <div className="mb-3 mt-2 flex items-center gap-2">
-    <Icon size={14} className="text-[var(--text-muted)]" />
-    <div className="flex items-center gap-1.5">
-      <h4 className="text-app-xs font-bold uppercase tracking-[0.1em] text-[var(--text-muted)]">{title}</h4>
-      {tooltip && (
-        <TooltipProvider delayDuration={300}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <AlertCircle size={11} className="cursor-help text-[var(--text-muted)]" />
-            </TooltipTrigger>
-            <TooltipContent
-              side="top"
-              className="max-w-[200px] text-app-xs font-normal normal-case leading-relaxed tracking-normal text-[var(--text-secondary)]"
-            >
-              {tooltip}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      )}
+  fields: FieldSchema[]
+  config: Record<string, unknown>
+  updateConfig: (key: string, value: unknown) => void
+  canEdit: boolean
+  t: (key: string, options?: Record<string, unknown>) => string
+  nodes: Node[]
+  edges: Edge[]
+  currentNodeId: string
+  graphStateFields?: import('../types/graph').StateField[]
+}) {
+  if (fields.length === 0) return null
+  return (
+    <div className="space-y-4">
+      <SectionHeader icon={icon} title={title} />
+      {fields.map((field) => (
+        <SchemaFieldRenderer
+          key={field.key}
+          schema={field}
+          value={config[field.key]}
+          onChange={(val) => updateConfig(field.key, val)}
+          canEdit={canEdit}
+          t={t}
+          nodes={nodes}
+          edges={edges}
+          currentNodeId={currentNodeId}
+          onCreateEdge={undefined}
+          graphStateFields={graphStateFields}
+        />
+      ))}
     </div>
-    <div className="ml-1 h-[1px] flex-1 bg-[var(--surface-2)]" />
-  </div>
-)
+  )
+})
 
 export default function PropertiesPanel({
   node,
@@ -326,40 +121,21 @@ export default function PropertiesPanel({
   const userPermissions = useUserPermissions(permissions, permissionsLoading, null)
   const { onConnect, updateEdge, graphStateFields } = useBuilderStore()
   const nodeData = node?.data as
-    | {
-        type: string
-        label?: string
-        config?: Record<string, unknown>
-      }
+    | { type: string; label?: string; config?: Record<string, unknown> }
     | undefined
   const def = nodeData ? nodeRegistry.get(nodeData.type) : undefined
 
   const config = useMemo(() => nodeData?.config || {}, [nodeData?.config])
-  const nodeType = nodeData?.type || ''
 
-  // Get available templates for this node type
-  const templates: { name: string; description: string }[] = []
-
-  // Validate configuration using schema
   const validationErrors = useMemo(() => {
     const errors: { field: string; message: string; severity?: string }[] = []
     if (!def) return errors
-
     def.schema.forEach((field) => {
-      if (
-        field.required &&
-        !config[field.key] &&
-        config[field.key] !== 0 &&
-        config[field.key] !== false
-      ) {
-        // Check showWhen condition
+      if (field.required && !config[field.key] && config[field.key] !== 0 && config[field.key] !== false) {
         if (field.showWhen) {
           const dependentValue = config[field.showWhen.field]
-          if (!field.showWhen.values.includes(String(dependentValue))) {
-            return // Skip if field is hidden
-          }
+          if (!field.showWhen.values.includes(String(dependentValue))) return
         }
-
         errors.push({
           field: field.label || field.key,
           message: t('workspace.fieldRequired', { defaultValue: 'Field is required' }),
@@ -374,79 +150,42 @@ export default function PropertiesPanel({
 
   const updateConfig = (key: string, value: unknown) => {
     if (!userPermissions.canEdit) {
-      toast({
-        title: t('workspace.noPermission'),
-        description: t('workspace.cannotEditNode'),
-        variant: 'destructive',
-      })
+      toast({ title: t('workspace.noPermission'), description: t('workspace.cannotEditNode'), variant: 'destructive' })
       return
     }
-    // Allow free editing without immediate validation
-    // Validation will be performed on save/deploy
-    const newConfig = { ...config, [key]: value }
-    onUpdate(node.id, { label: nodeData.label || '', config: newConfig })
+    onUpdate(node.id, { label: nodeData.label || '', config: { ...config, [key]: value } })
   }
 
-  const applyTemplateConfig = (_templateName: string) => {
-    // Templates removed — placeholder for future templates
-  }
-
-  // Update both model_name and provider_name simultaneously
   const updateModelConfig = (modelName: string, providerName: string) => {
     if (!userPermissions.canEdit) {
-      toast({
-        title: t('workspace.noPermission'),
-        description: t('workspace.cannotEditNode'),
-        variant: 'destructive',
-      })
+      toast({ title: t('workspace.noPermission'), description: t('workspace.cannotEditNode'), variant: 'destructive' })
       return
     }
     const combinedModelId = `${providerName}:${modelName}`
-
-    // Update both model_name and provider_name simultaneously
     onUpdate(node.id, {
       label: nodeData.label || '',
-      config: {
-        ...config,
-        model_name: modelName,
-        provider_name: providerName,
-        // Unified storage: keep combined id in `model`
-        model: combinedModelId,
-        // Backward compatibility: keep provider in `provider`
-        provider: providerName,
-      },
+      config: { ...config, model_name: modelName, provider_name: providerName, model: combinedModelId, provider: providerName },
     })
   }
 
   const Icon = def?.icon || AlertCircle
   const enableMemory = config.enableMemory === true
 
-  // Check if any parent node has useDeepAgents enabled
   const parentNodes = edges
     .filter((edge) => edge.target === node.id)
     .map((edge) => nodes.find((n) => n.id === edge.source))
     .filter(Boolean) as Node[]
-
-  const hasParentWithDeepAgents = parentNodes.some((parentNode) => {
-    const parentData = parentNode?.data as { config?: Record<string, unknown> }
-    return parentData?.config?.useDeepAgents === true
+  const hasParentWithDeepAgents = parentNodes.some((p) => {
+    const pd = p?.data as { config?: Record<string, unknown> }
+    return pd?.config?.useDeepAgents === true
   })
 
-  // Filter schema by logical group
-  const basicFields =
-    def?.schema.filter(
-      (s) =>
-        !['enableMemory', 'memoryModel', 'memoryPrompt', 'description'].includes(s.key) &&
-        s.type !== 'toolSelector' &&
-        // Include skillSelector fields that have showWhen condition (they'll be shown in General section)
-        !(s.type === 'skillSelector' && !s.showWhen),
-    ) || []
+  const basicFields = def?.schema.filter(
+    (s) => !['enableMemory', 'memoryModel', 'memoryPrompt', 'description'].includes(s.key) && s.type !== 'toolSelector' && !(s.type === 'skillSelector' && !s.showWhen),
+  ) || []
   const toolsFields = def?.schema.filter((s) => s.type === 'toolSelector') || []
-  // Only show skills fields without showWhen condition in the Skills section
-  // Skills with showWhen condition are shown in General section
   const skillsFields = def?.schema.filter((s) => s.type === 'skillSelector' && !s.showWhen) || []
-  const memoryFields =
-    def?.schema.filter((s) => ['enableMemory', 'memoryModel', 'memoryPrompt'].includes(s.key)) || []
+  const memoryFields = def?.schema.filter((s) => ['enableMemory', 'memoryModel', 'memoryPrompt'].includes(s.key)) || []
   const descriptionField = def?.schema.find((s) => s.key === 'description')
 
   return (
@@ -454,72 +193,28 @@ export default function PropertiesPanel({
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface-1)] px-4 py-3.5">
         <div className="flex items-center gap-3 overflow-hidden text-[var(--text-primary)]">
-          <div
-            className={cn(
-              'shrink-0 rounded-lg border border-[var(--border)] p-1.5 shadow-sm',
-              def?.style.bg,
-              def?.style.color,
-            )}
-          >
+          <div className={cn('shrink-0 rounded-lg border border-[var(--border)] p-1.5 shadow-sm', def?.style.bg, def?.style.color)}>
             <Icon size={14} />
           </div>
           <div className="flex min-w-0 flex-col">
-            <h3 className="truncate text-sm font-bold leading-tight">
-              {nodeData.label || def?.label}
-            </h3>
-            <span className="text-micro font-bold uppercase tracking-widest text-[var(--text-muted)]">
-              {def?.label}
-            </span>
+            <h3 className="truncate text-sm font-bold leading-tight">{nodeData.label || def?.label}</h3>
+            <span className="text-micro font-bold uppercase tracking-widest text-[var(--text-muted)]">{def?.label}</span>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onClose}
-            className="h-7 w-7 text-[var(--text-disabled)] hover:bg-[var(--surface-2)] hover:text-[var(--text-secondary)]"
-          >
-            <X size={16} />
-          </Button>
-        </div>
+        <Button variant="ghost" size="icon" onClick={onClose} className="h-7 w-7 text-[var(--text-disabled)] hover:bg-[var(--surface-2)] hover:text-[var(--text-secondary)]">
+          <X size={16} />
+        </Button>
       </div>
 
-      {/* Waterfall Body */}
+      {/* Body */}
       <div className="custom-scrollbar flex-1 space-y-6 overflow-y-auto p-4 pb-12">
-        {/* Configuration Templates */}
-        {templates.length > 0 && (
-          <div className="space-y-2">
-            <Label className="text-2xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
-              Quick Templates
-            </Label>
-            <div className="space-y-1">
-              {templates.map((template) => (
-                <button
-                  key={template.name}
-                  onClick={() => applyTemplateConfig(template.name)}
-                  disabled={!userPermissions.canEdit}
-                  className="w-full rounded border border-[var(--border)] px-3 py-2 text-left text-xs transition-colors hover:bg-[var(--surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <div className="font-medium text-[var(--text-primary)]">{template.name}</div>
-                  <div className="mt-0.5 text-[var(--text-muted)]">{template.description}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Validation Errors */}
         {validationErrors.length > 0 && (
           <div className="space-y-2">
-            <Label className="text-2xs font-bold uppercase tracking-wider text-[var(--status-error)]">
-              Configuration Errors
-            </Label>
+            <Label className="text-2xs font-bold uppercase tracking-wider text-[var(--status-error)]">Configuration Errors</Label>
             <div className="space-y-1">
               {validationErrors.map((error, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-start gap-2 rounded border border-[var(--status-error-border)] bg-[var(--status-error-bg)] p-2 text-xs"
-                >
+                <div key={idx} className="flex items-start gap-2 rounded border border-[var(--status-error-border)] bg-[var(--status-error-bg)] p-2 text-xs">
                   <AlertCircle size={14} className="mt-0.5 flex-shrink-0 text-[var(--status-error)]" />
                   <div className="text-[var(--status-error-strong)]">
                     <div className="font-medium">{error.field}</div>
@@ -536,18 +231,12 @@ export default function PropertiesPanel({
           <SectionHeader icon={Settings} title={t('workspace.general')} />
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label className="text-2xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                {t('workspace.displayName')}
-              </Label>
+              <Label className="text-2xs font-bold uppercase tracking-wider text-[var(--text-muted)]">{t('workspace.displayName')}</Label>
               <Input
                 value={nodeData.label || ''}
                 onChange={(e) => {
                   if (!userPermissions.canEdit) {
-                    toast({
-                      title: t('workspace.noPermission'),
-                      description: t('workspace.cannotEditNode'),
-                      variant: 'destructive',
-                    })
+                    toast({ title: t('workspace.noPermission'), description: t('workspace.cannotEditNode'), variant: 'destructive' })
                     return
                   }
                   onUpdate(node.id, { label: e.target.value, config })
@@ -566,11 +255,7 @@ export default function PropertiesPanel({
                   onChange={(val) => updateConfig(field.key, val)}
                   canEdit={userPermissions.canEdit}
                   t={t}
-                  onModelChange={
-                    field.key === 'model'
-                      ? (modelName, providerName) => updateModelConfig(modelName, providerName)
-                      : undefined
-                  }
+                  onModelChange={field.key === 'model' ? updateModelConfig : undefined}
                   nodes={nodes}
                   edges={edges}
                   currentNodeId={node.id}
@@ -579,7 +264,6 @@ export default function PropertiesPanel({
                 />
               ))}
 
-            {/* DeepAgents Description Field (Conditional - shown when parent has useDeepAgents=true) */}
             {hasParentWithDeepAgents && descriptionField && (
               <div className="space-y-1.5 border-l-2 border-[var(--brand-200)] pl-4 duration-300 animate-in slide-in-from-top-2">
                 <SchemaFieldRenderer
@@ -600,129 +284,58 @@ export default function PropertiesPanel({
         </div>
 
         {/* Section: Tools */}
-        {toolsFields.length > 0 && (
-          <div className="space-y-4">
-            <SectionHeader icon={Hammer} title={t('workspace.capabilities')} />
-            {toolsFields.map((field) => (
-              <SchemaFieldRenderer
-                key={field.key}
-                schema={field}
-                value={config[field.key]}
-                onChange={(val) => updateConfig(field.key, val)}
-                canEdit={userPermissions.canEdit}
-                t={t}
-                nodes={nodes}
-                edges={edges}
-                currentNodeId={node.id}
-                onCreateEdge={undefined}
-                graphStateFields={graphStateFields}
-              />
-            ))}
-          </div>
-        )}
+        <FieldListSection
+          icon={Hammer}
+          title={t('workspace.capabilities')}
+          fields={toolsFields}
+          config={config}
+          updateConfig={updateConfig}
+          canEdit={userPermissions.canEdit}
+          t={t}
+          nodes={nodes}
+          edges={edges}
+          currentNodeId={node.id}
+          graphStateFields={graphStateFields}
+        />
 
         {/* Section: Skills */}
-        {skillsFields.length > 0 && (
-          <div className="space-y-4">
-            <SectionHeader
-              icon={Sparkles}
-              title={t('workspace.skills', { defaultValue: 'Skills' })}
-            />
-            {skillsFields.map((field) => (
-              <SchemaFieldRenderer
-                key={field.key}
-                schema={field}
-                value={config[field.key]}
-                onChange={(val) => updateConfig(field.key, val)}
-                canEdit={userPermissions.canEdit}
-                t={t}
-                nodes={nodes}
-                edges={edges}
-                currentNodeId={node.id}
-                onCreateEdge={undefined}
-                graphStateFields={graphStateFields}
-              />
-            ))}
-          </div>
-        )}
+        <FieldListSection
+          icon={Sparkles}
+          title={t('workspace.skills', { defaultValue: 'Skills' })}
+          fields={skillsFields}
+          config={config}
+          updateConfig={updateConfig}
+          canEdit={userPermissions.canEdit}
+          t={t}
+          nodes={nodes}
+          edges={edges}
+          currentNodeId={node.id}
+          graphStateFields={graphStateFields}
+        />
 
-        {/* Section: Memory (Conditional Rendering) */}
-        {memoryFields.length > 0 && (
-          <div className="space-y-4">
-            <SectionHeader icon={BrainCircuit} title={t('workspace.knowledgeMemory')} />
-
-            {/* Always show Enable Memory toggle */}
-            {memoryFields
-              .filter((f) => f.key === 'enableMemory')
-              .map((field) => (
-                <SchemaFieldRenderer
-                  key={field.key}
-                  schema={field}
-                  value={config[field.key]}
-                  onChange={(val) => updateConfig(field.key, val)}
-                  canEdit={userPermissions.canEdit}
-                  t={t}
-                  nodes={nodes}
-                  edges={edges}
-                  currentNodeId={node.id}
-                  onCreateEdge={undefined}
-                  graphStateFields={graphStateFields}
-                />
-              ))}
-
-            {/* Nested conditional fields */}
-            {enableMemory && (
-              <div className="space-y-4 border-l-2 border-[var(--brand-100)] pl-4 duration-300 animate-in slide-in-from-top-2">
-                {memoryFields
-                  .filter((f) => f.key !== 'enableMemory')
-                  .map((field) => (
-                    <SchemaFieldRenderer
-                      key={field.key}
-                      schema={field}
-                      value={config[field.key]}
-                      onChange={(val) => updateConfig(field.key, val)}
-                      canEdit={userPermissions.canEdit}
-                      t={t}
-                      nodes={nodes}
-                      edges={edges}
-                      currentNodeId={node.id}
-                      onCreateEdge={undefined}
-                      graphStateFields={graphStateFields}
-                      onModelChange={
-                        field.key === 'memoryModel'
-                          ? (modelName, providerName) => {
-                              // Update memoryModel and memoryProvider in a single onUpdate call
-                              // to avoid race condition where separate updateConfig calls
-                              // spread from the same stale config and overwrite each other
-                              const combinedModelId = `${providerName}:${modelName}`
-                              onUpdate(node.id, {
-                                label: nodeData.label || '',
-                                config: {
-                                  ...config,
-                                  memoryModel: combinedModelId,
-                                  memoryProvider: providerName,
-                                },
-                              })
-                            }
-                          : undefined
-                      }
-                    />
-                  ))}
-              </div>
-            )}
-
-            {!enableMemory && (
-              <p className="rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-2 text-2xs italic text-[var(--text-muted)]">
-                {t('workspace.memoryDisabled')}
-              </p>
-            )}
-          </div>
-        )}
-        {/* Section: Output Mapping fields rendered conditionally as normal fields */}
-
+        {/* Section: Memory */}
+        <MemorySection
+          memoryFields={memoryFields}
+          config={config}
+          enableMemory={enableMemory}
+          updateConfig={updateConfig}
+          canEdit={userPermissions.canEdit}
+          t={t}
+          nodes={nodes}
+          edges={edges}
+          currentNodeId={node.id}
+          graphStateFields={graphStateFields}
+          onMemoryModelChange={(modelName, providerName) => {
+            const combinedModelId = `${providerName}:${modelName}`
+            onUpdate(node.id, {
+              label: nodeData.label || '',
+              config: { ...config, memoryModel: combinedModelId, memoryProvider: providerName },
+            })
+          }}
+        />
       </div>
 
-      {/* Footer Info */}
+      {/* Footer */}
       <div className="flex items-center justify-between border-t border-[var(--border)] bg-[var(--surface-2)] px-4 py-2 font-mono text-micro text-[var(--text-muted)]">
         <span className="truncate">TYPE: {nodeData.type}</span>
         <span className="flex items-center gap-1">

@@ -16,10 +16,10 @@ import { Label } from '@/components/ui/label'
 import { useTranslation } from '@/lib/i18n'
 
 const AVAILABLE_SCOPES = [
-  { value: 'skills:read', label: 'Read' },
-  { value: 'skills:write', label: 'Write' },
-  { value: 'skills:publish', label: 'Publish' },
-  { value: 'skills:admin', label: 'Admin' },
+  { value: 'skills:read', labelKey: 'settings.tokens.scopeRead' },
+  { value: 'skills:write', labelKey: 'settings.tokens.scopeWrite' },
+  { value: 'skills:publish', labelKey: 'settings.tokens.scopePublish' },
+  { value: 'skills:admin', labelKey: 'settings.tokens.scopeAdmin' },
 ]
 
 interface CreateTokenDialogProps {
@@ -112,7 +112,7 @@ export function CreateTokenDialog({ open, onOpenChange, onSubmit, isPending }: C
                       htmlFor={`scope-${scope.value}`}
                       className="cursor-pointer text-sm font-medium text-[var(--text-secondary)] select-none"
                     >
-                      {scope.label}
+                      {t(scope.labelKey)}
                     </label>
                   </div>
                 ))}

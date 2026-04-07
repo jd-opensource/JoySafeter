@@ -1,5 +1,7 @@
 'use client'
 
+import { useTranslation } from '@/lib/i18n'
+
 import { formatToolDisplay } from './toolDisplayRegistry'
 
 interface ToolCallDetailProps {
@@ -12,6 +14,7 @@ interface ToolCallDetailProps {
 }
 
 export function ToolCallDetail({ name, args, status, result, startTime, endTime }: ToolCallDetailProps) {
+  const { t } = useTranslation()
   const display = formatToolDisplay(name, args)
   const duration = startTime && endTime ? ((endTime - startTime) / 1000).toFixed(1) : null
 
@@ -38,7 +41,7 @@ export function ToolCallDetail({ name, args, status, result, startTime, endTime 
 
       {Object.keys(args).length > 0 && (
         <details className="text-xs">
-          <summary className="cursor-pointer text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">Arguments</summary>
+          <summary className="cursor-pointer text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">{t('chat.arguments')}</summary>
           <pre className="mt-1 max-h-[200px] overflow-auto rounded bg-[var(--surface-1)] p-2 text-[var(--text-secondary)]">
             {JSON.stringify(args, null, 2)}
           </pre>
@@ -47,7 +50,7 @@ export function ToolCallDetail({ name, args, status, result, startTime, endTime 
 
       {result !== undefined && (
         <details className="text-xs">
-          <summary className="cursor-pointer text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">Result</summary>
+          <summary className="cursor-pointer text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">{t('chat.result')}</summary>
           <pre className="mt-1 max-h-[300px] overflow-auto rounded bg-[var(--surface-1)] p-2 text-[var(--text-secondary)]">
             {typeof result === 'string' ? result : JSON.stringify(result, null, 2)}
           </pre>

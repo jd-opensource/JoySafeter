@@ -6,6 +6,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
 import { Button } from '@/components/ui/button'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
 interface CodeViewerProps {
@@ -91,6 +92,7 @@ export default function CodeViewer({
   defaultCollapsed = false,
   maxHeight = '400px',
 }: CodeViewerProps) {
+  const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed)
 
@@ -134,10 +136,10 @@ export default function CodeViewer({
           )}
           <FileCode size={14} className="flex-shrink-0 text-[var(--text-muted)]" />
           <span className="truncate text-xs font-medium text-[var(--text-secondary)]">
-            {filename || 'untitled'}
+            {filename || t('chat.untitled')}
           </span>
           <LanguageBadge language={prismLanguage} />
-          <span className="text-2xs text-[var(--text-muted)]">{lineCount} lines</span>
+          <span className="text-2xs text-[var(--text-muted)]">{lineCount} {t('chat.lines')}</span>
         </div>
         <Button
           variant="ghost"
@@ -148,12 +150,12 @@ export default function CodeViewer({
           {copied ? (
             <>
               <Check size={12} className="text-emerald-600" />
-              <span className="text-2xs">Copied</span>
+              <span className="text-2xs">{t('chat.copied')}</span>
             </>
           ) : (
             <>
               <Copy size={12} />
-              <span className="text-2xs">Copy</span>
+              <span className="text-2xs">{t('chat.copy')}</span>
             </>
           )}
         </Button>
@@ -205,7 +207,7 @@ export default function CodeViewer({
             {lines[0]?.slice(0, 60)}
             {lines[0]?.length > 60 ? '...' : ''}
           </span>
-          {lineCount > 1 && <span className="ml-2 text-[var(--text-muted)]">+{lineCount - 1} more lines</span>}
+          {lineCount > 1 && <span className="ml-2 text-[var(--text-muted)]">{t('chat.moreLines', { count: lineCount - 1 })}</span>}
         </div>
       )}
     </div>

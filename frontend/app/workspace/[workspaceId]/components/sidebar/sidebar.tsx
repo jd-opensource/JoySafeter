@@ -1,57 +1,31 @@
 'use client'
 
-import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { FolderPlus, Plus } from 'lucide-react'
 import { useParams, useRouter } from 'next/navigation'
 import { useCallback, useRef, useState, useEffect, useMemo } from 'react'
 
-import {
-  agentService,
-  type AgentGraph,
-} from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
-import { useBuilderStore } from '@/app/workspace/[workspaceId]/[agentId]/stores/builderStore'
-import { CODE_STARTER_TEMPLATE } from '@/app/workspace/[workspaceId]/[agentId]/utils/codeTemplate'
+import type { AgentGraph } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
 import {
   AgentList,
   WorkspaceHeader,
 } from '@/app/workspace/[workspaceId]/components/sidebar/components'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+import { CreateAgentDialog } from '@/app/workspace/[workspaceId]/components/sidebar/components/create-agent-dialog'
+import { DeleteAgentDialog } from '@/app/workspace/[workspaceId]/components/sidebar/components/create-folder-dialog'
+import { useAgentMutations } from '@/app/workspace/[workspaceId]/components/sidebar/hooks/use-agent-mutations'
+import { useFolderHandlers } from '@/app/workspace/[workspaceId]/components/sidebar/hooks/use-folder-handlers'
+import { useWorkspaceHandlers } from '@/app/workspace/[workspaceId]/components/sidebar/hooks/use-workspace-handlers'
 import { SearchInput } from '@/components/ui/search-input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useToast } from '@/hooks/use-toast'
-import {
-  useFolders,
-  useCreateFolder,
-  useUpdateFolder,
-  useDeleteFolderMutation as useDeleteFolder,
-  useDuplicateFolderMutation as useDuplicateFolder,
-} from '@/hooks/queries/folders'
-import { useGraphs, graphKeys } from '@/hooks/queries/graphs'
-import {
-  useWorkspaces,
-  useCreateWorkspace,
-  useUpdateWorkspace,
-  useDeleteWorkspace,
-  useDuplicateWorkspace,
-} from '@/hooks/queries/workspaces'
+import { useFolders } from '@/hooks/queries/folders'
+import { useGraphs } from '@/hooks/queries/graphs'
+import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useUserPermissions } from '@/hooks/use-user-permissions'
 import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
 import { useTranslation } from '@/lib/i18n'
-import { createLogger } from '@/lib/logs/console/logger'
 import { cn } from '@/lib/utils'
 import { useFolderStore, MAX_FOLDER_DEPTH, type WorkflowFolder } from '@/stores/folders/store'
 import { MIN_SIDEBAR_WIDTH, useSidebarStore } from '@/stores/sidebar/store'
-
-const logger = createLogger('Sidebar')
 
 /**
  * Folder interface for component props (simplified from store)
@@ -75,9 +49,6 @@ export interface AgentMetadata {
   graphMode?: string | null
 }
 
-/**
- * Convert WorkflowFolder to Folder for component props
- */
 function toFolder(wf: WorkflowFolder, expandedFolders: Set<string>): Folder {
   return {
     id: wf.id,
@@ -88,9 +59,6 @@ function toFolder(wf: WorkflowFolder, expandedFolders: Set<string>): Folder {
   }
 }
 
-/**
- * Convert AgentGraph to AgentMetadata
- */
 function graphToAgentMetadata(graph: AgentGraph): AgentMetadata {
   const variables = graph.variables as { graph_mode?: string } | undefined
   return {
@@ -134,208 +102,32 @@ export function Sidebar() {
   const folderStoreData = useFolderStore((state) => state.folders)
   const expandedFolders = useFolderStore((state) => state.expandedFolders)
   const toggleExpanded = useFolderStore((state) => state.toggleExpanded)
-  const canCreateSubfolder = useFolderStore((state) => state.canCreateSubfolder)
 
   const { data: foldersData, isLoading: isFoldersLoading } = useFolders(workspaceId)
-  const createFolderMutation = useCreateFolder()
-  const updateFolderMutation = useUpdateFolder()
-  const deleteFolderMutation = useDeleteFolder()
-  const duplicateFolderMutation = useDuplicateFolder()
-
   const { data: workspacesData, isLoading: isWorkspacesLoading } = useWorkspaces()
-  const createWorkspaceMutation = useCreateWorkspace()
-  const updateWorkspaceMutation = useUpdateWorkspace()
-  const deleteWorkspaceMutation = useDeleteWorkspace()
-  const duplicateWorkspaceMutation = useDuplicateWorkspace()
-  const queryClient = useQueryClient()
-
-  // Use unified useGraphs hook to ensure cache sharing with other components
   const { data: graphsData, isLoading: isAgentsLoading } = useGraphs(workspaceId)
 
   const agents: AgentMetadata[] = useMemo(() => graphsData?.map(graphToAgentMetadata) || [], [graphsData])
 
-  const createAgentMutation = useMutation({
-    mutationFn: async (data: { name: string; description?: string; color?: string; mode?: 'canvas' | 'code' }) => {
-      // Create Graph
-      const graph = await agentService.createGraph({
-        name: data.name,
-        description: data.description,
-        color: data.color,
-        workspaceId: workspaceId || null,
-      })
+  const {
+    createAgentMutation, updateAgentMutation, deleteAgentMutation,
+    duplicateAgentMutation, handleMoveAgentToFolder,
+  } = useAgentMutations(workspaceId)
 
-      if (graph?.id) {
-        if (data.mode === 'code') {
-          // Code mode: save with starter template and graph_mode flag
-          await agentService.saveGraphState({
-            graphId: graph.id,
-            nodes: [],
-            edges: [],
-            viewport: { x: 0, y: 0, zoom: 1 },
-            variables: {
-              graph_mode: 'code',
-              code_content: CODE_STARTER_TEMPLATE,
-            },
-          })
-        } else {
-          await agentService.saveGraphState({
-            graphId: graph.id,
-            nodes: [],
-            edges: [],
-            viewport: { x: 0, y: 0, zoom: 1 },
-          })
-        }
-      }
-      return graph
-    },
-    onSuccess: (graph: AgentGraph) => {
-      // Refresh agent list
-      queryClient.invalidateQueries({ queryKey: graphKeys.list(workspaceId) })
+  const {
+    createFolderMutation, handleCreateFolder, handleRenameFolder,
+    handleDeleteFolder, handleDuplicateFolder: handleDuplicateFolderBase,
+  } = useFolderHandlers(workspaceId, userPermissions.canEdit)
 
-      // Show success toast
-      toast({
-        title: t('workspace.agentCreateSuccess'),
-        variant: 'success',
-      })
+  const handleDuplicateFolder = useCallback(
+    (folderId: string) => handleDuplicateFolderBase(folderId, foldersData),
+    [handleDuplicateFolderBase, foldersData],
+  )
 
-      // Automatically navigate to the newly created agent
-      if (graph?.id) {
-        router.push(`/workspace/${workspaceId}/${graph.id}`)
-      }
-    },
-    onError: (error: unknown) => {
-      let errorMessage = t('workspace.cannotCreateAgent')
-      if (error instanceof Error) {
-        const isPermissionError =
-          error.message.includes('403') ||
-          error.message.includes('permission') ||
-          error.message.includes('Forbidden') ||
-          error.message.includes('insufficient') ||
-          error.message.includes('Insufficient')
-
-        if (isPermissionError) {
-          errorMessage = t('workspace.cannotCreateAgent')
-        } else {
-          errorMessage = error.message || errorMessage
-        }
-      }
-      toast({
-        title: t('workspace.agentCreateFailed'),
-        description: errorMessage,
-        variant: 'destructive',
-      })
-    },
-  })
-
-  const updateAgentMutation = useMutation({
-    mutationFn: async (data: {
-      id: string
-      name?: string
-      description?: string
-      color?: string
-    }) => {
-      await agentService.updateGraph(data.id, {
-        name: data.name,
-        description: data.description,
-        color: data.color,
-      })
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: graphKeys.list(workspaceId) })
-      // If renaming the currently editing graph, update graphName in store
-      const { graphId, setGraphName } = useBuilderStore.getState()
-      if (variables.name && graphId === variables.id) {
-        setGraphName(variables.name)
-        // Also update localStorage for compatibility
-        agentService.setCachedGraphName(variables.name)
-      }
-      toast({
-        title: t('workspace.agentUpdateSuccess'),
-        variant: 'success',
-      })
-    },
-    onError: (error: unknown) => {
-      let errorMessage = t('workspace.agentUpdateFailed')
-      if (error instanceof Error) {
-        errorMessage = error.message || errorMessage
-      }
-      toast({
-        title: t('workspace.agentUpdateFailed'),
-        description: errorMessage,
-        variant: 'destructive',
-      })
-    },
-  })
-
-  const deleteAgentMutation = useMutation({
-    mutationFn: async (id: string) => {
-      await agentService.deleteGraph(id)
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: graphKeys.list(workspaceId) })
-      toast({
-        title: t('workspace.agentDeleteSuccess'),
-        variant: 'success',
-      })
-    },
-    onError: (error: unknown) => {
-      let errorMessage = t('workspace.cannotDeleteAgent')
-      if (error instanceof Error) {
-        const isPermissionError =
-          error.message.includes('403') ||
-          error.message.includes('permission') ||
-          error.message.includes('Forbidden') ||
-          error.message.includes('insufficient') ||
-          error.message.includes('Insufficient')
-
-        if (isPermissionError) {
-          errorMessage = t('workspace.cannotDeleteAgent')
-        } else {
-          errorMessage = error.message || errorMessage
-        }
-      }
-      toast({
-        title: t('workspace.agentDeleteFailed'),
-        description: errorMessage,
-        variant: 'destructive',
-      })
-    },
-  })
-
-  const duplicateAgentMutation = useMutation({
-    mutationFn: async (id: string) => {
-      await agentService.duplicateGraph(id, { workspaceId: workspaceId || null })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: graphKeys.list(workspaceId) })
-      toast({
-        title: t('workspace.agentDuplicateSuccess'),
-        variant: 'success',
-      })
-    },
-    onError: (error: unknown) => {
-      let errorMessage = t('workspace.agentDuplicateFailed')
-      if (error instanceof Error) {
-        const isPermissionError =
-          error.message.includes('403') ||
-          error.message.includes('permission') ||
-          error.message.includes('Forbidden') ||
-          error.message.includes('insufficient') ||
-          error.message.includes('Insufficient')
-
-        if (isPermissionError) {
-          errorMessage = t('workspace.cannotCreateAgent')
-        } else {
-          errorMessage = error.message || errorMessage
-        }
-      }
-      toast({
-        title: t('workspace.agentDuplicateFailed'),
-        description: errorMessage,
-        variant: 'destructive',
-      })
-    },
-  })
+  const {
+    createWorkspaceMutation, handleWorkspaceSwitch, handleCreateWorkspace,
+    handleRenameWorkspace, handleDeleteWorkspace, handleDuplicateWorkspace,
+  } = useWorkspaceHandlers(router)
 
   const folders: Folder[] = Object.values(folderStoreData)
     .filter((f) => f.workspaceId === workspaceId)
@@ -346,29 +138,16 @@ export function Sidebar() {
 
   const generateRandomColor = useCallback(() => {
     const colors = [
-      'var(--agent-1)',
-      'var(--agent-2)',
-      'var(--agent-3)',
-      'var(--agent-4)',
-      'var(--agent-5)',
-      'var(--agent-6)',
-      'var(--agent-7)',
-      'var(--agent-8)',
-      'var(--agent-9)',
-      'var(--agent-10)',
-      'var(--agent-11)',
-      'var(--agent-12)',
+      'var(--agent-1)', 'var(--agent-2)', 'var(--agent-3)', 'var(--agent-4)',
+      'var(--agent-5)', 'var(--agent-6)', 'var(--agent-7)', 'var(--agent-8)',
+      'var(--agent-9)', 'var(--agent-10)', 'var(--agent-11)', 'var(--agent-12)',
     ]
     return colors[Math.floor(Math.random() * colors.length)]
   }, [])
 
   const handleCreateAgent = useCallback(() => {
     if (!userPermissions.canEdit) {
-      toast({
-        title: t('workspace.noPermission'),
-        description: t('workspace.cannotCreateAgent'),
-        variant: 'destructive',
-      })
+      toast({ title: t('workspace.noPermission'), description: t('workspace.cannotCreateAgent'), variant: 'destructive' })
       return
     }
     setNewAgentName(t('workspace.defaultAgentName'))
@@ -379,68 +158,21 @@ export function Sidebar() {
   const handleConfirmCreateAgent = useCallback(() => {
     if (!newAgentName.trim()) return
     setShowCreateDialog(false)
-    createAgentMutation.mutate({
-      name: newAgentName.trim(),
-      description: '',
-      color: generateRandomColor(),
-      mode: createAgentMode,
-    })
-  }, [newAgentName, createAgentMode, createAgentMutation, generateRandomColor])
+    createAgentMutation.mutate(
+      { name: newAgentName.trim(), description: '', color: generateRandomColor(), mode: createAgentMode },
+      { onSuccess: (graph: AgentGraph) => { if (graph?.id) router.push(`/workspace/${workspaceId}/${graph.id}`) } },
+    )
+  }, [newAgentName, createAgentMode, createAgentMutation, generateRandomColor, router, workspaceId])
 
-  /**
-   * Handle create folder (root level)
-   */
-  const handleCreateFolder = useCallback(
-    async (parentId?: string | null) => {
-      if (!userPermissions.canEdit) {
-        toast({
-          title: t('workspace.noPermission'),
-          description: t('workspace.cannotCreateFolder'),
-          variant: 'destructive',
-        })
-        return
-      }
-      if (parentId && !canCreateSubfolder(parentId)) {
-        return
-      }
-
-      const defaultFolderName = t('workspace.defaultFolderName')
-      createFolderMutation.mutate({
-        workspaceId,
-        name: defaultFolderName,
-        parentId: parentId || undefined,
-      })
-    },
-    [
-      workspaceId,
-      createFolderMutation,
-      canCreateSubfolder,
-      t,
-      userPermissions.canEdit,
-      toast,
-    ],
-  )
-
-  /**
-   * Handle toggle folder expand/collapse
-   */
-  const handleToggleFolder = useCallback(
-    (folderId: string) => {
-      toggleExpanded(folderId)
-    },
-    [toggleExpanded],
-  )
+  const handleToggleFolder = useCallback((folderId: string) => toggleExpanded(folderId), [toggleExpanded])
 
   useEffect(() => {
     if (searchQuery.trim() && folders.length > 0 && agents.length > 0) {
       const query = searchQuery.toLowerCase().trim()
       folders.forEach((folder) => {
         const agentsInFolder = agents.filter((a) => a.folderId === folder.id)
-        const hasMatchingAgents = agentsInFolder.some((agent) =>
-          agent.name.toLowerCase().includes(query),
-        )
+        const hasMatchingAgents = agentsInFolder.some((agent) => agent.name.toLowerCase().includes(query))
         const folderNameMatches = folder.name.toLowerCase().includes(query)
-
         if ((hasMatchingAgents || folderNameMatches) && !expandedFolders.has(folder.id)) {
           toggleExpanded(folder.id)
         }
@@ -448,202 +180,36 @@ export function Sidebar() {
     }
   }, [searchQuery, folders, agents, expandedFolders, toggleExpanded])
 
-  /**
-   * Handle rename folder
-   */
-  const handleRenameFolder = useCallback(
-    (folderId: string, newName: string) => {
-      updateFolderMutation.mutate({
-        workspaceId,
-        id: folderId,
-        updates: { name: newName },
-      })
-    },
-    [workspaceId, updateFolderMutation],
-  )
-
-  /**
-   * Handle delete folder
-   */
-  const handleDeleteFolder = useCallback(
-    (folderId: string) => {
-      if (!userPermissions.canEdit) {
-        toast({
-          title: t('workspace.noPermission'),
-          description: t('workspace.cannotDeleteFolder'),
-          variant: 'destructive',
-        })
-        return
-      }
-      deleteFolderMutation.mutate(
-        { workspaceId, id: folderId },
-        {
-          onError: (error: unknown) => {
-            // Check if it's a permission error (403 or contains permission-related keywords)
-            let errorMessage = t('workspace.cannotDeleteFolder')
-            if (error instanceof Error) {
-              const isPermissionError =
-                error.message.includes('403') ||
-                error.message.includes('permission') ||
-                error.message.includes('Forbidden') ||
-                error.message.includes('insufficient') ||
-                error.message.includes('Insufficient')
-
-              if (isPermissionError) {
-                errorMessage = t('workspace.cannotDeleteFolder')
-              } else {
-                errorMessage = error.message || errorMessage
-              }
-            }
-            toast({
-              title: t('workspace.noPermission'),
-              description: errorMessage,
-              variant: 'destructive',
-            })
-          },
-        },
-      )
-    },
-    [workspaceId, deleteFolderMutation, userPermissions.canEdit, toast, t],
-  )
-
-  /**
-   * Handle duplicate folder
-   */
-  const handleDuplicateFolder = useCallback(
-    (folderId: string) => {
-      if (!userPermissions.canEdit) {
-        toast({
-          title: t('workspace.noPermission'),
-          description: t('workspace.cannotCreateFolder'),
-          variant: 'destructive',
-        })
-        return
-      }
-      const folder = folderStoreData[folderId] || foldersData?.find((f) => f.id === folderId)
-      if (!folder) {
-        return
-      }
-
-      duplicateFolderMutation.mutate(
-        {
-          workspaceId,
-          id: folderId,
-          name: `${folder.name} (Copy)`,
-          parentId: folder.parentId,
-          color: folder.color,
-        },
-        {
-          onError: (error: unknown) => {
-            let errorMessage = t('workspace.cannotCreateFolder')
-            if (error instanceof Error) {
-              const isPermissionError =
-                error.message.includes('403') ||
-                error.message.includes('permission') ||
-                error.message.includes('Forbidden') ||
-                error.message.includes('insufficient') ||
-                error.message.includes('Insufficient')
-
-              if (isPermissionError) {
-                errorMessage = t('workspace.cannotCreateFolder')
-              } else {
-                errorMessage = error.message || errorMessage
-              }
-            }
-            toast({
-              title: t('workspace.noPermission'),
-              description: errorMessage,
-              variant: 'destructive',
-            })
-          },
-        },
-      )
-    },
-    [
-      workspaceId,
-      duplicateFolderMutation,
-      folderStoreData,
-      foldersData,
-      userPermissions.canEdit,
-      toast,
-      t,
-    ],
-  )
-
-  /**
-   * Handle move agent to folder
-   */
-  const handleMoveAgentToFolder = useCallback(
-    async (agentId: string, folderId: string | null) => {
-      try {
-        await agentService.moveToFolder(agentId, folderId)
-        queryClient.invalidateQueries({ queryKey: graphKeys.list(workspaceId) })
-      } catch (error) {
-        logger.error('Failed to move agent to folder', { error, agentId, folderId })
-      }
-    },
-    [workspaceId, queryClient],
-  )
-
-  /**
-   * Handle rename agent
-   */
   const handleRenameAgent = useCallback(
-    (agentId: string, newName: string) => {
-      updateAgentMutation.mutate({
-        id: agentId,
-        name: newName,
-      })
-    },
+    (agentId: string, newName: string) => updateAgentMutation.mutate({ id: agentId, name: newName }),
     [updateAgentMutation],
   )
 
-  /**
-   * Handle delete agent - opens confirmation dialog
-   */
   const handleDeleteAgent = useCallback(
     (agentId: string) => {
       if (!userPermissions.canEdit) {
-        toast({
-          title: t('workspace.noPermission'),
-          description: t('workspace.cannotDeleteAgent'),
-          variant: 'destructive',
-        })
+        toast({ title: t('workspace.noPermission'), description: t('workspace.cannotDeleteAgent'), variant: 'destructive' })
         return
       }
       const agent = agents.find((a) => a.id === agentId)
-      if (!agent) {
-        return
-      }
+      if (!agent) return
       setAgentToDelete({ id: agentId, name: agent.name })
       setDeleteAgentConfirmOpen(true)
     },
     [agents, userPermissions.canEdit, toast, t],
   )
 
-  /**
-   * Handle confirm delete agent
-   */
   const handleConfirmDeleteAgent = useCallback(() => {
-    if (!agentToDelete) {
-      return
-    }
+    if (!agentToDelete) return
     deleteAgentMutation.mutate(agentToDelete.id)
     setDeleteAgentConfirmOpen(false)
     setAgentToDelete(null)
   }, [agentToDelete, deleteAgentMutation])
 
-  /**
-   * Handle duplicate agent
-   */
   const handleDuplicateAgent = useCallback(
     (agentId: string) => {
       if (!userPermissions.canEdit) {
-        toast({
-          title: t('workspace.noPermission'),
-          description: t('workspace.cannotCreateAgent'),
-          variant: 'destructive',
-        })
+        toast({ title: t('workspace.noPermission'), description: t('workspace.cannotCreateAgent'), variant: 'destructive' })
         return
       }
       duplicateAgentMutation.mutate(agentId)
@@ -651,120 +217,51 @@ export function Sidebar() {
     [duplicateAgentMutation, userPermissions.canEdit, toast, t],
   )
 
-  /**
-   * Handle sidebar collapse toggle
-   */
-  const handleToggleCollapse = useCallback(() => {
-    setIsCollapsed(!isCollapsed)
-  }, [isCollapsed, setIsCollapsed])
+  const handleToggleCollapse = useCallback(() => setIsCollapsed(!isCollapsed), [isCollapsed, setIsCollapsed])
 
-  /**
-   * Handle workspace switch
-   */
-  const handleWorkspaceSwitch = useCallback(
-    (workspace: { id: string; name: string }) => {
-      router.push(`/workspace/${workspace.id}`)
-    },
-    [router],
-  )
-
-  /**
-   * Handle create workspace
-   */
-  const handleCreateWorkspace = useCallback(async () => {
-    createWorkspaceMutation.mutate({ name: t('workspace.newWorkspace') })
-  }, [createWorkspaceMutation, t])
-
-  /**
-   * Handle rename workspace
-   */
-  const handleRenameWorkspace = useCallback(
-    (id: string, name: string) => {
-      if (!updateWorkspaceMutation) {
-        return
-      }
-      updateWorkspaceMutation.mutate({ id, updates: { name } })
-    },
-    [updateWorkspaceMutation],
-  )
-
-  /**
-   * Handle delete workspace
-   */
-  const handleDeleteWorkspace = useCallback(
-    (id: string) => {
-      if (!deleteWorkspaceMutation) {
-        return
-      }
-      deleteWorkspaceMutation.mutate(id)
-    },
-    [deleteWorkspaceMutation],
-  )
-
-  /**
-   * Handle duplicate workspace
-   */
-  const handleDuplicateWorkspace = useCallback(
-    (id: string) => {
-      if (!duplicateWorkspaceMutation) {
-        return
-      }
-      duplicateWorkspaceMutation.mutate({ id })
-    },
-    [duplicateWorkspaceMutation],
-  )
-
-  /**
-   * Handle resize
-   */
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault()
-
       const startX = e.clientX
       const startWidth = sidebarWidth
-
       const handleMouseMove = (e: MouseEvent) => {
         const delta = e.clientX - startX
         const newWidth = Math.max(MIN_SIDEBAR_WIDTH, startWidth + delta)
-        const maxWidth = window.innerWidth * 0.3
-        setSidebarWidth(Math.min(newWidth, maxWidth))
+        setSidebarWidth(Math.min(newWidth, window.innerWidth * 0.3))
       }
-
       const handleMouseUp = () => {
         document.removeEventListener('mousemove', handleMouseMove)
         document.removeEventListener('mouseup', handleMouseUp)
       }
-
       document.addEventListener('mousemove', handleMouseMove)
       document.addEventListener('mouseup', handleMouseUp)
     },
     [sidebarWidth, setSidebarWidth],
   )
 
+  const workspaceHeaderProps = {
+    activeWorkspace,
+    workspaceId,
+    workspaces: workspacesData || [],
+    isWorkspacesLoading,
+    isCreatingWorkspace: createWorkspaceMutation.isPending,
+    onWorkspaceSwitch: handleWorkspaceSwitch,
+    onCreateWorkspace: handleCreateWorkspace,
+    onToggleCollapse: handleToggleCollapse,
+    isCollapsed,
+    showCollapseButton: true as const,
+    onRenameWorkspace: handleRenameWorkspace,
+    onDeleteWorkspace: handleDeleteWorkspace,
+    onDuplicateWorkspace: handleDuplicateWorkspace,
+  }
+
   if (isCollapsed) {
     return (
       <div
-        className="fixed top-[14px] z-10 max-w-[232px] rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-[12px] py-[8px] transition-all duration-300"
-        style={{
-          left: isAppSidebarCollapsed ? '78px' : '154px',
-        }}
+        className="fixed top-[14px] z-10 max-w-[232px] rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 transition-all duration-300"
+        style={{ left: isAppSidebarCollapsed ? '78px' : '154px' }}
       >
-        <WorkspaceHeader
-          activeWorkspace={activeWorkspace}
-          workspaceId={workspaceId}
-          workspaces={workspacesData || []}
-          isWorkspacesLoading={isWorkspacesLoading}
-          isCreatingWorkspace={createWorkspaceMutation.isPending}
-          onWorkspaceSwitch={handleWorkspaceSwitch}
-          onCreateWorkspace={handleCreateWorkspace}
-          onToggleCollapse={handleToggleCollapse}
-          isCollapsed={isCollapsed}
-          showCollapseButton={true}
-          onRenameWorkspace={handleRenameWorkspace}
-          onDeleteWorkspace={handleDeleteWorkspace}
-          onDuplicateWorkspace={handleDuplicateWorkspace}
-        />
+        <WorkspaceHeader {...workspaceHeaderProps} />
       </div>
     )
   }
@@ -787,63 +284,31 @@ export function Sidebar() {
         aria-label="Workspace sidebar"
       >
         <div className="flex h-full flex-col border-r border-[var(--border)] pt-[14px]">
-          {/* Header */}
-          <div className="flex-shrink-0 px-[10px]">
-            <WorkspaceHeader
-              activeWorkspace={activeWorkspace}
-              workspaceId={workspaceId}
-              workspaces={workspacesData || []}
-              isWorkspacesLoading={isWorkspacesLoading}
-              isCreatingWorkspace={createWorkspaceMutation.isPending}
-              onWorkspaceSwitch={handleWorkspaceSwitch}
-              onCreateWorkspace={handleCreateWorkspace}
-              onToggleCollapse={handleToggleCollapse}
-              isCollapsed={isCollapsed}
-              showCollapseButton={true}
-              onRenameWorkspace={handleRenameWorkspace}
-              onDeleteWorkspace={handleDeleteWorkspace}
-              onDuplicateWorkspace={handleDuplicateWorkspace}
-            />
+          <div className="flex-shrink-0 px-2.5">
+            <WorkspaceHeader {...workspaceHeaderProps} />
           </div>
 
-          {/* Search */}
           <div className="mx-[5px] mt-[10px]">
-            <SearchInput
-              value={searchQuery}
-              onValueChange={setSearchQuery}
-              placeholder={t('workspace.searchAgents')}
-            />
+            <SearchInput value={searchQuery} onValueChange={setSearchQuery} placeholder={t('workspace.searchAgents')} />
           </div>
 
-          {/* Agents Section */}
           <div className="relative mt-[14px] flex flex-1 flex-col overflow-hidden">
-            {/* Header */}
-            <div className="flex flex-shrink-0 items-center justify-between px-[10px]">
-              <span className="text-xs-plus font-medium text-[var(--text-tertiary)]">
-                {t('workspace.agents')}
-              </span>
-              <div className="flex items-center gap-[8px]">
+            <div className="flex flex-shrink-0 items-center justify-between px-2.5">
+              <span className="text-xs-plus font-medium text-[var(--text-tertiary)]">{t('workspace.agents')}</span>
+              <div className="flex items-center gap-2">
                 <TooltipProvider delayDuration={100}>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
                         type="button"
-                        className={`rounded-sm p-[2px] transition-colors ${
-                          createFolderMutation.isPending || !userPermissions.canEdit
-                            ? 'cursor-not-allowed opacity-50'
-                            : 'hover:bg-[var(--surface-5)]'
-                        }`}
+                        className={`rounded-sm p-0.5 transition-colors ${createFolderMutation.isPending || !userPermissions.canEdit ? 'cursor-not-allowed opacity-50' : 'hover:bg-[var(--surface-5)]'}`}
                         onClick={() => handleCreateFolder()}
                         disabled={createFolderMutation.isPending}
                       >
-                        <FolderPlus className="h-[14px] w-[14px] text-[var(--text-secondary)]" />
+                        <FolderPlus className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent
-                      side="bottom"
-                      sideOffset={4}
-                      className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-xs-plus font-medium text-[var(--text-primary)] shadow-lg"
-                    >
+                    <TooltipContent side="bottom" sideOffset={4} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-xs-plus font-medium text-[var(--text-primary)] shadow-lg">
                       {t('workspace.createFolder')}
                     </TooltipContent>
                   </Tooltip>
@@ -853,22 +318,14 @@ export function Sidebar() {
                     <TooltipTrigger asChild>
                       <button
                         type="button"
-                        className={`rounded-sm border border-[var(--border)] p-[2px] transition-colors ${
-                          createAgentMutation.isPending || !userPermissions.canEdit
-                            ? 'cursor-not-allowed opacity-50'
-                            : 'hover:bg-[var(--surface-5)]'
-                        }`}
+                        className={`rounded-sm border border-[var(--border)] p-0.5 transition-colors ${createAgentMutation.isPending || !userPermissions.canEdit ? 'cursor-not-allowed opacity-50' : 'hover:bg-[var(--surface-5)]'}`}
                         onClick={handleCreateAgent}
                         disabled={createAgentMutation.isPending}
                       >
-                        <Plus className="h-[14px] w-[14px] text-[var(--text-secondary)]" />
+                        <Plus className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent
-                      side="bottom"
-                      sideOffset={4}
-                      className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-xs-plus font-medium text-[var(--text-primary)] shadow-lg"
-                    >
+                    <TooltipContent side="bottom" sideOffset={4} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-xs-plus font-medium text-[var(--text-primary)] shadow-lg">
                       {t('workspace.createAgent')}
                     </TooltipContent>
                   </Tooltip>
@@ -876,11 +333,7 @@ export function Sidebar() {
               </div>
             </div>
 
-            {/* Scrollable Agent List */}
-            <div
-              ref={scrollContainerRef}
-              className="mt-[8px] flex-1 overflow-y-auto overflow-x-hidden px-[5px]"
-            >
+            <div ref={scrollContainerRef} className="mt-[8px] flex-1 overflow-y-auto overflow-x-hidden px-[5px]">
               <AgentList
                 regularAgents={agents}
                 folders={folders}
@@ -902,7 +355,6 @@ export function Sidebar() {
         </div>
       </aside>
 
-      {/* Resize Handle */}
       {isOnAgentPage && (
         <div
           className="fixed bottom-0 top-0 z-20 w-[8px] cursor-ew-resize"
@@ -914,113 +366,23 @@ export function Sidebar() {
         />
       )}
 
-      {/* Delete Agent Confirmation Dialog */}
-      <AlertDialog open={deleteAgentConfirmOpen} onOpenChange={setDeleteAgentConfirmOpen}>
-        <AlertDialogContent variant="destructive">
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('workspace.deleteAgentConfirmTitle')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {agentToDelete ? (
-                <>
-                  {t('workspace.deleteAgentConfirmMessagePrefix')}{' '}
-                  <span className="font-semibold text-[var(--status-error)]">{agentToDelete.name}</span>{' '}
-                  {t('workspace.deleteAgentConfirmMessageSuffix')}
-                </>
-              ) : (
-                t('workspace.deleteAgentConfirmMessageDefault')
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel
-              onClick={() => {
-                setDeleteAgentConfirmOpen(false)
-                setAgentToDelete(null)
-              }}
-            >
-              {t('workspace.cancel')}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmDeleteAgent}
-              className="bg-[var(--status-error)] text-white hover:bg-[var(--status-error-hover)]"
-            >
-              {t('workspace.delete')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteAgentDialog
+        open={deleteAgentConfirmOpen}
+        onOpenChange={setDeleteAgentConfirmOpen}
+        agentToDelete={agentToDelete}
+        onConfirm={handleConfirmDeleteAgent}
+        onCancel={() => { setDeleteAgentConfirmOpen(false); setAgentToDelete(null) }}
+      />
 
-      {/* Create Agent Dialog */}
-      <AlertDialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('workspace.createAgent', { defaultValue: 'Create New Agent' })}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('workspace.createAgentDescription', { defaultValue: 'Choose a mode and name for your agent.' })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-
-          <div className="space-y-4 py-2">
-            {/* Mode Selection */}
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setCreateAgentMode('canvas')}
-                className={cn(
-                  'flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-all',
-                  createAgentMode === 'canvas'
-                    ? 'border-primary bg-primary/5 ring-1 ring-primary'
-                    : 'border-[var(--border)] hover:border-primary/30'
-                )}
-              >
-                <span className="text-sm font-medium">Canvas</span>
-                <span className="text-app-xs leading-tight text-[var(--text-muted)]">
-                  Drag-and-drop DeepAgents builder
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setCreateAgentMode('code')}
-                className={cn(
-                  'flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-all',
-                  createAgentMode === 'code'
-                    ? 'border-primary bg-primary/5 ring-1 ring-primary'
-                    : 'border-[var(--border)] hover:border-primary/30'
-                )}
-              >
-                <span className="text-sm font-medium">Code</span>
-                <span className="text-app-xs leading-tight text-[var(--text-muted)]">
-                  Python code to define graph structure
-                </span>
-              </button>
-            </div>
-
-            {/* Name Input */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-[var(--text-secondary)]">
-                {t('workspace.agentName', { defaultValue: 'Agent Name' })}
-              </label>
-              <input
-                value={newAgentName}
-                onChange={(e) => setNewAgentName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleConfirmCreateAgent()}
-                className="h-9 w-full rounded-md border border-[var(--border)] bg-[var(--surface-1)] px-3 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-                autoFocus
-              />
-            </div>
-          </div>
-
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('workspace.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmCreateAgent}
-              disabled={!newAgentName.trim()}
-            >
-              {t('workspace.create', { defaultValue: 'Create' })}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <CreateAgentDialog
+        open={showCreateDialog}
+        onOpenChange={setShowCreateDialog}
+        newAgentName={newAgentName}
+        setNewAgentName={setNewAgentName}
+        createAgentMode={createAgentMode}
+        setCreateAgentMode={setCreateAgentMode}
+        onConfirm={handleConfirmCreateAgent}
+      />
     </>
   )
 }

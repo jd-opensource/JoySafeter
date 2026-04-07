@@ -4,6 +4,7 @@ import { Loader2, Play, Save } from 'lucide-react'
 import { useState, useRef } from 'react'
 import { useCodeEditorStore } from '../stores/codeEditorStore'
 import { apiPost } from '@/lib/api-client'
+import { useTranslation } from '@/lib/i18n'
 
 interface Props {
   graphId: string
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
+  const { t } = useTranslation()
   const isDirty = useCodeEditorStore((s) => s.isDirty)
   const isSaving = useCodeEditorStore((s) => s.isSaving)
   const save = useCodeEditorStore((s) => s.save)
@@ -36,7 +38,7 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
       const result = await apiPost<any>(`graphs/${graphId}/code/run`, { input: {} })
       setRunResult(result?.result ?? result)
     } catch (e: unknown) {
-      setRunError(e instanceof Error ? e.message : 'Request failed')
+      setRunError(e instanceof Error ? e.message : t('common.operationFailed'))
     } finally {
       setRunDuration(Date.now() - startTimeRef.current)
       setIsRunning(false)
@@ -51,7 +53,7 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
           className="text-sm font-medium bg-transparent border-none outline-none min-w-0 flex-1 max-w-xs text-[var(--text-primary)]"
           value={graphName ?? ''}
           onChange={(e) => setGraphName(e.target.value)}
-          placeholder="Untitled Graph"
+          placeholder={t('workspace.untitledGraph')}
         />
 
         {/* Right: actions */}
@@ -66,7 +68,7 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
             ) : (
               <Save size={13} />
             )}
-            {isSaving ? 'Saving...' : 'Save'}
+            {isSaving ? t('workspace.savingEllipsis') : t('workspace.save')}
           </button>
 
           <button
@@ -83,7 +85,7 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
             ) : (
               <Play size={13} />
             )}
-            {isRunning ? 'Running...' : 'Run'}
+            {isRunning ? t('workspace.runningEllipsis') : t('workspace.runButton')}
           </button>
         </div>
       </div>
@@ -97,7 +99,7 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
         }`}>
           <div className="flex items-center justify-between mb-1.5">
             <div className="flex items-center gap-2">
-              <span className="font-medium text-xs">{runError ? 'Error' : 'Result'}</span>
+              <span className="font-medium text-xs">{runError ? t('workspace.error') : t('workspace.result')}</span>
               {runDuration !== null && (
                 <span className="text-2xs opacity-60">
                   {(runDuration / 1000).toFixed(1)}s
@@ -108,7 +110,7 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
               className="text-2xs opacity-50 hover:opacity-100 transition-opacity"
               onClick={() => { setRunResult(null); setRunError(null); setRunDuration(null) }}
             >
-              Close
+              {t('workspace.close')}
             </button>
           </div>
           <pre className="whitespace-pre-wrap font-mono text-app-xs max-h-60 overflow-auto leading-relaxed">
