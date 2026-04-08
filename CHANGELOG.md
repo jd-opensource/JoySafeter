@@ -6,6 +6,88 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v0.3.0 — 2026-04-08
+
+### 新功能
+
+- WebSocket 基础架构重构：新增 BaseWsClient 抽象类，统一三端 WebSocket 生命周期管理
+- Chat 对话接入 Run Center：支持对话运行持久化、断线恢复、心跳保活及概览展示
+- Copilot 接入 Run Center：支持事件持久化、页面刷新后实时事件回放
+- 解锁深色模式，支持系统/浅色/深色三种主题切换
+- 重新设计个人资料页面，新增偏好设置（语言、主题切换）
+- 添加 Ollama 本地模型供应商一键集成
+- 更新 OpenAI Compatible 供应商为官方标准模型列表
+- 新增图模板自动应用功能（新建或空图时自动加载模板）
+- 增强快速启动脚本，支持交互式部署模式选择
+- 实现 trace_id 全链路传播（基于 contextvars）
+- 技能协作者标签页显示用户名、邮箱和角色信息
+- 版本管理脚本及发布工作流优化
+- 新增 Artifacts 开关标签的中英文国际化
+- 新增 toggle-group shadcn 组件
+
+### 问题修复
+
+- 修复调试追踪日志未经 Logger 输出的问题，向 UI 暴露缺失图错误
+- 修复通知 WebSocket 连接的监听器泄漏
+- 修复 Copilot 事件持久化及 handleStop 取消逻辑
+- 修复 Alembic 数据库迁移版本冲突（重复 revision ID）
+- 修复沙箱用户列显示 "Unknown" 的 schema 不匹配问题
+- 修复工作空间权限审计——关闭认证漏洞、修正角色映射
+- 修复 Docker 在非 Docker 代理环境下的优雅降级（兼容 Colima）
+- 修复 tool_resolver 中 _NodeShim 缺少 id 属性
+- 统一后端日志为 loguru，替换分散的 logging 调用
+- 修复主题同步逻辑，保持 Zustand store 状态一致
+- 修复侧边栏用户下拉菜单重复分隔线
+- 修复 Chat reducer 消息 ID 校验、node_end 顺序及 node_name 匹配
+- 修复 Edge Runtime 下 crypto.randomUUID 不可用问题
+- 完善 quick-start.sh 远程部署支持及后端远程数据库端口识别
+- 优化模型未配置时的错误提示，明确引导用户操作路径
+- 将 OpenAI Compatible 供应商显示名称简化为 OpenAI
+- 修复文件上传与 Agent Docker 沙箱文件系统的对齐
+- 修复 CI 发布矩阵中引用不存在的 init.Dockerfile
+- 移除遗留的 chat/resume/stop 帧类型别名及已废弃的 POST /copilot/actions 端点
+- 修复前端 command.tsx 中 27 处重复的 @ts-nocheck 指令
+- 修正 buildin→builtin 拼写错误，清理 console.log，提取硬编码 URL
+
+### 重构
+
+- **WebSocket 层统一**：Chat/Run/Notification 三个客户端迁移至 BaseWsClient，统一认证方式（ws-token），重命名 SSE 时代标识符，移除冗余重连常量
+- **前端组件提取与统一**：创建 ConfirmDialog 和 UnifiedDialog（迁移 6 个对话框），提取 InlineRenameInput、SidebarContextMenu、useInlineRename、useDropZone 等共享组件
+- 引入 AgentListContext 消除 FolderItem 属性穿透（27→10 props）
+- 统一前端设计令牌：替换硬编码颜色、字号、圆角为 CSS 变量和 Tailwind 命名令牌
+- **沙箱架构重构**：RAII 句柄管理、适配器 API 上传、安全加固
+- **后端国际化**：提取邮件模板至 Jinja2、外置 LLM 提示词为 Markdown、结构化错误码支持 i18n
+- 移除硬编码默认模型，改为要求显式配置
+- 后端注释与字符串标准化为英文，清理死代码、补充 docstring
+- 前端类型安全提升：替换 `any` 为 `Record<string, unknown>` 和判别联合类型
+- 修正目录命名（midware→middleware、model/models→model/wrappers），合并重复目录
+- 移除聊天页模型选择器（保留 Copilot）
+- 精简 icons.tsx 未使用 SVG 图标（4091→69 行）
+- i18n：移除 defaultValue/fallback 模式，补充缺失翻译键
+- 后端错误处理改进：HTTPException→AppException、新增 5 个枚举替代魔法字符串、迁移 datetime.utcnow()
+
+### 无障碍
+
+- 为 20+ 组件的纯图标按钮添加 aria-label 属性（分两批完成）
+
+### 样式
+
+- 更新侧边栏链接排版、间距和图标尺寸，改善视觉层次
+- 移除个人资料页面设置布局中的冗余空白
+
+### CI/CD
+
+- 新增 Docker Hub 双推送支持（ghcr.io + docker.io）
+
+### 其他
+
+- 移除未使用的依赖（axios、@remixicon/react）
+- 移除 graph_tests 功能（待重新设计）
+- 清理旧版 Copilot 基础设施（Redis、WS handler、copilot_chats 表及 Alembic 迁移）
+- 移除 converted_skills.json 文件
+
+---
+
 ## v0.2.0 — 2026-03-31
 
 ### Model Settings — Master-Detail Redesign
