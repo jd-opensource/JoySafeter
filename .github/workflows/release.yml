@@ -75,18 +75,19 @@ jobs:
           - name: joysafeter-backend
             context: ./backend
             dockerfile: ./deploy/docker/backend.Dockerfile
+            push_dockerhub: true
           - name: joysafeter-frontend
             context: ./frontend
             dockerfile: ./deploy/docker/frontend.Dockerfile
-          - name: joysafeter-mcp
-            context: ./backend
-            dockerfile: ./deploy/docker/mcp.Dockerfile
+            push_dockerhub: true
           - name: joysafeter-openclaw
             context: ./deploy/openclaw
             dockerfile: ./deploy/openclaw/Dockerfile
+            push_dockerhub: false
           - name: joysafeter-sandbox
             context: ./deploy/docker
             dockerfile: ./deploy/docker/sandbox.Dockerfile
+            push_dockerhub: true
 
     steps:
       - name: Checkout code
@@ -99,6 +100,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker Hub
+        if: matrix.image.push_dockerhub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -111,6 +113,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Compute image tags
+        id: tags
+        run: |
+          GHCR_TAGS="ghcr.io/jd-opensource/${{ matrix.image.name }}:${{ needs.create-release.outputs.tag }},ghcr.io/jd-opensource/${{ matrix.image.name }}:${{ needs.create-release.outputs.version }},ghcr.io/jd-opensource/${{ matrix.image.name }}:latest"
+          if [ "${{ matrix.image.push_dockerhub }}" = "true" ]; then
+            DOCKER_TAGS="docker.io/jdopensource/${{ matrix.image.name }}:${{ needs.create-release.outputs.tag }},docker.io/jdopensource/${{ matrix.image.name }}:${{ needs.create-release.outputs.version }},docker.io/jdopensource/${{ matrix.image.name }}:latest"
+            echo "tags=${DOCKER_TAGS},${GHCR_TAGS}" >> $GITHUB_OUTPUT
+          else
+            echo "tags=${GHCR_TAGS}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -118,13 +131,7 @@ jobs:
           file: ${{ matrix.image.dockerfile }}
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            docker.io/jdopensource/${{ matrix.image.name }}:${{ needs.create-release.outputs.tag }}
-            docker.io/jdopensource/${{ matrix.image.name }}:${{ needs.create-release.outputs.version }}
-            docker.io/jdopensource/${{ matrix.image.name }}:latest
-            ghcr.io/jd-opensource/${{ matrix.image.name }}:${{ needs.create-release.outputs.tag }}
-            ghcr.io/jd-opensource/${{ matrix.image.name }}:${{ needs.create-release.outputs.version }}
-            ghcr.io/jd-opensource/${{ matrix.image.name }}:latest
+          tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
