@@ -7,23 +7,14 @@ import type { ImperativePanelHandle } from 'react-resizable-panels'
 
 import { Button } from '@/components/ui/button'
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useDeployedGraphs, useWorkspaces } from '@/hooks/queries'
-import { useModelSelector } from '@/hooks/use-model-selector'
 import { useTranslation } from '@/lib/i18n'
 import { conversationService } from '@/services/conversationService'
 
 import { useChatState, useChatStream } from './ChatProvider'
 import ChatHome from './components/ChatHome'
 import ChatSidebar from './components/ChatSidebar'
-import { ModelNoticeDialog } from './components/ModelNoticeDialog'
 import { getModeConfig } from './config/modeConfig'
 import { ConversationPanel } from './conversation'
 import { usePreviewTrigger } from './hooks/usePreviewTrigger'
@@ -44,7 +35,6 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
   // Data fetching
   const { data: deployedAgents = [] } = useDeployedGraphs()
   const { data: workspacesData } = useWorkspaces()
-  const { modelOptions, selectedModel, setSelectedModel } = useModelSelector()
 
   usePreviewTrigger(state, dispatch)
 
@@ -246,7 +236,6 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
           input: {
             message: text,
             ...(inputFiles.length > 0 ? { files: inputFiles } : {}),
-            ...(selectedModel ? { model: selectedModel } : {}),
           },
           threadId: messageOpts.threadId,
           graphId: messageOpts.graphId,
@@ -257,7 +246,7 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
         console.error('Failed to send chat message:', error)
       }
     },
-    [dispatch, stream, state.threadId, state.mode, workspacesData, deployedAgents, t, selectedModel],
+    [dispatch, stream, state.threadId, state.mode, workspacesData, deployedAgents, t],
   )
 
   const handleStop = useCallback(() => {
@@ -308,23 +297,6 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
           <span className="truncate text-sm font-medium text-[var(--text-primary)]">
             {t(headerTitle)}
           </span>
-          {modelOptions.length > 0 && (
-            <Select
-              value={selectedModel || ''}
-              onValueChange={(val) => setSelectedModel(val || undefined)}
-            >
-              <SelectTrigger className="h-8 w-[180px] text-xs">
-                <SelectValue placeholder={t('chat.selectModel', { defaultValue: 'Select model' })} />
-              </SelectTrigger>
-              <SelectContent>
-                {modelOptions.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
-                    {m.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
         </div>
         {state.threadId && hasFiles && (
           <Tooltip>
@@ -411,8 +383,6 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
           </>
         )}
       </ResizablePanelGroup>
-
-      <ModelNoticeDialog />
     </div>
   )
 }

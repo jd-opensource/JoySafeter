@@ -28,7 +28,6 @@ export interface ChatState {
   ui: {
     sidebarVisible: boolean
     selectedTool: ToolCall | null
-    showNoDefaultModelNotice: boolean
   }
   mode: {
     currentMode: string | undefined
@@ -59,7 +58,6 @@ export const initialChatState: ChatState = {
   ui: {
     sidebarVisible: false,
     selectedTool: null,
-    showNoDefaultModelNotice: false,
   },
   mode: {
     currentMode: undefined,
@@ -100,8 +98,6 @@ export type ChatAction =
   | { type: 'SHOW_PREVIEW' }
   | { type: 'HIDE_PREVIEW' }
   | { type: 'SELECT_TOOL'; tool: ToolCall | null }
-  | { type: 'DISMISS_MODEL_NOTICE' }
-  | { type: 'SHOW_MODEL_NOTICE' }
   // Mode
   | { type: 'SET_MODE'; mode: string; graphId: string | null }
   | { type: 'SET_APK_PROMPT_SHOWN' }
@@ -309,18 +305,6 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         ui: { ...state.ui, selectedTool: action.tool },
-      }
-
-    case 'DISMISS_MODEL_NOTICE':
-      return {
-        ...state,
-        ui: { ...state.ui, showNoDefaultModelNotice: false },
-      }
-
-    case 'SHOW_MODEL_NOTICE':
-      return {
-        ...state,
-        ui: { ...state.ui, showNoDefaultModelNotice: true },
       }
 
     case 'SET_MODE':
