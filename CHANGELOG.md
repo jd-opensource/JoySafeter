@@ -6,6 +6,69 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v0.3.1 — 2026-04-08
+
+### 新功能
+
+- Chat 与 Copilot 全面迁入 Run Center 架构，支持运行详情查看、会话恢复与事件回放
+- 解锁深色模式，新增偏好设置面板并重新设计个人资料页面
+- WebSocket 层统一重构：引入 BaseWsClient 基类，三端 WS 客户端统一生命周期与认证方式
+- 新增 trace_id 全链路追踪传播
+- 添加 Ollama 本地模型供应商一键集成
+- 更新 OpenAI Compatible 供应商为官方标准模型列表
+- 新增图模板自动应用功能（新建或空白图时）
+- 技能协作者标签页展示用户名、邮箱及角色
+- 增强快速启动脚本，支持交互式部署模式选择
+- 新增 Artifacts 开关标签的中英文本地化
+
+### 问题修复
+
+- 修复默认主题为 system，确保 API 响应优先
+- 修复侧边栏用户下拉菜单重复分隔线
+- 修复通知 WebSocket Hook 的监听器泄漏问题
+- 修复沙盒用户列展示 "Unknown" 的 schema 不匹配问题
+- 修复非 Docker 环境（Colima 兼容）下的优雅降级
+- 修复工作空间权限审计——关闭认证缺口，修正角色映射
+- 修复多处 Alembic 迁移循环（重复 revision ID）
+- 修复 Edge Runtime 下 crypto.randomUUID 不可用问题
+- 完善 quick-start.sh 远程部署支持及后端远程 DB 端口识别
+- 优化模型未配置时的错误提示，明确引导用户操作路径
+- 将 OpenAI Compatible 供应商显示名称简化为 OpenAI
+- 修复调试 trace 路由至 Logger 并在 UI 显示 missing-graph 错误
+- 统一后端日志为 loguru
+- 修正 buildin→builtin 拼写，提取硬编码 URL，统一 useToast 导入
+
+### 重构
+
+- 前端设计令牌统一——硬编码颜色、字号、圆角替换为 CSS 变量与 Tailwind token
+- 统一对话框模式——新建 ConfirmDialog，6 个对话框迁移至 UnifiedDialog
+- 引入 AgentListContext 消除 FolderItem 层层透传（27→10 props）
+- 提取共享组件：InlineRenameInput、SidebarContextMenu、useInlineRename、useDropZone
+- 移除 129 个未使用 SVG 图标（icons.tsx 4091→69 行）
+- 移除聊天页模型选择器（保留 Copilot）
+- 前端类型安全增强：`any`→`Record<string, unknown>`，引入 discriminated union
+- i18n 全面推进：移除 defaultValue/fallback 模式、后端错误消息国际化、邮件模板迁移至 Jinja2、LLM 提示词外置为 Markdown
+- 结构化错误码支持 i18n
+- 移除硬编码默认模型，要求显式配置
+- 沙盒系统重构——RAII 句柄、适配器 API 上传、安全加固
+- 清理旧 Copilot 基础设施（Redis、WS handler、copilot_chats 表）
+- 后端注释标准化及前后端注释/字符串统一为英文
+- 后端目录命名修正与项目结构清理
+
+### CI/CD
+
+- Docker 构建流程优化：限制为仅构建，仅在 release 时推送镜像
+- 新增 Docker Hub 双推送支持（ghcr.io + docker.io）
+- 移除 MCP 镜像并跳过 openclaw 的 DockerHub 推送
+
+### 其他
+
+- 移除未使用依赖（axios、@remixicon/react）
+- 移除 graph_tests 功能（待重新设计）
+- 版本管理脚本与发布流程对齐
+
+---
+
 ## v0.3.0 — 2026-04-08
 
 ### 新功能
