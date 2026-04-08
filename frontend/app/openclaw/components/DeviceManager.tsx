@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { apiGet, apiPost } from '@/lib/api-client'
+import { useTranslation } from '@/lib/i18n'
 
 interface Device {
   id: string
@@ -32,6 +33,7 @@ interface DeviceResponse {
 }
 
 export function DeviceManager() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
 
   const { data, isLoading } = useQuery<DeviceResponse>({
@@ -70,7 +72,7 @@ export function DeviceManager() {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
-        <CardTitle className="text-sm font-medium">Device Pairing</CardTitle>
+        <CardTitle className="text-sm font-medium">{t('openclaw.devicePairing')}</CardTitle>
         {devices.length > 0 && (
           <Button
             variant="outline"
@@ -83,7 +85,7 @@ export function DeviceManager() {
             ) : (
               <CheckCheck className="mr-1 h-3.5 w-3.5" />
             )}
-            Approve All
+            {t('openclaw.approveAll')}
           </Button>
         )}
       </CardHeader>
@@ -91,12 +93,12 @@ export function DeviceManager() {
         {isLoading ? (
           <div className="flex items-center justify-center py-8 text-sm text-[var(--text-secondary)]">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Loading devices...
+            {t('openclaw.loadingDevices')}
           </div>
         ) : devices.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-8">
             <Smartphone className="mb-2 h-6 w-6 text-[var(--text-tertiary)]" />
-            <p className="text-xs text-[var(--text-tertiary)]">No paired devices</p>
+            <p className="text-xs text-[var(--text-tertiary)]">{t('openclaw.noPairedDevices')}</p>
           </div>
         ) : (
           <ul className="divide-y divide-[var(--border)]">
@@ -126,7 +128,7 @@ export function DeviceManager() {
                       disabled={approveMutation.isPending}
                     >
                       <Check className="mr-0.5 h-3 w-3" />
-                      Approve
+                      {t('openclaw.approveAccess')}
                     </Button>
                   )}
                 </div>

@@ -334,36 +334,30 @@ export function OpenClawManagement() {
                     ) : (
                       <Trash2 className="mr-1.5 h-4 w-4" />
                     )}
-                    <span className="truncate">{t('common.delete', 'Delete')}</span>
+                    <span className="truncate">{t('common.delete')}</span>
                   </Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
                     <AlertDialogTitle>
-                      {t('openclaw.confirmDeleteInstance', 'Delete Instance?')}
+                      {t('openclaw.confirmDeleteInstance')}
                     </AlertDialogTitle>
                     <AlertDialogDescription>
-                      {t(
-                        'openclaw.confirmDeleteInstanceDesc',
-                        'Are you sure you want to delete this OpenClaw instance?',
-                      )}
+                      {t('openclaw.confirmDeleteInstanceDesc')}
                     </AlertDialogDescription>
                     <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/30 dark:bg-amber-900/10">
                       <p className="text-sm font-medium text-amber-800 dark:text-amber-500">
-                        {t(
-                          'openclaw.deleteInstanceWarning',
-                          'Warning: Deleting the instance will clear all of its execution history.',
-                        )}
+                        {t('openclaw.deleteInstanceWarning')}
                       </p>
                     </div>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel>{t('common.cancel', 'Cancel')}</AlertDialogCancel>
+                    <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
                     <AlertDialogAction
                       onClick={() => deleteMutation.mutate()}
                       className="border-0 bg-red-600 text-white hover:bg-red-700"
                     >
-                      {t('common.confirm', 'Confirm')}
+                      {t('common.confirm')}
                     </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
@@ -457,10 +451,7 @@ export function OpenClawManagement() {
             <div className="flex flex-col justify-between gap-3 p-4 sm:flex-row sm:items-center">
               <div className="flex min-w-0 flex-col">
                 <span className="text-sm font-medium text-[var(--text-primary)]">
-                  {t(
-                    'openclaw.syncSkillsDesc',
-                    'Manually synchronize your configured skills to the OpenClaw container.',
-                  )}
+                  {t('openclaw.syncSkillsDesc')}
                 </span>
               </div>
               <Button

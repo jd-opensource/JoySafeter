@@ -71,25 +71,25 @@ interface ChatTurnProjection {
   node_execution_log?: Array<{ status: string; node_name: string }>
 }
 
-function ChatTurnOverview({ projection: p, t }: { projection: Record<string, unknown>; t: (key: string, fallback: string) => string }) {
+function ChatTurnOverview({ projection: p, t }: { projection: Record<string, unknown>; t: (key: string) => string }) {
   const projection = p as unknown as ChatTurnProjection
   return (
     <div className="space-y-4">
       {projection.user_message && (
         <Card className="p-4">
-          <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('runs.chat.userMessage', 'User Message')}</h4>
+          <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('runs.chat.userMessage')}</h4>
           <p className="text-sm whitespace-pre-wrap">{projection.user_message.content}</p>
         </Card>
       )}
 
       {projection.assistant_message && (
         <Card className="p-4">
-          <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('runs.chat.assistantResponse', 'Assistant Response')}</h4>
+          <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('runs.chat.assistantResponse')}</h4>
           <p className="text-sm whitespace-pre-wrap">{projection.assistant_message.content}</p>
 
           {projection.assistant_message.tool_calls && projection.assistant_message.tool_calls.length > 0 && (
             <div className="mt-3 space-y-2">
-              <h5 className="text-xs font-medium text-muted-foreground">{t('runs.chat.toolCalls', 'Tool Calls')}</h5>
+              <h5 className="text-xs font-medium text-muted-foreground">{t('runs.chat.toolCalls')}</h5>
               {projection.assistant_message.tool_calls.map((tool, i) => (
                 <details key={tool.id || i} className="text-xs border rounded p-2">
                   <summary className="cursor-pointer font-medium">
@@ -114,7 +114,7 @@ function ChatTurnOverview({ projection: p, t }: { projection: Record<string, unk
 
       {projection.file_tree && Object.keys(projection.file_tree).length > 0 && (
         <Card className="p-4">
-          <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('runs.chat.files', 'Files')}</h4>
+          <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('runs.chat.files')}</h4>
           <ul className="text-xs space-y-1">
             {Object.entries(projection.file_tree).map(([path, info]) => (
               <li key={path} className="flex items-center gap-2">
@@ -128,7 +128,7 @@ function ChatTurnOverview({ projection: p, t }: { projection: Record<string, unk
 
       {projection.preview_data && (
         <Card className="p-4">
-          <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('runs.chat.preview', 'Preview')}</h4>
+          <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('runs.chat.preview')}</h4>
           <pre className="text-xs overflow-x-auto">
             {JSON.stringify(projection.preview_data, null, 2)}
           </pre>
@@ -137,7 +137,7 @@ function ChatTurnOverview({ projection: p, t }: { projection: Record<string, unk
 
       {projection.node_execution_log && projection.node_execution_log.length > 0 && (
         <Card className="p-4">
-          <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('runs.chat.executionLog', 'Execution Log')}</h4>
+          <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('runs.chat.executionLog')}</h4>
           <ul className="text-xs space-y-1">
             {projection.node_execution_log.map((entry, i) => (
               <li key={i} className="flex items-center gap-2">
@@ -154,14 +154,14 @@ function ChatTurnOverview({ projection: p, t }: { projection: Record<string, unk
   )
 }
 
-function CopilotTurnOverview({ projection, t }: { projection: CopilotTurnProjection; t: (key: string, fallback: string) => string }) {
+function CopilotTurnOverview({ projection, t }: { projection: CopilotTurnProjection; t: (key: string) => string }) {
 
   return (
     <div className="space-y-4">
       {/* Stage indicator */}
       {projection.stage && (
         <div className="rounded-md border p-3">
-          <p className="text-sm font-medium">{t('runs.stage', 'Stage')}</p>
+          <p className="text-sm font-medium">{t('runs.stage')}</p>
           <p className="text-sm text-muted-foreground">{projection.stage}</p>
         </div>
       )}
@@ -169,7 +169,7 @@ function CopilotTurnOverview({ projection, t }: { projection: CopilotTurnProject
       {/* Mode */}
       {projection.mode && (
         <div className="rounded-md border p-3">
-          <p className="text-sm font-medium">{t('runs.mode', 'Mode')}</p>
+          <p className="text-sm font-medium">{t('runs.mode')}</p>
           <p className="text-sm text-muted-foreground">{projection.mode}</p>
         </div>
       )}
@@ -177,7 +177,7 @@ function CopilotTurnOverview({ projection, t }: { projection: CopilotTurnProject
       {/* Content */}
       {projection.content && (
         <div className="rounded-md border p-3">
-          <p className="text-sm font-medium">{t('runs.content', 'Content')}</p>
+          <p className="text-sm font-medium">{t('runs.content')}</p>
           <p className="mt-1 whitespace-pre-wrap text-sm">{projection.content}</p>
         </div>
       )}
@@ -186,7 +186,7 @@ function CopilotTurnOverview({ projection, t }: { projection: CopilotTurnProject
       {projection.thought_steps && projection.thought_steps.length > 0 && (
         <details className="rounded-md border p-3">
           <summary className="cursor-pointer text-sm font-medium">
-            {t('runs.thoughtSteps', 'Thought Steps')} ({projection.thought_steps.length})
+            {t('runs.thoughtSteps')} ({projection.thought_steps.length})
           </summary>
           <div className="mt-2 space-y-2">
             {projection.thought_steps.map((step, i) => (
@@ -202,7 +202,7 @@ function CopilotTurnOverview({ projection, t }: { projection: CopilotTurnProject
       {projection.tool_calls && projection.tool_calls.length > 0 && (
         <details className="rounded-md border p-3">
           <summary className="cursor-pointer text-sm font-medium">
-            {t('runs.toolCalls', 'Tool Calls')} ({projection.tool_calls.length})
+            {t('runs.toolCalls')} ({projection.tool_calls.length})
           </summary>
           <div className="mt-2 space-y-2">
             {projection.tool_calls.map((tc, i) => (
@@ -222,7 +222,7 @@ function CopilotTurnOverview({ projection, t }: { projection: CopilotTurnProject
       {/* Result */}
       {projection.result_message && (
         <div className="rounded-md border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
-          <p className="text-sm font-medium">{t('runs.result', 'Result')}</p>
+          <p className="text-sm font-medium">{t('runs.result')}</p>
           <p className="mt-1 whitespace-pre-wrap text-sm">{projection.result_message}</p>
           {projection.result_actions && projection.result_actions.length > 0 && (
             <div className="mt-2">
@@ -242,7 +242,7 @@ function CopilotTurnOverview({ projection, t }: { projection: CopilotTurnProject
       {/* Error */}
       {projection.error && (
         <div className="rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950">
-          <p className="text-sm font-medium text-red-700 dark:text-red-400">{t('runs.error', 'Error')}</p>
+          <p className="text-sm font-medium text-red-700 dark:text-red-400">{t('runs.error')}</p>
           <p className="mt-1 text-sm text-red-600 dark:text-red-300">{projection.error}</p>
         </div>
       )}
@@ -399,13 +399,13 @@ export default function RunDetailPage() {
           <div>
             <div className="flex items-center gap-2">
               <Button asChild variant="ghost" size="sm" className="px-2">
-                <Link href="/runs" aria-label={t('runs.backToList', 'Back to runs')}>
+                <Link href="/runs" aria-label={t('runs.backToList')}>
                   <ArrowLeft className="h-4 w-4" />
                 </Link>
               </Button>
               <Activity className="h-5 w-5 text-[var(--skill-brand-600)]" />
               <h1 className="text-lg font-semibold text-[var(--text-primary)]">
-                {run?.title || t('runs.detailTitle', 'Run Details')}
+                {run?.title || t('runs.detailTitle')}
               </h1>
             </div>
             <p className="mt-1 text-sm text-[var(--text-muted)]">
@@ -417,7 +417,7 @@ export default function RunDetailPage() {
             <div className="flex items-center gap-2">
               {primaryHref && (
                 <Button asChild variant="outline" size="sm">
-                  <Link href={primaryHref}>{t('runs.open', 'Open')}</Link>
+                  <Link href={primaryHref}>{t('runs.open')}</Link>
                 </Button>
               )}
               {isActive && (
@@ -433,7 +433,7 @@ export default function RunDetailPage() {
                   ) : (
                     <Square className="h-3.5 w-3.5" />
                   )}
-                  {t('runs.cancel', 'Cancel')}
+                  {t('runs.cancel')}
                 </Button>
               )}
             </div>
@@ -445,7 +445,7 @@ export default function RunDetailPage() {
         {isLoading ? (
           <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
             <Loader2 className="h-4 w-4 animate-spin" />
-            {t('runs.loading', 'Loading runs...')}
+            {t('runs.loading')}
           </div>
         ) : loadError ? (
           <Card className="border-red-200 bg-red-50 p-6 text-sm text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-400">
@@ -453,7 +453,7 @@ export default function RunDetailPage() {
           </Card>
         ) : !run ? (
           <Card className="border-dashed border-[var(--border)] bg-[var(--surface-1)] p-8 text-center text-sm text-[var(--text-muted)]">
-            {t('runs.emptyDescription', 'Long-running agent tasks will appear here once they start.')}
+            {t('runs.emptyDescription')}
           </Card>
         ) : (
           <div className="space-y-6">
@@ -462,7 +462,7 @@ export default function RunDetailPage() {
                 <div className="mb-2 flex items-center gap-2">
                   <Bot className="h-4 w-4 text-[var(--skill-brand-600)]" />
                   <span className="text-sm font-medium text-[var(--text-secondary)]">
-                    {t('runs.statusLabel', 'Status')}
+                    {t('runs.statusLabel')}
                   </span>
                 </div>
                 <Badge
@@ -477,7 +477,7 @@ export default function RunDetailPage() {
                 <div className="mb-2 flex items-center gap-2">
                   <Clock3 className="h-4 w-4 text-[var(--skill-brand-600)]" />
                   <span className="text-sm font-medium text-[var(--text-secondary)]">
-                    {t('runs.startedAt', 'Started')}
+                    {t('runs.startedAt')}
                   </span>
                 </div>
                 <div className="text-sm text-[var(--text-primary)]">{formatDateTime(run.started_at)}</div>
@@ -487,7 +487,7 @@ export default function RunDetailPage() {
                 <div className="mb-2 flex items-center gap-2">
                   <Sparkles className="h-4 w-4 text-[var(--skill-brand-600)]" />
                   <span className="text-sm font-medium text-[var(--text-secondary)]">
-                    {t('runs.lastSeq', 'Last Seq')}
+                    {t('runs.lastSeq')}
                   </span>
                 </div>
                 <div className="text-sm text-[var(--text-primary)]">{run.last_seq}</div>
@@ -497,7 +497,7 @@ export default function RunDetailPage() {
                 <div className="mb-2 flex items-center gap-2">
                   <Activity className="h-4 w-4 text-[var(--skill-brand-600)]" />
                   <span className="text-sm font-medium text-[var(--text-secondary)]">
-                    {t('runs.typeLabel', 'Type')}
+                    {t('runs.typeLabel')}
                   </span>
                 </div>
                 <div className="text-sm text-[var(--text-primary)]">{run.run_type}</div>
@@ -506,9 +506,9 @@ export default function RunDetailPage() {
 
             <Tabs defaultValue="events" className="flex flex-col gap-4">
               <TabsList className="w-fit">
-                <TabsTrigger value="events">{t('runs.eventsTab', 'Events')}</TabsTrigger>
-                <TabsTrigger value="snapshot">{t('runs.snapshotTab', 'Snapshot')}</TabsTrigger>
-                <TabsTrigger value="overview">{t('runs.overviewTab', 'Overview')}</TabsTrigger>
+                <TabsTrigger value="events">{t('runs.eventsTab')}</TabsTrigger>
+                <TabsTrigger value="snapshot">{t('runs.snapshotTab')}</TabsTrigger>
+                <TabsTrigger value="overview">{t('runs.overviewTab')}</TabsTrigger>
               </TabsList>
 
               <TabsContent value="events" className="mt-0">
@@ -517,7 +517,7 @@ export default function RunDetailPage() {
                     <div className="space-y-3 p-4">
                       {events.length === 0 ? (
                         <div className="rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-6 text-sm text-[var(--text-muted)]">
-                          {t('runs.noEvents', 'No events recorded yet.')}
+                          {t('runs.noEvents')}
                         </div>
                       ) : (
                         events.map((event) => (
@@ -564,19 +564,19 @@ export default function RunDetailPage() {
                         <dd className="mt-1 break-all text-sm text-[var(--text-primary)]">{run.run_id}</dd>
                       </div>
                       <div>
-                        <dt className="text-xs text-[var(--text-muted)]">{t('runs.typeLabel', 'Type')}</dt>
+                        <dt className="text-xs text-[var(--text-muted)]">{t('runs.typeLabel')}</dt>
                         <dd className="mt-1 text-sm text-[var(--text-primary)]">{run.run_type}</dd>
                       </div>
                       <div>
-                        <dt className="text-xs text-[var(--text-muted)]">{t('runs.startedAt', 'Started')}</dt>
+                        <dt className="text-xs text-[var(--text-muted)]">{t('runs.startedAt')}</dt>
                         <dd className="mt-1 text-sm text-[var(--text-primary)]">{formatDateTime(run.started_at)}</dd>
                       </div>
                       <div>
-                        <dt className="text-xs text-[var(--text-muted)]">{t('runs.finishedAt', 'Finished')}</dt>
+                        <dt className="text-xs text-[var(--text-muted)]">{t('runs.finishedAt')}</dt>
                         <dd className="mt-1 text-sm text-[var(--text-primary)]">{formatDateTime(run.finished_at)}</dd>
                       </div>
                       <div>
-                        <dt className="text-xs text-[var(--text-muted)]">{t('runs.lastHeartbeat', 'Heartbeat')}</dt>
+                        <dt className="text-xs text-[var(--text-muted)]">{t('runs.lastHeartbeat')}</dt>
                         <dd className="mt-1 text-sm text-[var(--text-primary)]">
                           {formatDateTime(run.last_heartbeat_at)}
                         </dd>
@@ -590,7 +590,7 @@ export default function RunDetailPage() {
                         <dd className="mt-1 break-all text-sm text-[var(--text-primary)]">{run.graph_id || '-'}</dd>
                       </div>
                       <div className="lg:col-span-2">
-                        <dt className="text-xs text-[var(--text-muted)]">{t('runs.errorLabel', 'Error')}</dt>
+                        <dt className="text-xs text-[var(--text-muted)]">{t('runs.errorLabel')}</dt>
                         <dd className="mt-1 text-sm text-[var(--text-primary)]">{run.error_message || '-'}</dd>
                       </div>
                     </dl>

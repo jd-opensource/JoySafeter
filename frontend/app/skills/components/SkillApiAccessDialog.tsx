@@ -50,12 +50,10 @@ export function SkillApiAccessDialog({
             </div>
             <div>
               <DialogTitle className="text-xl">
-                {t('skills.apiAccess', { defaultValue: 'API Access' })}
+                {t('skills.apiAccess')}
               </DialogTitle>
               <DialogDescription>
-                {t('skills.apiAccessDescription', {
-                  defaultValue: 'Access and execute this skill remotely via REST API.',
-                })}
+                {t('skills.apiAccessDescription')}
               </DialogDescription>
             </div>
           </div>
@@ -66,23 +64,21 @@ export function SkillApiAccessDialog({
             <TabsList className="mb-3 grid w-[400px] grid-cols-2">
               <TabsTrigger value="integration">
                 <Terminal className="mr-2 h-4 w-4" />
-                {t('skills.integrationGuide', { defaultValue: 'Integration Guide' })}
+                {t('skills.integrationGuide')}
               </TabsTrigger>
               <TabsTrigger value="tokens">
                 <Key className="mr-2 h-4 w-4" />
-                {t('skills.apiTokens', { defaultValue: 'API Tokens' })}
+                {t('skills.apiTokens')}
               </TabsTrigger>
             </TabsList>
 
             <TabsContent value="integration" className="space-y-6">
               {/* Endpoint Information */}
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Base URL</h3>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t('skills.baseUrl')}</h3>
                 <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-2.5">
                   <div className="flex flex-col gap-1 overflow-hidden">
-                    <span className="text-2xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
-                      ENDPOINT
-                    </span>
+                    <span className="text-2xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">{t('skills.endpoint')}</span>
                     <code
                       className="truncate break-all font-mono text-sm text-[var(--text-primary)]"
                       title={apiUrl}
@@ -107,7 +103,7 @@ export function SkillApiAccessDialog({
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent>
-                        {t('common.copy', { defaultValue: 'Copy' })}
+                        {t('common.copy')}
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -116,12 +112,9 @@ export function SkillApiAccessDialog({
 
               {/* Authentication */}
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Authentication</h3>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t('skills.authentication')}</h3>
                 <p className="text-sm text-[var(--text-tertiary)]">
-                  {t('skills.authDescription', {
-                    defaultValue:
-                      'Authenticate your API requests by including your API Token in the Authorization HTTP header as a Bearer token.',
-                  })}
+                  {t('skills.authDescription')}
                 </p>
                 <div className="rounded-lg border border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] p-4">
                   <code className="font-mono text-sm font-semibold text-[var(--skill-brand-700)]">
@@ -132,10 +125,10 @@ export function SkillApiAccessDialog({
 
               {/* Example Request */}
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Example Request</h3>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t('skills.exampleRequest')}</h3>
                 <div className="relative overflow-hidden rounded-lg border border-[var(--border)]">
                   <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-3)] px-4 py-2">
-                    <span className="text-mono text-xs font-semibold text-[var(--text-secondary)]">cURL</span>
+                    <span className="text-mono text-xs font-semibold text-[var(--text-secondary)]">{t('skills.curl')}</span>
                     <TooltipProvider delayDuration={300}>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -153,7 +146,7 @@ export function SkillApiAccessDialog({
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>
-                          {t('common.copyCode', { defaultValue: 'Copy Code' })}
+                          {t('common.copyCode')}
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -169,13 +162,10 @@ export function SkillApiAccessDialog({
               <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 shadow-sm">
                 <div className="mb-4">
                   <h3 className="text-sm font-medium text-[var(--text-primary)]">
-                    {t('skills.skillApiTokens', { defaultValue: 'Skill API Tokens' })}
+                    {t('skills.skillApiTokens')}
                   </h3>
                   <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                    {t('skills.skillApiTokensDescription', {
-                      defaultValue:
-                        'Manage tokens scoped to this skill for programmatic execution.',
-                    })}
+                    {t('skills.skillApiTokensDescription')}
                   </p>
                 </div>
                 <ApiTokensTab skillId={skillId} />

@@ -48,7 +48,7 @@ function RunRow({
               <Bot className="h-4 w-4" />
             </div>
             <span className="truncate text-sm font-semibold text-[var(--text-primary)]">
-              {run.title || t('runs.untitled', 'Untitled Run')}
+              {run.title || t('runs.untitled')}
             </span>
             <Badge
               variant="outline"
@@ -72,7 +72,7 @@ function RunRow({
           <div className="flex flex-wrap items-center gap-4 text-xs text-[var(--text-muted)]">
             <span className="flex items-center gap-1">
               <Clock3 className="h-3.5 w-3.5" />
-              {t('runs.startedAt', 'Started')} {formatRelativeTime(run.started_at, t)}
+              {t('runs.startedAt')} {formatRelativeTime(run.started_at, t)}
             </span>
             <span className="flex items-center gap-1">
               <Sparkles className="h-3.5 w-3.5" />
@@ -81,7 +81,7 @@ function RunRow({
             {run.last_heartbeat_at && (
               <span className="flex items-center gap-1">
                 <Activity className="h-3.5 w-3.5" />
-                {t('runs.lastHeartbeat', 'Heartbeat')} {formatRelativeTime(run.last_heartbeat_at, t)}
+                {t('runs.lastHeartbeat')} {formatRelativeTime(run.last_heartbeat_at, t)}
               </span>
             )}
             {run.error_message && (
@@ -92,11 +92,11 @@ function RunRow({
 
         <div className="flex items-center gap-2">
           <Button asChild variant="outline" size="sm">
-            <Link href={`/runs/${encodeURIComponent(run.run_id)}`}>{t('runs.details', 'Details')}</Link>
+            <Link href={`/runs/${encodeURIComponent(run.run_id)}`}>{t('runs.details')}</Link>
           </Button>
           {resumable && (
             <Button asChild variant="outline" size="sm">
-              <Link href={href}>{t('runs.open', 'Open')}</Link>
+              <Link href={href}>{t('runs.open')}</Link>
             </Button>
           )}
           {isActive && (
@@ -108,7 +108,7 @@ function RunRow({
               className="gap-1.5"
             >
               {isCancelling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
-              {t('runs.cancel', 'Cancel')}
+              {t('runs.cancel')}
             </Button>
           )}
         </div>
@@ -238,11 +238,11 @@ export default function RunsPage() {
             <div className="flex items-center gap-2">
               <Activity className="h-5 w-5 text-[var(--skill-brand-600)]" />
               <h1 className="text-lg font-semibold text-[var(--text-primary)]">
-                {t('runs.title', 'Run Center')}
+                {t('runs.title')}
               </h1>
             </div>
             <p className="mt-1 text-sm text-[var(--text-muted)]">
-              {t('runs.description', 'Track active and recent long-running agent tasks in one place.')}
+              {t('runs.description')}
             </p>
           </div>
 
@@ -252,7 +252,7 @@ export default function RunsPage() {
               <Input
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
-                placeholder={t('runs.searchPlaceholder', 'Search run titles')}
+                placeholder={t('runs.searchPlaceholder')}
                 className="pl-9"
               />
             </div>
@@ -265,7 +265,7 @@ export default function RunsPage() {
               size="sm"
               onClick={() => updateFilter('agent', 'all')}
             >
-              {t('runs.filterAllAgents', 'All Agents')}
+              {t('runs.filterAllAgents')}
             </Button>
             {(agentData?.items || []).map((agent) => (
               <Button
@@ -286,7 +286,7 @@ export default function RunsPage() {
                 size="sm"
                 onClick={() => updateFilter('status', status)}
               >
-                {status === 'all' ? t('runs.filterAll', 'All') : formatRunStatus(status, t)}
+                {status === 'all' ? t('runs.filterAll') : formatRunStatus(status, t)}
               </Button>
             ))}
           </div>
@@ -297,7 +297,7 @@ export default function RunsPage() {
         {isLoading ? (
           <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
             <Loader2 className="h-4 w-4 animate-spin" />
-            {t('runs.loading', 'Loading runs...')}
+            {t('runs.loading')}
           </div>
         ) : runs.length === 0 ? (
           <Card className="border-dashed border-[var(--border)] bg-[var(--surface-1)] p-8 text-center">
@@ -305,10 +305,10 @@ export default function RunsPage() {
               <Activity className="h-5 w-5" />
             </div>
             <h2 className="mt-4 text-sm font-semibold text-[var(--text-primary)]">
-              {t('runs.emptyTitle', 'No runs yet')}
+              {t('runs.emptyTitle')}
             </h2>
             <p className="mt-1 text-sm text-[var(--text-muted)]">
-              {t('runs.emptyDescription', 'Long-running agent tasks will appear here once they start.')}
+              {t('runs.emptyDescription')}
             </p>
           </Card>
         ) : (

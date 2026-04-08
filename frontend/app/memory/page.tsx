@@ -115,7 +115,7 @@ export default function KnowledgePage() {
     if (!formMemory.trim()) {
       toast({
         variant: 'destructive',
-        title: t('memory.memoryRequired', { defaultValue: 'Memory content is required' }),
+        title: t('memory.memoryRequired'),
       })
       return
     }
@@ -128,13 +128,13 @@ export default function KnowledgePage() {
           .map((t) => t.trim())
           .filter(Boolean),
       })
-      toast({ title: t('memory.memoryCreated', { defaultValue: 'Memory created successfully' }) })
+      toast({ title: t('memory.memoryCreated') })
       setIsCreateOpen(false)
       resetForm()
     } catch {
       toast({
         variant: 'destructive',
-        title: t('memory.createFailed', { defaultValue: 'Failed to create memory' }),
+        title: t('memory.createFailed'),
       })
     }
   }
@@ -153,13 +153,13 @@ export default function KnowledgePage() {
             .filter(Boolean),
         },
       })
-      toast({ title: t('memory.memoryUpdated', { defaultValue: 'Memory updated successfully' }) })
+      toast({ title: t('memory.memoryUpdated') })
       setEditingMemory(null)
       resetForm()
     } catch {
       toast({
         variant: 'destructive',
-        title: t('memory.updateFailed', { defaultValue: 'Failed to update memory' }),
+        title: t('memory.updateFailed'),
       })
     }
   }
@@ -168,12 +168,12 @@ export default function KnowledgePage() {
     if (!deleteConfirmMemory) return
     try {
       await deleteMutation.mutateAsync(deleteConfirmMemory.memory_id)
-      toast({ title: t('memory.memoryDeleted', { defaultValue: 'Memory deleted successfully' }) })
+      toast({ title: t('memory.memoryDeleted') })
       setDeleteConfirmMemory(null)
     } catch {
       toast({
         variant: 'destructive',
-        title: t('memory.deleteFailed', { defaultValue: 'Failed to delete memory' }),
+        title: t('memory.deleteFailed'),
       })
     }
   }
@@ -182,13 +182,13 @@ export default function KnowledgePage() {
     try {
       const result = await optimizeMutation.mutateAsync(true)
       toast({
-        title: t('memory.optimized', { defaultValue: 'Memories optimized' }),
+        title: t('memory.optimized'),
         description: `${result.memories_before} → ${result.memories_after} (${result.reduction_percentage.toFixed(1)}% reduction)`,
       })
     } catch {
       toast({
         variant: 'destructive',
-        title: t('memory.optimizeFailed', { defaultValue: 'Failed to optimize memories' }),
+        title: t('memory.optimizeFailed'),
       })
     }
   }
@@ -230,12 +230,10 @@ export default function KnowledgePage() {
             </div>
             <div>
               <h2 className="text-lg font-bold text-[var(--text-primary)]">
-                {t('memory.title', { defaultValue: 'Knowledge & Memory' })}
+                {t('memory.title')}
               </h2>
               <p className="mt-1 text-xs text-[var(--text-muted)]">
-                {t('memory.subtitle', {
-                  defaultValue: 'Long-term memories stored across conversations',
-                })}
+                {t('memory.subtitle')}
               </p>
             </div>
           </div>
@@ -252,7 +250,7 @@ export default function KnowledgePage() {
               ) : (
                 <Zap className="h-3.5 w-3.5" />
               )}
-              {t('memory.optimize', { defaultValue: 'Optimize' })}
+              {t('memory.optimize')}
             </Button>
             <Button
               size="sm"
@@ -260,7 +258,7 @@ export default function KnowledgePage() {
               className="h-9 gap-1.5 bg-[var(--skill-brand-600)] text-xs shadow-lg shadow-emerald-100 hover:bg-[var(--skill-brand-700)]"
             >
               <Plus className="h-3.5 w-3.5" />
-              {t('memory.addMemory', { defaultValue: 'Add Memory' })}
+              {t('memory.addMemory')}
             </Button>
           </div>
         </div>
@@ -273,7 +271,7 @@ export default function KnowledgePage() {
               setSearchQuery(v)
               setPage(1)
             }}
-            placeholder={t('memory.searchPlaceholder', { defaultValue: 'Search memories...' })}
+            placeholder={t('memory.searchPlaceholder')}
             className="h-9 max-w-md flex-1"
           />
           <Select
@@ -284,11 +282,11 @@ export default function KnowledgePage() {
             }}
           >
             <SelectTrigger className="h-9 w-40 text-sm">
-              <SelectValue placeholder={t('memory.allTopics', { defaultValue: 'All Topics' })} />
+              <SelectValue placeholder={t('memory.allTopics')} />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">
-                {t('memory.allTopics', { defaultValue: 'All Topics' })}
+                {t('memory.allTopics')}
               </SelectItem>
               {topics.map((topic) => (
                 <SelectItem key={topic} value={topic}>
@@ -304,8 +302,8 @@ export default function KnowledgePage() {
             className="h-9 text-xs"
           >
             {sortOrder === 'desc'
-              ? t('memory.newest', { defaultValue: 'Newest' })
-              : t('memory.oldest', { defaultValue: 'Oldest' })}
+              ? t('memory.newest')
+              : t('memory.oldest')}
           </Button>
         </div>
       </div>
@@ -319,7 +317,7 @@ export default function KnowledgePage() {
         ) : error ? (
           <div className="flex flex-col items-center justify-center py-12 text-[var(--text-tertiary)]">
             <AlertCircle className="mb-3 h-10 w-10 text-red-400" />
-            <p>{t('memory.loadError', { defaultValue: 'Failed to load memories' })}</p>
+            <p>{t('memory.loadError')}</p>
           </div>
         ) : memories.length === 0 ? (
           // Empty state - distinguish between filtered empty and truly empty
@@ -339,17 +337,13 @@ export default function KnowledgePage() {
                 <div>
                   <h4 className="text-sm font-medium text-[var(--text-primary)]">
                     {hasFilters
-                      ? t('memory.noMemoriesFiltered', { defaultValue: 'No memories found' })
-                      : t('memory.noMemories', { defaultValue: 'No memories yet' })}
+                      ? t('memory.noMemoriesFiltered')
+                      : t('memory.noMemories')}
                   </h4>
                   <p className="mt-1 max-w-md text-xs text-[var(--text-tertiary)]">
                     {hasFilters
-                      ? t('memory.noMemoriesFilteredDescription', {
-                          defaultValue: 'Try adjusting your search or filter criteria',
-                        })
-                      : t('memory.noMemoriesDescription', {
-                          defaultValue: 'Click to add your first memory',
-                        })}
+                      ? t('memory.noMemoriesFilteredDescription')
+                      : t('memory.noMemoriesDescription')}
                   </p>
                 </div>
               </div>
@@ -403,7 +397,7 @@ export default function KnowledgePage() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 text-[var(--text-muted)] opacity-0 transition-opacity hover:text-[var(--text-primary)] group-hover:opacity-100"
-                      aria-label={t('memory.moreOptions', { defaultValue: 'More options' })}
+                      aria-label={t('memory.moreOptions')}
                     >
                       <MoreHorizontal size={16} />
                     </Button>
@@ -411,7 +405,7 @@ export default function KnowledgePage() {
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onClick={() => openEdit(memory)}>
                       <Edit3 size={14} className="mr-2" />
-                      {t('memory.edit', { defaultValue: 'Edit' })}
+                      {t('memory.edit')}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
@@ -419,7 +413,7 @@ export default function KnowledgePage() {
                       className="text-red-600 focus:text-red-600"
                     >
                       <Trash2 size={14} className="mr-2" />
-                      {t('memory.delete', { defaultValue: 'Delete' })}
+                      {t('memory.delete')}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -448,46 +442,40 @@ export default function KnowledgePage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Brain className="h-5 w-5 text-[var(--skill-brand-600)]" />
-              {t('memory.createMemory', { defaultValue: 'Create Memory' })}
+              {t('memory.createMemory')}
             </DialogTitle>
             <DialogDescription>
-              {t('memory.createMemoryDescription', {
-                defaultValue: 'Add a new memory that will be available to your agents.',
-              })}
+              {t('memory.createMemoryDescription')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label className="text-xs font-medium">
-                {t('memory.memoryContent', { defaultValue: 'Memory Content' })}
+                {t('memory.memoryContent')}
               </Label>
               <Textarea
                 value={formMemory}
                 onChange={(e) => setFormMemory(e.target.value)}
-                placeholder={t('memory.memoryPlaceholder', {
-                  defaultValue: 'e.g., User prefers concise technical explanations',
-                })}
+                placeholder={t('memory.memoryPlaceholder')}
                 rows={4}
                 className="resize-none text-sm"
               />
             </div>
             <div className="space-y-2">
               <Label className="text-xs font-medium">
-                {t('memory.topics', { defaultValue: 'Topics' })}
+                {t('memory.topics')}
               </Label>
               <Input
                 value={formTopics}
                 onChange={(e) => setFormTopics(e.target.value)}
-                placeholder={t('memory.topicsPlaceholder', {
-                  defaultValue: 'preferences, technical (comma separated)',
-                })}
+                placeholder={t('memory.topicsPlaceholder')}
                 className="text-sm"
               />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
-              {t('common.cancel', { defaultValue: 'Cancel' })}
+              {t('common.cancel')}
             </Button>
             <Button
               onClick={handleCreate}
@@ -495,7 +483,7 @@ export default function KnowledgePage() {
               className="gap-1.5 bg-[var(--skill-brand-600)] hover:bg-[var(--skill-brand-700)]"
             >
               {createMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              {t('memory.create', { defaultValue: 'Create' })}
+              {t('memory.create')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -507,13 +495,13 @@ export default function KnowledgePage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Edit3 className="h-5 w-5 text-[var(--skill-brand-600)]" />
-              {t('memory.editMemory', { defaultValue: 'Edit Memory' })}
+              {t('memory.editMemory')}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label className="text-xs font-medium">
-                {t('memory.memoryContent', { defaultValue: 'Memory Content' })}
+                {t('memory.memoryContent')}
               </Label>
               <Textarea
                 value={formMemory}
@@ -524,21 +512,19 @@ export default function KnowledgePage() {
             </div>
             <div className="space-y-2">
               <Label className="text-xs font-medium">
-                {t('memory.topics', { defaultValue: 'Topics' })}
+                {t('memory.topics')}
               </Label>
               <Input
                 value={formTopics}
                 onChange={(e) => setFormTopics(e.target.value)}
-                placeholder={t('memory.topicsPlaceholder', {
-                  defaultValue: 'preferences, technical (comma separated)',
-                })}
+                placeholder={t('memory.topicsPlaceholder')}
                 className="text-sm"
               />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingMemory(null)}>
-              {t('common.cancel', { defaultValue: 'Cancel' })}
+              {t('common.cancel')}
             </Button>
             <Button
               onClick={handleUpdate}
@@ -546,7 +532,7 @@ export default function KnowledgePage() {
               className="gap-1.5 bg-[var(--skill-brand-600)] hover:bg-[var(--skill-brand-700)]"
             >
               {updateMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              {t('memory.save', { defaultValue: 'Save' })}
+              {t('memory.save')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -560,24 +546,21 @@ export default function KnowledgePage() {
         <AlertDialogContent variant="destructive">
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {t('memory.confirmDelete', { defaultValue: 'Delete Memory?' })}
+              {t('memory.confirmDelete')}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {t('memory.confirmDeleteDescription', {
-                defaultValue:
-                  'This action cannot be undone. The memory will be permanently removed.',
-              })}
+              {t('memory.confirmDeleteDescription')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel', { defaultValue: 'Cancel' })}</AlertDialogCancel>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               disabled={deleteMutation.isPending}
               className="bg-[var(--status-error)] hover:bg-[var(--status-error-hover)]"
             >
               {deleteMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {t('memory.delete', { defaultValue: 'Delete' })}
+              {t('memory.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

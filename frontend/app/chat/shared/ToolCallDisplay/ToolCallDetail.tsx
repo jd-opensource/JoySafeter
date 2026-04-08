@@ -27,7 +27,9 @@ export function ToolCallDetail({ name, args, status, result, startTime, endTime 
           status === 'failed' ? 'bg-red-100 text-red-700' :
           'bg-blue-100 text-blue-700'
         }`}>
-          {status}
+          {status === 'completed' ? t('common.statusCompleted') :
+           status === 'failed' ? t('common.statusFailed') :
+           t('common.statusRunning')}
         </span>
       </div>
 

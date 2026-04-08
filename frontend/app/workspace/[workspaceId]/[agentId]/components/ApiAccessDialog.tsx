@@ -180,7 +180,7 @@ export function ApiAccessDialog({
                 <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-2.5">
                   <div className="flex flex-col gap-1 overflow-hidden">
                     <span className="text-2xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
-                      ENDPOINT
+                      {t('workspace.endpoint')}
                     </span>
                     <code
                       className="truncate break-all font-mono text-sm text-[var(--text-primary)]"
