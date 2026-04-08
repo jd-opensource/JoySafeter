@@ -1242,6 +1242,8 @@ const en = {
       showHistory: 'Show History',
       showArtifacts: 'Show run artifacts',
       hideArtifacts: 'Hide run artifacts',
+      openArtifacts: 'Open artifacts',
+      closeArtifacts: 'Close artifacts',
       // ThreadContent
       startConversation: 'Start a conversation to see messages here',
       thinking: 'Thinking...',
