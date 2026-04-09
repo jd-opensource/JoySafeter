@@ -32,7 +32,6 @@ from app.core.graph.runtime_prompt_template import build_runtime_prompt_context,
 from app.models.graph import AgentGraph, GraphEdge, GraphNode
 
 LOG_PREFIX = "[DeepAgentsBuilder]"
-DEFAULT_RECURSION_LIMIT = 200
 
 
 async def build_deep_agents_graph(
@@ -143,6 +142,8 @@ async def build_deep_agents_graph(
         # Create root DeepAgent
         from deepagents import create_deep_agent
 
+        from app.core.agent.checkpointer.checkpointer import get_checkpointer
+
         root_agent = create_deep_agent(
             model=root_model,
             system_prompt=root_prompt,
@@ -151,10 +152,11 @@ async def build_deep_agents_graph(
             middleware=root_middleware,
             name=root_config.name,
             backend=backend,
+            checkpointer=get_checkpointer(),
         )
 
         # --- 7. Finalize ---
-        compiled = _finalize(root_agent, backend)
+        compiled = _finalize(root_agent, backend, sandbox_handle)
         # Attach sandbox handle to compiled graph so the caller can release it
         if sandbox_handle:
             compiled._sandbox_handle = sandbox_handle  # type: ignore[attr-defined]
@@ -209,34 +211,16 @@ async def _build_worker(
 # ---------------------------------------------------------------------------
 
 
-def _finalize(agent: Any, backend: Any) -> Any:
-    """Compile, configure, and attach cleanup to the agent."""
-    from langgraph.graph import StateGraph
-    from langgraph.graph.state import CompiledStateGraph
-
-    from app.core.agent.checkpointer.checkpointer import get_checkpointer
-
-    # Compile if StateGraph
-    if isinstance(agent, StateGraph):
-        agent = agent.compile(
-            checkpointer=get_checkpointer(),
-            interrupt_before=[],
-            interrupt_after=[],
-        )
-
-    # Apply recursion limit
-    if isinstance(agent, CompiledStateGraph):
-        agent = agent.with_config({"recursion_limit": DEFAULT_RECURSION_LIMIT})
-
-    # Attach cleanup
-    if backend:
+def _finalize(agent: Any, backend: Any, sandbox_handle: Any = None) -> Any:
+    """Attach backend cleanup and artifact export to the compiled agent."""
+    if sandbox_handle:
 
         async def cleanup():
-            await _cleanup_backend(backend)
+            await _cleanup_backend(sandbox_handle)
 
         agent._cleanup_backend = cleanup
 
-        # Attach artifact export
+    if backend:
         from app.core.agent.backends.pydantic_adapter import PydanticSandboxAdapter
 
         if isinstance(backend, PydanticSandboxAdapter):
