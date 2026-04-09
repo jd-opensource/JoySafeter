@@ -41,7 +41,6 @@ async def build_deep_agents_graph(
     llm_model: Optional[str] = None,
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
-    max_tokens: int = 4096,
     user_id: Optional[Any] = None,
     model_service: Optional[Any] = None,
     thread_id: Optional[str] = None,
@@ -97,10 +96,15 @@ async def build_deep_agents_graph(
             )
 
     try:
-        # --- 3. Preload skills (once per node, deduplicated) ---
+        # --- 3. Preload skills (deduplicated across nodes) ---
         if backend:
+            seen_skill_keys: set[frozenset[str]] = set()
             for cfg in all_configs:
                 if has_valid_skills(cfg.skill_ids):
+                    key = frozenset(cfg.skill_ids)
+                    if key in seen_skill_keys:
+                        continue
+                    seen_skill_keys.add(key)
                     skill_uuids = await resolve_skill_ids(cfg.skill_ids, str(user_id))
                     await preload_skills(skill_uuids, backend, str(user_id))
 
@@ -134,7 +138,6 @@ async def build_deep_agents_graph(
             str(graph.id),
         )
 
-        # Render system prompt with runtime context
         root_prompt = root_config.system_prompt
         if root_prompt and prompt_context:
             root_prompt = render_runtime_template(root_prompt, prompt_context)
@@ -184,6 +187,9 @@ async def _build_worker(
     """Build a single worker agent from its config."""
     if not cfg.description:
         cfg.description = f"Specialized worker: {cfg.label or cfg.name}"
+
+    if cfg.system_prompt and prompt_context:
+        cfg.system_prompt = render_runtime_template(cfg.system_prompt, prompt_context)
 
     if cfg.node_type == "a2a_agent":
         return await build_a2a_worker(cfg)

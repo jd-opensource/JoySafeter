@@ -723,7 +723,6 @@ class GraphService(BaseService):
         llm_model: Optional[str] = None,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        max_tokens: int = 4096,
         user_id: Optional[Any] = None,
         file_emitter: Optional[Any] = None,
     ) -> CompiledStateGraph:
@@ -782,7 +781,6 @@ class GraphService(BaseService):
             llm_model=llm_model,
             api_key=api_key,
             base_url=base_url,
-            max_tokens=max_tokens,
             user_id=user_id,
             model_service=model_service,
             file_emitter=file_emitter,
@@ -819,7 +817,6 @@ class GraphService(BaseService):
         llm_model: Optional[str] = None,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        max_tokens: int = 4096,
         user_id: Optional[Any] = None,
         current_user: Optional[AuthUser] = None,
         file_emitter: Optional[Any] = None,
@@ -836,7 +833,6 @@ class GraphService(BaseService):
             llm_model: Optional LLM model name
             api_key: Optional API key for the LLM
             base_url: Optional base URL for the LLM API
-            max_tokens: Maximum tokens for LLM responses
             user_id: User ID for workspace isolation
             current_user: Current authenticated user for permission checks
 
@@ -913,7 +909,6 @@ class GraphService(BaseService):
             llm_model=llm_model,
             api_key=api_key,
             base_url=base_url,
-            max_tokens=max_tokens,
             user_id=user_id,
             model_service=model_service,
             file_emitter=file_emitter,

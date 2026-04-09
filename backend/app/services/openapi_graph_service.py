@@ -123,7 +123,6 @@ class OpenApiGraphService(BaseService):
                     llm_model=llm_params["llm_model"],
                     api_key=llm_params["api_key"],
                     base_url=llm_params["base_url"],
-                    max_tokens=llm_params["max_tokens"],
                     user_id=user_id,
                 )
 

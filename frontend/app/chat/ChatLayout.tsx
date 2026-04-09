@@ -360,16 +360,18 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
         <ResizablePanel defaultSize={state.preview.visible ? 55 : 88} minSize={40}>
           <div className="relative flex h-full flex-col overflow-hidden">
             {renderHeader()}
-            {!hasMessages ? (
-              <ChatHome
-                onStartChat={handleSubmit}
-                onSelectConversation={handleSelectConversation}
-                isProcessing={stream.isProcessing}
-                onStop={handleStop}
-              />
-            ) : (
-              <ConversationPanel onSend={handleSubmit} onStop={handleStop} />
-            )}
+            <div className="flex-1 min-h-0 relative overflow-hidden">
+              {!hasMessages ? (
+                <ChatHome
+                  onStartChat={handleSubmit}
+                  onSelectConversation={handleSelectConversation}
+                  isProcessing={stream.isProcessing}
+                  onStop={handleStop}
+                />
+              ) : (
+                <ConversationPanel onSend={handleSubmit} onStop={handleStop} />
+              )}
+            </div>
           </div>
         </ResizablePanel>
 

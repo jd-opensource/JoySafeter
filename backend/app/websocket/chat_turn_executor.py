@@ -169,7 +169,6 @@ class ChatTurnExecutor:
                         llm_model=llm_params["llm_model"],
                         api_key=llm_params["api_key"],
                         base_url=llm_params["base_url"],
-                        max_tokens=llm_params["max_tokens"],
                         user_id=handler.user_id,
                         file_emitter=file_emitter,
                     )
@@ -183,7 +182,6 @@ class ChatTurnExecutor:
                         llm_model=llm_params["llm_model"],
                         api_key=llm_params["api_key"],
                         base_url=llm_params["base_url"],
-                        max_tokens=llm_params["max_tokens"],
                         user_id=handler.user_id,
                         current_user=current_user,
                         file_emitter=file_emitter,
@@ -536,7 +534,6 @@ class ChatTurnExecutor:
                     llm_model=llm_params["llm_model"],
                     api_key=llm_params["api_key"],
                     base_url=llm_params["base_url"],
-                    max_tokens=llm_params["max_tokens"],
                     user_id=handler.user_id,
                     current_user=current_user,
                 )
