@@ -92,7 +92,7 @@ export function InlineRenameInput({
         <button
           type="button"
           className={cn(
-            'flex items-center justify-center bg-[var(--surface-5)] text-[var(--text-tertiary)] transition-all hover:bg-[var(--surface-9)] active:scale-95',
+            'flex items-center justify-center bg-[var(--surface-5)] text-[var(--text-tertiary)] transition-all hover:bg-[var(--surface-muted)] active:scale-95',
             isSmall ? 'h-5 w-5 rounded-sm' : 'h-6 w-6 rounded-md',
             !isSmall && 'hover:text-[var(--text-secondary)]',
           )}

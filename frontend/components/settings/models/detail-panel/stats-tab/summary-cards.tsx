@@ -15,7 +15,7 @@ interface CardProps {
 
 function StatCard({ label, value }: CardProps) {
   return (
-    <div className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface-base)] p-4">
+    <div className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface-1)] p-4">
       <p className="mb-1 text-xs text-[var(--text-muted)]">{label}</p>
       <p className="text-lg font-semibold text-[var(--text-primary)]">{value}</p>
     </div>
@@ -33,7 +33,7 @@ export function SummaryCards({ summary, loading }: SummaryCardsProps) {
     return (
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface-base)] p-4">
+          <div key={i} className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface-1)] p-4">
             <Skeleton className="mb-2 h-3 w-20" />
             <Skeleton className="h-6 w-16" />
           </div>

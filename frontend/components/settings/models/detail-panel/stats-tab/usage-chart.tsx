@@ -31,7 +31,7 @@ export function UsageChart({ timeline, byModel }: UsageChartProps) {
 
   if (!hasData) {
     return (
-      <div className="flex h-48 items-center justify-center rounded-lg border border-[var(--border-muted)] bg-[var(--surface-base)]">
+      <div className="flex h-48 items-center justify-center rounded-lg border border-[var(--border-muted)] bg-[var(--surface-1)]">
         <p className="text-sm text-[var(--text-muted)]">No usage data yet</p>
       </div>
     )
@@ -40,7 +40,7 @@ export function UsageChart({ timeline, byModel }: UsageChartProps) {
   return (
     <div className="space-y-4">
       {timeline.length > 0 && (
-        <div className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface-base)] p-4">
+        <div className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface-1)] p-4">
           <p className="mb-3 text-xs font-medium text-[var(--text-secondary)]">Call Trend</p>
           <ResponsiveContainer width="100%" height={180}>
             <LineChart data={timeline} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
@@ -74,7 +74,7 @@ export function UsageChart({ timeline, byModel }: UsageChartProps) {
       )}
 
       {byModel.length > 0 && (
-        <div className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface-base)] p-4">
+        <div className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface-1)] p-4">
           <p className="mb-3 text-xs font-medium text-[var(--text-secondary)]">Model Ranking</p>
           <table className="w-full text-sm">
             <thead>

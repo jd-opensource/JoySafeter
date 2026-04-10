@@ -60,7 +60,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           </div>
           <button
             onClick={this.handleReset}
-            className="rounded-md bg-[var(--surface-9)] px-4 py-2 text-small text-[var(--text-primary)] hover:bg-[var(--surface-10)]"
+            className="rounded-md bg-[var(--surface-muted)] px-4 py-2 text-small text-[var(--text-primary)] hover:bg-[var(--surface-muted)]"
           >
             Try again
           </button>

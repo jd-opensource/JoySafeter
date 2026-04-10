@@ -46,7 +46,7 @@ const PreviewNode = ({
       <Handle
         type="target"
         position={Position.Left}
-        className="!-left-[4px] !h-1.5 !w-1.5 !border-0 !bg-[var(--surface-7)]"
+        className="!-left-[4px] !h-1.5 !w-1.5 !border-0 !bg-[var(--surface-5)]"
       />
 
       <div className="flex items-center gap-2">
@@ -65,7 +65,7 @@ const PreviewNode = ({
       <Handle
         type="source"
         position={Position.Right}
-        className="!-right-[4px] !h-1.5 !w-1.5 !border-0 !bg-[var(--surface-7)]"
+        className="!-right-[4px] !h-1.5 !w-1.5 !border-0 !bg-[var(--surface-5)]"
       />
     </div>
   )

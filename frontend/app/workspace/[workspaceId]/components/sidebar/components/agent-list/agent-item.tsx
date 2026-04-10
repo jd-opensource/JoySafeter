@@ -108,7 +108,7 @@ const AgentItem = React.memo(function AgentItem({
           'group flex items-center rounded-md transition-colors duration-100',
           isDragging && 'opacity-50',
           active
-            ? 'bg-[var(--surface-9)] text-[var(--text-primary)]'
+            ? 'bg-[var(--surface-muted)] text-[var(--text-primary)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--surface-5)]',
         )}
         style={{ marginLeft: `${indentPadding}px` }}
@@ -164,7 +164,7 @@ const AgentItem = React.memo(function AgentItem({
         {!isEditing && (
           <button
             type="button"
-            className="mr-[4px] rounded-sm p-[4px] opacity-0 transition-opacity hover:bg-[var(--surface-9)] group-hover:opacity-100"
+            className="mr-[4px] rounded-sm p-[4px] opacity-0 transition-opacity hover:bg-[var(--surface-muted)] group-hover:opacity-100"
             onClick={(e) => {
               e.stopPropagation()
               e.preventDefault()

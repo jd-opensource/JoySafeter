@@ -36,7 +36,7 @@ export function StatsTab({ providerName }: StatsTabProps) {
             onClick={() => setPeriod(p.value)}
             className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
               period === p.value
-                ? 'bg-[var(--surface-hover)] text-[var(--text-primary)]'
+                ? 'bg-[var(--surface-3)] text-[var(--text-primary)]'
                 : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
             }`}
           >

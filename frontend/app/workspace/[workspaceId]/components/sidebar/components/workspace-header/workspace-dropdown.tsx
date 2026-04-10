@@ -188,7 +188,7 @@ export function WorkspaceDropdown({
                 className={cn(
                   'group relative grid grid-cols-[1fr_auto_auto] items-center gap-1 rounded-md transition-colors',
                   workspace.id === workspaceId
-                    ? 'bg-[var(--surface-9)]'
+                    ? 'bg-[var(--surface-muted)]'
                     : 'hover:bg-[var(--surface-5)]',
                 )}
               >
@@ -257,7 +257,7 @@ export function WorkspaceDropdown({
                           }}
                           data-workspace-menu-button
                           type="button"
-                          className="rounded-sm p-[4px] opacity-0 transition-opacity hover:bg-[var(--surface-9)] group-hover:opacity-100"
+                          className="rounded-sm p-[4px] opacity-0 transition-opacity hover:bg-[var(--surface-muted)] group-hover:opacity-100"
                           aria-label={t('workspace.moreOptions', { defaultValue: 'More options' })}
                           onClick={(e) => {
                             e.stopPropagation()

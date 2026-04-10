@@ -86,7 +86,7 @@ const SchemaFieldRenderer = React.memo(function SchemaFieldRenderer({
           <div
             className={cn(
               'relative h-4 w-7 rounded-full border transition-all',
-              value ? 'border-[var(--brand-600)] bg-[var(--brand-500)]' : 'border-[var(--border-strong)] bg-[var(--surface-4)]',
+              value ? 'border-[var(--brand-600)] bg-[var(--brand-500)]' : 'border-[var(--border-strong)] bg-[var(--surface-3)]',
             )}
           >
             <div

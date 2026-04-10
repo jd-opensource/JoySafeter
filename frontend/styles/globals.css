@@ -71,18 +71,8 @@
     --surface-1: #f4f5f7;
     --surface-2: #fafbfc;
     --surface-3: #eef0f2;
-    --surface-4: #e8eaed;
     --surface-5: #e2e4e8;
-    --surface-6: #dcdfe4;
-    --surface-7: #d5d8dc;
-    --surface-9: #c6c9cf;
-    --surface-10: #bfc2c8;
-    --surface-11: #b8bbc1;
-    --surface-13: #a6a9b0;
-    --surface-14: #9fa2a9;
-    --surface-15: #989ba2;
-    --surface-base: #f4f5f7;
-    --surface-hover: #eef0f2;
+    --surface-muted: #c6c9cf;
     --surface-elevated: #fafbfc;
 
     /* Text */
@@ -147,9 +137,8 @@
     --gradient-secondary-from: #0ea5e9;
     --gradient-secondary-to: #67e8f9;
 
-    /* Code/dialog surfaces */
+    /* Code surfaces */
     --code-bg: #0d1117;
-    --surface-dialog: #F9F9FA;
 
     /* Canvas */
     --canvas-dot: #cbd5e1;
@@ -186,18 +175,8 @@
     --surface-1: #141a21;
     --surface-2: #1a222b;
     --surface-3: #1f2933;
-    --surface-4: #212b36;
     --surface-5: #283341;
-    --surface-6: #2e3a4a;
-    --surface-7: #334252;
-    --surface-9: #405263;
-    --surface-10: #475a6b;
-    --surface-11: #4f6273;
-    --surface-13: #5f7284;
-    --surface-14: #677a8c;
-    --surface-15: #6f8294;
-    --surface-base: #141a21;
-    --surface-hover: #1f2933;
+    --surface-muted: #405263;
     --surface-elevated: #1a222b;
 
     /* Text */
@@ -262,9 +241,8 @@
     --gradient-secondary-from: #06b6d4;
     --gradient-secondary-to: #22d3ee;
 
-    /* Code/dialog surfaces */
+    /* Code surfaces */
     --code-bg: #0a0e14;
-    --surface-dialog: #1a222b;
 
     /* Canvas */
     --canvas-dot: #334252;
@@ -369,12 +347,12 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--surface-11);
+  background: var(--surface-muted);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--surface-12);
+  background: var(--surface-muted);
 }
 
 /* Selection highlight */
@@ -400,7 +378,7 @@
 .toolbar-item-dragging {
   opacity: 0.5 !important;
   transform: scale(0.95) !important;
-  background: var(--surface-9) !important;
+  background: var(--surface-muted) !important;
 }
 
 /* Workflow canvas drag over state */

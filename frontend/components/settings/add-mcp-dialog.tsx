@@ -284,7 +284,7 @@ export function AddMcpDialog({ open, onOpenChange, editingServer }: AddMcpDialog
       </div>
 
       {/* Content */}
-      <div className="custom-scrollbar max-h-[60vh] space-y-6 overflow-y-auto bg-[var(--surface-dialog)] p-6">
+      <div className="custom-scrollbar max-h-[60vh] space-y-6 overflow-y-auto bg-[var(--surface-2)] p-6">
         {mode === 'form' ? (
           <>
             {/* Basic Info */}
