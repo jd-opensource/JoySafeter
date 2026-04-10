@@ -366,7 +366,7 @@ function SignupFormContent() {
                   'rounded-auth shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]',
                   showNameValidationError &&
                     nameErrors.length > 0 &&
-                    'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
+                    'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)] focus-visible:ring-[var(--status-error)]',
                 )}
               />
             </div>
@@ -388,7 +388,7 @@ function SignupFormContent() {
                 className={cn(
                   'rounded-auth shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]',
                   (emailError || (showEmailValidationError && emailErrors.length > 0)) &&
-                    'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
+                    'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)] focus-visible:ring-[var(--status-error)]',
                 )}
               />
             </div>
@@ -413,7 +413,7 @@ function SignupFormContent() {
                     'rounded-auth pr-10 shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]',
                     showValidationError &&
                       passwordErrors.length > 0 &&
-                      'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
+                      'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)] focus-visible:ring-[var(--status-error)]',
                   )}
                 />
                 <button

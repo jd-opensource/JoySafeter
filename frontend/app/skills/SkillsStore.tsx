@@ -314,7 +314,7 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
             <div className="flex h-full flex-1 flex-col overflow-hidden bg-[var(--surface-elevated)] p-6">
               <SheetHeader className="flex-shrink-0 text-left">
                 <SheetTitle className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--skill-brand-600)] to-[var(--skill-brand-700)]">
                     <ShieldCheck className="h-5 w-5 text-white" />
                   </div>
                   <div>

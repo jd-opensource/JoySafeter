@@ -70,7 +70,7 @@ export function ApiTokensTab({ skillId }: ApiTokensTabProps) {
         {t('settings.tokens.create')}
       </Button>
       {tokens.length >= 50 && (
-        <p className="mt-1 text-xs text-amber-600">{t('settings.tokens.limitReached')}</p>
+        <p className="mt-1 text-xs text-[var(--status-warning)]">{t('settings.tokens.limitReached')}</p>
       )}
 
       {showCreateForm && (

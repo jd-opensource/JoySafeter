@@ -227,7 +227,7 @@ export default function SkillCreatorChat({
             <Button
               onClick={onStop}
               size="sm"
-              className="h-8 w-8 flex-shrink-0 rounded-full bg-red-500 p-0 hover:bg-red-600"
+              className="h-8 w-8 flex-shrink-0 rounded-full bg-[var(--status-error)] p-0 hover:bg-[var(--status-error-hover)]"
               title="Stop"
             >
               <Square size={12} className="fill-white text-white" />

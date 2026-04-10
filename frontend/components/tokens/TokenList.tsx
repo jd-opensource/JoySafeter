@@ -35,9 +35,9 @@ interface TokenListProps {
 const getTypeBadgeColor = (type?: string | null) => {
   switch (type) {
     case 'workspace':
-      return 'bg-purple-100 text-purple-700 hover:bg-purple-100/80 border-purple-200'
+      return 'bg-[var(--brand-50)] text-[var(--brand-700)] hover:bg-[var(--brand-50)]/80 border-[var(--brand-200)]'
     case 'skill':
-      return 'bg-blue-100 text-blue-700 hover:bg-blue-100/80 border-blue-200'
+      return 'bg-[var(--brand-100)] text-[var(--brand-700)] hover:bg-[var(--brand-100)]/80 border-[var(--brand-200)]'
     case 'personal':
     default:
       return 'bg-[var(--surface-3)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)] border-[var(--border)]'
@@ -67,7 +67,7 @@ function TokenTableRow({ token, onRevoke, revokingId }: { token: PlatformToken, 
                   className="h-6 w-6 text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
                   onClick={() => handleCopy(token.tokenPrefix)}
                 >
-                  {copied ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
+                  {copied ? <Check className="h-3.5 w-3.5 text-[var(--status-success)]" /> : <Copy className="h-3.5 w-3.5" />}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>{t('common.copy', { defaultValue: 'Copy' })}</TooltipContent>
@@ -91,7 +91,7 @@ function TokenTableRow({ token, onRevoke, revokingId }: { token: PlatformToken, 
           variant="ghost"
           size="icon"
           onClick={() => onRevoke(token)}
-          className="h-8 w-8 text-[var(--text-muted)] hover:bg-red-50 hover:text-red-600"
+          className="h-8 w-8 text-[var(--text-muted)] hover:bg-[var(--status-error-bg)] hover:text-[var(--status-error)]"
           disabled={revokingId === token.id}
         >
           <Trash2 className="h-4 w-4" />

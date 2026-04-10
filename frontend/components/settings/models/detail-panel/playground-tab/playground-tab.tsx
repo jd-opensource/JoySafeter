@@ -108,7 +108,7 @@ export function PlaygroundTab({ providerName }: PlaygroundTabProps) {
           <span className="text-xs text-[var(--text-muted)]">Output</span>
           <div className="flex-1 min-h-[120px] rounded-md border border-[var(--border-muted)] bg-[var(--surface-3)] p-3 overflow-y-auto">
             {error ? (
-              <p className="text-sm text-red-500">{error}</p>
+              <p className="text-sm text-[var(--status-error)]">{error}</p>
             ) : (
               <p className="text-sm text-[var(--text-primary)] whitespace-pre-wrap break-words">
                 {output}

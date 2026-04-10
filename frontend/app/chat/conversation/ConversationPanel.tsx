@@ -76,13 +76,13 @@ export default function ConversationPanel({ onSend, onStop }: ConversationPanelP
       {/* Message area */}
       <div className="flex-1 overflow-hidden">
         {state.streaming.interrupt && (
-          <div className="border-b border-amber-200 bg-amber-50 px-6 py-3">
+          <div className="border-b border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-6 py-3">
             <div className="mx-auto flex max-w-3xl items-center justify-between gap-4">
               <div className="min-w-0">
-                <p className="text-sm font-medium text-amber-900">
+                <p className="text-sm font-medium text-[var(--text-primary)]">
                   Execution interrupted
                 </p>
-                <p className="truncate text-xs text-amber-700">
+                <p className="truncate text-xs text-[var(--status-warning)]">
                   {state.streaming.interrupt.nodeLabel || state.streaming.interrupt.nodeName}
                 </p>
               </div>
@@ -90,7 +90,7 @@ export default function ConversationPanel({ onSend, onStop }: ConversationPanelP
                 type="button"
                 onClick={handleResume}
                 disabled={isProcessing}
-                className="rounded-full bg-amber-600 px-4 py-2 text-xs font-medium text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-full bg-[var(--status-warning)] px-4 py-2 text-xs font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Resume
               </button>

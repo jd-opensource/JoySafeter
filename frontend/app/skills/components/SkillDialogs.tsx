@@ -84,7 +84,7 @@ export function ImportDialog({
             type="button"
             disabled={actionLoading || !localImportValidation?.valid}
             onClick={onImport}
-            className="h-10 bg-blue-600 px-5 text-white shadow-sm hover:bg-blue-700"
+            className="h-10 bg-[var(--brand-600)] px-5 text-white shadow-sm hover:bg-[var(--brand-700)]"
           >
             {actionLoading ? (
               <Loader2 size={16} className="mr-2 animate-spin" />
@@ -307,7 +307,7 @@ export function DeleteFileDialog({
     <Dialog open={!!fileToDelete} onOpenChange={() => onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-red-600">
+          <DialogTitle className="flex items-center gap-2 text-[var(--status-error)]">
             <Trash2 size={20} />
             {t('skills.confirmDeleteFile')}
           </DialogTitle>
@@ -370,7 +370,7 @@ export function RenameFileDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Pencil size={20} className="text-blue-500" />
+            <Pencil size={20} className="text-[var(--brand-500)]" />
             {t('skills.renameFile')}
           </DialogTitle>
           <DialogDescription>
@@ -407,7 +407,7 @@ export function RenameFileDialog({
           <Button
             onClick={onConfirm}
             disabled={loading || !renameValue.trim()}
-            className="bg-blue-600 hover:bg-blue-700"
+            className="bg-[var(--brand-600)] hover:bg-[var(--brand-700)]"
           >
             {loading ? (
               <Loader2 size={16} className="mr-2 animate-spin" />

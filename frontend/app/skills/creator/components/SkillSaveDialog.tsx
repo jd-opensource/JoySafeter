@@ -171,7 +171,7 @@ export default function SkillSaveDialog({
           {validation && (
             <div className="space-y-2">
               {hasErrors && (
-                <div className="flex items-start gap-2 rounded-lg bg-red-50 p-3 text-sm text-red-600">
+                <div className="flex items-start gap-2 rounded-lg bg-[var(--status-error-bg)] p-3 text-sm text-[var(--status-error)]">
                   <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
                   <div>
                     <p className="font-medium">Validation errors:</p>
@@ -184,7 +184,7 @@ export default function SkillSaveDialog({
                 </div>
               )}
               {validation.warnings.length > 0 && (
-                <div className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-600">
+                <div className="flex items-start gap-2 rounded-lg bg-[var(--status-warning-bg)] p-3 text-sm text-[var(--status-warning)]">
                   <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
                   <div>
                     <p className="font-medium">Warnings:</p>
@@ -197,7 +197,7 @@ export default function SkillSaveDialog({
                 </div>
               )}
               {validation.valid && validation.warnings.length === 0 && (
-                <div className="flex items-center gap-2 rounded-lg bg-green-50 p-3 text-sm text-green-600">
+                <div className="flex items-center gap-2 rounded-lg bg-[var(--status-success-bg)] p-3 text-sm text-[var(--status-success)]">
                   <CheckCircle2 size={16} />
                   <span>All validation checks passed</span>
                 </div>

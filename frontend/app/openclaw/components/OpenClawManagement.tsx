@@ -68,11 +68,11 @@ interface DeviceResponse {
 }
 
 const instanceStatusStyles: Record<string, string> = {
-  running: 'bg-green-500/15 text-green-700 border-green-200',
-  starting: 'bg-blue-500/15 text-blue-700 border-blue-200',
+  running: 'bg-[var(--status-success)]/15 text-[var(--status-success)] border-[var(--status-success-border)]',
+  starting: 'bg-[var(--brand-500)]/15 text-[var(--brand-700)] border-[var(--brand-200)]',
   pending: 'bg-[var(--text-tertiary)] text-[var(--text-secondary)] border-[var(--border)]',
   stopped: 'bg-[var(--text-tertiary)] text-[var(--text-secondary)] border-[var(--border)]',
-  failed: 'bg-red-500/15 text-red-700 border-red-200',
+  failed: 'bg-[var(--status-error)]/15 text-[var(--status-error)] border-[var(--status-error-border)]',
 }
 
 export function OpenClawManagement() {
@@ -238,8 +238,8 @@ export function OpenClawManagement() {
         <div className="relative p-4 sm:p-5">
           <div className="flex flex-col gap-4">
             <div className="flex min-w-0 items-start gap-3.5">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-blue-500/20 bg-blue-500/10">
-                <Server className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[var(--brand-500)]/20 bg-[var(--brand-500)]/10">
+                <Server className="h-6 w-6 text-[var(--brand-600)]" />
               </div>
               <div className="flex min-w-0 flex-col gap-1.5">
                 <h3 className="truncate text-base font-semibold leading-none tracking-tight text-[var(--text-primary)]">
@@ -260,8 +260,8 @@ export function OpenClawManagement() {
                         className={cn(
                           'inline-block h-2 w-2 shrink-0 rounded-full',
                           instance.alive
-                            ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.5)]'
-                            : 'bg-red-500',
+                            ? 'bg-[var(--status-success)] shadow-[0_0_6px_rgba(34,197,94,0.5)]'
+                            : 'bg-[var(--status-error)]',
                         )}
                       />
                       <span className="truncate">
@@ -295,7 +295,7 @@ export function OpenClawManagement() {
                   variant="outline"
                   onClick={() => stopMutation.mutate()}
                   disabled={isInstanceBusy}
-                  className="h-8 border-red-200 text-red-600 shadow-sm transition-colors hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:hover:bg-red-900/20"
+                  className="h-8 border-[var(--status-error-border)] text-[var(--status-error)] shadow-sm transition-colors hover:bg-[var(--status-error-bg)] hover:text-[var(--status-error-hover)] dark:border-[var(--status-error-border)] dark:hover:bg-[var(--status-error-bg)]"
                 >
                   {stopMutation.isPending ? (
                     <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
@@ -326,7 +326,7 @@ export function OpenClawManagement() {
                     size="sm"
                     variant="outline"
                     disabled={isInstanceBusy}
-                    className="h-8 text-[var(--text-tertiary)] shadow-sm transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:hover:border-red-900/50 dark:hover:bg-red-900/20"
+                    className="h-8 text-[var(--text-tertiary)] shadow-sm transition-colors hover:border-[var(--status-error-border)] hover:bg-[var(--status-error-bg)] hover:text-[var(--status-error)] dark:hover:border-[var(--status-error-border)] dark:hover:bg-[var(--status-error-bg)]"
                     title={t('openclaw.deleteInstanceTitle')}
                   >
                     {deleteMutation.isPending ? (
@@ -345,8 +345,8 @@ export function OpenClawManagement() {
                     <AlertDialogDescription>
                       {t('openclaw.confirmDeleteInstanceDesc')}
                     </AlertDialogDescription>
-                    <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/30 dark:bg-amber-900/10">
-                      <p className="text-sm font-medium text-amber-800 dark:text-amber-500">
+                    <div className="mt-2 rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] p-3 dark:border-[var(--status-warning-border)] dark:bg-[var(--status-warning-bg)]">
+                      <p className="text-sm font-medium text-[var(--status-warning)] dark:text-[var(--status-warning)]">
                         {t('openclaw.deleteInstanceWarning')}
                       </p>
                     </div>
@@ -355,7 +355,7 @@ export function OpenClawManagement() {
                     <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
                     <AlertDialogAction
                       onClick={() => deleteMutation.mutate()}
-                      className="border-0 bg-red-600 text-white hover:bg-red-700"
+                      className="border-0 bg-[var(--status-error)] text-white hover:bg-[var(--status-error-hover)]"
                     >
                       {t('common.confirm')}
                     </AlertDialogAction>
@@ -403,7 +403,7 @@ export function OpenClawManagement() {
                     title={t('openclaw.copyToken')}
                   >
                     {copiedToken ? (
-                      <Check className="h-4 w-4 text-green-500" />
+                      <Check className="h-4 w-4 text-[var(--status-success)]" />
                     ) : (
                       <Copy className="h-4 w-4" />
                     )}
@@ -418,7 +418,7 @@ export function OpenClawManagement() {
           </div>
 
           {instance.errorMessage && (
-            <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-900/30 dark:bg-red-900/10">
+            <div className="mt-4 rounded-md border border-[var(--status-error-border)] bg-[var(--status-error-bg)] p-3 text-sm text-[var(--status-error)] dark:border-[var(--status-error-border)] dark:bg-[var(--status-error-bg)]">
               <span className="mb-1 block font-semibold">{t('openclaw.errorMessage')}</span>
               {instance.errorMessage}
             </div>
@@ -459,7 +459,7 @@ export function OpenClawManagement() {
                 size="sm"
                 onClick={() => syncSkillsMutation.mutate()}
                 disabled={isInstanceBusy || syncSkillsMutation.isPending}
-                className="h-8 w-full shrink-0 border-blue-200 text-blue-600 shadow-sm hover:bg-blue-50 hover:text-blue-700 dark:border-blue-900/50 dark:hover:bg-blue-900/20 sm:w-auto"
+                className="h-8 w-full shrink-0 border-[var(--brand-200)] text-[var(--brand-600)] shadow-sm hover:bg-[var(--brand-50)] hover:text-[var(--brand-700)] dark:border-[var(--brand-200)] dark:hover:bg-[var(--brand-100)] sm:w-auto"
               >
                 {syncSkillsMutation.isPending ? (
                   <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
@@ -536,7 +536,7 @@ export function OpenClawManagement() {
                   className="hover:bg-[var(--muted)] flex flex-col justify-between gap-3 p-3 transition-colors sm:flex-row sm:items-center sm:px-4"
                 >
                   <div className="flex min-w-0 items-start gap-3">
-                    <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400">
+                    <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--status-warning)]/10 text-[var(--status-warning)] dark:bg-[var(--status-warning)]/20 dark:text-[var(--status-warning)]">
                       <Smartphone className="h-4 w-4" />
                     </div>
                     <div className="flex min-w-0 flex-col">
@@ -570,7 +570,7 @@ export function OpenClawManagement() {
                   className="hover:bg-[var(--muted)] flex items-center justify-between p-3 transition-colors sm:px-4"
                 >
                   <div className="flex min-w-0 items-start gap-3">
-                    <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-green-500/10 text-green-600 dark:bg-green-500/20 dark:text-green-400">
+                    <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--status-success)]/10 text-[var(--status-success)] dark:bg-[var(--status-success)]/20 dark:text-[var(--status-success)]">
                       <CheckCheck className="h-4 w-4" />
                     </div>
                     <div className="flex min-w-0 flex-col">

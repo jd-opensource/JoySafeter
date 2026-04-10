@@ -15,9 +15,9 @@ function StatusDot({ credential }: { credential?: ModelCredential }) {
     return <span className="h-2 w-2 rounded-full bg-[var(--text-muted)] shrink-0" />
   }
   if (credential.is_valid) {
-    return <span className="h-2 w-2 rounded-full bg-green-500 shrink-0" />
+    return <span className="h-2 w-2 rounded-full bg-[var(--status-success)] shrink-0" />
   }
-  return <span className="h-2 w-2 rounded-full bg-red-500 shrink-0" />
+  return <span className="h-2 w-2 rounded-full bg-[var(--status-error)] shrink-0" />
 }
 
 export function ProviderItem({ provider, credential, isSelected, onClick, modelCount }: ProviderItemProps) {

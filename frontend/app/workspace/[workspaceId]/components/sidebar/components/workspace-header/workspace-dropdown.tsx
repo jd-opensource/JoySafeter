@@ -243,7 +243,7 @@ export function WorkspaceDropdown({
                           {t('workspace.personal')}
                         </span>
                       ) : workspace.type === 'team' ? (
-                        <span className="w-[36px] rounded-sm bg-purple-100 px-[4px] py-[1px] text-center text-2xs font-medium text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">
+                        <span className="w-[36px] rounded-sm bg-[var(--brand-100)] px-[4px] py-[1px] text-center text-2xs font-medium text-[var(--brand-600)] dark:bg-[var(--brand-100)] dark:text-[var(--brand-400)]">
                           {t('workspace.team')}
                         </span>
                       ) : null}

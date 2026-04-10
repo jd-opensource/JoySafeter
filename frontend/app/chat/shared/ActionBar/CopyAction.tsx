@@ -17,7 +17,7 @@ export function CopyAction({ text }: CopyActionProps) {
       className="rounded-md p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)]"
       aria-label="Copy message"
     >
-      {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+      {copied ? <Check size={14} className="text-[var(--status-success)]" /> : <Copy size={14} />}
     </button>
   )
 }

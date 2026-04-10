@@ -255,7 +255,7 @@ export default function KnowledgePage() {
             <Button
               size="sm"
               onClick={openCreate}
-              className="h-9 gap-1.5 bg-[var(--skill-brand-600)] text-xs shadow-lg shadow-emerald-100 hover:bg-[var(--skill-brand-700)]"
+              className="h-9 gap-1.5 bg-[var(--skill-brand-600)] text-xs shadow-lg shadow-[var(--skill-brand-100)] hover:bg-[var(--skill-brand-700)]"
             >
               <Plus className="h-3.5 w-3.5" />
               {t('memory.addMemory')}
@@ -316,7 +316,7 @@ export default function KnowledgePage() {
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center py-12 text-[var(--text-tertiary)]">
-            <AlertCircle className="mb-3 h-10 w-10 text-red-400" />
+            <AlertCircle className="mb-3 h-10 w-10 text-[var(--status-error)]" />
             <p>{t('memory.loadError')}</p>
           </div>
         ) : memories.length === 0 ? (
@@ -410,7 +410,7 @@ export default function KnowledgePage() {
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                       onClick={() => setDeleteConfirmMemory(memory)}
-                      className="text-red-600 focus:text-red-600"
+                      className="text-[var(--status-error)] focus:text-[var(--status-error)]"
                     >
                       <Trash2 size={14} className="mr-2" />
                       {t('memory.delete')}

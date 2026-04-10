@@ -59,7 +59,7 @@ export function OpenClawWebUI() {
         <p className="mb-8 max-w-md text-center leading-relaxed text-[var(--text-secondary)]">
           You need to start an OpenClaw instance first to use the native Web UI for interacting with the Agent and managing devices.
           <br />
-          <span className="mt-2 block text-sm text-amber-500/90">
+          <span className="mt-2 block text-sm text-[var(--status-warning)]">
             Note: Instance startup takes about 4 minutes. Please be patient.
           </span>
         </p>

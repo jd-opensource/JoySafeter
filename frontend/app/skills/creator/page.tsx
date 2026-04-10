@@ -64,7 +64,7 @@ export default function SkillCreatorPage() {
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col border-r border-[var(--border-muted)]">
           {graphError && !hasRunState ? (
-            <div className="flex flex-1 items-center justify-center text-sm text-red-500">
+            <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-error)]">
               {graphError}
             </div>
           ) : !graphReady && !hasRunState ? (

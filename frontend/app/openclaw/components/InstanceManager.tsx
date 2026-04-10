@@ -22,11 +22,11 @@ interface InstanceStatus {
 }
 
 const statusStyles: Record<string, string> = {
-  running: 'bg-green-500/15 text-green-700 border-green-200',
-  starting: 'bg-blue-500/15 text-blue-700 border-blue-200',
+  running: 'bg-[var(--status-success)]/15 text-[var(--status-success)] border-[var(--status-success-border)]',
+  starting: 'bg-[var(--brand-500)]/15 text-[var(--brand-700)] border-[var(--brand-200)]',
   pending: 'bg-[var(--text-tertiary)] text-[var(--text-secondary)] border-[var(--border)]',
   stopped: 'bg-[var(--text-tertiary)] text-[var(--text-secondary)] border-[var(--border)]',
-  failed: 'bg-red-500/15 text-red-700 border-red-200',
+  failed: 'bg-[var(--status-error)]/15 text-[var(--status-error)] border-[var(--status-error-border)]',
 }
 
 export function InstanceManager() {
@@ -122,7 +122,7 @@ export function InstanceManager() {
               <span
                 className={cn(
                   'inline-block h-2 w-2 rounded-full',
-                  instance.alive ? 'bg-green-500' : 'bg-red-500',
+                  instance.alive ? 'bg-[var(--status-success)]' : 'bg-[var(--status-error)]',
                 )}
               />
               <span>Gateway {instance.alive ? 'Online' : 'Offline'}</span>
@@ -134,7 +134,7 @@ export function InstanceManager() {
             </div>
           )}
           {instance.errorMessage && (
-            <div className="text-xs text-red-600">{instance.errorMessage}</div>
+            <div className="text-xs text-[var(--status-error)]">{instance.errorMessage}</div>
           )}
         </div>
 
@@ -180,7 +180,7 @@ export function InstanceManager() {
           <Button
             size="sm"
             variant="ghost"
-            className="text-red-600 hover:text-red-700"
+            className="text-[var(--status-error)] hover:text-[var(--status-error-hover)]"
             onClick={() => deleteMutation.mutate()}
             disabled={isAnyLoading}
           >

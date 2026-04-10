@@ -291,7 +291,7 @@ export function AddMcpDialog({ open, onOpenChange, editingServer }: AddMcpDialog
             <div className="space-y-4">
               <div className="space-y-1.5">
                 <Label className="flex items-center gap-1 text-xs font-semibold text-[var(--text-secondary)]">
-                  <span className="text-red-500">*</span> {t('settings.name')}
+                  <span className="text-[var(--status-error)]">*</span> {t('settings.name')}
                 </Label>
                 <Input
                   value={name}
@@ -303,7 +303,7 @@ export function AddMcpDialog({ open, onOpenChange, editingServer }: AddMcpDialog
 
               <div className="space-y-1.5">
                 <Label className="flex items-center gap-1 text-xs font-semibold text-[var(--text-secondary)]">
-                  <span className="text-red-500">*</span> {t('settings.type')}{' '}
+                  <span className="text-[var(--status-error)]">*</span> {t('settings.type')}{' '}
                   <Info size={12} className="text-[var(--text-muted)]" />
                 </Label>
                 <Select
@@ -325,7 +325,7 @@ export function AddMcpDialog({ open, onOpenChange, editingServer }: AddMcpDialog
 
               <div className="space-y-1.5">
                 <Label className="flex items-center gap-1 text-xs font-semibold text-[var(--text-secondary)]">
-                  <span className="text-red-500">*</span> {t('settings.addressCommand')}
+                  <span className="text-[var(--status-error)]">*</span> {t('settings.addressCommand')}
                 </Label>
                 <Input
                   value={address}
@@ -363,7 +363,7 @@ export function AddMcpDialog({ open, onOpenChange, editingServer }: AddMcpDialog
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-9 w-9 text-[var(--text-muted)] hover:bg-red-50 hover:text-red-500"
+                      className="h-9 w-9 text-[var(--text-muted)] hover:bg-[var(--status-error-bg)] hover:text-[var(--status-error)]"
                       onClick={() => handleHeaderRemove(idx)}
                       aria-label={t('settings.removeHeader', { defaultValue: 'Remove header' })}
                     >

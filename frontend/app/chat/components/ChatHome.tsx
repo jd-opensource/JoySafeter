@@ -508,7 +508,7 @@ export default function ChatHome({
                         <Button
                           onClick={onStop}
                           size="sm"
-                          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-red-500 p-0 transition-all hover:bg-red-600"
+                          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[var(--status-error)] p-0 transition-all hover:bg-[var(--status-error-hover)]"
                           title={t('chat.stop')}
                         >
                           <Square size={12} className="fill-white text-white" />

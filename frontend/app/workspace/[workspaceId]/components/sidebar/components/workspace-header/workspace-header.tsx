@@ -117,7 +117,7 @@ export function WorkspaceHeader({
                   {t('workspace.personal')}
                 </span>
               ) : activeWorkspace?.type === 'team' ? (
-                <span className="w-[32px] shrink-0 rounded-sm bg-purple-100 px-[3px] py-[1px] text-center text-micro font-medium text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">
+                <span className="w-[32px] shrink-0 rounded-sm bg-[var(--brand-100)] px-[3px] py-[1px] text-center text-micro font-medium text-[var(--brand-600)] dark:bg-[var(--brand-100)] dark:text-[var(--brand-400)]">
                   {t('workspace.team')}
                 </span>
               ) : null}

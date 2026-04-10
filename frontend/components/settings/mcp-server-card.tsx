@@ -60,9 +60,9 @@ export function McpServerCard({
   const displayToolCount = toolCount ?? server.toolCount ?? 0
 
   return (
-    <div className="group flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 shadow-sm transition-all hover:border-blue-200 hover:shadow-md">
+    <div className="group flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 shadow-sm transition-all hover:border-[var(--brand-200)] hover:shadow-md">
       <div className="flex items-center gap-4">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-purple-100 bg-purple-50 text-purple-600">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--brand-100)] bg-[var(--brand-50)] text-[var(--brand-600)]">
           <Server size={18} />
         </div>
         <div>
@@ -70,7 +70,7 @@ export function McpServerCard({
             <h3 className="text-sm font-bold text-[var(--text-primary)]">{server.name}</h3>
             <Badge
               variant="outline"
-              className="border-purple-100 bg-purple-50 px-1.5 py-0 text-micro text-purple-600"
+              className="border-[var(--brand-100)] bg-[var(--brand-50)] px-1.5 py-0 text-micro text-[var(--brand-600)]"
             >
               {t('settings.mcpTag')}
             </Badge>
@@ -82,7 +82,7 @@ export function McpServerCard({
             {displayToolCount > 0 && (
               <Badge
                 variant="outline"
-                className="border-blue-100 bg-[var(--brand-50)] px-1.5 py-0 text-micro text-[var(--brand-600)]"
+                className="border-[var(--brand-100)] bg-[var(--brand-50)] px-1.5 py-0 text-micro text-[var(--brand-600)]"
               >
                 {formatToolCount(displayToolCount, t)}
               </Badge>
@@ -103,7 +103,7 @@ export function McpServerCard({
         {/* Active Status */}
         <div className="flex items-center gap-1.5 rounded-md border border-[var(--border-muted)] bg-[var(--surface-1)] px-2 py-1">
           <div
-            className={cn('h-1.5 w-1.5 rounded-full', isActive ? 'bg-emerald-500' : 'bg-[var(--text-subtle)]')}
+            className={cn('h-1.5 w-1.5 rounded-full', isActive ? 'bg-[var(--status-success)]' : 'bg-[var(--text-subtle)]')}
           />
           <span className="text-2xs font-medium uppercase text-[var(--text-secondary)]">
             {isActive ? t('settings.active') : t('settings.inactive')}
@@ -143,7 +143,7 @@ export function McpServerCard({
               {onDelete && (
                 <DropdownMenuItem
                   onClick={() => onDelete(server.id)}
-                  className="text-red-600 focus:text-red-600"
+                  className="text-[var(--status-error)] focus:text-[var(--status-error)]"
                   disabled={isDeleting}
                 >
                   <Trash2 size={14} className="mr-2" />
@@ -183,9 +183,9 @@ export function BuiltinToolCard({
     <TooltipProvider>
       <Tooltip delayDuration={300}>
         <TooltipTrigger asChild>
-          <div className="group flex cursor-default items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 shadow-sm transition-all hover:border-blue-200 hover:shadow-md">
+          <div className="group flex cursor-default items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 shadow-sm transition-all hover:border-[var(--brand-200)] hover:shadow-md">
             <div className="flex items-center gap-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-blue-100 bg-[var(--brand-50)] text-[var(--brand-600)]">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--brand-100)] bg-[var(--brand-50)] text-[var(--brand-600)]">
                 <Wrench size={18} />
               </div>
               <div>
@@ -204,7 +204,7 @@ export function BuiltinToolCard({
 
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5 rounded-md border border-[var(--border-muted)] bg-[var(--surface-1)] px-2 py-1">
-                <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                <div className="h-1.5 w-1.5 rounded-full bg-[var(--status-success)]" />
                 <span className="text-2xs font-medium uppercase text-[var(--text-secondary)]">
                   {t('settings.active')}
                 </span>

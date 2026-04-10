@@ -96,7 +96,7 @@ export function SkillApiAccessDialog({
                           onClick={() => copyUrl(apiUrl)}
                         >
                           {copiedUrl ? (
-                            <Check className="h-4 w-4 text-green-600" />
+                            <Check className="h-4 w-4 text-[var(--status-success)]" />
                           ) : (
                             <Copy className="h-4 w-4 text-[var(--text-tertiary)]" />
                           )}
@@ -139,7 +139,7 @@ export function SkillApiAccessDialog({
                             onClick={() => copyCode(curlExample)}
                           >
                             {copiedCode ? (
-                              <Check className="h-3 w-3 text-green-600" />
+                              <Check className="h-3 w-3 text-[var(--status-success)]" />
                             ) : (
                               <Copy className="h-3 w-3 text-[var(--text-tertiary)]" />
                             )}

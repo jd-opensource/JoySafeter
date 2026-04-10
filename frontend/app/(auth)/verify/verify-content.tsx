@@ -139,7 +139,7 @@ function VerificationForm({
                       'h-12 w-12 !rounded-auth border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
                       'border-[var(--border-strong)] hover:border-[var(--border-strong)]',
                       'focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-muted)]',
-                      isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
+                      isInvalidOtp && 'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)]',
                     )}
                   />
                   <InputOTPSlot
@@ -148,7 +148,7 @@ function VerificationForm({
                       'h-12 w-12 !rounded-auth border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
                       'border-[var(--border-strong)] hover:border-[var(--border-strong)]',
                       'focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-muted)]',
-                      isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
+                      isInvalidOtp && 'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)]',
                     )}
                   />
                   <InputOTPSlot
@@ -157,7 +157,7 @@ function VerificationForm({
                       'h-12 w-12 !rounded-auth border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
                       'border-[var(--border-strong)] hover:border-[var(--border-strong)]',
                       'focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-muted)]',
-                      isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
+                      isInvalidOtp && 'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)]',
                     )}
                   />
                   <InputOTPSlot
@@ -166,7 +166,7 @@ function VerificationForm({
                       'h-12 w-12 !rounded-auth border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
                       'border-[var(--border-strong)] hover:border-[var(--border-strong)]',
                       'focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-muted)]',
-                      isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
+                      isInvalidOtp && 'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)]',
                     )}
                   />
                   <InputOTPSlot
@@ -175,7 +175,7 @@ function VerificationForm({
                       'h-12 w-12 !rounded-auth border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
                       'border-[var(--border-strong)] hover:border-[var(--border-strong)]',
                       'focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-muted)]',
-                      isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
+                      isInvalidOtp && 'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)]',
                     )}
                   />
                   <InputOTPSlot
@@ -184,7 +184,7 @@ function VerificationForm({
                       'h-12 w-12 !rounded-auth border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
                       'border-[var(--border-strong)] hover:border-[var(--border-strong)]',
                       'focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-muted)]',
-                      isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
+                      isInvalidOtp && 'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)]',
                     )}
                   />
                 </InputOTPGroup>

@@ -521,7 +521,7 @@ export default function WorkspaceMembersPage() {
                                 {member.isOwner && (
                                   <Badge
                                     variant="secondary"
-                                    className="border-yellow-200 bg-yellow-100 px-2 py-0.5 text-yellow-800"
+                                    className="border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-2 py-0.5 text-[var(--status-warning)]"
                                   >
                                     <Crown className="mr-1 h-3 w-3" />
                                     {t('workspace.roles.owner')}
@@ -630,7 +630,7 @@ export default function WorkspaceMembersPage() {
                                     <Button
                                       size="sm"
                                       variant="ghost"
-                                      className="h-8 w-8 p-0 hover:bg-red-50 hover:text-red-600"
+                                      className="h-8 w-8 p-0 hover:bg-[var(--status-error-bg)] hover:text-[var(--status-error)]"
                                       onClick={() => setRemoveMemberId(member.userId)}
                                     >
                                       <Trash2 className="h-4 w-4" />

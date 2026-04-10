@@ -179,13 +179,13 @@ export const SandboxesPage = () => {
       case 'running':
         return {
           color: 'bg-[var(--status-success-bg)] text-[var(--status-success)] border-[var(--status-success-border)]',
-          dot: 'bg-emerald-500',
+          dot: 'bg-[var(--status-success)]',
           animate: true,
         }
       case 'creating':
         return {
-          color: 'bg-blue-50 text-blue-700 border-blue-200',
-          dot: 'bg-blue-500',
+          color: 'bg-[var(--brand-50)] text-[var(--brand-700)] border-[var(--brand-200)]',
+          dot: 'bg-[var(--brand-500)]',
           animate: true,
         }
       case 'stopped':
@@ -196,8 +196,8 @@ export const SandboxesPage = () => {
         }
       case 'failed':
         return {
-          color: 'bg-red-50 text-red-700 border-red-200',
-          dot: 'bg-red-500',
+          color: 'bg-[var(--status-error-bg)] text-[var(--status-error-hover)] border-[var(--status-error-border)]',
+          dot: 'bg-[var(--status-error)]',
           animate: false,
         }
       default:
@@ -223,7 +223,7 @@ export const SandboxesPage = () => {
         {/* Header */}
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 p-2 shadow-sm">
+            <div className="rounded-lg bg-gradient-to-br from-[var(--brand-500)] to-[var(--brand-600)] p-2 shadow-sm">
               <Box className="h-5 w-5 text-white" />
             </div>
             <div>
@@ -396,7 +396,7 @@ export const SandboxesPage = () => {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-7 px-2 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
+                                  className="h-7 px-2 text-[var(--status-success)] hover:bg-[var(--status-success-bg)] hover:text-[var(--status-success-hover)]"
                                   onClick={handleInlineSave}
                                   disabled={inlineSaving}
                                   aria-label="Save image"
@@ -423,7 +423,7 @@ export const SandboxesPage = () => {
                             <div className="flex flex-wrap items-center gap-2">
                               <button
                                 type="button"
-                                className="max-w-[140px] cursor-pointer truncate text-left font-mono text-xs text-[var(--text-secondary)] hover:text-violet-600 hover:underline"
+                                className="max-w-[140px] cursor-pointer truncate text-left font-mono text-xs text-[var(--text-secondary)] hover:text-[var(--brand-600)] hover:underline"
                                 title={sandbox.image}
                                 onClick={() => openInlineEdit(sandbox)}
                                 disabled={actionLoading === sandbox.id}
@@ -433,7 +433,7 @@ export const SandboxesPage = () => {
                               {needsRebuild.has(sandbox.id) && (
                                 <Badge
                                   variant="outline"
-                                  className="shrink-0 rounded-md border-amber-200 bg-amber-50 text-2xs font-medium text-amber-700"
+                                  className="shrink-0 rounded-md border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-2xs font-medium text-[var(--status-warning)]"
                                 >
                                   {t('settings.sandboxes.needsRebuild')}
                                 </Badge>
@@ -443,7 +443,7 @@ export const SandboxesPage = () => {
                         </TableCell>
                         <TableCell className="py-3">
                           {sandbox.status === 'running' && sandbox.last_active_at ? (
-                            <div className="flex items-center gap-1.5 text-xs text-emerald-600">
+                            <div className="flex items-center gap-1.5 text-xs text-[var(--status-success)]">
                               <Clock className="h-3.5 w-3.5" />
                               <span className="font-medium">
                                 {formatDistance(new Date(sandbox.last_active_at), now, { addSuffix: true, includeSeconds: true })}
@@ -461,7 +461,7 @@ export const SandboxesPage = () => {
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-7 w-7 rounded-md text-amber-600 hover:bg-amber-50 hover:text-amber-700"
+                                    className="h-7 w-7 rounded-md text-[var(--status-warning)] hover:bg-[var(--status-warning-bg)] hover:text-[var(--status-warning)]"
                                     onClick={() =>
                                       setConfirmDialog({
                                         type: 'stop',
@@ -485,7 +485,7 @@ export const SandboxesPage = () => {
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-7 w-7 rounded-md text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
+                                    className="h-7 w-7 rounded-md text-[var(--status-success)] hover:bg-[var(--status-success-bg)] hover:text-[var(--status-success-hover)]"
                                     onClick={() =>
                                       setConfirmDialog({
                                         type: 'restart',
@@ -509,7 +509,7 @@ export const SandboxesPage = () => {
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-7 w-7 rounded-md text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                                  className="h-7 w-7 rounded-md text-[var(--brand-600)] hover:bg-[var(--brand-50)] hover:text-[var(--brand-700)]"
                                   onClick={() =>
                                     setConfirmDialog({
                                       type: 'rebuild',
@@ -532,7 +532,7 @@ export const SandboxesPage = () => {
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-7 w-7 rounded-md text-red-600 hover:bg-red-50 hover:text-red-700"
+                                  className="h-7 w-7 rounded-md text-[var(--status-error)] hover:bg-[var(--status-error-bg)] hover:text-[var(--status-error-hover)]"
                                   onClick={() =>
                                     setConfirmDialog({
                                       type: 'delete',

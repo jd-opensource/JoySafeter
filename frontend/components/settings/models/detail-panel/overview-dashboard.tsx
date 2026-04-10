@@ -40,14 +40,14 @@ export function OverviewDashboard() {
         <div className="grid grid-cols-3 gap-3">
           <div className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface-elevated)] p-4">
             <div className="flex items-center gap-2 mb-1">
-              <CheckCircle className="h-4 w-4 text-green-500" />
+              <CheckCircle className="h-4 w-4 text-[var(--status-success)]" />
               <span className="text-xs text-[var(--text-tertiary)]">{t('settings.healthy')}</span>
             </div>
             <p className="text-2xl font-bold text-[var(--text-primary)]">{overview.healthy_providers}</p>
           </div>
           <div className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface-elevated)] p-4">
             <div className="flex items-center gap-2 mb-1">
-              <XCircle className="h-4 w-4 text-red-500" />
+              <XCircle className="h-4 w-4 text-[var(--status-error)]" />
               <span className="text-xs text-[var(--text-tertiary)]">{t('settings.unhealthy')}</span>
             </div>
             <p className="text-2xl font-bold text-[var(--text-primary)]">{overview.unhealthy_providers}</p>
@@ -69,19 +69,19 @@ export function OverviewDashboard() {
         </div>
         <div className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface-elevated)] p-4">
           <p className="text-xs text-[var(--text-tertiary)] mb-1">{t('settings.availableModels')}</p>
-          <p className="text-2xl font-bold text-green-600">{overview.available_models}</p>
+          <p className="text-2xl font-bold text-[var(--status-success)]">{overview.available_models}</p>
         </div>
       </div>
 
       {overview.recent_credential_failure && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+        <div className="rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] p-4">
           <div className="flex items-start gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+            <AlertTriangle className="h-4 w-4 text-[var(--status-warning)] mt-0.5 shrink-0" />
             <div>
-              <p className="text-xs font-semibold text-amber-800 mb-1">
+              <p className="text-xs font-semibold text-[var(--status-warning-strong,var(--status-warning))] mb-1">
                 {t('settings.recentCredentialFailure', { provider: overview.recent_credential_failure.provider_display_name })}
               </p>
-              <p className="text-xs text-amber-700 line-clamp-2">{overview.recent_credential_failure.error}</p>
+              <p className="text-xs text-[var(--status-warning)] line-clamp-2">{overview.recent_credential_failure.error}</p>
             </div>
           </div>
         </div>

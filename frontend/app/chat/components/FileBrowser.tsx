@@ -55,24 +55,24 @@ export default function FileBrowser({
   const getFileIcon = (node: FileNode) => {
     if (node.type === 'directory') {
       return expandedDirs.has(node.path) ? (
-        <FolderOpen size={16} className="text-blue-500" />
+        <FolderOpen size={16} className="text-[var(--brand-500)]" />
       ) : (
-        <Folder size={16} className="text-blue-500" />
+        <Folder size={16} className="text-[var(--brand-500)]" />
       )
     }
 
     const ext = node.extension?.toLowerCase() || ''
     if (['ts', 'tsx', 'js', 'jsx'].includes(ext)) {
-      return <FileCode size={16} className="text-blue-400" />
+      return <FileCode size={16} className="text-[var(--brand-400)]" />
     }
     if (['json'].includes(ext)) {
-      return <FileJson size={16} className="text-yellow-500" />
+      return <FileJson size={16} className="text-[var(--status-warning)]" />
     }
     if (['md', 'txt'].includes(ext)) {
       return <FileText size={16} className="text-[var(--text-tertiary)]" />
     }
     if (['png', 'jpg', 'jpeg', 'gif', 'svg'].includes(ext)) {
-      return <ImageIcon size={16} className="text-purple-500" />
+      return <ImageIcon size={16} className="text-[var(--brand-600)]" />
     }
     return <File size={16} className="text-[var(--text-muted)]" />
   }
@@ -87,7 +87,7 @@ export default function FileBrowser({
         <div
           className={cn(
             'flex cursor-pointer items-center gap-1.5 py-1.5 text-sm transition-colors hover:bg-[var(--surface-3)]',
-            isSelected && 'bg-blue-50 hover:bg-blue-100',
+            isSelected && 'bg-[var(--brand-50)] hover:bg-[var(--brand-100)]',
           )}
           style={{ paddingLeft: `${paddingLeft}px` }}
           onClick={() => {
@@ -104,7 +104,7 @@ export default function FileBrowser({
             </span>
           )}
           <span className="flex-shrink-0">{getFileIcon(node)}</span>
-          <span className={cn('flex-1 truncate', isSelected && 'font-medium text-blue-700')}>
+          <span className={cn('flex-1 truncate', isSelected && 'font-medium text-[var(--brand-700)]')}>
             {node.name}
           </span>
         </div>

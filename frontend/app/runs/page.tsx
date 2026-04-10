@@ -85,7 +85,7 @@ function RunRow({
               </span>
             )}
             {run.error_message && (
-              <span className="truncate text-red-500">{run.error_message}</span>
+              <span className="truncate text-[var(--text-error)]">{run.error_message}</span>
             )}
           </div>
         </div>

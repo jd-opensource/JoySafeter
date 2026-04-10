@@ -48,9 +48,9 @@ export function NewSkillDialog({ open, onOpenChange, onSelectOption }: NewSkillD
             onSelectOption('manual')
             onOpenChange(false)
           }}
-          className="group flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-[var(--border-muted)] bg-[var(--surface-elevated)] p-6 text-center shadow-sm transition-all hover:border-blue-500 hover:shadow-md"
+          className="group flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-[var(--border-muted)] bg-[var(--surface-elevated)] p-6 text-center shadow-sm transition-all hover:border-[var(--brand-500)] hover:shadow-md"
         >
-          <div className="rounded-full bg-[var(--surface-1)] p-4 text-[var(--text-tertiary)] transition-transform group-hover:scale-110 group-hover:bg-blue-50 group-hover:text-blue-500">
+          <div className="rounded-full bg-[var(--surface-1)] p-4 text-[var(--text-tertiary)] transition-transform group-hover:scale-110 group-hover:bg-[var(--brand-50)] group-hover:text-[var(--brand-500)]">
             <FileCode size={32} />
           </div>
           <div>
@@ -67,9 +67,9 @@ export function NewSkillDialog({ open, onOpenChange, onSelectOption }: NewSkillD
             onSelectOption('import')
             onOpenChange(false)
           }}
-          className="group flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-[var(--border-muted)] bg-[var(--surface-elevated)] p-6 text-center shadow-sm transition-all hover:border-orange-500 hover:shadow-md"
+          className="group flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-[var(--border-muted)] bg-[var(--surface-elevated)] p-6 text-center shadow-sm transition-all hover:border-[var(--status-warning)] hover:shadow-md"
         >
-          <div className="rounded-full bg-[var(--surface-1)] p-4 text-[var(--text-tertiary)] transition-transform group-hover:scale-110 group-hover:bg-orange-50 group-hover:text-orange-500">
+          <div className="rounded-full bg-[var(--surface-1)] p-4 text-[var(--text-tertiary)] transition-transform group-hover:scale-110 group-hover:bg-[var(--status-warning-bg)] group-hover:text-[var(--status-warning)]">
             <FolderOpen size={32} />
           </div>
           <div>

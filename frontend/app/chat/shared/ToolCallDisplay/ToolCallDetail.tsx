@@ -23,9 +23,9 @@ export function ToolCallDetail({ name, args, status, result, startTime, endTime 
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium text-[var(--text-primary)]">{display.label}</h3>
         <span className={`rounded-full px-2 py-0.5 text-xs ${
-          status === 'completed' ? 'bg-green-100 text-green-700' :
-          status === 'failed' ? 'bg-red-100 text-red-700' :
-          'bg-blue-100 text-blue-700'
+          status === 'completed' ? 'bg-[var(--status-success-bg)] text-[var(--status-success)]' :
+          status === 'failed' ? 'bg-[var(--status-error-bg)] text-[var(--status-error)]' :
+          'bg-[var(--brand-50)] text-[var(--brand-700)]'
         }`}>
           {status === 'completed' ? t('common.statusCompleted') :
            status === 'failed' ? t('common.statusFailed') :

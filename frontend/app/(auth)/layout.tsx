@@ -100,7 +100,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                 </h1>
                 <div className="flex items-center gap-2">
                   <span
-                    className="rounded-full bg-violet-100 px-3 py-1 text-sm font-semibold text-violet-700"
+                    className="rounded-full bg-[var(--brand-100)] px-3 py-1 text-sm font-semibold text-[var(--brand-700)]"
                     suppressHydrationWarning
                   >
                     {mounted
@@ -114,7 +114,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
               <div className="space-y-2.5">
                 <div className="group flex items-center gap-4">
                   <div className="relative">
-                    <div className="h-[3px] w-10 rounded-full bg-gradient-to-r from-[var(--gradient-brand-from)] to-[var(--gradient-brand-accent)] shadow-sm shadow-violet-400/50" />
+                    <div className="h-[3px] w-10 rounded-full bg-gradient-to-r from-[var(--gradient-brand-from)] to-[var(--gradient-brand-accent)] shadow-sm shadow-[var(--brand-400)]/50" />
                     <div className="absolute inset-0 h-[3px] w-10 rounded-full bg-gradient-to-r from-[var(--gradient-brand-from)] to-[var(--gradient-brand-accent)] opacity-60 blur-sm" />
                   </div>
                   <p
@@ -128,7 +128,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                 </div>
                 <div className="group flex items-center gap-4">
                   <div className="relative">
-                    <div className="h-[3px] w-10 rounded-full bg-gradient-to-r from-[var(--gradient-secondary-from)] to-[var(--gradient-secondary-to)] shadow-sm shadow-cyan-400/50" />
+                    <div className="h-[3px] w-10 rounded-full bg-gradient-to-r from-[var(--gradient-secondary-from)] to-[var(--gradient-secondary-to)] shadow-sm shadow-[var(--brand-secondary)]/50" />
                     <div className="absolute inset-0 h-[3px] w-10 rounded-full bg-gradient-to-r from-[var(--gradient-secondary-from)] to-[var(--gradient-secondary-to)] opacity-60 blur-sm" />
                   </div>
                   <p
@@ -144,8 +144,8 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
               {/* Feature tags - 2x2 grid */}
               <div className="grid grid-cols-2 gap-3">
-                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 backdrop-blur-sm transition-all hover:border-blue-300/60 hover:bg-blue-50/40">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-cyan-500 shadow-sm">
+                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 backdrop-blur-sm transition-all hover:border-[var(--brand-secondary)]/60 hover:bg-[var(--brand-50)]/40">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--brand-secondary)] to-[var(--gradient-secondary-to)] shadow-sm">
                     <svg
                       className="h-4 w-4 text-white"
                       fill="none"
@@ -161,14 +161,14 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                     </svg>
                   </div>
                   <span
-                    className="text-sm font-semibold text-[var(--text-secondary)] transition-colors group-hover:text-blue-700"
+                    className="text-sm font-semibold text-[var(--text-secondary)] transition-colors group-hover:text-[var(--brand-secondary)]"
                     suppressHydrationWarning
                   >
                     {mounted ? t('auth.featureIntelligentOrchestration') : 'Auto Orchestration'}
                   </span>
                 </div>
-                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 backdrop-blur-sm transition-all hover:border-violet-300/60 hover:bg-violet-50/40">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-purple-500 shadow-sm">
+                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 backdrop-blur-sm transition-all hover:border-[var(--brand-400)]/60 hover:bg-[var(--brand-50)]/40">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--brand-500)] to-[var(--brand-700)] shadow-sm">
                     <svg
                       className="h-4 w-4 text-white"
                       fill="none"
@@ -184,14 +184,14 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                     </svg>
                   </div>
                   <span
-                    className="text-sm font-semibold text-[var(--text-secondary)] transition-colors group-hover:text-violet-700"
+                    className="text-sm font-semibold text-[var(--text-secondary)] transition-colors group-hover:text-[var(--brand-700)]"
                     suppressHydrationWarning
                   >
                     {mounted ? t('auth.featureSecure') : 'Security Agent'}
                   </span>
                 </div>
-                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 backdrop-blur-sm transition-all hover:border-cyan-300/60 hover:bg-cyan-50/40">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500 to-blue-500 shadow-sm">
+                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 backdrop-blur-sm transition-all hover:border-[var(--gradient-secondary-from)]/60 hover:bg-[var(--brand-50)]/40">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--gradient-secondary-from)] to-[var(--brand-secondary)] shadow-sm">
                     <svg
                       className="h-4 w-4 text-white"
                       fill="none"
@@ -207,14 +207,14 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                     </svg>
                   </div>
                   <span
-                    className="text-sm font-semibold text-[var(--text-secondary)] transition-colors group-hover:text-cyan-700"
+                    className="text-sm font-semibold text-[var(--text-secondary)] transition-colors group-hover:text-[var(--gradient-secondary-from)]"
                     suppressHydrationWarning
                   >
                     {mounted ? t('auth.featureMultiAgent') : 'Modular'}
                   </span>
                 </div>
-                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 backdrop-blur-sm transition-all hover:border-purple-300/60 hover:bg-purple-50/40">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 shadow-sm">
+                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 backdrop-blur-sm transition-all hover:border-[var(--brand-600)]/60 hover:bg-[var(--brand-50)]/40">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--brand-600)] to-[var(--brand-tertiary)] shadow-sm">
                     <svg
                       className="h-4 w-4 text-white"
                       fill="none"
@@ -230,7 +230,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                     </svg>
                   </div>
                   <span
-                    className="text-sm font-semibold text-[var(--text-secondary)] transition-colors group-hover:text-purple-700"
+                    className="text-sm font-semibold text-[var(--text-secondary)] transition-colors group-hover:text-[var(--brand-600)]"
                     suppressHydrationWarning
                   >
                     {mounted ? t('auth.featureEfficient') : 'Self-Iterating'}

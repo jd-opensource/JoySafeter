@@ -16,11 +16,11 @@ export type McpConnectionStatus = 'connected' | 'disconnected' | 'error'
 export function getConnectionStatusIcon(status?: string): ReactNode {
   switch (status as McpConnectionStatus) {
     case 'connected':
-      return <CheckCircle2 size={12} className="text-emerald-500" />
+      return <CheckCircle2 size={12} className="text-[var(--status-success)]" />
     case 'error':
-      return <AlertCircle size={12} className="text-red-500" />
+      return <AlertCircle size={12} className="text-[var(--status-error)]" />
     default:
-      return <XCircle size={12} className="text-gray-400" />
+      return <XCircle size={12} className="text-[var(--text-muted)]" />
   }
 }
 
@@ -56,11 +56,11 @@ export function getConnectionStatusText(status?: string, t?: (key: string) => st
 export function getConnectionStatusClassName(status?: string): string {
   switch (status as McpConnectionStatus) {
     case 'connected':
-      return 'text-emerald-600 bg-emerald-50 border-emerald-200'
+      return 'text-[var(--status-success)] bg-[var(--status-success-bg)] border-[var(--status-success-border)]'
     case 'error':
-      return 'text-red-600 bg-red-50 border-red-200'
+      return 'text-[var(--status-error)] bg-[var(--status-error-bg)] border-[var(--status-error-border)]'
     default:
-      return 'text-gray-600 bg-gray-50 border-gray-200'
+      return 'text-[var(--text-muted)] bg-[var(--surface-2)] border-[var(--border)]'
   }
 }
 

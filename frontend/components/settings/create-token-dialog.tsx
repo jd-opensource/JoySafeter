@@ -85,7 +85,7 @@ export function CreateTokenDialog({ open, onOpenChange, onSubmit, isPending }: C
       {/* Name */}
       <div className="space-y-1.5">
         <Label className="flex items-center gap-1 text-xs font-semibold text-[var(--text-secondary)]">
-          <span className="text-red-500">*</span> {t('settings.tokens.name')}
+          <span className="text-[var(--status-error)]">*</span> {t('settings.tokens.name')}
         </Label>
         <Input
           value={name}

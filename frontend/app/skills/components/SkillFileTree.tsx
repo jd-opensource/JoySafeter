@@ -35,16 +35,16 @@ export const getFileIcon = (path: string, _fileType: string) => {
   const filename = getFilenameFromPath(path)
 
   if (filename === 'SKILL.md') return <FileText size={14} className="text-[var(--skill-brand)]" />
-  if (filename.endsWith('.md')) return <FileText size={14} className="text-blue-400" />
-  if (filename.endsWith('.py')) return <Terminal size={14} className="text-yellow-500" />
+  if (filename.endsWith('.md')) return <FileText size={14} className="text-[var(--brand-400)]" />
+  if (filename.endsWith('.py')) return <Terminal size={14} className="text-[var(--status-warning)]" />
   if (filename.endsWith('.js') || filename.endsWith('.ts'))
-    return <FileCode size={14} className="text-amber-500" />
-  if (filename.endsWith('.json')) return <FileCode size={14} className="text-green-500" />
+    return <FileCode size={14} className="text-[var(--status-warning)]" />
+  if (filename.endsWith('.json')) return <FileCode size={14} className="text-[var(--status-success)]" />
   if (filename.endsWith('.sh')) return <Terminal size={14} className="text-[var(--text-tertiary)]" />
   if (filename.endsWith('.yaml') || filename.endsWith('.yml'))
-    return <FileCode size={14} className="text-purple-400" />
+    return <FileCode size={14} className="text-[var(--brand-400)]" />
   if (filename.endsWith('.html') || filename.endsWith('.css'))
-    return <FileCode size={14} className="text-pink-500" />
+    return <FileCode size={14} className="text-[var(--brand-secondary)]" />
 
   return <FileCode size={14} className="text-[var(--text-muted)]" />
 }
@@ -85,9 +85,9 @@ function FileTreeNodeComponent({
               <ChevronRight size={12} className="text-[var(--text-muted)]" />
             )}
             {isExpanded ? (
-              <FolderOpen size={12} className="text-amber-500" />
+              <FolderOpen size={12} className="text-[var(--status-warning)]" />
             ) : (
-              <Folder size={12} className="text-amber-500" />
+              <Folder size={12} className="text-[var(--status-warning)]" />
             )}
             <span>{node.name}/</span>
           </div>
@@ -146,7 +146,7 @@ function FileTreeNodeComponent({
               e.stopPropagation()
               onRenameFile(node.file!)
             }}
-            className="p-0.5 text-[var(--text-muted)] hover:text-blue-600"
+            className="p-0.5 text-[var(--text-muted)] hover:text-[var(--brand-600)]"
             title="Rename"
           >
             <Pencil size={10} />
@@ -156,7 +156,7 @@ function FileTreeNodeComponent({
               e.stopPropagation()
               onDeleteFile(node.file!)
             }}
-            className="p-0.5 text-[var(--text-muted)] hover:text-red-600"
+            className="p-0.5 text-[var(--text-muted)] hover:text-[var(--status-error)]"
             title="Delete"
           >
             <Trash2 size={10} />

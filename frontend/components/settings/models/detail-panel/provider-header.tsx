@@ -25,14 +25,14 @@ function CredentialStatusBadge({ credential }: { credential?: ModelCredential })
   }
   if (credential.is_valid) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs text-green-700">
+      <span className="inline-flex items-center gap-1 rounded-full bg-[var(--status-success-bg)] px-2 py-0.5 text-xs text-[var(--status-success-hover)]">
         <CheckCircle className="h-3 w-3" />
         Valid
       </span>
     )
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-xs text-red-700">
+    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--status-error-bg)] px-2 py-0.5 text-xs text-[var(--status-error-hover)]">
       <XCircle className="h-3 w-3" />
       Invalid
     </span>
@@ -96,7 +96,7 @@ export function ProviderHeader({ provider, credential, onEditCredential, onDelet
 
         <div className="flex items-center gap-2">
           {provider.provider_type === 'custom' && onDeleteProvider && (
-            <Button variant="outline" size="sm" onClick={onDeleteProvider} className="text-red-600 hover:text-red-700">
+            <Button variant="outline" size="sm" onClick={onDeleteProvider} className="text-[var(--status-error)] hover:text-[var(--status-error-hover)]">
               Delete
             </Button>
           )}
@@ -128,7 +128,7 @@ export function ProviderHeader({ provider, credential, onEditCredential, onDelet
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-6 px-2 text-xs text-red-600 hover:text-red-700"
+                  className="h-6 px-2 text-xs text-[var(--status-error)] hover:text-[var(--status-error-hover)]"
                   onClick={handleClearCredential}
                   disabled={deleteMutation.isPending}
                 >
@@ -147,7 +147,7 @@ export function ProviderHeader({ provider, credential, onEditCredential, onDelet
         )}
 
         {credential?.validation_error && !credential.is_valid && (
-          <p className="mt-1 text-xs text-red-600 line-clamp-2">{credential.validation_error}</p>
+          <p className="mt-1 text-xs text-[var(--status-error)] line-clamp-2">{credential.validation_error}</p>
         )}
       </div>
     </div>

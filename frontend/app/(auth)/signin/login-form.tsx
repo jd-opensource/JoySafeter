@@ -414,7 +414,7 @@ export default function LoginPage() {
                 {...form.register('email')}
                 className={cn(
                   'rounded-auth shadow-sm transition-colors focus:border-[var(--brand-400)] focus:ring-2 focus:ring-[var(--brand-100)]',
-                    'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
+                    'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)] focus-visible:ring-[var(--status-error)]',
                 )}
               />
             </div>
@@ -444,7 +444,7 @@ export default function LoginPage() {
                   className={cn(
                     'rounded-auth pr-10 shadow-sm transition-colors focus:border-[var(--brand-400)] focus:ring-2 focus:ring-[var(--brand-100)]',
                     form.formState.errors.password &&
-                      'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
+                      'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)] focus-visible:ring-[var(--status-error)]',
                   )}
                 />
                 <button
@@ -541,7 +541,7 @@ export default function LoginPage() {
                 type="email"
                 className={cn(
                   'rounded-auth shadow-sm transition-colors focus:border-[var(--brand-400)] focus:ring-2 focus:ring-[var(--brand-100)]',
-                    'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
+                    'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)] focus-visible:ring-[var(--status-error)]',
                 )}
               />
             </div>

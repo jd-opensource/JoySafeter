@@ -61,9 +61,9 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                   <span
                     className={`text-2xs ${
                       (name?.length || 0) > MAX_SKILL_NAME_LENGTH
-                        ? 'text-red-500'
+                        ? 'text-[var(--text-error)]'
                         : (name?.length || 0) > 50
-                          ? 'text-amber-500'
+                          ? 'text-[var(--status-warning)]'
                           : 'text-[var(--text-muted)]'
                     }`}
                   >
@@ -96,9 +96,9 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                   <span
                     className={`text-2xs ${
                       (description?.length || 0) > MAX_SKILL_DESCRIPTION_LENGTH
-                        ? 'text-red-500'
+                        ? 'text-[var(--text-error)]'
                         : (description?.length || 0) > 900
-                          ? 'text-amber-500'
+                          ? 'text-[var(--status-warning)]'
                           : 'text-[var(--text-muted)]'
                     }`}
                   >
@@ -170,9 +170,9 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                       <span
                         className={`text-2xs ${
                           (compatibility?.length || 0) > MAX_COMPATIBILITY_LENGTH
-                            ? 'text-red-500'
+                            ? 'text-[var(--text-error)]'
                             : (compatibility?.length || 0) > 450
-                              ? 'text-amber-500'
+                              ? 'text-[var(--status-warning)]'
                               : 'text-[var(--text-muted)]'
                         }`}
                       >

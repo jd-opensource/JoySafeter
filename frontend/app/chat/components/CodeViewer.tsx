@@ -60,17 +60,17 @@ const getPrismLanguage = (lang: string): string => {
 
 function LanguageBadge({ language }: { language: string }) {
   const colors: Record<string, string> = {
-    python: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-    typescript: 'bg-blue-100 text-blue-700 border-blue-200',
-    javascript: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-    json: 'bg-purple-100 text-purple-700 border-purple-200',
+    python: 'bg-[var(--skill-brand-100)] text-[var(--skill-brand-700)] border-[var(--skill-brand-200)]',
+    typescript: 'bg-[var(--brand-100)] text-[var(--brand-700)] border-[var(--brand-200)]',
+    javascript: 'bg-[var(--status-warning-bg)] text-[var(--status-warning)] border-[var(--status-warning-border)]',
+    json: 'bg-[var(--brand-50)] text-[var(--brand-600)] border-[var(--brand-200)]',
     markdown: 'bg-[var(--surface-3)] text-[var(--text-secondary)] border-[var(--border)]',
-    bash: 'bg-red-100 text-red-700 border-red-200',
-    shell: 'bg-red-100 text-red-700 border-red-200',
-    yaml: 'bg-pink-100 text-pink-700 border-pink-200',
-    html: 'bg-orange-100 text-orange-700 border-orange-200',
-    css: 'bg-indigo-100 text-indigo-700 border-indigo-200',
-    sql: 'bg-cyan-100 text-cyan-700 border-cyan-200',
+    bash: 'bg-[var(--status-error-bg)] text-[var(--status-error)] border-[var(--status-error-border)]',
+    shell: 'bg-[var(--status-error-bg)] text-[var(--status-error)] border-[var(--status-error-border)]',
+    yaml: 'bg-[var(--status-error-bg)] text-[var(--status-error)] border-[var(--status-error-border)]',
+    html: 'bg-[var(--status-warning-bg)] text-[var(--status-warning)] border-[var(--status-warning-border)]',
+    css: 'bg-[var(--brand-100)] text-[var(--brand-700)] border-[var(--brand-200)]',
+    sql: 'bg-[var(--brand-100)] text-[var(--brand-600)] border-[var(--brand-200)]',
   }
 
   const colorClass = colors[language.toLowerCase()] || 'bg-[var(--surface-3)] text-[var(--text-secondary)] border-[var(--border)]'
@@ -150,7 +150,7 @@ export default function CodeViewer({
         >
           {copied ? (
             <>
-              <Check size={12} className="text-emerald-600" />
+              <Check size={12} className="text-[var(--status-success)]" />
               <span className="text-2xs">{t('chat.copied')}</span>
             </>
           ) : (

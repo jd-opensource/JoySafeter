@@ -24,9 +24,9 @@ interface UnifiedDialogProps {
   description?: React.ReactNode
   /** Title icon (optional) */
   icon?: React.ReactNode
-  /** Icon background color, defaults to bg-blue-50 */
+  /** Icon background color, defaults to bg-[var(--brand-50)] */
   iconBgColor?: string
-  /** Icon color, defaults to text-blue-600 */
+  /** Icon color, defaults to text-[var(--brand-600)] */
   iconColor?: string
   /** Dialog content */
   children: React.ReactNode

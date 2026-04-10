@@ -99,10 +99,10 @@ function ConversationItem({
                   conv.title || t('chat.newChat'),
                 )
               }
-              className="flex-shrink-0 rounded p-1 opacity-0 transition-all hover:bg-red-100 group-hover:opacity-100"
+              className="flex-shrink-0 rounded p-1 opacity-0 transition-all hover:bg-[var(--status-error-bg)] group-hover:opacity-100"
               title={t('chat.delete')}
             >
-              <Trash2 size={12} className="text-[var(--text-muted)] hover:text-red-600" />
+              <Trash2 size={12} className="text-[var(--text-muted)] hover:text-[var(--status-error)]" />
             </button>
           </AlertDialogTrigger>
           <AlertDialogContent variant="destructive">

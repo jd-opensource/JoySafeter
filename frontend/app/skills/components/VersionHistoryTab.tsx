@@ -120,7 +120,7 @@ export function VersionHistoryTab({ skillId, userRole }: VersionHistoryTabProps)
                   className="mt-1"
                 />
                 {form.formState.errors.version && (
-                  <p className="mt-1 text-xs text-red-500">
+                  <p className="mt-1 text-xs text-[var(--text-error)]">
                     {t('skillVersions.invalidVersion')}
                   </p>
                 )}
@@ -186,7 +186,7 @@ export function VersionHistoryTab({ skillId, userRole }: VersionHistoryTabProps)
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-7 gap-1 text-xs text-red-500 hover:text-red-700"
+                    className="h-7 gap-1 text-xs text-[var(--status-error)] hover:text-[var(--status-error-hover)]"
                     onClick={() =>
                       setConfirmDialog({ type: 'delete', version: v.version, open: true })
                     }

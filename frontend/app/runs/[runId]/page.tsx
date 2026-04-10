@@ -221,7 +221,7 @@ function CopilotTurnOverview({ projection, t }: { projection: CopilotTurnProject
 
       {/* Result */}
       {projection.result_message && (
-        <div className="rounded-md border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
+        <div className="rounded-md border border-[var(--status-success-border)] bg-[var(--status-success-bg)] p-3">
           <p className="text-sm font-medium">{t('runs.result')}</p>
           <p className="mt-1 whitespace-pre-wrap text-sm">{projection.result_message}</p>
           {projection.result_actions && projection.result_actions.length > 0 && (
@@ -241,9 +241,9 @@ function CopilotTurnOverview({ projection, t }: { projection: CopilotTurnProject
 
       {/* Error */}
       {projection.error && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950">
-          <p className="text-sm font-medium text-red-700 dark:text-red-400">{t('runs.error')}</p>
-          <p className="mt-1 text-sm text-red-600 dark:text-red-300">{projection.error}</p>
+        <div className="rounded-md border border-[var(--status-error-border)] bg-[var(--status-error-bg)] p-3">
+          <p className="text-sm font-medium text-[var(--status-error)]">{t('runs.error')}</p>
+          <p className="mt-1 text-sm text-[var(--status-error)]">{projection.error}</p>
         </div>
       )}
     </div>
@@ -448,7 +448,7 @@ export default function RunDetailPage() {
             {t('runs.loading')}
           </div>
         ) : loadError ? (
-          <Card className="border-red-200 bg-red-50 p-6 text-sm text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-400">
+          <Card className="border-[var(--status-error-border)] bg-[var(--status-error-bg)] p-6 text-sm text-[var(--status-error)]">
             {loadError}
           </Card>
         ) : !run ? (

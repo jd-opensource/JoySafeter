@@ -29,7 +29,7 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
         className="absolute right-2 top-2 z-10 rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] p-1.5 text-[var(--text-muted)] opacity-0 transition-all hover:bg-[var(--surface-2)] hover:text-[var(--text-secondary)] group-hover/code:opacity-100"
         aria-label="Copy code"
       >
-        {copied ? <Check size={13} className="text-green-500" /> : <Copy size={13} />}
+        {copied ? <Check size={13} className="text-[var(--status-success)]" /> : <Copy size={13} />}
       </button>
       <SyntaxHighlighter
         style={oneLight}

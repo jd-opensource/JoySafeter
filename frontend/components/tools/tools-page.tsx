@@ -95,7 +95,7 @@ export function ToolsPage() {
         </div>
         <Button
           onClick={() => setShowAddMcp(true)}
-          className="h-9 gap-2 bg-emerald-600 text-xs text-white shadow-lg shadow-emerald-100 hover:bg-emerald-700"
+          className="h-9 gap-2 bg-[var(--status-success)] text-xs text-white shadow-lg shadow-[var(--status-success-border)] hover:bg-[var(--status-success-hover)]"
         >
           <Plus size={14} /> {t('settings.addMcp')}
         </Button>

@@ -64,7 +64,7 @@ export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreat
         </>
       }
     >
-      <p className="text-sm text-amber-700 bg-amber-50 rounded-lg px-4 py-3 border border-amber-200">
+      <p className="text-sm text-[var(--status-warning)] bg-[var(--status-warning-bg)] rounded-lg px-4 py-3 border border-[var(--status-warning-border)]">
         {t('settings.tokens.tokenCreatedMessage')}
       </p>
 
@@ -91,7 +91,7 @@ export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreat
                       className="h-8 w-8 shrink-0 text-[var(--text-tertiary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)]"
                       aria-label="Copy token"
                     >
-                      {copied ? <Check size={15} className="text-emerald-600" /> : <Copy size={15} />}
+                      {copied ? <Check size={15} className="text-[var(--status-success)]" /> : <Copy size={15} />}
                     </Button>
                   </div>
                 </td>
@@ -108,7 +108,7 @@ export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreat
                       <Badge
                         key={scope}
                         variant="outline"
-                        className="rounded-full border-indigo-200 bg-indigo-50 px-2 py-0 text-2xs font-medium text-indigo-700"
+                        className="rounded-full border-[var(--brand-200)] bg-[var(--brand-50)] px-2 py-0 text-2xs font-medium text-[var(--brand-700)]"
                       >
                         {scope}
                       </Badge>

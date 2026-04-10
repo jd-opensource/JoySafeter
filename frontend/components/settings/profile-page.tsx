@@ -272,7 +272,7 @@ export function ProfilePage() {
           <div className="flex items-center gap-5">
             <Avatar className="h-16 w-16 flex-shrink-0 shadow-sm ring-1 ring-border/50">
               {user?.image && <AvatarImage src={user.image} alt={user?.name || t('user.user')} />}
-              <AvatarFallback className="bg-gradient-to-br from-violet-500 to-indigo-500 text-lg font-medium text-white">
+              <AvatarFallback className="bg-gradient-to-br from-[var(--brand-500)] to-[var(--brand-700)] text-lg font-medium text-white">
                 {getInitials(user?.name, user?.email)}
               </AvatarFallback>
             </Avatar>
@@ -381,7 +381,7 @@ export function ProfilePage() {
       <Dialog open={isResetDialogOpen} onOpenChange={handleCloseDialog}>
         <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-0 shadow-2xl sm:max-w-[425px]">
           <DialogHeader className="flex shrink-0 flex-row items-center gap-3 border-b border-[var(--border-muted)] px-6 py-4">
-            <div className="shrink-0 rounded-lg border border-[var(--surface-1)] bg-violet-50 dark:bg-violet-900/30 p-1.5 text-violet-600 dark:text-violet-400 shadow-sm">
+            <div className="shrink-0 rounded-lg border border-[var(--surface-1)] bg-[var(--brand-50)] p-1.5 text-[var(--brand-600)] shadow-sm">
               <KeyRound size={14} />
             </div>
             <div className="flex min-w-0 flex-col">

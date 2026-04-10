@@ -47,14 +47,14 @@ export function ModelRow({ model, onEditParams }: ModelRowProps) {
 
       <div className="flex items-center gap-2 shrink-0 ml-3">
         {model.is_available ? (
-          <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50 text-xs">
+          <Badge variant="outline" className="text-[var(--status-success)] border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-xs">
             Available
           </Badge>
         ) : (
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Badge variant="outline" className="text-red-600 border-red-200 bg-red-50 text-xs cursor-help">
+                <Badge variant="outline" className="text-[var(--status-error)] border-[var(--status-error-border)] bg-[var(--status-error-bg)] text-xs cursor-help">
                   Unavailable
                 </Badge>
               </TooltipTrigger>

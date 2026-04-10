@@ -200,8 +200,8 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
             )}
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-yellow-100">
-              <Crown size={12} className="text-yellow-700" />
+            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--status-warning-bg)]">
+              <Crown size={12} className="text-[var(--status-warning)]" />
             </div>
             <span className="text-xs text-[var(--text-muted)]">
               {t('skillCollaborators.owner')}
@@ -263,7 +263,7 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-red-500"
+                  className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--status-error)]"
                   onClick={() => setRemoveTarget({ userId: c.userId, open: true })}
                   aria-label="Remove collaborator"
                 >

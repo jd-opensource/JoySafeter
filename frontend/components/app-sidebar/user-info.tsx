@@ -123,7 +123,7 @@ export function UserInfo({ isCollapsed: _isCollapsed = false, showContent = true
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={handleLogout}
-                className="flex items-center gap-2 text-small text-red-600 focus:text-red-600"
+                className="flex items-center gap-2 text-small text-[var(--status-error)] focus:text-[var(--status-error)]"
               >
                 <LogOut className="h-3.5 w-3.5" />
                 <span>{t('user.logout')}</span>

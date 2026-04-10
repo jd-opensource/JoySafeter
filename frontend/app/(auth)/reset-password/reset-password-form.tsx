@@ -227,7 +227,7 @@ export function SetNewPasswordForm({
               className={cn(
                 'rounded-auth pr-10 shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]',
                 validationMessage &&
-                  'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
+                  'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)] focus-visible:ring-[var(--status-error)]',
               )}
             />
             <button
@@ -261,7 +261,7 @@ export function SetNewPasswordForm({
               className={cn(
                 'rounded-auth pr-10 shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]',
                 validationMessage &&
-                  'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
+                  'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)] focus-visible:ring-[var(--status-error)]',
               )}
             />
             <button
