@@ -405,7 +405,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
 
         {/* Property Display */}
         {displayProperties.length > 0 && (
-          <div className="mt-2 space-y-1 border-t border-[var(--divider)] pt-2">
+          <div className="mt-2 space-y-1 border-t border-[var(--border-muted)] pt-2">
             {displayProperties.map((prop) => (
               <div key={prop.key} className="flex items-center gap-2">
                 <span
@@ -445,7 +445,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
           if (!actualGoto) return null
 
           return (
-            <div className="mt-2 border-t border-[var(--divider)] pt-2">
+            <div className="mt-2 border-t border-[var(--border-muted)] pt-2">
               <div className="flex items-center gap-1 text-[7px] text-primary">
                 <ArrowRight size={8} className="text-primary" />
                 <span className="truncate font-mono font-semibold" title={actualGoto}>
@@ -457,7 +457,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
         })()}
 
         {isExecuting && (
-          <div className="mt-2 flex items-center gap-1.5 border-t border-[var(--divider)] pt-2">
+          <div className="mt-2 flex items-center gap-1.5 border-t border-[var(--border-muted)] pt-2">
             <Loader2 size={8} className="animate-spin text-primary" />
             <span className="animate-pulse text-[7px] font-bold text-primary">
               {t('workspace.synchronizing')}
