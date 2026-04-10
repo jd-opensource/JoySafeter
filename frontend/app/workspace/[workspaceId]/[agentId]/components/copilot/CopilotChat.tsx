@@ -151,7 +151,7 @@ export function CopilotChat({
                 {copiedMessageId === i ? (
                   <Check
                     size={12}
-                    className={m.role === 'user' ? 'text-green-300' : 'text-[var(--status-success)]'}
+                    className={m.role === 'user' ? 'text-white/70' : 'text-[var(--status-success)]'}
                   />
                 ) : (
                   <Copy
