@@ -75,11 +75,9 @@
     --surface-5: #e2e4e8;
     --surface-6: #dcdfe4;
     --surface-7: #d5d8dc;
-    --surface-8: #cdd0d6;
     --surface-9: #c6c9cf;
     --surface-10: #bfc2c8;
     --surface-11: #b8bbc1;
-    --surface-12: #adb0b7;
     --surface-13: #a6a9b0;
     --surface-14: #9fa2a9;
     --surface-15: #989ba2;
@@ -93,7 +91,6 @@
     --text-tertiary: #57534e;
     --text-muted: #78716c;
     --text-subtle: #a8a29e;
-    --text-inverse: #fafaf9;
     --text-error: #dc2626;
 
     /* Borders */
@@ -116,7 +113,6 @@
     --brand-tertiary: #22c55e;
     --brand-accent-hex: #7c3aed;
     --brand-accent-hover-hex: #6d28d9;
-    --brand-background-hex: #f4f5f7;
 
     /* Status - success */
     --status-success:        #16a34a;
@@ -179,7 +175,6 @@
     --agent-12: #A855F7;
 
     /* Utility */
-    --white: #ffffff;
     --radius: 0.5rem;
 
     /* Tailwind compatibility - 灰白色背景 */
@@ -213,11 +208,9 @@
     --surface-5: #283341;
     --surface-6: #2e3a4a;
     --surface-7: #334252;
-    --surface-8: #3a4a5c;
     --surface-9: #405263;
     --surface-10: #475a6b;
     --surface-11: #4f6273;
-    --surface-12: #576a7c;
     --surface-13: #5f7284;
     --surface-14: #677a8c;
     --surface-15: #6f8294;
@@ -231,7 +224,6 @@
     --text-tertiary: #8a98a8;
     --text-muted: #6b7a8a;
     --text-subtle: #4a5868;
-    --text-inverse: #0f1419;
     --text-error: #f87171;
 
     /* Borders */
@@ -254,7 +246,6 @@
     --brand-tertiary: #10b981;
     --brand-accent-hex: #38bdf8;
     --brand-accent-hover-hex: #7dd3fc;
-    --brand-background-hex: #0f1419;
 
     /* Status - success */
     --status-success:        #4ade80;
@@ -315,9 +306,6 @@
     --agent-10: #6366F1;
     --agent-11: #14B8A6;
     --agent-12: #A855F7;
-
-    /* Utility */
-    --white: #ffffff;
 
     /* Tailwind compatibility */
     --background: 210 25% 8%;

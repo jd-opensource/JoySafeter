@@ -185,7 +185,7 @@ export default function CodeViewer({
             customStyle={{
               margin: 0,
               padding: '0.75rem 1rem',
-              background: 'var(--white)',
+              background: '#ffffff',
               fontSize: '12px',
               lineHeight: '1.6',
               fontFamily: 'JetBrains Mono, Menlo, Monaco, Consolas, monospace',
