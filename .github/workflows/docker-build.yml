@@ -53,6 +53,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
+            GIT_COMMIT_SHA=${{ github.sha }}
             PIP_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
             UV_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
 

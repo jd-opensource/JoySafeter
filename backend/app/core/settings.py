@@ -12,6 +12,8 @@ from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine.url import make_url
 
+from app import __version__
+
 # get project root directory (backend directory)
 # from app/core/settings.py go up two levels to backend/
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -39,7 +41,7 @@ class Settings(BaseSettings):
 
     # App
     app_name: str = Field(default="JoySafeter", description="Application name")
-    app_version: str = Field(default="0.1.0", description="Application version")
+    app_version: str = Field(default=__version__, description="Application version")
     debug: bool = Field(
         default=False, validation_alias=AliasChoices("DEBUG", "APP_DEBUG"), description="Enable debug mode"
     )
