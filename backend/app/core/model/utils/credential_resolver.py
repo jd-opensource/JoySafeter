@@ -10,6 +10,32 @@ from typing import Any, Dict, Optional, Tuple
 from loguru import logger
 
 
+def _requires_api_key(provider_name: str) -> bool:
+    """Check whether a provider's credential schema includes an api_key field.
+
+    Providers like Ollama only require base_url; they don't need an API key.
+    """
+    try:
+        from app.core.model.factory import get_provider
+
+        provider = get_provider(provider_name)
+        if provider:
+            schema = provider.get_credential_schema()
+            required = schema.get("required", [])
+            properties = schema.get("properties", {})
+            return "api_key" in required or "api_key" in properties
+    except Exception:
+        pass
+    # Default to True for unknown providers (safer fallback)
+    return True
+
+
+# Placeholder API key used for providers that don't require authentication.
+# This satisfies downstream `if not api_key` guards while the provider's
+# create_model_instance() will supply its own value (e.g. Ollama uses "ollama").
+_NO_KEY_PLACEHOLDER = "no-key-required"
+
+
 class LLMCredentialResolver:
     """Resolver for fetching LLM credentials from database."""
 
@@ -28,6 +54,9 @@ class LLMCredentialResolver:
         1. If api_key is already provided, return it (with base_url and llm_model if provided)
         2. If llm_model contains provider info (format: provider:model), resolve from that provider
         3. Otherwise, try to get first available valid credential from database
+
+        For providers that don't require an API key (e.g. Ollama), a placeholder
+        value is returned so that downstream guards like ``if not api_key`` pass.
 
         Args:
             db: Database session
@@ -61,6 +90,8 @@ class LLMCredentialResolver:
                     if credentials:
                         api_key = credentials.get("api_key")
                         base_url = base_url or credentials.get("base_url")
+                        if not api_key and not _requires_api_key(provider_name):
+                            api_key = _NO_KEY_PLACEHOLDER
                         return api_key, base_url, model_name
 
                 # Fallback: try to get first available valid credential
@@ -82,6 +113,8 @@ class LLMCredentialResolver:
                             if credentials:
                                 api_key = credentials.get("api_key")
                                 base_url = base_url or credentials.get("base_url")
+                                if not api_key and not _requires_api_key(provider_name_from_cred):
+                                    api_key = _NO_KEY_PLACEHOLDER
                                 break
             except Exception as e:
                 logger.warning(f"[LLMCredentialResolver] Failed to get credentials from DB: {e}")
