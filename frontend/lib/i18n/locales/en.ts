@@ -33,6 +33,7 @@ const en = {
       discoverComingSoon: 'Discover feature is under development, stay tuned...',
       notifications: 'Notifications',
       openclaw: 'OpenClaw',
+      version: 'Version',
     },
     runs: {
       title: 'Run Center',

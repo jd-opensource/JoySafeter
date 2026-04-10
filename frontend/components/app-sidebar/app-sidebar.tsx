@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils'
 
 import { AppLogo } from './app-logo'
 import { UserInfo } from './user-info'
+import { VersionBadge } from './version-badge'
 
 const menuItems = [
   {
@@ -129,6 +130,7 @@ export function AppSidebar({ isCollapsed = false }: AppSidebarProps) {
           </nav>
 
           <UserInfo isCollapsed={isCollapsed} showContent={!isCollapsed} />
+          <VersionBadge isCollapsed={isCollapsed} />
         </div>
       </aside>
     </TooltipProvider>

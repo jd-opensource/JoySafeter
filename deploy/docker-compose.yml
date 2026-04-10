@@ -64,6 +64,7 @@ services:
         # pip 镜像源配置（默认使用清华大学镜像源，可切换到国内镜像）
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
         UV_INDEX_URL: ${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
+        GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-unknown}
     container_name: joysafeter-backend
     restart: unless-stopped
     env_file:

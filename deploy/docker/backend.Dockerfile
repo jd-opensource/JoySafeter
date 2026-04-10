@@ -41,6 +41,9 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /app/.venv /app/.venv
 COPY . .
 
+ARG GIT_COMMIT_SHA="unknown"
+ENV GIT_COMMIT_SHA=${GIT_COMMIT_SHA}
+
 RUN mkdir -p /app/logs /app/.cache/uv
 
 # 注意：将虚拟环境的 site-packages 放在 PYTHONPATH 前面，确保优先导入已安装的包

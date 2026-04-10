@@ -33,6 +33,7 @@ const zh = {
       knowledgeComingSoon: '知识库功能正在开发中，敬请期待...',
       discoverComingSoon: '发现功能正在开发中，敬请期待...',
       notifications: '消息通知',
+      version: '版本',
     },
     runs: {
       title: '运行中心',

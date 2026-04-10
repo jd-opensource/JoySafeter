@@ -37,6 +37,7 @@ from .tokens import router as tokens_router
 from .tools import router as tools_router
 from .traces import router as traces_router
 from .users import router as users_router
+from .version import router as version_router
 from .workspace_files import router as workspace_files_router
 from .workspace_folders import router as workspace_folders_router
 from .workspaces import router as workspaces_router
@@ -76,6 +77,7 @@ ROUTERS = [
     openclaw_devices_router,
     openclaw_proxy_router,
     openapi_graph_router,
+    version_router,
 ]
 
 
