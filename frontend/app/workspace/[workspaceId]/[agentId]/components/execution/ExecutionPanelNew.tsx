@@ -137,7 +137,7 @@ function ExecutionPanelContent() {
                   {deferredSteps.length} {t('workspace.ops', { defaultValue: 'OPS' })}
                 </span>
                 {isExecuting && (
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyan-500" />
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--brand-secondary)]" />
                 )}
               </div>
               <div className="flex items-center gap-1">

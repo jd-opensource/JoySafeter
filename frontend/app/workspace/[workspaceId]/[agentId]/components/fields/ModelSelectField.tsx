@@ -96,7 +96,7 @@ export function ModelSelectField({ value, onChange, onModelChange }: ModelSelect
 
   if (error) {
     return (
-      <div className="flex h-8 w-full items-center rounded-md border border-red-200 bg-red-50 px-3 text-2xs text-red-600">
+      <div className="flex h-8 w-full items-center rounded-md border border-[var(--status-error-border)] bg-[var(--status-error-bg)] px-3 text-2xs text-[var(--status-error)]">
         {error}
       </div>
     )

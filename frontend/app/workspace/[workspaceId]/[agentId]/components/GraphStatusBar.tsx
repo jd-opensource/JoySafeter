@@ -57,7 +57,7 @@ export function GraphStatusBar() {
     // Network offline status
     if (lastSaveError === 'offline') {
       return (
-        <span className="flex items-center gap-1 text-amber-600">
+        <span className="flex items-center gap-1 text-[var(--status-warning)]">
           <WifiOff size={12} />
           {t('workspace.offline')}
         </span>
@@ -77,7 +77,7 @@ export function GraphStatusBar() {
     // Save failed with unsaved changes
     if (lastSaveError && hasPendingChanges && saveRetryCount >= 3) {
       return (
-        <span className="flex items-center gap-1 text-red-500" title={lastSaveError}>
+        <span className="flex items-center gap-1 text-[var(--status-error)]" title={lastSaveError}>
           <AlertCircle size={12} />
           {t('workspace.saveFailedStatus')}
         </span>
@@ -87,7 +87,7 @@ export function GraphStatusBar() {
     // Retrying
     if (saveRetryCount > 0 && saveRetryCount < 3) {
       return (
-        <span className="text-amber-500">
+        <span className="text-[var(--status-warning)]">
           {t('workspace.retrying')} ({saveRetryCount}/3)
         </span>
       )
@@ -124,7 +124,7 @@ export function GraphStatusBar() {
     if (lastAutoSaveTime) {
       return (
         <span className="flex items-center gap-1">
-          <Wifi size={12} className="text-green-500" />
+          <Wifi size={12} className="text-[var(--status-success)]" />
           {t('workspace.autoSaved')} {formatTime(lastAutoSaveTime)}
         </span>
       )

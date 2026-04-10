@@ -37,7 +37,7 @@ interface ExecutionTreeNodeContentProps {
 
 function getNodeIcon(node: ExecutionTreeNode) {
   if (node.status === 'running') {
-    return <Zap size={13} className="animate-pulse fill-cyan-100 text-cyan-600" />
+    return <Zap size={13} className="animate-pulse fill-[var(--brand-secondary)]/10 text-[var(--brand-secondary)]" />
   }
 
   const stepType = node.step?.stepType
@@ -46,27 +46,27 @@ function getNodeIcon(node: ExecutionTreeNode) {
       return (
         <Cpu
           size={13}
-          className={node.status === 'success' ? 'text-emerald-500' : 'text-blue-500'}
+          className={node.status === 'success' ? 'text-[var(--status-success)]' : 'text-[var(--brand-500)]'}
         />
       )
     case 'agent_thought':
-      return <BrainCircuit size={13} className="text-purple-500" />
+      return <BrainCircuit size={13} className="text-[var(--brand-500)]" />
     case 'tool_execution':
-      return <Wrench size={13} className="text-amber-500" />
+      return <Wrench size={13} className="text-[var(--status-warning)]" />
     case 'model_io':
-      return <Box size={13} className="text-blue-500" />
+      return <Box size={13} className="text-[var(--brand-500)]" />
     case 'code_agent_thought':
-      return <BrainCircuit size={13} className="text-indigo-500" />
+      return <BrainCircuit size={13} className="text-[var(--brand-600)]" />
     case 'code_agent_code':
-      return <Code2 size={13} className="text-blue-600" />
+      return <Code2 size={13} className="text-[var(--brand-500)]" />
     case 'code_agent_observation':
-      return <Eye size={13} className="text-teal-500" />
+      return <Eye size={13} className="text-[var(--brand-tertiary)]" />
     case 'code_agent_final_answer':
-      return <CheckSquare size={13} className="text-green-600" />
+      return <CheckSquare size={13} className="text-[var(--status-success)]" />
     case 'code_agent_planning':
-      return <ListTodo size={13} className="text-orange-500" />
+      return <ListTodo size={13} className="text-[var(--status-warning)]" />
     case 'code_agent_error':
-      return <AlertTriangle size={13} className="text-red-500" />
+      return <AlertTriangle size={13} className="text-[var(--status-error)]" />
     default:
       return <Terminal size={13} className="text-[var(--text-tertiary)]" />
   }
@@ -75,13 +75,13 @@ function getNodeIcon(node: ExecutionTreeNode) {
 function getStatusDot(status: string) {
   switch (status) {
     case 'running':
-      return <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-cyan-500" />
+      return <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--brand-secondary)]" />
     case 'success':
-      return <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+      return <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--status-success)]" />
     case 'error':
-      return <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" />
+      return <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--status-error)]" />
     case 'waiting':
-      return <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />
+      return <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--status-warning)]" />
     default:
       return <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--text-subtle)]" />
   }

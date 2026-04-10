@@ -18,12 +18,12 @@ export function ThoughtContent({ step, showHeader = true }: ThoughtContentProps)
     <div className="space-y-2">
       {showHeader && (
         <div className="flex items-center gap-2">
-          <BrainCircuit size={14} className="text-purple-500" />
-          <span className="text-app-xs font-semibold text-purple-600">{step.title}</span>
+          <BrainCircuit size={14} className="text-[var(--brand-500)]" />
+          <span className="text-app-xs font-semibold text-[var(--brand-600)]">{step.title}</span>
           {isStreaming && (
             <div className="flex items-center gap-1.5">
-              <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-purple-500" />
-              <span className="text-micro font-medium text-purple-500">Thinking...</span>
+              <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--brand-500)]" />
+              <span className="text-micro font-medium text-[var(--brand-500)]">Thinking...</span>
             </div>
           )}
         </div>
@@ -33,12 +33,12 @@ export function ThoughtContent({ step, showHeader = true }: ThoughtContentProps)
         <div
           className={cn(
             'whitespace-pre-wrap font-mono text-xs leading-7 text-[var(--text-secondary)]',
-            'rounded-lg border border-purple-100 bg-purple-50/50 p-3',
+            'rounded-lg border border-[var(--brand-200)] bg-[var(--brand-50)] p-3',
           )}
         >
           {content || <span className="italic text-[var(--text-muted)]">Thinking...</span>}
           {isStreaming && (
-            <span className="ml-1 inline-block h-4 w-2 animate-pulse bg-purple-500 align-middle" />
+            <span className="ml-1 inline-block h-4 w-2 animate-pulse bg-[var(--brand-500)] align-middle" />
           )}
         </div>
       </div>

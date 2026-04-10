@@ -134,13 +134,13 @@ export function ToolsField({ value, onChange }: ToolsFieldProps) {
               <Badge
                 key={toolId}
                 variant="secondary"
-                className="gap-1 border-purple-200 bg-purple-50 py-0.5 pl-2 pr-1 text-2xs text-purple-700 shadow-sm"
+                className="gap-1 border-[var(--brand-200)] bg-[var(--brand-50)] py-0.5 pl-2 pr-1 text-2xs text-[var(--brand-700)] shadow-sm"
               >
                 <Server size={10} className="shrink-0" />
                 {displayName}
                 <button
                   onClick={() => removeMcp(toolId)}
-                  className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-purple-200"
+                  className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-[var(--brand-200)]"
                 >
                   <X size={10} />
                 </button>
@@ -211,7 +211,7 @@ export function ToolsField({ value, onChange }: ToolsFieldProps) {
                     ) : (
                       <Server
                         size={11}
-                        className={isSelected ? 'text-purple-500' : 'text-[var(--text-subtle)]'}
+                        className={isSelected ? 'text-[var(--brand-500)]' : 'text-[var(--text-subtle)]'}
                       />
                     )}
                     <span

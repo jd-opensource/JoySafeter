@@ -113,7 +113,7 @@ export function EdgePropertiesPanel({
               size="sm"
               onClick={() => setShowDeleteConfirm(true)}
               disabled={!userPermissions.canEdit}
-              className="w-full text-xs text-red-500 hover:bg-red-50 hover:text-red-600"
+              className="w-full text-xs text-[var(--status-error)] hover:bg-[var(--status-error-bg)] hover:text-[var(--status-error-hover)]"
             >
               <Trash2 size={12} className="mr-1.5" />
               {t('workspace.deleteEdge', { defaultValue: 'Delete Edge' })}
@@ -133,7 +133,7 @@ export function EdgePropertiesPanel({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('workspace.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-red-500 text-white hover:bg-red-600">
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">
               {t('workspace.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>

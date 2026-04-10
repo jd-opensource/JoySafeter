@@ -88,11 +88,11 @@ export function ToolCallCard({
   const getStatusIcon = () => {
     switch (step.status) {
       case 'running':
-        return <Loader2 size={12} className="animate-spin text-cyan-500" />
+        return <Loader2 size={12} className="animate-spin text-[var(--brand-secondary)]" />
       case 'success':
-        return <CheckCircle2 size={12} className="text-emerald-500" />
+        return <CheckCircle2 size={12} className="text-[var(--status-success)]" />
       case 'error':
-        return <AlertCircle size={12} className="text-red-500" />
+        return <AlertCircle size={12} className="text-[var(--status-error)]" />
       default:
         return <Wrench size={12} className="text-[var(--text-muted)]" />
     }
@@ -102,11 +102,11 @@ export function ToolCallCard({
   const getStatusColor = () => {
     switch (step.status) {
       case 'running':
-        return 'border-cyan-200 bg-cyan-50'
+        return 'border-[var(--brand-secondary)]/20 bg-[var(--brand-secondary)]/5'
       case 'success':
-        return 'border-emerald-200 bg-emerald-50'
+        return 'border-[var(--status-success-border)] bg-[var(--status-success-bg)]'
       case 'error':
-        return 'border-red-200 bg-red-50'
+        return 'border-[var(--status-error-border)] bg-[var(--status-error-bg)]'
       default:
         return 'border-[var(--border)] bg-[var(--surface-2)]'
     }
@@ -140,9 +140,9 @@ export function ToolCallCard({
             <div
               className={cn(
                 'rounded px-1.5 py-0.5 text-micro font-medium',
-                step.status === 'running' && 'bg-cyan-100 text-cyan-700',
-                step.status === 'success' && 'bg-emerald-100 text-emerald-700',
-                step.status === 'error' && 'bg-red-100 text-red-700',
+                step.status === 'running' && 'bg-[var(--brand-secondary)]/10 text-[var(--brand-secondary)]',
+                step.status === 'success' && 'bg-[var(--status-success-bg)] text-[var(--status-success)]',
+                step.status === 'error' && 'bg-[var(--status-error-bg)] text-[var(--status-error)]',
                 step.status === 'pending' && 'bg-[var(--surface-3)] text-[var(--text-secondary)]',
               )}
             >
@@ -158,12 +158,12 @@ export function ToolCallCard({
           {input !== undefined && (
             <div className="space-y-1.5">
               <div className="flex items-center gap-2">
-                <span className="text-2xs font-bold uppercase tracking-widest text-amber-600">
+                <span className="text-2xs font-bold uppercase tracking-widest text-[var(--status-warning)]">
                   {t('workspace.input', { defaultValue: 'Input' })}
                 </span>
-                <div className="h-[1px] flex-1 bg-amber-100" />
+                <div className="h-[1px] flex-1 bg-[var(--status-warning-border)]" />
               </div>
-              <div className="overflow-hidden rounded-md border border-amber-200">
+              <div className="overflow-hidden rounded-md border border-[var(--status-warning-border)]">
                 <SyntaxHighlighter
                   language="json"
                   style={oneLight}
@@ -200,15 +200,15 @@ export function ToolCallCard({
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <div className="flex flex-1 items-center gap-2">
-                  <span className="text-2xs font-bold uppercase tracking-widest text-emerald-600">
+                  <span className="text-2xs font-bold uppercase tracking-widest text-[var(--status-success)]">
                     {t('workspace.output', { defaultValue: 'Output' })}
                   </span>
-                  <div className="h-[1px] flex-1 bg-emerald-100" />
+                  <div className="h-[1px] flex-1 bg-[var(--status-success-border)]" />
                 </div>
                 {shouldAutoCollapse && (
                   <button
                     onClick={() => setOutputCollapsed(!outputCollapsed)}
-                    className="rounded px-2 py-0.5 text-micro font-medium text-emerald-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700"
+                    className="rounded px-2 py-0.5 text-micro font-medium text-[var(--status-success)] transition-colors hover:bg-[var(--status-success-bg)] hover:text-[var(--status-success-hover)]"
                     aria-label={outputCollapsed ? 'Expand output' : 'Collapse output'}
                   >
                     {outputCollapsed
@@ -218,20 +218,20 @@ export function ToolCallCard({
                 )}
               </div>
               {outputCollapsed ? (
-                <div className="rounded-md border border-emerald-200 bg-emerald-50 p-2">
-                  <p className="line-clamp-3 font-mono text-2xs text-emerald-700">
+                <div className="rounded-md border border-[var(--status-success-border)] bg-[var(--status-success-bg)] p-2">
+                  <p className="line-clamp-3 font-mono text-2xs text-[var(--status-success-strong)]">
                     {outputString.slice(0, 200)}...
                   </p>
                   <button
                     onClick={() => setOutputCollapsed(false)}
-                    className="mt-1 text-micro font-medium text-emerald-600 hover:text-emerald-700"
+                    className="mt-1 text-micro font-medium text-[var(--status-success)] hover:text-[var(--status-success-hover)]"
                     aria-label="Expand full output"
                   >
                     {t('tool.clickToExpand', { defaultValue: 'Click to expand full output' })}
                   </button>
                 </div>
               ) : (
-                <div className="overflow-hidden rounded-md border border-emerald-200">
+                <div className="overflow-hidden rounded-md border border-[var(--status-success-border)]">
                   <SyntaxHighlighter
                     language="json"
                     style={oneLight}
@@ -264,7 +264,7 @@ export function ToolCallCard({
             </div>
           ) : step.status === 'running' ? (
             <div className="flex items-center gap-2 py-2 text-[var(--text-muted)]">
-              <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyan-500" />
+              <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--brand-secondary)]" />
               <span className="font-mono text-2xs">
                 {t('workspace.waitingForResponse', { defaultValue: 'Waiting for response...' })}
               </span>

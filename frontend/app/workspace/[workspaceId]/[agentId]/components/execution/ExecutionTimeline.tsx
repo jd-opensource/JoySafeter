@@ -27,24 +27,24 @@ const NAME_WIDTH = 180
 const MIN_BAR_WIDTH = 4
 
 function getBarColor(status: string, stepType?: string): string {
-  if (status === 'running') return 'bg-cyan-400'
-  if (status === 'error') return 'bg-red-400'
+  if (status === 'running') return 'bg-[var(--brand-secondary)]'
+  if (status === 'error') return 'bg-[var(--status-error)]'
 
   switch (stepType) {
     case 'node_lifecycle':
       return 'bg-primary'
     case 'tool_execution':
-      return 'bg-amber-400'
+      return 'bg-[var(--status-warning)]'
     case 'model_io':
-      return 'bg-indigo-400'
+      return 'bg-[var(--brand-600)]'
     case 'agent_thought':
-      return 'bg-purple-400'
+      return 'bg-[var(--brand-500)]'
     case 'code_agent_code':
       return 'bg-primary'
     case 'code_agent_thought':
-      return 'bg-indigo-400'
+      return 'bg-[var(--brand-600)]'
     case 'code_agent_observation':
-      return 'bg-teal-400'
+      return 'bg-[var(--brand-tertiary)]'
     default:
       return 'bg-[var(--text-muted)]'
   }

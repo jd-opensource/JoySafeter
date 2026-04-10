@@ -84,13 +84,13 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
             <Badge
               key={id}
               variant="secondary"
-              className="gap-1 border-amber-200 bg-amber-50 py-0.5 pl-2 pr-1 text-2xs text-amber-700 shadow-sm"
+              className="gap-1 border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] py-0.5 pl-2 pr-1 text-2xs text-[var(--skill-brand-700)] shadow-sm"
             >
               <Sparkles size={10} className="shrink-0" />
               {getSkillName(id)}
               <button
                 onClick={() => removeSkill(id)}
-                className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-amber-200"
+                className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-[var(--skill-brand-200)]"
               >
                 <X size={10} />
               </button>
@@ -103,11 +103,11 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
       <div className="group relative">
         <Search
           size={13}
-          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] transition-colors group-focus-within:text-amber-500"
+          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] transition-colors group-focus-within:text-[var(--skill-brand)]"
         />
         <Input
           placeholder={t('workspace.searchSkills', { defaultValue: 'Search skills...' })}
-          className="h-8 border-[var(--border)] bg-[var(--surface-elevated)] pl-8 text-app-xs shadow-none focus-visible:ring-amber-100"
+          className="h-8 border-[var(--border)] bg-[var(--surface-elevated)] pl-8 text-app-xs shadow-none focus-visible:ring-[var(--skill-brand-100)]"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
@@ -117,7 +117,7 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
       <div className="custom-scrollbar mt-1 max-h-[200px] divide-y divide-[var(--border-muted)] overflow-y-auto rounded-lg border border-[var(--border-muted)] bg-[var(--surface-2)]">
         {isLoading ? (
           <div className="flex flex-col items-center justify-center gap-2 p-4 text-[var(--text-muted)]">
-            <Loader2 size={14} className="animate-spin text-amber-500" />
+            <Loader2 size={14} className="animate-spin text-[var(--skill-brand)]" />
             <span className="text-2xs font-medium tracking-tight">
               {t('workspace.loadingSkills', { defaultValue: 'Loading skills...' })}
             </span>
@@ -145,12 +145,12 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
                   <div className="flex items-center gap-1.5">
                     <Sparkles
                       size={11}
-                      className={isSelected ? 'text-amber-500' : 'text-[var(--text-subtle)]'}
+                      className={isSelected ? 'text-[var(--skill-brand)]' : 'text-[var(--text-subtle)]'}
                     />
                     <span
                       className={cn(
                         'truncate text-app-xs font-medium',
-                        isSelected ? 'text-amber-700' : 'text-[var(--text-secondary)]',
+                        isSelected ? 'text-[var(--skill-brand-700)]' : 'text-[var(--text-secondary)]',
                       )}
                     >
                       {skill.name}
@@ -182,7 +182,7 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
                   className={cn(
                     'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border shadow-sm transition-all',
                     isSelected
-                      ? 'border-amber-600 bg-amber-500 text-white'
+                      ? 'border-[var(--skill-brand-600)] bg-[var(--skill-brand)] text-white'
                       : 'border-[var(--border)] bg-[var(--surface-elevated)] group-hover:border-[var(--border-strong)]',
                   )}
                 >

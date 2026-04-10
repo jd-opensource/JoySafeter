@@ -60,7 +60,7 @@ const REGISTRY: NodeDefinition[] = [
     label: 'Agent',
     subLabel: 'LLM Process',
     icon: Bot,
-    style: { color: 'text-blue-600', bg: 'bg-blue-50' },
+    style: { color: 'text-[var(--brand-500)]', bg: 'bg-[var(--brand-50)]' },
     defaultConfig: {
       model: '',
       temp: 0.7,
@@ -131,7 +131,7 @@ const REGISTRY: NodeDefinition[] = [
     label: 'Code Agent',
     subLabel: 'Python Code Execution',
     icon: BrainCircuit,
-    style: { color: 'text-violet-600', bg: 'bg-violet-50' },
+    style: { color: 'text-[var(--brand-600)]', bg: 'bg-[var(--brand-50)]' },
     defaultConfig: {
       model: '',
       executor_type: 'local',
@@ -232,7 +232,7 @@ const REGISTRY: NodeDefinition[] = [
     label: 'A2A Agent',
     subLabel: 'Remote A2A Protocol',
     icon: Globe2,
-    style: { color: 'text-amber-600', bg: 'bg-amber-50' },
+    style: { color: 'text-[var(--status-warning)]', bg: 'bg-[var(--status-warning-bg)]' },
     defaultConfig: {
       a2a_url: '',
       agent_card_url: '',

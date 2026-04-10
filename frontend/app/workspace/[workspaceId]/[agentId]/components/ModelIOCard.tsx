@@ -147,13 +147,13 @@ export function ModelIOCard({
         <div className="space-y-4">
           {/* Model Info Header */}
           <div className="flex items-center gap-2 border-b border-[var(--border)] pb-2">
-            <Brain size={14} className="text-purple-600" />
+            <Brain size={14} className="text-[var(--brand-600)]" />
             <span className="text-xs font-semibold text-[var(--text-secondary)]">Model I/O</span>
             <span className="font-mono text-2xs text-[var(--text-tertiary)]">
               ({modelProvider}/{modelName})
             </span>
             {isRunning && (
-              <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-2xs font-medium text-amber-700">
+              <span className="ml-2 rounded bg-[var(--status-warning-bg)] px-2 py-0.5 text-2xs font-medium text-[var(--status-warning)]">
                 Awaiting output...
               </span>
             )}
@@ -165,8 +165,8 @@ export function ModelIOCard({
               title="Input Messages"
               data={{ messages }}
               icon={<MessageSquare size={12} />}
-              iconColor="text-blue-600"
-              bgColor="border-blue-200"
+              iconColor="text-[var(--brand-500)]"
+              bgColor="border-[var(--brand-200)]"
             />
           )}
 
@@ -176,16 +176,16 @@ export function ModelIOCard({
               title="Output"
               data={{ output, usage_metadata: usageMetadata }}
               icon={<Brain size={12} />}
-              iconColor="text-purple-600"
-              bgColor="border-purple-200"
+              iconColor="text-[var(--brand-600)]"
+              bgColor="border-[var(--brand-200)]"
             />
           )}
 
           {/* No output yet */}
           {!hasOutput && hasInput && (
-            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
-              <div className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-              <span className="text-xs text-amber-700">Awaiting model response...</span>
+            <div className="flex items-center gap-2 rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] p-3">
+              <div className="h-2 w-2 animate-pulse rounded-full bg-[var(--status-warning)]" />
+              <span className="text-xs text-[var(--status-warning)]">Awaiting model response...</span>
             </div>
           )}
         </div>
@@ -198,7 +198,7 @@ export function ModelIOCard({
     <div
       className={cn(
         'rounded-lg border transition-all',
-        hasOutput ? 'border-green-200 bg-green-50/50' : 'border-amber-200 bg-amber-50/50',
+        hasOutput ? 'border-[var(--status-success-border)] bg-[var(--status-success-bg)]' : 'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)]',
       )}
     >
       {/* Header */}
@@ -213,7 +213,7 @@ export function ModelIOCard({
           ) : (
             <ChevronDown size={14} className="shrink-0 text-[var(--text-tertiary)]" />
           )}
-          <Brain size={14} className="shrink-0 text-purple-600" />
+          <Brain size={14} className="shrink-0 text-[var(--brand-600)]" />
           <span className="truncate text-xs font-semibold text-[var(--text-secondary)]">Model I/O</span>
           <span className="truncate font-mono text-2xs text-[var(--text-tertiary)]">
             {modelProvider}/{modelName}
@@ -222,18 +222,18 @@ export function ModelIOCard({
           {/* Status indicator */}
           <div className="ml-auto flex items-center gap-1">
             {hasInput && (
-              <span className="rounded bg-blue-100 px-1.5 py-0.5 text-micro font-medium text-blue-700">
+              <span className="rounded bg-[var(--brand-100)] px-1.5 py-0.5 text-micro font-medium text-[var(--brand-600)]">
                 IN
               </span>
             )}
             {hasInput && hasOutput && <ArrowRight size={10} className="text-[var(--text-muted)]" />}
             {hasOutput ? (
-              <span className="rounded bg-purple-100 px-1.5 py-0.5 text-micro font-medium text-purple-700">
+              <span className="rounded bg-[var(--brand-100)] px-1.5 py-0.5 text-micro font-medium text-[var(--brand-600)]">
                 OUT
               </span>
             ) : (
               hasInput && (
-                <span className="animate-pulse rounded bg-amber-100 px-1.5 py-0.5 text-micro font-medium text-amber-700">
+                <span className="animate-pulse rounded bg-[var(--status-warning-bg)] px-1.5 py-0.5 text-micro font-medium text-[var(--status-warning)]">
                   ...
                 </span>
               )
@@ -251,8 +251,8 @@ export function ModelIOCard({
               title="Input"
               data={{ messages }}
               icon={<MessageSquare size={12} />}
-              iconColor="text-blue-600"
-              bgColor="border-blue-200"
+              iconColor="text-[var(--brand-500)]"
+              bgColor="border-[var(--brand-200)]"
               defaultCollapsed={hasOutput} // Collapse input if output exists
             />
           )}
@@ -263,16 +263,16 @@ export function ModelIOCard({
               title="Output"
               data={{ output, usage_metadata: usageMetadata }}
               icon={<Brain size={12} />}
-              iconColor="text-purple-600"
-              bgColor="border-purple-200"
+              iconColor="text-[var(--brand-600)]"
+              bgColor="border-[var(--brand-200)]"
             />
           )}
 
           {/* Waiting indicator */}
           {!hasOutput && hasInput && (
-            <div className="flex items-center gap-2 rounded border border-amber-200 bg-amber-50 p-2">
-              <div className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-              <span className="text-2xs text-amber-700">Awaiting model response...</span>
+            <div className="flex items-center gap-2 rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] p-2">
+              <div className="h-2 w-2 animate-pulse rounded-full bg-[var(--status-warning)]" />
+              <span className="text-2xs text-[var(--status-warning)]">Awaiting model response...</span>
             </div>
           )}
         </div>

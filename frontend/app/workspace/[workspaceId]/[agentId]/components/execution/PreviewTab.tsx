@@ -95,8 +95,8 @@ export const PreviewTab = React.memo(function PreviewTab() {
             className={cn(
               'whitespace-pre-wrap rounded-md border p-3 font-mono text-xs leading-relaxed',
               (step.data as Record<string, unknown>)?.has_error
-                ? 'border-red-200 bg-red-50 text-red-700'
-                : 'border-teal-200 bg-teal-50 text-teal-700',
+                ? 'border-[var(--status-error-border)] bg-[var(--status-error-bg)] text-[var(--status-error)]'
+                : 'border-[var(--brand-tertiary)]/20 bg-[var(--brand-tertiary)]/5 text-[var(--brand-tertiary)]',
             )}
           >
             {step.content}
@@ -107,7 +107,7 @@ export const PreviewTab = React.memo(function PreviewTab() {
     case 'code_agent_final_answer':
       return (
         <div className="p-4">
-          <div className="whitespace-pre-wrap rounded-md border border-green-200 bg-green-50 p-3 font-mono text-xs leading-relaxed text-green-700">
+          <div className="whitespace-pre-wrap rounded-md border border-[var(--status-success-border)] bg-[var(--status-success-bg)] p-3 font-mono text-xs leading-relaxed text-[var(--status-success-strong)]">
             {step.content}
           </div>
         </div>
@@ -116,7 +116,7 @@ export const PreviewTab = React.memo(function PreviewTab() {
     case 'code_agent_planning':
       return (
         <div className="p-4">
-          <div className="whitespace-pre-wrap rounded-md border border-orange-200 bg-orange-50 p-3 font-mono text-xs leading-relaxed text-orange-700">
+          <div className="whitespace-pre-wrap rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] p-3 font-mono text-xs leading-relaxed text-[var(--status-warning)]">
             {step.content}
           </div>
         </div>
@@ -125,7 +125,7 @@ export const PreviewTab = React.memo(function PreviewTab() {
     case 'code_agent_error':
       return (
         <div className="p-4">
-          <div className="whitespace-pre-wrap rounded-md border border-red-200 bg-red-50 p-3 font-mono text-xs leading-relaxed text-red-700">
+          <div className="whitespace-pre-wrap rounded-md border border-[var(--status-error-border)] bg-[var(--status-error-bg)] p-3 font-mono text-xs leading-relaxed text-[var(--status-error)]">
             {step.content}
           </div>
         </div>

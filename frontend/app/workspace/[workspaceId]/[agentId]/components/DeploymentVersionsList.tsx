@@ -90,7 +90,7 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
               <Rocket
                 size={14}
                 className={
-                  deploymentStatus.isDeployed ? 'text-green-600' : 'text-[var(--text-muted)]'
+                  deploymentStatus.isDeployed ? 'text-[var(--status-success)]' : 'text-[var(--text-muted)]'
                 }
               />
               <span className="font-medium">
@@ -106,7 +106,7 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
             </div>
             <div className="flex items-center gap-2">
               {deploymentStatus.needsRedeployment && deploymentStatus.isDeployed && (
-                <span className="rounded bg-orange-50 px-2 py-0.5 text-xs text-orange-600">
+                <span className="rounded bg-[var(--status-warning-bg)] px-2 py-0.5 text-xs text-[var(--status-warning)]">
                   {t('workspace.needsRedeployment')}
                 </span>
               )}
@@ -114,7 +114,7 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-6 px-2 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
+                  className="h-6 px-2 text-xs text-[var(--status-error)] hover:bg-[var(--status-error-bg)] hover:text-[var(--status-error-hover)]"
                   onClick={onUndeployClick}
                   disabled={isUndeploying}
                 >
@@ -149,7 +149,7 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
               className={cn(
                 'cursor-pointer rounded-lg border-2 p-2 transition-all',
                 version.isActive
-                  ? 'border-green-500 bg-green-50 shadow-sm shadow-green-100'
+                  ? 'border-[var(--status-success)] bg-[var(--status-success-bg)] shadow-sm shadow-[var(--status-success-border)]'
                   : 'border-[var(--border)] bg-[var(--surface-elevated)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)]',
                 selectedVersion === version.version &&
                   'ring-2 ring-primary ring-offset-1',
@@ -162,12 +162,12 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
                   <div className="mb-0.5 flex items-center gap-1.5">
                     <span className="text-xs font-medium">v{version.version}</span>
                     {version.isActive && (
-                      <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-2xs font-medium text-green-700">
+                      <span className="rounded-full bg-[var(--status-success-border)] px-1.5 py-0.5 text-2xs font-medium text-[var(--status-success-strong)]">
                         {t('workspace.active')}
                       </span>
                     )}
                     {selectedVersion === version.version && (
-                      <Eye size={12} className="text-blue-500" />
+                      <Eye size={12} className="text-[var(--brand-500)]" />
                     )}
                   </div>
 

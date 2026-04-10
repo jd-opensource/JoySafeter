@@ -74,7 +74,7 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
           <button
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
               isRunning
-                ? 'bg-amber-600'
+                ? 'bg-[var(--status-warning)]'
                 : 'bg-primary hover:bg-primary/90'
             }`}
             onClick={handleRun}
@@ -94,8 +94,8 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
       {(runResult || runError) && (
         <div className={`border-b border-[var(--border)] px-4 py-3 text-sm ${
           runError
-            ? 'bg-red-500/5 text-red-700 dark:text-red-400'
-            : 'bg-green-500/5 text-green-700 dark:text-green-400'
+            ? 'bg-[var(--status-error-bg)] text-[var(--status-error)]'
+            : 'bg-[var(--status-success-bg)] text-[var(--status-success)]'
         }`}>
           <div className="flex items-center justify-between mb-1.5">
             <div className="flex items-center gap-2">

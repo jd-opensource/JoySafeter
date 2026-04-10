@@ -303,10 +303,10 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
   }
 
   return (
-    <Card className="w-full border-amber-200 bg-amber-50/50">
+    <Card className="w-full border-[var(--status-warning-border)] bg-[var(--status-warning-bg)]">
       <CardHeader>
         <div className="flex items-center gap-2">
-          <PauseCircle className="h-5 w-5 text-amber-600" />
+          <PauseCircle className="h-5 w-5 text-[var(--status-warning)]" />
           <CardTitle className="text-lg">{t('workspace.executionPaused')}</CardTitle>
         </div>
         <CardDescription>
@@ -461,7 +461,7 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
         {!isEditing && !showGotoSelector && (gateMode === 'input' || gateMode === 'review') && (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <MessageSquare className="h-4 w-4 text-indigo-500" />
+              <MessageSquare className="h-4 w-4 text-[var(--brand-600)]" />
               <label className="text-sm font-medium text-[var(--text-secondary)]">
                 {gateMode === 'input' ? t('workspace.yourResponse') : t('workspace.reviewFeedback')}
               </label>
@@ -481,11 +481,11 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
 
         {/* Main Action Buttons */}
         {!isEditing && !showGotoSelector && (
-          <div className="flex gap-2 border-t border-amber-200 pt-2">
+          <div className="flex gap-2 border-t border-[var(--status-warning-border)] pt-2">
             <Button
               onClick={handleContinue}
               disabled={isResuming || (gateMode === 'input' && !feedback.trim())}
-              className="flex-1 bg-green-600 hover:bg-green-700"
+              className="flex-1 bg-[var(--status-success)] hover:bg-[var(--status-success-hover)]"
             >
               <CheckCircle className="mr-2 h-4 w-4" />
               {gateMode === 'approval'

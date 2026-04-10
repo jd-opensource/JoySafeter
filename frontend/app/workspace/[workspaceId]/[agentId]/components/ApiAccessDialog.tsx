@@ -104,7 +104,7 @@ export function ApiAccessDialog({
         {t('settings.tokens.create')}
       </Button>
       {tokens.length >= 50 && (
-        <p className="mt-1 text-xs text-amber-600">{t('settings.tokens.limitReached')}</p>
+        <p className="mt-1 text-xs text-[var(--status-warning)]">{t('settings.tokens.limitReached')}</p>
       )}
       {showCreateForm && (
         <div className="mt-3 flex items-end gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-4">
@@ -199,7 +199,7 @@ export function ApiAccessDialog({
                           onClick={() => handleCopy(apiUrl)}
                         >
                           {copied ? (
-                            <Check className="h-4 w-4 text-green-600" />
+                            <Check className="h-4 w-4 text-[var(--status-success)]" />
                           ) : (
                             <Copy className="h-4 w-4 text-[var(--text-tertiary)]" />
                           )}
@@ -245,7 +245,7 @@ export function ApiAccessDialog({
                             onClick={() => handleCopy(curlExample)}
                           >
                             {copied ? (
-                              <Check className="h-3 w-3 text-green-600" />
+                              <Check className="h-3 w-3 text-[var(--status-success)]" />
                             ) : (
                               <Copy className="h-3 w-3 text-[var(--text-tertiary)]" />
                             )}
