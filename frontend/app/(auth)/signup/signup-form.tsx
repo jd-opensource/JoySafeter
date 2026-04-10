@@ -465,7 +465,7 @@ function SignupFormContent() {
         </span>
         <Link
           href={isInviteFlow ? `/signin?invite_flow=true&callbackUrl=${redirectUrl}` : '/signin'}
-          className="font-medium text-[var(--brand-accent-hex)] underline-offset-4 transition hover:text-[var(--brand-accent-hover-hex)] hover:underline"
+          className="font-medium text-[var(--brand-600)] underline-offset-4 transition hover:text-[var(--brand-700)] hover:underline"
         >
           {mounted ? t('auth.signIn') : 'Sign In'}
         </Link>

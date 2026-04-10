@@ -69,7 +69,7 @@ export function InlineRenameInput({
         onClick={(e) => e.stopPropagation()}
         placeholder={placeholder}
         className={cn(
-          'flex-1 border border-[var(--brand-primary)] bg-[var(--surface-1)] font-medium text-[var(--text-primary)] shadow-sm outline-none ring-2 ring-[var(--brand-primary)] transition-all placeholder:text-[var(--text-subtle)] focus:border-[var(--brand-primary)] focus:ring-[var(--brand-primary)]',
+          'flex-1 border border-[var(--brand-500)] bg-[var(--surface-1)] font-medium text-[var(--text-primary)] shadow-sm outline-none ring-2 ring-[var(--brand-500)] transition-all placeholder:text-[var(--text-subtle)] focus:border-[var(--brand-500)] focus:ring-[var(--brand-500)]',
           isSmall
             ? 'rounded-sm px-1.5 py-[2px] text-xs-plus'
             : 'rounded-md px-2 py-1 text-xs-plus',
@@ -79,7 +79,7 @@ export function InlineRenameInput({
         <button
           type="button"
           className={cn(
-            'flex items-center justify-center bg-[var(--brand-primary)] text-white shadow-sm transition-all hover:bg-[var(--brand-primary)] active:scale-95',
+            'flex items-center justify-center bg-[var(--brand-500)] text-white shadow-sm transition-all hover:bg-[var(--brand-500)] active:scale-95',
             isSmall ? 'h-5 w-5 rounded-sm' : 'h-6 w-6 rounded-md',
           )}
           onClick={(e) => {

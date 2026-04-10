@@ -503,7 +503,7 @@ export default function LoginPage() {
           </span>
           <Link
             href={isInviteFlow ? `/signup?invite_flow=true&callbackUrl=${callbackUrl}` : '/signup'}
-            className="font-medium text-[var(--brand-accent-hex)] underline-offset-4 transition hover:text-[var(--brand-accent-hover-hex)] hover:underline"
+            className="font-medium text-[var(--brand-600)] underline-offset-4 transition hover:text-[var(--brand-700)] hover:underline"
           >
             {mounted ? t('auth.signUp') : 'Sign Up'}
           </Link>

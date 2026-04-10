@@ -108,11 +108,8 @@
     --brand-500: #6f3dfa;
     --brand-600: #7c3aed;
     --brand-700: #6d28d9;
-    --brand-primary: #6f3dfa;
     --brand-secondary: #33b4ff;
     --brand-tertiary: #22c55e;
-    --brand-accent-hex: #7c3aed;
-    --brand-accent-hover-hex: #6d28d9;
 
     /* Status - success */
     --status-success:        #16a34a;
@@ -241,11 +238,8 @@
     --brand-500: #0ea5e9;
     --brand-600: #0284c7;
     --brand-700: #0369a1;
-    --brand-primary: #0ea5e9;
     --brand-secondary: #06b6d4;
     --brand-tertiary: #10b981;
-    --brand-accent-hex: #38bdf8;
-    --brand-accent-hover-hex: #7dd3fc;
 
     /* Status - success */
     --status-success:        #4ade80;

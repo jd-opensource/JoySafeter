@@ -88,7 +88,7 @@ export function FolderItem({
         className={cn(
           'group flex items-center rounded-md py-[5px] pr-[6px] text-[var(--text-secondary)] transition-all',
           isDragOver
-            ? 'bg-[var(--brand-primary)] ring-2 ring-[var(--brand-primary)]'
+            ? 'bg-[var(--brand-500)] ring-2 ring-[var(--brand-500)]'
             : 'hover:bg-[var(--surface-5)]',
           isDragActive && !isDragOver && 'ring-dashed ring-1 ring-[var(--border)]',
         )}
@@ -204,7 +204,7 @@ export function FolderItem({
               className={cn(
                 'rounded-md py-2 text-app-xs font-normal',
                 isDragOver
-                  ? 'bg-[var(--brand-primary)] text-[var(--text-secondary)]'
+                  ? 'bg-[var(--brand-500)] text-[var(--text-secondary)]'
                   : 'text-[var(--text-subtle)] opacity-60',
               )}
               style={{ marginLeft: `${24 + indentPadding}px` }}
