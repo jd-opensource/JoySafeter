@@ -32,12 +32,12 @@ const toastVariants = cva(
       variant: {
         default: 'border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--text-primary)]',
         destructive:
-          'destructive group border-red-400 bg-red-50 text-red-900 dark:border-red-500 dark:bg-red-950/50 dark:text-red-200',
+          'destructive group border-[var(--status-error)] bg-[var(--status-error-bg)] text-[var(--text-primary)] dark:border-[var(--status-error)] dark:bg-[var(--status-error-bg)] dark:text-[var(--text-primary)]',
         success:
-          'border-green-400 bg-green-50 text-green-900 dark:border-green-500 dark:bg-green-950/50 dark:text-green-200',
+          'border-[var(--status-success)] bg-[var(--status-success-bg)] text-[var(--text-primary)] dark:border-[var(--status-success)] dark:bg-[var(--status-success-bg)] dark:text-[var(--text-primary)]',
         warning:
-          'border-amber-400 bg-amber-50 text-amber-900 dark:border-amber-500 dark:bg-amber-950/50 dark:text-amber-200',
-        info: 'border-blue-400 bg-blue-50 text-blue-900 dark:border-blue-500 dark:bg-blue-950/50 dark:text-blue-200',
+          'border-[var(--status-warning)] bg-[var(--status-warning-bg)] text-[var(--text-primary)] dark:border-[var(--status-warning)] dark:bg-[var(--status-warning-bg)] dark:text-[var(--text-primary)]',
+        info: 'border-[var(--brand-400)] bg-[var(--brand-50)] text-[var(--text-primary)] dark:border-[var(--brand-400)] dark:bg-[var(--brand-50)] dark:text-[var(--text-primary)]',
       },
     },
     defaultVariants: {
@@ -82,7 +82,7 @@ const ToastClose = React.forwardRef<
   <ToastPrimitives.Close
     ref={ref}
     className={cn(
-      'absolute right-2 top-2 rounded-md p-1 text-foreground/50 opacity-0 transition-opacity hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 group-hover:opacity-100 group-[.destructive]:text-red-300 group-[.destructive]:hover:text-red-50 group-[.destructive]:focus:ring-red-400 group-[.destructive]:focus:ring-offset-red-600',
+      'absolute right-2 top-2 rounded-md p-1 text-foreground/50 opacity-0 transition-opacity hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 group-hover:opacity-100 group-[.destructive]:text-[var(--status-error)] group-[.destructive]:hover:text-[var(--status-error-hover)] group-[.destructive]:focus:ring-[var(--status-error)] group-[.destructive]:focus:ring-offset-[var(--status-error-bg)]',
       className,
     )}
     toast-close=""
@@ -108,7 +108,7 @@ const ToastDescription = React.forwardRef<
   <ToastPrimitives.Description
     ref={ref}
     className={cn(
-      'text-xs text-[var(--text-muted)] group-[.destructive]:text-red-700 dark:group-[.destructive]:text-red-300',
+      'text-xs text-[var(--text-muted)] group-[.destructive]:text-[var(--status-error)] dark:group-[.destructive]:text-[var(--status-error)]',
       className,
     )}
     {...props}

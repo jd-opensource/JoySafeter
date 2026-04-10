@@ -55,8 +55,8 @@ export function UnifiedDialog({
   title,
   description,
   icon,
-  iconBgColor = 'bg-blue-50',
-  iconColor = 'text-blue-600',
+  iconBgColor = 'bg-[var(--brand-50)]',
+  iconColor = 'text-[var(--brand-600)]',
   children,
   footer,
   contentClassName,
@@ -129,24 +129,24 @@ interface ValidationBoxProps {
 
 const validationStyles = {
   error: {
-    container: 'bg-red-50 border-red-100',
-    title: 'text-red-700',
-    list: 'text-red-600',
+    container: 'bg-[var(--status-error-bg)] border-[var(--status-error-border)]',
+    title: 'text-[var(--status-error)]',
+    list: 'text-[var(--status-error)]',
   },
   warning: {
-    container: 'bg-amber-50 border-amber-100',
-    title: 'text-amber-700',
-    list: 'text-amber-600',
+    container: 'bg-[var(--status-warning-bg)] border-[var(--status-warning-border)]',
+    title: 'text-[var(--status-warning)]',
+    list: 'text-[var(--status-warning)]',
   },
   success: {
-    container: 'bg-emerald-50 border-emerald-100',
-    title: 'text-emerald-700',
-    list: 'text-emerald-600',
+    container: 'bg-[var(--status-success-bg)] border-[var(--status-success-border)]',
+    title: 'text-[var(--status-success)]',
+    list: 'text-[var(--status-success)]',
   },
   info: {
-    container: 'bg-blue-50 border-blue-100',
-    title: 'text-blue-700',
-    list: 'text-blue-600',
+    container: 'bg-[var(--brand-50)] border-[var(--brand-200)]',
+    title: 'text-[var(--brand-600)]',
+    list: 'text-[var(--brand-500)]',
   },
 }
 

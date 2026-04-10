@@ -38,7 +38,7 @@ export function CopyButton({ text, className = '', showLabel = true }: CopyButto
         }}
       >
         {copied ? (
-          <Check className="h-3.5 w-3.5 text-green-500" />
+          <Check className="h-3.5 w-3.5 text-[var(--status-success)]" />
         ) : (
           <Copy className="h-3.5 w-3.5 text-muted-foreground" />
         )}

@@ -21,30 +21,30 @@ const variantStyles = {
     icon: <Info className="mr-2 h-4 w-4 flex-shrink-0 text-muted-foreground" />,
   },
   info: {
-    container: 'bg-blue-50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-800/50',
-    text: 'text-blue-800 dark:text-blue-300',
-    title: 'text-blue-800 dark:text-blue-300 font-medium',
-    icon: <Info className="mr-2 h-4 w-4 flex-shrink-0 text-blue-500 dark:text-blue-400" />,
+    container: 'bg-[var(--brand-50)] border-[var(--brand-200)] dark:bg-[var(--brand-50)] dark:border-[var(--brand-200)]',
+    text: 'text-[var(--text-primary)] dark:text-[var(--text-primary)]',
+    title: 'text-[var(--text-primary)] dark:text-[var(--text-primary)] font-medium',
+    icon: <Info className="mr-2 h-4 w-4 flex-shrink-0 text-[var(--brand-500)]" />,
   },
   warning: {
-    container: 'bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800/50',
-    text: 'text-amber-800 dark:text-amber-300',
-    title: 'text-amber-800 dark:text-amber-300 font-medium',
+    container: 'bg-[var(--status-warning-bg)] border-[var(--status-warning-border)] dark:bg-[var(--status-warning-bg)] dark:border-[var(--status-warning-border)]',
+    text: 'text-[var(--text-primary)] dark:text-[var(--text-primary)]',
+    title: 'text-[var(--text-primary)] dark:text-[var(--text-primary)] font-medium',
     icon: (
-      <AlertTriangle className="mr-2 h-4 w-4 flex-shrink-0 text-amber-500 dark:text-amber-400" />
+      <AlertTriangle className="mr-2 h-4 w-4 flex-shrink-0 text-[var(--status-warning)]" />
     ),
   },
   success: {
-    container: 'bg-green-50 border-green-200 dark:bg-green-950/20 dark:border-green-800/50',
-    text: 'text-green-800 dark:text-green-300',
-    title: 'text-green-800 dark:text-green-300 font-medium',
-    icon: <Check className="mr-2 h-4 w-4 flex-shrink-0 text-green-500 dark:text-green-400" />,
+    container: 'bg-[var(--status-success-bg)] border-[var(--status-success-border)] dark:bg-[var(--status-success-bg)] dark:border-[var(--status-success-border)]',
+    text: 'text-[var(--text-primary)] dark:text-[var(--text-primary)]',
+    title: 'text-[var(--text-primary)] dark:text-[var(--text-primary)] font-medium',
+    icon: <Check className="mr-2 h-4 w-4 flex-shrink-0 text-[var(--status-success)]" />,
   },
   error: {
-    container: 'bg-red-50 border-red-200 dark:bg-red-950/20 dark:border-red-800/50',
-    text: 'text-red-800 dark:text-red-300',
-    title: 'text-red-800 dark:text-red-300 font-medium',
-    icon: <AlertCircle className="mr-2 h-4 w-4 flex-shrink-0 text-red-500 dark:text-red-400" />,
+    container: 'bg-[var(--status-error-bg)] border-[var(--status-error-border)] dark:bg-[var(--status-error-bg)] dark:border-[var(--status-error-border)]',
+    text: 'text-[var(--text-primary)] dark:text-[var(--text-primary)]',
+    title: 'text-[var(--text-primary)] dark:text-[var(--text-primary)] font-medium',
+    icon: <AlertCircle className="mr-2 h-4 w-4 flex-shrink-0 text-[var(--status-error)]" />,
   },
 }
 

@@ -114,7 +114,7 @@ const AlertDialogContent = React.forwardRef<
             className={cn(
               'absolute left-0 right-0 top-0 h-1',
               variant === 'destructive'
-                ? 'bg-gradient-to-r from-red-500 via-rose-500 to-red-400'
+                ? 'bg-gradient-to-r from-[var(--status-error)] via-[var(--status-error)] to-[var(--status-error-hover)]'
                 : 'bg-gradient-to-r from-[var(--brand-400)] via-[var(--gradient-brand-from)] to-[var(--brand-secondary)]',
             )}
           />
