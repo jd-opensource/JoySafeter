@@ -38,9 +38,6 @@ async def build_deep_agents_graph(
     graph: AgentGraph,
     nodes: List[GraphNode],
     edges: List[GraphEdge],
-    llm_model: Optional[str] = None,
-    api_key: Optional[str] = None,
-    base_url: Optional[str] = None,
     user_id: Optional[Any] = None,
     model_service: Optional[Any] = None,
     thread_id: Optional[str] = None,
@@ -112,9 +109,6 @@ async def build_deep_agents_graph(
         model_resolver = ModelResolver(
             model_service=model_service,
             user_id=str(user_id) if user_id else None,
-            default_model_name=llm_model,
-            default_api_key=api_key,
-            default_base_url=base_url,
         )
 
         # Runtime prompt context

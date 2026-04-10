@@ -22,15 +22,9 @@ class ModelResolver:
         self,
         model_service: Any,
         user_id: Optional[str] = None,
-        default_model_name: Optional[str] = None,
-        default_api_key: Optional[str] = None,
-        default_base_url: Optional[str] = None,
     ):
         self._model_service = model_service
         self._user_id = user_id
-        self._default_model_name = default_model_name
-        self._default_api_key = default_api_key
-        self._default_base_url = default_base_url
         self._cache: dict[str, Any] = {}
 
     async def resolve(
@@ -39,10 +33,7 @@ class ModelResolver:
         provider_name: Optional[str] = None,
     ) -> Any:
         """Resolve a model instance. Results are cached by (provider, model) key."""
-        provider, model = parse_model_ref(
-            model_name or self._default_model_name,
-            provider_name,
-        )
+        provider, model = parse_model_ref(model_name, provider_name)
 
         cache_key = f"{provider}:{model}"
         if cache_key in self._cache:
@@ -116,27 +107,3 @@ class ModelResolver:
         except Exception:
             logger.debug("Failed to list available model names from ModelService", exc_info=True)
         return []
-
-    def extract_credentials(self, resolved_model: Any) -> dict[str, Any]:
-        """Extract API credentials from a resolved model instance."""
-        api_key = self._default_api_key
-        base_url = self._default_base_url
-        model_name = self._default_model_name
-
-        try:
-            if hasattr(resolved_model, "openai_api_key"):
-                api_key = resolved_model.openai_api_key
-            if hasattr(resolved_model, "openai_api_base"):
-                base_url = resolved_model.openai_api_base
-            if hasattr(resolved_model, "model_name"):
-                model_name = resolved_model.model_name
-            elif hasattr(resolved_model, "model"):
-                model_name = resolved_model.model
-        except Exception:
-            logger.debug("Failed to extract credentials from resolved model", exc_info=True)
-
-        return {
-            "api_key": api_key,
-            "base_url": base_url,
-            "model_name": model_name,
-        }

@@ -378,31 +378,38 @@ async def optimize_memories(
     from app.core.agent.memory.strategies.types import MemoryOptimizationStrategyType
 
     try:
-        # Resolve model for memory optimization via LLMCredentialResolver
-        from app.core.model.utils.credential_resolver import LLMCredentialResolver
-
-        api_key, base_url, model_name = await LLMCredentialResolver.get_credentials(db=db_session)
-        if not api_key or not model_name:
-            raise BadRequestException(
-                "No model configuration available. Go to Settings → Model Providers and add at least one API key.",
-            )
-
-        # Use the model factory to construct the correct model type for the provider
+        # Resolve model for memory optimization via ModelService
         from typing import cast
 
         from langchain_core.language_models.chat_models import BaseChatModel
 
-        from app.core.model import ModelType
-        from app.core.model import create_model_instance as create_model
+        from app.core.model.utils.model_ref import parse_model_ref
+        from app.services.model_service import ModelService
 
-        credentials = {"api_key": api_key, "base_url": base_url} if base_url else {"api_key": api_key}
-        memory_model = create_model(
-            "openaiapicompatible",
-            model_name,
-            ModelType.CHAT,
-            credentials,
-            {"streaming": False},
-        )
+        if not request.model:
+            raise BadRequestException(
+                "Model is required. Specify 'model' in format 'provider:model_name' (e.g., 'openai:gpt-4o-mini').",
+            )
+
+        provider_name, model_name = parse_model_ref(request.model)
+        if not model_name:
+            raise BadRequestException(
+                "Invalid model format. Specify 'model' in format 'provider:model_name' (e.g., 'openai:gpt-4o-mini').",
+            )
+
+        model_service = ModelService(db_session)
+
+        if provider_name:
+            memory_model = await model_service.get_model_instance(
+                user_id=str(current_user.id),
+                provider_name=provider_name,
+                model_name=model_name,
+            )
+        else:
+            memory_model = await model_service.get_runtime_model_by_name(
+                model_name=model_name,
+                user_id=str(current_user.id),
+            )
 
         # Create memory manager with MemoryService and explicit model
         db = MemoryService(db_session)

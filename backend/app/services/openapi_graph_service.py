@@ -21,7 +21,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import BadRequestException, NotFoundException
 from app.core.database import AsyncSessionLocal
-from app.core.model.utils.credential_resolver import LLMCredentialResolver
 from app.models.graph_execution import ExecutionStatus, GraphExecution
 from app.repositories.graph import GraphRepository
 from app.repositories.graph_execution import GraphExecutionRepository
@@ -106,23 +105,10 @@ class OpenApiGraphService(BaseService):
                 execution.started_at = datetime.now(timezone.utc)
                 await db.commit()
 
-                # get LLM credentials
-                llm_params = await LLMCredentialResolver.get_llm_params(
-                    db=db,
-                    api_key=None,
-                    base_url=None,
-                    llm_model=None,
-                    max_tokens=4096,
-                    user_id=user_id,
-                )
-
                 # compile graph
                 graph_service = GraphService(db)
                 compiled_graph = await graph_service.create_graph_by_graph_id(
                     graph_id=graph_id,
-                    llm_model=llm_params["llm_model"],
-                    api_key=llm_params["api_key"],
-                    base_url=llm_params["base_url"],
                     user_id=user_id,
                 )
 

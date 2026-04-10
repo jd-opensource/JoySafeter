@@ -140,8 +140,8 @@ class ChatTurnExecutor:
                     db,
                 )
                 await module.save_user_message(thread_id, payload.message, payload.metadata, db)
-                config, base_context, llm_params = await module.get_user_config(
-                    handler.user_id, thread_id, db, llm_model=payload.model
+                config, base_context = await module.get_user_config(
+                    handler.user_id, thread_id
                 )
 
                 initial_context = base_context.copy()
@@ -166,9 +166,6 @@ class ChatTurnExecutor:
                 graph_service = module.GraphService(db)
                 if payload.graph_id is None:
                     built_graph = await graph_service.create_default_deep_agents_graph(
-                        llm_model=llm_params["llm_model"],
-                        api_key=llm_params["api_key"],
-                        base_url=llm_params["base_url"],
                         user_id=handler.user_id,
                         file_emitter=file_emitter,
                     )
@@ -179,9 +176,6 @@ class ChatTurnExecutor:
                     current_user = await user_repo.get_by_id(handler.user_id)
                     built_graph = await graph_service.create_graph_by_graph_id(
                         graph_id=payload.graph_id,
-                        llm_model=llm_params["llm_model"],
-                        api_key=llm_params["api_key"],
-                        base_url=llm_params["base_url"],
                         user_id=handler.user_id,
                         current_user=current_user,
                         file_emitter=file_emitter,
@@ -511,7 +505,7 @@ class ChatTurnExecutor:
                     await handler._send({"type": "ws_error", "request_id": request_id, "message": "graph id not found"})
                     return
 
-                config, _, llm_params = await module.get_user_config(handler.user_id, thread_id, db)
+                config, _ = await module.get_user_config(handler.user_id, thread_id)
 
                 from langgraph.types import Command
 
@@ -531,9 +525,6 @@ class ChatTurnExecutor:
                 graph_service = module.GraphService(db)
                 built_graph = await graph_service.create_graph_by_graph_id(
                     graph_id=graph_id,
-                    llm_model=llm_params["llm_model"],
-                    api_key=llm_params["api_key"],
-                    base_url=llm_params["base_url"],
                     user_id=handler.user_id,
                     current_user=current_user,
                 )

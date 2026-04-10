@@ -25,7 +25,7 @@ Routes:
 Dependencies:
 - Auth: CurrentUser
 - Database: AsyncSession (Depends(get_db))
-- Graph: get_compiled_graph / LangGraph checkpoints
+- Graph: LangGraph checkpoints via checkpointer
 - Utilities: utc_now, SQLAlchemy select/func, etc.
 
 Requests/Responses:
@@ -52,7 +52,6 @@ from app.common.dependencies import CurrentUser
 from app.common.exceptions import InternalServerException, raise_not_found_error
 from app.common.pagination import ConversationMessagesPaginationParams, PageResult, PaginationParams, Paginator
 from app.core.agent.checkpointer.checkpointer import get_checkpointer
-from app.core.agent.sample_agent import get_agent
 from app.core.database import get_db
 from app.models import Conversation, Message
 from app.schemas import (
@@ -75,27 +74,6 @@ router = APIRouter(prefix="/v1/conversations", tags=["Conversations"])
 
 
 # ==================== Helper functions ====================
-
-
-async def get_compiled_graph(user_id: str, db: AsyncSession) -> Any:
-    """
-    Get a LangGraph runnable with checkpointer enabled.
-
-    Notes:
-        - Uses a global checkpointer instance managed by app.core.agent.checkpointer.
-        - Lazily initializes the checkpointer from settings if not initialized.
-        - Credentials are fetched from database via LLMCredentialResolver.
-    """
-    from app.core.model.utils.credential_resolver import LLMCredentialResolver
-
-    api_key, base_url, _ = await LLMCredentialResolver.get_credentials(db=db)
-
-    return await get_agent(
-        checkpointer=get_checkpointer(),
-        api_key=api_key,
-        base_url=base_url,
-        user_id=user_id,
-    )
 
 
 async def verify_conversation_ownership(thread_id: str, user_id: str, db: AsyncSession) -> Conversation:
@@ -651,16 +629,20 @@ async def get_checkpoints(
 
     config = {"configurable": {"thread_id": thread_id, "user_id": str(current_user.id)}}
     try:
-        compiled_graph = await get_compiled_graph(current_user.id, db)
+        checkpointer = get_checkpointer()
+        if not checkpointer:
+            raise RuntimeError("Checkpointer not initialized")
         checkpoints = []
-        async for checkpoint in compiled_graph.aget_state_history(config):
+        async for checkpoint_tuple in checkpointer.alist(config):
+            cp_config = checkpoint_tuple.config or {}
+            cp = checkpoint_tuple.checkpoint or {}
             checkpoints.append(
                 {
-                    "checkpoint_id": checkpoint.config["configurable"].get("checkpoint_id"),
-                    "values": checkpoint.values,
-                    "next": checkpoint.next,
-                    "metadata": checkpoint.metadata,
-                    "created_at": checkpoint.created_at.isoformat() if checkpoint.created_at else None,
+                    "checkpoint_id": cp_config.get("configurable", {}).get("checkpoint_id"),
+                    "values": cp.get("channel_values", {}),
+                    "next": [],
+                    "metadata": checkpoint_tuple.metadata,
+                    "created_at": checkpoint_tuple.metadata.get("created_at") if checkpoint_tuple.metadata else None,
                 }
             )
             if len(checkpoints) >= limit:
@@ -708,9 +690,15 @@ async def export_conversation(
     # Get LangGraph state
     config = {"configurable": {"thread_id": thread_id, "user_id": str(current_user.id)}}
     try:
-        compiled_graph = await get_compiled_graph(current_user.id, db)
-        state = await compiled_graph.aget_state(config)
-        state_values = state.values
+        checkpointer = get_checkpointer()
+        if checkpointer:
+            checkpoint_tuple = await checkpointer.aget_tuple(config)
+            if checkpoint_tuple and checkpoint_tuple.checkpoint:
+                state_values = checkpoint_tuple.checkpoint.get("channel_values", {})
+            else:
+                state_values = None
+        else:
+            state_values = None
     except Exception:
         state_values = None
 
@@ -784,12 +772,20 @@ async def import_conversation(
 
     await db.commit()
 
-    # Restore LangGraph state
+    # Restore LangGraph state (best-effort)
     if "state" in data and data["state"]:
         config = {"configurable": {"thread_id": thread_id, "user_id": str(current_user.id)}}
         try:
-            compiled_graph = await get_compiled_graph(current_user.id, db)
-            await compiled_graph.aupdate_state(config, data["state"])
+            checkpointer = get_checkpointer()
+            if checkpointer:
+                import uuid as _uuid
+
+                from langgraph.checkpoint.base import empty_checkpoint
+
+                checkpoint = empty_checkpoint()
+                checkpoint["id"] = str(_uuid.uuid4())
+                checkpoint["channel_values"] = data["state"]
+                await checkpointer.aput(config, checkpoint, {"source": "import"}, {})
         except Exception as e:
             logger.warning(f"Could not restore state: {e}")
 

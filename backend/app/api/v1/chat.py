@@ -328,13 +328,9 @@ async def get_or_create_conversation(
         return thread_id, conv
 
 
-async def get_user_config(user_id: str, thread_id: str, db: AsyncSession, llm_model: str | None = None):
-    """Retrieve user configuration and LLM parameters."""
-    from loguru import logger
-
-    from app.common.exceptions import ModelConfigError, NotFoundException
+async def get_user_config(user_id: str, thread_id: str):
+    """Retrieve user configuration (RunnableConfig for LangGraph)."""
     from app.core.agent.langfuse_callback import get_langfuse_callbacks
-    from app.core.model.utils.credential_resolver import LLMCredentialResolver
     from app.core.trace_context import get_trace_id
 
     config: RunnableConfig = {
@@ -343,30 +339,7 @@ async def get_user_config(user_id: str, thread_id: str, db: AsyncSession, llm_mo
         "callbacks": get_langfuse_callbacks(enabled=settings.langfuse_enabled),
     }
 
-    # resolve credentials via the unified LLMCredentialResolver
-    try:
-        llm_params = await LLMCredentialResolver.get_llm_params(
-            db=db,
-            api_key=None,
-            base_url=None,
-            llm_model=llm_model,
-            max_tokens=4096,
-            user_id=str(user_id),
-        )
-
-        # verify that valid credentials were obtained
-        if not llm_params.get("api_key") or not llm_params.get("llm_model"):
-            raise ModelConfigError(
-                ModelConfigError.MODEL_NO_CREDENTIALS,
-                "No model configured. Please add an API key in Settings → Model Providers.",
-            )
-    except (NotFoundException, ModelConfigError):
-        raise
-    except Exception as e:
-        logger.error(f"[get_user_config] Failed to get model from database: {e}")
-        raise NotFoundException(f"Failed to load model configuration: {str(e)}")
-
-    return config, {}, llm_params
+    return config, {}
 
 
 async def save_user_message(thread_id: str, message: str, metadata: dict | None, db: AsyncSession):

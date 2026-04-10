@@ -94,28 +94,6 @@ class LLMCredentialResolver:
                             api_key = _NO_KEY_PLACEHOLDER
                         return api_key, base_url, model_name
 
-                # Fallback: try to get first available valid credential
-                all_credentials = await credential_service.list_credentials()
-                all_instances = await model_service.repo.list_all()
-                for cred in all_credentials:
-                    if cred.get("is_valid"):
-                        provider_name_from_cred = cred.get("provider_name")
-                        if not provider_name_from_cred or not isinstance(provider_name_from_cred, str):
-                            continue
-                        provider = await model_service.provider_repo.get_by_name(provider_name_from_cred)
-                        if provider:
-                            provider_instances = [i for i in all_instances if i.provider_id == provider.id]
-                        else:
-                            provider_instances = []
-                        if provider_instances:
-                            model_name = provider_instances[0].model_name
-                            credentials = await credential_service.get_decrypted_credentials(provider_name_from_cred)
-                            if credentials:
-                                api_key = credentials.get("api_key")
-                                base_url = base_url or credentials.get("base_url")
-                                if not api_key and not _requires_api_key(provider_name_from_cred):
-                                    api_key = _NO_KEY_PLACEHOLDER
-                                break
             except Exception as e:
                 logger.warning(f"[LLMCredentialResolver] Failed to get credentials from DB: {e}")
 

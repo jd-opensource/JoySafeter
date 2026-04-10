@@ -720,9 +720,6 @@ class GraphService(BaseService):
 
     async def create_default_deep_agents_graph(
         self,
-        llm_model: Optional[str] = None,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
         user_id: Optional[Any] = None,
         file_emitter: Optional[Any] = None,
     ) -> CompiledStateGraph:
@@ -770,7 +767,7 @@ class GraphService(BaseService):
 
         logger.info(
             f"[GraphService] ===== create_default_deep_agents_graph START ===== | "
-            f"user_id={user_id} | llm_model={llm_model}"
+            f"user_id={user_id}"
         )
 
         model_service = ModelService(self.db)
@@ -778,9 +775,6 @@ class GraphService(BaseService):
             graph=graph,
             nodes=nodes,
             edges=edges,
-            llm_model=llm_model,
-            api_key=api_key,
-            base_url=base_url,
             user_id=user_id,
             model_service=model_service,
             file_emitter=file_emitter,
@@ -814,9 +808,6 @@ class GraphService(BaseService):
     async def create_graph_by_graph_id(
         self,
         graph_id: uuid.UUID,
-        llm_model: Optional[str] = None,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
         user_id: Optional[Any] = None,
         current_user: Optional[AuthUser] = None,
         file_emitter: Optional[Any] = None,
@@ -830,9 +821,6 @@ class GraphService(BaseService):
 
         Args:
             graph_id: The UUID of the graph to build
-            llm_model: Optional LLM model name
-            api_key: Optional API key for the LLM
-            base_url: Optional base URL for the LLM API
             user_id: User ID for workspace isolation
             current_user: Current authenticated user for permission checks
 
@@ -847,7 +835,7 @@ class GraphService(BaseService):
         start_time = time.time()
         logger.info(
             f"[GraphService] ===== create_graph_by_graph_id START ===== | "
-            f"graph_id={graph_id} | user_id={user_id} | llm_model={llm_model}"
+            f"graph_id={graph_id} | user_id={user_id}"
         )
 
         # Fetch the graph
@@ -906,9 +894,6 @@ class GraphService(BaseService):
             graph=graph,
             nodes=nodes,
             edges=edges,
-            llm_model=llm_model,
-            api_key=api_key,
-            base_url=base_url,
             user_id=user_id,
             model_service=model_service,
             file_emitter=file_emitter,
