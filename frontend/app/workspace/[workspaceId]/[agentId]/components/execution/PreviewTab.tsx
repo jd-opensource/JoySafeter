@@ -96,7 +96,7 @@ export const PreviewTab = React.memo(function PreviewTab() {
               'whitespace-pre-wrap rounded-md border p-3 font-mono text-xs leading-relaxed',
               (step.data as Record<string, unknown>)?.has_error
                 ? 'border-[var(--status-error-border)] bg-[var(--status-error-bg)] text-[var(--status-error)]'
-                : 'border-[var(--brand-tertiary)]/20 bg-[var(--brand-tertiary)]/5 text-[var(--brand-tertiary)]',
+                : 'border-[color-mix(in_srgb,var(--brand-tertiary)_20%,transparent)] bg-[color-mix(in_srgb,var(--brand-tertiary)_5%,transparent)] text-[var(--brand-tertiary)]',
             )}
           >
             {step.content}

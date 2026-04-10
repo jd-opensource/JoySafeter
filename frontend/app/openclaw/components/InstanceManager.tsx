@@ -22,11 +22,11 @@ interface InstanceStatus {
 }
 
 const statusStyles: Record<string, string> = {
-  running: 'bg-[var(--status-success)]/15 text-[var(--status-success)] border-[var(--status-success-border)]',
-  starting: 'bg-[var(--brand-500)]/15 text-[var(--brand-700)] border-[var(--brand-200)]',
+  running: 'bg-[color-mix(in_srgb,var(--status-success)_15%,transparent)] text-[var(--status-success)] border-[var(--status-success-border)]',
+  starting: 'bg-[color-mix(in_srgb,var(--brand-500)_15%,transparent)] text-[var(--brand-700)] border-[var(--brand-200)]',
   pending: 'bg-[var(--text-tertiary)] text-[var(--text-secondary)] border-[var(--border)]',
   stopped: 'bg-[var(--text-tertiary)] text-[var(--text-secondary)] border-[var(--border)]',
-  failed: 'bg-[var(--status-error)]/15 text-[var(--status-error)] border-[var(--status-error-border)]',
+  failed: 'bg-[color-mix(in_srgb,var(--status-error)_15%,transparent)] text-[var(--status-error)] border-[var(--status-error-border)]',
 }
 
 export function InstanceManager() {

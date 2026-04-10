@@ -74,7 +74,7 @@ export function CopilotStreaming({
       <div className="flex max-w-[85%] flex-col gap-2">
         {/* Status stage display - show default if loading but no stage set */}
         {(currentStage || loading) && (
-          <div className="rounded-2xl rounded-bl-none border border-[var(--brand-200)]/50 bg-gradient-to-r from-[var(--brand-50)] to-[var(--surface-elevated)] p-3 shadow-sm">
+          <div className="rounded-2xl rounded-bl-none border border-[color-mix(in_srgb,var(--brand-200)_50%,transparent)] bg-gradient-to-r from-[var(--brand-50)] to-[var(--surface-elevated)] p-3 shadow-sm">
             <div className="flex items-center gap-2">
               <span className="text-base">
                 {currentStage ? stageConfig[currentStage.stage]?.icon || '⏳' : '⏳'}
@@ -114,7 +114,7 @@ export function CopilotStreaming({
             {currentToolCall && (
               <div
                 className={`shrink-0 p-2.5 ${
-                  streamingContent ? 'border-b border-[var(--status-warning-border)]/50 bg-[var(--status-warning-bg)]' : ''
+                  streamingContent ? 'border-b border-[color-mix(in_srgb,var(--status-warning-border)_50%,transparent)] bg-[var(--status-warning-bg)]' : ''
                 }`}
               >
                 <div className="flex items-center gap-2">
@@ -181,7 +181,7 @@ export function CopilotStreaming({
                   {visibleResults.map((result, idx) => (
                     <div
                       key={`${type}-${result.originalIndex}`}
-                      className="flex items-center gap-2 rounded-lg border border-[var(--status-success-border)]/50 bg-[var(--surface-elevated)] p-1.5"
+                      className="flex items-center gap-2 rounded-lg border border-[color-mix(in_srgb,var(--status-success-border)_50%,transparent)] bg-[var(--surface-elevated)] p-1.5"
                     >
                       <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[var(--status-success-bg)] text-[var(--status-success)]">
                         <Check size={8} strokeWidth={4} />

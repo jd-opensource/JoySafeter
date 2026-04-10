@@ -35,9 +35,9 @@ interface TokenListProps {
 const getTypeBadgeColor = (type?: string | null) => {
   switch (type) {
     case 'workspace':
-      return 'bg-[var(--brand-50)] text-[var(--brand-700)] hover:bg-[var(--brand-50)]/80 border-[var(--brand-200)]'
+      return 'bg-[var(--brand-50)] text-[var(--brand-700)] hover:bg-[color-mix(in_srgb,var(--brand-50)_80%,transparent)] border-[var(--brand-200)]'
     case 'skill':
-      return 'bg-[var(--brand-100)] text-[var(--brand-700)] hover:bg-[var(--brand-100)]/80 border-[var(--brand-200)]'
+      return 'bg-[var(--brand-100)] text-[var(--brand-700)] hover:bg-[color-mix(in_srgb,var(--brand-100)_80%,transparent)] border-[var(--brand-200)]'
     case 'personal':
     default:
       return 'bg-[var(--surface-3)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)] border-[var(--border)]'

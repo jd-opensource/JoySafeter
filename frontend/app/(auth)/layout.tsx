@@ -114,7 +114,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
               <div className="space-y-2.5">
                 <div className="group flex items-center gap-4">
                   <div className="relative">
-                    <div className="h-[3px] w-10 rounded-full bg-gradient-to-r from-[var(--gradient-brand-from)] to-[var(--gradient-brand-accent)] shadow-sm shadow-[var(--brand-400)]/50" />
+                    <div className="h-[3px] w-10 rounded-full bg-gradient-to-r from-[var(--gradient-brand-from)] to-[var(--gradient-brand-accent)] shadow-sm shadow-[color-mix(in_srgb,var(--brand-400)_50%,transparent)]" />
                     <div className="absolute inset-0 h-[3px] w-10 rounded-full bg-gradient-to-r from-[var(--gradient-brand-from)] to-[var(--gradient-brand-accent)] opacity-60 blur-sm" />
                   </div>
                   <p
@@ -128,7 +128,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                 </div>
                 <div className="group flex items-center gap-4">
                   <div className="relative">
-                    <div className="h-[3px] w-10 rounded-full bg-gradient-to-r from-[var(--gradient-secondary-from)] to-[var(--gradient-secondary-to)] shadow-sm shadow-[var(--brand-secondary)]/50" />
+                    <div className="h-[3px] w-10 rounded-full bg-gradient-to-r from-[var(--gradient-secondary-from)] to-[var(--gradient-secondary-to)] shadow-sm shadow-[color-mix(in_srgb,var(--brand-secondary)_50%,transparent)]" />
                     <div className="absolute inset-0 h-[3px] w-10 rounded-full bg-gradient-to-r from-[var(--gradient-secondary-from)] to-[var(--gradient-secondary-to)] opacity-60 blur-sm" />
                   </div>
                   <p
@@ -144,7 +144,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
               {/* Feature tags - 2x2 grid */}
               <div className="grid grid-cols-2 gap-3">
-                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 backdrop-blur-sm transition-all hover:border-[var(--brand-secondary)]/60 hover:bg-[var(--brand-50)]/40">
+                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 backdrop-blur-sm transition-all hover:border-[color-mix(in_srgb,var(--brand-secondary)_60%,transparent)] hover:bg-[color-mix(in_srgb,var(--brand-50)_40%,transparent)]">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--brand-secondary)] to-[var(--gradient-secondary-to)] shadow-sm">
                     <svg
                       className="h-4 w-4 text-white"
@@ -167,7 +167,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                     {mounted ? t('auth.featureIntelligentOrchestration') : 'Auto Orchestration'}
                   </span>
                 </div>
-                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 backdrop-blur-sm transition-all hover:border-[var(--brand-400)]/60 hover:bg-[var(--brand-50)]/40">
+                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 backdrop-blur-sm transition-all hover:border-[color-mix(in_srgb,var(--brand-400)_60%,transparent)] hover:bg-[color-mix(in_srgb,var(--brand-50)_40%,transparent)]">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--brand-500)] to-[var(--brand-700)] shadow-sm">
                     <svg
                       className="h-4 w-4 text-white"
@@ -190,7 +190,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                     {mounted ? t('auth.featureSecure') : 'Security Agent'}
                   </span>
                 </div>
-                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 backdrop-blur-sm transition-all hover:border-[var(--gradient-secondary-from)]/60 hover:bg-[var(--brand-50)]/40">
+                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 backdrop-blur-sm transition-all hover:border-[color-mix(in_srgb,var(--gradient-secondary-from)_60%,transparent)] hover:bg-[color-mix(in_srgb,var(--brand-50)_40%,transparent)]">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--gradient-secondary-from)] to-[var(--brand-secondary)] shadow-sm">
                     <svg
                       className="h-4 w-4 text-white"
@@ -213,7 +213,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                     {mounted ? t('auth.featureMultiAgent') : 'Modular'}
                   </span>
                 </div>
-                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 backdrop-blur-sm transition-all hover:border-[var(--brand-600)]/60 hover:bg-[var(--brand-50)]/40">
+                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 backdrop-blur-sm transition-all hover:border-[color-mix(in_srgb,var(--brand-600)_60%,transparent)] hover:bg-[color-mix(in_srgb,var(--brand-50)_40%,transparent)]">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--brand-600)] to-[var(--brand-tertiary)] shadow-sm">
                     <svg
                       className="h-4 w-4 text-white"

@@ -68,11 +68,11 @@ interface DeviceResponse {
 }
 
 const instanceStatusStyles: Record<string, string> = {
-  running: 'bg-[var(--status-success)]/15 text-[var(--status-success)] border-[var(--status-success-border)]',
-  starting: 'bg-[var(--brand-500)]/15 text-[var(--brand-700)] border-[var(--brand-200)]',
+  running: 'bg-[color-mix(in_srgb,var(--status-success)_15%,transparent)] text-[var(--status-success)] border-[var(--status-success-border)]',
+  starting: 'bg-[color-mix(in_srgb,var(--brand-500)_15%,transparent)] text-[var(--brand-700)] border-[var(--brand-200)]',
   pending: 'bg-[var(--text-tertiary)] text-[var(--text-secondary)] border-[var(--border)]',
   stopped: 'bg-[var(--text-tertiary)] text-[var(--text-secondary)] border-[var(--border)]',
-  failed: 'bg-[var(--status-error)]/15 text-[var(--status-error)] border-[var(--status-error-border)]',
+  failed: 'bg-[color-mix(in_srgb,var(--status-error)_15%,transparent)] text-[var(--status-error)] border-[var(--status-error-border)]',
 }
 
 export function OpenClawManagement() {
@@ -238,7 +238,7 @@ export function OpenClawManagement() {
         <div className="relative p-4 sm:p-5">
           <div className="flex flex-col gap-4">
             <div className="flex min-w-0 items-start gap-3.5">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[var(--brand-500)]/20 bg-[var(--brand-500)]/10">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[color-mix(in_srgb,var(--brand-500)_20%,transparent)] bg-[color-mix(in_srgb,var(--brand-500)_10%,transparent)]">
                 <Server className="h-6 w-6 text-[var(--brand-600)]" />
               </div>
               <div className="flex min-w-0 flex-col gap-1.5">
@@ -536,7 +536,7 @@ export function OpenClawManagement() {
                   className="hover:bg-[var(--muted)] flex flex-col justify-between gap-3 p-3 transition-colors sm:flex-row sm:items-center sm:px-4"
                 >
                   <div className="flex min-w-0 items-start gap-3">
-                    <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--status-warning)]/10 text-[var(--status-warning)] dark:bg-[var(--status-warning)]/20 dark:text-[var(--status-warning)]">
+                    <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_srgb,var(--status-warning)_10%,transparent)] text-[var(--status-warning)] dark:bg-[color-mix(in_srgb,var(--status-warning)_20%,transparent)] dark:text-[var(--status-warning)]">
                       <Smartphone className="h-4 w-4" />
                     </div>
                     <div className="flex min-w-0 flex-col">
@@ -570,7 +570,7 @@ export function OpenClawManagement() {
                   className="hover:bg-[var(--muted)] flex items-center justify-between p-3 transition-colors sm:px-4"
                 >
                   <div className="flex min-w-0 items-start gap-3">
-                    <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--status-success)]/10 text-[var(--status-success)] dark:bg-[var(--status-success)]/20 dark:text-[var(--status-success)]">
+                    <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_srgb,var(--status-success)_10%,transparent)] text-[var(--status-success)] dark:bg-[color-mix(in_srgb,var(--status-success)_20%,transparent)] dark:text-[var(--status-success)]">
                       <CheckCheck className="h-4 w-4" />
                     </div>
                     <div className="flex min-w-0 flex-col">

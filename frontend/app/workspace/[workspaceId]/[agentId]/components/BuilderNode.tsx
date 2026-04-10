@@ -270,7 +270,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
           : 'border-[var(--border)] hover:border-[var(--border-strong)]',
         isExecuting && 'z-50 scale-105 border-transparent shadow-[0_0_25px_rgba(59,130,246,0.4)]',
         isInterrupted &&
-          'z-40 border-[var(--status-warning)] shadow-[0_0_15px_rgba(251,191,36,0.3)] ring-2 ring-[var(--status-warning)]/20',
+          'z-40 border-[var(--status-warning)] shadow-[0_0_15px_rgba(251,191,36,0.3)] ring-2 ring-[color-mix(in_srgb,var(--status-warning)_20%,transparent)]',
         // Execution Status
         nodeExecutionStatus === 'success' &&
           !isExecuting &&

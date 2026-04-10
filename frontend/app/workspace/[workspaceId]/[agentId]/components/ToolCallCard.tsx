@@ -102,7 +102,7 @@ export function ToolCallCard({
   const getStatusColor = () => {
     switch (step.status) {
       case 'running':
-        return 'border-[var(--brand-secondary)]/20 bg-[var(--brand-secondary)]/5'
+        return 'border-[color-mix(in_srgb,var(--brand-secondary)_20%,transparent)] bg-[color-mix(in_srgb,var(--brand-secondary)_5%,transparent)]'
       case 'success':
         return 'border-[var(--status-success-border)] bg-[var(--status-success-bg)]'
       case 'error':
@@ -140,7 +140,7 @@ export function ToolCallCard({
             <div
               className={cn(
                 'rounded px-1.5 py-0.5 text-micro font-medium',
-                step.status === 'running' && 'bg-[var(--brand-secondary)]/10 text-[var(--brand-secondary)]',
+                step.status === 'running' && 'bg-[color-mix(in_srgb,var(--brand-secondary)_10%,transparent)] text-[var(--brand-secondary)]',
                 step.status === 'success' && 'bg-[var(--status-success-bg)] text-[var(--status-success)]',
                 step.status === 'error' && 'bg-[var(--status-error-bg)] text-[var(--status-error)]',
                 step.status === 'pending' && 'bg-[var(--surface-3)] text-[var(--text-secondary)]',

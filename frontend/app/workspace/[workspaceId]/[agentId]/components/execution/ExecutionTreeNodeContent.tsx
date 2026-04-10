@@ -37,7 +37,7 @@ interface ExecutionTreeNodeContentProps {
 
 function getNodeIcon(node: ExecutionTreeNode) {
   if (node.status === 'running') {
-    return <Zap size={13} className="animate-pulse fill-[var(--brand-secondary)]/10 text-[var(--brand-secondary)]" />
+    return <Zap size={13} className="animate-pulse fill-[color-mix(in_srgb,var(--brand-secondary)_10%,transparent)] text-[var(--brand-secondary)]" />
   }
 
   const stepType = node.step?.stepType
