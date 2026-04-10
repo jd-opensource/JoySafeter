@@ -216,7 +216,7 @@ export function ToolsField({ value, onChange }: ToolsFieldProps) {
                     )}
                     <span
                       className={cn(
-                        'truncate text-app-xs font-medium',
+                        'truncate text-2xs font-medium',
                         isSelected ? 'text-primary' : 'text-[var(--text-secondary)]',
                       )}
                     >

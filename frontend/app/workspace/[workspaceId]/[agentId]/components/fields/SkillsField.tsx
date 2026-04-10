@@ -149,7 +149,7 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
                     />
                     <span
                       className={cn(
-                        'truncate text-app-xs font-medium',
+                        'truncate text-2xs font-medium',
                         isSelected ? 'text-[var(--skill-brand-700)]' : 'text-[var(--text-secondary)]',
                       )}
                     >

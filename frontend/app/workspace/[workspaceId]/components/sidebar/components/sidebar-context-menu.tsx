@@ -36,7 +36,7 @@ export function SidebarContextMenu({ items, onClose, position, className }: Side
             <button
               type="button"
               className={cn(
-                'flex w-full items-center gap-1.5 rounded-md px-1.5 py-[5px] text-xs-plus font-medium transition-colors hover:bg-[var(--surface-5)]',
+                'flex w-full items-center gap-1.5 rounded-md px-1.5 py-[5px] text-app-xs font-medium transition-colors hover:bg-[var(--surface-5)]',
                 item.variant === 'destructive'
                   ? 'text-[var(--status-error)]'
                   : 'text-[var(--text-secondary)]',
