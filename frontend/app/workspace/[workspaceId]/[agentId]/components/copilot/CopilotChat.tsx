@@ -145,13 +145,13 @@ export function CopilotChat({
                     console.error('Failed to copy:', err)
                   }
                 }}
-                className="absolute right-1 top-1 z-10 rounded p-1.5 opacity-0 transition-opacity hover:bg-black/10 group-hover:opacity-100"
+                className="absolute right-1 top-1 z-10 rounded p-1.5 opacity-0 transition-opacity hover:bg-[var(--surface-3)] group-hover:opacity-100"
                 title="Copy"
               >
                 {copiedMessageId === i ? (
                   <Check
                     size={12}
-                    className={m.role === 'user' ? 'text-green-300' : 'text-green-600'}
+                    className={m.role === 'user' ? 'text-green-300' : 'text-[var(--status-success)]'}
                   />
                 ) : (
                   <Copy

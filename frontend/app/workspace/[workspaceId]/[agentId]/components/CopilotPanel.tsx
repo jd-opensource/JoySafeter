@@ -112,7 +112,7 @@ export function CopilotPanel() {
           {/* Loading history indicator */}
           {state.loadingHistory && (
             <div className="flex items-center justify-center py-4">
-              <Loader2 size={16} className="mr-2 animate-spin text-purple-500" />
+              <Loader2 size={16} className="mr-2 animate-spin text-[var(--brand-500)]" />
               <span className="text-xs text-[var(--text-tertiary)]">{t('workspace.loadingHistory')}</span>
             </div>
           )}

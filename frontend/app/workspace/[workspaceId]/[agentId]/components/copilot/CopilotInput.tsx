@@ -79,9 +79,9 @@ export function CopilotInput({
           type="button"
           onClick={onAIDecision}
           disabled={loading || executingActions || messagesCount <= 1}
-          className={`${chipBase} border border-purple-200 bg-purple-50/50 text-purple-600 hover:border-purple-300 hover:bg-purple-100 disabled:cursor-not-allowed disabled:opacity-50`}
+          className={`${chipBase} border border-[var(--brand-200)] bg-[var(--brand-50)] text-[var(--brand-600)] hover:border-[var(--brand-400)] hover:bg-[var(--brand-100)] disabled:cursor-not-allowed disabled:opacity-50`}
         >
-          <Sparkles size={10} className="shrink-0 text-purple-500" />
+          <Sparkles size={10} className="shrink-0 text-[var(--brand-500)]" />
           {t('workspace.aiDecision')}
         </button>
         <div className="flex-shrink-0">

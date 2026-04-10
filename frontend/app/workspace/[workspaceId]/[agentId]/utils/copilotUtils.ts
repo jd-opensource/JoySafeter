@@ -71,32 +71,32 @@ export function getStageConfig(
   return {
     thinking: {
       icon: '💭',
-      color: 'text-purple-600',
+      color: 'text-[var(--brand-600)]',
       label: t('copilot.stage.thinking', { defaultValue: 'Thinking' }),
     },
     processing: {
       icon: '✨',
-      color: 'text-green-600',
+      color: 'text-[var(--status-success)]',
       label: t('copilot.stage.processing', { defaultValue: 'Processing' }),
     },
     generating: {
       icon: '🔧',
-      color: 'text-amber-600',
+      color: 'text-[var(--status-warning)]',
       label: t('copilot.stage.generating', { defaultValue: 'Generating nodes' }),
     },
     analyzing: {
       icon: '🔍',
-      color: 'text-blue-600',
+      color: 'text-[var(--brand-500)]',
       label: t('copilot.stage.analyzing', { defaultValue: 'Analyzing requirements' }),
     },
     planning: {
       icon: '📋',
-      color: 'text-indigo-600',
+      color: 'text-[var(--brand-700)]',
       label: t('copilot.stage.planning', { defaultValue: 'Planning architecture' }),
     },
     validating: {
       icon: '🛡️',
-      color: 'text-teal-600',
+      color: 'text-[var(--status-success-strong)]',
       label: t('copilot.stage.validating', { defaultValue: 'Validating design' }),
     },
   }
