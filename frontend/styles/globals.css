@@ -61,12 +61,14 @@
 }
 
 /**
- * Color tokens
+ * Design tokens — custom hex values
+ * Used via var(--token) in inline styles and Tailwind arbitrary values
+ * Light and dark themes defined separately
  */
 @layer base {
   :root,
   .light {
-    /* Surfaces - progressively darker grays */
+    /* Surfaces */
     --bg: #f4f5f7;
     --surface-1: #f4f5f7;
     --surface-2: #fafbfc;
@@ -82,6 +84,7 @@
     --text-muted: #78716c;
     --text-subtle: #a8a29e;
     --text-error: #dc2626;
+    --text-disabled: #d1d5db;
 
     /* Borders */
     --border: #e5e7eb;
@@ -89,7 +92,7 @@
     --border-muted: #f3f4f6;
     --border-focus: #7c3aed;
 
-    /* Brand - full scale */
+    /* Brand */
     --brand-50:  #f5f3ff;
     --brand-100: #ede9fe;
     --brand-200: #ddd6fe;
@@ -100,26 +103,22 @@
     --brand-secondary: #33b4ff;
     --brand-tertiary: #22c55e;
 
-    /* Status - success */
+    /* Status */
     --status-success:        #16a34a;
     --status-success-bg:     #f0fdf4;
     --status-success-border: #bbf7d0;
     --status-success-hover:  #15803d;
     --status-success-strong: #14532d;
-
-    /* Status - warning */
     --status-warning:        #d97706;
     --status-warning-bg:     #fffbeb;
     --status-warning-border: #fde68a;
-
-    /* Status - error */
     --status-error:        #dc2626;
     --status-error-bg:     #fef2f2;
     --status-error-border: #fecaca;
     --status-error-hover:  #b91c1c;
     --status-error-strong: #991b1b;
 
-    /* Skills brand (emerald) */
+    /* Skill brand (emerald) */
     --skill-brand:     #059669;
     --skill-brand-50:  #ecfdf5;
     --skill-brand-100: #d1fae5;
@@ -127,28 +126,21 @@
     --skill-brand-600: #059669;
     --skill-brand-700: #047857;
 
-    /* Text extras */
-    --text-disabled: #d1d5db;
-
-    /* Brand gradients */
+    /* Gradients */
     --gradient-brand-from: #6f3dfa;
     --gradient-brand-to: #0ea5e9;
     --gradient-brand-accent: #a78bfa;
     --gradient-secondary-from: #0ea5e9;
     --gradient-secondary-to: #67e8f9;
 
-    /* Code surfaces */
+    /* Misc */
     --code-bg: #0d1117;
-
-    /* Canvas */
     --canvas-dot: #cbd5e1;
     --edge-color: #cbd5e1;
     --edge-active: #3b82f6;
-
-    /* Utility */
     --radius: 0.5rem;
 
-    /* Tailwind compatibility - 灰白色背景 */
+    /* shadcn/ui compatibility (HSL) — do not mix with hex tokens above */
     --background: 220 16% 96%;
     --foreground: 20 14.3% 4.1%;
     --card: 220 16% 97%;
@@ -170,7 +162,7 @@
   }
 
   .dark {
-    /* Surfaces - progressively deeper navy */
+    /* Surfaces */
     --bg: #0f1419;
     --surface-1: #141a21;
     --surface-2: #1a222b;
@@ -186,6 +178,7 @@
     --text-muted: #6b7a8a;
     --text-subtle: #4a5868;
     --text-error: #f87171;
+    --text-disabled: #354252;
 
     /* Borders */
     --border: #1e2938;
@@ -193,7 +186,7 @@
     --border-muted: #1a222b;
     --border-focus: #38bdf8;
 
-    /* Brand - full scale (sky/cyan tech palette) */
+    /* Brand (sky/cyan) */
     --brand-50:  #0c1a24;
     --brand-100: #0d2535;
     --brand-200: #0f3347;
@@ -204,26 +197,22 @@
     --brand-secondary: #06b6d4;
     --brand-tertiary: #10b981;
 
-    /* Status - success */
+    /* Status */
     --status-success:        #4ade80;
     --status-success-bg:     #052e16;
     --status-success-border: #166534;
     --status-success-hover:  #86efac;
     --status-success-strong: #bbf7d0;
-
-    /* Status - warning */
     --status-warning:        #fbbf24;
     --status-warning-bg:     #1c0f00;
     --status-warning-border: #78350f;
-
-    /* Status - error */
     --status-error:        #f87171;
     --status-error-bg:     #1c0505;
     --status-error-border: #7f1d1d;
     --status-error-hover:  #fca5a5;
     --status-error-strong: #fecaca;
 
-    /* Skills brand (emerald - dark adapted) */
+    /* Skill brand (emerald) */
     --skill-brand:     #34d399;
     --skill-brand-50:  #022c22;
     --skill-brand-100: #064e3b;
@@ -231,25 +220,20 @@
     --skill-brand-600: #34d399;
     --skill-brand-700: #6ee7b7;
 
-    /* Text extras */
-    --text-disabled: #354252;
-
-    /* Brand gradients */
+    /* Gradients */
     --gradient-brand-from: #0ea5e9;
     --gradient-brand-to: #06b6d4;
     --gradient-brand-accent: #38bdf8;
     --gradient-secondary-from: #06b6d4;
     --gradient-secondary-to: #22d3ee;
 
-    /* Code surfaces */
+    /* Misc */
     --code-bg: #0a0e14;
-
-    /* Canvas */
     --canvas-dot: #334252;
     --edge-color: #405263;
     --edge-active: #60a5fa;
 
-    /* Tailwind compatibility */
+    /* shadcn/ui compatibility (HSL) */
     --background: 210 25% 8%;
     --foreground: 210 20% 92%;
     --card: 210 22% 12%;
