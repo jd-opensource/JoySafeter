@@ -201,7 +201,6 @@
     --destructive-foreground: 60 9.1% 97.8%;
     --input: 220 13% 91%;
     --ring: 262 83% 58%;
-    --border-tw: 220 13% 91%;
   }
 
   .dark {
@@ -356,11 +355,10 @@
 
 @layer base {
   * {
-    @apply border-border;
+    border-color: var(--border);
   }
   body {
     @apply bg-background text-foreground;
-    background-color: var(--bg);
   }
 }
 
