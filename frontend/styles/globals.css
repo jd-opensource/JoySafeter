@@ -156,20 +156,6 @@
     --edge-color: #cbd5e1;
     --edge-active: #3b82f6;
 
-    /* Agent palette */
-    --agent-1: #3972F6;
-    --agent-2: #10B981;
-    --agent-3: #F59E0B;
-    --agent-4: #EF4444;
-    --agent-5: #8B5CF6;
-    --agent-6: #EC4899;
-    --agent-7: #06B6D4;
-    --agent-8: #84CC16;
-    --agent-9: #F97316;
-    --agent-10: #6366F1;
-    --agent-11: #14B8A6;
-    --agent-12: #A855F7;
-
     /* Utility */
     --radius: 0.5rem;
 
@@ -284,20 +270,6 @@
     --canvas-dot: #334252;
     --edge-color: #405263;
     --edge-active: #60a5fa;
-
-    /* Agent palette (same in both themes) */
-    --agent-1: #3972F6;
-    --agent-2: #10B981;
-    --agent-3: #F59E0B;
-    --agent-4: #EF4444;
-    --agent-5: #8B5CF6;
-    --agent-6: #EC4899;
-    --agent-7: #06B6D4;
-    --agent-8: #84CC16;
-    --agent-9: #F97316;
-    --agent-10: #6366F1;
-    --agent-11: #14B8A6;
-    --agent-12: #A855F7;
 
     /* Tailwind compatibility */
     --background: 210 25% 8%;

@@ -138,9 +138,8 @@ export function Sidebar() {
 
   const generateRandomColor = useCallback(() => {
     const colors = [
-      'var(--agent-1)', 'var(--agent-2)', 'var(--agent-3)', 'var(--agent-4)',
-      'var(--agent-5)', 'var(--agent-6)', 'var(--agent-7)', 'var(--agent-8)',
-      'var(--agent-9)', 'var(--agent-10)', 'var(--agent-11)', 'var(--agent-12)',
+      '#3972F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899',
+      '#06B6D4', '#84CC16', '#F97316', '#6366F1', '#14B8A6', '#A855F7',
     ]
     return colors[Math.floor(Math.random() * colors.length)]
   }, [])
