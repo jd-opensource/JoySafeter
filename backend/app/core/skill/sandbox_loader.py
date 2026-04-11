@@ -177,6 +177,12 @@ class SkillSandboxLoader:
         Returns:
             Backend type string: "docker", "filesystem", or "unknown"
         """
+        # Unwrap FileTrackingProxy to detect the real backend type
+        from app.core.agent.backends.file_tracking_proxy import FileTrackingProxy
+
+        if isinstance(backend, FileTrackingProxy):
+            backend = backend._backend
+
         # Check for PydanticSandboxAdapter (Docker backend)
         try:
             from app.core.agent.backends.pydantic_adapter import PydanticSandboxAdapter
