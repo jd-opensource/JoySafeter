@@ -115,8 +115,8 @@ export function WorkspaceDropdown({
 
   return (
     <>
-      <div className="fixed inset-0 z-popover" onClick={handleCloseDropdown} />
-      <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-popover rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-[4px] shadow-lg">
+      <div className="fixed inset-0 z-40" onClick={handleCloseDropdown} />
+      <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-[4px] shadow-lg">
         <div className="flex items-center justify-between px-2 py-1">
           <span className="text-sm font-medium text-[var(--text-tertiary)]">
             {t('workspace.workspaces')}
