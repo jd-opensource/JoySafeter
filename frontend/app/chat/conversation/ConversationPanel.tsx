@@ -67,7 +67,6 @@ export default function ConversationPanel({ onSend, onStop }: ConversationPanelP
         command: { update: {}, goto: null },
       })
     } catch (error) {
-      // Safety net — resumeChat handles its own errors via toast + inline UI
       console.error('[ConversationPanel] Unexpected error in resumeChat:', error)
     }
   }, [dispatch, isProcessing, resumeChat, state.streaming.interrupt])

@@ -16,6 +16,7 @@ import type { IncomingChatAcceptedEvent } from '@/lib/ws/chat/types'
 import { getRunWsClient } from '@/lib/ws/runs/runWsClient'
 import type { RunEventFrame, RunSnapshotFrame, RunStatusFrame } from '@/lib/ws/runs/types'
 import { generateUUID } from '@/lib/utils/uuid'
+import { toastError } from '@/lib/utils/toast'
 import { conversationService, type ConversationMessage } from '@/services/conversationService'
 import { runService } from '@/services/runService'
 
@@ -672,6 +673,29 @@ export function useSkillCreatorRun(): UseSkillCreatorRunReturn {
             },
             metadata: {},
             onAccepted: handleAccepted,
+            onEvent: (evt) => {
+              if (evt.type === 'error') {
+                const msg = evt.data.message || 'Unknown error'
+                toastError(msg)
+                setIsProcessing(false)
+                setIsSubmitting(false)
+              }
+            },
+          })
+          .then(async (result) => {
+            if (result.terminal === 'error') {
+              rejectPendingAcceptance(
+                new Error('Skill creator execution failed'),
+                nextRunId,
+              )
+              setIsProcessing(false)
+              setIsSubmitting(false)
+              try {
+                await runService.cancelRun(nextRunId)
+              } catch (cancelError) {
+                console.error('Failed to cancel queued skill creator run:', cancelError)
+              }
+            }
           })
           .catch(async (error) => {
             rejectPendingAcceptance(

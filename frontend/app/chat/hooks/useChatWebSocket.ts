@@ -71,6 +71,27 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
     setActiveRequestIdState(requestId)
   }, [])
 
+  /** Clean up a failed request and surface the error to the user. */
+  const handleRequestError = useCallback(
+    (requestId: string, threadId: string | null | undefined, aiMsgId: string, error: unknown) => {
+      const pending = activeRequestsRef.current[requestId]
+      delete activeRequestsRef.current[requestId]
+      if (currentRequestIdRef.current === requestId) {
+        setCurrentRequestId(null)
+      }
+      if (threadId) {
+        activeByThreadRef.current.delete(threadId)
+      }
+      if (pending) {
+        const messageText = error instanceof Error ? error.message : 'Connection failed'
+        dispatch({ type: 'STREAM_ERROR', error: messageText, messageId: aiMsgId })
+        dispatch({ type: 'STREAM_DONE', messageId: aiMsgId })
+        toastError(messageText)
+      }
+    },
+    [dispatch, setCurrentRequestId],
+  )
+
   const finalizeActiveRequests = useCallback(
     (errorMessage: string) => {
       const activeRequests = activeRequestsRef.current
@@ -467,24 +488,11 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
         })
         return { requestId: result.requestId }
       } catch (error) {
-        const pending = activeRequestsRef.current[requestId]
-        delete activeRequestsRef.current[requestId]
-        if (currentRequestIdRef.current === requestId) {
-          setCurrentRequestId(null)
-        }
-        if (threadId) {
-          activeByThreadRef.current.delete(threadId)
-        }
-        if (pending) {
-          const messageText = error instanceof Error ? error.message : 'Connection failed'
-          dispatch({ type: 'STREAM_ERROR', error: messageText, messageId: aiMsgId })
-          dispatch({ type: 'STREAM_DONE', messageId: aiMsgId })
-          toastError(messageText)
-        }
+        handleRequestError(requestId, threadId, aiMsgId, error)
         return { requestId }
       }
     },
-    [dispatch, handleEvent, setCurrentRequestId],
+    [dispatch, handleEvent, handleRequestError, setCurrentRequestId],
   )
 
   const stopMessage = useCallback((requestId: string | null) => {
@@ -523,22 +531,11 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
         })
         return { requestId: result.requestId }
       } catch (error) {
-        const pending = activeRequestsRef.current[requestId]
-        delete activeRequestsRef.current[requestId]
-        if (currentRequestIdRef.current === requestId) {
-          setCurrentRequestId(null)
-        }
-        activeByThreadRef.current.delete(threadId)
-        if (pending) {
-          const messageText = error instanceof Error ? error.message : 'Connection failed'
-          dispatch({ type: 'STREAM_ERROR', error: messageText, messageId: aiMsgId })
-          dispatch({ type: 'STREAM_DONE', messageId: aiMsgId })
-          toastError(messageText)
-        }
+        handleRequestError(requestId, threadId, aiMsgId, error)
         return { requestId }
       }
     },
-    [dispatch, handleEvent, setCurrentRequestId],
+    [dispatch, handleEvent, handleRequestError, setCurrentRequestId],
   )
 
   return {

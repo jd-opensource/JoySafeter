@@ -484,8 +484,8 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         if (result.threadId) store.setThreadId(graphId, result.threadId)
         store.setRequestId(graphId, result.requestId)
 
-        // Only mark success when not stopped by user (stopped path already set status: 'error')
-        if (!wasStopped) {
+        // Only mark success when not stopped/errored
+        if (!wasStopped && result.terminal !== 'error') {
           const graphContext = store.getContext(graphId)
           const workflowStep = graphContext.state.steps.find((s) => s.id === workflowId)
           store.updateStep(workflowId, {

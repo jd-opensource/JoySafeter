@@ -119,7 +119,7 @@ export function useCopilotActions({
         const requestId = generateUUID()
         activeRequestIdRef.current = requestId
 
-        await getChatWsClient().sendChat({
+        const result = await getChatWsClient().sendChat({
           requestId,
           input: {
             message: userText,
@@ -129,6 +129,13 @@ export function useCopilotActions({
           extension,
           onEvent: (evt) => onCopilotEvent?.(evt),
         })
+
+        if (result.terminal === 'error' && refs.isMountedRef.current) {
+          actions.setLoading(false)
+          actions.clearStreaming()
+          refs.isCreatingSessionRef.current = false
+          actions.clearSession()
+        }
       } catch (e: unknown) {
         console.error('[CopilotPanel] Failed to send copilot message:', e)
 

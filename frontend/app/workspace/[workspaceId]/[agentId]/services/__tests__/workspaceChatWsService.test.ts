@@ -123,9 +123,9 @@ describe('workspaceChatWsService', () => {
   })
 
   // -------------------------------------------------------------------------
-  // 2. sendChat rejects when error frame carries a non-stop message
+  // 2. sendChat resolves with terminal 'error' when error frame is received
   // -------------------------------------------------------------------------
-  it('sendChat rejects with error message when error frame is received', async () => {
+  it('sendChat resolves with terminal error when error frame is received', async () => {
     const svc = await makeConnectedService()
 
     const sendP = svc.sendChat({ message: 'hello' })
@@ -139,7 +139,8 @@ describe('workspaceChatWsService', () => {
       data: { message: 'Something went terribly wrong' },
     })
 
-    await expect(sendP).rejects.toThrow('Something went terribly wrong')
+    const result = await sendP
+    expect(result).toMatchObject({ requestId: request_id, terminal: 'error' })
   })
 
   // -------------------------------------------------------------------------

@@ -196,9 +196,10 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
     case 'STREAM_ERROR': {
       const errorMsgId = action.messageId || state.streaming.messageId
+      const hasTarget = errorMsgId && state.messages.some((m) => m.id === errorMsgId)
       return {
         ...state,
-        messages: errorMsgId
+        messages: hasTarget
           ? state.messages.map((m) =>
               m.id === errorMsgId
                 ? { ...m, isStreaming: false, metadata: { ...m.metadata, error: action.error } }
