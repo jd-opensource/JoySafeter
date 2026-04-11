@@ -99,8 +99,6 @@ export default function SkillCreatorPage() {
         open={showSaveDialog}
         onOpenChange={setShowSaveDialog}
         previewData={previewData}
-        fileTree={fileTree}
-        threadId={threadId}
         editSkillId={effectiveEditSkillId}
         onSaved={handleSaved}
       />

@@ -15,8 +15,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { API_BASE } from '@/lib/api-client'
 import { toastSuccess, toastError } from '@/lib/utils/toast'
-import { artifactService } from '@/services/artifactService'
-import { getFileExtension, getFilenameFromPath } from '@/services/skillService'
+import { getFilenameFromPath } from '@/services/skillService'
 
 import type { SkillPreviewData } from '../page'
 
@@ -28,8 +27,6 @@ interface SkillSaveDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   previewData: SkillPreviewData | null
-  fileTree?: Record<string, { action: string; size?: number; timestamp?: number }>
-  threadId: string | null
   /** When editing an existing skill, pass its id to PUT instead of POST. */
   editSkillId?: string | null
   /** Called after a successful save with the skill id. */
@@ -44,8 +41,6 @@ export default function SkillSaveDialog({
   open,
   onOpenChange,
   previewData,
-  fileTree,
-  threadId,
   editSkillId,
   onSaved,
 }: SkillSaveDialogProps) {
@@ -66,54 +61,19 @@ export default function SkillSaveDialog({
 
     setIsSaving(true)
     try {
-      let files: Array<{
-        path: string
-        file_name: string
-        file_type: string
-        content: string
-        storage_type: 'database'
-        storage_key: null
-        size: number
-      }>
+      if (!previewData) return
 
-      if (fileTree && threadId && Object.keys(fileTree).length > 0) {
-        // Fetch file contents from sandbox via liveReadFile
-        const paths = Object.keys(fileTree)
-        files = await Promise.all(
-          paths.map(async (rawPath) => {
-            const content = await artifactService.liveReadFile(threadId, rawPath)
-            // Store relative paths so DB records stay stable across sandbox roots.
-            const relativePath = rawPath.replace(
-              /^\/workspace\/[^/]+\/skills\/[^/]+\//,
-              '',
-            )
-            const fileName = getFilenameFromPath(relativePath)
-            const ext = getFileExtension(fileName).replace(/^\./, '')
-            return {
-              path: relativePath,
-              file_name: fileName,
-              file_type: ext,
-              content,
-              storage_type: 'database' as const,
-              storage_key: null,
-              size: fileTree[rawPath].size ?? content.length,
-            }
-          })
-        )
-      } else if (previewData) {
-        // Fallback: use previewData.files
-        files = previewData.files.map((f) => ({
-          path: f.path,
-          file_name: getFilenameFromPath(f.path),
-          file_type: f.file_type,
-          content: f.content,
-          storage_type: 'database' as const,
-          storage_key: null,
-          size: f.size,
-        }))
-      } else {
-        return
-      }
+      // previewData.files already contains correct relative paths and content
+      // from the preview_skill tool output — use it directly.
+      const files = previewData.files.map((f) => ({
+        path: f.path,
+        file_name: getFilenameFromPath(f.path),
+        file_type: f.file_type,
+        content: f.content,
+        storage_type: 'database' as const,
+        storage_key: null,
+        size: f.size,
+      }))
 
       const skillMdContent = files.find(f => f.path === 'SKILL.md')?.content
       const effectiveDescription =
@@ -155,7 +115,7 @@ export default function SkillSaveDialog({
     } finally {
       setIsSaving(false)
     }
-  }, [previewData, fileTree, threadId, name, description, editSkillId, onOpenChange, onSaved])
+  }, [previewData, name, description, editSkillId, onOpenChange, onSaved])
 
   const validation = previewData?.validation
   const hasErrors = !!(validation && !validation.valid)
@@ -236,15 +196,11 @@ export default function SkillSaveDialog({
           </div>
 
           {/* File count */}
-          {(fileTree && Object.keys(fileTree).length > 0) ? (
-            <p className="text-xs text-[var(--text-tertiary)]">
-              {Object.keys(fileTree).length} file{Object.keys(fileTree).length !== 1 ? 's' : ''} will be saved.
-            </p>
-          ) : previewData ? (
+          {previewData && (
             <p className="text-xs text-[var(--text-tertiary)]">
               {previewData.files.length} file{previewData.files.length !== 1 ? 's' : ''} will be saved.
             </p>
-          ) : null}
+          )}
         </div>
 
         <DialogFooter>
