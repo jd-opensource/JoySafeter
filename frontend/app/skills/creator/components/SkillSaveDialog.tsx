@@ -79,18 +79,25 @@ export default function SkillSaveDialog({
         // Fetch file contents from sandbox via liveReadFile
         const paths = Object.keys(fileTree)
         files = await Promise.all(
-          paths.map(async (path) => {
-            const content = await artifactService.liveReadFile(threadId, path)
-            const fileName = path.split('/').pop() || path
+          paths.map(async (rawPath) => {
+            const content = await artifactService.liveReadFile(threadId, rawPath)
+            // Strip sandbox prefix (e.g. /workspace/{uuid}/skills/{skill}/) to get
+            // a relative path for DB storage. The pattern is:
+            //   /workspace/<thread-id>/skills/<skill-name>/<relative-file-path>
+            const relativePath = rawPath.replace(
+              /^\/workspace\/[^/]+\/skills\/[^/]+\//,
+              '',
+            ) || rawPath
+            const fileName = relativePath.split('/').pop() || relativePath
             const ext = fileName.includes('.') ? fileName.split('.').pop() || '' : ''
             return {
-              path,
+              path: relativePath,
               file_name: fileName,
               file_type: ext,
               content,
               storage_type: 'database' as const,
               storage_key: null,
-              size: fileTree[path].size ?? content.length,
+              size: fileTree[rawPath].size ?? content.length,
             }
           })
         )
