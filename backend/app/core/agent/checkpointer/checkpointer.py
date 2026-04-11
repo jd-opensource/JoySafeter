@@ -31,30 +31,17 @@ class CheckpointerManager:
     def _get_db_uri(cls) -> str:
         """Build the database connection URI.
 
-        Read PostgreSQL connection info from environment variables and build
-        the connection string.
+        Reuse the database URL from Settings (which loads backend/.env via
+        pydantic-settings) so that local-dev, Docker, and script-based
+        launches all resolve credentials consistently.
 
         Returns:
             str: PostgreSQL connection URI (postgresql://user:password@host:port/database).
-
-        Raises:
-            ValueError: If required environment variables are not set.
         """
-        user = os.getenv("POSTGRES_USER")
-        password = os.getenv("POSTGRES_PASSWORD")
-        host = os.getenv("POSTGRES_HOST", "localhost")
-        port = os.getenv("POSTGRES_PORT", "5432")
-        database = os.getenv("POSTGRES_DB")
+        from app.core.settings import settings
 
-        if not user:
-            raise ValueError("POSTGRES_USER environment variable is required")
-        if not database:
-            raise ValueError("POSTGRES_DB environment variable is required")
-
-        # password can be an empty string, so only check for None
-        password = password or ""
-
-        return f"postgresql://{user}:{password}@{host}:{port}/{database}"
+        # settings.database_url uses the asyncpg driver; strip it for psycopg
+        return settings.database_url.replace("+asyncpg", "")
 
     @classmethod
     async def initialize(cls) -> None:
