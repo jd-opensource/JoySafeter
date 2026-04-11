@@ -12,6 +12,8 @@ from typing import Any, List, Optional, Set
 
 from loguru import logger
 
+from app.core.graph.deep_agents import format_node_ctx
+
 LOG_PREFIX = "[SkillsLoader]"
 
 
@@ -27,6 +29,9 @@ def has_valid_skills(skill_ids_raw: Any) -> bool:
 async def resolve_skill_ids(
     skill_ids_raw: List[Any],
     user_id: Optional[str] = None,
+    *,
+    node_label: Optional[str] = None,
+    graph_name: Optional[str] = None,
 ) -> List[uuid.UUID]:
     """Resolve raw skill config to validated UUIDs.
 
@@ -34,6 +39,8 @@ async def resolve_skill_ids(
     """
     if not skill_ids_raw:
         return []
+
+    ctx = format_node_ctx(node_label, graph_name)
 
     # ["*"] means all skills for this user
     if len(skill_ids_raw) == 1 and skill_ids_raw[0] == "*":
@@ -47,7 +54,7 @@ async def resolve_skill_ids(
                 include_public=True,
             )
             ids = [s.id for s in skills_list]
-            logger.info(f"{LOG_PREFIX} Resolved ['*'] → {len(ids)} skills")
+            logger.info(f"{LOG_PREFIX} Resolved ['*'] → {len(ids)} skills for {ctx}")
             return ids
 
     # Explicit UUIDs
@@ -59,9 +66,9 @@ async def resolve_skill_ids(
             elif isinstance(sid, str):
                 valid_ids.append(uuid.UUID(sid))
             else:
-                logger.warning(f"{LOG_PREFIX} Invalid skill ID type: {type(sid)}")
+                logger.warning(f"{LOG_PREFIX} Invalid skill ID type: {type(sid)} for {ctx}")
         except ValueError:
-            logger.warning(f"{LOG_PREFIX} Invalid skill UUID: {sid}")
+            logger.warning(f"{LOG_PREFIX} Invalid skill UUID: {sid} for {ctx}")
 
     return valid_ids
 
@@ -71,6 +78,9 @@ async def preload_skills(
     backend: Any,
     user_id: Optional[str] = None,
     skills_path: Optional[str] = None,
+    *,
+    node_label: Optional[str] = None,
+    graph_name: Optional[str] = None,
 ) -> int:
     """Load skills into sandbox backend. Returns count of successfully loaded skills.
 
@@ -79,10 +89,12 @@ async def preload_skills(
     if not skill_ids:
         return 0
 
+    ctx = format_node_ctx(node_label, graph_name)
+
     from deepagents.backends.protocol import BackendProtocol
 
     if not isinstance(backend, BackendProtocol):
-        logger.warning(f"{LOG_PREFIX} Backend does not implement BackendProtocol")
+        logger.warning(f"{LOG_PREFIX} Backend does not implement BackendProtocol (requested by {ctx})")
         return 0
 
     # Deduplication: skip already-loaded skills
@@ -119,11 +131,11 @@ async def preload_skills(
             if newly_loaded:
                 setattr(backend, "_loaded_skill_ids", loaded_ids | newly_loaded)
 
-            logger.info(f"{LOG_PREFIX} Loaded {successful}/{len(to_load)} skills ({len(loaded_ids)} previously loaded)")
+            logger.info(f"{LOG_PREFIX} Loaded {successful}/{len(to_load)} skills for {ctx} ({len(loaded_ids)} previously loaded)")
             return successful
 
     except Exception as e:
-        logger.error(f"{LOG_PREFIX} Skills preload failed: {e}")
+        logger.error(f"{LOG_PREFIX} Skills preload failed for {ctx}: {e}")
         return 0
 
 

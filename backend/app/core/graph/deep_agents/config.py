@@ -57,6 +57,11 @@ class NodeConfig:
     # Raw config for passthrough
     raw_config: Dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def display_name(self) -> str:
+        """Human-readable node name for error messages and logs."""
+        return self.label or self.name
+
 
 def resolve_node_config(node: GraphNode, node_name: str) -> NodeConfig:
     """Extract typed config from a GraphNode. Pure function, no side effects."""

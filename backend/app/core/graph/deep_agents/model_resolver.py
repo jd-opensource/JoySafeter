@@ -11,6 +11,7 @@ from typing import Any, List, Optional
 from loguru import logger
 
 from app.common.exceptions import ModelConfigError
+from app.core.graph.deep_agents import format_node_ctx
 from app.core.model.utils.model_ref import parse_model_ref
 from app.services.model_service import MODEL_NOT_FOUND
 
@@ -31,15 +32,31 @@ class ModelResolver:
         self,
         model_name: Optional[str] = None,
         provider_name: Optional[str] = None,
+        *,
+        node_label: Optional[str] = None,
+        graph_name: Optional[str] = None,
     ) -> Any:
         """Resolve a model instance. Results are cached by (provider, model) key."""
+        if not model_name:
+            ctx = format_node_ctx(node_label, graph_name)
+            raise ModelConfigError(
+                ModelConfigError.MODEL_NAME_REQUIRED,
+                f'{ctx} has no model configured.',
+                params={
+                    "node": node_label or "unknown",
+                    "graph": graph_name or "unknown",
+                },
+            )
+
         provider, model = parse_model_ref(model_name, provider_name)
 
         cache_key = f"{provider}:{model}"
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        resolved = await self._resolve_uncached(provider, model)
+        resolved = await self._resolve_uncached(
+            provider, model, node_label=node_label, graph_name=graph_name,
+        )
         if resolved:
             self._cache[cache_key] = resolved
         return resolved
@@ -48,6 +65,9 @@ class ModelResolver:
         self,
         provider_name: Optional[str],
         model_name: Optional[str],
+        *,
+        node_label: Optional[str] = None,
+        graph_name: Optional[str] = None,
     ) -> Any:
         """Try ModelService resolution, raise precise error on failure."""
         if self._model_service and model_name:
@@ -56,12 +76,15 @@ class ModelResolver:
                 return model
 
         available = await self._list_available_model_names()
+        ctx = format_node_ctx(node_label, graph_name)
         raise ModelConfigError(
             MODEL_NOT_FOUND,
-            f'Model "{model_name}" is not available.',
+            f'Model "{model_name}" is not available ({ctx}).',
             params={
                 "model": model_name or "",
                 "provider": provider_name or "",
+                "node": node_label or "unknown",
+                "graph": graph_name or "unknown",
                 "available": ", ".join(available[:5]),
             },
         )

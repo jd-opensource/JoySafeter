@@ -6,6 +6,7 @@ from typing import Any, List, Optional
 
 from loguru import logger
 
+from app.core.graph.deep_agents import format_node_ctx
 from app.core.graph.deep_agents.model_resolver import ModelResolver
 
 
@@ -16,18 +17,26 @@ async def resolve_memory_middleware(
     model_resolver: ModelResolver,
     user_id: Optional[str] = None,
     graph_id: Optional[str] = None,
+    *,
+    node_label: Optional[str] = None,
+    graph_name: Optional[str] = None,
 ) -> List[Any]:
     """Resolve memory middleware if enabled. Returns list of middleware instances."""
     if not enable_memory:
         return []
 
+    ctx = format_node_ctx(node_label, graph_name)
+
     try:
         from app.core.agent.memory.middleware import MemoryMiddleware
 
-        # Resolve memory model (reuses the same ModelResolver)
-        memory_model = await model_resolver.resolve(model_name=memory_model_name)
+        memory_model = await model_resolver.resolve(
+            model_name=memory_model_name,
+            node_label=node_label,
+            graph_name=graph_name,
+        )
         if not memory_model:
-            logger.warning("[MiddlewareResolver] Memory model resolution failed, skipping memory")
+            logger.warning(f"[MiddlewareResolver] Memory model resolution returned None for {ctx}, skipping memory")
             return []
 
         middleware = MemoryMiddleware(
@@ -36,12 +45,12 @@ async def resolve_memory_middleware(
             graph_id=graph_id,
             memory_prompt=memory_prompt,
         )
-        logger.info("[MiddlewareResolver] Memory middleware created")
+        logger.info(f"[MiddlewareResolver] Memory middleware created for {ctx}")
         return [middleware]
 
     except ImportError:
-        logger.warning("[MiddlewareResolver] MemoryMiddleware not available")
+        logger.warning(f"[MiddlewareResolver] MemoryMiddleware not available (requested by {ctx})")
         return []
     except Exception as e:
-        logger.warning(f"[MiddlewareResolver] Memory middleware failed: {e}")
+        logger.warning(f"[MiddlewareResolver] Memory middleware failed for {ctx}: {e}")
         return []
