@@ -117,19 +117,18 @@ async def live_read_file(
     if not record:
         raise NotFoundException("No sandbox found")
 
-    handle = None  # tracks SandboxHandle when reconnect path is used
+    handle = None
     adapter = await _sandbox_pool.get(record.id)
     if not adapter or not adapter.is_started():
         if adapter:
             await _sandbox_pool.release(record.id)
             adapter = None
-        # Sandbox disappeared from pool (process restart, idle cleanup, etc.)
-        # Try to reconnect/restart it instead of failing immediately.
+        # Prefer reconnect over 404 to tolerate transient pool restarts.
         try:
             handle = await service.ensure_sandbox_running(user_id)
             adapter = handle.adapter
         except Exception as e:
-            logger.warning(f"Sandbox reconnect failed for user {user_id}: {e}")
+            logger.warning(f"Sandbox reconnect failed for user {user_id}: {e}", exc_info=True)
             raise NotFoundException("Sandbox not running")
 
     try:

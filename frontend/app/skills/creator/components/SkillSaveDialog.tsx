@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input'
 import { API_BASE } from '@/lib/api-client'
 import { toastSuccess, toastError } from '@/lib/utils/toast'
 import { artifactService } from '@/services/artifactService'
+import { getFileExtension, getFilenameFromPath } from '@/services/skillService'
 
 import type { SkillPreviewData } from '../page'
 
@@ -81,15 +82,13 @@ export default function SkillSaveDialog({
         files = await Promise.all(
           paths.map(async (rawPath) => {
             const content = await artifactService.liveReadFile(threadId, rawPath)
-            // Strip sandbox prefix (e.g. /workspace/{uuid}/skills/{skill}/) to get
-            // a relative path for DB storage. The pattern is:
-            //   /workspace/<thread-id>/skills/<skill-name>/<relative-file-path>
+            // Store relative paths so DB records stay stable across sandbox roots.
             const relativePath = rawPath.replace(
               /^\/workspace\/[^/]+\/skills\/[^/]+\//,
               '',
-            ) || rawPath
-            const fileName = relativePath.split('/').pop() || relativePath
-            const ext = fileName.includes('.') ? fileName.split('.').pop() || '' : ''
+            )
+            const fileName = getFilenameFromPath(relativePath)
+            const ext = getFileExtension(fileName).replace(/^\./, '')
             return {
               path: relativePath,
               file_name: fileName,
@@ -105,7 +104,7 @@ export default function SkillSaveDialog({
         // Fallback: use previewData.files
         files = previewData.files.map((f) => ({
           path: f.path,
-          file_name: f.path.split('/').pop() || f.path,
+          file_name: getFilenameFromPath(f.path),
           file_type: f.file_type,
           content: f.content,
           storage_type: 'database' as const,

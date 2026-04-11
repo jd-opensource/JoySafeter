@@ -150,8 +150,7 @@ class SkillService(BaseService[Skill]):
                 # Extract all metadata using extract_metadata_from_frontmatter
                 metadata = extract_metadata_from_frontmatter(frontmatter)
 
-                # Use frontmatter name/description only as fallbacks —
-                # caller-provided values (from Save Dialog) take priority.
+                # Caller-provided values take priority over frontmatter.
                 if not name and metadata.get("name"):
                     name = metadata["name"]
                 if not description and metadata.get("description"):
