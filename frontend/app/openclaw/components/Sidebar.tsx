@@ -58,7 +58,7 @@ export function Sidebar() {
       <div
         className="fixed top-[14px] z-10 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 transition-all duration-300"
         style={{
-          left: isAppSidebarCollapsed ? '78px' : '154px',
+          left: isAppSidebarCollapsed ? 'calc(var(--sidebar-width-collapsed) + 14px)' : 'calc(var(--sidebar-width) + 14px)',
         }}
       >
         <div className="flex items-center gap-1.5">

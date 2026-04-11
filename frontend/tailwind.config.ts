@@ -27,6 +27,7 @@ export default {
       zIndex: {
         'popover': '100',
         'modal':   '200',
+        'sheet':   '250',
         'top':     '300',
       },
       colors: {

@@ -24,7 +24,7 @@ export function SidebarContextMenu({ items, onClose, position, className }: Side
       <div className="fixed inset-0 z-popover" onClick={onClose} />
       <div
         className={cn(
-          'z-popover min-w-[120px] rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-1 shadow-lg',
+          'z-top min-w-[120px] rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-1 shadow-lg',
           position ? 'fixed' : 'absolute',
           className,
         )}
