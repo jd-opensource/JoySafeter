@@ -41,7 +41,7 @@ class ModelResolver:
             ctx = format_node_ctx(node_label, graph_name)
             raise ModelConfigError(
                 ModelConfigError.MODEL_NAME_REQUIRED,
-                f'{ctx} has no model configured.',
+                f"{ctx} has no model configured.",
                 params={
                     "node": node_label or "unknown",
                     "graph": graph_name or "unknown",
@@ -55,7 +55,10 @@ class ModelResolver:
             return self._cache[cache_key]
 
         resolved = await self._resolve_uncached(
-            provider, model, node_label=node_label, graph_name=graph_name,
+            provider,
+            model,
+            node_label=node_label,
+            graph_name=graph_name,
         )
         if resolved:
             self._cache[cache_key] = resolved

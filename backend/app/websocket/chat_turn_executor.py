@@ -140,9 +140,7 @@ class ChatTurnExecutor:
                     db,
                 )
                 await module.save_user_message(thread_id, payload.message, payload.metadata, db)
-                config, base_context = await module.get_user_config(
-                    handler.user_id, thread_id
-                )
+                config, base_context = await module.get_user_config(handler.user_id, thread_id)
 
                 initial_context = base_context.copy()
                 if payload.graph_id:

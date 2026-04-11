@@ -92,7 +92,7 @@ async def build_deep_agents_graph(
             raise AppException(
                 status_code=503,
                 message=(
-                    f'{DOCKER_UNAVAILABLE_MSG} '
+                    f"{DOCKER_UNAVAILABLE_MSG} "
                     f'Agent "{graph_name}" requires Docker for node(s): {", ".join(docker_nodes)}.'
                 ),
             )
@@ -122,12 +122,17 @@ async def build_deep_agents_graph(
                         continue
                     seen_skill_keys.add(key)
                     skill_uuids = await resolve_skill_ids(
-                        cfg.skill_ids, str(user_id),
-                        node_label=cfg.display_name, graph_name=graph_name,
+                        cfg.skill_ids,
+                        str(user_id),
+                        node_label=cfg.display_name,
+                        graph_name=graph_name,
                     )
                     await preload_skills(
-                        skill_uuids, backend, str(user_id),
-                        node_label=cfg.display_name, graph_name=graph_name,
+                        skill_uuids,
+                        backend,
+                        str(user_id),
+                        node_label=cfg.display_name,
+                        graph_name=graph_name,
                     )
 
         # --- 4. Create model resolver ---
@@ -143,20 +148,28 @@ async def build_deep_agents_graph(
         subagents = []
         for cfg in child_configs:
             agent = await _build_worker(
-                cfg, model_resolver, backend, str(user_id), prompt_context,
+                cfg,
+                model_resolver,
+                backend,
+                str(user_id),
+                prompt_context,
                 graph_name=graph_name,
             )
             subagents.append(agent)
 
         # --- 6. Build root ---
         root_model = await model_resolver.resolve(
-            root_config.model_name, root_config.provider_name,
+            root_config.model_name,
+            root_config.provider_name,
             node_label=root_config.display_name,
             graph_name=graph_name,
         )
         root_tools = await resolve_tools(
-            root_config.tool_names, str(user_id), backend=backend,
-            node_label=root_config.display_name, graph_name=graph_name,
+            root_config.tool_names,
+            str(user_id),
+            backend=backend,
+            node_label=root_config.display_name,
+            graph_name=graph_name,
         )
         root_middleware = await resolve_memory_middleware(
             root_config.enable_memory,
@@ -229,12 +242,17 @@ async def _build_worker(
 
     # Resolve model and tools
     model = await model_resolver.resolve(
-        cfg.model_name, cfg.provider_name,
-        node_label=cfg.display_name, graph_name=graph_name,
+        cfg.model_name,
+        cfg.provider_name,
+        node_label=cfg.display_name,
+        graph_name=graph_name,
     )
     tools = await resolve_tools(
-        cfg.tool_names, user_id, backend=backend,
-        node_label=cfg.display_name, graph_name=graph_name,
+        cfg.tool_names,
+        user_id,
+        backend=backend,
+        node_label=cfg.display_name,
+        graph_name=graph_name,
     )
 
     if cfg.node_type == "code_agent":

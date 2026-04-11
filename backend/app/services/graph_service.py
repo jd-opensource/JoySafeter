@@ -765,10 +765,7 @@ class GraphService(BaseService):
         nodes: List[GraphNode] = [node]
         edges: List[GraphEdge] = []
 
-        logger.info(
-            f"[GraphService] ===== create_default_deep_agents_graph START ===== | "
-            f"user_id={user_id}"
-        )
+        logger.info(f"[GraphService] ===== create_default_deep_agents_graph START ===== | user_id={user_id}")
 
         model_service = ModelService(self.db)
         compiled_graph = await build_deep_agents_graph(
@@ -834,8 +831,7 @@ class GraphService(BaseService):
 
         start_time = time.time()
         logger.info(
-            f"[GraphService] ===== create_graph_by_graph_id START ===== | "
-            f"graph_id={graph_id} | user_id={user_id}"
+            f"[GraphService] ===== create_graph_by_graph_id START ===== | graph_id={graph_id} | user_id={user_id}"
         )
 
         # Fetch the graph
