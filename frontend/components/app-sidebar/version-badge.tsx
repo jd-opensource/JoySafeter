@@ -23,7 +23,7 @@ export function VersionBadge({ isCollapsed = false }: VersionBadgeProps) {
     <div className="px-2 pb-2">
       <Tooltip>
         <TooltipTrigger asChild>
-          <p className="text-center text-[10px] text-[var(--text-muted)] cursor-default select-none">
+          <p className="text-center text-sm text-[var(--text-muted)] cursor-default select-none">
             v{data.version}
           </p>
         </TooltipTrigger>

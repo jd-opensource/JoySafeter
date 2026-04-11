@@ -77,7 +77,7 @@ function ConversationItem({
             <div className="min-w-0 flex-1 truncate text-xs">
               {conv.title || t('chat.newChat')}
             </div>
-            <div className="flex-shrink-0 text-2xs text-[var(--text-muted)]">
+            <div className="flex-shrink-0 text-xs text-[var(--text-muted)]">
               {formatTime(conv.updated_at)}
             </div>
           </>
@@ -178,7 +178,7 @@ export default function ConversationGroup({
       {!isCollapsed && (
         <button
           onClick={onToggleExpand}
-          className="mb-1.5 flex w-full items-center justify-between px-1.5 text-2xs font-medium uppercase tracking-wider text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]"
+          className="mb-1.5 flex w-full items-center justify-between px-1.5 text-xs font-medium uppercase tracking-wider text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]"
         >
           <span>{label}</span>
           {isExpanded ? (

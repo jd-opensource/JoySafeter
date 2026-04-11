@@ -241,7 +241,7 @@ export function BuilderToolbar({
                         onClick={handleDeploy}
                         disabled={isDeploying || nodesCount === 0}
                         className={cn(
-                          'h-7 gap-1.5 rounded-r-none px-3 text-small font-medium transition-all',
+                          'h-7 gap-1.5 rounded-r-none px-3 text-base font-medium transition-all',
                           isDeployed
                             ? needsRedeployment
                               ? 'border border-primary border-r-white/20 bg-primary text-primary-foreground hover:bg-primary/90'
@@ -300,7 +300,7 @@ export function BuilderToolbar({
               size="sm"
               onClick={toggleRun}
               className={cn(
-                'h-7 gap-1.5 rounded-md px-3 text-small font-medium shadow-sm transition-all hover:shadow',
+                'h-7 gap-1.5 rounded-md px-3 text-base font-medium shadow-sm transition-all hover:shadow',
                 isExecuting
                   ? 'bg-[var(--status-error)] text-white hover:bg-[var(--status-error-hover)]'
                   : 'bg-primary text-white hover:bg-primary/90',

@@ -134,7 +134,7 @@ export function CreateTokenDialog({ open, onOpenChange, onSubmit, isPending }: C
           placeholder={t('settings.tokens.noExpiry')}
         />
         {!expiresAt && (
-          <p className="text-app-xs text-[var(--text-muted)]">{t('settings.tokens.noExpiry')}</p>
+          <p className="text-sm text-[var(--text-muted)]">{t('settings.tokens.noExpiry')}</p>
         )}
       </div>
     </UnifiedDialog>

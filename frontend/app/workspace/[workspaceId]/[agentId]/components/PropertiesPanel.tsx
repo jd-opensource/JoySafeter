@@ -202,7 +202,7 @@ export default function PropertiesPanel({
           </div>
           <div className="flex min-w-0 flex-col">
             <h3 className="truncate text-sm font-bold leading-tight">{nodeData.label || def?.label}</h3>
-            <span className="text-micro font-bold uppercase tracking-widest text-[var(--text-muted)]">{def?.label}</span>
+            <span className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">{def?.label}</span>
           </div>
         </div>
         <Button variant="ghost" size="icon" onClick={onClose} className="h-7 w-7 text-[var(--text-disabled)] hover:bg-[var(--surface-2)] hover:text-[var(--text-secondary)]" aria-label={t('workspace.closePanel', { defaultValue: 'Close panel' })}>
@@ -215,7 +215,7 @@ export default function PropertiesPanel({
         {/* Validation Errors */}
         {validationErrors.length > 0 && (
           <div className="space-y-2">
-            <Label className="text-2xs font-bold uppercase tracking-wider text-[var(--status-error)]">Configuration Errors</Label>
+            <Label className="text-xs font-bold uppercase tracking-wider text-[var(--status-error)]">Configuration Errors</Label>
             <div className="space-y-1">
               {validationErrors.map((error, idx) => (
                 <div key={idx} className="flex items-start gap-2 rounded border border-[var(--status-error-border)] bg-[var(--status-error-bg)] p-2 text-xs">
@@ -235,7 +235,7 @@ export default function PropertiesPanel({
           <SectionHeader icon={Settings} title={t('workspace.general')} />
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label className="text-2xs font-bold uppercase tracking-wider text-[var(--text-muted)]">{t('workspace.displayName')}</Label>
+              <Label className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">{t('workspace.displayName')}</Label>
               <Input
                 value={nodeData.label || ''}
                 onChange={(e) => {
@@ -333,7 +333,7 @@ export default function PropertiesPanel({
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between border-t border-[var(--border)] bg-[var(--surface-2)] px-4 py-2 font-mono text-micro text-[var(--text-muted)]">
+      <div className="flex items-center justify-between border-t border-[var(--border)] bg-[var(--surface-2)] px-4 py-2 font-mono text-xs text-[var(--text-muted)]">
         <span className="truncate">TYPE: {nodeData.type}</span>
         <span className="flex items-center gap-1">
           <div className="h-1.5 w-1.5 rounded-full bg-[var(--status-success)]" /> {t('workspace.synced')}

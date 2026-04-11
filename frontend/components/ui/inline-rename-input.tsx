@@ -71,8 +71,8 @@ export function InlineRenameInput({
         className={cn(
           'flex-1 border border-[var(--brand-500)] bg-[var(--surface-1)] font-medium text-[var(--text-primary)] shadow-sm outline-none ring-2 ring-[var(--brand-500)] transition-all placeholder:text-[var(--text-subtle)] focus:border-[var(--brand-500)] focus:ring-[var(--brand-500)]',
           isSmall
-            ? 'rounded-sm px-1.5 py-[2px] text-xs-plus'
-            : 'rounded-md px-2 py-1 text-xs-plus',
+            ? 'rounded-sm px-1.5 py-[2px] text-sm'
+            : 'rounded-md px-2 py-1 text-sm',
         )}
       />
       <div className={cn('flex items-center', isSmall ? 'gap-0.5' : 'gap-[2px]')}>

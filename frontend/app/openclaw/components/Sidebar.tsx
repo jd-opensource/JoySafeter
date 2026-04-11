@@ -62,7 +62,7 @@ export function Sidebar() {
         }}
       >
         <div className="flex items-center gap-1.5">
-          <h2 className="truncate text-small font-medium text-[var(--text-primary)]">OpenClaw</h2>
+          <h2 className="truncate text-base font-medium text-[var(--text-primary)]">OpenClaw</h2>
           <TooltipProvider delayDuration={100}>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -78,7 +78,7 @@ export function Sidebar() {
               <TooltipContent
                 side="bottom"
                 sideOffset={4}
-                className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-xs-plus font-medium text-[var(--text-primary)] shadow-lg"
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg"
               >
                 {t('sidebar.expand')}
               </TooltipContent>
@@ -109,7 +109,7 @@ export function Sidebar() {
         {/* Header */}
         <div className="flex-shrink-0 border-b border-[var(--border)] px-[14px] pb-[10px]">
           <div className="flex items-center justify-between gap-1.5">
-            <h2 className="truncate text-sm-app font-semibold text-[var(--text-primary)]">
+            <h2 className="truncate text-base font-semibold text-[var(--text-primary)]">
               OpenClaw
             </h2>
 
@@ -128,7 +128,7 @@ export function Sidebar() {
                 <TooltipContent
                   side="bottom"
                   sideOffset={4}
-                  className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-xs-plus font-medium text-[var(--text-primary)] shadow-lg"
+                  className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg"
                 >
                   {t('sidebar.collapse')}
                 </TooltipContent>

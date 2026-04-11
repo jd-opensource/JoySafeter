@@ -105,7 +105,7 @@ export function InstanceManager() {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
         <CardTitle className="text-sm font-medium">My OpenClaw Instance</CardTitle>
-        <Badge className={cn('text-2xs', statusStyles[status] ?? statusStyles.failed)}>
+        <Badge className={cn('text-xs', statusStyles[status] ?? statusStyles.failed)}>
           {status}
         </Badge>
       </CardHeader>
@@ -129,7 +129,7 @@ export function InstanceManager() {
             </div>
           )}
           {instance.lastActiveAt && (
-            <div className="text-2xs opacity-60">
+            <div className="text-xs opacity-60">
               Last active: {new Date(instance.lastActiveAt).toLocaleString()}
             </div>
           )}

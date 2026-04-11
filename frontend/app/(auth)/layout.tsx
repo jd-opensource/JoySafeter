@@ -93,7 +93,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
               {/* Main title area */}
               <div className="space-y-5">
                 <h1
-                  className={`${soehne.className} whitespace-nowrap text-xl-app font-bold leading-tight tracking-tight text-[var(--text-primary)] xl:text-2xl-app`}
+                  className={`${soehne.className} whitespace-nowrap text-2xl font-bold leading-tight tracking-tight text-[var(--text-primary)] xl:text-3xl`}
                   suppressHydrationWarning
                 >
                   {mounted ? t('auth.platformTitle') : 'Your Intelligent Security Command Center'}
@@ -118,7 +118,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                     <div className="absolute inset-0 h-[3px] w-10 rounded-full bg-gradient-to-r from-[var(--gradient-brand-from)] to-[var(--gradient-brand-accent)] opacity-60 blur-sm" />
                   </div>
                   <p
-                    className={`${soehne.className} text-app-base font-medium text-[var(--text-secondary)] transition-colors group-hover:text-[var(--text-primary)]`}
+                    className={`${soehne.className} text-base font-medium text-[var(--text-secondary)] transition-colors group-hover:text-[var(--text-primary)]`}
                     suppressHydrationWarning
                   >
                     {mounted
@@ -132,7 +132,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                     <div className="absolute inset-0 h-[3px] w-10 rounded-full bg-gradient-to-r from-[var(--gradient-secondary-from)] to-[var(--gradient-secondary-to)] opacity-60 blur-sm" />
                   </div>
                   <p
-                    className={`${soehne.className} text-app-base font-medium text-[var(--text-secondary)] transition-colors group-hover:text-[var(--text-primary)]`}
+                    className={`${soehne.className} text-base font-medium text-[var(--text-secondary)] transition-colors group-hover:text-[var(--text-primary)]`}
                     suppressHydrationWarning
                   >
                     {mounted

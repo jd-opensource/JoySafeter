@@ -293,7 +293,7 @@ export function Sidebar() {
 
           <div className="relative mt-[14px] flex flex-1 flex-col overflow-hidden">
             <div className="flex flex-shrink-0 items-center justify-between px-2.5">
-              <span className="text-xs-plus font-medium text-[var(--text-tertiary)]">{t('workspace.agents')}</span>
+              <span className="text-sm font-medium text-[var(--text-tertiary)]">{t('workspace.agents')}</span>
               <div className="flex items-center gap-2">
                 <TooltipProvider delayDuration={100}>
                   <Tooltip>
@@ -307,7 +307,7 @@ export function Sidebar() {
                         <FolderPlus className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom" sideOffset={4} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-xs-plus font-medium text-[var(--text-primary)] shadow-lg">
+                    <TooltipContent side="bottom" sideOffset={4} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg">
                       {t('workspace.createFolder')}
                     </TooltipContent>
                   </Tooltip>
@@ -324,7 +324,7 @@ export function Sidebar() {
                         <Plus className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom" sideOffset={4} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-xs-plus font-medium text-[var(--text-primary)] shadow-lg">
+                    <TooltipContent side="bottom" sideOffset={4} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg">
                       {t('workspace.createAgent')}
                     </TooltipContent>
                   </Tooltip>

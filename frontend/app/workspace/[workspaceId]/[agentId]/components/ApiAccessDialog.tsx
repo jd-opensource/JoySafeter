@@ -179,7 +179,7 @@ export function ApiAccessDialog({
                 <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t('workspace.baseUrl')}</h3>
                 <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-2.5">
                   <div className="flex flex-col gap-1 overflow-hidden">
-                    <span className="text-2xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                       {t('workspace.endpoint')}
                     </span>
                     <code

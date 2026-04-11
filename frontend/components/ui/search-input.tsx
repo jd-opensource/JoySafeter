@@ -51,7 +51,7 @@ const SearchInput = React.forwardRef<HTMLInputElement, SearchInputProps>(
           value={value}
           onChange={(e) => onValueChange(e.target.value)}
           placeholder={placeholder}
-          className="flex-1 bg-transparent text-small font-medium text-[var(--text-secondary)] outline-none placeholder:text-[var(--text-tertiary)]"
+          className="flex-1 bg-transparent text-base font-medium text-[var(--text-secondary)] outline-none placeholder:text-[var(--text-tertiary)]"
           style={{ paddingRight: showClearIcon && value ? '20px' : '0' }}
           {...props}
         />

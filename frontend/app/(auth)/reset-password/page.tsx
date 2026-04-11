@@ -76,10 +76,10 @@ function ResetPasswordContent() {
   return (
     <>
       <div className="space-y-1 text-center">
-        <h1 className={`${soehne.className} text-3xl-app font-medium tracking-tight text-[var(--text-primary)]`}>
+        <h1 className={`${soehne.className} text-3xl font-medium tracking-tight text-[var(--text-primary)]`}>
           Reset your password
         </h1>
-        <p className={`${inter.className} text-md-app font-[380] text-muted-foreground`}>
+        <p className={`${inter.className} text-lg font-[380] text-muted-foreground`}>
           Enter a new password for your account
         </p>
       </div>
@@ -94,7 +94,7 @@ function ResetPasswordContent() {
         />
       </div>
 
-      <div className={`${inter.className} pt-6 text-center text-sm-app font-light`}>
+      <div className={`${inter.className} pt-6 text-center text-base font-light`}>
         <Link
           href="/signin"
           className="font-medium text-[var(--brand-600)] underline-offset-4 transition hover:text-[var(--brand-700)] hover:underline"

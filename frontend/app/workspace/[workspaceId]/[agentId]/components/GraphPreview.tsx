@@ -54,8 +54,8 @@ const PreviewNode = ({
           <Icon size={12} />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-micro font-semibold text-[var(--text-primary)]">{label}</div>
-          <div className="text-[7px] uppercase tracking-wider text-[var(--text-muted)]">
+          <div className="truncate text-xs font-semibold text-[var(--text-primary)]">{label}</div>
+          <div className="text-2xs uppercase tracking-wider text-[var(--text-muted)]">
             {def?.subLabel || data.type}
           </div>
         </div>

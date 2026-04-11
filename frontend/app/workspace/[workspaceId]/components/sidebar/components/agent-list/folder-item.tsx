@@ -120,7 +120,7 @@ export function FolderItem({
             <TooltipProvider delayDuration={400}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className="truncate text-small font-medium">{folder.name}</span>
+                  <span className="truncate text-base font-medium">{folder.name}</span>
                 </TooltipTrigger>
                 <TooltipContent
                   side="bottom"
@@ -202,7 +202,7 @@ export function FolderItem({
           {agents.length === 0 && subfolders.length === 0 && (
             <div
               className={cn(
-                'rounded-md py-2 text-app-xs font-normal',
+                'rounded-md py-2 text-sm font-normal',
                 isDragOver
                   ? 'bg-[var(--brand-500)] text-[var(--text-secondary)]'
                   : 'text-[var(--text-subtle)] opacity-60',

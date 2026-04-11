@@ -84,7 +84,7 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
             <Badge
               key={id}
               variant="secondary"
-              className="gap-1 border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] py-0.5 pl-2 pr-1 text-2xs text-[var(--skill-brand-700)] shadow-sm"
+              className="gap-1 border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] py-0.5 pl-2 pr-1 text-xs text-[var(--skill-brand-700)] shadow-sm"
             >
               <Sparkles size={10} className="shrink-0" />
               {getSkillName(id)}
@@ -107,7 +107,7 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
         />
         <Input
           placeholder={t('workspace.searchSkills', { defaultValue: 'Search skills...' })}
-          className="h-8 border-[var(--border)] bg-[var(--surface-elevated)] pl-8 text-app-xs shadow-none focus-visible:ring-[var(--skill-brand-100)]"
+          className="h-8 border-[var(--border)] bg-[var(--surface-elevated)] pl-8 text-sm shadow-none focus-visible:ring-[var(--skill-brand-100)]"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
@@ -118,12 +118,12 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
         {isLoading ? (
           <div className="flex flex-col items-center justify-center gap-2 p-4 text-[var(--text-muted)]">
             <Loader2 size={14} className="animate-spin text-[var(--skill-brand)]" />
-            <span className="text-2xs font-medium tracking-tight">
+            <span className="text-xs font-medium tracking-tight">
               {t('workspace.loadingSkills', { defaultValue: 'Loading skills...' })}
             </span>
           </div>
         ) : filteredSkills.length === 0 ? (
-          <div className="p-6 text-center text-2xs italic text-[var(--text-muted)]">
+          <div className="p-6 text-center text-xs italic text-[var(--text-muted)]">
             {searchQuery
               ? t('workspace.noMatchingSkills', { defaultValue: 'No matching skills found' })
               : t('workspace.noSkillsAvailable', { defaultValue: 'No skills available' })}
@@ -149,7 +149,7 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
                     />
                     <span
                       className={cn(
-                        'truncate text-2xs font-medium',
+                        'truncate text-xs font-medium',
                         isSelected ? 'text-[var(--skill-brand-700)]' : 'text-[var(--text-secondary)]',
                       )}
                     >
@@ -157,7 +157,7 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
                     </span>
                   </div>
                   {skill.description && (
-                    <p className="mt-0.5 line-clamp-2 truncate pl-4 text-micro text-[var(--text-muted)]">
+                    <p className="mt-0.5 line-clamp-2 truncate pl-4 text-xs text-[var(--text-muted)]">
                       {skill.description}
                     </p>
                   )}
@@ -166,14 +166,14 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
                       {skill.tags.slice(0, 3).map((tag) => (
                         <span
                           key={tag}
-                          className="inline-flex items-center gap-0.5 rounded bg-[var(--surface-3)] px-1.5 py-0.5 text-xxs text-[var(--text-tertiary)]"
+                          className="inline-flex items-center gap-0.5 rounded bg-[var(--surface-3)] px-1.5 py-0.5 text-2xs text-[var(--text-tertiary)]"
                         >
                           <Tag size={8} />
                           {tag}
                         </span>
                       ))}
                       {skill.tags.length > 3 && (
-                        <span className="text-xxs text-[var(--text-muted)]">+{skill.tags.length - 3}</span>
+                        <span className="text-2xs text-[var(--text-muted)]">+{skill.tags.length - 3}</span>
                       )}
                     </div>
                   )}
@@ -195,7 +195,7 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
       </div>
 
       {/* 4. Info text */}
-      <p className="mt-1 text-micro italic text-[var(--text-muted)]">
+      <p className="mt-1 text-xs italic text-[var(--text-muted)]">
         {t('workspace.skillsHint', {
           defaultValue:
             'Skills provide specialized instructions. The agent can load skill content on-demand.',

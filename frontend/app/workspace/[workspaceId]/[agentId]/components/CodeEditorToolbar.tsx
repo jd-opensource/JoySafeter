@@ -101,19 +101,19 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
             <div className="flex items-center gap-2">
               <span className="font-medium text-xs">{runError ? t('workspace.error') : t('workspace.result')}</span>
               {runDuration !== null && (
-                <span className="text-2xs opacity-60">
+                <span className="text-xs opacity-60">
                   {(runDuration / 1000).toFixed(1)}s
                 </span>
               )}
             </div>
             <button
-              className="text-2xs opacity-50 hover:opacity-100 transition-opacity"
+              className="text-xs opacity-50 hover:opacity-100 transition-opacity"
               onClick={() => { setRunResult(null); setRunError(null); setRunDuration(null) }}
             >
               {t('workspace.close')}
             </button>
           </div>
-          <pre className="whitespace-pre-wrap font-mono text-app-xs max-h-60 overflow-auto leading-relaxed">
+          <pre className="whitespace-pre-wrap font-mono text-sm max-h-60 overflow-auto leading-relaxed">
             {runError || JSON.stringify(runResult, null, 2)}
           </pre>
         </div>

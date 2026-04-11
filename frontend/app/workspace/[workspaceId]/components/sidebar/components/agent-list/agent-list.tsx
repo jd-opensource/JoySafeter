@@ -42,7 +42,7 @@ function RootDropZone({ children, isDragActive, onDropAgent }: RootDropZoneProps
     >
       {children}
       {isDragOver && (
-        <div className="rounded-md border border-dashed border-[var(--border)] py-2 text-center text-app-xs font-medium text-[var(--text-tertiary)]">
+        <div className="rounded-md border border-dashed border-[var(--border)] py-2 text-center text-sm font-medium text-[var(--text-tertiary)]">
           {t('workspace.dropHereToRemoveFromFolder')}
         </div>
       )}
@@ -190,7 +190,7 @@ export function AgentList({
 
   if (hasNoContent) {
     return (
-      <div className="px-2 py-3 text-center text-small font-medium text-[var(--text-tertiary)]">
+      <div className="px-2 py-3 text-center text-base font-medium text-[var(--text-tertiary)]">
         {t('workspace.noAgentsYet')}
       </div>
     )
@@ -223,7 +223,7 @@ export function AgentList({
         >
           <div className="space-y-[2px]">
             {rootFolders.length > 0 && (
-              <div className="px-2 py-1 text-app-xs font-medium text-[var(--text-tertiary)]">
+              <div className="px-2 py-1 text-sm font-medium text-[var(--text-tertiary)]">
                 {t('workspace.ungrouped')}
               </div>
             )}
@@ -246,7 +246,7 @@ export function AgentList({
 
       {rootAgents.length === 0 && rootFolders.length > 0 && isDragActive && (
         <RootDropZone isDragActive={true} onDropAgent={(aId) => onMoveAgentToFolder?.(aId, null)}>
-          <div className="rounded-md border border-dashed border-[var(--border)] py-3 text-center text-app-xs font-medium text-[var(--text-tertiary)]">
+          <div className="rounded-md border border-dashed border-[var(--border)] py-3 text-center text-sm font-medium text-[var(--text-tertiary)]">
             {t('workspace.dropHereToRemoveFromFolder')}
           </div>
         </RootDropZone>

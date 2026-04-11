@@ -330,13 +330,13 @@ function SignupFormContent() {
     <>
       <div className="space-y-1 text-center">
         <h1
-          className={`${soehne.className} text-3xl-app font-medium tracking-tight text-[var(--text-primary)]`}
+          className={`${soehne.className} text-3xl font-medium tracking-tight text-[var(--text-primary)]`}
           suppressHydrationWarning
         >
           {mounted ? t('auth.createAccount') : 'Create Account'}
         </h1>
         <p
-          className={`${inter.className} text-md-app font-[380] text-muted-foreground`}
+          className={`${inter.className} text-lg font-[380] text-muted-foreground`}
           suppressHydrationWarning
         >
           {mounted ? t('auth.enterYourDetails') : 'Enter your details'}
@@ -432,7 +432,7 @@ function SignupFormContent() {
             type="submit"
             onMouseEnter={() => setIsButtonHovered(true)}
             onMouseLeave={() => setIsButtonHovered(false)}
-            className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-500)] bg-gradient-to-b from-[var(--brand-400)] to-[var(--brand-500)] py-1.5 px-3 pr-2.5 text-app-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
+            className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-500)] bg-gradient-to-b from-[var(--brand-400)] to-[var(--brand-500)] py-1.5 px-3 pr-2.5 text-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
             disabled={isLoading}
             suppressHydrationWarning
           >
@@ -457,7 +457,7 @@ function SignupFormContent() {
       )}
 
       <div
-        className={`${inter.className} pt-6 text-center text-sm-app font-light`}
+        className={`${inter.className} pt-6 text-center text-base font-light`}
         suppressHydrationWarning
       >
         <span className="font-normal">

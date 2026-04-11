@@ -162,7 +162,7 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
                   <div className="mb-0.5 flex items-center gap-1.5">
                     <span className="text-xs font-medium">v{version.version}</span>
                     {version.isActive && (
-                      <span className="rounded-full bg-[var(--status-success-border)] px-1.5 py-0.5 text-2xs font-medium text-[var(--status-success-strong)]">
+                      <span className="rounded-full bg-[var(--status-success-border)] px-1.5 py-0.5 text-xs font-medium text-[var(--status-success-strong)]">
                         {t('workspace.active')}
                       </span>
                     )}
@@ -218,7 +218,7 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
                   )}
 
                   {/* Time and username */}
-                  <div className="flex items-center gap-2 text-2xs text-[var(--text-secondary)]">
+                  <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
                     <div className="flex items-center gap-0.5">
                       <Clock size={10} />
                       <span>{formatDeploymentDate(version.createdAt)}</span>

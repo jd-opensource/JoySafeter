@@ -45,7 +45,7 @@ export function EditorHeader({
             <h1 className="text-sm font-bold leading-tight text-[var(--text-primary)] line-clamp-1 max-w-[200px]" title={skillName}>
               {skillName}
             </h1>
-            <div className="flex items-center gap-1.5 font-mono text-micro text-[var(--text-muted)]">
+            <div className="flex items-center gap-1.5 font-mono text-xs text-[var(--text-muted)]">
               <ChevronRight size={10} /> <span className="truncate max-w-[180px]">{activeFilePath || 'No file selected'}</span>
             </div>
           </div>
@@ -118,7 +118,7 @@ export function EditorHeader({
             key={tab}
             onClick={() => onTabChange(tab)}
             className={cn(
-              'px-3 py-2 text-2xs font-medium transition-colors whitespace-nowrap',
+              'px-3 py-2 text-xs font-medium transition-colors whitespace-nowrap',
               activeTab === tab
                 ? 'border-b-2 border-[var(--brand-500)] text-[var(--brand-600)]'
                 : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'

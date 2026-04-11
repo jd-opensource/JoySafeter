@@ -76,7 +76,7 @@ function LanguageBadge({ language }: { language: string }) {
   const colorClass = colors[language.toLowerCase()] || 'bg-[var(--surface-3)] text-[var(--text-secondary)] border-[var(--border)]'
 
   return (
-    <span className={cn('rounded border px-2 py-0.5 text-2xs font-medium', colorClass)}>
+    <span className={cn('rounded border px-2 py-0.5 text-xs font-medium', colorClass)}>
       {language}
     </span>
   )
@@ -140,7 +140,7 @@ export default function CodeViewer({
             {filename || t('chat.untitled')}
           </span>
           <LanguageBadge language={prismLanguage} />
-          <span className="text-2xs text-[var(--text-muted)]">{lineCount} {t('chat.lines')}</span>
+          <span className="text-xs text-[var(--text-muted)]">{lineCount} {t('chat.lines')}</span>
         </div>
         <Button
           variant="ghost"
@@ -151,12 +151,12 @@ export default function CodeViewer({
           {copied ? (
             <>
               <Check size={12} className="text-[var(--status-success)]" />
-              <span className="text-2xs">{t('chat.copied')}</span>
+              <span className="text-xs">{t('chat.copied')}</span>
             </>
           ) : (
             <>
               <Copy size={12} />
-              <span className="text-2xs">{t('chat.copy')}</span>
+              <span className="text-xs">{t('chat.copy')}</span>
             </>
           )}
         </Button>

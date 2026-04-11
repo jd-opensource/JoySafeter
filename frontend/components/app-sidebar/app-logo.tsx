@@ -61,7 +61,7 @@ export function AppLogo({ isCollapsed = false }: AppLogoProps) {
         </div>
 
         {!isCollapsed && (
-          <span className="whitespace-nowrap brand-gradient-text text-lg-app font-bold tracking-tight">
+          <span className="whitespace-nowrap brand-gradient-text text-xl font-bold tracking-tight">
             JoySafeter
           </span>
         )}

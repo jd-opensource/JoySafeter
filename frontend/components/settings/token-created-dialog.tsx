@@ -108,7 +108,7 @@ export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreat
                       <Badge
                         key={scope}
                         variant="outline"
-                        className="rounded-full border-[var(--brand-200)] bg-[var(--brand-50)] px-2 py-0 text-2xs font-medium text-[var(--brand-700)]"
+                        className="rounded-full border-[var(--brand-200)] bg-[var(--brand-50)] px-2 py-0 text-xs font-medium text-[var(--brand-700)]"
                       >
                         {scope}
                       </Badge>

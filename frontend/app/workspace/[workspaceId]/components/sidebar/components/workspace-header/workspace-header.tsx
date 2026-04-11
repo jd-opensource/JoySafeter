@@ -103,21 +103,21 @@ export function WorkspaceHeader({
               <TooltipProvider delayDuration={100}>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <h2 className="flex-1 truncate text-small font-medium text-[var(--text-primary)]">
+                    <h2 className="flex-1 truncate text-base font-medium text-[var(--text-primary)]">
                       {activeWorkspace ? getWorkspaceDisplayName(activeWorkspace) : t('workspace.workspace')}
                     </h2>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom" sideOffset={4} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-xs-plus font-medium text-[var(--text-primary)] shadow-lg">
+                  <TooltipContent side="bottom" sideOffset={4} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg">
                     {activeWorkspace ? getWorkspaceDisplayName(activeWorkspace) : t('workspace.workspace')}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
               {activeWorkspace?.type === 'personal' ? (
-                <span className="w-[32px] shrink-0 rounded-sm bg-[var(--brand-100)] px-[3px] py-[1px] text-center text-micro font-medium text-[var(--brand-600)]">
+                <span className="w-[32px] shrink-0 rounded-sm bg-[var(--brand-100)] px-[3px] py-[1px] text-center text-xs font-medium text-[var(--brand-600)]">
                   {t('workspace.personal')}
                 </span>
               ) : activeWorkspace?.type === 'team' ? (
-                <span className="w-[32px] shrink-0 rounded-sm bg-[var(--brand-100)] px-[3px] py-[1px] text-center text-micro font-medium text-[var(--brand-600)] dark:bg-[var(--brand-100)] dark:text-[var(--brand-400)]">
+                <span className="w-[32px] shrink-0 rounded-sm bg-[var(--brand-100)] px-[3px] py-[1px] text-center text-xs font-medium text-[var(--brand-600)] dark:bg-[var(--brand-100)] dark:text-[var(--brand-400)]">
                   {t('workspace.team')}
                 </span>
               ) : null}
@@ -134,7 +134,7 @@ export function WorkspaceHeader({
                       <Pencil className="h-3 w-3 text-[var(--text-tertiary)]" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom" sideOffset={4} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-xs-plus font-medium text-[var(--text-primary)] shadow-lg">
+                  <TooltipContent side="bottom" sideOffset={4} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg">
                     {t('workspace.renameWorkspace')}
                   </TooltipContent>
                 </Tooltip>
@@ -156,7 +156,7 @@ export function WorkspaceHeader({
                 <ChevronDown className={cn('h-[11px] w-[11px] text-[var(--text-secondary)] transition-transform duration-100', isDropdownOpen && 'rotate-180')} />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={4} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-xs-plus font-medium text-[var(--text-primary)] shadow-lg">
+            <TooltipContent side="bottom" sideOffset={4} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg">
               {t('workspace.switchWorkspace')}
             </TooltipContent>
           </Tooltip>
@@ -174,7 +174,7 @@ export function WorkspaceHeader({
                   <PanelLeft className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={4} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-xs-plus font-medium text-[var(--text-primary)] shadow-lg">
+              <TooltipContent side="bottom" sideOffset={4} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg">
                 {isCollapsed ? t('workspace.expandSidebar') : t('workspace.collapseSidebar')}
               </TooltipContent>
             </Tooltip>

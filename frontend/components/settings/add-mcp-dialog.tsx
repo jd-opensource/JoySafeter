@@ -399,7 +399,7 @@ export function AddMcpDialog({ open, onOpenChange, editingServer }: AddMcpDialog
               {retryEnabled && (
                 <div className="grid grid-cols-2 gap-4 border-t border-[var(--surface-1)] pt-2 duration-200 animate-in fade-in slide-in-from-top-1">
                   <div className="space-y-1.5">
-                    <Label className="text-2xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                    <Label className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
                       {t('settings.maxRetries')}
                     </Label>
                     <Input
@@ -410,7 +410,7 @@ export function AddMcpDialog({ open, onOpenChange, editingServer }: AddMcpDialog
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-2xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                    <Label className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
                       {t('settings.delayMs')}
                     </Label>
                     <Input
@@ -447,7 +447,7 @@ export function AddMcpDialog({ open, onOpenChange, editingServer }: AddMcpDialog
               placeholder={t('settings.jsonPlaceholder')}
               spellCheck={false}
             />
-            <p className="text-2xs text-[var(--text-muted)]">{t('settings.jsonHint')}</p>
+            <p className="text-xs text-[var(--text-muted)]">{t('settings.jsonHint')}</p>
           </div>
         )}
       </div>

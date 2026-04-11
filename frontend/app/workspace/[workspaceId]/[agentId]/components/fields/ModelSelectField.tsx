@@ -87,7 +87,7 @@ export function ModelSelectField({ value, onChange, onModelChange }: ModelSelect
 
   if (loading) {
     return (
-      <div className="flex h-8 w-full items-center rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] px-3 text-2xs italic text-[var(--text-muted)]">
+      <div className="flex h-8 w-full items-center rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] px-3 text-xs italic text-[var(--text-muted)]">
         <Loader2 className="mr-2 h-3 w-3 animate-spin" />
         {t('workspace.initializing')}
       </div>
@@ -96,7 +96,7 @@ export function ModelSelectField({ value, onChange, onModelChange }: ModelSelect
 
   if (error) {
     return (
-      <div className="flex h-8 w-full items-center rounded-md border border-[var(--status-error-border)] bg-[var(--status-error-bg)] px-3 text-2xs text-[var(--status-error)]">
+      <div className="flex h-8 w-full items-center rounded-md border border-[var(--status-error-border)] bg-[var(--status-error-bg)] px-3 text-xs text-[var(--status-error)]">
         {error}
       </div>
     )
@@ -176,7 +176,7 @@ export function ModelSelectField({ value, onChange, onModelChange }: ModelSelect
           const providerModels = availableGroups.get(provider)!
           return (
             <SelectGroup key={provider}>
-              <SelectLabel className="flex items-center gap-2 px-2 py-1.5 !pl-2 text-2xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+              <SelectLabel className="flex items-center gap-2 px-2 py-1.5 !pl-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                 <span>{provider}</span>
                 <div className="h-px flex-1 bg-[var(--border)]" />
               </SelectLabel>
@@ -199,7 +199,7 @@ export function ModelSelectField({ value, onChange, onModelChange }: ModelSelect
           const providerModels = unavailableGroups.get(provider)!
           return (
             <SelectGroup key={`unavailable-${provider}`}>
-              <SelectLabel className="flex items-center gap-2 px-2 py-1.5 !pl-2 text-2xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+              <SelectLabel className="flex items-center gap-2 px-2 py-1.5 !pl-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
                 <span>{provider}</span>
                 <div className="h-px flex-1 bg-[var(--border)]" />
               </SelectLabel>

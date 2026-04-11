@@ -357,7 +357,7 @@ export default function WorkspaceMembersPage() {
                                       {user.name || user.email}
                                     </p>
                                     {user.name && (
-                                      <p className="truncate text-2xs text-[var(--text-tertiary)]">
+                                      <p className="truncate text-xs text-[var(--text-tertiary)]">
                                         {user.email}
                                       </p>
                                     )}

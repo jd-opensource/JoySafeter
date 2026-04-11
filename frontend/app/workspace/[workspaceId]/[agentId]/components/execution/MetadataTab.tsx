@@ -47,10 +47,10 @@ export const MetadataTab = React.memo(function MetadataTab() {
             key={key}
             className="flex items-start gap-3 border-b border-[var(--border-muted)] py-1.5 last:border-b-0"
           >
-            <span className="w-24 shrink-0 pt-0.5 text-2xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+            <span className="w-24 shrink-0 pt-0.5 text-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
               {key}
             </span>
-            <span className="break-all font-mono text-app-xs text-[var(--text-secondary)]">
+            <span className="break-all font-mono text-sm text-[var(--text-secondary)]">
               {value === null ? <span className="italic text-[var(--text-subtle)]">null</span> : String(value)}
             </span>
           </div>
@@ -60,7 +60,7 @@ export const MetadataTab = React.memo(function MetadataTab() {
       {/* Raw data section */}
       {step.data && (
         <div className="mt-4">
-          <div className="mb-2 text-2xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
             Raw Data
           </div>
           <JsonView data={step.data} />

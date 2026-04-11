@@ -271,19 +271,19 @@ export const SandboxesPage = () => {
             <Table>
               <TableHeader>
                 <TableRow className="bg-[var(--surface-1)] hover:bg-[var(--surface-1)]">
-                  <TableHead className="py-3 text-app-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+                  <TableHead className="py-3 text-sm font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                     {t('settings.sandboxes.user')}
                   </TableHead>
-                  <TableHead className="py-3 text-app-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+                  <TableHead className="py-3 text-sm font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                     {t('settings.sandboxes.status')}
                   </TableHead>
-                  <TableHead className="py-3 text-app-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+                  <TableHead className="py-3 text-sm font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                     {t('settings.sandboxes.image')}
                   </TableHead>
-                  <TableHead className="py-3 text-app-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+                  <TableHead className="py-3 text-sm font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                     {t('settings.sandboxes.runtime')}
                   </TableHead>
-                  <TableHead className="py-3 text-right text-app-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+                  <TableHead className="py-3 text-right text-sm font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                     {t('settings.sandboxes.actions')}
                   </TableHead>
                 </TableRow>
@@ -319,11 +319,11 @@ export const SandboxesPage = () => {
                               <span className="text-sm font-medium text-[var(--text-primary)]">
                                 {sandbox.user_name || sandbox.user_email || 'Unknown'}
                               </span>
-                              <span className="font-mono text-2xs text-[var(--text-muted)]">
+                              <span className="font-mono text-xs text-[var(--text-muted)]">
                                 {sandbox.id.substring(0, 8)}...
                               </span>
                               {sandbox.container_id && (
-                                <span className="font-mono text-2xs text-[var(--text-muted)]" title={sandbox.container_id}>
+                                <span className="font-mono text-xs text-[var(--text-muted)]" title={sandbox.container_id}>
                                   {sandbox.container_id.substring(0, 12)}
                                 </span>
                               )}
@@ -334,7 +334,7 @@ export const SandboxesPage = () => {
                           <Badge
                             variant="outline"
                             className={cn(
-                              'gap-1.5 rounded-full px-2 py-0.5 text-app-xs font-medium',
+                              'gap-1.5 rounded-full px-2 py-0.5 text-sm font-medium',
                               statusConfig.color,
                             )}
                           >
@@ -433,7 +433,7 @@ export const SandboxesPage = () => {
                               {needsRebuild.has(sandbox.id) && (
                                 <Badge
                                   variant="outline"
-                                  className="shrink-0 rounded-md border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-2xs font-medium text-[var(--status-warning)]"
+                                  className="shrink-0 rounded-md border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-xs font-medium text-[var(--status-warning)]"
                                 >
                                   {t('settings.sandboxes.needsRebuild')}
                                 </Badge>

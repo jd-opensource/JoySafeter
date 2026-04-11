@@ -365,13 +365,13 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
       <div className="relative z-10 p-3">
         {/* Execution Status Badge */}
         {isExecuting && (
-          <div className="absolute -top-2.5 left-1/2 flex -translate-x-1/2 animate-pulse items-center gap-1 rounded-full border border-white bg-[var(--brand-600)] px-2 py-0.5 text-xxs font-bold text-white shadow-lg">
+          <div className="absolute -top-2.5 left-1/2 flex -translate-x-1/2 animate-pulse items-center gap-1 rounded-full border border-white bg-[var(--brand-600)] px-2 py-0.5 text-2xs font-bold text-white shadow-lg">
             <Zap size={8} className="fill-current" />
             {t('workspace.running')}
           </div>
         )}
         {isInterrupted && (
-          <div className="absolute -top-2.5 left-1/2 flex -translate-x-1/2 animate-pulse items-center gap-1 rounded-full border border-white bg-[var(--status-warning)] px-2 py-0.5 text-xxs font-bold text-white shadow-lg">
+          <div className="absolute -top-2.5 left-1/2 flex -translate-x-1/2 animate-pulse items-center gap-1 rounded-full border border-white bg-[var(--status-warning)] px-2 py-0.5 text-2xs font-bold text-white shadow-lg">
             <PauseCircle className="h-2.5 w-2.5" />
             {t('workspace.waiting', { defaultValue: 'Waiting' })}
           </div>
@@ -388,7 +388,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-1.5">
-              <div className="min-w-0 flex-1 truncate text-2xs font-bold leading-tight text-[var(--text-primary)]">
+              <div className="min-w-0 flex-1 truncate text-xs font-bold leading-tight text-[var(--text-primary)]">
                 {title}
               </div>
               {useDeepAgents && (
@@ -397,7 +397,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
                 </div>
               )}
             </div>
-            <div className="mt-0.5 text-[7px] font-bold uppercase leading-none tracking-widest text-[var(--text-muted)]">
+            <div className="mt-0.5 text-2xs font-bold uppercase leading-none tracking-widest text-[var(--text-muted)]">
               {subLabel}
             </div>
           </div>
@@ -409,13 +409,13 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
             {displayProperties.map((prop) => (
               <div key={prop.key} className="flex items-center gap-2">
                 <span
-                  className="min-w-0 truncate text-[7px] capitalize leading-tight text-[var(--text-muted)]"
+                  className="min-w-0 truncate text-2xs capitalize leading-tight text-[var(--text-muted)]"
                   title={prop.label}
                 >
                   {prop.label}
                 </span>
                 <span
-                  className="flex-1 truncate text-right text-[7px] font-medium leading-tight text-[var(--text-secondary)]"
+                  className="flex-1 truncate text-right text-2xs font-medium leading-tight text-[var(--text-secondary)]"
                   title={prop.value}
                 >
                   {prop.value}
@@ -446,7 +446,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
 
           return (
             <div className="mt-2 border-t border-[var(--border-muted)] pt-2">
-              <div className="flex items-center gap-1 text-[7px] text-primary">
+              <div className="flex items-center gap-1 text-2xs text-primary">
                 <ArrowRight size={8} className="text-primary" />
                 <span className="truncate font-mono font-semibold" title={actualGoto}>
                   → {actualGoto}
@@ -459,7 +459,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
         {isExecuting && (
           <div className="mt-2 flex items-center gap-1.5 border-t border-[var(--border-muted)] pt-2">
             <Loader2 size={8} className="animate-spin text-primary" />
-            <span className="animate-pulse text-[7px] font-bold text-primary">
+            <span className="animate-pulse text-2xs font-bold text-primary">
               {t('workspace.synchronizing')}
             </span>
           </div>

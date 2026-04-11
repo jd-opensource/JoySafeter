@@ -142,9 +142,9 @@ const AgentItem = React.memo(function AgentItem({
                   }}
                 >
                   <Bot className="mr-[6px] h-3.5 w-3.5 flex-shrink-0 text-[var(--brand-500)]" />
-                  <span className="truncate text-xs-plus font-medium">{agent.name}</span>
+                  <span className="truncate text-sm font-medium">{agent.name}</span>
                   {agent.graphMode === 'code' && (
-                    <span className="ml-1.5 flex-shrink-0 rounded bg-primary/10 px-1 py-0.5 text-xxs font-semibold uppercase leading-none text-primary">
+                    <span className="ml-1.5 flex-shrink-0 rounded bg-primary/10 px-1 py-0.5 text-2xs font-semibold uppercase leading-none text-primary">
                       Code
                     </span>
                   )}

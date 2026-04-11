@@ -74,7 +74,7 @@ export function InlineRenameInput({ initialName, onSave, onCancel, className, in
         onChange={(e) => setEditName(e.target.value)}
         onBlur={handleSave}
         onKeyDown={handleKeyDown}
-        className={inputClassName || 'h-6 flex-1 rounded-sm border border-[var(--border)] bg-[var(--surface-elevated)] px-1.5 text-app-xs outline-none focus:border-primary'}
+        className={inputClassName || 'h-6 flex-1 rounded-sm border border-[var(--border)] bg-[var(--surface-elevated)] px-1.5 text-sm outline-none focus:border-primary'}
         autoFocus
       />
       <button type="button" onMouseDown={(e) => { e.preventDefault(); handleSave() }} className="rounded-xs p-0.5 text-[var(--status-success)] hover:bg-[var(--surface-3)]">

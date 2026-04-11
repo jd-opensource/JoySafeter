@@ -41,7 +41,7 @@ export function RunInputModal({
             <div className="rounded-md bg-primary p-1 text-white">
               <Activity size={14} />
             </div>
-            <h3 className="text-app-xs font-bold uppercase tracking-wider text-[var(--text-primary)]">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)]">
               {t('workspace.readyToStart')}
             </h3>
           </div>
@@ -61,7 +61,7 @@ export function RunInputModal({
           {/* Info Banner */}
           <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-3">
             <Sparkles className="mt-0.5 shrink-0 text-primary" size={16} />
-            <p className="text-2xs font-medium leading-relaxed text-[var(--text-primary)]">
+            <p className="text-xs font-medium leading-relaxed text-[var(--text-primary)]">
               {t('workspace.enterPrompt')}
             </p>
           </div>
@@ -70,7 +70,7 @@ export function RunInputModal({
           <div className="flex gap-2">
             <Input
               placeholder={t('workspace.simulateUserInput')}
-              className="h-9 border-[var(--border)] bg-[var(--surface-elevated)] text-app-xs focus-visible:ring-primary/10"
+              className="h-9 border-[var(--border)] bg-[var(--surface-elevated)] text-sm focus-visible:ring-primary/10"
               value={input}
               onChange={(e) => onInputChange(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -78,7 +78,7 @@ export function RunInputModal({
             />
             <Button
               size="sm"
-              className="h-9 gap-2 bg-primary px-4 text-app-xs font-bold hover:bg-primary/90"
+              className="h-9 gap-2 bg-primary px-4 text-sm font-bold hover:bg-primary/90"
               onClick={onStart}
               disabled={!input.trim()}
             >

@@ -123,7 +123,7 @@ export function ExecutionTreeNodeContent({
       {/* Name */}
       <span
         className={cn(
-          'min-w-0 flex-1 truncate text-app-xs font-medium',
+          'min-w-0 flex-1 truncate text-sm font-medium',
           isParentNode ? 'font-semibold text-[var(--text-primary)]' : 'text-[var(--text-secondary)]',
           isSelected && 'text-primary',
         )}
@@ -134,7 +134,7 @@ export function ExecutionTreeNodeContent({
       {/* Right side: duration + status */}
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
         {duration !== undefined && duration > 0 && (
-          <span className="flex items-center gap-0.5 font-mono text-micro text-[var(--text-muted)]">
+          <span className="flex items-center gap-0.5 font-mono text-xs text-[var(--text-muted)]">
             <Clock size={8} className="opacity-60" />
             {formatDuration(duration)}
           </span>

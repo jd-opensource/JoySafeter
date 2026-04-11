@@ -119,15 +119,15 @@ export function CopilotStreaming({
               >
                 <div className="flex items-center gap-2">
                   <Loader2 size={12} className="shrink-0 animate-spin text-[var(--status-warning)]" />
-                  <span className="text-2xs font-medium text-[var(--status-warning)]">
+                  <span className="text-xs font-medium text-[var(--status-warning)]">
                     {t('workspace.callingTool') || 'Calling Tool'}:
                   </span>
-                  <span className="truncate font-mono text-2xs font-bold text-[var(--text-primary)]">
+                  <span className="truncate font-mono text-xs font-bold text-[var(--text-primary)]">
                     {currentToolCall.tool}
                   </span>
                 </div>
                 {Object.keys(currentToolCall.input).length > 0 && (
-                  <div className="mt-1.5 max-h-16 overflow-y-auto rounded bg-[var(--status-warning-bg)] px-2 py-1 font-mono text-micro text-[var(--text-secondary)]">
+                  <div className="mt-1.5 max-h-16 overflow-y-auto rounded bg-[var(--status-warning-bg)] px-2 py-1 font-mono text-xs text-[var(--text-secondary)]">
                     {JSON.stringify(currentToolCall.input, null, 2)}
                   </div>
                 )}
@@ -165,7 +165,7 @@ export function CopilotStreaming({
         {/* Tool results display - grouped by type with collapse */}
         {toolResults.length > 0 && (
           <div className="space-y-1.5 rounded-xl border border-[var(--status-success-border)] bg-[var(--status-success-bg)] p-2 duration-200 animate-in fade-in">
-            <div className="flex items-center gap-1.5 px-1 text-2xs font-bold uppercase tracking-wider text-[var(--status-success-strong)]">
+            <div className="flex items-center gap-1.5 px-1 text-xs font-bold uppercase tracking-wider text-[var(--status-success-strong)]">
               <Check size={10} /> {t('workspace.toolResults') || 'Tool Results'}
             </div>
             {types.map((type) => {
@@ -188,17 +188,17 @@ export function CopilotStreaming({
                       </div>
                       <div className="flex min-w-0 flex-1 flex-col">
                         <div className="flex items-center gap-2">
-                          <span className="font-mono text-2xs font-medium text-[var(--text-primary)]">
+                          <span className="font-mono text-xs font-medium text-[var(--text-primary)]">
                             {result.type}
                           </span>
                           {hasMultiple && !isExpanded && idx === visibleResults.length - 1 && (
-                            <span className="rounded bg-[var(--status-success-bg)] px-1.5 py-0.5 text-micro font-medium text-[var(--status-success)]">
+                            <span className="rounded bg-[var(--status-success-bg)] px-1.5 py-0.5 text-xs font-medium text-[var(--status-success)]">
                               {results.length} items
                             </span>
                           )}
                         </div>
                         {result.reasoning && (
-                          <span className="mt-0.5 line-clamp-2 text-micro text-[var(--status-success-strong)]">
+                          <span className="mt-0.5 line-clamp-2 text-xs text-[var(--status-success-strong)]">
                             {result.reasoning}
                           </span>
                         )}
@@ -208,7 +208,7 @@ export function CopilotStreaming({
                   {hiddenCount > 0 && (
                     <button
                       onClick={() => onToggleToolType(type)}
-                      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-micro text-[var(--status-success)] transition-colors hover:bg-[var(--status-success-bg)] hover:text-[var(--status-success-strong)]"
+                      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs text-[var(--status-success)] transition-colors hover:bg-[var(--status-success-bg)] hover:text-[var(--status-success-strong)]"
                     >
                       <ChevronDown size={10} />
                       <span>
@@ -219,7 +219,7 @@ export function CopilotStreaming({
                   {isExpanded && hasMultiple && (
                     <button
                       onClick={() => onToggleToolType(type)}
-                      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-micro text-[var(--status-success)] transition-colors hover:bg-[var(--status-success-bg)] hover:text-[var(--status-success-strong)]"
+                      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs text-[var(--status-success)] transition-colors hover:bg-[var(--status-success-bg)] hover:text-[var(--status-success-strong)]"
                     >
                       <ChevronUp size={10} />
                       <span>

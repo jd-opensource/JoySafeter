@@ -46,7 +46,7 @@ export function SkillEditor({
 
         {/* Markdown Content Section */}
         <div className="flex flex-1 flex-col space-y-2">
-          <Label className="text-2xs font-bold uppercase text-[var(--text-muted)]">
+          <Label className="text-xs font-bold uppercase text-[var(--text-muted)]">
             {t('skills.content') || 'Instructions'} (Markdown)
           </Label>
           <Textarea

@@ -9,25 +9,20 @@ export default {
     '!./node_modules/**',
   ],
   theme: {
+    fontSize: {
+      '2xs': ['7px', { lineHeight: '10px' }],
+      'xs':  ['9px', { lineHeight: '14px' }],
+      'sm':  ['11px', { lineHeight: '16px' }],
+      'base': ['13px', { lineHeight: '18px' }],
+      'lg':  ['15px', { lineHeight: '22px' }],
+      'xl':  ['18px', { lineHeight: '26px' }],
+      '2xl': ['22px', { lineHeight: '30px' }],
+      '3xl': ['28px', { lineHeight: '36px' }],
+    },
     extend: {
       fontFamily: {
         sans: ['var(--font-geist-sans)'],
         mono: ['var(--font-geist-mono)'],
-      },
-      fontSize: {
-        'xxs': ['8px', { lineHeight: '12px' }],
-        'micro': ['9px', { lineHeight: '14px' }],
-        '2xs': ['10px', { lineHeight: '14px' }],
-        'app-xs': ['11px', { lineHeight: '16px' }],
-        'xs-plus': ['12px', { lineHeight: '16px' }],
-        'small': ['13px', { lineHeight: '18px' }],
-        'sm-app': ['14px', { lineHeight: '20px' }],
-        'app-base': ['15px', { lineHeight: '22px' }],
-        'md-app': ['16px', { lineHeight: '24px' }],
-        'lg-app': ['17px', { lineHeight: '24px' }],
-        'xl-app': ['22px', { lineHeight: '28px' }],
-        '2xl-app': ['26px', { lineHeight: '32px' }],
-        '3xl-app': ['32px', { lineHeight: '40px' }],
       },
       colors: {
         background: 'hsl(var(--background))',

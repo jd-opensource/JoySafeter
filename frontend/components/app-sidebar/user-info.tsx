@@ -85,14 +85,14 @@ export function UserInfo({ isCollapsed: _isCollapsed = false, showContent = true
                   {user?.image && (
                     <AvatarImage src={user.image} alt={user.name || t('user.user')} />
                   )}
-                  <AvatarFallback className="border border-[var(--brand-400)] bg-[var(--brand-500)] text-2xs text-white">
+                  <AvatarFallback className="border border-[var(--brand-400)] bg-[var(--brand-500)] text-xs text-white">
                     {getInitials(user?.name, user?.email)}
                   </AvatarFallback>
                 </Avatar>
                 {showContent && (
                   <>
                     <div className="flex min-w-0 flex-1 flex-col items-start overflow-hidden">
-                      <span className="truncate text-xs-plus font-medium text-[var(--text-primary)]">
+                      <span className="truncate text-sm font-medium text-[var(--text-primary)]">
                         {user?.name || user?.email || t('user.user')}
                       </span>
                     </div>
@@ -108,13 +108,13 @@ export function UserInfo({ isCollapsed: _isCollapsed = false, showContent = true
               className="z-[10000200] w-[180px] border-[var(--border)]"
             >
               <div className="px-2 py-1.5">
-                <p className="truncate text-small font-medium">{user?.name || t('user.user')}</p>
-                <p className="truncate text-app-xs text-[var(--text-muted)]">{user?.email}</p>
+                <p className="truncate text-base font-medium">{user?.name || t('user.user')}</p>
+                <p className="truncate text-sm text-[var(--text-muted)]">{user?.email}</p>
               </div>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={handleSettingsClick}
-                className="flex items-center gap-2 text-small"
+                className="flex items-center gap-2 text-base"
               >
                 <Settings className="h-3.5 w-3.5" />
                 <span>{t('user.settings')}</span>
@@ -123,7 +123,7 @@ export function UserInfo({ isCollapsed: _isCollapsed = false, showContent = true
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={handleLogout}
-                className="flex items-center gap-2 text-small text-[var(--status-error)] focus:text-[var(--status-error)]"
+                className="flex items-center gap-2 text-base text-[var(--status-error)] focus:text-[var(--status-error)]"
               >
                 <LogOut className="h-3.5 w-3.5" />
                 <span>{t('user.logout')}</span>

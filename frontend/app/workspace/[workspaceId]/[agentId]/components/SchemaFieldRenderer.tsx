@@ -80,7 +80,7 @@ const SchemaFieldRenderer = React.memo(function SchemaFieldRenderer({
           )}
           onClick={() => onChange(!value)}
         >
-          <span className="text-app-xs font-medium text-[var(--text-secondary)]">
+          <span className="text-sm font-medium text-[var(--text-secondary)]">
             {value ? t('workspace.enabled') : t('workspace.disabled')}
           </span>
           <div
@@ -214,12 +214,12 @@ const SchemaFieldRenderer = React.memo(function SchemaFieldRenderer({
 
   return (
     <div className="space-y-1.5 duration-200 animate-in fade-in">
-      <Label className="flex items-center gap-1.5 text-2xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
+      <Label className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
         {translatedLabel} {schema.required && <span className="text-[var(--status-error)]">*</span>}
       </Label>
       {input}
       {schema.description && (
-        <p className="text-micro italic leading-tight text-[var(--text-muted)]">{schema.description}</p>
+        <p className="text-xs italic leading-tight text-[var(--text-muted)]">{schema.description}</p>
       )}
     </div>
   )

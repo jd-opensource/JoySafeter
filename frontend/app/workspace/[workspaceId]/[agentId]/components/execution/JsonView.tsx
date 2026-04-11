@@ -27,7 +27,7 @@ export const JsonView = React.memo(function JsonView({
   return (
     <div className="space-y-1">
       {label && (
-        <div className="px-1 text-2xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+        <div className="px-1 text-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
           {label}
         </div>
       )}
@@ -71,7 +71,7 @@ export function FormattedView({ data, label }: { data: any; label?: string }) {
     return (
       <div className="space-y-1">
         {label && (
-          <div className="px-1 text-2xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+          <div className="px-1 text-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
             {label}
           </div>
         )}

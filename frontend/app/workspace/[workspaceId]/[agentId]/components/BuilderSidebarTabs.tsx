@@ -18,7 +18,7 @@ export function BuilderSidebarTabs() {
         <TabsList className="flex h-auto w-full space-x-6 bg-transparent p-0">
           <TabsTrigger
             value="copilot"
-            className="relative flex cursor-pointer flex-col items-start gap-0 rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2 pt-1 text-small font-semibold tracking-tight shadow-none transition-all duration-200 ease-out data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=inactive]:font-medium data-[state=active]:text-[var(--text-primary)] data-[state=inactive]:text-[var(--text-tertiary)] data-[state=inactive]:hover:text-[var(--text-secondary)]"
+            className="relative flex cursor-pointer flex-col items-start gap-0 rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2 pt-1 text-base font-semibold tracking-tight shadow-none transition-all duration-200 ease-out data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=inactive]:font-medium data-[state=active]:text-[var(--text-primary)] data-[state=inactive]:text-[var(--text-tertiary)] data-[state=inactive]:hover:text-[var(--text-secondary)]"
           >
             <span className="flex items-center gap-2.5">
               <Sparkles size={15} strokeWidth={2.5} className="flex-shrink-0" />
@@ -26,13 +26,13 @@ export function BuilderSidebarTabs() {
                 {t('workspace.copilot', { defaultValue: 'Copilot' })}
               </span>
             </span>
-            <span className="pl-[23px] text-2xs font-normal leading-tight text-[var(--text-tertiary)]">
+            <span className="pl-[23px] text-xs font-normal leading-tight text-[var(--text-tertiary)]">
               {t('workspace.copilotSubtitle')}
             </span>
           </TabsTrigger>
           <TabsTrigger
             value="components"
-            className="relative flex cursor-pointer items-center gap-2.5 rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 pt-1 text-small font-semibold tracking-tight shadow-none transition-all duration-200 ease-out data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=inactive]:font-medium data-[state=active]:text-[var(--text-primary)] data-[state=inactive]:text-[var(--text-tertiary)] data-[state=inactive]:hover:text-[var(--text-secondary)]"
+            className="relative flex cursor-pointer items-center gap-2.5 rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 pt-1 text-base font-semibold tracking-tight shadow-none transition-all duration-200 ease-out data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=inactive]:font-medium data-[state=active]:text-[var(--text-primary)] data-[state=inactive]:text-[var(--text-tertiary)] data-[state=inactive]:hover:text-[var(--text-secondary)]"
           >
             <Wrench size={15} strokeWidth={2.5} className="flex-shrink-0" />
             <span className="whitespace-nowrap">{t('workspace.components')}</span>

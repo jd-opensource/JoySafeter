@@ -48,7 +48,7 @@ export const SkillListItem = React.memo(function SkillListItem({
           {skill.is_public && (
             <Badge
               variant="outline"
-              className="h-3.5 shrink-0 border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] px-1 py-0 text-xxs text-[var(--skill-brand-600)]"
+              className="h-3.5 shrink-0 border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] px-1 py-0 text-2xs text-[var(--skill-brand-600)]"
             >
               <Globe size={8} className="mr-0.5" />
               {t('skills.published')}
@@ -66,11 +66,11 @@ export const SkillListItem = React.memo(function SkillListItem({
           <Trash2 size={12} />
         </button>
       </div>
-      <p className="line-clamp-2 min-w-0 text-2xs text-[var(--text-tertiary)]">
+      <p className="line-clamp-2 min-w-0 text-xs text-[var(--text-tertiary)]">
         {skill.description}
       </p>
       {skill.files && skill.files.length > 0 && (
-        <div className="mt-1.5 flex items-center gap-1 text-micro text-[var(--text-muted)]">
+        <div className="mt-1.5 flex items-center gap-1 text-xs text-[var(--text-muted)]">
           <Folder size={10} />
           <span>{skill.files.length} files</span>
         </div>

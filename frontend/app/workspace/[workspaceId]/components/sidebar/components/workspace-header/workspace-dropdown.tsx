@@ -118,7 +118,7 @@ export function WorkspaceDropdown({
       <div className="fixed inset-0 z-40" onClick={handleCloseDropdown} />
       <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-[4px] shadow-lg">
         <div className="flex items-center justify-between px-2 py-1">
-          <span className="text-app-xs font-medium text-[var(--text-tertiary)]">
+          <span className="text-sm font-medium text-[var(--text-tertiary)]">
             {t('workspace.workspaces')}
           </span>
           <TooltipProvider delayDuration={100}>
@@ -140,7 +140,7 @@ export function WorkspaceDropdown({
               <TooltipContent
                 side="bottom"
                 sideOffset={4}
-                className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-xs-plus font-medium text-[var(--text-primary)] shadow-lg"
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg"
               >
                 {t('workspace.createWorkspace')}
               </TooltipContent>
@@ -157,7 +157,7 @@ export function WorkspaceDropdown({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t('workspace.searchWorkspaces')}
-              className="flex-1 bg-transparent text-xs-plus font-medium text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)]"
+              className="flex-1 bg-transparent text-sm font-medium text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)]"
             />
             {searchQuery && (
               <button
@@ -174,11 +174,11 @@ export function WorkspaceDropdown({
 
         <div className="max-h-[240px] overflow-y-auto">
           {isWorkspacesLoading ? (
-            <div className="px-2 py-1.5 text-xs-plus text-[var(--text-tertiary)]">
+            <div className="px-2 py-1.5 text-sm text-[var(--text-tertiary)]">
               {t('workspace.loadingAgents')}
             </div>
           ) : filteredWorkspaces.length === 0 ? (
-            <div className="px-2 py-1.5 text-xs-plus text-[var(--text-tertiary)]">
+            <div className="px-2 py-1.5 text-sm text-[var(--text-tertiary)]">
               {searchQuery ? t('workspace.noWorkspacesFound') : t('workspace.noWorkspaces')}
             </div>
           ) : (
@@ -210,7 +210,7 @@ export function WorkspaceDropdown({
                           <button
                             type="button"
                             className={cn(
-                              'flex min-w-0 items-center px-2 py-1.5 text-left text-xs-plus font-medium',
+                              'flex min-w-0 items-center px-2 py-1.5 text-left text-sm font-medium',
                               workspace.id === workspaceId
                                 ? 'text-[var(--text-primary)]'
                                 : 'text-[var(--text-secondary)]',
@@ -230,7 +230,7 @@ export function WorkspaceDropdown({
                         <TooltipContent
                           side="right"
                           sideOffset={8}
-                          className="max-w-[280px] break-words rounded-lg border border-[var(--border)] bg-[var(--surface-1)] px-2.5 py-1.5 text-xs-plus font-medium text-[var(--text-primary)] shadow-lg"
+                          className="max-w-[280px] break-words rounded-lg border border-[var(--border)] bg-[var(--surface-1)] px-2.5 py-1.5 text-sm font-medium text-[var(--text-primary)] shadow-lg"
                         >
                           {getWorkspaceDisplayName(workspace)}
                         </TooltipContent>
@@ -239,11 +239,11 @@ export function WorkspaceDropdown({
 
                     <div className="flex w-[44px] shrink-0 justify-center">
                       {workspace.type === 'personal' ? (
-                        <span className="w-[36px] rounded-sm bg-[var(--brand-100)] px-[4px] py-[1px] text-center text-2xs font-medium text-[var(--brand-600)]">
+                        <span className="w-[36px] rounded-sm bg-[var(--brand-100)] px-[4px] py-[1px] text-center text-xs font-medium text-[var(--brand-600)]">
                           {t('workspace.personal')}
                         </span>
                       ) : workspace.type === 'team' ? (
-                        <span className="w-[36px] rounded-sm bg-[var(--brand-100)] px-[4px] py-[1px] text-center text-2xs font-medium text-[var(--brand-600)] dark:bg-[var(--brand-100)] dark:text-[var(--brand-400)]">
+                        <span className="w-[36px] rounded-sm bg-[var(--brand-100)] px-[4px] py-[1px] text-center text-xs font-medium text-[var(--brand-600)] dark:bg-[var(--brand-100)] dark:text-[var(--brand-400)]">
                           {t('workspace.team')}
                         </span>
                       ) : null}

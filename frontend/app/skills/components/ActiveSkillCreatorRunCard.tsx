@@ -111,7 +111,7 @@ export function ActiveSkillCreatorRunCard() {
                 </span>
                 <Badge
                   variant="outline"
-                  className="border-[var(--skill-brand-200)] bg-[var(--surface-elevated)] text-2xs text-[var(--skill-brand-700)]"
+                  className="border-[var(--skill-brand-200)] bg-[var(--surface-elevated)] text-xs text-[var(--skill-brand-700)]"
                 >
                   {formatRunStatus(liveRun.status, t)}
                 </Badge>

@@ -197,7 +197,7 @@ export function ExecutionTree({ searchQuery = '' }: ExecutionTreeProps) {
       {isExecuting && !searchQuery && (
         <div className="flex items-center gap-2 px-4 py-2">
           <div className="h-3 w-1 animate-pulse bg-[var(--brand-secondary)]" />
-          <span className="animate-pulse font-mono text-micro text-[var(--brand-secondary)]">
+          <span className="animate-pulse font-mono text-xs text-[var(--brand-secondary)]">
             {t('workspace.waitingForNextStep', { defaultValue: 'Waiting for next step...' })}
           </span>
         </div>

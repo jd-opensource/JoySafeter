@@ -93,7 +93,7 @@ export const MemorySection = React.memo(function MemorySection({
       )}
 
       {!enableMemory && (
-        <p className="rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-2 text-2xs italic text-[var(--text-muted)]">
+        <p className="rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-2 text-xs italic text-[var(--text-muted)]">
           {t('workspace.memoryDisabled')}
         </p>
       )}

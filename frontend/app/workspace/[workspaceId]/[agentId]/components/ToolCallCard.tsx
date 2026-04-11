@@ -127,19 +127,19 @@ export function ToolCallCard({
             )}
             <div className="flex min-w-0 flex-1 items-center gap-1.5">
               {getStatusIcon()}
-              <span className="truncate text-app-xs font-semibold text-[var(--text-secondary)]">{step.title}</span>
+              <span className="truncate text-sm font-semibold text-[var(--text-secondary)]">{step.title}</span>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {duration !== undefined && (
-              <div className="flex items-center gap-1 text-micro text-[var(--text-tertiary)]">
+              <div className="flex items-center gap-1 text-xs text-[var(--text-tertiary)]">
                 <Clock size={10} />
                 <span className="font-mono">{duration}ms</span>
               </div>
             )}
             <div
               className={cn(
-                'rounded px-1.5 py-0.5 text-micro font-medium',
+                'rounded px-1.5 py-0.5 text-xs font-medium',
                 step.status === 'running' && 'bg-[color-mix(in_srgb,var(--brand-secondary)_10%,transparent)] text-[var(--brand-secondary)]',
                 step.status === 'success' && 'bg-[var(--status-success-bg)] text-[var(--status-success)]',
                 step.status === 'error' && 'bg-[var(--status-error-bg)] text-[var(--status-error)]',
@@ -158,7 +158,7 @@ export function ToolCallCard({
           {input !== undefined && (
             <div className="space-y-1.5">
               <div className="flex items-center gap-2">
-                <span className="text-2xs font-bold uppercase tracking-widest text-[var(--status-warning)]">
+                <span className="text-xs font-bold uppercase tracking-widest text-[var(--status-warning)]">
                   {t('workspace.input', { defaultValue: 'Input' })}
                 </span>
                 <div className="h-[1px] flex-1 bg-[var(--status-warning-border)]" />
@@ -200,7 +200,7 @@ export function ToolCallCard({
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <div className="flex flex-1 items-center gap-2">
-                  <span className="text-2xs font-bold uppercase tracking-widest text-[var(--status-success)]">
+                  <span className="text-xs font-bold uppercase tracking-widest text-[var(--status-success)]">
                     {t('workspace.output', { defaultValue: 'Output' })}
                   </span>
                   <div className="h-[1px] flex-1 bg-[var(--status-success-border)]" />
@@ -208,7 +208,7 @@ export function ToolCallCard({
                 {shouldAutoCollapse && (
                   <button
                     onClick={() => setOutputCollapsed(!outputCollapsed)}
-                    className="rounded px-2 py-0.5 text-micro font-medium text-[var(--status-success)] transition-colors hover:bg-[var(--status-success-bg)] hover:text-[var(--status-success-hover)]"
+                    className="rounded px-2 py-0.5 text-xs font-medium text-[var(--status-success)] transition-colors hover:bg-[var(--status-success-bg)] hover:text-[var(--status-success-hover)]"
                     aria-label={outputCollapsed ? 'Expand output' : 'Collapse output'}
                   >
                     {outputCollapsed
@@ -219,12 +219,12 @@ export function ToolCallCard({
               </div>
               {outputCollapsed ? (
                 <div className="rounded-md border border-[var(--status-success-border)] bg-[var(--status-success-bg)] p-2">
-                  <p className="line-clamp-3 font-mono text-2xs text-[var(--status-success-strong)]">
+                  <p className="line-clamp-3 font-mono text-xs text-[var(--status-success-strong)]">
                     {outputString.slice(0, 200)}...
                   </p>
                   <button
                     onClick={() => setOutputCollapsed(false)}
-                    className="mt-1 text-micro font-medium text-[var(--status-success)] hover:text-[var(--status-success-hover)]"
+                    className="mt-1 text-xs font-medium text-[var(--status-success)] hover:text-[var(--status-success-hover)]"
                     aria-label="Expand full output"
                   >
                     {t('tool.clickToExpand', { defaultValue: 'Click to expand full output' })}
@@ -265,7 +265,7 @@ export function ToolCallCard({
           ) : step.status === 'running' ? (
             <div className="flex items-center gap-2 py-2 text-[var(--text-muted)]">
               <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--brand-secondary)]" />
-              <span className="font-mono text-2xs">
+              <span className="font-mono text-xs">
                 {t('workspace.waitingForResponse', { defaultValue: 'Waiting for response...' })}
               </span>
             </div>

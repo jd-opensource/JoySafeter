@@ -340,7 +340,7 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                 {/* Hierarchical File Explorer */}
                 <ResizablePanel defaultSize={20} minSize={10} maxSize={30} className="flex shrink-0 flex-col border-r border-[var(--border-muted)] bg-[var(--surface-2)]">
                   <div className="flex items-center justify-between border-b border-[var(--border-muted)] p-3">
-                    <span className="text-2xs font-bold uppercase tracking-widest text-[var(--text-muted)]">
+                    <span className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">
                       {t('skills.workspace') || 'Workspace'}
                     </span>
                     <Button

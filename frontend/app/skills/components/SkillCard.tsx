@@ -77,7 +77,7 @@ export function SkillCard({
               {isOwner && (
                 <Badge
                   variant="outline"
-                  className="border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] px-1.5 py-0 text-micro text-[var(--skill-brand-600)]"
+                  className="border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] px-1.5 py-0 text-xs text-[var(--skill-brand-600)]"
                 >
                   {t('skills.yours')}
                 </Badge>
@@ -85,7 +85,7 @@ export function SkillCard({
               {skill.license && (
                 <Badge
                   variant="outline"
-                  className="border-[var(--border)] bg-[var(--surface-2)] px-1.5 py-0 text-micro text-[var(--text-muted)]"
+                  className="border-[var(--border)] bg-[var(--surface-2)] px-1.5 py-0 text-xs text-[var(--text-muted)]"
                 >
                   {skill.license}
                 </Badge>
@@ -101,17 +101,17 @@ export function SkillCard({
                     <Badge
                       key={i}
                       variant="outline"
-                      className="border-[var(--border)] bg-[var(--surface-2)] px-1.5 py-0 text-micro text-[var(--text-secondary)]"
+                      className="border-[var(--border)] bg-[var(--surface-2)] px-1.5 py-0 text-xs text-[var(--text-secondary)]"
                     >
                       {tag}
                     </Badge>
                   ))}
                   {skill.tags.length > 3 && (
-                    <span className="text-micro text-[var(--text-muted)]">+{skill.tags.length - 3}</span>
+                    <span className="text-xs text-[var(--text-muted)]">+{skill.tags.length - 3}</span>
                   )}
                 </div>
               )}
-              <div className="flex items-center gap-2 text-2xs text-[var(--text-muted)]">
+              <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
                 <span className="flex items-center gap-1">
                   <FileText size={10} />
                   {fileCount} {t('skills.files')}
@@ -181,13 +181,13 @@ export function SkillCard({
               {skill.license && (
                 <div className="flex items-center gap-1">
                   <Scale size={10} className="text-[var(--text-muted)]" />
-                  <span className="text-2xs text-[var(--text-muted)]">{skill.license}</span>
+                  <span className="text-xs text-[var(--text-muted)]">{skill.license}</span>
                 </div>
               )}
               {isOwner && (
                 <Badge
                   variant="outline"
-                  className="h-3.5 border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] px-1 py-0 text-xxs text-[var(--skill-brand-600)]"
+                  className="h-3.5 border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] px-1 py-0 text-2xs text-[var(--skill-brand-600)]"
                 >
                   {t('skills.yours')}
                 </Badge>
@@ -234,7 +234,7 @@ export function SkillCard({
               <Badge
                 key={index}
                 variant="outline"
-                className="border-[var(--border)] bg-[var(--surface-2)] px-1.5 py-0 text-micro text-[var(--text-secondary)] hover:bg-[var(--surface-2)]"
+                className="border-[var(--border)] bg-[var(--surface-2)] px-1.5 py-0 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-2)]"
               >
                 {tag}
               </Badge>
@@ -242,7 +242,7 @@ export function SkillCard({
             {skill.tags.length > 3 && (
               <Badge
                 variant="outline"
-                className="border-[var(--border)] bg-[var(--surface-2)] px-1.5 py-0 text-micro text-[var(--text-muted)]"
+                className="border-[var(--border)] bg-[var(--surface-2)] px-1.5 py-0 text-xs text-[var(--text-muted)]"
               >
                 +{skill.tags.length - 3}
               </Badge>
@@ -251,7 +251,7 @@ export function SkillCard({
         )}
 
         {/* Meta info row */}
-        <div className="flex items-center gap-3 border-t border-[var(--border)] pt-3 text-2xs text-[var(--text-muted)]">
+        <div className="flex items-center gap-3 border-t border-[var(--border)] pt-3 text-xs text-[var(--text-muted)]">
           {skill.owner_id && (
             <div className="flex items-center gap-1">
               <User size={10} />

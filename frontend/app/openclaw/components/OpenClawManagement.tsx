@@ -248,7 +248,7 @@ export function OpenClawManagement() {
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge
                     className={cn(
-                      'truncate rounded border px-1.5 py-0 text-2xs font-bold uppercase tracking-wider',
+                      'truncate rounded border px-1.5 py-0 text-xs font-bold uppercase tracking-wider',
                       instanceStatusStyles[status] ?? instanceStatusStyles.failed,
                     )}
                   >
@@ -370,7 +370,7 @@ export function OpenClawManagement() {
         <div className="border-t border-[var(--border)] bg-[var(--bg)] p-4 sm:p-5">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
-              <span className="text-app-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+              <span className="text-sm font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                 {t('openclaw.gatewayPort')}
               </span>
               <span className="font-mono text-sm font-medium text-[var(--text-primary)]">
@@ -378,7 +378,7 @@ export function OpenClawManagement() {
               </span>
             </div>
             <div className="flex flex-col gap-1.5">
-              <span className="text-app-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+              <span className="text-sm font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                 {t('openclaw.containerId')}
               </span>
               <span className="font-mono text-sm font-medium text-[var(--text-primary)]">
@@ -386,7 +386,7 @@ export function OpenClawManagement() {
               </span>
             </div>
             <div className="flex flex-col gap-1.5">
-              <span className="text-app-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+              <span className="text-sm font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                 {t('openclaw.token')}
               </span>
               {instance.gatewayToken ? (

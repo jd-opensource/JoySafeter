@@ -51,16 +51,16 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       return (
         <div className="flex h-full w-full flex-col items-center justify-center gap-[16px] p-[24px]">
           <div className="text-center">
-            <h2 className="mb-[8px] text-md-app font-semibold text-[var(--text-primary)]">
+            <h2 className="mb-[8px] text-lg font-semibold text-[var(--text-primary)]">
               Something went wrong
             </h2>
-            <p className="text-small text-[var(--text-tertiary)]">
+            <p className="text-base text-[var(--text-tertiary)]">
               {this.state.error?.message || 'An unexpected error occurred'}
             </p>
           </div>
           <button
             onClick={this.handleReset}
-            className="rounded-md bg-[var(--surface-muted)] px-4 py-2 text-small text-[var(--text-primary)] hover:bg-[var(--surface-muted)]"
+            className="rounded-md bg-[var(--surface-muted)] px-4 py-2 text-base text-[var(--text-primary)] hover:bg-[var(--surface-muted)]"
           >
             Try again
           </button>

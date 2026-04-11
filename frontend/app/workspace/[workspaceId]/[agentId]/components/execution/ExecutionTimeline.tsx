@@ -107,7 +107,7 @@ export function ExecutionTimelineView() {
               style={{ left: `${tick.percent}%` }}
             >
               <div className="h-2 w-px bg-[var(--text-subtle)]" />
-              <span className="mt-0.5 font-mono text-xxs text-[var(--text-muted)]">
+              <span className="mt-0.5 font-mono text-2xs text-[var(--text-muted)]">
                 {formatTimeLabel(tick.ms)}
               </span>
             </div>
@@ -166,7 +166,7 @@ export function ExecutionTimelineView() {
                     paddingLeft: `${node.depth * 16 + 8}px`,
                   }}
                 >
-                  <span className="truncate text-2xs font-medium text-[var(--text-secondary)]">
+                  <span className="truncate text-xs font-medium text-[var(--text-secondary)]">
                     {node.name}
                   </span>
                 </div>
@@ -187,7 +187,7 @@ export function ExecutionTimelineView() {
                     }}
                   >
                     {nodeDuration > 0 && widthPercent > 5 && (
-                      <span className="absolute inset-0 flex items-center justify-center truncate px-1 font-mono text-xxs font-medium text-white">
+                      <span className="absolute inset-0 flex items-center justify-center truncate px-1 font-mono text-2xs font-medium text-white">
                         {formatTimeLabel(nodeDuration)}
                       </span>
                     )}

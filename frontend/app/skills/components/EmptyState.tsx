@@ -43,7 +43,7 @@ export function EmptyState({ onNewSkillManual, onImportLocal }: EmptyStateProps)
       {/* Skill Structure Info */}
       <div className="mt-12 max-w-md rounded-xl border border-[var(--border-muted)] bg-[var(--surface-elevated)] p-6 text-left shadow-sm">
         <h4 className="mb-3 text-xs font-bold text-[var(--text-secondary)]">Skill Structure</h4>
-        <pre className="font-mono text-2xs leading-relaxed text-[var(--text-tertiary)]">
+        <pre className="font-mono text-xs leading-relaxed text-[var(--text-tertiary)]">
           {`skill-name/
 ├── SKILL.md (required)
 │   ├── YAML frontmatter (name, description)
@@ -51,7 +51,7 @@ export function EmptyState({ onNewSkillManual, onImportLocal }: EmptyStateProps)
 └── Any files/folders (optional)
     └── Organize as you like!`}
         </pre>
-        <p className="mt-2 text-2xs text-[var(--text-muted)]">
+        <p className="mt-2 text-xs text-[var(--text-muted)]">
           You can use any directory structure. Only SKILL.md is required.
         </p>
       </div>

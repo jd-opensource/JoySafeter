@@ -67,7 +67,7 @@ export default function SkillPreviewPanel({
             {previewData?.skill_name || 'Generating...'}
           </h3>
           {fileCount > 0 && (
-            <span className="flex-shrink-0 text-2xs text-[var(--text-muted)]">
+            <span className="flex-shrink-0 text-xs text-[var(--text-muted)]">
               {fileCount} file{fileCount !== 1 ? 's' : ''}
             </span>
           )}
@@ -76,18 +76,18 @@ export default function SkillPreviewPanel({
         {/* Validation takes priority over in-progress indicator */}
         {validation ? (
           validation.valid ? (
-            <span className="flex flex-shrink-0 items-center gap-1 rounded-full bg-[var(--status-success-bg)] px-2 py-0.5 text-2xs text-[var(--status-success)]">
+            <span className="flex flex-shrink-0 items-center gap-1 rounded-full bg-[var(--status-success-bg)] px-2 py-0.5 text-xs text-[var(--status-success)]">
               <CheckCircle2 size={10} />
               Valid
             </span>
           ) : (
-            <span className="flex flex-shrink-0 items-center gap-1 rounded-full bg-[var(--status-error-bg)] px-2 py-0.5 text-2xs text-[var(--status-error)]">
+            <span className="flex flex-shrink-0 items-center gap-1 rounded-full bg-[var(--status-error-bg)] px-2 py-0.5 text-xs text-[var(--status-error)]">
               <AlertTriangle size={10} />
               {validation.errors.length} error{validation.errors.length !== 1 ? 's' : ''}
             </span>
           )
         ) : isProcessing ? (
-          <span className="flex flex-shrink-0 items-center gap-1 rounded-full bg-[var(--surface-3)] px-2 py-0.5 text-2xs text-[var(--text-muted)]">
+          <span className="flex flex-shrink-0 items-center gap-1 rounded-full bg-[var(--surface-3)] px-2 py-0.5 text-xs text-[var(--text-muted)]">
             <Loader2 size={10} className="animate-spin" />
             Writing...
           </span>
@@ -98,13 +98,13 @@ export default function SkillPreviewPanel({
       {validation && (!validation.valid || validation.warnings.length > 0) && (
         <div className="flex-shrink-0 space-y-1 border-b border-[var(--border-muted)] px-4 py-2">
           {validation.errors.map((err, i) => (
-            <div key={`e-${i}`} className="flex items-center gap-1.5 text-2xs text-[var(--status-error)]">
+            <div key={`e-${i}`} className="flex items-center gap-1.5 text-xs text-[var(--status-error)]">
               <AlertTriangle size={10} className="flex-shrink-0" />
               <span>{err}</span>
             </div>
           ))}
           {validation.warnings.map((w, i) => (
-            <div key={`w-${i}`} className="flex items-center gap-1.5 text-2xs text-[var(--status-warning)]">
+            <div key={`w-${i}`} className="flex items-center gap-1.5 text-xs text-[var(--status-warning)]">
               <AlertTriangle size={10} className="flex-shrink-0" />
               <span>{w}</span>
             </div>

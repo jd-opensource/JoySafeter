@@ -58,7 +58,7 @@ export function CreateAgentDialog({
               )}
             >
               <span className="text-sm font-medium">Canvas</span>
-              <span className="text-app-xs leading-tight text-[var(--text-muted)]">
+              <span className="text-sm leading-tight text-[var(--text-muted)]">
                 Drag-and-drop DeepAgents builder
               </span>
             </button>
@@ -73,7 +73,7 @@ export function CreateAgentDialog({
               )}
             >
               <span className="text-sm font-medium">Code</span>
-              <span className="text-app-xs leading-tight text-[var(--text-muted)]">
+              <span className="text-sm leading-tight text-[var(--text-muted)]">
                 Python code to define graph structure
               </span>
             </button>

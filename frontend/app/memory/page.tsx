@@ -373,7 +373,7 @@ export default function KnowledgePage() {
                             <Badge
                               key={topic}
                               variant="outline"
-                              className="border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] px-1.5 py-0 text-micro text-[var(--skill-brand-600)]"
+                              className="border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] px-1.5 py-0 text-xs text-[var(--skill-brand-600)]"
                             >
                               {topic}
                             </Badge>
@@ -381,7 +381,7 @@ export default function KnowledgePage() {
                         </div>
                       )}
                       {memory.updated_at && (
-                        <div className="flex items-center gap-1 text-2xs text-[var(--text-muted)]">
+                        <div className="flex items-center gap-1 text-xs text-[var(--text-muted)]">
                           <Calendar className="h-3 w-3" />
                           {formatDate(memory.updated_at)}
                         </div>
