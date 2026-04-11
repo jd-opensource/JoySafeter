@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
 
 export interface MenuItemConfig {
@@ -19,7 +20,7 @@ interface SidebarContextMenuProps {
 }
 
 export function SidebarContextMenu({ items, onClose, position, className }: SidebarContextMenuProps) {
-  return (
+  const menu = (
     <>
       <div className="fixed inset-0 z-popover" onClick={onClose} />
       <div
@@ -51,4 +52,8 @@ export function SidebarContextMenu({ items, onClose, position, className }: Side
       </div>
     </>
   )
+
+  // Portal to body so z-index is not trapped by parent stacking contexts
+  if (position) return createPortal(menu, document.body)
+  return menu
 }
