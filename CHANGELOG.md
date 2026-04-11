@@ -6,6 +6,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v0.3.2 — 2026-04-11
+
+
+
+### Features
+
+- 添加版本信息展示功能，并接入 bump-version.sh 版本管理体系 (#125)
+- Agent 构建错误信息加入 graph_name 和 node_label 上下文，便于用户定位问题
+
+### Bug Fixes
+
+- 修复本地 Ollama 模型在 Agent 工作台报 401 无 API key 的问题 (#127)
+- 修复 Skill 保存时使用 previewData 替代 fileTree 容器路径，并正确去除沙箱路径前缀
+- 修复沙箱断连后自动重连，改善 Skill 名称冲突的错误提示
+- 修复 preview_skill 读取时传入正确的 sandbox backend
+- 修复 FileTrackingProxy 在 SkillSandboxLoader 中的 backend 检测
+- 修复 CheckpointerManager 复用 Settings 获取数据库 URI，替代直接读取环境变量
+- 修复 checkpointer 调用缺少 RunnableConfig 类型注解的问题
+- 修复 credential_resolver 中未使用的 model_service 变量
+- 修复 deep agent 创建时未传入 checkpointer 导致对话上下文丢失的问题
+- 流式错误信息改为内联展示在 AI 消息中，而非仅弹出 toast
+- 修复工作区下拉菜单遮罩层阻挡嵌套右键菜单点击的问题
+- 修复 SidebarContextMenu 使用 fixed 定位时 portal 到 body
+- 修复 Select/Popover 的 z-index 层级，确保在 Dialog/Sheet 之上正确渲染
+- 修复侧边栏硬编码偏移量，改用 CSS 变量并增加视口安全边距
+- 修复 Tailwind 透明度修饰符失效，改用 color-mix() 方案
+- 补充 globals.css 中缺失的 CSS 变量定义
+- 修复边框冲突并移除无用的 chart/border-tw 变量
+
+### Refactoring
+
+- 全局清理 Default Model 逻辑，消除模型使用歧义 (#126)
+- 统一 WebSocket 错误处理（chat、skill creator、copilot）
+- 统一 z-index 层级体系，清理无用 CSS 变量
+- 统一排版系统，将 13 个自定义 fontSize token 精简为 8 个标准 Tailwind 覆盖
+- 精简 surface 色阶，从 15 级收敛至 6 级
+- 将 Agent 调色板从 CSS 变量迁移至 TypeScript 常量
+- 移除冗余的品牌别名 CSS 变量、--divider 别名及零使用 CSS 变量
+- 整理 globals.css 结构，添加清晰的分区注释
+- 全局替换硬编码 Tailwind 颜色为 CSS 变量（UI 基础组件、工作区组件、copilot 组件等）
+- 精简 skills 预加载逻辑，渲染 worker prompts，移除未使用的 max_tokens
+
+---
+
 ## v0.3.1 — 2026-04-08
 
 ### 新功能
