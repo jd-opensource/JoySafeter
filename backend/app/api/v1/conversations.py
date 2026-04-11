@@ -41,9 +41,9 @@ Error codes:
 """
 
 import uuid
-from typing import Any
 
 from fastapi import APIRouter, Depends, Query
+from langchain_core.runnables import RunnableConfig
 from loguru import logger
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -627,7 +627,7 @@ async def get_checkpoints(
     # Verify conversation ownership
     await verify_conversation_ownership(thread_id, current_user.id, db)
 
-    config = {"configurable": {"thread_id": thread_id, "user_id": str(current_user.id)}}
+    config: RunnableConfig = {"configurable": {"thread_id": thread_id, "user_id": str(current_user.id)}}
     try:
         checkpointer = get_checkpointer()
         if not checkpointer:
@@ -688,7 +688,7 @@ async def export_conversation(
     messages = messages_result.scalars().all()
 
     # Get LangGraph state
-    config = {"configurable": {"thread_id": thread_id, "user_id": str(current_user.id)}}
+    config: RunnableConfig = {"configurable": {"thread_id": thread_id, "user_id": str(current_user.id)}}
     try:
         checkpointer = get_checkpointer()
         if checkpointer:
@@ -774,7 +774,7 @@ async def import_conversation(
 
     # Restore LangGraph state (best-effort)
     if "state" in data and data["state"]:
-        config = {"configurable": {"thread_id": thread_id, "user_id": str(current_user.id)}}
+        config: RunnableConfig = {"configurable": {"thread_id": thread_id, "user_id": str(current_user.id)}}
         try:
             checkpointer = get_checkpointer()
             if checkpointer:
@@ -785,7 +785,7 @@ async def import_conversation(
                 checkpoint = empty_checkpoint()
                 checkpoint["id"] = str(_uuid.uuid4())
                 checkpoint["channel_values"] = data["state"]
-                await checkpointer.aput(config, checkpoint, {"source": "import"}, {})
+                await checkpointer.aput(config, checkpoint, {"source": "input"}, {})
         except Exception as e:
             logger.warning(f"Could not restore state: {e}")
 
