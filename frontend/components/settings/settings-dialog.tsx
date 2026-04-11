@@ -50,7 +50,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[700px] max-w-5xl flex-row gap-0 overflow-hidden border-0 bg-[var(--surface-elevated)] p-0 shadow-2xl">
+      <DialogContent className="flex max-h-[85vh] h-[700px] max-w-5xl flex-row gap-0 overflow-hidden border-0 bg-[var(--surface-elevated)] p-0 shadow-2xl">
         <DialogTitle className="sr-only">{t('settings.title')}</DialogTitle>
         <DialogDescription className="sr-only">{t('settings.description')}</DialogDescription>
 

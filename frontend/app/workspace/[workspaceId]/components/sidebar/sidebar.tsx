@@ -258,7 +258,7 @@ export function Sidebar() {
     return (
       <div
         className="fixed top-[14px] z-10 max-w-[232px] rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 transition-all duration-300"
-        style={{ left: isAppSidebarCollapsed ? '78px' : '154px' }}
+        style={{ left: isAppSidebarCollapsed ? 'calc(var(--sidebar-width-collapsed) + 14px)' : 'calc(var(--sidebar-width) + 14px)' }}
       >
         <WorkspaceHeader {...workspaceHeaderProps} />
       </div>
@@ -274,7 +274,7 @@ export function Sidebar() {
           isCollapsed ? 'pointer-events-none z-0' : 'z-10',
         )}
         style={{
-          left: isCollapsed ? '-1000px' : isAppSidebarCollapsed ? '64px' : '140px',
+          left: isCollapsed ? '-1000px' : isAppSidebarCollapsed ? 'var(--sidebar-width-collapsed)' : 'var(--sidebar-width)',
           width: isCollapsed ? '0px' : `${sidebarWidth}px`,
           opacity: isCollapsed ? 0 : 1,
           visibility: isCollapsed ? 'hidden' : 'visible',
@@ -357,7 +357,7 @@ export function Sidebar() {
       {isOnAgentPage && (
         <div
           className="fixed bottom-0 top-0 z-20 w-[8px] cursor-ew-resize"
-          style={{ left: `${(isAppSidebarCollapsed ? 64 : 140) + sidebarWidth - 4}px` }}
+          style={{ left: `calc(${isAppSidebarCollapsed ? 'var(--sidebar-width-collapsed)' : 'var(--sidebar-width)'} + ${sidebarWidth - 4}px)` }}
           onMouseDown={handleMouseDown}
           role="separator"
           aria-orientation="vertical"

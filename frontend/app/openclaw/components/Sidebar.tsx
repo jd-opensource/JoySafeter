@@ -97,7 +97,7 @@ export function Sidebar() {
         isCollapsed ? 'pointer-events-none z-0' : 'z-10',
       )}
       style={{
-        left: isCollapsed ? '-1000px' : isAppSidebarCollapsed ? '64px' : '140px',
+        left: isCollapsed ? '-1000px' : isAppSidebarCollapsed ? 'var(--sidebar-width-collapsed)' : 'var(--sidebar-width)',
         width: isCollapsed ? '0px' : `${sidebarWidth}px`,
         opacity: isCollapsed ? 0 : 1,
         visibility: isCollapsed ? 'hidden' : 'visible',

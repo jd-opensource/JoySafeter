@@ -513,7 +513,7 @@ export default function RunDetailPage() {
 
               <TabsContent value="events" className="mt-0">
                 <Card className="border-[var(--border)] bg-[var(--surface-1)]">
-                  <ScrollArea className="h-[520px]">
+                  <ScrollArea className="h-[520px] max-h-[60vh]">
                     <div className="space-y-3 p-4">
                       {events.length === 0 ? (
                         <div className="rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-6 text-sm text-[var(--text-muted)]">
@@ -547,7 +547,7 @@ export default function RunDetailPage() {
 
               <TabsContent value="snapshot" className="mt-0">
                 <Card className="border-[var(--border)] bg-[var(--surface-1)]">
-                  <ScrollArea className="h-[520px]">
+                  <ScrollArea className="h-[520px] max-h-[60vh]">
                     <pre className="p-4 text-xs text-[var(--text-secondary)]">
                       {JSON.stringify(snapshot?.projection || {}, null, 2)}
                     </pre>
