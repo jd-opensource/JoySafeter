@@ -126,8 +126,10 @@ class SkillService(BaseService[Skill]):
     ) -> Skill:
         """Create Skill
 
-        If files contain a SKILL.md file with YAML frontmatter, the name and
-        description will be extracted from the frontmatter (overriding provided values).
+        If files contain a SKILL.md file with YAML frontmatter, metadata
+        (tags, license, compatibility, etc.) will be extracted from it.
+        Name and description from frontmatter are only used as fallbacks
+        when the caller does not provide them.
         """
         # If owner_id is not specified, use creator ID
         if owner_id is None:
@@ -148,10 +150,11 @@ class SkillService(BaseService[Skill]):
                 # Extract all metadata using extract_metadata_from_frontmatter
                 metadata = extract_metadata_from_frontmatter(frontmatter)
 
-                # Override name and description from frontmatter if present
-                if metadata.get("name"):
+                # Use frontmatter name/description only as fallbacks —
+                # caller-provided values (from Save Dialog) take priority.
+                if not name and metadata.get("name"):
                     name = metadata["name"]
-                if metadata.get("description"):
+                if not description and metadata.get("description"):
                     description = metadata["description"]
 
                 # Extract additional metadata from frontmatter
@@ -201,7 +204,7 @@ class SkillService(BaseService[Skill]):
         # Check if Skill with same name exists (same owner)
         existing = await self.repo.get_by_name_and_owner(name, owner_id)
         if existing:
-            raise BadRequestException("Skill name already exists for this owner")
+            raise BadRequestException(f"Skill name '{name}' already exists for this owner")
 
         skill = Skill(
             name=name,
@@ -359,7 +362,7 @@ class SkillService(BaseService[Skill]):
                 raise BadRequestException(f"Invalid skill name: {error}")
             existing = await self.repo.get_by_name_and_owner(name, skill.owner_id)
             if existing:
-                raise BadRequestException("Skill name already exists for this owner")
+                raise BadRequestException(f"Skill name '{name}' already exists for this owner")
             skill.name = name
 
         # Validate and update description if provided

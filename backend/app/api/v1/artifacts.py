@@ -112,15 +112,25 @@ async def live_read_file(
     from app.services.sandbox_manager import SandboxManagerService, _sandbox_pool
 
     service = SandboxManagerService(db)
-    record = await service.get_user_sandbox_record(str(current_user.id))
+    user_id = str(current_user.id)
+    record = await service.get_user_sandbox_record(user_id)
     if not record:
         raise NotFoundException("No sandbox found")
 
+    handle = None  # tracks SandboxHandle when reconnect path is used
     adapter = await _sandbox_pool.get(record.id)
     if not adapter or not adapter.is_started():
         if adapter:
             await _sandbox_pool.release(record.id)
-        raise NotFoundException("Sandbox not running")
+            adapter = None
+        # Sandbox disappeared from pool (process restart, idle cleanup, etc.)
+        # Try to reconnect/restart it instead of failing immediately.
+        try:
+            handle = await service.ensure_sandbox_running(user_id)
+            adapter = handle.adapter
+        except Exception as e:
+            logger.warning(f"Sandbox reconnect failed for user {user_id}: {e}")
+            raise NotFoundException("Sandbox not running")
 
     try:
         raw_read = getattr(adapter, "raw_read", None)
@@ -137,7 +147,10 @@ async def live_read_file(
         logger.warning(f"Live read failed for {file_path}: {e}")
         raise InternalServerException(f"Failed to read file: {e}")
     finally:
-        await _sandbox_pool.release(record.id)
+        if handle:
+            await handle.release()
+        else:
+            await _sandbox_pool.release(record.id)
 
 
 @router.delete("/{thread_id}/{run_id}")
