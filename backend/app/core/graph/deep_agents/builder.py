@@ -155,7 +155,7 @@ async def build_deep_agents_graph(
             graph_name=graph_name,
         )
         root_tools = await resolve_tools(
-            root_config.tool_names, str(user_id),
+            root_config.tool_names, str(user_id), backend=backend,
             node_label=root_config.display_name, graph_name=graph_name,
         )
         root_middleware = await resolve_memory_middleware(
@@ -233,7 +233,7 @@ async def _build_worker(
         node_label=cfg.display_name, graph_name=graph_name,
     )
     tools = await resolve_tools(
-        cfg.tool_names, user_id,
+        cfg.tool_names, user_id, backend=backend,
         node_label=cfg.display_name, graph_name=graph_name,
     )
 
