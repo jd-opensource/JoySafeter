@@ -78,9 +78,7 @@ class LLMCredentialResolver:
         if db:
             try:
                 from app.services.model_credential_service import ModelCredentialService
-                from app.services.model_service import ModelService
 
-                model_service = ModelService(db)
                 credential_service = ModelCredentialService(db)
 
                 # If llm_model is in "provider:model" format, resolve from that provider
