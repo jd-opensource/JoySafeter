@@ -77,7 +77,7 @@ export interface ChatResumeParams {
   onAccepted?: (evt: IncomingChatAcceptedEvent) => void
 }
 
-export type ChatTerminal = 'done' | 'interrupt' | 'stopped'
+export type ChatTerminal = 'done' | 'interrupt' | 'stopped' | 'error'
 
 export interface ChatTerminalResult {
   requestId: string

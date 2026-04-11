@@ -82,7 +82,7 @@ export type ChatAction =
   | { type: 'STREAM_START' }
   | { type: 'STREAM_CONTENT'; delta: string; messageId: string; metadata?: Record<string, any> }
   | { type: 'STREAM_DONE'; messageId?: string }
-  | { type: 'STREAM_ERROR'; error: string }
+  | { type: 'STREAM_ERROR'; error: string; messageId?: string }
   | { type: 'SET_INTERRUPT'; interrupt: InterruptState }
   | { type: 'CLEAR_INTERRUPT' }
   // File & tool events
@@ -194,15 +194,24 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       }
     }
 
-    case 'STREAM_ERROR':
+    case 'STREAM_ERROR': {
+      const errorMsgId = action.messageId || state.streaming.messageId
       return {
         ...state,
+        messages: errorMsgId
+          ? state.messages.map((m) =>
+              m.id === errorMsgId
+                ? { ...m, isStreaming: false, metadata: { ...m.metadata, error: action.error } }
+                : m,
+            )
+          : state.messages,
         streaming: {
           ...state.streaming,
           isProcessing: false,
           isSubmitting: false,
         },
       }
+    }
 
     case 'SET_INTERRUPT':
       return {

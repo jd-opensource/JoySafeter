@@ -75,7 +75,7 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
     (errorMessage: string) => {
       const activeRequests = activeRequestsRef.current
       Object.values(activeRequests).forEach(({ aiMsgId }) => {
-        dispatch({ type: 'STREAM_ERROR', error: errorMessage })
+        dispatch({ type: 'STREAM_ERROR', error: errorMessage, messageId: aiMsgId })
         dispatch({ type: 'STREAM_DONE', messageId: aiMsgId })
       })
       activeRequestsRef.current = {}
@@ -96,10 +96,10 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
 
       if (type === 'ws_error') {
         const message = evt.message || 'WebSocket protocol error'
+        const wsErrRequest = request_id ? activeRequestsRef.current[request_id] : undefined
         if (request_id) {
-          const activeRequest = activeRequestsRef.current[request_id]
-          if (activeRequest) {
-            dispatch({ type: 'STREAM_DONE', messageId: activeRequest.aiMsgId })
+          if (wsErrRequest) {
+            dispatch({ type: 'STREAM_DONE', messageId: wsErrRequest.aiMsgId })
             delete activeRequestsRef.current[request_id]
           }
           if (currentRequestIdRef.current === request_id) {
@@ -107,7 +107,7 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
           }
           if (thread_id) activeByThreadRef.current.delete(thread_id)
         }
-        dispatch({ type: 'STREAM_ERROR', error: message })
+        dispatch({ type: 'STREAM_ERROR', error: message, messageId: wsErrRequest?.aiMsgId })
         toastError(message)
         return
       }
@@ -199,7 +199,7 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
           }
           return
         }
-        dispatch({ type: 'STREAM_ERROR', error: errorMsg })
+        dispatch({ type: 'STREAM_ERROR', error: errorMsg, messageId: activeRequest?.aiMsgId })
         toastError(errorMsg)
         if (activeRequest) {
           dispatch({ type: 'STREAM_DONE', messageId: activeRequest.aiMsgId })
@@ -477,10 +477,11 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
         }
         if (pending) {
           const messageText = error instanceof Error ? error.message : 'Connection failed'
-          dispatch({ type: 'STREAM_ERROR', error: messageText })
+          dispatch({ type: 'STREAM_ERROR', error: messageText, messageId: aiMsgId })
           dispatch({ type: 'STREAM_DONE', messageId: aiMsgId })
+          toastError(messageText)
         }
-        throw error
+        return { requestId }
       }
     },
     [dispatch, handleEvent, setCurrentRequestId],
@@ -530,10 +531,11 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
         activeByThreadRef.current.delete(threadId)
         if (pending) {
           const messageText = error instanceof Error ? error.message : 'Connection failed'
-          dispatch({ type: 'STREAM_ERROR', error: messageText })
+          dispatch({ type: 'STREAM_ERROR', error: messageText, messageId: aiMsgId })
           dispatch({ type: 'STREAM_DONE', messageId: aiMsgId })
+          toastError(messageText)
         }
-        throw error
+        return { requestId }
       }
     },
     [dispatch, handleEvent, setCurrentRequestId],

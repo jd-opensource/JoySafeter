@@ -206,7 +206,7 @@ class SharedChatWsClient extends BaseWsClient<ConnectionState> implements ChatWs
       if (message === 'Stream stopped' || message.includes('stopped')) {
         this.resolvePending(requestId, 'stopped')
       } else {
-        this.rejectPending(requestId, new ChatWsError('CHAT_EXECUTION_ERROR', message, { evt }))
+        this.resolvePending(requestId, 'error')
       }
     }
   }

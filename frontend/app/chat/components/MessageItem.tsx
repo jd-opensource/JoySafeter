@@ -3,7 +3,7 @@
 import DOMPurify from 'dompurify'
 import { motion } from 'framer-motion'
 import type { Variants } from 'framer-motion'
-import { User, Bot } from 'lucide-react'
+import { User, Bot, AlertCircle } from 'lucide-react'
 import React, { useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 
@@ -120,13 +120,21 @@ export default function MessageItem({ message, onToolClick, onRetry }: MessageIt
           </div>
         )}
 
+        {/* Error indicator */}
+        {message.metadata?.error && (
+          <div className="mb-2 flex items-start gap-2 rounded-lg border border-[var(--status-error)] bg-[var(--status-error-bg)] px-3 py-2 text-sm text-[var(--status-error)]">
+            <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
+            <span>{message.metadata.error}</span>
+          </div>
+        )}
+
         {/* Main Content */}
         <div className="prose prose-sm max-w-none prose-headings:my-2 prose-p:my-1 prose-ol:my-1 prose-ul:my-1 prose-li:my-0.5">
           {sanitizedContent ? (
             <ReactMarkdown components={markdownComponents}>
               {sanitizedContent}
             </ReactMarkdown>
-          ) : (
+          ) : message.metadata?.error ? null : (
             message.isStreaming && (
               <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-[var(--brand-500)] align-middle" />
             )

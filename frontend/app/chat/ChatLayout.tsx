@@ -243,7 +243,8 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
           metadata: {},
         })
       } catch (error) {
-        console.error('Failed to send chat message:', error)
+        // Safety net — sendMessage handles its own errors via toast + inline UI
+        console.error('[ChatLayout] Unexpected error in sendMessage:', error)
       }
     },
     [dispatch, stream, state.threadId, state.mode, workspacesData, deployedAgents, t],

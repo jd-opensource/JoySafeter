@@ -43,6 +43,7 @@ export interface MessageMetadata {
   lastUpdate?: number
   lastRouteDecision?: RouteDecisionEventData
   lastLoopIteration?: LoopIterationEventData
+  error?: string
   [key: string]: unknown // keep backwards compat
 }
 
