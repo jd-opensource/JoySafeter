@@ -24,6 +24,11 @@ export default {
         sans: ['var(--font-geist-sans)'],
         mono: ['var(--font-geist-mono)'],
       },
+      zIndex: {
+        'popover': '100',
+        'modal':   '200',
+        'top':     '300',
+      },
       colors: {
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',

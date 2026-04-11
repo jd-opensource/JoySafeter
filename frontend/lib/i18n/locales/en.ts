@@ -1155,13 +1155,13 @@ const en = {
     chat: {
       // Structured model error codes (from backend error_code)
       'error.MODEL_NOT_FOUND':
-        'Model "{{model}}" is not registered or has been removed (node: "{{node}}"). Please check Settings → Model Providers.',
+        'Model "{{model}}" in node "{{node}}" of agent "{{graph}}" is not registered or has been removed. Please check Settings → Model Providers.',
       'error.MODEL_NO_CREDENTIALS':
         'No valid API key configured for provider "{{provider}}". Please check Settings → Model Providers.',
       'error.PROVIDER_NOT_FOUND':
         'Provider "{{provider}}" is not registered or has been removed. Please check Settings → Model Providers.',
       'error.MODEL_NAME_REQUIRED':
-        'Node "{{node}}" has no model configured. Please select a model for this node in the Agent editor.',
+        'Node "{{node}}" in agent "{{graph}}" has no model configured. Please select a model for this node in the Agent editor.',
       // Important notice (no default model)
       importantNotice: 'Important Notice',
       noDefaultModelNotice:

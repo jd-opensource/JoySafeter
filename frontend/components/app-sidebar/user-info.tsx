@@ -105,7 +105,7 @@ export function UserInfo({ isCollapsed: _isCollapsed = false, showContent = true
               align="start"
               side="top"
               sideOffset={8}
-              className="z-[10000200] w-[180px] border-[var(--border)]"
+              className="z-top w-[180px] border-[var(--border)]"
             >
               <div className="px-2 py-1.5">
                 <p className="truncate text-base font-medium">{user?.name || t('user.user')}</p>

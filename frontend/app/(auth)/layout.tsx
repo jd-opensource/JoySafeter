@@ -35,7 +35,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
   return (
     <AuthBackground>
       <main className="relative flex min-h-screen flex-col text-foreground">
-        <div className="relative z-30 flex flex-1 items-center">
+        <div className="relative z-10 flex flex-1 items-center">
           <div className="hidden flex-col justify-center px-12 lg:flex lg:w-[55%] xl:w-[58%] xl:px-20">
             <div className="w-full max-w-lg space-y-8">
               {/* Brand identity */}

@@ -69,7 +69,7 @@ function CustomControls({
   }
 
   return (
-    <div className="absolute bottom-4 left-1/2 z-[100] -translate-x-1/2 transform">
+    <div className="absolute bottom-4 left-1/2 z-50 -translate-x-1/2 transform">
       <div className="flex items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-1 shadow-lg">
         {/* Zoom Controls */}
         <button
@@ -386,7 +386,7 @@ export function BuilderCanvas() {
       {/* Adjust position based on sidebar state to avoid overlap */}
       {/* Sidebar header when collapsed is at left-[190px] with max-w-[232px], but actual content is narrower */}
       <div
-        className="absolute top-4 z-[100]"
+        className="absolute top-4 z-50"
         style={{
           left: isSidebarCollapsed ? '320px' : '16px',
         }}

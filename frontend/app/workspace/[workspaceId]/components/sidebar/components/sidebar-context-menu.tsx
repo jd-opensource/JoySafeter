@@ -21,10 +21,10 @@ interface SidebarContextMenuProps {
 export function SidebarContextMenu({ items, onClose, position, className }: SidebarContextMenuProps) {
   return (
     <>
-      <div className="fixed inset-0 z-[100]" onClick={onClose} />
+      <div className="fixed inset-0 z-popover" onClick={onClose} />
       <div
         className={cn(
-          'z-[101] min-w-[120px] rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-1 shadow-lg',
+          'z-popover min-w-[120px] rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-1 shadow-lg',
           position ? 'fixed' : 'absolute',
           className,
         )}

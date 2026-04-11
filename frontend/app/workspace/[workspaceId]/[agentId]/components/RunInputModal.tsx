@@ -33,7 +33,7 @@ export function RunInputModal({
   }
 
   return (
-    <div className="pointer-events-none fixed right-[12px] top-[68px] z-[100] w-[380px]">
+    <div className="pointer-events-none fixed right-[12px] top-[68px] z-popover w-[380px]">
       <div className="pointer-events-auto overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] shadow-2xl backdrop-blur-xl duration-300 animate-in slide-in-from-top-4">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-elevated)] px-4 py-3">

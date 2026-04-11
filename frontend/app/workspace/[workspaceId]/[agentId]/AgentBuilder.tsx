@@ -654,7 +654,7 @@ const AgentBuilderContent = () => {
       </AlertDialog>
 
       {(isInitializing || isLoadingGraph) && (
-        <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-[var(--bg)] backdrop-blur-sm">
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[var(--bg)] backdrop-blur-sm">
           <Loader2 size={40} className="mb-3 animate-spin text-[var(--brand-500)]" />
           <p className="font-medium text-[var(--text-muted)]">
             {isLoadingGraph ? t('workspace.loadingGraph') : t('workspace.loadingWorkspace')}

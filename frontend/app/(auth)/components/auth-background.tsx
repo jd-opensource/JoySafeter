@@ -146,12 +146,12 @@ export default function AuthBackground({ className, children }: AuthBackgroundPr
   return (
     <div className={cn('relative min-h-screen w-full overflow-hidden', className)}>
       {/* Pure white background */}
-      <div className="fixed inset-0 z-[1] h-full w-full bg-[var(--bg)]" />
+      <div className="fixed inset-0 z-0 h-full w-full bg-[var(--bg)]" />
 
       {/* Particle canvas */}
-      <canvas ref={canvasRef} className="fixed inset-0 z-[2] h-full w-full" />
+      <canvas ref={canvasRef} className="fixed inset-0 z-0 h-full w-full" />
 
-      <div className="relative z-20">{children}</div>
+      <div className="relative z-10">{children}</div>
     </div>
   )
 }

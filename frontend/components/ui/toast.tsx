@@ -17,7 +17,7 @@ const ToastViewport = React.forwardRef<
     ref={ref}
     className={cn(
       // Display centered at top, better user experience
-      'fixed left-1/2 top-0 z-[10000200] flex max-h-screen w-full -translate-x-1/2 flex-col gap-2 p-4 sm:max-w-[420px]',
+      'fixed left-1/2 top-0 z-top flex max-h-screen w-full -translate-x-1/2 flex-col gap-2 p-4 sm:max-w-[420px]',
       className,
     )}
     {...props}

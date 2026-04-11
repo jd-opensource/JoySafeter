@@ -261,7 +261,7 @@ export function NewFileDialog({
                 <SelectTrigger>
                   <SelectValue placeholder="Select file type" />
                 </SelectTrigger>
-                <SelectContent className="z-[10000001]">
+                <SelectContent className="z-popover">
                   <SelectItem value="python">Python</SelectItem>
                   <SelectItem value="javascript">JavaScript</SelectItem>
                   <SelectItem value="typescript">TypeScript</SelectItem>

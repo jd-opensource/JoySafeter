@@ -368,7 +368,7 @@ export const SandboxesPage = () => {
                                 <SelectTrigger className="h-8 text-xs">
                                   <SelectValue placeholder={t('settings.sandboxes.selectImage')} />
                                 </SelectTrigger>
-                                <SelectContent className="z-[10000001]">
+                                <SelectContent className="z-popover">
                                   {IMAGE_PRESETS.map((img) => (
                                     <SelectItem key={img} value={img}>
                                       {img}

@@ -313,7 +313,7 @@ export function AddMcpDialog({ open, onOpenChange, editingServer }: AddMcpDialog
                   <SelectTrigger className="h-10 border-[var(--border)] bg-[var(--surface-elevated)] text-sm focus:border-[var(--brand-500)] focus:ring-[var(--brand-500)]">
                     <SelectValue placeholder={t('settings.selectType')} />
                   </SelectTrigger>
-                  <SelectContent position="popper" className="z-[10000001]">
+                  <SelectContent position="popper" className="z-popover">
                     <SelectItem value="streamable-http">
                       {t('settings.streamableHttp')}
                     </SelectItem>

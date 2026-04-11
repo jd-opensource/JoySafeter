@@ -8,35 +8,10 @@
 :root {
   --sidebar-width: 140px;
   --sidebar-width-collapsed: 64px;
-  --panel-width: 280px;
-  --terminal-height: 200px;
-  --toolbar-triggers-height: 300px;
-}
-
-/* Z-index scale */
-:root {
-  --z-sidebar: 10;
-  --z-panel: 20;
-  --z-dropdown: 100;
-  --z-modal-overlay: 500;
-  --z-modal: 501;
-  --z-toast: 600;
 }
 
 .sidebar-container {
   width: var(--sidebar-width);
-}
-
-.panel-container {
-  width: var(--panel-width);
-}
-
-.terminal-container {
-  height: var(--terminal-height);
-}
-
-.triggers-section {
-  height: var(--toolbar-triggers-height);
 }
 
 /**
