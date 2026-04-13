@@ -24,7 +24,6 @@ from app.core.copilot.action_validator import (
 from app.core.copilot.agent import get_copilot_agent
 from app.core.copilot.exceptions import (
     CopilotAgentError,
-    CopilotCredentialError,
     CopilotLLMError,
     CopilotValidationError,
 )
@@ -37,7 +36,7 @@ from app.core.copilot.response_parser import (
 )
 from app.core.copilot.tool_output_parser import parse_tool_output
 from app.core.copilot.tools import reset_node_registry
-from app.core.model.utils.credential_resolver import LLMCredentialResolver
+from app.common.exceptions import ModelConfigError
 from app.repositories.auth_user import AuthUserRepository
 from app.services.graph_service import GraphService
 
@@ -54,8 +53,6 @@ class CopilotService:
         self,
         user_id: Optional[str] = None,
         llm_model: Optional[str] = None,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
         db: Optional[Any] = None,
     ):
         """
@@ -63,18 +60,25 @@ class CopilotService:
 
         Args:
             user_id: User ID for workspace isolation
-            llm_model: Optional LLM model name override
-            api_key: Optional API key override
-            base_url: Optional API base URL override
-            db: Optional database session for fetching credentials
+            llm_model: Model identifier in "provider:model_name" format
+            db: Database session for model resolution via ModelService
         """
         self.user_id = user_id
         self.db = db
-        # llm_model is resolved at runtime from the DB (node config takes precedence, then default model)
-        # only store the passed-in value here; if None, generate_actions will fetch the default model
-        self.llm_model = llm_model  # no longer uses settings.openai_model
-        self.api_key = api_key
-        self.base_url = base_url
+        self.llm_model = llm_model
+
+    async def _resolve_model(self) -> Any:
+        """Resolve a LangChain model instance via ModelService.
+
+        Uses the same ModelResolver that graph execution uses,
+        ensuring consistent credential handling across the system.
+        """
+        from app.core.graph.deep_agents.model_resolver import ModelResolver
+        from app.services.model_service import ModelService
+
+        model_service = ModelService(self.db)
+        resolver = ModelResolver(model_service, user_id=self.user_id)
+        return await resolver.resolve(model_name=self.llm_model)
 
     async def _get_copilot_stream(
         self,
@@ -87,27 +91,13 @@ class CopilotService:
         """
         Single engine entry: returns a unified event stream for the given mode.
         Callers (execute_copilot_turn) only consume this stream.
+
+        Model resolution is handled by ModelService via ModelResolver.
+        ModelConfigError is allowed to propagate — the WS handler already handles it.
         """
         reset_node_registry()
 
-        # Resolve credentials once for both engines
-        try:
-            api_key, base_url, final_model_name = await LLMCredentialResolver.get_credentials(
-                db=self.db,
-                api_key=self.api_key,
-                base_url=self.base_url,
-                llm_model=self.llm_model,
-            )
-            if not api_key:
-                raise CopilotCredentialError(
-                    "No API key found. Please configure your LLM credentials in settings.",
-                    data={"has_db": self.db is not None},
-                )
-        except CopilotCredentialError:
-            raise
-        except Exception as e:
-            logger.error(f"[CopilotService] Credential error: {e}")
-            raise CopilotCredentialError("Failed to retrieve credentials", original_error=e)  # type: ignore[call-arg]
+        model = await self._resolve_model()
 
         if mode == "deepagents":
             async for event in self._stream_deepagents(
@@ -115,9 +105,7 @@ class CopilotService:
                 graph_context=graph_context,
                 graph_id=graph_id,
                 conversation_history=conversation_history,
-                api_key=api_key,
-                base_url=base_url,
-                final_model_name=final_model_name,
+                model=model,
             ):
                 yield event
             return
@@ -128,9 +116,7 @@ class CopilotService:
             agent = await get_copilot_agent(
                 graph_context=graph_context,
                 user_id=self.user_id,
-                llm_model=final_model_name,
-                api_key=api_key,
-                base_url=base_url,
+                model=model,
                 db=self.db,
             )
         except Exception as e:
@@ -149,21 +135,17 @@ class CopilotService:
         graph_context: Dict[str, Any],
         graph_id: Optional[str],
         conversation_history: Optional[List[Dict[str, str]]],
-        api_key: str,
-        base_url: Optional[str],
-        final_model_name: Optional[str],
+        model: Any,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Yield events from the DeepAgents engine."""
-        from app.core.copilot_deepagents.streaming import stream_deepagents_actions
+        from app.core.copilot_deepagents.runner import stream_copilot_manager
 
-        async for event in stream_deepagents_actions(
-            prompt=prompt,
+        async for event in stream_copilot_manager(
+            user_prompt=prompt,
             graph_context=graph_context,
+            model=model,
             graph_id=graph_id,
             user_id=self.user_id,
-            api_key=api_key,
-            base_url=base_url,
-            llm_model=final_model_name,
             conversation_history=conversation_history,
         ):
             yield event
@@ -278,24 +260,7 @@ class CopilotService:
         reset_node_registry()
 
         try:
-            # Get credentials using unified CredentialManager
-            try:
-                api_key, base_url, final_model_name = await LLMCredentialResolver.get_credentials(
-                    db=self.db,
-                    api_key=self.api_key,
-                    base_url=self.base_url,
-                    llm_model=self.llm_model,
-                )
-                if not api_key:
-                    raise CopilotCredentialError(
-                        "No API key found. Please configure your LLM credentials in settings.",
-                        data={"has_db": self.db is not None},
-                    )
-            except CopilotCredentialError:
-                raise
-            except Exception as e:
-                logger.error(f"[CopilotService] Credential error: {e}")
-                raise CopilotCredentialError("Failed to retrieve credentials", original_error=e)  # type: ignore[call-arg]
+            model = await self._resolve_model()
 
             # Determine which engine to use
             if mode == "deepagents":
@@ -304,11 +269,9 @@ class CopilotService:
                 result_data = await run_copilot_manager(
                     user_prompt=prompt,
                     graph_context=graph_context,
-                    graph_id=None,  # Non-streaming doesn't usually need graph_id for persistence here
+                    graph_id=None,
                     user_id=self.user_id,
-                    api_key=api_key,
-                    base_url=base_url,
-                    llm_model=final_model_name,
+                    model=model,
                     conversation_history=conversation_history,
                 )
                 return CopilotResponse(
@@ -316,15 +279,12 @@ class CopilotService:
                     actions=result_data.get("actions", []),
                 )
 
-            # Standard Engine (Standard Mode)
-            # Create the Copilot agent (with db for model preloading)
+            # Standard Engine
             try:
                 agent = await get_copilot_agent(
                     graph_context=graph_context,
                     user_id=self.user_id,
-                    llm_model=final_model_name,
-                    api_key=api_key,
-                    base_url=base_url,
+                    model=model,
                     db=self.db,
                 )
             except Exception as e:
@@ -356,7 +316,7 @@ class CopilotService:
                 actions=actions,
             )
 
-        except (CopilotCredentialError, CopilotLLMError, CopilotAgentError, CopilotValidationError):
+        except (ModelConfigError, CopilotLLMError, CopilotAgentError, CopilotValidationError):
             # Re-raise known exceptions
             raise
         except Exception as e:
@@ -384,8 +344,13 @@ class CopilotService:
                 graph_id=None,
             ):
                 yield event
-        except CopilotCredentialError as e:
-            yield {"type": "error", "message": str(e), "code": "CREDENTIAL_ERROR"}
+        except ModelConfigError as e:
+            yield {
+                "type": "error",
+                "message": str(e.detail),
+                "code": e.error_code,
+                "params": e.params,
+            }
         except KeyboardInterrupt:
             logger.warning("[CopilotService] Stream interrupted by user")
             yield {"type": "error", "message": "Request cancelled by user", "code": "CANCELLED"}

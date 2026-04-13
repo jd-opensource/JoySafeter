@@ -28,15 +28,16 @@ async def run_copilot_manager(
     *,
     user_prompt: str,
     graph_context: Dict[str, Any],
+    model: Any,
     graph_id: Optional[str] = None,
     user_id: Optional[str] = None,
-    llm_model: Optional[str] = None,
-    api_key: Optional[str] = None,
-    base_url: Optional[str] = None,
     conversation_history: Optional[List[Dict[str, str]]] = None,
 ) -> Dict[str, Any]:
     """
     Run DeepAgents Copilot Manager (non-streaming).
+
+    Args:
+        model: Pre-created LangChain model instance (from ModelResolver)
 
     Returns:
         {
@@ -51,9 +52,7 @@ async def run_copilot_manager(
     manager, store = create_copilot_manager(
         graph_id=graph_id,
         user_id=user_id,
-        llm_model=llm_model,
-        api_key=api_key,
-        base_url=base_url,
+        model=model,
     )
 
     context_summary = {
@@ -105,15 +104,16 @@ async def stream_copilot_manager(
     *,
     user_prompt: str,
     graph_context: Dict[str, Any],
+    model: Any,
     graph_id: Optional[str] = None,
     user_id: Optional[str] = None,
-    llm_model: Optional[str] = None,
-    api_key: Optional[str] = None,
-    base_url: Optional[str] = None,
     conversation_history: Optional[List[Dict[str, str]]] = None,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
     Run DeepAgents Copilot Manager (streaming).
+
+    Args:
+        model: Pre-created LangChain model instance (from ModelResolver)
 
     Yields SSE events:
         - status: stage update
@@ -130,9 +130,7 @@ async def stream_copilot_manager(
         manager, store = create_copilot_manager(
             graph_id=graph_id,
             user_id=user_id,
-            llm_model=llm_model,
-            api_key=api_key,
-            base_url=base_url,
+            model=model,
         )
 
         yield {"type": "status", "stage": "thinking", "message": "Analyzing request..."}

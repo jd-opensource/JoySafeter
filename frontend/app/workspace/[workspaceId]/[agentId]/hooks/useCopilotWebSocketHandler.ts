@@ -101,12 +101,24 @@ export function useCopilotWebSocketHandler({
         }
       },
 
-      onError: (error: string) => {
+      onError: (error: string, code?: string) => {
         if (!refs.isMountedRef.current) return
         try {
           actions.clearStreaming()
           let errorMessage = error
-          if (error.includes('Credential') || error.includes('API key')) {
+          if (code === 'MODEL_NO_CREDENTIALS') {
+            errorMessage = t('workspace.copilot.error.credentialNotConfigured', {
+              defaultValue: 'No model configured. Please set up your LLM credentials in settings.',
+            })
+          } else if (code === 'MODEL_NOT_FOUND') {
+            errorMessage = t('workspace.copilot.error.modelNotFound', {
+              defaultValue: 'Model not found. Please check your model configuration.',
+            })
+          } else if (code === 'MODEL_NAME_REQUIRED') {
+            errorMessage = t('workspace.copilot.error.modelNameRequired', {
+              defaultValue: 'No model selected. Please select a model first.',
+            })
+          } else if (code === 'CREDENTIAL_ERROR') {
             errorMessage = t('workspace.copilot.error.credential', {
               defaultValue: 'Authentication error. Please check API credentials.',
             })
@@ -196,7 +208,10 @@ export function useCopilotWebSocketHandler({
           })
           break
         case 'error':
-          callbacks.onError((data.message as string) ?? 'Unknown error')
+          callbacks.onError(
+            (data.message as string) ?? 'Unknown error',
+            data.code as string | undefined,
+          )
           break
         case 'done':
           callbacks.onDone?.()

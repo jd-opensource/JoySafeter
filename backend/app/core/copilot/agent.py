@@ -42,11 +42,9 @@ async def _preload_available_models(db: AsyncSession) -> List[Dict[str, Any]]:
 async def get_copilot_agent(
     graph_context: Dict[str, Any],
     user_id: Optional[str] = None,
-    llm_model: Optional[str] = None,
-    api_key: Optional[str] = None,
-    base_url: Optional[str] = None,
     max_tokens: int = 4096,
     db: Optional[AsyncSession] = None,
+    model: Any = None,
 ) -> Runnable:
     """
     Create a Copilot Agent with graph manipulation tools.
@@ -60,11 +58,9 @@ async def get_copilot_agent(
     Args:
         graph_context: Current graph state with nodes and edges
         user_id: Optional user ID for workspace isolation
-        llm_model: Optional LLM model name (defaults to system settings)
-        api_key: Optional API key (defaults to system settings)
-        base_url: Optional API base URL (defaults to system settings)
         max_tokens: Maximum tokens for completion
         db: Optional database session for loading available models
+        model: Pre-created LangChain model instance (from ModelResolver)
 
     Returns:
         Configured Runnable agent
@@ -92,14 +88,11 @@ async def get_copilot_agent(
 
     # Create agent using the same infrastructure as sample_agent
     agent = await get_agent(
-        llm_model=llm_model,
-        api_key=api_key,
-        base_url=base_url,
+        model=model,
         max_tokens=max_tokens,
         user_id=user_id,
         system_prompt=system_prompt,
         tools=tools,
-        # Disable middleware that's not needed for Copilot
         enable_todo_list=False,
         enable_skills=False,
         agent_name="Copilot",

@@ -21,7 +21,6 @@ if TYPE_CHECKING:
 from langchain_core.runnables import Runnable
 from loguru import logger
 
-from app.core.agent.sample_agent import get_default_model
 from app.core.copilot.tools import connect_nodes, create_node, delete_node, update_config
 
 from .artifacts import ArtifactStore
@@ -128,15 +127,19 @@ def _build_subagents(backend: "FilesystemBackendT") -> List["SubAgentT"]:
 
 def create_copilot_manager(
     *,
+    model: Any,
     graph_id: Optional[str] = None,
     run_id: Optional[str] = None,
     user_id: Optional[str] = None,
-    llm_model: Optional[str] = None,
-    api_key: Optional[str] = None,
-    base_url: Optional[str] = None,
 ) -> tuple[Runnable, ArtifactStore]:
     """
     Create a DeepAgents Copilot Manager.
+
+    Args:
+        model: Pre-created LangChain model instance (from ModelResolver)
+        graph_id: Graph ID for artifact storage
+        run_id: Optional run ID (auto-generated if not provided)
+        user_id: User ID for workspace isolation
 
     Returns:
         (manager_agent, artifact_store)
@@ -159,13 +162,6 @@ def create_copilot_manager(
         graph_id=graph_id,
         run_id=run_id,
         run_dir=run_dir,
-    )
-
-    # create LLM model
-    model = get_default_model(
-        llm_model=llm_model,
-        api_key=api_key,
-        base_url=base_url,
     )
 
     # create filesystem backend (for sub-agent file I/O)
