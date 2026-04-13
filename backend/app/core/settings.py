@@ -41,7 +41,14 @@ class Settings(BaseSettings):
 
     # App
     app_name: str = Field(default="JoySafeter", description="Application name")
-    app_version: str = Field(default=__version__, description="Application version")
+    app_version: str = Field(default=__version__, exclude=True, description="Application version")
+
+    @field_validator("app_version", mode="before")
+    @classmethod
+    def _force_code_version(cls, v: str) -> str:  # noqa: ARG003
+        """Always use the version from code, ignore env/config overrides."""
+        return __version__
+
     debug: bool = Field(
         default=False, validation_alias=AliasChoices("DEBUG", "APP_DEBUG"), description="Enable debug mode"
     )
