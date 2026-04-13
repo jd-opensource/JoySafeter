@@ -10,6 +10,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from loguru import logger
 
+from app.common.exceptions import ModelConfigError
 from app.core.copilot.action_applier import apply_actions_to_graph_state
 from app.core.copilot.action_types import (
     CopilotResponse,
@@ -36,7 +37,6 @@ from app.core.copilot.response_parser import (
 )
 from app.core.copilot.tool_output_parser import parse_tool_output
 from app.core.copilot.tools import reset_node_registry
-from app.common.exceptions import ModelConfigError
 from app.repositories.auth_user import AuthUserRepository
 from app.services.graph_service import GraphService
 
@@ -76,6 +76,7 @@ class CopilotService:
         from app.core.graph.deep_agents.model_resolver import ModelResolver
         from app.services.model_service import ModelService
 
+        assert self.db is not None, "db session is required for model resolution"
         model_service = ModelService(self.db)
         resolver = ModelResolver(model_service, user_id=self.user_id)
         return await resolver.resolve(model_name=self.llm_model)
