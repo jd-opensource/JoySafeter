@@ -1,0 +1,168 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#4F46E5",
+    "primaryTextColor": "#FFFFFF",
+    "primaryBorderColor": "#3730A3",
+    "secondaryColor": "#F0FDF4",
+    "secondaryTextColor": "#166534",
+    "secondaryBorderColor": "#86EFAC",
+    "tertiaryColor": "#FFF7ED",
+    "tertiaryTextColor": "#9A3412",
+    "tertiaryBorderColor": "#FDBA74",
+    "lineColor": "#6B7280",
+    "textColor": "#1F2937",
+    "fontSize": "14px",
+    "fontFamily": "Inter, system-ui, sans-serif"
+  }
+}}%%
+
+graph TB
+    subgraph USER["🖥️ User Layer"]
+        direction LR
+        BROWSER["Browser / Chat UI"]
+        RUNCENTER_UI["Run Center UI"]
+        PROFILE_UI["Profile & Preferences"]
+    end
+
+    subgraph FRONTEND["⚛️ Frontend — Next.js 16 · React 19 · TypeScript"]
+        direction TB
+
+        subgraph DESIGN["Design System"]
+            TOKENS["CSS Variables\n& Tailwind Tokens"]
+            RADIX["Radix UI\nComponents"]
+            DARKMODE["Theme Engine\nSystem / Light / Dark"]
+        end
+
+        subgraph STATE["State & Data"]
+            ZUSTAND["Zustand Stores"]
+            TANSTACK["TanStack Query"]
+            REACTFLOW["React Flow\nWorkflow Editor"]
+        end
+
+        subgraph WS_LAYER["Unified WebSocket Layer"]
+            BASE_WS["BaseWsClient\n(lifecycle · auth · reconnect)"]
+            CHAT_WS["ChatWsClient\n/ws/chat"]
+            RUN_WS["RunWsClient\n/ws/runs"]
+            NOTIF_WS["NotificationWsClient\n/ws/notifications"]
+        end
+    end
+
+    subgraph BACKEND["🐍 Backend — FastAPI · Python 3.12+"]
+        direction TB
+
+        subgraph API["REST + WebSocket API"]
+            REST["/v1  REST Endpoints\nChat · Runs · Graphs · Skills\nModels · Tools · Workspaces"]
+            WS_HANDLER["ChatWsHandler\nUnified WS Protocol\nchat · copilot · skill_creator"]
+            RUN_WS_HANDLER["RunWsHandler\nEvent Streaming\n& Replay"]
+        end
+
+        subgraph SERVICES["Service Layer"]
+            MODEL_SVC["ModelService\nUnified Resolution\n(provider_name, model_name)"]
+            RUN_SVC["RunService\nEvent Sourcing\nRun · Event · Snapshot"]
+            SANDBOX_SVC["SandboxService\nRAII Handle\nPer-User Isolation"]
+            SKILL_SVC["SkillService\nVersioning\n& Collaboration"]
+            GRAPH_SVC["GraphService\nTemplate · Deploy\n& Lookup"]
+        end
+
+        subgraph CORE["Core Engine"]
+            DEEP_AGENTS["DeepAgents v0.4\nManager-Worker\nOrchestration"]
+            LANGGRAPH["LangGraph Engine\nStateful Graphs\nPause · Resume · Branch"]
+            COPILOT["Copilot Engine\nGraph Analysis\n& Action Execution"]
+            MODEL_FACTORY["ModelFactory\nProvider Registry\n& Credential Validation"]
+            TOOL_RESOLVER["Tool Resolver\nMCP Protocol\n200+ Tools"]
+            SKILL_LOADER["Skill Loader\nBatch Preload\n& Deduplication"]
+        end
+
+        subgraph OBSERVABILITY["Observability & Cross-Cutting"]
+            TRACE["trace_id Propagation\n(contextvars)"]
+            LANGFUSE["Langfuse\nReal-Time Tracing"]
+            LOGURU["Loguru\nStructured Logging"]
+            APPEXC["AppException\nStructured Error Codes\ni18n Support"]
+        end
+    end
+
+    subgraph DATA["🗄️ Data Layer"]
+        direction LR
+        PG["PostgreSQL\nGraphs · Runs · Events\nSnapshots · Skills\nCredentials · Memory"]
+        REDIS["Redis\nSession Cache\nRate Limiting"]
+    end
+
+    subgraph SANDBOX["📦 Sandbox Layer"]
+        direction LR
+        DOCKER["Docker Containers\nPer-User Isolated\nCode Execution"]
+        MCP_TOOLS["MCP Tool Server\nNmap · Nuclei · Trivy\n200+ Security Tools"]
+    end
+
+    subgraph AUTH["🔐 Auth"]
+        SSO["Enterprise SSO\nGitHub · Google · Microsoft\nOIDC · JD SSO"]
+    end
+
+    %% User → Frontend
+    USER --> FRONTEND
+
+    %% WebSocket hierarchy
+    BASE_WS --> CHAT_WS
+    BASE_WS --> RUN_WS
+    BASE_WS --> NOTIF_WS
+
+    %% Frontend → Backend
+    CHAT_WS -->|"ws-token auth"| WS_HANDLER
+    RUN_WS -->|"event subscribe"| RUN_WS_HANDLER
+    TANSTACK -->|"REST"| REST
+
+    %% API → Services
+    WS_HANDLER --> RUN_SVC
+    WS_HANDLER --> MODEL_SVC
+    RUN_WS_HANDLER --> RUN_SVC
+    REST --> GRAPH_SVC
+    REST --> SKILL_SVC
+    REST --> MODEL_SVC
+    REST --> SANDBOX_SVC
+
+    %% Services → Core
+    MODEL_SVC --> MODEL_FACTORY
+    RUN_SVC --> DEEP_AGENTS
+    RUN_SVC --> LANGGRAPH
+    GRAPH_SVC --> COPILOT
+    SKILL_SVC --> SKILL_LOADER
+
+    %% Core internals
+    DEEP_AGENTS --> LANGGRAPH
+    DEEP_AGENTS --> TOOL_RESOLVER
+    DEEP_AGENTS --> SKILL_LOADER
+    COPILOT --> LANGGRAPH
+    TOOL_RESOLVER --> MCP_TOOLS
+
+    %% Observability
+    TRACE -.->|"flows through"| WS_HANDLER
+    TRACE -.->|"flows through"| LANGGRAPH
+    TRACE -.->|"persisted in"| PG
+    LANGFUSE -.-> DEEP_AGENTS
+    LOGURU -.-> SERVICES
+
+    %% Data
+    SERVICES --> PG
+    SERVICES --> REDIS
+
+    %% Sandbox
+    SANDBOX_SVC -->|"RAII handle"| DOCKER
+    DEEP_AGENTS --> DOCKER
+
+    %% Auth
+    SSO --> REST
+
+    %% Styling
+    classDef userLayer fill:#EEF2FF,stroke:#6366F1,stroke-width:2px,color:#312E81
+    classDef frontendLayer fill:#F0F9FF,stroke:#0EA5E9,stroke-width:2px,color:#0C4A6E
+    classDef backendLayer fill:#FFF7ED,stroke:#F97316,stroke-width:2px,color:#7C2D12
+    classDef dataLayer fill:#F0FDF4,stroke:#22C55E,stroke-width:2px,color:#166534
+    classDef sandboxLayer fill:#FDF4FF,stroke:#A855F7,stroke-width:2px,color:#581C87
+    classDef authLayer fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
+
+    class USER userLayer
+    class FRONTEND frontendLayer
+    class BACKEND backendLayer
+    class DATA dataLayer
+    class SANDBOX sandboxLayer
+    class AUTH authLayer

@@ -221,7 +221,12 @@ All modes support remote deployment scenarios:
 **Key design principles:**
 
 - **Graph-based execution** — every agent workflow is a stateful LangGraph, enabling pause, resume, and branch
+- **Unified Run Center** — Chat, Copilot, and Skill Creator share a single event-sourced run lifecycle (Run → Event → Snapshot)
+- **Unified WebSocket layer** — BaseWsClient abstract class; Chat / Run / Notification clients share lifecycle, auth (ws-token), and reconnect logic
+- **Full-chain trace_id propagation** — contextvars-based request tracing from HTTP/WS entry through LangGraph to persistence
 - **Glass-box observability** — real-time Langfuse tracing of every agent decision and state transition
+- **RAII sandbox isolation** — per-user Docker containers with automatic handle release, zero state leakage
+- **Canonical model identifiers** — full-stack (provider_name, model_name) resolution via ModelService → ModelFactory
 - **Layered skill system** — skills are versioned units that compose into workflows without coupling
 
 ### User Journey — Quick Start in 9 Steps
@@ -257,14 +262,17 @@ All modes support remote deployment scenarios:
 
 | Tag | Feature | What it means |
 |-----|---------|---------------|
-| **NEW** | **Model Settings Master-Detail** | Redesigned model management page — provider sidebar + detail panel, schema-driven forms, one-click custom model setup |
-| **NEW** | **Model Usage Stats** | Per-model usage logging with StatsTab visualization and SSE test-stream endpoint |
-| **NEW** | **Custom Provider API** | Single `POST /model-providers/custom` endpoint creates provider + credential + model instance in one call |
-| **NEW** | **Skill Versioning & Collaboration** | Publish, rollback, manage skill versions; invite collaborators with role-based permissions; platform API tokens for CI/CD |
-| **NEW** | **Multi-Tenant Sandbox Engine** | Per-user isolated code execution — zero state leakage between sessions |
-| **NEW** | **Enterprise SSO** | Built-in GitHub / Google / Microsoft templates, plus OIDC and JD SSO |
-| **UPGRADE** | **DeepAgents v0.4** | Latest stability and performance improvements for the multi-agent kernel |
-| **UPGRADE** | **Glass-Box Observability** | Real-time Langfuse tracing of every agent decision and state transition |
+| **NEW** | **Run Center Architecture** | Chat & Copilot fully integrated into Run Center — run details, session recovery, and live event replay on page refresh |
+| **NEW** | **Dark Mode & Preferences** | System / Light / Dark theme switching; redesigned profile page with language & theme preferences |
+| **NEW** | **Unified WebSocket Layer** | BaseWsClient abstract class — Chat, Run, and Notification clients share lifecycle, auth (ws-token), and reconnect logic |
+| **NEW** | **Full-Chain trace_id Propagation** | End-to-end request tracing via contextvars for complete observability |
+| **NEW** | **Ollama One-Click Integration** | Local Ollama model provider added out of the box |
+| **NEW** | **Version Display** | In-app version info tied to bump-version.sh release pipeline |
+| **NEW** | **Unified Model Identifiers** | Full-stack (provider_name, model_name) canonical form with data migration — no more legacy field ambiguity |
+| **UPGRADE** | **Design Token Overhaul** | Hardcoded colors, font sizes, and border radii replaced with CSS variables and Tailwind tokens; z-index and typography scales unified |
+| **UPGRADE** | **Sandbox Overhaul** | RAII handle management, adapter API uploads, security hardening |
+| **UPGRADE** | **Frontend Component Extraction** | ConfirmDialog, UnifiedDialog, InlineRenameInput, SidebarContextMenu, AgentListContext — less prop drilling, more reuse |
+| **UPGRADE** | **i18n & Code Quality** | Backend error messages internationalized; email templates moved to Jinja2; LLM prompts externalized to Markdown; 129 unused SVG icons removed |
 
 ---
 

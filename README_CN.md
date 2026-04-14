@@ -221,7 +221,12 @@
 **核心设计原则：**
 
 - **图式执行** —— 每个 Agent 工作流都是有状态的 LangGraph，支持暂停、恢复与分支
+- **统一 Run Center** —— Chat、Copilot、Skill Creator 共享同一套事件溯源运行生命周期（Run → Event → Snapshot）
+- **统一 WebSocket 层** —— BaseWsClient 抽象基类；Chat / Run / Notification 三端客户端共享生命周期、认证（ws-token）与重连逻辑
+- **trace_id 全链路追踪** —— 基于 contextvars 的请求追踪，从 HTTP/WS 入口贯穿 LangGraph 直至持久化
 - **白盒可观测性** —— 基于 Langfuse 实时追踪每一步 Agent 决策与状态流转
+- **RAII 沙箱隔离** —— 用户级 Docker 容器，句柄自动释放，会话间零状态泄露
+- **规范化模型标识** —— 全栈统一 (provider_name, model_name) 解析路径：ModelService → ModelFactory
 - **分层技能体系** —— 技能是版本化单元，可自由组合成工作流，互不耦合
 
 ### 用户操作路径 —— 9 步快速入门
@@ -257,14 +262,17 @@
 
 | 标签 | 功能 | 一句话说明 |
 |------|------|-----------|
-| **NEW** | **模型设置主从面板** | 全新设计的模型管理页面——供应商侧边栏 + 详情面板，表单由 Schema 驱动，一键创建自定义模型 |
-| **NEW** | **模型用量统计** | 按模型维度的用量日志，StatsTab 可视化展示，SSE 测试流端点 |
-| **NEW** | **自定义供应商 API** | 单个 `POST /model-providers/custom` 端点一次创建供应商 + 凭据 + 模型实例 |
-| **NEW** | **技能版本化与协作** | 发布、回滚、管理技能版本；邀请协作者并按角色授权；平台 API Token 支持 CI/CD 集成 |
-| **NEW** | **多租户沙箱引擎** | 用户级代码执行隔离——会话间零状态泄露 |
-| **NEW** | **企业 SSO** | 内置 GitHub / Google / Microsoft 模板，支持 OIDC 与 JD SSO |
-| **UPGRADE** | **DeepAgents v0.4** | 多智能体内核的最新稳定性与性能优化 |
-| **UPGRADE** | **白盒可观测性** | 基于 Langfuse 实时追踪每一步 Agent 决策与状态流转 |
+| **NEW** | **Run Center 架构** | Chat 与 Copilot 全面迁入 Run Center——支持运行详情查看、会话恢复、页面刷新后实时事件回放 |
+| **NEW** | **深色模式与偏好设置** | 系统/浅色/深色三种主题切换；重新设计个人资料页面，新增语言与主题偏好 |
+| **NEW** | **统一 WebSocket 层** | 引入 BaseWsClient 抽象基类——Chat、Run、Notification 三端客户端共享生命周期、认证（ws-token）与重连逻辑 |
+| **NEW** | **trace_id 全链路追踪** | 基于 contextvars 的端到端请求追踪，实现完整可观测性 |
+| **NEW** | **Ollama 一键集成** | 开箱即用的本地 Ollama 模型供应商 |
+| **NEW** | **版本信息展示** | 应用内版本信息展示，接入 bump-version.sh 发布管线 |
+| **NEW** | **统一模型标识符** | 全栈统一为 (provider_name, model_name) 规范形式，含数据迁移——彻底消除遗留字段歧义 |
+| **UPGRADE** | **设计令牌全面重构** | 硬编码颜色、字号、圆角替换为 CSS 变量与 Tailwind token；z-index 与排版体系统一 |
+| **UPGRADE** | **沙箱架构重构** | RAII 句柄管理、适配器 API 上传、安全加固 |
+| **UPGRADE** | **前端组件提取** | ConfirmDialog、UnifiedDialog、InlineRenameInput、SidebarContextMenu、AgentListContext——减少属性穿透，提升复用 |
+| **UPGRADE** | **i18n 与代码质量** | 后端错误消息国际化；邮件模板迁移至 Jinja2；LLM 提示词外置为 Markdown；移除 129 个未使用 SVG 图标 |
 
 ---
 
