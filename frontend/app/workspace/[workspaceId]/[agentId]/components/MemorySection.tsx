@@ -73,7 +73,11 @@ export const MemorySection = React.memo(function MemorySection({
               <SchemaFieldRenderer
                 key={field.key}
                 schema={field}
-                value={config[field.key]}
+                value={
+                  field.key === 'memory_model_name' && config.memory_provider_name
+                    ? `${config.memory_provider_name}:${config.memory_model_name || ''}`
+                    : config[field.key]
+                }
                 onChange={(val) => updateConfig(field.key, val)}
                 canEdit={canEdit}
                 t={t}
