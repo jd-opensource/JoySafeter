@@ -32,7 +32,6 @@ interface UseCopilotActionsOptions {
   copilotMode?: CopilotMode
   selectedProviderName?: string
   selectedModelName?: string
-  selectedModel?: string // combined id for backward compat (UI binding only)
   onCopilotEvent?: (evt: ChatStreamEvent) => void
 }
 
@@ -44,7 +43,6 @@ export function useCopilotActions({
   copilotMode = 'deepagents',
   selectedProviderName,
   selectedModelName,
-  selectedModel,
   onCopilotEvent,
 }: UseCopilotActionsOptions) {
   const { t } = useTranslation()

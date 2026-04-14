@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from 'react'
 
 import { useAvailableModels } from '@/hooks/queries/models'
+import { splitModelId } from '@/lib/utils'
 
 export interface ModelSelectorOption {
   id: string
@@ -39,7 +40,6 @@ export function useModelSelector() {
     [availableModels],
   )
 
-  // Accept combined id from UI select, split into provider_name + model_name
   const setSelectedModel = useCallback(
     (id: string | undefined) => {
       if (!id) {
@@ -48,21 +48,24 @@ export function useModelSelector() {
       }
       const option = modelOptions.find((m) => m.id === id)
       if (option) {
-        setSelected({ provider_name: option.provider_name, model_name: option.name })
+        const next = { provider_name: option.provider_name, model_name: option.name }
+        setSelected((prev) =>
+          prev?.provider_name === next.provider_name && prev?.model_name === next.model_name
+            ? prev
+            : next,
+        )
       } else {
-        // Fallback: split on first colon
-        const idx = id.indexOf(':')
-        if (idx !== -1) {
-          setSelected({ provider_name: id.slice(0, idx), model_name: id.slice(idx + 1) })
-        } else {
-          setSelected({ provider_name: '', model_name: id })
-        }
+        const [provider, model] = splitModelId(id)
+        setSelected((prev) =>
+          prev?.provider_name === provider && prev?.model_name === model
+            ? prev
+            : { provider_name: provider, model_name: model },
+        )
       }
     },
     [modelOptions],
   )
 
-  // Combined id for UI select value binding
   const selectedModel = selected
     ? `${selected.provider_name}:${selected.model_name}`
     : undefined

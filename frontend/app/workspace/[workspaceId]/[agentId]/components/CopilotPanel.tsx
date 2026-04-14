@@ -64,7 +64,6 @@ export function CopilotPanel() {
       copilotMode,
       selectedProviderName,
       selectedModelName,
-      selectedModel,
       onCopilotEvent: webSocketCallbacks.handleCopilotEvent,
     })
 

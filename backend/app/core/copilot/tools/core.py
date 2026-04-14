@@ -12,6 +12,7 @@ from langchain.tools import tool
 from pydantic import BaseModel, Field
 
 from app.core.copilot.tools.registry import get_node_registry
+from app.core.model.utils.model_ref import parse_model_ref
 
 # ==================== Tool Input Schemas ====================
 
@@ -153,13 +154,11 @@ def create_node(
             if system_prompt:
                 config["systemPrompt"] = system_prompt
             if model:
-                # Copilot LLM may pass combined "provider:model" format
-                if ":" in model:
-                    idx = model.index(":")
-                    config["provider_name"] = model[:idx]
-                    config["model_name"] = model[idx + 1:]
-                else:
-                    config["model_name"] = model
+                provider, model_name = parse_model_ref(model)
+                if provider:
+                    config["provider_name"] = provider
+                if model_name:
+                    config["model_name"] = model_name
             if use_deep_agents:
                 config["useDeepAgents"] = True
             if description:
@@ -343,12 +342,11 @@ def update_config(
         if system_prompt is not None:
             config["systemPrompt"] = system_prompt
         if model is not None:
-            if ":" in model:
-                idx = model.index(":")
-                config["provider_name"] = model[:idx]
-                config["model_name"] = model[idx + 1:]
-            else:
-                config["model_name"] = model
+            provider, model_name = parse_model_ref(model)
+            if provider:
+                config["provider_name"] = provider
+            if model_name:
+                config["model_name"] = model_name
         if use_deep_agents is not None:
             config["useDeepAgents"] = use_deep_agents
         if description is not None:
