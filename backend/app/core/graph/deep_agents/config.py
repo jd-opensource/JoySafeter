@@ -78,17 +78,16 @@ def resolve_node_config(node: GraphNode, node_name: str) -> NodeConfig:
         node_type=node_type,
         description=config.get("description", "") or "",
         # LLM
-        # LLM — prefer new split fields, fallback to legacy combined "model" field
-        model_name=config.get("model_name") or config.get("model"),
-        provider_name=config.get("provider_name") or config.get("provider"),
-        system_prompt=config.get("systemPrompt") or config.get("system_prompt"),
+        model_name=config.get("model_name"),
+        provider_name=config.get("provider_name"),
+        system_prompt=config.get("systemPrompt"),
         # Tools & Skills
         tool_names=config.get("tools") or [],
         skill_ids=config.get("skills") or [],
-        # Memory — prefer new split fields, fallback to legacy camelCase
+        # Memory
         enable_memory=bool(config.get("enableMemory", False)),
-        memory_model_name=config.get("memory_model_name") or config.get("memoryModel"),
-        memory_provider_name=config.get("memory_provider_name") or config.get("memoryProvider"),
+        memory_model_name=config.get("memory_model_name"),
+        memory_provider_name=config.get("memory_provider_name"),
         memory_prompt=config.get("memoryPrompt"),
         # DeepAgents
         use_deep_agents=bool(config.get("useDeepAgents", False)),

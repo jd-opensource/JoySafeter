@@ -12,7 +12,6 @@ from loguru import logger
 
 from app.common.exceptions import ModelConfigError
 from app.core.graph.deep_agents import format_node_ctx
-from app.core.model.utils.model_ref import parse_model_ref
 from app.services.model_service import MODEL_NOT_FOUND
 
 
@@ -36,12 +35,7 @@ class ModelResolver:
         node_label: Optional[str] = None,
         graph_name: Optional[str] = None,
     ) -> Any:
-        """Resolve a model instance. Results are cached by (provider, model) key.
-
-        Accepts split fields directly. If model_name contains a colon and
-        provider_name is not given, falls back to parse_model_ref for
-        backward compatibility with legacy combined "provider:model" values.
-        """
+        """Resolve a model instance. Results are cached by (provider, model) key."""
         if not model_name:
             ctx = format_node_ctx(node_label, graph_name)
             raise ModelConfigError(
@@ -53,23 +47,13 @@ class ModelResolver:
                 },
             )
 
-        # If provider_name already given, use as-is.
-        # Otherwise fall back to parse_model_ref for legacy combined values.
-        if provider_name:
-            resolved_provider = provider_name
-            resolved_model = model_name
-        else:
-            resolved_provider, resolved_model = parse_model_ref(model_name, provider_name)
-            if not resolved_model:
-                resolved_model = model_name
-
-        cache_key = f"{resolved_provider}:{resolved_model}"
+        cache_key = f"{provider_name}:{model_name}"
         if cache_key in self._cache:
             return self._cache[cache_key]
 
         resolved = await self._resolve_uncached(
-            resolved_provider,
-            resolved_model,
+            provider_name,
+            model_name,
             node_label=node_label,
             graph_name=graph_name,
         )

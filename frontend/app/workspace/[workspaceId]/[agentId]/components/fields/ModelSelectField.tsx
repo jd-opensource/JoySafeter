@@ -15,7 +15,6 @@ import {
 } from '@/components/ui/select'
 import { useAvailableModels } from '@/hooks/queries/models'
 import { useTranslation } from '@/lib/i18n'
-import { splitModelId } from '@/lib/utils'
 
 import { ModelOption } from '../../services/agentService'
 
@@ -74,19 +73,6 @@ export function ModelSelectField({ value, onChange, onModelChange }: ModelSelect
     return null
   }, [queryError, models.length, loading, t])
 
-  // Convert value to new format if it's in old format (backward compatibility)
-  const normalizedValue = useMemo(() => {
-    if (!value) return value
-    // If value is already in new format (contains ':'), use it as is
-    if (value.includes(':')) return value
-    // If value is in old format (name only), try to find matching model and convert to new format
-    const matchedModel = models.find((m) => {
-      const [, modelName] = splitModelId(m.id)
-      return modelName === value
-    })
-    return matchedModel ? matchedModel.id : value
-  }, [value, models])
-
   if (loading) {
     return (
       <div className="flex h-8 w-full items-center rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] px-3 text-xs italic text-[var(--text-muted)]">
@@ -134,21 +120,11 @@ export function ModelSelectField({ value, onChange, onModelChange }: ModelSelect
   const unavailableProviders = Array.from(unavailableGroups.keys()).sort()
 
   const handleValueChange = (selectedModelId: string) => {
-    // Find the selected model
-    let selectedModel = models.find((m) => m.id === selectedModelId)
-
-    // Backward compatibility: try matching by model name only (old format)
-    if (!selectedModel && !selectedModelId.includes(':')) {
-      selectedModel = models.find((m) => {
-        const [, modelName] = splitModelId(m.id)
-        return modelName === selectedModelId
-      })
-    }
+    const selectedModel = models.find((m) => m.id === selectedModelId)
 
     if (selectedModel) {
       onChange(selectedModel.id)
 
-      // Pass raw API model name + provider_name (no split truncation)
       if (onModelChange) {
         onModelChange(selectedModel.name, selectedModel.provider_name)
       }
@@ -158,7 +134,7 @@ export function ModelSelectField({ value, onChange, onModelChange }: ModelSelect
   }
 
   return (
-    <Select value={normalizedValue || undefined} onValueChange={handleValueChange}>
+    <Select value={value || undefined} onValueChange={handleValueChange}>
       <SelectTrigger className="h-8 w-full text-xs">
         <SelectValue placeholder={t('workspace.selectModel')} />
       </SelectTrigger>

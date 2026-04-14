@@ -77,8 +77,8 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
 
   // Check if node has model configuration (needed for display)
   const hasModel = useMemo(() => {
-    return !!data.config?.model_name || !!data.config?.model
-  }, [data.config?.model_name, data.config?.model])
+    return !!data.config?.model_name
+  }, [data.config?.model_name])
 
   // Conditionally enable queries: only when node has config or is selected (for property panel)
   // This avoids unnecessary requests when page loads
