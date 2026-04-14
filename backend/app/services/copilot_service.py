@@ -52,7 +52,8 @@ class CopilotService:
     def __init__(
         self,
         user_id: Optional[str] = None,
-        llm_model: Optional[str] = None,
+        provider_name: Optional[str] = None,
+        model_name: Optional[str] = None,
         db: Optional[Any] = None,
     ):
         """
@@ -60,12 +61,14 @@ class CopilotService:
 
         Args:
             user_id: User ID for workspace isolation
-            llm_model: Model identifier in "provider:model_name" format
+            provider_name: Model provider (e.g. 'ollama', 'openai')
+            model_name: Model name (e.g. 'qwen3.5:latest', 'gpt-4o')
             db: Database session for model resolution via ModelService
         """
         self.user_id = user_id
         self.db = db
-        self.llm_model = llm_model
+        self.provider_name = provider_name
+        self.model_name = model_name
 
     async def _resolve_model(self) -> Any:
         """Resolve a LangChain model instance via ModelService.
@@ -79,7 +82,7 @@ class CopilotService:
         assert self.db is not None, "db session is required for model resolution"
         model_service = ModelService(self.db)
         resolver = ModelResolver(model_service, user_id=self.user_id)
-        return await resolver.resolve(model_name=self.llm_model)
+        return await resolver.resolve(model_name=self.model_name, provider_name=self.provider_name)
 
     async def _get_copilot_stream(
         self,

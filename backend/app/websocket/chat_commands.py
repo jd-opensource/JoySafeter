@@ -17,7 +17,8 @@ class StandardChatTurnCommand:
     message: str
     thread_id: str | None
     graph_id: uuid_lib.UUID | None
-    model: str | None
+    provider_name: str | None
+    model_name: str | None
     metadata: dict[str, Any]
     files: list[dict[str, Any]]
 
@@ -53,7 +54,8 @@ ChatTurnCommand = StandardChatTurnCommand | SkillCreatorTurnCommand | ChatRunTur
 def build_command_from_parsed_frame(frame: ParsedChatStartFrame) -> ChatTurnCommand:
     """Convert a validated ParsedChatStartFrame into a ChatTurnCommand."""
     metadata, files = _sanitize_metadata_files(frame.metadata, frame.input.files)
-    model = frame.input.model
+    provider_name = frame.input.provider_name
+    model_name = frame.input.model_name
 
     extension = frame.extension
     if extension is None:
@@ -62,7 +64,8 @@ def build_command_from_parsed_frame(frame: ParsedChatStartFrame) -> ChatTurnComm
             message=frame.input.message,
             thread_id=frame.thread_id,
             graph_id=frame.graph_id,
-            model=model,
+            provider_name=provider_name,
+            model_name=model_name,
             metadata=metadata,
             files=files,
         )
@@ -73,7 +76,8 @@ def build_command_from_parsed_frame(frame: ParsedChatStartFrame) -> ChatTurnComm
             message=frame.input.message,
             thread_id=frame.thread_id,
             graph_id=frame.graph_id,
-            model=model,
+            provider_name=provider_name,
+            model_name=model_name,
             metadata=metadata,
             files=files,
             run_id=extension.run_id,
@@ -83,14 +87,13 @@ def build_command_from_parsed_frame(frame: ParsedChatStartFrame) -> ChatTurnComm
         )
 
     if isinstance(extension, ParsedChatExtension):
-        # run_id lives on the command field; no metadata injection needed
-        # (unlike skill_creator which injects edit_skill_id into metadata)
         return ChatRunTurnCommand(
             request_id=frame.request_id,
             message=frame.input.message,
             thread_id=frame.thread_id,
             graph_id=frame.graph_id,
-            model=model,
+            provider_name=provider_name,
+            model_name=model_name,
             metadata=metadata,
             files=files,
             run_id=extension.run_id,
@@ -105,7 +108,8 @@ def build_command_from_parsed_frame(frame: ParsedChatStartFrame) -> ChatTurnComm
         message=frame.input.message,
         thread_id=frame.thread_id,
         graph_id=frame.graph_id,
-        model=model,
+        provider_name=provider_name,
+        model_name=model_name,
         metadata=metadata,
         files=files,
         run_id=extension.run_id,

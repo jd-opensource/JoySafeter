@@ -30,7 +30,8 @@ class ParsedChatInput:
 
     message: str
     files: list[dict[str, Any]]
-    model: str | None
+    provider_name: str | None
+    model_name: str | None
 
 
 @dataclass(frozen=True)
@@ -112,8 +113,10 @@ def _parse_chat_start_frame(frame: dict[str, Any]) -> ParsedChatStartFrame:
     message = str(input_payload.get("message") or "")
     files_raw = input_payload.get("files")
     files = [f for f in files_raw if isinstance(f, dict)] if isinstance(files_raw, list) else []
-    model_raw = input_payload.get("model")
-    model = str(model_raw).strip() if model_raw else None
+    provider_name_raw = input_payload.get("provider_name")
+    provider_name = str(provider_name_raw).strip() if provider_name_raw else None
+    model_name_raw = input_payload.get("model_name")
+    model_name = str(model_name_raw).strip() if model_name_raw else None
 
     extension = _parse_extension(frame.get("extension"), request_id)
 
@@ -124,7 +127,7 @@ def _parse_chat_start_frame(frame: dict[str, Any]) -> ParsedChatStartFrame:
         request_id=request_id,
         thread_id=thread_id,
         graph_id=graph_id,
-        input=ParsedChatInput(message=message, files=files, model=model),
+        input=ParsedChatInput(message=message, files=files, provider_name=provider_name, model_name=model_name),
         extension=extension,
         metadata=metadata,
     )

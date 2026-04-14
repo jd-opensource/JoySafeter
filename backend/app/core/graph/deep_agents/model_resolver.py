@@ -36,7 +36,12 @@ class ModelResolver:
         node_label: Optional[str] = None,
         graph_name: Optional[str] = None,
     ) -> Any:
-        """Resolve a model instance. Results are cached by (provider, model) key."""
+        """Resolve a model instance. Results are cached by (provider, model) key.
+
+        Accepts split fields directly. If model_name contains a colon and
+        provider_name is not given, falls back to parse_model_ref for
+        backward compatibility with legacy combined "provider:model" values.
+        """
         if not model_name:
             ctx = format_node_ctx(node_label, graph_name)
             raise ModelConfigError(
@@ -48,15 +53,23 @@ class ModelResolver:
                 },
             )
 
-        provider, model = parse_model_ref(model_name, provider_name)
+        # If provider_name already given, use as-is.
+        # Otherwise fall back to parse_model_ref for legacy combined values.
+        if provider_name:
+            resolved_provider = provider_name
+            resolved_model = model_name
+        else:
+            resolved_provider, resolved_model = parse_model_ref(model_name, provider_name)
+            if not resolved_model:
+                resolved_model = model_name
 
-        cache_key = f"{provider}:{model}"
+        cache_key = f"{resolved_provider}:{resolved_model}"
         if cache_key in self._cache:
             return self._cache[cache_key]
 
         resolved = await self._resolve_uncached(
-            provider,
-            model,
+            resolved_provider,
+            resolved_model,
             node_label=node_label,
             graph_name=graph_name,
         )

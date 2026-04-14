@@ -13,6 +13,7 @@ from app.core.graph.deep_agents.model_resolver import ModelResolver
 async def resolve_memory_middleware(
     enable_memory: bool,
     memory_model_name: Optional[str],
+    memory_provider_name: Optional[str],
     memory_prompt: Optional[str],
     model_resolver: ModelResolver,
     user_id: Optional[str] = None,
@@ -32,6 +33,7 @@ async def resolve_memory_middleware(
 
         memory_model = await model_resolver.resolve(
             model_name=memory_model_name,
+            provider_name=memory_provider_name,
             node_label=node_label,
             graph_name=graph_name,
         )

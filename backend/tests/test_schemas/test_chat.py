@@ -31,10 +31,14 @@ class TestChatRequestBaseline:
             message="hi",
             thread_id="t-1",
             graph_id=gid,
+            provider_name="openai",
+            model_name="gpt-4o",
             metadata={"key": "value"},
         )
         assert req.thread_id == "t-1"
         assert req.graph_id == gid
+        assert req.provider_name == "openai"
+        assert req.model_name == "gpt-4o"
         assert req.metadata == {"key": "value"}
 
 

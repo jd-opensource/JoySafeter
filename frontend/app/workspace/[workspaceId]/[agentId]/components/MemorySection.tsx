@@ -83,7 +83,7 @@ export const MemorySection = React.memo(function MemorySection({
                 onCreateEdge={undefined}
                 graphStateFields={graphStateFields}
                 onModelChange={
-                  field.key === 'memoryModel'
+                  field.key === 'memory_model_name'
                     ? onMemoryModelChange
                     : undefined
                 }

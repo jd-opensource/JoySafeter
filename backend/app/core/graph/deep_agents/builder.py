@@ -174,6 +174,7 @@ async def build_deep_agents_graph(
         root_middleware = await resolve_memory_middleware(
             root_config.enable_memory,
             root_config.memory_model_name,
+            root_config.memory_provider_name,
             root_config.memory_prompt,
             model_resolver,
             str(user_id),
@@ -262,6 +263,7 @@ async def _build_worker(
     middleware = await resolve_memory_middleware(
         cfg.enable_memory,
         cfg.memory_model_name,
+        cfg.memory_provider_name,
         cfg.memory_prompt,
         model_resolver,
         user_id,

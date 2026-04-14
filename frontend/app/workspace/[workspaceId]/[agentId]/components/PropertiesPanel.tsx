@@ -155,18 +155,16 @@ export default function PropertiesPanel({
   }, [userPermissions.canEdit, toast, t, onUpdate, node.id, nodeData?.label, config])
 
   const updateModelConfig = useCallback((modelName: string, providerName: string) => {
-    const combinedModelId = `${providerName}:${modelName}`
     onUpdate(node.id, {
       label: nodeData?.label || '',
-      config: { ...config, model_name: modelName, provider_name: providerName, model: combinedModelId, provider: providerName },
+      config: { ...config, provider_name: providerName, model_name: modelName },
     })
   }, [onUpdate, node.id, nodeData?.label, config])
 
   const handleMemoryModelChange = useCallback((modelName: string, providerName: string) => {
-    const combinedModelId = `${providerName}:${modelName}`
     onUpdate(node.id, {
       label: nodeData?.label || '',
-      config: { ...config, memoryModel: combinedModelId, memoryProvider: providerName },
+      config: { ...config, memory_provider_name: providerName, memory_model_name: modelName },
     })
   }, [onUpdate, node.id, nodeData?.label, config])
 
@@ -185,11 +183,11 @@ export default function PropertiesPanel({
   })
 
   const basicFields = def?.schema.filter(
-    (s) => !['enableMemory', 'memoryModel', 'memoryPrompt', 'description'].includes(s.key) && s.type !== 'toolSelector' && !(s.type === 'skillSelector' && !s.showWhen),
+    (s) => !['enableMemory', 'memory_model_name', 'memoryPrompt', 'description'].includes(s.key) && s.type !== 'toolSelector' && !(s.type === 'skillSelector' && !s.showWhen),
   ) || []
   const toolsFields = def?.schema.filter((s) => s.type === 'toolSelector') || []
   const skillsFields = def?.schema.filter((s) => s.type === 'skillSelector' && !s.showWhen) || []
-  const memoryFields = def?.schema.filter((s) => ['enableMemory', 'memoryModel', 'memoryPrompt'].includes(s.key)) || []
+  const memoryFields = def?.schema.filter((s) => ['enableMemory', 'memory_model_name', 'memoryPrompt'].includes(s.key)) || []
   const descriptionField = def?.schema.find((s) => s.key === 'description')
 
   return (
@@ -259,7 +257,7 @@ export default function PropertiesPanel({
                   onChange={(val) => updateConfig(field.key, val)}
                   canEdit={userPermissions.canEdit}
                   t={t}
-                  onModelChange={field.key === 'model' ? updateModelConfig : undefined}
+                  onModelChange={field.key === 'model_name' ? updateModelConfig : undefined}
                   nodes={nodes}
                   edges={edges}
                   currentNodeId={node.id}

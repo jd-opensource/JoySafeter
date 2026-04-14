@@ -13,7 +13,8 @@ class ChatRequest(PydanticBaseModel):
     message: str = Field(..., description="user message")
     thread_id: Optional[str] = Field(None, description="conversation thread ID; omit to create a new session")
     graph_id: Optional[uuid.UUID] = Field(None, description="graph ID; use the specified graph for the conversation")
-    model: Optional[str] = Field(None, description="model identifier, format provider:model_name")
+    provider_name: Optional[str] = Field(None, description="model provider name (e.g. 'ollama', 'openai')")
+    model_name: Optional[str] = Field(None, description="model name (e.g. 'qwen3.5:latest', 'gpt-4o')")
     metadata: dict[str, Any] = Field(default_factory=dict, description="metadata")
     # user_id is obtained from authentication; no longer needed in the request
 

@@ -7,7 +7,7 @@ node configurations for the Copilot system prompt.
 
 from typing import Any, Dict, List, Optional
 
-from app.core.model.utils.model_ref import format_model_ref, parse_model_ref
+from app.core.model.utils.model_ref import parse_model_ref
 
 
 def normalize_node(node: Dict[str, Any]) -> Dict[str, Any]:
@@ -339,13 +339,13 @@ def build_enhanced_node_data(normalized_nodes: List[Dict], topology: Dict[str, A
         # Extract system prompt
         system_prompt = extract_system_prompt(normalized_node)
 
-        # Extract model information using unified parse_model_ref
-        # Supports: "provider:model", provider_name + model_name, or plain model name
+        # Extract model information — prefer split fields, fallback to legacy combined
         raw_provider = config.get("provider_name") or config.get("provider")
         raw_model = config.get("model_name") or config.get("model")
-        provider_name, model_name = parse_model_ref(raw_model, raw_provider)
-        # Format back to consistent "provider:model" or just "model" for display
-        model = format_model_ref(provider_name, model_name)
+        if raw_provider:
+            provider_name, model_name = raw_provider, raw_model
+        else:
+            provider_name, model_name = parse_model_ref(raw_model, raw_provider)
 
         # Extract tools configuration
         tools_config = extract_tools_config(normalized_node)
@@ -365,9 +365,8 @@ def build_enhanced_node_data(normalized_nodes: List[Dict], topology: Dict[str, A
             "label": normalized_node.get("label", ""),
             "position": normalized_node.get("position", {}),
             "systemPrompt": system_prompt,
-            "model": model,  # Standardized format: "provider:model" or "model"
-            "provider_name": provider_name,  # Split field for analysis
-            "model_name": model_name,  # Split field for analysis
+            "provider_name": provider_name,
+            "model_name": model_name,
             "tools": tools_summary,
             "config": config,
             "isDeepAgent": is_deep_agent,

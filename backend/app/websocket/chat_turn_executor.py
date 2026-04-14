@@ -90,7 +90,8 @@ class ChatTurnExecutor:
                 message=str(command.message or ""),
                 thread_id=str(command.thread_id) if command.thread_id else None,
                 graph_id=command.graph_id,
-                model=command.model,
+                provider_name=command.provider_name,
+                model_name=command.model_name,
                 metadata=metadata,
             ),
             run_id=run_id,
@@ -863,10 +864,11 @@ class ChatTurnExecutor:
             from app.services.copilot_service import CopilotService
 
             async with module.AsyncSessionLocal() as db:
-                # payload.model carries the frontend-selected model (e.g. "anthropic:claude-3-7-sonnet")
+                # payload carries split model fields from frontend
                 service = CopilotService(
                     user_id=handler.user_id,
-                    llm_model=payload.model,
+                    provider_name=payload.provider_name,
+                    model_name=payload.model_name,
                     db=db,
                 )
                 stream = service._get_copilot_stream(

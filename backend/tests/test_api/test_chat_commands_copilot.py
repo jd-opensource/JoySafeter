@@ -14,7 +14,7 @@ def test_copilot_extension_produces_copilot_turn_command():
         request_id="req-1",
         thread_id=None,
         graph_id=None,
-        input=ParsedChatInput(message="Build RAG", files=[], model=None),
+        input=ParsedChatInput(message="Build RAG", files=[], provider_name=None, model_name=None),
         extension=ParsedCopilotExtension(
             kind="copilot",
             run_id="run-123",
@@ -38,7 +38,7 @@ def test_no_extension_still_standard():
         request_id="req-2",
         thread_id=None,
         graph_id=None,
-        input=ParsedChatInput(message="hello", files=[], model=None),
+        input=ParsedChatInput(message="hello", files=[], provider_name=None, model_name=None),
         extension=None,
         metadata={},
     )
@@ -54,7 +54,7 @@ def test_chat_extension_still_chat_run():
         request_id="req-3",
         thread_id=None,
         graph_id=None,
-        input=ParsedChatInput(message="hello", files=[], model=None),
+        input=ParsedChatInput(message="hello", files=[], provider_name=None, model_name=None),
         extension=ParsedChatExtension(kind="chat", run_id="r1"),
         metadata={},
     )

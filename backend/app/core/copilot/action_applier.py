@@ -19,11 +19,13 @@ from loguru import logger
 # Node type default configurations (must match frontend nodeRegistry)
 NODE_DEFAULT_CONFIGS: Dict[str, Dict[str, Any]] = {
     "agent": {
-        "model": "",
+        "provider_name": "",
+        "model_name": "",
         "temp": 0.7,
         "systemPrompt": "",
         "enableMemory": False,
-        "memoryModel": "",
+        "memory_provider_name": "",
+        "memory_model_name": "",
         "memoryPrompt": "Summarize the interaction highlights and key facts learned about the user.",
         "useDeepAgents": False,
         "description": "",

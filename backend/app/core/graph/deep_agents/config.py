@@ -35,6 +35,7 @@ class NodeConfig:
     # Memory
     enable_memory: bool = False
     memory_model_name: Optional[str] = None
+    memory_provider_name: Optional[str] = None
     memory_prompt: Optional[str] = None
 
     # DeepAgents
@@ -77,15 +78,17 @@ def resolve_node_config(node: GraphNode, node_name: str) -> NodeConfig:
         node_type=node_type,
         description=config.get("description", "") or "",
         # LLM
-        model_name=config.get("model_name") or config.get("model") or config.get("name"),
+        # LLM — prefer new split fields, fallback to legacy combined "model" field
+        model_name=config.get("model_name") or config.get("model"),
         provider_name=config.get("provider_name") or config.get("provider"),
         system_prompt=config.get("systemPrompt") or config.get("system_prompt"),
         # Tools & Skills
         tool_names=config.get("tools") or [],
         skill_ids=config.get("skills") or [],
-        # Memory
+        # Memory — prefer new split fields, fallback to legacy camelCase
         enable_memory=bool(config.get("enableMemory", False)),
-        memory_model_name=config.get("memoryModel"),
+        memory_model_name=config.get("memory_model_name") or config.get("memoryModel"),
+        memory_provider_name=config.get("memory_provider_name") or config.get("memoryProvider"),
         memory_prompt=config.get("memoryPrompt"),
         # DeepAgents
         use_deep_agents=bool(config.get("useDeepAgents", False)),

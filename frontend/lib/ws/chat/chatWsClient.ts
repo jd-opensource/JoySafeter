@@ -245,8 +245,11 @@ function serializeInput(input: ChatSendParams['input']): Record<string, unknown>
   if (input.files && input.files.length > 0) {
     result.files = input.files
   }
-  if (input.model) {
-    result.model = input.model
+  if (input.provider_name) {
+    result.provider_name = input.provider_name
+  }
+  if (input.model_name) {
+    result.model_name = input.model_name
   }
   return result
 }

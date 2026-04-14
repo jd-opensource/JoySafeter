@@ -62,17 +62,19 @@ const REGISTRY: NodeDefinition[] = [
     icon: Bot,
     style: { color: 'text-[var(--brand-500)]', bg: 'bg-[var(--brand-50)]' },
     defaultConfig: {
-      model: '',
+      provider_name: '',
+      model_name: '',
       temp: 0.7,
       systemPrompt: '',
       enableMemory: false,
-      memoryModel: '',
+      memory_provider_name: '',
+      memory_model_name: '',
       memoryPrompt: 'Summarize the interaction highlights and key facts learned about the user.',
       useDeepAgents: false,
       description: '',
     },
     schema: [
-      { key: 'model', label: 'Inference Model', type: 'modelSelect', required: true },
+      { key: 'model_name', label: 'Inference Model', type: 'modelSelect', required: true },
       {
         key: 'systemPrompt',
         label: 'System Instruction',
@@ -112,7 +114,7 @@ const REGISTRY: NodeDefinition[] = [
         description: 'Save context across different sessions.',
       },
       {
-        key: 'memoryModel',
+        key: 'memory_model_name',
         label: 'Memory Processing Model',
         type: 'modelSelect',
         description: 'Model used to summarize and update memory.',
@@ -133,7 +135,8 @@ const REGISTRY: NodeDefinition[] = [
     icon: BrainCircuit,
     style: { color: 'text-[var(--brand-600)]', bg: 'bg-[var(--brand-50)]' },
     defaultConfig: {
-      model: '',
+      provider_name: '',
+      model_name: '',
       executor_type: 'local',
       agent_mode: 'autonomous',
       max_steps: 20,
@@ -146,7 +149,7 @@ const REGISTRY: NodeDefinition[] = [
     schema: [
       // === Basic Configuration ===
       {
-        key: 'model',
+        key: 'model_name',
         label: 'Inference Model',
         type: 'modelSelect',
         required: true,

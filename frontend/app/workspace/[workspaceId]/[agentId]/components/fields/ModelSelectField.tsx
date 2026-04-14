@@ -18,10 +18,21 @@ import { useTranslation } from '@/lib/i18n'
 
 import { ModelOption } from '../../services/agentService'
 
+/**
+ * Split a combined model id "provider:model_name" into [provider, model_name].
+ * Only splits on the FIRST colon so Ollama-style names like "ollama:qwen3.5:latest"
+ * correctly yield ["ollama", "qwen3.5:latest"] instead of truncating the tag.
+ */
+function splitModelId(id: string): [string, string] {
+  const idx = id.indexOf(':')
+  if (idx === -1) return ['', id]
+  return [id.slice(0, idx), id.slice(idx + 1)]
+}
+
 interface ModelSelectFieldProps {
   value: string
   onChange: (val: unknown) => void
-  onModelChange?: (modelName: string, providerName: string) => void // Added: pass both model_name and provider_name simultaneously
+  onModelChange?: (modelName: string, providerName: string) => void
 }
 
 export function ModelSelectField({ value, onChange, onModelChange }: ModelSelectFieldProps) {
@@ -42,6 +53,7 @@ export function ModelSelectField({ value, onChange, onModelChange }: ModelSelect
       if (!modelMap[id]) {
         modelMap[id] = {
           id,
+          name: model.name,
           label: model.display_name || model.name,
           provider: model.provider_display_name || model.provider_name,
           provider_name: model.provider_name,
@@ -79,7 +91,7 @@ export function ModelSelectField({ value, onChange, onModelChange }: ModelSelect
     if (value.includes(':')) return value
     // If value is in old format (name only), try to find matching model and convert to new format
     const matchedModel = models.find((m) => {
-      const modelName = m.id.includes(':') ? m.id.split(':')[1] : m.id
+      const [, modelName] = splitModelId(m.id)
       return modelName === value
     })
     return matchedModel ? matchedModel.id : value
@@ -132,35 +144,25 @@ export function ModelSelectField({ value, onChange, onModelChange }: ModelSelect
   const unavailableProviders = Array.from(unavailableGroups.keys()).sort()
 
   const handleValueChange = (selectedModelId: string) => {
-    // Find the selected model - support both new format (provider:name) and old format (name only)
+    // Find the selected model
     let selectedModel = models.find((m) => m.id === selectedModelId)
 
-    // Backward compatibility: if not found with new format, try old format (name only)
-    if (!selectedModel && selectedModelId.includes(':')) {
-      // Already in new format but not found, skip fallback
-    } else if (!selectedModel) {
-      // Try to find by name only (old format)
+    // Backward compatibility: try matching by model name only (old format)
+    if (!selectedModel && !selectedModelId.includes(':')) {
       selectedModel = models.find((m) => {
-        const modelName = m.id.split(':')[1] || m.id
+        const [, modelName] = splitModelId(m.id)
         return modelName === selectedModelId
       })
     }
 
     if (selectedModel) {
-      // Always write combined id (provider:model) to config via onChange
-      const combinedId = selectedModel.id
+      onChange(selectedModel.id)
 
-      // Extract model name from combined id (format: provider:model)
-      const modelName = combinedId.includes(':') ? combinedId.split(':')[1] : combinedId
-
-      onChange(combinedId)
-
-      // If onModelChange provided, pass both model_name and provider_name
+      // Pass raw API model name + provider_name (no split truncation)
       if (onModelChange) {
-        onModelChange(modelName, selectedModel.provider_name)
+        onModelChange(selectedModel.name, selectedModel.provider_name)
       }
     } else {
-      // If model not found, keep raw value (best-effort)
       onChange(selectedModelId)
     }
   }

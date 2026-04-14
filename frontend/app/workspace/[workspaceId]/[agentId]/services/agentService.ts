@@ -28,6 +28,7 @@ export interface AgentGraph {
 
 export interface ModelOption {
   id: string
+  name: string // raw model name from API (e.g. "qwen3.5:latest")
   label: string
   provider: string // provider_display_name (for display)
   provider_name: string
@@ -353,6 +354,7 @@ export const agentService = {
       const models = await modelService.getAvailableModels('chat')
       return models.map((model) => ({
         id: `${model.provider_name}:${model.name}`,
+        name: model.name,
         label: model.display_name || model.name,
         provider: model.provider_display_name || model.provider_name, // for display
         provider_name: model.provider_name,

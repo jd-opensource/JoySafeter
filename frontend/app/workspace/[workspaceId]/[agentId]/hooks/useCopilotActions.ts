@@ -30,7 +30,9 @@ interface UseCopilotActionsOptions {
   refs: CopilotRefs
   graphId?: string
   copilotMode?: CopilotMode
-  selectedModel?: string
+  selectedProviderName?: string
+  selectedModelName?: string
+  selectedModel?: string // combined id for backward compat (UI binding only)
   onCopilotEvent?: (evt: ChatStreamEvent) => void
 }
 
@@ -40,6 +42,8 @@ export function useCopilotActions({
   refs,
   graphId,
   copilotMode = 'deepagents',
+  selectedProviderName,
+  selectedModelName,
   selectedModel,
   onCopilotEvent,
 }: UseCopilotActionsOptions) {
@@ -123,7 +127,8 @@ export function useCopilotActions({
           requestId,
           input: {
             message: userText,
-            model: selectedModel,
+            provider_name: selectedProviderName,
+            model_name: selectedModelName,
           },
           graphId: graphId || storeGraphId,
           extension,
@@ -167,7 +172,7 @@ export function useCopilotActions({
         activeRequestIdRef.current = null
       }
     },
-    [state.loading, state.messages, actions, refs, graphId, copilotMode, selectedModel, getGraphContext, t, onCopilotEvent],
+    [state.loading, state.messages, actions, refs, graphId, copilotMode, selectedProviderName, selectedModelName, getGraphContext, t, onCopilotEvent],
   )
 
   const handleSend = useCallback(async () => {

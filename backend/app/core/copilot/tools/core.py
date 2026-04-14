@@ -35,7 +35,7 @@ class CreateNodeInput(BaseModel):
     )
     model: Optional[str] = Field(
         default=None,
-        description="Optional for agent nodes. Model name (e.g., 'gpt-4o', 'gpt-4o-mini'). Leave empty to use default.",
+        description="Optional for agent nodes. Model in 'provider_name:model_name' format (e.g., 'openai:gpt-4o'). Leave empty to use default.",
     )
     use_deep_agents: Optional[bool] = Field(
         default=False,
@@ -153,7 +153,13 @@ def create_node(
             if system_prompt:
                 config["systemPrompt"] = system_prompt
             if model:
-                config["model"] = model
+                # Copilot LLM may pass combined "provider:model" format
+                if ":" in model:
+                    idx = model.index(":")
+                    config["provider_name"] = model[:idx]
+                    config["model_name"] = model[idx + 1:]
+                else:
+                    config["model_name"] = model
             if use_deep_agents:
                 config["useDeepAgents"] = True
             if description:
@@ -337,7 +343,12 @@ def update_config(
         if system_prompt is not None:
             config["systemPrompt"] = system_prompt
         if model is not None:
-            config["model"] = model
+            if ":" in model:
+                idx = model.index(":")
+                config["provider_name"] = model[:idx]
+                config["model_name"] = model[idx + 1:]
+            else:
+                config["model_name"] = model
         if use_deep_agents is not None:
             config["useDeepAgents"] = use_deep_agents
         if description is not None:

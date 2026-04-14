@@ -41,7 +41,7 @@ export function CopilotPanel() {
   const graphId = params.agentId as string | undefined
 
   const [copilotMode, setCopilotMode] = useState<CopilotMode>('deepagents')
-  const { modelOptions, selectedModel, setSelectedModel, modelLabel } = useModelSelector()
+  const { modelOptions, selectedModel, setSelectedModel, selectedProviderName, selectedModelName, modelLabel } = useModelSelector()
 
   // Unified state management
   const { state, actions, refs } = useCopilotState(graphId)
@@ -62,6 +62,8 @@ export function CopilotPanel() {
       refs,
       graphId,
       copilotMode,
+      selectedProviderName,
+      selectedModelName,
       selectedModel,
       onCopilotEvent: webSocketCallbacks.handleCopilotEvent,
     })
