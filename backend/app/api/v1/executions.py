@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser
 from app.core.database import get_db
-from app.models.execution import Execution, ExecutionStatus
+from app.models.execution import Execution, MissionExecutionStatus
 from app.schemas import BaseResponse
 from app.schemas.execution import (
     ExecutionEventsPageResponse,
@@ -145,7 +145,7 @@ async def cancel_execution(
     execution = await service.mark_status(
         execution_id=execution_id,
         user_id=str(current_user.id),
-        status=ExecutionStatus.CANCELLED,
+        status=MissionExecutionStatus.CANCELLED,
         error_code="cancelled",
         error_message="Cancelled by user",
     )

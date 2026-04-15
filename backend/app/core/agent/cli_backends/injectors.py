@@ -5,7 +5,6 @@ Credential, skill, and runtime config injectors for CLI agent containers.
 from __future__ import annotations
 
 import json
-import textwrap
 from typing import Any, Optional
 
 from loguru import logger
@@ -14,26 +13,16 @@ from .container_service import CLIContainerService
 
 
 class CredentialInjector:
-    """Injects API keys into a container as environment variables."""
+    """Builds the env dict for CLI agent containers.
 
-    def __init__(self, container_service: CLIContainerService):
-        self.container_service = container_service
+    Credentials are passed to ``create_container()`` which sets them via
+    Docker's ``-e`` / ``--env-file`` flags.  This class only resolves and
+    returns the dict — it never writes to the container filesystem.
+    """
 
-    async def inject(
-        self,
-        container_id: str,
-        credentials: dict[str, str],
-    ) -> None:
-        """Write credentials as env vars in the container's /etc/environment."""
-        if not credentials:
-            return
-        lines = [f"{k}={v}" for k, v in credentials.items()]
-        content = "\n".join(lines) + "\n"
-        await self.container_service.exec_in_container(
-            container_id,
-            ["sh", "-c", f"cat >> /etc/environment << 'ENVEOF'\n{content}ENVEOF"],
-        )
-        logger.debug(f"Injected {len(credentials)} credentials into {container_id[:12]}")
+    def build_env(self, credentials: dict[str, str]) -> dict[str, str]:
+        """Return a sanitised copy of *credentials* suitable for Docker env."""
+        return dict(credentials) if credentials else {}
 
 
 class CLISkillInjector:

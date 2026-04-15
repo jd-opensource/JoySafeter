@@ -15,7 +15,7 @@ from app.utils.datetime import utc_now
 from .base import BaseModel, TimestampMixin
 
 
-class ExecutionStatus(str, enum.Enum):
+class MissionExecutionStatus(str, enum.Enum):
     QUEUED = "queued"
     DISPATCHED = "dispatched"
     RUNNING = "running"
@@ -54,10 +54,10 @@ class Execution(BaseModel):
     )
     source_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
-    status: Mapped[ExecutionStatus] = mapped_column(
-        Enum(ExecutionStatus, values_callable=lambda e: [m.value for m in e], name="executionstatus_v2"),
+    status: Mapped[MissionExecutionStatus] = mapped_column(
+        Enum(MissionExecutionStatus, values_callable=lambda e: [m.value for m in e], name="missionexecutionstatus"),
         nullable=False,
-        default=ExecutionStatus.QUEUED,
+        default=MissionExecutionStatus.QUEUED,
     )
     title: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 

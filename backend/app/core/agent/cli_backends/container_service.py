@@ -5,6 +5,8 @@ CLI container lifecycle management via Docker.
 from __future__ import annotations
 
 import asyncio
+import os
+import tempfile
 import uuid
 from dataclasses import dataclass, field
 from typing import Optional
@@ -57,15 +59,25 @@ class CLIContainerService:
         for k, v in cfg.labels.items():
             docker_cmd.extend(["--label", f"{k}={v}"])
         docker_cmd.extend(["--label", f"execution_id={execution_id}"])
+
+        env_file_path: Optional[str] = None
         if env:
-            for k, v in env.items():
-                docker_cmd.extend(["-e", f"{k}={v}"])
+            env_file_path = self._write_env_file(env)
+            docker_cmd.extend(["--env-file", env_file_path])
+
         docker_cmd.append(cfg.image)
         docker_cmd.append("sleep")
         docker_cmd.append("infinity")
 
-        container_id = await self._run_docker(docker_cmd)
-        container_id = container_id.strip()
+        try:
+            container_id = await self._run_docker(docker_cmd)
+            container_id = container_id.strip()
+        finally:
+            if env_file_path:
+                try:
+                    os.unlink(env_file_path)
+                except OSError:
+                    pass
 
         await self._run_docker(["docker", "start", container_id])
 
@@ -76,6 +88,20 @@ class CLIContainerService:
             status="running",
             working_dir=cfg.working_dir,
         )
+
+    @staticmethod
+    def _write_env_file(env: dict[str, str]) -> str:
+        """Write env vars to a temp file (mode 0600) and return its path."""
+        fd, path = tempfile.mkstemp(prefix="cli_agent_env_", suffix=".env")
+        try:
+            with os.fdopen(fd, "w") as f:
+                for k, v in env.items():
+                    f.write(f"{k}={v}\n")
+            os.chmod(path, 0o600)
+        except Exception:
+            os.unlink(path)
+            raise
+        return path
 
     async def stop_container(self, container_id: str, timeout: int = 10) -> None:
         try:

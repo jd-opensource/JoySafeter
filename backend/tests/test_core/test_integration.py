@@ -26,7 +26,7 @@ from app.core.agent.cli_backends.injectors import (
     RuntimeConfigInjector,
 )
 from app.core.agent.cli_backends.registry import RuntimeProviderRegistry
-from app.models.execution import ExecutionSource, ExecutionStatus
+from app.models.execution import ExecutionSource, MissionExecutionStatus
 from app.models.mission import MissionPriority, MissionStatus
 from app.schemas.execution import (
     AgentProfileListResponse,
@@ -172,13 +172,13 @@ async def test_container_injection_pipeline():
     assert container.status == "running"
     assert container.container_id.startswith("fake-ctr-")
 
-    # Inject credentials
-    cred_injector = CredentialInjector(svc)
-    await cred_injector.inject(container.container_id, {
+    # Build credentials env (no longer writes to container filesystem)
+    cred_injector = CredentialInjector()
+    env = cred_injector.build_env({
         "ANTHROPIC_API_KEY": "sk-test-key",
         "GITHUB_TOKEN": "ghp-test",
     })
-    assert len(svc.calls) == 1
+    assert env == {"ANTHROPIC_API_KEY": "sk-test-key", "GITHUB_TOKEN": "ghp-test"}
 
     # Inject skills
     skill_injector = CLISkillInjector(svc)
@@ -186,7 +186,7 @@ async def test_container_injection_pipeline():
         {"name": "lint", "command": "ruff check ."},
         {"name": "test", "command": "pytest -x"},
     ])
-    assert len(svc.calls) == 4  # 1 cred + 1 mkdir + 2 skills
+    assert len(svc.calls) == 3  # 1 mkdir + 2 skills
 
     # Inject CLAUDE.md config
     config_injector = RuntimeConfigInjector(svc)
@@ -196,7 +196,7 @@ async def test_container_injection_pipeline():
         skill_names=["lint", "test"],
         working_dir="/workspace",
     )
-    assert len(svc.calls) == 5  # + 1 config write
+    assert len(svc.calls) == 4  # + 1 config write
 
 
 # ---------------------------------------------------------------------------

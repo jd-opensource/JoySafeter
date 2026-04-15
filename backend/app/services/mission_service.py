@@ -4,6 +4,7 @@ Mission service layer with dispatch logic.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any, Optional
 
@@ -11,12 +12,36 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent_profile import AgentStatus
-from app.models.execution import ExecutionSource, ExecutionStatus
+from app.models.execution import ExecutionSource, MissionExecutionStatus
 from app.models.mission import Mission, MissionPriority, MissionStatus
 from app.repositories.agent_profile import AgentProfileRepository
 from app.repositories.mission import MissionRepository
 from app.services.execution_service import ExecutionService
 from app.utils.datetime import utc_now
+
+
+def _start_execution_runner(
+    execution_id: uuid.UUID,
+    prompt: str,
+    credentials: dict[str, str] | None,
+) -> None:
+    """Fire-and-forget: launch an ExecutionRunner in a background task."""
+    from app.core.agent.cli_backends.execution_runner import ExecutionRunner
+    from app.core.database import AsyncSessionLocal
+
+    async def _run() -> None:
+        async with AsyncSessionLocal() as db:
+            runner = ExecutionRunner(db)
+            try:
+                await runner.run(
+                    execution_id=execution_id,
+                    prompt=prompt,
+                    credentials=credentials,
+                )
+            except Exception as exc:
+                logger.error(f"Background runner failed for {execution_id}: {exc}")
+
+    asyncio.create_task(_run())
 
 
 def build_execution_prompt(mission: Mission) -> str:
@@ -195,6 +220,12 @@ class MissionService:
             f"Dispatched mission {mission_id} -> execution {execution.id} "
             f"(agent={agent.name}, runtime={agent.runtime_type})"
         )
+
+        # Start the runner in the background so the execution doesn't stay QUEUED
+        prompt = build_execution_prompt(mission)
+        credentials = dict(agent.custom_env or {})
+        _start_execution_runner(execution.id, prompt, credentials or None)
+
         return mission, execution
 
     async def complete_mission(
@@ -226,7 +257,7 @@ class MissionService:
         if mission.current_execution_id:
             await self.execution_service.mark_status(
                 execution_id=mission.current_execution_id,
-                status=ExecutionStatus.CANCELLED,
+                status=MissionExecutionStatus.CANCELLED,
             )
 
         mission.status = MissionStatus.CANCELLED

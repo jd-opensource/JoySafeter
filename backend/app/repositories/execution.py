@@ -11,7 +11,7 @@ from typing import Optional, Sequence
 from sqlalchemy import and_, desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.execution import Execution, ExecutionEvent, ExecutionSnapshot, ExecutionStatus
+from app.models.execution import Execution, ExecutionEvent, ExecutionSnapshot, MissionExecutionStatus
 
 from .base import BaseRepository
 
@@ -81,7 +81,7 @@ class ExecutionRepository(BaseRepository[Execution]):
     async def list_recoverable_stale(
         self, *, stale_before: datetime
     ) -> Sequence[Execution]:
-        recoverable = (ExecutionStatus.QUEUED, ExecutionStatus.DISPATCHED, ExecutionStatus.RUNNING)
+        recoverable = (MissionExecutionStatus.QUEUED, MissionExecutionStatus.DISPATCHED, MissionExecutionStatus.RUNNING)
         result = await self.db.execute(
             select(Execution)
             .where(

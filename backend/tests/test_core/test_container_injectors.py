@@ -109,24 +109,17 @@ def test_build_claude_md_full():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_credential_injector_inject():
-    svc = _FakeContainerService()
-    injector = CredentialInjector(svc)
-    await injector.inject("ctr-1", {"ANTHROPIC_API_KEY": "sk-test", "GITHUB_TOKEN": "ghp-abc"})
-    assert len(svc.calls) == 1
-    container_id, cmd = svc.calls[0]
-    assert container_id == "ctr-1"
-    # The command should write to /etc/environment
-    cmd_str = " ".join(cmd)
-    assert "/etc/environment" in cmd_str
+async def test_credential_injector_build_env():
+    injector = CredentialInjector()
+    env = injector.build_env({"ANTHROPIC_API_KEY": "sk-test", "GITHUB_TOKEN": "ghp-abc"})
+    assert env == {"ANTHROPIC_API_KEY": "sk-test", "GITHUB_TOKEN": "ghp-abc"}
 
 
 @pytest.mark.asyncio
 async def test_credential_injector_empty():
-    svc = _FakeContainerService()
-    injector = CredentialInjector(svc)
-    await injector.inject("ctr-1", {})
-    assert len(svc.calls) == 0
+    injector = CredentialInjector()
+    env = injector.build_env({})
+    assert env == {}
 
 
 @pytest.mark.asyncio

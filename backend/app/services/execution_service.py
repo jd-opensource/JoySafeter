@@ -15,7 +15,7 @@ from app.models.execution import (
     ExecutionEvent,
     ExecutionSnapshot,
     ExecutionSource,
-    ExecutionStatus,
+    MissionExecutionStatus,
 )
 from app.repositories.execution import ExecutionRepository
 from app.services.execution_reducer import apply_execution_event, make_initial_projection
@@ -48,7 +48,7 @@ class ExecutionService:
             user_id=user_id,
             source=source,
             source_id=source_id,
-            status=ExecutionStatus.QUEUED,
+            status=MissionExecutionStatus.QUEUED,
             title=title,
             mission_id=mission_id,
             agent_profile_id=agent_profile_id,
@@ -121,7 +121,7 @@ class ExecutionService:
         *,
         execution_id: uuid.UUID,
         user_id: Optional[str] = None,
-        status: ExecutionStatus,
+        status: MissionExecutionStatus,
         container_id: Optional[str] = None,
         session_id: Optional[str] = None,
         error_code: Optional[str] = None,
@@ -145,9 +145,9 @@ class ExecutionService:
         if result_summary is not None:
             execution.result_summary = result_summary
 
-        if status == ExecutionStatus.RUNNING and not execution.started_at:
+        if status == MissionExecutionStatus.RUNNING and not execution.started_at:
             execution.started_at = now
-        if status in {ExecutionStatus.COMPLETED, ExecutionStatus.FAILED, ExecutionStatus.CANCELLED}:
+        if status in {MissionExecutionStatus.COMPLETED, MissionExecutionStatus.FAILED, MissionExecutionStatus.CANCELLED}:
             execution.finished_at = now
 
         snapshot = await self.repo.get_snapshot(execution_id)
@@ -223,7 +223,7 @@ class ExecutionService:
         execution = await self.repo.get_for_update(execution_id)
         if not execution:
             return None
-        active = {ExecutionStatus.QUEUED, ExecutionStatus.DISPATCHED, ExecutionStatus.RUNNING}
+        active = {MissionExecutionStatus.QUEUED, MissionExecutionStatus.DISPATCHED, MissionExecutionStatus.RUNNING}
         if execution.status not in active:
             return execution
         execution.last_heartbeat_at = utc_now()

@@ -45,7 +45,7 @@ def upgrade() -> None:
     """)
     op.execute("""
     DO $$ BEGIN
-        CREATE TYPE executionstatus_v2 AS ENUM ('queued','dispatched','running','interrupt_wait','approval_wait','completed','failed','cancelled');
+        CREATE TYPE missionexecutionstatus AS ENUM ('queued','dispatched','running','interrupt_wait','approval_wait','completed','failed','cancelled');
     EXCEPTION
         WHEN duplicate_object THEN null;
     END $$;
@@ -113,7 +113,7 @@ def upgrade() -> None:
         sa.Column("user_id", sa.String(255), sa.ForeignKey("user.id", ondelete="CASCADE"), nullable=False),
         sa.Column("source", postgresql.ENUM("mission", "chat", "graph", "coordinator", "api", name="executionsource", create_type=False), nullable=False),
         sa.Column("source_id", sa.String(255), nullable=True),
-        sa.Column("status", postgresql.ENUM("queued", "dispatched", "running", "interrupt_wait", "approval_wait", "completed", "failed", "cancelled", name="executionstatus_v2", create_type=False), nullable=False, server_default="queued"),
+        sa.Column("status", postgresql.ENUM("queued", "dispatched", "running", "interrupt_wait", "approval_wait", "completed", "failed", "cancelled", name="missionexecutionstatus", create_type=False), nullable=False, server_default="queued"),
         sa.Column("title", sa.String(500), nullable=True),
         sa.Column("mission_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("missions.id", ondelete="SET NULL"), nullable=True),
         sa.Column("agent_profile_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("agent_profiles.id", ondelete="SET NULL"), nullable=True),
@@ -176,7 +176,7 @@ def downgrade() -> None:
     op.drop_table("agent_profiles")
     op.drop_table("missions")
     op.execute("DROP TYPE IF EXISTS executionsource")
-    op.execute("DROP TYPE IF EXISTS executionstatus_v2")
+    op.execute("DROP TYPE IF EXISTS missionexecutionstatus")
     op.execute("DROP TYPE IF EXISTS agentstatus")
     op.execute("DROP TYPE IF EXISTS missionpriority")
     op.execute("DROP TYPE IF EXISTS missionstatus")

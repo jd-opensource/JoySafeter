@@ -46,7 +46,7 @@ from .user_sandbox import UserSandbox
 from .workspace import Workspace, WorkspaceFolder, WorkspaceMember, WorkspaceMemberRole, WorkspaceStatus
 from .agent_profile import AgentProfile, AgentStatus
 from .execution import Execution, ExecutionEvent, ExecutionSnapshot, ExecutionSource
-from .execution import ExecutionStatus as AgentExecutionStatus
+from .execution import MissionExecutionStatus
 from .mission import Mission, MissionPriority, MissionStatus
 from .workspace_files import WorkspaceFile, WorkspaceStoredFile
 
@@ -119,5 +119,5 @@ __all__ = [
     "ExecutionEvent",
     "ExecutionSnapshot",
     "ExecutionSource",
-    "AgentExecutionStatus",
+    "MissionExecutionStatus",
 ]

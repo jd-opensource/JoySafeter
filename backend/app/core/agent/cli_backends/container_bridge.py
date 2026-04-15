@@ -10,15 +10,11 @@ class ContainerProcessBridge:
         self,
         container_id: str,
         cmd: list[str],
-        env: dict[str, str] | None = None,
         workdir: str | None = None,
     ) -> asyncio.subprocess.Process:
         docker_cmd = ["docker", "exec", "-i"]
         if workdir:
             docker_cmd.extend(["-w", workdir])
-        if env:
-            for k, v in env.items():
-                docker_cmd.extend(["-e", f"{k}={v}"])
         docker_cmd.append(container_id)
         docker_cmd.extend(cmd)
 

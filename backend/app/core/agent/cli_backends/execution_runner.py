@@ -26,12 +26,11 @@ from app.core.agent.cli_backends.container_service import (
 )
 from app.core.agent.cli_backends.injectors import (
     CLISkillInjector,
-    CredentialInjector,
     RuntimeConfigInjector,
 )
 from app.core.agent.cli_backends.registry import runtime_registry
 from app.models.agent_profile import AgentProfile, AgentStatus
-from app.models.execution import Execution, ExecutionStatus
+from app.models.execution import Execution, MissionExecutionStatus
 from app.repositories.agent_profile import AgentProfileRepository
 from app.services.execution_service import ExecutionService
 from app.utils.datetime import utc_now
@@ -73,7 +72,7 @@ class ExecutionRunner:
             # 1. Mark as dispatched
             await self.execution_service.mark_status(
                 execution_id=execution_id,
-                status=ExecutionStatus.DISPATCHED,
+                status=MissionExecutionStatus.DISPATCHED,
             )
 
             # 2. Create container
@@ -84,14 +83,13 @@ class ExecutionRunner:
             )
             await self.execution_service.mark_status(
                 execution_id=execution_id,
-                status=ExecutionStatus.RUNNING,
+                status=MissionExecutionStatus.RUNNING,
                 container_id=container.container_id,
             )
 
-            # 3. Inject credentials, skills, config
+            # 3. Inject skills and config (credentials already set via --env-file)
             await self._inject(
                 container_id=container.container_id,
-                credentials=credentials,
                 skills=skills,
                 agent_profile=agent_profile,
                 working_dir=container.working_dir,
@@ -116,7 +114,6 @@ class ExecutionRunner:
                 model=model,
                 timeout=timeout,
                 resume_session_id=execution.prior_session_id,
-                env=credentials,
             )
 
             # 6. Drain messages → events
@@ -163,17 +160,12 @@ class ExecutionRunner:
         self,
         *,
         container_id: str,
-        credentials: Optional[dict[str, str]],
         skills: Optional[list[dict[str, Any]]],
         agent_profile: Optional[AgentProfile],
         working_dir: str,
     ) -> None:
-        cred_injector = CredentialInjector(self.container_service)
         skill_injector = CLISkillInjector(self.container_service)
         config_injector = RuntimeConfigInjector(self.container_service)
-
-        if credentials:
-            await cred_injector.inject(container_id, credentials)
 
         if skills:
             await skill_injector.inject(container_id, skills)
@@ -214,15 +206,15 @@ class ExecutionRunner:
         agent_profile: Optional[AgentProfile],
     ) -> None:
         if result.status == "completed":
-            status = ExecutionStatus.COMPLETED
+            status = MissionExecutionStatus.COMPLETED
         elif result.status == "timeout":
-            status = ExecutionStatus.FAILED
+            status = MissionExecutionStatus.FAILED
         else:
-            status = ExecutionStatus.FAILED
+            status = MissionExecutionStatus.FAILED
 
         await self.execution_service.append_event(
             execution_id=execution_id,
-            event_type="execution_completed" if status == ExecutionStatus.COMPLETED else "error",
+            event_type="execution_completed" if status == MissionExecutionStatus.COMPLETED else "error",
             payload={
                 "result_summary": {"output_length": len(result.output)},
                 "message": result.error or "",
@@ -254,7 +246,7 @@ class ExecutionRunner:
             )
             await self.execution_service.mark_status(
                 execution_id=execution_id,
-                status=ExecutionStatus.FAILED,
+                status=MissionExecutionStatus.FAILED,
                 error_message=error[:2000],
             )
         except Exception as exc:
