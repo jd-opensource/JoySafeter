@@ -8,6 +8,8 @@ import {
   Brain,
   Clapperboard,
   Activity,
+  Target,
+  Bot,
 } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -45,6 +47,18 @@ const menuItems = [
     labelKey: 'sidebar.skillsHub',
     icon: ShieldCheck,
     href: '/skills',
+  },
+  {
+    id: 'missions',
+    labelKey: 'sidebar.missions',
+    icon: Target,
+    href: '/missions',
+  },
+  {
+    id: 'agents',
+    labelKey: 'sidebar.agents',
+    icon: Bot,
+    href: '/agents',
   },
   {
     id: 'runs',

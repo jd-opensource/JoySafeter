@@ -28,6 +28,8 @@ const zh = {
       runCenter: '运行中心',
       toolsAndMcp: '工具与 MCP',
       openclaw: 'OpenClaw',
+      missions: '任务看板',
+      agents: 'AI Agents',
       collapse: '折叠侧边栏',
       expand: '展开侧边栏',
       knowledgeComingSoon: '知识库功能正在开发中，敬请期待...',
