@@ -44,6 +44,10 @@ from .skill_collaborator import CollaboratorRole, SkillCollaborator
 from .skill_version import SkillVersion, SkillVersionFile
 from .user_sandbox import UserSandbox
 from .workspace import Workspace, WorkspaceFolder, WorkspaceMember, WorkspaceMemberRole, WorkspaceStatus
+from .agent_profile import AgentProfile, AgentStatus
+from .execution import Execution, ExecutionEvent, ExecutionSnapshot, ExecutionSource
+from .execution import ExecutionStatus as AgentExecutionStatus
+from .mission import Mission, MissionPriority, MissionStatus
 from .workspace_files import WorkspaceFile, WorkspaceStoredFile
 
 __all__ = [
@@ -106,4 +110,14 @@ __all__ = [
     "SkillVersion",
     "SkillVersionFile",
     "PlatformToken",
+    "Mission",
+    "MissionStatus",
+    "MissionPriority",
+    "AgentProfile",
+    "AgentStatus",
+    "Execution",
+    "ExecutionEvent",
+    "ExecutionSnapshot",
+    "ExecutionSource",
+    "AgentExecutionStatus",
 ]
