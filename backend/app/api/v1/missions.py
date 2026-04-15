@@ -92,8 +92,8 @@ async def create_mission(
 @router.get("/{mission_id}", response_model=BaseResponse[MissionSummary])
 async def get_mission(
     mission_id: uuid.UUID,
+    current_user: CurrentUser,
     workspace_id: uuid.UUID = Query(...),
-    current_user: CurrentUser = Depends(),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionSummary]:
     service = MissionService(db)
@@ -107,8 +107,8 @@ async def get_mission(
 async def update_mission(
     mission_id: uuid.UUID,
     request: UpdateMissionRequest,
+    current_user: CurrentUser,
     workspace_id: uuid.UUID = Query(...),
-    current_user: CurrentUser = Depends(),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionSummary]:
     service = MissionService(db)
@@ -123,8 +123,8 @@ async def update_mission(
 async def assign_mission(
     mission_id: uuid.UUID,
     request: AssignMissionRequest,
+    current_user: CurrentUser,
     workspace_id: uuid.UUID = Query(...),
-    current_user: CurrentUser = Depends(),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionSummary]:
     service = MissionService(db)
@@ -143,8 +143,8 @@ async def assign_mission(
 async def dispatch_mission(
     mission_id: uuid.UUID,
     request: DispatchMissionRequest,
+    current_user: CurrentUser,
     workspace_id: uuid.UUID = Query(...),
-    current_user: CurrentUser = Depends(),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionSummary]:
     service = MissionService(db)
@@ -163,8 +163,8 @@ async def dispatch_mission(
 @router.post("/{mission_id}/cancel", response_model=BaseResponse[MissionSummary])
 async def cancel_mission(
     mission_id: uuid.UUID,
+    current_user: CurrentUser,
     workspace_id: uuid.UUID = Query(...),
-    current_user: CurrentUser = Depends(),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionSummary]:
     service = MissionService(db)

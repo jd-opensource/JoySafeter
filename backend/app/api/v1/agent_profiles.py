@@ -84,8 +84,8 @@ async def create_agent_profile(
 @router.get("/{profile_id}", response_model=BaseResponse[AgentProfileSummary])
 async def get_agent_profile(
     profile_id: uuid.UUID,
+    current_user: CurrentUser,
     workspace_id: uuid.UUID = Query(...),
-    current_user: CurrentUser = Depends(),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[AgentProfileSummary]:
     service = AgentProfileService(db)
@@ -99,8 +99,8 @@ async def get_agent_profile(
 async def update_agent_profile(
     profile_id: uuid.UUID,
     request: UpdateAgentProfileRequest,
+    current_user: CurrentUser,
     workspace_id: uuid.UUID = Query(...),
-    current_user: CurrentUser = Depends(),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[AgentProfileSummary]:
     service = AgentProfileService(db)
