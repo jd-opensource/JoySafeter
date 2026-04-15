@@ -1,6 +1,6 @@
 """add_mission_agent_execution_tables
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: b4b3b2b1b0a9
 Revises: 0f7082711f20
 Create Date: 2026-04-15 00:00:00.000000
 
@@ -14,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "a1b2c3d4e5f6"
+revision: str = "b4b3b2b1b0a9"
 down_revision: Union[str, None] = "0f7082711f20"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -22,11 +22,41 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # --- Enum types ---
-    op.execute("CREATE TYPE missionstatus AS ENUM ('backlog','todo','in_progress','in_review','done','blocked','cancelled')")
-    op.execute("CREATE TYPE missionpriority AS ENUM ('none','low','medium','high','urgent')")
-    op.execute("CREATE TYPE agentstatus AS ENUM ('idle','working','blocked','error','offline')")
-    op.execute("CREATE TYPE executionstatus_v2 AS ENUM ('queued','dispatched','running','interrupt_wait','approval_wait','completed','failed','cancelled')")
-    op.execute("CREATE TYPE executionsource AS ENUM ('mission','chat','graph','coordinator','api')")
+    op.execute("""
+    DO $$ BEGIN
+        CREATE TYPE missionstatus AS ENUM ('backlog','todo','in_progress','in_review','done','blocked','cancelled');
+    EXCEPTION
+        WHEN duplicate_object THEN null;
+    END $$;
+    """)
+    op.execute("""
+    DO $$ BEGIN
+        CREATE TYPE missionpriority AS ENUM ('none','low','medium','high','urgent');
+    EXCEPTION
+        WHEN duplicate_object THEN null;
+    END $$;
+    """)
+    op.execute("""
+    DO $$ BEGIN
+        CREATE TYPE agentstatus AS ENUM ('idle','working','blocked','error','offline');
+    EXCEPTION
+        WHEN duplicate_object THEN null;
+    END $$;
+    """)
+    op.execute("""
+    DO $$ BEGIN
+        CREATE TYPE executionstatus_v2 AS ENUM ('queued','dispatched','running','interrupt_wait','approval_wait','completed','failed','cancelled');
+    EXCEPTION
+        WHEN duplicate_object THEN null;
+    END $$;
+    """)
+    op.execute("""
+    DO $$ BEGIN
+        CREATE TYPE executionsource AS ENUM ('mission','chat','graph','coordinator','api');
+    EXCEPTION
+        WHEN duplicate_object THEN null;
+    END $$;
+    """)
 
     # --- missions ---
     op.create_table(
@@ -36,8 +66,8 @@ def upgrade() -> None:
         sa.Column("title", sa.String(500), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("objective", sa.Text(), nullable=True),
-        sa.Column("status", sa.Enum("backlog", "todo", "in_progress", "in_review", "done", "blocked", "cancelled", name="missionstatus", create_type=False), nullable=False, server_default="backlog"),
-        sa.Column("priority", sa.Enum("none", "low", "medium", "high", "urgent", name="missionpriority", create_type=False), nullable=False, server_default="none"),
+        sa.Column("status", postgresql.ENUM("backlog", "todo", "in_progress", "in_review", "done", "blocked", "cancelled", name="missionstatus", create_type=False), nullable=False, server_default="backlog"),
+        sa.Column("priority", postgresql.ENUM("none", "low", "medium", "high", "urgent", name="missionpriority", create_type=False), nullable=False, server_default="none"),
         sa.Column("assignee_type", sa.String(50), nullable=True),
         sa.Column("assignee_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("creator_id", sa.String(255), sa.ForeignKey("user.id", ondelete="CASCADE"), nullable=False),
@@ -62,7 +92,7 @@ def upgrade() -> None:
         sa.Column("avatar", sa.String(500), nullable=True),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("runtime_type", sa.String(50), nullable=False),
-        sa.Column("status", sa.Enum("idle", "working", "blocked", "error", "offline", name="agentstatus", create_type=False), nullable=False, server_default="offline"),
+        sa.Column("status", postgresql.ENUM("idle", "working", "blocked", "error", "offline", name="agentstatus", create_type=False), nullable=False, server_default="offline"),
         sa.Column("max_concurrent_tasks", sa.Integer(), nullable=False, server_default="1"),
         sa.Column("skill_ids", postgresql.JSONB(), nullable=True),
         sa.Column("instructions", sa.Text(), nullable=True),
@@ -81,9 +111,9 @@ def upgrade() -> None:
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column("workspace_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False),
         sa.Column("user_id", sa.String(255), sa.ForeignKey("user.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("source", sa.Enum("mission", "chat", "graph", "coordinator", "api", name="executionsource", create_type=False), nullable=False),
+        sa.Column("source", postgresql.ENUM("mission", "chat", "graph", "coordinator", "api", name="executionsource", create_type=False), nullable=False),
         sa.Column("source_id", sa.String(255), nullable=True),
-        sa.Column("status", sa.Enum("queued", "dispatched", "running", "interrupt_wait", "approval_wait", "completed", "failed", "cancelled", name="executionstatus_v2", create_type=False), nullable=False, server_default="queued"),
+        sa.Column("status", postgresql.ENUM("queued", "dispatched", "running", "interrupt_wait", "approval_wait", "completed", "failed", "cancelled", name="executionstatus_v2", create_type=False), nullable=False, server_default="queued"),
         sa.Column("title", sa.String(500), nullable=True),
         sa.Column("mission_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("missions.id", ondelete="SET NULL"), nullable=True),
         sa.Column("agent_profile_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("agent_profiles.id", ondelete="SET NULL"), nullable=True),
