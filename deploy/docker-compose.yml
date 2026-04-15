@@ -208,6 +208,18 @@ services:
         condition: service_healthy
 
 
+  # CLI Agent base image build service (used by CLIContainerService for executions)
+  # This service only builds the image; it does not run as a long-lived container.
+  # Per-execution containers are dynamically created by CLIContainerService.
+  cli-agent-image:
+    image: joysafeter/cli-agent:latest
+    build:
+      context: ..
+      dockerfile: deploy/docker/cli-agent.Dockerfile
+    profiles:
+      - build
+    command: ["echo", "Image built successfully"]
+
   # OpenClaw base image build service (used by backend to create per-user containers)
   # This service only builds the image; it does not run as a long-lived container.
   # Per-user OpenClaw instances are dynamically created by the backend's
