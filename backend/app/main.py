@@ -24,6 +24,7 @@ from app.websocket.auth import WebSocketCloseCode, authenticate_websocket, rejec
 from app.websocket.chat_ws_handler import ChatWsHandler
 from app.websocket.notification_manager import NotificationType, notification_manager
 from app.websocket.openclaw_handler import openclaw_bridge_handler
+from app.websocket.execution_subscription_handler import execution_subscription_handler
 from app.websocket.run_subscription_handler import run_subscription_handler
 
 setup_logging()
@@ -191,6 +192,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         logger.warning(f"   ⚠️  Checkpointer initialization failed: {e}")
         logger.warning("   App will continue starting, checkpoint features may be unavailable")
 
+    # Initialize CLI runtime providers
+    try:
+        from app.core.agent.cli_backends.registry import init_providers
+
+        init_providers()
+        logger.info("   ✓ CLI runtime providers initialized")
+    except Exception as e:
+        logger.warning(f"   ⚠️  CLI runtime provider initialization failed: {e}")
+
     yield
 
     # Shutdown: Drain sandbox pool (stop all containers gracefully)
@@ -345,6 +355,18 @@ async def runs_websocket_endpoint(websocket: WebSocket):
         return
 
     await run_subscription_handler.handle_connection(websocket, str(user_id))
+
+
+@app.websocket("/ws/executions")
+async def executions_websocket_endpoint(websocket: WebSocket):
+    """Subscription endpoint for CLI execution snapshot/replay/live events."""
+    is_authenticated, user_id = await authenticate_websocket(websocket)
+
+    if not is_authenticated or not user_id:
+        await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
+        return
+
+    await execution_subscription_handler.handle_connection(websocket, str(user_id))
 
 
 @app.websocket("/ws/openclaw/dashboard")

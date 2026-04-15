@@ -38,6 +38,9 @@ from .tools import router as tools_router
 from .traces import router as traces_router
 from .users import router as users_router
 from .version import router as version_router
+from .missions import router as missions_router
+from .executions import router as executions_router
+from .agent_profiles import router as agent_profiles_router
 from .workspace_files import router as workspace_files_router
 from .workspace_folders import router as workspace_folders_router
 from .workspaces import router as workspaces_router
@@ -78,6 +81,9 @@ ROUTERS = [
     openclaw_proxy_router,
     openapi_graph_router,
     version_router,
+    missions_router,
+    executions_router,
+    agent_profiles_router,
 ]
 
 
