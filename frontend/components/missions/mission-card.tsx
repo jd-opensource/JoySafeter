@@ -9,16 +9,17 @@ import { PriorityBadge } from './priority-badge'
 
 interface MissionCardProps {
   mission: Mission
+  onSelect?: (id: string) => void
 }
 
-export function MissionCard({ mission }: MissionCardProps) {
+export function MissionCard({ mission, onSelect }: MissionCardProps) {
   const hasActiveExecution = Boolean(mission.current_execution_id)
   const isAssignedToAgent = mission.assignee_type === 'agent'
 
   return (
     <button
       type="button"
-      onClick={() => console.log('mission:click', mission.id)}
+      onClick={() => onSelect?.(mission.id)}
       className={cn(
         'w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-3 text-left',
         'transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-400)]',

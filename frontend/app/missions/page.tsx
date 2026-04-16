@@ -5,6 +5,7 @@ import { useState } from 'react'
 
 import { MissionBoard } from '@/components/missions/mission-board'
 import { MissionCreateDialog } from '@/components/missions/mission-create-dialog'
+import { MissionDetailPanel } from '@/components/missions/mission-detail-panel'
 import { Button } from '@/components/ui/button'
 import { useMissions } from '@/hooks/queries/missions'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
@@ -14,6 +15,7 @@ type ViewMode = 'board' | 'list'
 
 export default function MissionsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('board')
+  const [selectedMissionId, setSelectedMissionId] = useState<string | null>(null)
   const { data: workspaces = [], isLoading: isWorkspacesLoading } = useWorkspaces()
   const workspaceId = workspaces[0]?.id ?? ''
 
@@ -83,13 +85,21 @@ export default function MissionsPage() {
             <Loader2 className="h-6 w-6 animate-spin text-[var(--text-muted)]" />
           </div>
         ) : viewMode === 'board' ? (
-          <MissionBoard missions={missions} />
+          <MissionBoard missions={missions} onSelectMission={setSelectedMissionId} />
         ) : (
           <div className="p-6">
             <p className="text-sm text-[var(--text-muted)]">List view coming soon...</p>
           </div>
         )}
       </div>
+
+      {selectedMissionId && workspaceId && (
+        <MissionDetailPanel
+          missionId={selectedMissionId}
+          workspaceId={workspaceId}
+          onClose={() => setSelectedMissionId(null)}
+        />
+      )}
     </div>
   )
 }

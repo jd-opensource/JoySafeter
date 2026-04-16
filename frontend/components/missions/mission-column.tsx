@@ -17,9 +17,10 @@ const STATUS_COLUMN_STYLES: Record<string, string> = {
 interface MissionColumnProps {
   status: MissionStatus
   missions: Mission[]
+  onSelectMission?: (id: string) => void
 }
 
-export function MissionColumn({ status, missions }: MissionColumnProps) {
+export function MissionColumn({ status, missions, onSelectMission }: MissionColumnProps) {
   return (
     <div
       className={cn(
@@ -38,7 +39,7 @@ export function MissionColumn({ status, missions }: MissionColumnProps) {
 
       <div className="flex-1 space-y-2 overflow-y-auto p-2">
         {missions.map((mission) => (
-          <MissionCard key={mission.id} mission={mission} />
+          <MissionCard key={mission.id} mission={mission} onSelect={onSelectMission} />
         ))}
         {missions.length === 0 && (
           <p className="py-8 text-center text-xs text-[var(--text-muted)]">No missions</p>
