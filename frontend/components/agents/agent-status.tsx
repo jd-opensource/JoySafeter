@@ -5,11 +5,11 @@ import type { AgentStatus } from '@/types/agents'
 import { AGENT_STATUS_LABELS } from '@/types/agents'
 
 const statusConfig: Record<AgentStatus, { color: string; pulse?: boolean }> = {
-  idle: { color: 'bg-green-500' },
-  working: { color: 'bg-blue-500', pulse: true },
-  blocked: { color: 'bg-yellow-500' },
-  error: { color: 'bg-red-500' },
-  offline: { color: 'bg-gray-400' },
+  idle: { color: 'bg-[var(--status-success)]' },
+  working: { color: 'bg-[var(--brand-400)]', pulse: true },
+  blocked: { color: 'bg-[var(--status-warning)]' },
+  error: { color: 'bg-[var(--status-error)]' },
+  offline: { color: 'bg-[var(--surface-muted)]' },
 }
 
 interface AgentStatusIndicatorProps {
