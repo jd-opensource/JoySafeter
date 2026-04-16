@@ -46,7 +46,7 @@ export interface AssignMissionRequest {
 }
 
 export const MISSION_STATUS_ORDER: MissionStatus[] = [
-  'backlog', 'todo', 'in_progress', 'in_review', 'done',
+  'backlog', 'todo', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled',
 ]
 
 export const MISSION_STATUS_LABELS: Record<MissionStatus, string> = {

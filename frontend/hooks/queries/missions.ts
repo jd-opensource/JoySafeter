@@ -37,6 +37,7 @@ export function useMissions(
     },
     enabled: Boolean(workspaceId) && options?.enabled !== false,
     staleTime: STALE_TIME.SHORT,
+    refetchInterval: 15_000,
     refetchOnWindowFocus: true,
     placeholderData: keepPreviousData,
   })

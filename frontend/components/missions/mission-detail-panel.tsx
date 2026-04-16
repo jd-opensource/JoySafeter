@@ -5,6 +5,7 @@ import { useMemo } from 'react'
 
 import { AgentStatusIndicator } from '@/components/agents/agent-status'
 import { ExecutionTimeline } from '@/components/executions/execution-timeline'
+import { CommentThread } from '@/components/missions/comment-thread'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useAgentProfile, useAgentProfiles } from '@/hooks/queries/agentProfiles'
@@ -229,6 +230,14 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                 </div>
               </section>
             )}
+
+            {/* Comments */}
+            <section>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                Comments
+              </h3>
+              <CommentThread missionId={missionId} workspaceId={workspaceId} />
+            </section>
 
             {/* Timestamps */}
             <section className="border-t border-[var(--border)] pt-4">

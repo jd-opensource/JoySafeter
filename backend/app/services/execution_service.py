@@ -42,6 +42,7 @@ class ExecutionService:
         agent_profile_id: Optional[uuid.UUID] = None,
         parent_execution_id: Optional[uuid.UUID] = None,
         runtime_config: Optional[dict[str, Any]] = None,
+        trigger_comment_id: Optional[uuid.UUID] = None,
     ) -> Execution:
         execution = Execution(
             workspace_id=workspace_id,
@@ -55,6 +56,7 @@ class ExecutionService:
             parent_execution_id=parent_execution_id,
             runtime_type=runtime_type,
             runtime_config=runtime_config,
+            trigger_comment_id=trigger_comment_id,
             last_heartbeat_at=utc_now(),
         )
         self.db.add(execution)
@@ -167,6 +169,14 @@ class ExecutionService:
             snapshot.projection = projection
 
         await self.db.commit()
+
+        from app.websocket.execution_subscription_manager import execution_subscription_manager
+        await execution_subscription_manager.broadcast_event(
+            str(execution_id),
+            {"type": "execution_status", "execution_id": str(execution_id),
+             "status": status.value},
+        )
+
         return execution
 
     async def append_event(
@@ -220,6 +230,13 @@ class ExecutionService:
         await self.db.flush()
         if commit:
             await self.db.commit()
+            from app.websocket.execution_subscription_manager import execution_subscription_manager
+            await execution_subscription_manager.broadcast_event(
+                str(execution_id),
+                {"type": "event", "execution_id": str(execution_id),
+                 "seq": event.seq, "event_type": event_type,
+                 "data": payload, "created_at": str(event.created_at)},
+            )
         return event
 
     async def batch_append_events(
@@ -247,6 +264,16 @@ class ExecutionService:
             )
             results.append(result)
         await self.db.commit()
+
+        from app.websocket.execution_subscription_manager import execution_subscription_manager
+        for evt in results:
+            await execution_subscription_manager.broadcast_event(
+                str(execution_id),
+                {"type": "event", "execution_id": str(execution_id),
+                 "seq": evt.seq, "event_type": evt.event_type,
+                 "data": evt.payload, "created_at": str(evt.created_at)},
+            )
+
         return results
 
     async def touch_heartbeat(

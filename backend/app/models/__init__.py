@@ -48,6 +48,7 @@ from .agent_profile import AgentProfile, AgentStatus
 from .execution import Execution, ExecutionEvent, ExecutionSnapshot, ExecutionSource
 from .execution import MissionExecutionStatus
 from .mission import Mission, MissionPriority, MissionStatus
+from .mission_comment import CommentAuthorType, CommentType, MissionComment
 from .workspace_files import WorkspaceFile, WorkspaceStoredFile
 
 __all__ = [
@@ -120,4 +121,7 @@ __all__ = [
     "ExecutionSnapshot",
     "ExecutionSource",
     "MissionExecutionStatus",
+    "MissionComment",
+    "CommentAuthorType",
+    "CommentType",
 ]

@@ -95,12 +95,19 @@ class Execution(BaseModel):
     session_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     work_dir: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
+    trigger_comment_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("mission_comments.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     __table_args__ = (
         Index("executions_workspace_status_idx", "workspace_id", "status"),
         Index("executions_mission_idx", "mission_id"),
         Index("executions_agent_profile_idx", "agent_profile_id"),
         Index("executions_parent_idx", "parent_execution_id"),
         Index("executions_user_created_idx", "user_id", "created_at"),
+        Index("executions_trigger_comment_idx", "trigger_comment_id"),
     )
 
 

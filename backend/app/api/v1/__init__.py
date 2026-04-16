@@ -41,6 +41,7 @@ from .version import router as version_router
 from .missions import router as missions_router
 from .executions import router as executions_router
 from .agent_profiles import router as agent_profiles_router
+from .mission_comments import router as mission_comments_router
 from .workspace_files import router as workspace_files_router
 from .workspace_folders import router as workspace_folders_router
 from .workspaces import router as workspaces_router
@@ -84,6 +85,7 @@ ROUTERS = [
     missions_router,
     executions_router,
     agent_profiles_router,
+    mission_comments_router,
 ]
 
 

@@ -36,24 +36,30 @@ def _start_execution_runner(
     """Fire-and-forget: launch an ExecutionRunner in a background task."""
     from app.core.agent.cli_backends.execution_runner import ExecutionRunner
     from app.core.database import AsyncSessionLocal
+    from app.utils.task_manager import task_manager
 
     async def _run() -> None:
-        async with AsyncSessionLocal() as db:
-            runner = ExecutionRunner(db)
-            try:
+        current_task = asyncio.current_task()
+        if current_task:
+            await task_manager.register_task(str(execution_id), current_task)
+        try:
+            async with AsyncSessionLocal() as db:
+                runner = ExecutionRunner(db)
                 await runner.run(
                     execution_id=execution_id,
                     prompt=prompt,
                     credentials=credentials,
                 )
-            except Exception as exc:
-                logger.error(f"Background runner failed for {execution_id}: {exc}")
+        except Exception as exc:
+            logger.error(f"Background runner failed for {execution_id}: {exc}")
+        finally:
+            await task_manager.unregister_task(str(execution_id))
 
     task = asyncio.create_task(_run(), name=f"dispatch-{execution_id}")
     task.add_done_callback(_handle_task_exception)
 
 
-def build_execution_prompt(mission: Mission) -> str:
+def build_execution_prompt(mission: Mission, trigger_comment=None) -> str:
     """Build the prompt sent to the CLI agent for a mission."""
     parts: list[str] = []
     parts.append(f"# Mission: {mission.title}")
@@ -63,6 +69,12 @@ def build_execution_prompt(mission: Mission) -> str:
         parts.append(f"\n## Objective\n{mission.objective}")
     if mission.tags:
         parts.append(f"\n## Tags\n{', '.join(str(t) for t in mission.tags)}")
+    if trigger_comment:
+        parts.append(
+            f"\n## [NEW COMMENT]\n"
+            f"A user just left a new comment. You MUST respond to THIS comment:\n\n"
+            f"> {trigger_comment.content[:4000]}"
+        )
     return "\n".join(parts)
 
 
@@ -237,20 +249,45 @@ class MissionService:
 
         return mission, execution
 
-    async def complete_mission(
+    async def finalize_mission_execution(
         self,
         *,
-        mission_id: uuid.UUID,
-        workspace_id: uuid.UUID,
-    ) -> Optional[Mission]:
-        """Mark a mission as DONE."""
-        mission = await self.repo.get_for_update(mission_id, workspace_id)
+        execution_id: uuid.UUID,
+        status: MissionExecutionStatus,
+    ) -> None:
+        """Called by ExecutionRunner after completion/failure to update the parent Mission."""
+        from sqlalchemy import select
+
+        mission = (
+            await self.db.execute(
+                select(Mission).where(Mission.current_execution_id == execution_id)
+            )
+        ).scalar_one_or_none()
         if not mission:
-            return None
-        mission.status = MissionStatus.DONE
+            return
+
+        mission.current_execution_id = None
+
+        if status == MissionExecutionStatus.COMPLETED:
+            mission.status = MissionStatus.DONE
+        elif status == MissionExecutionStatus.FAILED:
+            if mission.status == MissionStatus.IN_PROGRESS:
+                mission.status = MissionStatus.TODO
+        # CANCELLED is handled by cancel_mission directly
+
         await self.db.commit()
-        await self.db.refresh(mission)
-        return mission
+
+        from app.websocket.notification_manager import NotificationType, notification_manager
+        await notification_manager.broadcast({
+            "type": NotificationType.MISSION_UPDATED.value,
+            "mission_id": str(mission.id),
+            "status": mission.status.value,
+        })
+
+        logger.info(
+            f"Finalized mission {mission.id}: execution {execution_id} "
+            f"-> mission status {mission.status.value}"
+        )
 
     async def cancel_mission(
         self,
@@ -264,12 +301,22 @@ class MissionService:
             return None
 
         if mission.current_execution_id:
+            exec_id = mission.current_execution_id
             await self.execution_service.mark_status(
-                execution_id=mission.current_execution_id,
+                execution_id=exec_id,
                 status=MissionExecutionStatus.CANCELLED,
             )
+            # Terminate the running container process
+            from app.core.agent.cli_backends.session_registry import session_registry
+            session = session_registry.get(exec_id)
+            if session:
+                await session.cancel()
+            # Cancel the asyncio background task
+            from app.utils.task_manager import task_manager
+            await task_manager.cancel_task(str(exec_id))
 
         mission.status = MissionStatus.CANCELLED
+        mission.current_execution_id = None
         await self.db.commit()
         await self.db.refresh(mission)
         return mission

@@ -172,6 +172,25 @@ async def cancel_execution(
     )
     if not execution:
         return BaseResponse(success=False, code=404, msg="Execution not found", data=None)
+
+    # Cascade: update parent mission if this was the active execution
+    if execution.mission_id:
+        from app.repositories.mission import MissionRepository
+        from app.models.mission import MissionStatus
+        mission_repo = MissionRepository(db)
+        mission = await mission_repo.get_for_update(execution.mission_id)
+        if mission and mission.current_execution_id == execution_id:
+            mission.current_execution_id = None
+            if mission.status == MissionStatus.IN_PROGRESS:
+                mission.status = MissionStatus.TODO
+            await db.commit()
+
+    # Terminate the running container process
+    from app.core.agent.cli_backends.session_registry import session_registry
+    session = session_registry.get(execution_id)
+    if session:
+        await session.cancel()
+
     return BaseResponse(success=True, code=200, msg="Execution cancelled", data=_to_summary(execution))
 
 
