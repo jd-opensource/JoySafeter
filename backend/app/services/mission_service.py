@@ -9,10 +9,11 @@ import uuid
 from typing import Any, Optional
 
 from loguru import logger
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent_profile import AgentStatus
-from app.models.execution import ExecutionSource, MissionExecutionStatus
+from app.models.execution import Execution as ExecModel, ExecutionSource, MissionExecutionStatus
 from app.models.mission import Mission, MissionPriority, MissionStatus
 from app.repositories.agent_profile import AgentProfileRepository
 from app.repositories.mission import MissionRepository
@@ -216,8 +217,6 @@ class MissionService:
         # If mission is IN_PROGRESS, check if the current execution is actually terminal
         if mission.status == MissionStatus.IN_PROGRESS:
             if mission.current_execution_id:
-                from sqlalchemy import select
-                from app.models.execution import Execution as ExecModel
                 current_exec = (
                     await self.db.execute(
                         select(ExecModel).where(ExecModel.id == mission.current_execution_id)

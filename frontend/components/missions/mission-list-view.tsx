@@ -104,7 +104,7 @@ export function MissionListView({ missions, agentsMap, onSelectMission }: Missio
         </TableHeader>
         <TableBody>
           {sorted.map((m) => {
-            const isOverdue = m.due_date ? new Date(m.due_date) < new Date() : false
+            const isOverdue = m.due_date ? Date.parse(m.due_date) < Date.now() : false
             return (
               <TableRow
                 key={m.id}

@@ -91,7 +91,9 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
 
   const pastExecutions = useMemo(() => {
     if (!mission) return []
-    return executions.filter((e) => e.id !== mission.current_execution_id)
+    return executions
+      .filter((e) => e.id !== mission.current_execution_id)
+      .slice(0, 10)
   }, [executions, mission])
 
   // Update helpers
@@ -400,33 +402,12 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-60 p-0" align="end">
-                      <Command>
-                        <CommandInput placeholder="Search agents..." />
-                        <CommandList>
-                          <CommandEmpty>No agents found.</CommandEmpty>
-                          <CommandGroup>
-                            {agents.map((a) => (
-                              <CommandItem
-                                key={a.id}
-                                value={a.name}
-                                onSelect={() => handleAssign(a.id)}
-                              >
-                                <Bot className="mr-2 h-3.5 w-3.5" />
-                                {a.name}
-                                {a.id === mission.assignee_id && (
-                                  <Check className="ml-auto h-3.5 w-3.5 text-[var(--brand-400)]" />
-                                )}
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                          <CommandGroup>
-                            <CommandItem onSelect={handleUnassign} className="text-[var(--status-error)]">
-                              <X className="mr-2 h-3.5 w-3.5" />
-                              Unassign
-                            </CommandItem>
-                          </CommandGroup>
-                        </CommandList>
-                      </Command>
+                      <AgentPickerContent
+                        agents={agents}
+                        currentAgentId={mission.assignee_id}
+                        onSelect={handleAssign}
+                        onUnassign={handleUnassign}
+                      />
                     </PopoverContent>
                   </Popover>
                 </div>
@@ -439,24 +420,10 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-60 p-0" align="start">
-                    <Command>
-                      <CommandInput placeholder="Search agents..." />
-                      <CommandList>
-                        <CommandEmpty>No agents found.</CommandEmpty>
-                        <CommandGroup>
-                          {agents.map((a) => (
-                            <CommandItem
-                              key={a.id}
-                              value={a.name}
-                              onSelect={() => handleAssign(a.id)}
-                            >
-                              <Bot className="mr-2 h-3.5 w-3.5" />
-                              {a.name}
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
+                    <AgentPickerContent
+                      agents={agents}
+                      onSelect={handleAssign}
+                    />
                   </PopoverContent>
                 </Popover>
               )}
@@ -571,7 +538,47 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
   )
 }
 
-// --- Internal sub-component ---
+// --- Internal sub-components ---
+
+function AgentPickerContent({
+  agents,
+  currentAgentId,
+  onSelect,
+  onUnassign,
+}: {
+  agents: { id: string; name: string }[]
+  currentAgentId?: string | null
+  onSelect: (agentId: string) => void
+  onUnassign?: () => void
+}) {
+  return (
+    <Command>
+      <CommandInput placeholder="Search agents..." />
+      <CommandList>
+        <CommandEmpty>No agents found.</CommandEmpty>
+        <CommandGroup>
+          {agents.map((a) => (
+            <CommandItem key={a.id} value={a.name} onSelect={() => onSelect(a.id)}>
+              <Bot className="mr-2 h-3.5 w-3.5" />
+              {a.name}
+              {a.id === currentAgentId && (
+                <Check className="ml-auto h-3.5 w-3.5 text-[var(--brand-400)]" />
+              )}
+            </CommandItem>
+          ))}
+        </CommandGroup>
+        {onUnassign && (
+          <CommandGroup>
+            <CommandItem onSelect={onUnassign} className="text-[var(--status-error)]">
+              <X className="mr-2 h-3.5 w-3.5" />
+              Unassign
+            </CommandItem>
+          </CommandGroup>
+        )}
+      </CommandList>
+    </Command>
+  )
+}
 
 function PastExecutionRow({ execution, workspaceId }: { execution: { id: string; status: string; started_at?: string | null; finished_at?: string | null }; workspaceId: string }) {
   const [expanded, setExpanded] = useState(false)
@@ -614,7 +621,7 @@ function PastExecutionRow({ execution, workspaceId }: { execution: { id: string;
       </button>
       {expanded && (
         <div className="mt-1 overflow-hidden rounded-lg border border-[var(--border)]">
-          <ExecutionTimeline executionId={execution.id} workspaceId={workspaceId} compact />
+          <ExecutionTimeline executionId={execution.id} workspaceId={workspaceId} compact isLive={false} />
         </div>
       )}
     </div>

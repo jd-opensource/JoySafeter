@@ -30,28 +30,31 @@ interface ExecutionTimelineProps {
   executionId: string
   workspaceId: string
   compact?: boolean
+  /** Set to false for terminal executions to skip WebSocket and polling. Defaults to true. */
+  isLive?: boolean
 }
 
-export function ExecutionTimeline({ executionId, workspaceId, compact }: ExecutionTimelineProps) {
+export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = true }: ExecutionTimelineProps) {
   const { data: execution, isLoading: isExecLoading, error: execError, refetch: refetchExec } = useExecution(executionId, workspaceId)
   const isActive = execution ? ACTIVE_STATUSES.includes(execution.status) : false
+  const shouldStream = isLive && Boolean(executionId)
 
-  // WebSocket stream — primary data source
+  // WebSocket stream — primary data source (disabled for terminal executions)
   const {
     events: wsEvents,
     status: wsStatus,
     isConnected,
     wsFailed,
-  } = useExecutionStream({ executionId, enabled: Boolean(executionId) })
+  } = useExecutionStream({ executionId, enabled: shouldStream })
 
-  // Polling fallback — only enabled when WS fails
+  // Polling fallback — only enabled when WS fails and execution is live
   const {
     data: eventsPage,
     isLoading: isEventsLoading,
     error: eventsError,
     refetch: refetchEvents,
   } = useExecutionEvents(executionId, workspaceId, undefined, {
-    enabled: Boolean(executionId) && wsFailed,
+    enabled: Boolean(executionId) && (shouldStream ? wsFailed : true),
   })
 
   // Use WS events when connected, fall back to polling data

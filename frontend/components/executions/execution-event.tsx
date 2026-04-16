@@ -17,31 +17,33 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { ExecutionEvent, ExecutionEventType } from '@/types/executions'
 
+const TEXT_CFG = { icon: FileText, label: 'Text', style: '' } as const
+const TOOL_CFG = { icon: Wrench, label: 'Tool', style: '' } as const
+const RESULT_CFG = { icon: Wrench, label: 'Result', style: '' } as const
+const APPROVAL_CFG = {
+  icon: AlertTriangle,
+  label: 'Approval Required',
+  style: 'border-l-2 border-l-[var(--status-warning)] bg-[var(--status-warning-bg)]',
+} as const
+const ARTIFACT_CFG = { icon: Paperclip, label: 'Artifact', style: '' } as const
+
 const EVENT_CONFIG: Partial<Record<
   ExecutionEventType,
   { icon: React.ElementType; label: string; style: string }
 >> = {
-  text: { icon: FileText, label: 'Text', style: '' },
-  assistant_text: { icon: FileText, label: 'Text', style: '' },
+  text: TEXT_CFG,
+  assistant_text: TEXT_CFG,
   thinking: { icon: MessageSquare, label: 'Thinking', style: 'bg-[var(--surface-3)] italic' },
-  tool_use: { icon: Wrench, label: 'Tool', style: '' },
-  tool_use_start: { icon: Wrench, label: 'Tool', style: '' },
-  tool_result: { icon: Wrench, label: 'Result', style: '' },
-  tool_use_end: { icon: Wrench, label: 'Result', style: '' },
+  tool_use: TOOL_CFG,
+  tool_use_start: TOOL_CFG,
+  tool_result: RESULT_CFG,
+  tool_use_end: RESULT_CFG,
   error: { icon: XCircle, label: 'Error', style: 'border-l-2 border-l-[var(--status-error)] text-[var(--status-error)]' },
-  approval_request: {
-    icon: AlertTriangle,
-    label: 'Approval Required',
-    style: 'border-l-2 border-l-[var(--status-warning)] bg-[var(--status-warning-bg)]',
-  },
-  approval_requested: {
-    icon: AlertTriangle,
-    label: 'Approval Required',
-    style: 'border-l-2 border-l-[var(--status-warning)] bg-[var(--status-warning-bg)]',
-  },
+  approval_request: APPROVAL_CFG,
+  approval_requested: APPROVAL_CFG,
   user_message: { icon: MessageSquare, label: 'User', style: 'bg-[var(--surface-3)]' },
-  artifact: { icon: Paperclip, label: 'Artifact', style: '' },
-  artifact_created: { icon: Paperclip, label: 'Artifact', style: '' },
+  artifact: ARTIFACT_CFG,
+  artifact_created: ARTIFACT_CFG,
   status: { icon: Info, label: 'Status', style: '' },
   execution_started: { icon: Info, label: 'Started', style: '' },
   execution_completed: { icon: Info, label: 'Completed', style: '' },
@@ -189,7 +191,7 @@ export function ExecutionEventItem({ event, onApprove, onReject }: ExecutionEven
       case 'execution_completed':
         return (
           <p className="text-sm text-[var(--text-muted)]">
-            {String(payload.message ?? payload.status ?? event.event_type.replace('_', ' '))}
+            {String(payload.message ?? payload.status ?? config.label)}
           </p>
         )
 

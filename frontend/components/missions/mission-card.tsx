@@ -21,7 +21,7 @@ export const MissionCard = forwardRef<HTMLButtonElement, MissionCardProps & Reac
     const hasActiveExecution = Boolean(mission.current_execution_id)
     const isAssignedToAgent = mission.assignee_type === 'agent'
 
-    const isOverdue = mission.due_date ? new Date(mission.due_date) < new Date() : false
+    const isOverdue = mission.due_date ? Date.parse(mission.due_date) < Date.now() : false
 
     return (
       <button
