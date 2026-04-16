@@ -86,7 +86,7 @@ export function ExecutionTimeline({ executionId, workspaceId, compact }: Executi
   }, [execution?.started_at, execution?.finished_at])
 
   const toolCount = useMemo(
-    () => events.filter((e) => e.event_type === 'tool_use').length,
+    () => events.filter((e) => e.event_type === 'tool_use' || e.event_type === 'tool_use_start').length,
     [events],
   )
 

@@ -30,6 +30,8 @@ def _to_summary(m: Mission) -> MissionSummary:
         id=m.id,
         workspace_id=m.workspace_id,
         title=m.title,
+        description=m.description,
+        objective=m.objective,
         status=m.status.value if hasattr(m.status, "value") else str(m.status),
         priority=m.priority.value if hasattr(m.priority, "value") else str(m.priority),
         assignee_type=m.assignee_type,
@@ -39,6 +41,7 @@ def _to_summary(m: Mission) -> MissionSummary:
         parent_mission_id=m.parent_mission_id,
         tags=m.tags,
         position=m.position,
+        due_date=m.due_date,
         created_at=m.created_at,
         updated_at=m.updated_at,
     )
@@ -49,6 +52,8 @@ async def list_missions(
     current_user: CurrentUser,
     workspace_id: uuid.UUID = Query(...),
     status: str | None = Query(None),
+    parent_mission_id: uuid.UUID | None = Query(None),
+    assignee_id: uuid.UUID | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionListResponse]:
@@ -56,6 +61,8 @@ async def list_missions(
     missions = await service.list_missions(
         workspace_id=workspace_id,
         status=status,
+        parent_mission_id=parent_mission_id,
+        assignee_id=assignee_id,
         limit=limit,
     )
     return BaseResponse(

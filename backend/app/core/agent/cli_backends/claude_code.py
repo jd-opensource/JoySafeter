@@ -91,6 +91,9 @@ class ClaudeCodeProvider:
                     except json.JSONDecodeError:
                         continue
 
+                    if not isinstance(event, dict):
+                        continue
+
                     for msg in self._parse_event(event):
                         if msg.type == "text":
                             accumulated_text.append(msg.content)
@@ -98,7 +101,8 @@ class ClaudeCodeProvider:
 
                     if event.get("type") == "result":
                         result_data = event.get("result", {})
-                        session_id = result_data.get("session_id", "")
+                        if isinstance(result_data, dict):
+                            session_id = result_data.get("session_id", "")
                         if "usage" in event:
                             usage = event["usage"]
 
@@ -133,7 +137,12 @@ class ClaudeCodeProvider:
 
         if event_type == "assistant" and "message" in event:
             msg = event["message"]
-            for block in msg.get("content", []):
+            for block in msg.get("content", []) if isinstance(msg, dict) else []:
+                if isinstance(block, str):
+                    messages.append(CLIMessage(type="text", content=block))
+                    continue
+                if not isinstance(block, dict):
+                    continue
                 block_type = block.get("type", "")
                 if block_type == "text":
                     messages.append(CLIMessage(type="text", content=block.get("text", "")))

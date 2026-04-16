@@ -52,6 +52,8 @@ class MissionSummary(BaseModel):
     id: uuid.UUID
     workspace_id: uuid.UUID
     title: str
+    description: Optional[str] = None
+    objective: Optional[str] = None
     status: str
     priority: str
     assignee_type: Optional[str] = None
@@ -61,6 +63,7 @@ class MissionSummary(BaseModel):
     parent_mission_id: Optional[uuid.UUID] = None
     tags: Optional[list[str]] = None
     position: float
+    due_date: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 

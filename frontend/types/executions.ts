@@ -31,7 +31,17 @@ export interface ExecutionEvent {
   created_at: string
 }
 
-export type ExecutionEventType = 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'error' | 'artifact' | 'approval_request' | 'user_message' | 'status'
+export type ExecutionEventType =
+  | 'text' | 'assistant_text'
+  | 'thinking'
+  | 'tool_use' | 'tool_use_start'
+  | 'tool_result' | 'tool_use_end'
+  | 'error'
+  | 'artifact' | 'artifact_created'
+  | 'approval_request' | 'approval_requested'
+  | 'user_message'
+  | 'status'
+  | 'execution_started' | 'execution_completed'
 
 export interface ExecutionSnapshot {
   execution_id: string

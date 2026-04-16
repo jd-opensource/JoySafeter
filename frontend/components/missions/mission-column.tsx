@@ -1,5 +1,9 @@
 'use client'
 
+import { useDroppable } from '@dnd-kit/core'
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+
 import { cn } from '@/lib/utils'
 import type { Mission, MissionStatus } from '@/types/missions'
 import { MISSION_STATUS_LABELS } from '@/types/missions'
@@ -14,18 +18,58 @@ const STATUS_COLUMN_STYLES: Record<string, string> = {
   done: 'bg-[var(--surface-2)]',
 }
 
-interface MissionColumnProps {
-  status: MissionStatus
-  missions: Mission[]
+interface SortableMissionCardProps {
+  mission: Mission
+  agentName?: string
   onSelectMission?: (id: string) => void
 }
 
-export function MissionColumn({ status, missions, onSelectMission }: MissionColumnProps) {
+function SortableMissionCard({ mission, agentName, onSelectMission }: SortableMissionCardProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: mission.id,
+    data: { type: 'mission', mission },
+  })
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : undefined,
+  }
+
+  return (
+    <MissionCard
+      ref={setNodeRef}
+      mission={mission}
+      agentName={agentName}
+      onSelectMission={onSelectMission}
+      style={style}
+      {...attributes}
+      {...listeners}
+    />
+  )
+}
+
+interface MissionColumnProps {
+  status: MissionStatus
+  missions: Mission[]
+  agentsMap?: Record<string, string>
+  onSelectMission?: (id: string) => void
+}
+
+export function MissionColumn({ status, missions, agentsMap, onSelectMission }: MissionColumnProps) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `column-${status}`,
+    data: { type: 'column', status },
+  })
+
+  const missionIds = missions.map((m) => m.id)
+
   return (
     <div
       className={cn(
-        'flex h-full w-72 flex-shrink-0 flex-col rounded-lg border border-[var(--border)]',
+        'flex h-full w-72 flex-shrink-0 flex-col rounded-lg border border-[var(--border)] transition-all',
         STATUS_COLUMN_STYLES[status] ?? 'bg-[var(--surface-1)]',
+        isOver && 'ring-2 ring-[var(--brand-400)]/30',
       )}
     >
       <div className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-2.5">
@@ -37,10 +81,17 @@ export function MissionColumn({ status, missions, onSelectMission }: MissionColu
         </span>
       </div>
 
-      <div className="flex-1 space-y-2 overflow-y-auto p-2">
-        {missions.map((mission) => (
-          <MissionCard key={mission.id} mission={mission} onSelect={onSelectMission} />
-        ))}
+      <div ref={setNodeRef} className="flex-1 space-y-2 overflow-y-auto p-2">
+        <SortableContext items={missionIds} strategy={verticalListSortingStrategy}>
+          {missions.map((mission) => (
+            <SortableMissionCard
+              key={mission.id}
+              mission={mission}
+              agentName={agentsMap?.[mission.assignee_id ?? '']}
+              onSelectMission={onSelectMission}
+            />
+          ))}
+        </SortableContext>
         {missions.length === 0 && (
           <p className="py-8 text-center text-xs text-[var(--text-muted)]">No missions</p>
         )}

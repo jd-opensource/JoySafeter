@@ -39,6 +39,9 @@ export interface UpdateMissionRequest {
   priority?: MissionPriority
   position?: number
   tags?: string[]
+  due_date?: string | null
+  assignee_type?: string | null
+  assignee_id?: string | null
 }
 
 export interface AssignMissionRequest {
@@ -65,4 +68,14 @@ export const MISSION_PRIORITY_LABELS: Record<MissionPriority, string> = {
   medium: 'Medium',
   high: 'High',
   urgent: 'Urgent',
+}
+
+export const MISSION_STATUS_STYLES: Record<string, string> = {
+  backlog: 'bg-[var(--surface-3)] text-[var(--text-secondary)]',
+  todo: 'bg-[var(--surface-3)] text-[var(--brand-400)]',
+  in_progress: 'bg-[var(--status-warning-bg)] text-[var(--status-warning)]',
+  in_review: 'bg-[var(--surface-3)] text-[var(--text-secondary)]',
+  done: 'bg-[var(--status-success-bg)] text-[var(--status-success)]',
+  blocked: 'bg-[var(--status-error-bg)] text-[var(--status-error)]',
+  cancelled: 'bg-[var(--surface-3)] text-[var(--text-muted)]',
 }

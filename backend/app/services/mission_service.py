@@ -206,10 +206,34 @@ class MissionService:
         if not mission:
             raise ValueError(f"Mission not found: {mission_id}")
 
-        if mission.status not in {MissionStatus.TODO, MissionStatus.BACKLOG}:
+        if mission.status not in {
+            MissionStatus.TODO, MissionStatus.BACKLOG, MissionStatus.IN_PROGRESS,
+        }:
             raise ValueError(
                 f"Mission {mission_id} cannot be dispatched from status {mission.status.value}"
             )
+
+        # If mission is IN_PROGRESS, check if the current execution is actually terminal
+        if mission.status == MissionStatus.IN_PROGRESS:
+            if mission.current_execution_id:
+                from sqlalchemy import select
+                from app.models.execution import Execution as ExecModel
+                current_exec = (
+                    await self.db.execute(
+                        select(ExecModel).where(ExecModel.id == mission.current_execution_id)
+                    )
+                ).scalar_one_or_none()
+                if current_exec and current_exec.status in {
+                    MissionExecutionStatus.RUNNING,
+                    MissionExecutionStatus.DISPATCHED,
+                    MissionExecutionStatus.QUEUED,
+                    MissionExecutionStatus.APPROVAL_WAIT,
+                }:
+                    raise ValueError(
+                        f"Mission {mission_id} already has an active execution"
+                    )
+            # Stale IN_PROGRESS — reset so we can re-dispatch
+            mission.current_execution_id = None
 
         if not mission.assignee_id or mission.assignee_type != "agent":
             raise ValueError(f"Mission {mission_id} has no agent assignee")

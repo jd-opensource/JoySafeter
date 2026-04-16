@@ -82,7 +82,28 @@ export function useUpdateMission() {
     }: UpdateMissionRequest & { missionId: string; workspaceId: string }) => {
       return missionService.update(missionId, workspaceId, updates)
     },
-    onSuccess: () => {
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey: missionKeys.all })
+      const previous = queryClient.getQueriesData<Mission[]>({ queryKey: missionKeys.all })
+
+      queryClient.setQueriesData<Mission[]>({ queryKey: missionKeys.all }, (old) => {
+        if (!old || !Array.isArray(old)) return old
+        const { missionId: _id, workspaceId: _ws, ...updates } = variables
+        return old.map((m) =>
+          m.id === variables.missionId ? ({ ...m, ...updates } as Mission) : m,
+        )
+      })
+
+      return { previous }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        for (const [key, data] of context.previous) {
+          queryClient.setQueryData(key, data)
+        }
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: missionKeys.all })
     },
   })

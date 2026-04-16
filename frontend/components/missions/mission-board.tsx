@@ -1,18 +1,39 @@
 'use client'
 
-import { useMemo } from 'react'
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCorners,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core'
+import { useCallback, useMemo, useState } from 'react'
 
+import { useUpdateMission } from '@/hooks/queries/missions'
 import type { Mission, MissionStatus } from '@/types/missions'
 import { MISSION_STATUS_ORDER } from '@/types/missions'
 
+import { MissionCard } from './mission-card'
 import { MissionColumn } from './mission-column'
 
 interface MissionBoardProps {
   missions: Mission[]
+  workspaceId: string
+  agentsMap: Record<string, string>
   onSelectMission?: (id: string) => void
 }
 
-export function MissionBoard({ missions, onSelectMission }: MissionBoardProps) {
+export function MissionBoard({ missions, workspaceId, agentsMap, onSelectMission }: MissionBoardProps) {
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const updateMission = useUpdateMission()
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  )
+
   const grouped = useMemo(() => {
     const map: Record<MissionStatus, Mission[]> = {
       backlog: [],
@@ -28,18 +49,117 @@ export function MissionBoard({ missions, onSelectMission }: MissionBoardProps) {
         map[m.status].push(m)
       }
     }
-    // Sort within each column by position
     for (const key of Object.keys(map) as MissionStatus[]) {
       map[key].sort((a, b) => a.position - b.position)
     }
     return map
   }, [missions])
 
+  const activeMission = useMemo(
+    () => (activeId ? missions.find((m) => m.id === activeId) : undefined),
+    [activeId, missions],
+  )
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setActiveId(event.active.id as string)
+  }, [])
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      setActiveId(null)
+      const { active, over } = event
+      if (!over) return
+
+      const draggedMission = missions.find((m) => m.id === active.id)
+      if (!draggedMission) return
+
+      // Determine target column
+      const overData = over.data.current
+      let targetStatus: MissionStatus
+      if (overData?.type === 'column') {
+        targetStatus = overData.status as MissionStatus
+      } else if (overData?.type === 'mission') {
+        targetStatus = (overData.mission as Mission).status
+      } else {
+        // over.id is `column-<status>` format
+        const colPrefix = 'column-'
+        const overId = over.id as string
+        if (overId.startsWith(colPrefix)) {
+          targetStatus = overId.slice(colPrefix.length) as MissionStatus
+        } else {
+          // Dropped on a card — find its status
+          const targetMission = missions.find((m) => m.id === over.id)
+          if (!targetMission) return
+          targetStatus = targetMission.status
+        }
+      }
+
+      // Calculate new position
+      const targetColumn = grouped[targetStatus] || []
+      let newPosition: number
+
+      if (overData?.type === 'mission' && over.id !== active.id) {
+        // Dropped on a specific card
+        const overIndex = targetColumn.findIndex((m) => m.id === over.id)
+        if (overIndex <= 0) {
+          newPosition = (targetColumn[0]?.position ?? 0) - 1
+        } else {
+          const prev = targetColumn[overIndex - 1]
+          const curr = targetColumn[overIndex]
+          newPosition = (prev.position + curr.position) / 2
+        }
+      } else {
+        // Dropped on column — place at end
+        const last = targetColumn[targetColumn.length - 1]
+        newPosition = last ? last.position + 1 : 0
+      }
+
+      const statusChanged = draggedMission.status !== targetStatus
+      const positionChanged = draggedMission.position !== newPosition
+
+      if (!statusChanged && !positionChanged) return
+
+      const updates: Record<string, unknown> = {}
+      if (statusChanged) updates.status = targetStatus
+      if (positionChanged) updates.position = newPosition
+
+      updateMission.mutate({
+        missionId: draggedMission.id,
+        workspaceId,
+        ...updates,
+      })
+    },
+    [missions, grouped, workspaceId, updateMission],
+  )
+
   return (
-    <div className="flex h-full gap-3 overflow-x-auto p-4 [-webkit-overflow-scrolling:touch]">
-      {MISSION_STATUS_ORDER.map((status) => (
-        <MissionColumn key={status} status={status} missions={grouped[status]} onSelectMission={onSelectMission} />
-      ))}
-    </div>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCorners}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+    >
+      <div className="flex h-full gap-3 overflow-x-auto p-4 [-webkit-overflow-scrolling:touch]">
+        {MISSION_STATUS_ORDER.map((status) => (
+          <MissionColumn
+            key={status}
+            status={status}
+            missions={grouped[status]}
+            agentsMap={agentsMap}
+            onSelectMission={onSelectMission}
+          />
+        ))}
+      </div>
+
+      <DragOverlay>
+        {activeMission ? (
+          <MissionCard
+            mission={activeMission}
+            agentName={agentsMap[activeMission.assignee_id ?? '']}
+            isDragOverlay
+          />
+        ) : null}
+      </DragOverlay>
+    </DndContext>
   )
 }

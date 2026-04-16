@@ -17,23 +17,34 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { ExecutionEvent, ExecutionEventType } from '@/types/executions'
 
-const EVENT_CONFIG: Record<
+const EVENT_CONFIG: Partial<Record<
   ExecutionEventType,
   { icon: React.ElementType; label: string; style: string }
-> = {
+>> = {
   text: { icon: FileText, label: 'Text', style: '' },
+  assistant_text: { icon: FileText, label: 'Text', style: '' },
   thinking: { icon: MessageSquare, label: 'Thinking', style: 'bg-[var(--surface-3)] italic' },
   tool_use: { icon: Wrench, label: 'Tool', style: '' },
+  tool_use_start: { icon: Wrench, label: 'Tool', style: '' },
   tool_result: { icon: Wrench, label: 'Result', style: '' },
+  tool_use_end: { icon: Wrench, label: 'Result', style: '' },
   error: { icon: XCircle, label: 'Error', style: 'border-l-2 border-l-[var(--status-error)] text-[var(--status-error)]' },
   approval_request: {
     icon: AlertTriangle,
     label: 'Approval Required',
     style: 'border-l-2 border-l-[var(--status-warning)] bg-[var(--status-warning-bg)]',
   },
+  approval_requested: {
+    icon: AlertTriangle,
+    label: 'Approval Required',
+    style: 'border-l-2 border-l-[var(--status-warning)] bg-[var(--status-warning-bg)]',
+  },
   user_message: { icon: MessageSquare, label: 'User', style: 'bg-[var(--surface-3)]' },
   artifact: { icon: Paperclip, label: 'Artifact', style: '' },
+  artifact_created: { icon: Paperclip, label: 'Artifact', style: '' },
   status: { icon: Info, label: 'Status', style: '' },
+  execution_started: { icon: Info, label: 'Started', style: '' },
+  execution_completed: { icon: Info, label: 'Completed', style: '' },
 }
 
 interface ExecutionEventItemProps {
@@ -44,9 +55,10 @@ interface ExecutionEventItemProps {
 
 export function ExecutionEventItem({ event, onApprove, onReject }: ExecutionEventItemProps) {
   const [expanded, setExpanded] = useState(false)
-  const config = EVENT_CONFIG[event.event_type] ?? EVENT_CONFIG.text
+  const defaultConfig = { icon: Info, label: event.event_type, style: '' }
+  const config = EVENT_CONFIG[event.event_type] ?? defaultConfig
   const Icon = config.icon
-  const payload = event.payload
+  const payload = event.payload ?? {}
 
   const timestamp = new Date(event.created_at).toLocaleTimeString(undefined, {
     hour: '2-digit',
@@ -56,6 +68,7 @@ export function ExecutionEventItem({ event, onApprove, onReject }: ExecutionEven
   const renderContent = () => {
     switch (event.event_type) {
       case 'text':
+      case 'assistant_text':
         return (
           <p className="whitespace-pre-wrap text-sm text-[var(--text-primary)]">
             {String(payload.content ?? payload.text ?? '')}
@@ -82,10 +95,14 @@ export function ExecutionEventItem({ event, onApprove, onReject }: ExecutionEven
         )
 
       case 'tool_use':
+      case 'tool_use_start': {
+        const tool = (payload.tool as Record<string, unknown>) ?? {}
+        const toolName = String(tool.name ?? payload.tool_name ?? payload.name ?? 'tool')
+        const toolInput = tool.input ?? payload.input ?? payload.arguments ?? {}
         return (
           <div>
             <p className="text-sm font-medium text-[var(--text-primary)]">
-              {String(payload.tool_name ?? payload.name ?? 'tool')}
+              {toolName}
             </p>
             <button
               type="button"
@@ -97,13 +114,15 @@ export function ExecutionEventItem({ event, onApprove, onReject }: ExecutionEven
             </button>
             {expanded && (
               <pre className="mt-1 max-h-48 overflow-auto rounded bg-[var(--surface-3)] p-2 text-xs text-[var(--text-secondary)]">
-                {JSON.stringify(payload.input ?? payload.arguments ?? {}, null, 2)}
+                {JSON.stringify(toolInput, null, 2)}
               </pre>
             )}
           </div>
         )
+      }
 
       case 'tool_result':
+      case 'tool_use_end':
         return (
           <div>
             <button
@@ -132,6 +151,7 @@ export function ExecutionEventItem({ event, onApprove, onReject }: ExecutionEven
         )
 
       case 'approval_request':
+      case 'approval_requested':
         return (
           <div>
             <p className="text-sm text-[var(--text-primary)]">
@@ -156,6 +176,7 @@ export function ExecutionEventItem({ event, onApprove, onReject }: ExecutionEven
         )
 
       case 'artifact':
+      case 'artifact_created':
         return (
           <p className="text-sm text-[var(--text-secondary)]">
             {String(payload.title ?? payload.name ?? 'Artifact')}
@@ -164,9 +185,11 @@ export function ExecutionEventItem({ event, onApprove, onReject }: ExecutionEven
         )
 
       case 'status':
+      case 'execution_started':
+      case 'execution_completed':
         return (
           <p className="text-sm text-[var(--text-muted)]">
-            {String(payload.message ?? payload.status ?? '')}
+            {String(payload.message ?? payload.status ?? event.event_type.replace('_', ' '))}
           </p>
         )
 
