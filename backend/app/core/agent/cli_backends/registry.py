@@ -27,4 +27,9 @@ runtime_registry = RuntimeProviderRegistry()
 
 def init_providers() -> None:
     from .claude_code import ClaudeCodeProvider
+    from .codex import CodexProvider
+    from .openclaw import OpenClawProvider
+
     runtime_registry.register(ClaudeCodeProvider())
+    runtime_registry.register(CodexProvider())
+    runtime_registry.register(OpenClawProvider())

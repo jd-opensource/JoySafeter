@@ -22,6 +22,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Claude Code CLI globally
 RUN npm install -g @anthropic-ai/claude-code
 
+# Install Codex CLI
+RUN npm install -g @openai/codex
+
+# Install OpenClaw (if available via npm, otherwise skip)
+# RUN npm install -g openclaw@latest
+
 # Create non-root user
 RUN groupadd -r agent && useradd -r -g agent -m -d /home/agent -s /bin/bash agent
 
