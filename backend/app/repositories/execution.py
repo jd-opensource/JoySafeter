@@ -78,6 +78,16 @@ class ExecutionRepository(BaseRepository[Execution]):
         result = await self.db.execute(query.order_by(desc(Execution.created_at)).limit(limit))
         return result.scalars().all()
 
+    async def list_children(
+        self, parent_execution_id: uuid.UUID
+    ) -> Sequence[Execution]:
+        result = await self.db.execute(
+            select(Execution)
+            .where(Execution.parent_execution_id == parent_execution_id)
+            .order_by(Execution.created_at)
+        )
+        return result.scalars().all()
+
     async def list_recoverable_stale(
         self, *, stale_before: datetime
     ) -> Sequence[Execution]:

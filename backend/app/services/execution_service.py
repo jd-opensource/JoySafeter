@@ -116,6 +116,11 @@ class ExecutionService:
             )
         )
 
+    async def list_children(
+        self, parent_execution_id: uuid.UUID
+    ) -> list[Execution]:
+        return list(await self.repo.list_children(parent_execution_id))
+
     async def mark_status(
         self,
         *,
