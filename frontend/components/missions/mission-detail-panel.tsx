@@ -1,9 +1,10 @@
 'use client'
 
-import { Bot, Clock, Loader2, Play, Send, User, X, XCircle } from 'lucide-react'
+import { Bot, Clock, Loader2, Play, X, XCircle } from 'lucide-react'
 import { useMemo } from 'react'
 
 import { AgentStatusIndicator } from '@/components/agents/agent-status'
+import { ExecutionTimeline } from '@/components/executions/execution-timeline'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useAgentProfile, useAgentProfiles } from '@/hooks/queries/agentProfiles'
@@ -213,20 +214,18 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
               </div>
             </section>
 
-            {/* Execution (placeholder — Task 5 will embed timeline here) */}
+            {/* Execution */}
             {mission.current_execution_id && (
               <section>
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
                   Execution
                 </h3>
-                <div
-                  id="mission-execution-embed"
-                  data-execution-id={mission.current_execution_id}
-                  className="rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] p-4"
-                >
-                  <p className="text-xs text-[var(--text-muted)]">
-                    Execution {mission.current_execution_id.slice(0, 8)}...
-                  </p>
+                <div className="overflow-hidden rounded-lg border border-[var(--border)]">
+                  <ExecutionTimeline
+                    executionId={mission.current_execution_id}
+                    workspaceId={workspaceId}
+                    compact
+                  />
                 </div>
               </section>
             )}
