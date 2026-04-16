@@ -20,6 +20,14 @@ from app.services.execution_service import ExecutionService
 from app.utils.datetime import utc_now
 
 
+def _handle_task_exception(task: asyncio.Task) -> None:
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc:
+        logger.error(f"Background dispatch task failed: {exc}")
+
+
 def _start_execution_runner(
     execution_id: uuid.UUID,
     prompt: str,
@@ -41,7 +49,8 @@ def _start_execution_runner(
             except Exception as exc:
                 logger.error(f"Background runner failed for {execution_id}: {exc}")
 
-    asyncio.create_task(_run())
+    task = asyncio.create_task(_run(), name=f"dispatch-{execution_id}")
+    task.add_done_callback(_handle_task_exception)
 
 
 def build_execution_prompt(mission: Mission) -> str:

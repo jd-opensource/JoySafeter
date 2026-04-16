@@ -222,6 +222,33 @@ class ExecutionService:
             await self.db.commit()
         return event
 
+    async def batch_append_events(
+        self,
+        *,
+        execution_id: uuid.UUID,
+        events: list[dict[str, Any]],
+    ) -> list[ExecutionEvent]:
+        """Append multiple events in a single commit.
+
+        Each entry in *events* must contain 'event_type' and 'payload' keys,
+        and may optionally include 'trace_id', 'observation_id', and
+        'parent_observation_id'.
+        """
+        results: list[ExecutionEvent] = []
+        for evt in events:
+            result = await self.append_event(
+                execution_id=execution_id,
+                event_type=evt["event_type"],
+                payload=evt["payload"],
+                trace_id=evt.get("trace_id"),
+                observation_id=evt.get("observation_id"),
+                parent_observation_id=evt.get("parent_observation_id"),
+                commit=False,
+            )
+            results.append(result)
+        await self.db.commit()
+        return results
+
     async def touch_heartbeat(
         self, *, execution_id: uuid.UUID
     ) -> Optional[Execution]:

@@ -2,35 +2,43 @@
 Execution snapshot reducer.
 
 Applies execution events to build a projection of the current execution state.
-Each event type updates the projection dict immutably (via deepcopy).
+Each event type updates the projection dict with shallow copies.
 """
 
 from __future__ import annotations
 
-from copy import deepcopy
 from typing import Any
 
+_EMPTY_PROJECTION: dict[str, Any] = {
+    "version": 1,
+    "status": "queued",
+    "source": None,
+    "mission_id": None,
+    "agent_profile_id": None,
+    "container_id": None,
+    "session_id": None,
+    "messages": [],
+    "tool_calls": [],
+    "artifacts": [],
+    "meta": {},
+}
 
-def _deepcopy_projection(projection: dict[str, Any] | None) -> dict[str, Any]:
-    if projection is not None:
-        return deepcopy(projection)
-    return {
-        "version": 1,
-        "status": "queued",
-        "source": None,
-        "mission_id": None,
-        "agent_profile_id": None,
-        "container_id": None,
-        "session_id": None,
-        "messages": [],
-        "tool_calls": [],
-        "artifacts": [],
-        "meta": {},
-    }
+
+def _shallow_copy_projection(projection: dict[str, Any] | None) -> dict[str, Any]:
+    if projection is None:
+        return {k: (list(v) if isinstance(v, list) else dict(v) if isinstance(v, dict) else v)
+                for k, v in _EMPTY_PROJECTION.items()}
+    copied = dict(projection)
+    # Shallow-copy mutable containers so appends don't mutate the original
+    copied["messages"] = list(copied.get("messages") or [])
+    copied["tool_calls"] = list(copied.get("tool_calls") or [])
+    copied["artifacts"] = list(copied.get("artifacts") or [])
+    copied["meta"] = dict(copied.get("meta") or {})
+    return copied
 
 
 def make_initial_projection(payload: dict[str, Any], status: str) -> dict[str, Any]:
-    projection = _deepcopy_projection(None)
+    projection = _shallow_copy_projection(None)
     projection["status"] = status
     projection["source"] = payload.get("source")
     projection["mission_id"] = payload.get("mission_id")
@@ -45,7 +53,7 @@ def apply_execution_event(
     payload: dict[str, Any],
     status: str,
 ) -> dict[str, Any]:
-    next_proj = _deepcopy_projection(projection)
+    next_proj = _shallow_copy_projection(projection)
     next_proj["status"] = status
 
     if event_type == "execution_started":
@@ -78,7 +86,10 @@ def apply_execution_event(
             if last.get("role") == "assistant" and (
                 not message_id or last.get("id") == message_id
             ):
-                last["content"] = f"{last.get('content', '')}{delta}"
+                # Copy the message dict before mutating to avoid aliasing
+                updated = dict(last)
+                updated["content"] = f"{last.get('content', '')}{delta}"
+                next_proj["messages"][-1] = updated
         return next_proj
 
     if event_type == "tool_use_start":

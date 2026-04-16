@@ -187,29 +187,55 @@ class ExecutionRunner:
             working_dir=working_dir,
         )
 
+    _DRAIN_BATCH_SIZE = 10
+
     async def _drain_to_events(
         self, execution_id: uuid.UUID, session: RuntimeSession
     ) -> None:
+        pending: list[tuple[CLIMessage, str, dict[str, Any]]] = []
+
         async for msg in session.iter_messages():
             event_type = self._msg_to_event_type(msg)
             payload = self._msg_to_payload(msg)
-            try:
-                await self.execution_service.append_event(
-                    execution_id=execution_id,
-                    event_type=event_type,
-                    payload=payload,
-                )
-                # When the CLI agent requests approval, mark execution
-                # as APPROVAL_WAIT so the frontend can show the card.
+            pending.append((msg, event_type, payload))
+
+            needs_flush = (
+                len(pending) >= self._DRAIN_BATCH_SIZE
+                or msg.type == "approval_request"
+            )
+            if needs_flush:
+                await self._flush_pending(execution_id, pending)
+                pending.clear()
+
+        # Flush remaining events
+        if pending:
+            await self._flush_pending(execution_id, pending)
+
+    async def _flush_pending(
+        self,
+        execution_id: uuid.UUID,
+        pending: list[tuple[CLIMessage, str, dict[str, Any]]],
+    ) -> None:
+        try:
+            await self.execution_service.batch_append_events(
+                execution_id=execution_id,
+                events=[
+                    {"event_type": event_type, "payload": payload}
+                    for _, event_type, payload in pending
+                ],
+            )
+            # Check if any message in the batch requires an approval status change
+            for msg, _, _ in pending:
                 if msg.type == "approval_request":
                     await self.execution_service.mark_status(
                         execution_id=execution_id,
                         status=MissionExecutionStatus.APPROVAL_WAIT,
                     )
-            except Exception as exc:
-                logger.warning(
-                    f"Failed to append event for {execution_id}: {exc}"
-                )
+                    break
+        except Exception as exc:
+            logger.warning(
+                f"Failed to flush {len(pending)} events for {execution_id}: {exc}"
+            )
 
     async def _finalize(
         self,

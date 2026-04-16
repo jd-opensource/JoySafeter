@@ -38,8 +38,10 @@ export function useExecutionStream({
   const [wsFailed, setWsFailed] = useState(false)
   const seqRef = useRef(0)
   const failCountRef = useRef(0)
+  const mountedRef = useRef(true)
 
   const handleSnapshot = useCallback((frame: ExecutionSnapshotFrame) => {
+    if (!mountedRef.current) return
     seqRef.current = frame.last_seq
     setStatus(frame.status)
     setEvents(frame.events ?? [])
@@ -47,6 +49,7 @@ export function useExecutionStream({
   }, [])
 
   const handleEvent = useCallback((frame: ExecutionEventFrame) => {
+    if (!mountedRef.current) return
     const newEvent: ExecutionEvent = {
       id: `${frame.execution_id}-${frame.seq}`,
       execution_id: frame.execution_id,
@@ -60,10 +63,12 @@ export function useExecutionStream({
   }, [])
 
   const handleStatus = useCallback((frame: ExecutionStatusFrame) => {
+    if (!mountedRef.current) return
     setStatus(frame.status)
   }, [])
 
   const handleError = useCallback((message: string) => {
+    if (!mountedRef.current) return
     console.warn('[ExecStream] WS error:', message)
     failCountRef.current += 1
     if (failCountRef.current >= 3) {
@@ -74,9 +79,11 @@ export function useExecutionStream({
   useEffect(() => {
     if (!enabled || !executionId) return
 
+    mountedRef.current = true
+
     const client = getExecutionWsClient()
     const unsub = client.subscribeConnectionState((state) => {
-      setIsConnected(state.isConnected)
+      if (mountedRef.current) setIsConnected(state.isConnected)
     })
 
     client
@@ -87,10 +94,11 @@ export function useExecutionStream({
         onError: handleError,
       })
       .catch(() => {
-        setWsFailed(true)
+        if (mountedRef.current) setWsFailed(true)
       })
 
     return () => {
+      mountedRef.current = false
       unsub()
       client.unsubscribe(executionId)
     }
