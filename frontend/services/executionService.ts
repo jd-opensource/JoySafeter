@@ -15,7 +15,8 @@ export const executionService = {
     if (params?.mission_id) searchParams.set('mission_id', params.mission_id)
     if (params?.status) searchParams.set('status', params.status)
     if (params?.limit) searchParams.set('limit', String(params.limit))
-    return apiGet<Execution[]>(`executions?${searchParams}`)
+    const res = await apiGet<{ items: Execution[] }>(`executions?${searchParams}`)
+    return res?.items ?? []
   },
 
   get: async (executionId: string, workspaceId: string): Promise<Execution> => {

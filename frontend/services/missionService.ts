@@ -12,7 +12,8 @@ export const missionService = {
     const searchParams = new URLSearchParams({ workspace_id: workspaceId })
     if (params?.status) searchParams.set('status', params.status)
     if (params?.limit) searchParams.set('limit', String(params.limit))
-    return apiGet<Mission[]>(`missions?${searchParams}`)
+    const res = await apiGet<{ items: Mission[] }>(`missions?${searchParams}`)
+    return res?.items ?? []
   },
 
   get: async (missionId: string, workspaceId: string): Promise<Mission> => {

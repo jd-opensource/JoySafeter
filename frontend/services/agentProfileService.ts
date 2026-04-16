@@ -5,7 +5,8 @@ import type { AgentProfile, CreateAgentRequest, UpdateAgentRequest } from '@/typ
 
 export const agentProfileService = {
   list: async (workspaceId: string): Promise<AgentProfile[]> => {
-    return apiGet<AgentProfile[]>(`agent-profiles?workspace_id=${workspaceId}`)
+    const res = await apiGet<{ items: AgentProfile[] }>(`agent-profiles?workspace_id=${workspaceId}`)
+    return res?.items ?? []
   },
 
   get: async (agentId: string, workspaceId: string): Promise<AgentProfile> => {
