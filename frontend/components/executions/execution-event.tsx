@@ -22,16 +22,16 @@ const EVENT_CONFIG: Record<
   { icon: React.ElementType; label: string; style: string }
 > = {
   text: { icon: FileText, label: 'Text', style: '' },
-  thinking: { icon: MessageSquare, label: 'Thinking', style: 'bg-[var(--bg-secondary)] italic' },
+  thinking: { icon: MessageSquare, label: 'Thinking', style: 'bg-[var(--surface-3)] italic' },
   tool_use: { icon: Wrench, label: 'Tool', style: '' },
   tool_result: { icon: Wrench, label: 'Result', style: '' },
-  error: { icon: XCircle, label: 'Error', style: 'border-l-2 border-l-red-500 text-red-600' },
+  error: { icon: XCircle, label: 'Error', style: 'border-l-2 border-l-[var(--status-error)] text-[var(--status-error)]' },
   approval_request: {
     icon: AlertTriangle,
     label: 'Approval Required',
-    style: 'border-l-2 border-l-yellow-500 bg-yellow-50/50',
+    style: 'border-l-2 border-l-[var(--status-warning)] bg-[var(--status-warning-bg)]',
   },
-  user_message: { icon: MessageSquare, label: 'User', style: 'bg-blue-50/50' },
+  user_message: { icon: MessageSquare, label: 'User', style: 'bg-[var(--surface-3)]' },
   artifact: { icon: Paperclip, label: 'Artifact', style: '' },
   status: { icon: Info, label: 'Status', style: '' },
 }
@@ -96,7 +96,7 @@ export function ExecutionEventItem({ event, onApprove, onReject }: ExecutionEven
               Input
             </button>
             {expanded && (
-              <pre className="mt-1 max-h-48 overflow-auto rounded bg-[var(--bg-secondary)] p-2 text-xs text-[var(--text-secondary)]">
+              <pre className="mt-1 max-h-48 overflow-auto rounded bg-[var(--surface-3)] p-2 text-xs text-[var(--text-secondary)]">
                 {JSON.stringify(payload.input ?? payload.arguments ?? {}, null, 2)}
               </pre>
             )}
@@ -115,7 +115,7 @@ export function ExecutionEventItem({ event, onApprove, onReject }: ExecutionEven
               Output
             </button>
             {expanded && (
-              <pre className="mt-1 max-h-48 overflow-auto rounded bg-[var(--bg-secondary)] p-2 text-xs text-[var(--text-secondary)]">
+              <pre className="mt-1 max-h-48 overflow-auto rounded bg-[var(--surface-3)] p-2 text-xs text-[var(--text-secondary)]">
                 {typeof payload.output === 'string'
                   ? payload.output
                   : JSON.stringify(payload.output ?? payload.content ?? {}, null, 2)}
@@ -126,7 +126,7 @@ export function ExecutionEventItem({ event, onApprove, onReject }: ExecutionEven
 
       case 'error':
         return (
-          <p className="text-sm text-red-600">
+          <p className="text-sm text-[var(--status-error)]">
             {String(payload.message ?? payload.error ?? 'Unknown error')}
           </p>
         )

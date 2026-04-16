@@ -21,13 +21,13 @@ import { MISSION_STATUS_LABELS } from '@/types/missions'
 import { PriorityBadge } from './priority-badge'
 
 const STATUS_STYLES: Record<string, string> = {
-  backlog: 'bg-gray-100 text-gray-700',
-  todo: 'bg-blue-100 text-blue-700',
-  in_progress: 'bg-amber-100 text-amber-700',
-  in_review: 'bg-purple-100 text-purple-700',
-  done: 'bg-green-100 text-green-700',
-  blocked: 'bg-red-100 text-red-700',
-  cancelled: 'bg-gray-100 text-gray-500',
+  backlog: 'bg-[var(--surface-3)] text-[var(--text-secondary)]',
+  todo: 'bg-[var(--surface-3)] text-[var(--brand-400)]',
+  in_progress: 'bg-[var(--status-warning-bg)] text-[var(--status-warning)]',
+  in_review: 'bg-[var(--surface-3)] text-[var(--text-secondary)]',
+  done: 'bg-[var(--status-success-bg)] text-[var(--status-success)]',
+  blocked: 'bg-[var(--status-error-bg)] text-[var(--status-error)]',
+  cancelled: 'bg-[var(--surface-3)] text-[var(--text-muted)]',
 }
 
 interface MissionDetailPanelProps {
@@ -90,7 +90,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
         <button
           type="button"
           onClick={onClose}
-          className="rounded-md p-1 text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+          className="rounded-md p-1 text-[var(--text-muted)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]"
           aria-label="Close panel"
         >
           <X className="h-4 w-4" />
@@ -113,16 +113,16 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
               <span
                 className={cn(
                   'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
-                  STATUS_STYLES[mission.status] ?? 'bg-gray-100 text-gray-600',
+                  STATUS_STYLES[mission.status] ?? 'bg-[var(--surface-3)] text-[var(--text-muted)]',
                 )}
               >
                 {MISSION_STATUS_LABELS[mission.status]}
               </span>
               {mission.current_execution_id && (
-                <span className="inline-flex items-center gap-1 text-xs text-green-600">
+                <span className="inline-flex items-center gap-1 text-xs text-[var(--status-success)]">
                   <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--status-success)] opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--status-success)]" />
                   </span>
                   Running
                 </span>
@@ -159,7 +159,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                 Agent
               </h3>
               {mission.assignee_type === 'agent' && agent ? (
-                <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] p-3">
+                <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-3)] p-3">
                   <Bot className="h-5 w-5 text-[var(--text-secondary)]" />
                   <div className="flex-1">
                     <p className="text-sm font-medium text-[var(--text-primary)]">{agent.name}</p>

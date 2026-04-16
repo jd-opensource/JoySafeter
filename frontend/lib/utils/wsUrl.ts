@@ -44,3 +44,8 @@ export async function getWsRunsUrl(): Promise<string> {
 export async function getWsNotificationUrl(): Promise<string> {
   return getWsTokenUrl('/ws/notifications')
 }
+
+/** Fetch a short-lived WS token from the backend and return a ready-to-use executions WS URL. */
+export async function getWsExecutionsUrl(): Promise<string> {
+  return getWsTokenUrl('/ws/executions')
+}

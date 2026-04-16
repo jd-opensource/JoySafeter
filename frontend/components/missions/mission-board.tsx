@@ -36,7 +36,7 @@ export function MissionBoard({ missions, onSelectMission }: MissionBoardProps) {
   }, [missions])
 
   return (
-    <div className="flex h-full gap-3 overflow-x-auto p-4">
+    <div className="flex h-full gap-3 overflow-x-auto p-4 [-webkit-overflow-scrolling:touch]">
       {MISSION_STATUS_ORDER.map((status) => (
         <MissionColumn key={status} status={status} missions={grouped[status]} onSelectMission={onSelectMission} />
       ))}

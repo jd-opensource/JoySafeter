@@ -1,24 +1,28 @@
 'use client'
 
-import { CheckCircle, Loader2, Pause, Play, XCircle } from 'lucide-react'
+import { AlertCircle, CheckCircle, Loader2, Pause, Play, RefreshCw, XCircle } from 'lucide-react'
 import { useEffect, useMemo, useRef } from 'react'
 
+import { Button } from '@/components/ui/button'
 import { useExecution, useExecutionEvents } from '@/hooks/queries/executions'
+import { useExecutionStream } from '@/hooks/use-execution-stream'
 import { cn } from '@/lib/utils'
 
 import { ExecutionEventItem } from './execution-event'
 import { MessageInput } from './message-input'
 
 const STATUS_CONFIG: Record<string, { icon: React.ElementType; label: string; color: string }> = {
-  queued: { icon: Pause, label: 'Queued', color: 'text-gray-500' },
-  dispatched: { icon: Play, label: 'Dispatched', color: 'text-blue-500' },
-  running: { icon: Loader2, label: 'Running', color: 'text-green-600' },
-  interrupt_wait: { icon: Pause, label: 'Waiting', color: 'text-yellow-600' },
-  approval_wait: { icon: Pause, label: 'Approval Wait', color: 'text-yellow-600' },
-  completed: { icon: CheckCircle, label: 'Completed', color: 'text-green-600' },
-  failed: { icon: XCircle, label: 'Failed', color: 'text-red-600' },
-  cancelled: { icon: XCircle, label: 'Cancelled', color: 'text-gray-500' },
+  queued: { icon: Pause, label: 'Queued', color: 'text-[var(--text-muted)]' },
+  dispatched: { icon: Play, label: 'Dispatched', color: 'text-[var(--brand-400)]' },
+  running: { icon: Loader2, label: 'Running', color: 'text-[var(--status-success)]' },
+  interrupt_wait: { icon: Pause, label: 'Waiting', color: 'text-[var(--status-warning)]' },
+  approval_wait: { icon: Pause, label: 'Approval Wait', color: 'text-[var(--status-warning)]' },
+  completed: { icon: CheckCircle, label: 'Completed', color: 'text-[var(--status-success)]' },
+  failed: { icon: XCircle, label: 'Failed', color: 'text-[var(--status-error)]' },
+  cancelled: { icon: XCircle, label: 'Cancelled', color: 'text-[var(--text-muted)]' },
 }
+
+const ACTIVE_STATUSES = ['queued', 'dispatched', 'running', 'interrupt_wait', 'approval_wait']
 
 interface ExecutionTimelineProps {
   executionId: string
@@ -27,16 +31,35 @@ interface ExecutionTimelineProps {
 }
 
 export function ExecutionTimeline({ executionId, workspaceId, compact }: ExecutionTimelineProps) {
-  const { data: execution } = useExecution(executionId, workspaceId)
-  const isActive = execution
-    ? ['queued', 'dispatched', 'running', 'interrupt_wait', 'approval_wait'].includes(execution.status)
-    : false
+  const { data: execution, isLoading: isExecLoading, error: execError, refetch: refetchExec } = useExecution(executionId, workspaceId)
+  const isActive = execution ? ACTIVE_STATUSES.includes(execution.status) : false
 
-  const { data: eventsPage } = useExecutionEvents(executionId, workspaceId, undefined, {
-    enabled: Boolean(executionId),
+  // WebSocket stream — primary data source
+  const {
+    events: wsEvents,
+    status: wsStatus,
+    isConnected,
+    wsFailed,
+  } = useExecutionStream({ executionId, enabled: Boolean(executionId) })
+
+  // Polling fallback — only enabled when WS fails
+  const {
+    data: eventsPage,
+    isLoading: isEventsLoading,
+    error: eventsError,
+    refetch: refetchEvents,
+  } = useExecutionEvents(executionId, workspaceId, undefined, {
+    enabled: Boolean(executionId) && wsFailed,
   })
 
-  const events = useMemo(() => eventsPage?.events ?? [], [eventsPage])
+  // Use WS events when connected, fall back to polling data
+  const events = useMemo(() => {
+    if (!wsFailed && wsEvents.length > 0) return wsEvents
+    return eventsPage?.events ?? wsEvents
+  }, [wsFailed, wsEvents, eventsPage])
+
+  const currentStatus = wsStatus ?? execution?.status ?? 'queued'
+
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom on new events
@@ -47,7 +70,7 @@ export function ExecutionTimeline({ executionId, workspaceId, compact }: Executi
     }
   }, [events.length])
 
-  const statusConfig = STATUS_CONFIG[execution?.status ?? 'queued'] ?? STATUS_CONFIG.queued
+  const statusConfig = STATUS_CONFIG[currentStatus] ?? STATUS_CONFIG.queued
   const StatusIcon = statusConfig.icon
 
   const duration = useMemo(() => {
@@ -66,8 +89,36 @@ export function ExecutionTimeline({ executionId, workspaceId, compact }: Executi
   )
 
   const handleSendMessage = (message: string) => {
-    // For now, log the message. Full injection requires a service endpoint.
     console.log('send-message-to-execution', executionId, message)
+  }
+
+  const handleRetry = () => {
+    void refetchExec()
+    void refetchEvents()
+  }
+
+  // Error state
+  if (execError || eventsError) {
+    return (
+      <div className={cn('flex flex-col items-center justify-center gap-3', compact ? 'h-80' : 'h-full')}>
+        <AlertCircle className="h-8 w-8 text-[var(--status-error)]" />
+        <p className="text-sm text-[var(--text-secondary)]">Failed to load execution data</p>
+        <Button variant="outline" size="sm" onClick={handleRetry} className="gap-1.5">
+          <RefreshCw className="h-3.5 w-3.5" />
+          Retry
+        </Button>
+      </div>
+    )
+  }
+
+  // Loading state
+  if (isExecLoading && !execution) {
+    return (
+      <div className={cn('flex flex-col items-center justify-center gap-2', compact ? 'h-80' : 'h-full')}>
+        <Loader2 className="h-6 w-6 animate-spin text-[var(--text-muted)]" />
+        <p className="text-sm text-[var(--text-muted)]">Loading execution...</p>
+      </div>
+    )
   }
 
   return (
@@ -79,7 +130,7 @@ export function ExecutionTimeline({ executionId, workspaceId, compact }: Executi
             className={cn(
               'h-4 w-4',
               statusConfig.color,
-              execution?.status === 'running' && 'animate-spin',
+              currentStatus === 'running' && 'animate-spin',
             )}
           />
           <span className={cn('text-sm font-medium', statusConfig.color)}>
@@ -91,19 +142,33 @@ export function ExecutionTimeline({ executionId, workspaceId, compact }: Executi
             </span>
           )}
         </div>
-        {toolCount > 0 && (
-          <span className="text-xs text-[var(--text-muted)]">
-            Tools: {toolCount} call{toolCount !== 1 ? 's' : ''}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {toolCount > 0 && (
+            <span className="text-xs text-[var(--text-muted)]">
+              Tools: {toolCount} call{toolCount !== 1 ? 's' : ''}
+            </span>
+          )}
+          {/* Connection indicator */}
+          <span
+            className={cn(
+              'inline-flex h-1.5 w-1.5 rounded-full',
+              isConnected ? 'bg-[var(--status-success)]' : 'bg-[var(--text-muted)]',
+            )}
+            title={isConnected ? 'Live (WebSocket)' : wsFailed ? 'Polling' : 'Connecting...'}
+          />
+        </div>
       </div>
 
       {/* Events list */}
       <div ref={scrollRef} className="flex-1 space-y-1 overflow-y-auto py-2">
-        {events.length === 0 ? (
+        {events.length === 0 && !isEventsLoading ? (
           <p className="py-8 text-center text-sm text-[var(--text-muted)]">
             {isActive ? 'Waiting for events...' : 'No events'}
           </p>
+        ) : events.length === 0 && isEventsLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-[var(--text-muted)]" />
+          </div>
         ) : (
           events.map((event) => <ExecutionEventItem key={event.id} event={event} />)
         )}

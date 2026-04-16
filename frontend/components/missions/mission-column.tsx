@@ -7,11 +7,11 @@ import { MISSION_STATUS_LABELS } from '@/types/missions'
 import { MissionCard } from './mission-card'
 
 const STATUS_COLUMN_STYLES: Record<string, string> = {
-  backlog: 'bg-gray-50/50',
-  todo: 'bg-blue-50/30',
-  in_progress: 'bg-amber-50/30',
-  in_review: 'bg-purple-50/30',
-  done: 'bg-green-50/30',
+  backlog: 'bg-[var(--surface-1)]',
+  todo: 'bg-[var(--surface-2)]',
+  in_progress: 'bg-[var(--surface-2)]',
+  in_review: 'bg-[var(--surface-2)]',
+  done: 'bg-[var(--surface-2)]',
 }
 
 interface MissionColumnProps {
