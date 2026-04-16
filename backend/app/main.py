@@ -5,7 +5,7 @@ FastAPI Main Application
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -201,7 +201,38 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     except Exception as e:
         logger.warning(f"   ⚠️  CLI runtime provider initialization failed: {e}")
 
+    # Start container pool reaper (idle containers cleaned up every 5 min)
+    _reaper_task: Optional[asyncio.Task] = None
+    try:
+        from app.core.agent.cli_backends.container_pool import container_pool
+
+        async def _container_reaper() -> None:
+            while True:
+                await asyncio.sleep(300)
+                try:
+                    removed = await container_pool.cleanup_idle()
+                    if removed:
+                        logger.info(f"Container reaper: removed {removed} idle containers")
+                except Exception as e:
+                    logger.warning(f"Container reaper error: {e}")
+
+        _reaper_task = asyncio.create_task(_container_reaper(), name="container-reaper")
+        logger.info("   ✓ Container pool reaper started (idle_timeout=30m)")
+    except Exception as e:
+        logger.warning(f"   ⚠️  Container pool reaper failed to start: {e}")
+
     yield
+
+    # Shutdown: Cancel container pool reaper and mark pool as shut down
+    try:
+        if _reaper_task:
+            _reaper_task.cancel()
+        from app.core.agent.cli_backends.container_pool import container_pool as _cp
+
+        await _cp.shutdown()
+        logger.info("   ✓ Container pool shut down (containers left running)")
+    except Exception as e:
+        logger.warning(f"   ⚠️  Container pool shutdown failed: {e}")
 
     # Shutdown: Drain sandbox pool (stop all containers gracefully)
     try:

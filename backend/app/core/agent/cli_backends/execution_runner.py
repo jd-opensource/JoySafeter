@@ -2,12 +2,12 @@
 ExecutionRunner — end-to-end orchestrator for CLI agent executions.
 
 Lifecycle:
-  1. Create container
+  1. Get or create container (from pool)
   2. Inject credentials, skills, and CLAUDE.md config
-  3. Execute via RuntimeProvider
+  3. Execute via RuntimeProvider (with session resume if available)
   4. Drain messages → append as ExecutionEvents
-  5. Mark final status
-  6. Destroy container
+  5. Mark final status, store session_id back to pool
+  6. Release container back to pool (NOT destroyed)
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.agent.cli_backends.base import CLIMessage, CLIResult, RuntimeSession
+from app.core.agent.cli_backends.container_pool import container_pool
 from app.core.agent.cli_backends.container_service import (
     CLIContainerService,
     ContainerConfig,
@@ -34,7 +35,6 @@ from app.models.agent_profile import AgentProfile, AgentStatus
 from app.models.execution import Execution, MissionExecutionStatus
 from app.repositories.agent_profile import AgentProfileRepository
 from app.services.execution_service import ExecutionService
-from app.utils.datetime import utc_now
 
 
 class ExecutionRunner:
@@ -68,6 +68,13 @@ class ExecutionRunner:
         container: Optional[ContainerInfo] = None
         execution = await self._get_execution(execution_id)
         agent_profile = await self._get_agent_profile(execution)
+        pooled = False  # whether the container came from the pool
+
+        logger.info(
+            f"[exec:{execution_id}] Starting execution "
+            f"(agent={agent_profile.id if agent_profile else 'none'}, "
+            f"runtime={execution.runtime_type})"
+        )
 
         try:
             # 1. Mark as dispatched
@@ -76,12 +83,55 @@ class ExecutionRunner:
                 status=MissionExecutionStatus.DISPATCHED,
             )
 
-            # 2. Create container
-            container = await self.container_service.create_container(
-                execution_id=execution_id,
-                config=container_config,
-                env=credentials,
-            )
+            # 2. Get or create container
+            prior_session_id: Optional[str] = None
+            if agent_profile:
+                container, prior_session_id = await container_pool.get(
+                    agent_profile.id
+                )
+
+            if container:
+                pooled = True
+                # Verify container is still running
+                try:
+                    status = await self.container_service.inspect_container(
+                        container.container_id
+                    )
+                    if "running" not in status.strip().lower():
+                        logger.warning(
+                            f"[exec:{execution_id}] Pooled container {container.container_id[:12]} "
+                            f"not running (status={status.strip()}), creating new one"
+                        )
+                        await container_pool.remove(agent_profile.id)
+                        container = None
+                        prior_session_id = None
+                        pooled = False
+                except Exception as inspect_exc:
+                    logger.warning(
+                        f"[exec:{execution_id}] Failed to inspect pooled container: {inspect_exc}"
+                    )
+                    await container_pool.remove(agent_profile.id)
+                    container = None
+                    prior_session_id = None
+                    pooled = False
+
+            if not container:
+                logger.info(f"[exec:{execution_id}] Creating new container")
+                container = await self.container_service.create_container(
+                    execution_id=execution_id,
+                    config=container_config,
+                    env=credentials,
+                )
+                if agent_profile:
+                    await container_pool.put(agent_profile.id, container)
+                    pooled = True
+
+            if prior_session_id:
+                logger.info(
+                    f"[exec:{execution_id}] Reusing pooled container "
+                    f"{container.container_id[:12]} with session {prior_session_id}"
+                )
+
             await self.execution_service.mark_status(
                 execution_id=execution_id,
                 status=MissionExecutionStatus.RUNNING,
@@ -91,7 +141,7 @@ class ExecutionRunner:
             if agent_profile:
                 await self._update_agent_status(agent_profile, AgentStatus.WORKING)
 
-            # 3. Inject skills and config (credentials already set via --env-file)
+            # 3. Inject skills and config (idempotent — safe to re-run on reuse)
             await self._inject(
                 container_id=container.container_id,
                 skills=skills,
@@ -106,10 +156,11 @@ class ExecutionRunner:
                 payload={
                     "container_id": container.container_id,
                     "runtime_type": execution.runtime_type,
+                    "reused": prior_session_id is not None,
                 },
             )
 
-            # 5. Execute via provider
+            # 5. Execute via provider (with session resume)
             provider = runtime_registry.get(execution.runtime_type)
             session = await provider.execute(
                 prompt,
@@ -117,7 +168,7 @@ class ExecutionRunner:
                 cwd=container.working_dir,
                 model=model,
                 timeout=timeout,
-                resume_session_id=execution.prior_session_id,
+                resume_session_id=prior_session_id,
             )
 
             # 5b. Register session so the API layer can inject messages
@@ -132,18 +183,38 @@ class ExecutionRunner:
             # 8. Mark final status
             await self._finalize(execution_id, result, agent_profile)
 
+            # 9. Store session_id back to pool for next resume
+            if result.session_id and agent_profile:
+                await container_pool.set_session_id(
+                    agent_profile.id, result.session_id
+                )
+                logger.info(
+                    f"[exec:{execution_id}] Stored session {result.session_id} "
+                    f"for agent {agent_profile.id}"
+                )
+
             return result
 
         except Exception as exc:
-            logger.error(f"ExecutionRunner error for {execution_id}: {exc}")
+            logger.error(f"[exec:{execution_id}] ExecutionRunner error: {exc}")
             await self._mark_failed(execution_id, str(exc), agent_profile)
             return CLIResult(status="failed", error=str(exc))
 
         finally:
-            # 9. Unregister session and destroy container
+            # 10. Unregister session; release container back to pool
             session_registry.unregister(execution_id)
-            if container:
+            if container and agent_profile and pooled:
+                await container_pool.release(agent_profile.id)
+                logger.info(
+                    f"[exec:{execution_id}] Released container "
+                    f"{container.container_id[:12]} back to pool"
+                )
+            elif container:
                 await self._cleanup_container(container.container_id)
+                logger.info(
+                    f"[exec:{execution_id}] Destroyed container "
+                    f"{container.container_id[:12]} (no agent profile)"
+                )
 
     async def _get_execution(self, execution_id: uuid.UUID) -> Execution:
         from sqlalchemy import select
@@ -248,8 +319,6 @@ class ExecutionRunner:
     ) -> None:
         if result.status == "completed":
             status = MissionExecutionStatus.COMPLETED
-        elif result.status == "timeout":
-            status = MissionExecutionStatus.FAILED
         else:
             status = MissionExecutionStatus.FAILED
 
