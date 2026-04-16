@@ -29,6 +29,7 @@ from app.core.agent.cli_backends.injectors import (
     RuntimeConfigInjector,
 )
 from app.core.agent.cli_backends.registry import runtime_registry
+from app.core.agent.cli_backends.session_registry import session_registry
 from app.models.agent_profile import AgentProfile, AgentStatus
 from app.models.execution import Execution, MissionExecutionStatus
 from app.repositories.agent_profile import AgentProfileRepository
@@ -116,6 +117,9 @@ class ExecutionRunner:
                 resume_session_id=execution.prior_session_id,
             )
 
+            # 5b. Register session so the API layer can inject messages
+            session_registry.register(execution_id, session)
+
             # 6. Drain messages → events
             await self._drain_to_events(execution_id, session)
 
@@ -133,7 +137,8 @@ class ExecutionRunner:
             return CLIResult(status="failed", error=str(exc))
 
         finally:
-            # 9. Destroy container
+            # 9. Unregister session and destroy container
+            session_registry.unregister(execution_id)
             if container:
                 await self._cleanup_container(container.container_id)
 
@@ -194,6 +199,13 @@ class ExecutionRunner:
                     event_type=event_type,
                     payload=payload,
                 )
+                # When the CLI agent requests approval, mark execution
+                # as APPROVAL_WAIT so the frontend can show the card.
+                if msg.type == "approval_request":
+                    await self.execution_service.mark_status(
+                        execution_id=execution_id,
+                        status=MissionExecutionStatus.APPROVAL_WAIT,
+                    )
             except Exception as exc:
                 logger.warning(
                     f"Failed to append event for {execution_id}: {exc}"
@@ -281,6 +293,7 @@ class ExecutionRunner:
             "tool_result": "tool_use_end",
             "error": "error",
             "artifact": "artifact_created",
+            "approval_request": "approval_requested",
         }
         return mapping.get(msg.type, msg.type)
 

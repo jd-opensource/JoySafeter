@@ -8,6 +8,8 @@ import { useExecution, useExecutionEvents } from '@/hooks/queries/executions'
 import { useExecutionStream } from '@/hooks/use-execution-stream'
 import { cn } from '@/lib/utils'
 
+import { executionService } from '@/services/executionService'
+
 import { ExecutionEventItem } from './execution-event'
 import { MessageInput } from './message-input'
 
@@ -88,8 +90,28 @@ export function ExecutionTimeline({ executionId, workspaceId, compact }: Executi
     [events],
   )
 
-  const handleSendMessage = (message: string) => {
-    console.log('send-message-to-execution', executionId, message)
+  const handleSendMessage = async (message: string) => {
+    try {
+      await executionService.injectMessage(executionId, message)
+    } catch (err) {
+      console.error('Failed to inject message', err)
+    }
+  }
+
+  const handleApprove = async (_eventId: string) => {
+    try {
+      await executionService.approveAction(executionId, true)
+    } catch (err) {
+      console.error('Failed to approve action', err)
+    }
+  }
+
+  const handleReject = async (_eventId: string) => {
+    try {
+      await executionService.approveAction(executionId, false)
+    } catch (err) {
+      console.error('Failed to reject action', err)
+    }
   }
 
   const handleRetry = () => {
@@ -170,7 +192,7 @@ export function ExecutionTimeline({ executionId, workspaceId, compact }: Executi
             <Loader2 className="h-5 w-5 animate-spin text-[var(--text-muted)]" />
           </div>
         ) : (
-          events.map((event) => <ExecutionEventItem key={event.id} event={event} />)
+          events.map((event) => <ExecutionEventItem key={event.id} event={event} onApprove={handleApprove} onReject={handleReject} />)
         )}
       </div>
 

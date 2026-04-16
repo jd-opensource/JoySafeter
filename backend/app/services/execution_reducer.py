@@ -117,6 +117,14 @@ def apply_execution_event(
             next_proj["artifacts"].append(artifact)
         return next_proj
 
+    if event_type == "user_message":
+        content = payload.get("content", "")
+        next_proj["messages"].append({
+            "role": "user",
+            "content": content,
+        })
+        return next_proj
+
     if event_type == "approval_requested":
         next_proj["meta"]["pending_approval"] = payload
         return next_proj

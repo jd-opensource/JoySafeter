@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser
@@ -12,11 +12,13 @@ from app.core.database import get_db
 from app.models.execution import Execution, MissionExecutionStatus
 from app.schemas import BaseResponse
 from app.schemas.execution import (
+    ApproveActionRequest,
     ExecutionEventsPageResponse,
     ExecutionEventResponse,
     ExecutionListResponse,
     ExecutionSnapshotResponse,
     ExecutionSummary,
+    InjectMessageRequest,
 )
 from app.services.execution_service import ExecutionService
 
@@ -82,6 +84,25 @@ async def get_execution(
     if not execution:
         return BaseResponse(success=False, code=404, msg="Execution not found", data=None)
     return BaseResponse(success=True, code=200, msg="ok", data=_to_summary(execution))
+
+
+@router.get("/{execution_id}/children", response_model=BaseResponse[ExecutionListResponse])
+async def list_child_executions(
+    execution_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> BaseResponse[ExecutionListResponse]:
+    """List child executions spawned by a coordinator."""
+    service = ExecutionService(db)
+    # Verify the parent execution belongs to the user
+    parent = await service.get_execution(execution_id, str(current_user.id))
+    if not parent:
+        return BaseResponse(success=False, code=404, msg="Execution not found", data=None)
+    children = await service.list_children(execution_id)
+    return BaseResponse(
+        success=True, code=200, msg="ok",
+        data=ExecutionListResponse(items=[_to_summary(e) for e in children]),
+    )
 
 
 @router.get("/{execution_id}/snapshot", response_model=BaseResponse[ExecutionSnapshotResponse])
@@ -152,3 +173,70 @@ async def cancel_execution(
     if not execution:
         return BaseResponse(success=False, code=404, msg="Execution not found", data=None)
     return BaseResponse(success=True, code=200, msg="Execution cancelled", data=_to_summary(execution))
+
+
+@router.post("/{execution_id}/message", response_model=BaseResponse)
+async def inject_message(
+    execution_id: uuid.UUID,
+    request: InjectMessageRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> BaseResponse:
+    """Inject a user message into a running execution."""
+    from app.core.agent.cli_backends.session_registry import session_registry
+
+    session = session_registry.get(execution_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="No active session for this execution")
+
+    await session.inject_message(request.message)
+
+    svc = ExecutionService(db)
+    await svc.append_event(
+        execution_id=execution_id,
+        event_type="user_message",
+        payload={"content": request.message},
+    )
+
+    return BaseResponse(success=True, code=200, msg="Message injected")
+
+
+@router.post("/{execution_id}/approve", response_model=BaseResponse)
+async def approve_action(
+    execution_id: uuid.UUID,
+    request: ApproveActionRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> BaseResponse:
+    """Approve or reject a pending approval request."""
+    from app.core.agent.cli_backends.session_registry import session_registry
+
+    session = session_registry.get(execution_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="No active session for this execution")
+
+    svc = ExecutionService(db)
+
+    if request.approved:
+        msg = request.message or "Approved. Continue."
+        await session.inject_message(msg)
+        await svc.append_event(
+            execution_id=execution_id,
+            event_type="approval_resolved",
+            payload={"decision": "approved", "content": msg},
+        )
+        await svc.mark_status(
+            execution_id=execution_id,
+            status=MissionExecutionStatus.RUNNING,
+        )
+    else:
+        msg = request.message or "Rejected. Stop this action."
+        await session.inject_message(msg)
+        await svc.append_event(
+            execution_id=execution_id,
+            event_type="approval_resolved",
+            payload={"decision": "rejected", "content": msg},
+        )
+        # Keep running — the agent will decide how to handle the rejection
+
+    return BaseResponse(success=True, code=200, msg="Action processed")

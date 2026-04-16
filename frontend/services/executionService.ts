@@ -35,4 +35,12 @@ export const executionService = {
   cancel: async (executionId: string, workspaceId: string): Promise<Execution> => {
     return apiPost<Execution>(`executions/${executionId}/cancel?workspace_id=${workspaceId}`, {})
   },
+
+  injectMessage: async (executionId: string, message: string): Promise<void> => {
+    await apiPost(`executions/${executionId}/message`, { message })
+  },
+
+  approveAction: async (executionId: string, approved: boolean, message?: string): Promise<void> => {
+    await apiPost(`executions/${executionId}/approve`, { approved, message })
+  },
 }

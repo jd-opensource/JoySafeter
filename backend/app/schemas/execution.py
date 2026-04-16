@@ -163,3 +163,16 @@ class ExecutionEventsPageResponse(BaseModel):
     execution_id: uuid.UUID
     events: list[ExecutionEventResponse]
     next_after_seq: int
+
+
+# ---------------------------------------------------------------------------
+# Intervention / Approval
+# ---------------------------------------------------------------------------
+
+class InjectMessageRequest(BaseModel):
+    message: str
+
+
+class ApproveActionRequest(BaseModel):
+    approved: bool
+    message: str | None = None
