@@ -20,14 +20,7 @@ from app.repositories.mission import MissionRepository
 from app.services.execution_service import ExecutionService
 from app.utils.credentials import build_credentials
 from app.utils.datetime import utc_now
-
-
-def _handle_task_exception(task: asyncio.Task) -> None:
-    if task.cancelled():
-        return
-    exc = task.exception()
-    if exc:
-        logger.error(f"Background dispatch task failed: {exc}")
+from app.utils.safe_task import safe_create_task
 
 
 def _start_execution_runner(
@@ -57,8 +50,7 @@ def _start_execution_runner(
         finally:
             await task_manager.unregister_task(str(execution_id))
 
-    task = asyncio.create_task(_run(), name=f"dispatch-{execution_id}")
-    task.add_done_callback(_handle_task_exception)
+    task = safe_create_task(_run(), name=f"dispatch-{execution_id}")
 
 
 def build_execution_prompt(mission: Mission, trigger_comment=None) -> str:

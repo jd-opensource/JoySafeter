@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser
-from app.common.exceptions import BadRequestException
 from app.core.database import get_db
 from app.models.mission_comment import CommentAuthorType, CommentType
 from app.schemas import BaseResponse
@@ -34,15 +33,12 @@ async def list_comments(
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionCommentListResponse]:
     service = MissionCommentService(db)
-    try:
-        comments, has_more, next_cursor = await service.list_comments(
-            mission_id=mission_id,
-            workspace_id=workspace_id,
-            cursor=cursor,
-            limit=limit,
-        )
-    except ValueError as exc:
-        raise BadRequestException(str(exc))
+    comments, has_more, next_cursor = await service.list_comments(
+        mission_id=mission_id,
+        workspace_id=workspace_id,
+        cursor=cursor,
+        limit=limit,
+    )
 
     return BaseResponse(
         success=True, code=200, msg="ok",
@@ -63,18 +59,15 @@ async def create_comment(
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionCommentResponse]:
     service = MissionCommentService(db)
-    try:
-        comment, mission = await service.create_comment(
-            mission_id=mission_id,
-            workspace_id=workspace_id,
-            author_type=CommentAuthorType.MEMBER,
-            author_id=str(current_user.id),
-            content=request.content,
-            comment_type=CommentType.COMMENT,
-            parent_comment_id=request.parent_comment_id,
-        )
-    except ValueError as exc:
-        raise BadRequestException(str(exc))
+    comment, mission = await service.create_comment(
+        mission_id=mission_id,
+        workspace_id=workspace_id,
+        author_type=CommentAuthorType.MEMBER,
+        author_id=str(current_user.id),
+        content=request.content,
+        comment_type=CommentType.COMMENT,
+        parent_comment_id=request.parent_comment_id,
+    )
 
     # Push notification to mission creator (if not the commenter)
     if mission.creator_id != str(current_user.id):
@@ -102,16 +95,13 @@ async def update_comment(
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionCommentResponse]:
     service = MissionCommentService(db)
-    try:
-        comment = await service.update_comment(
-            comment_id=comment_id,
-            mission_id=mission_id,
-            workspace_id=workspace_id,
-            author_id=str(current_user.id),
-            content=request.content,
-        )
-    except PermissionError as exc:
-        raise BadRequestException(str(exc))
+    comment = await service.update_comment(
+        comment_id=comment_id,
+        mission_id=mission_id,
+        workspace_id=workspace_id,
+        author_id=str(current_user.id),
+        content=request.content,
+    )
 
     if not comment:
         return BaseResponse(success=False, code=404, msg="Comment not found", data=None)
@@ -131,15 +121,12 @@ async def delete_comment(
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[None]:
     service = MissionCommentService(db)
-    try:
-        deleted = await service.delete_comment(
-            comment_id=comment_id,
-            mission_id=mission_id,
-            workspace_id=workspace_id,
-            author_id=str(current_user.id),
-        )
-    except PermissionError as exc:
-        raise BadRequestException(str(exc))
+    deleted = await service.delete_comment(
+        comment_id=comment_id,
+        mission_id=mission_id,
+        workspace_id=workspace_id,
+        author_id=str(current_user.id),
+    )
 
     if not deleted:
         return BaseResponse(success=False, code=404, msg="Comment not found", data=None)

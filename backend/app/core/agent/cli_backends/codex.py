@@ -5,6 +5,8 @@ import json
 
 from loguru import logger
 
+from app.utils.safe_task import safe_create_task
+
 from .base import CLIMessage, CLIResult, RuntimeSession
 from .container_bridge import ContainerProcessBridge
 
@@ -159,8 +161,6 @@ class CodexProvider:
             # Server request (has id + method) — auto-approve
             if has_id and "method" in raw:
                 method = raw.get("method", "")
-                from app.utils.safe_task import safe_create_task
-
                 safe_create_task(
                     self._rpc_respond(process, raw["id"], {"decision": "accept"}),
                     name=f"codex-rpc-{raw['id']}",

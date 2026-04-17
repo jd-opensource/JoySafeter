@@ -26,7 +26,7 @@ export default function GlobalError({
           }}
         >
           <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Something went wrong</h2>
-          <p style={{ fontSize: '0.875rem', color: '#6b7280' }}>{error.message}</p>
+          <p style={{ fontSize: '0.875rem', color: '#6b7280' }}>{error.message || 'An unexpected error occurred'}</p>
           <button
             onClick={reset}
             style={{

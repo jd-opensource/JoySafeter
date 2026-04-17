@@ -51,6 +51,7 @@ from app.utils.file_event_emitter import FileEventEmitter as FileEventEmitter
 from app.utils.stream_event_handler import StreamEventHandler as StreamEventHandler
 from app.utils.stream_event_handler import StreamState
 from app.utils.task_manager import task_manager
+from app.utils.safe_task import safe_create_task
 from app.websocket.chat_commands import (
     ChatTurnCommand,
     CopilotTurnCommand,
@@ -404,8 +405,6 @@ class ChatWsHandler:
         if request_id is not None:
             outbound["request_id"] = request_id
         if agent_run_id is not None:
-            from app.utils.safe_task import safe_create_task
-
             safe_create_task(
                 self._mirror_run_stream_event(
                     run_id=agent_run_id,

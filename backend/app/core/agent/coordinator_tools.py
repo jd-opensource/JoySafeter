@@ -12,6 +12,7 @@ from app.core.agent.cli_backends.execution_runner import ExecutionRunner
 from app.core.database import async_session_factory
 from app.models.execution import ExecutionSource, MissionExecutionStatus
 from app.services.execution_service import ExecutionService
+from app.utils.safe_task import safe_create_task
 
 
 async def spawn_agent(
@@ -130,8 +131,6 @@ def _fire_and_forget(
         async with async_session_factory() as db:
             runner = ExecutionRunner(db)
             await runner.run(execution_id=exec_id, prompt=prompt, model=model)
-
-    from app.utils.safe_task import safe_create_task
 
     safe_create_task(
         _background(),

@@ -26,6 +26,7 @@ from app.core.settings import settings
 from app.models.auth import AuthUser as User
 from app.models.enums import InstanceStatus
 from app.services.openclaw_instance_service import OpenClawInstanceService
+from app.utils.safe_task import safe_create_task
 
 router = APIRouter(prefix="/v1/openclaw/proxy", tags=["OpenClaw Proxy"])
 
@@ -134,8 +135,6 @@ async def proxy_to_openclaw(
 
     # Auto device pair: wait for the client to connect WebSocket and then approve
     if is_entry and instance.container_id:
-        from app.utils.safe_task import safe_create_task
-
         safe_create_task(
             _poll_approve_devices(instance.container_id),
             name=f"device-approve-{instance.container_id[:12]}",

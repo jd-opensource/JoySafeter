@@ -25,6 +25,7 @@ from app.schemas.skill import (
 )
 from app.services.openclaw_instance_service import OpenClawInstanceService
 from app.services.skill_service import SkillService
+from app.utils.safe_task import safe_create_task
 
 
 async def _trigger_openclaw_skill_sync(user_id: str):
@@ -101,9 +102,6 @@ async def create_skill(
     skill = await service.get_skill(skill.id, current_user.id)
 
     # Trigger sync to OpenClaw container
-    import asyncio  # noqa: E402 — kept for other async usage
-    from app.utils.safe_task import safe_create_task
-
     safe_create_task(_trigger_openclaw_skill_sync(current_user.id))
 
     return {
@@ -162,9 +160,6 @@ async def update_skill(
     skill = await service.get_skill(skill.id, current_user.id)
 
     # Trigger sync to OpenClaw container
-    import asyncio  # noqa: E402 — kept for other async usage
-    from app.utils.safe_task import safe_create_task
-
     safe_create_task(_trigger_openclaw_skill_sync(current_user.id))
 
     return {
@@ -196,24 +191,20 @@ async def delete_skill(
     if skill_name:
         # Trigger incremental sync to OpenClaw container
         async def _delete_from_container():
+            from app.core.database import AsyncSessionLocal
+
             try:
-                from app.services.openclaw_instance_service import OpenClawInstanceService
-
-                instance_service = OpenClawInstanceService(db)
-                instance = await instance_service.get_instance_by_user(current_user.id)
-                if instance and instance.container_id and instance.status == InstanceStatus.RUNNING:
-                    await instance_service.delete_skill_from_container(
-                        current_user.id, instance.container_id, skill_name
-                    )
+                async with AsyncSessionLocal() as bg_db:
+                    instance_service = OpenClawInstanceService(bg_db)
+                    instance = await instance_service.get_instance_by_user(current_user.id)
+                    if instance and instance.container_id and instance.status == InstanceStatus.RUNNING:
+                        await instance_service.delete_skill_from_container(
+                            current_user.id, instance.container_id, skill_name
+                        )
             except Exception as e:
-                from loguru import logger
-
                 logger.error(
                     f"Failed to delete skill {skill_name} from container for user {current_user.id}: {e}", exc_info=True
                 )
-
-        import asyncio
-        from app.utils.safe_task import safe_create_task
 
         safe_create_task(_delete_from_container())
 
@@ -242,9 +233,6 @@ async def add_file(
     )
 
     # Trigger sync to OpenClaw container
-    import asyncio  # noqa: E402 — kept for other async usage
-    from app.utils.safe_task import safe_create_task
-
     safe_create_task(_trigger_openclaw_skill_sync(current_user.id))
 
     return {
@@ -264,9 +252,6 @@ async def delete_file(
     await service.delete_file(file_id, current_user.id)
 
     # Trigger sync to OpenClaw container
-    import asyncio  # noqa: E402 — kept for other async usage
-    from app.utils.safe_task import safe_create_task
-
     safe_create_task(_trigger_openclaw_skill_sync(current_user.id))
 
     return {"success": True}
@@ -290,9 +275,6 @@ async def update_file(
     )
 
     # Trigger sync to OpenClaw container
-    import asyncio  # noqa: E402 — kept for other async usage
-    from app.utils.safe_task import safe_create_task
-
     safe_create_task(_trigger_openclaw_skill_sync(current_user.id))
 
     return {
