@@ -7,9 +7,11 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.dependencies import CurrentUser
+from app.common.dependencies import require_workspace_role
 from app.core.database import get_db
+from app.models.auth import AuthUser as User
 from app.models.mission_comment import CommentAuthorType, CommentType
+from app.models.workspace import WorkspaceMemberRole
 from app.schemas import BaseResponse
 from app.schemas.mission_comment import (
     CreateMissionCommentRequest,
@@ -26,7 +28,7 @@ router = APIRouter(prefix="/v1/missions/{mission_id}/comments", tags=["Mission C
 @router.get("", response_model=BaseResponse[MissionCommentListResponse])
 async def list_comments(
     mission_id: uuid.UUID,
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
     workspace_id: uuid.UUID = Query(...),
     cursor: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
@@ -54,7 +56,7 @@ async def list_comments(
 async def create_comment(
     mission_id: uuid.UUID,
     request: CreateMissionCommentRequest,
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.member),
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionCommentResponse]:
@@ -90,7 +92,7 @@ async def update_comment(
     mission_id: uuid.UUID,
     comment_id: uuid.UUID,
     request: UpdateMissionCommentRequest,
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.member),
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionCommentResponse]:
@@ -116,7 +118,7 @@ async def update_comment(
 async def delete_comment(
     mission_id: uuid.UUID,
     comment_id: uuid.UUID,
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.member),
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[None]:

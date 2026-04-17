@@ -10,6 +10,7 @@ Features:
 - Output truncation support
 """
 
+import re
 import subprocess
 from typing import Optional
 
@@ -20,6 +21,16 @@ from app.core.agent.backends.constants import (
     DEFAULT_MAX_OUTPUT_SIZE,
 )
 from app.utils.backend_utils import create_execute_response
+
+# Shared denylist for obviously destructive commands.
+# Defense-in-depth — shell=True is kept for LLM agent pipe/redirect support.
+DANGEROUS_PATTERNS = [
+    r"rm\s+-rf\s+/\s*$",   # rm -rf /
+    r"mkfs\.",              # format disk
+    r"dd\s+.*of=/dev/",    # write to device
+    r":\(\)\s*\{",          # fork bomb :(){ :|:& };:
+]
+DANGEROUS_RE = re.compile("|".join(f"(?:{p})" for p in DANGEROUS_PATTERNS))
 
 
 def combine_stdout_stderr(stdout: Optional[str], stderr: Optional[str]) -> str:
@@ -107,6 +118,9 @@ def execute_local_command(
         ...
     """
     try:
+        if DANGEROUS_RE.search(command):
+            return create_error_response("Command blocked by security policy")
+
         result = subprocess.run(
             command,
             shell=True,

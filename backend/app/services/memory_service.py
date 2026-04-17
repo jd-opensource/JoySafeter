@@ -284,16 +284,10 @@ class MemoryService:
                     dialect = engine.dialect.name
                     if dialect == "postgresql":
                         # PostgreSQL: Use JSONB @> operator to check if array contains the topic
-                        # Cast JSON to JSONB for proper containment check
                         for topic in topics:
-                            # Check if topics JSON array contains the topic string
-                            # Using JSONB @> operator: topics::jsonb @> '["topic"]'::jsonb
-                            # Escape single quotes in JSON string for SQL safety
-                            topic_array_json = json.dumps([topic])
-                            # Replace single quotes with escaped single quotes for SQL
-                            topic_array_json_escaped = topic_array_json.replace("'", "''")
-                            # Use text() with string formatting (safe for JSON strings from json.dumps)
-                            stmt = stmt.where(text(f"topics::jsonb @> '{topic_array_json_escaped}'::jsonb"))
+                            stmt = stmt.where(
+                                text("topics::jsonb @> :val::jsonb").bindparams(val=json.dumps([topic]))
+                            )
                     else:
                         # SQLite or other: Use LIKE for compatibility
                         for topic in topics:

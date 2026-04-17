@@ -7,10 +7,12 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.dependencies import CurrentUser
-from app.common.exceptions import BadRequestException
+from app.common.dependencies import CurrentUser, require_workspace_role
+from app.common.exceptions import BadRequestException, ForbiddenException
 from app.core.database import get_db
+from app.models.auth import AuthUser as User
 from app.models.mission import Mission, MissionPriority
+from app.models.enums import WorkspaceMemberRole
 from app.schemas import BaseResponse
 from app.schemas.execution import (
     AssignMissionRequest,
@@ -21,6 +23,7 @@ from app.schemas.execution import (
     UpdateMissionRequest,
 )
 from app.services.mission_service import MissionService
+from app.services.workspace_permission import check_workspace_access
 
 router = APIRouter(prefix="/v1/missions", tags=["Missions"])
 
@@ -49,7 +52,7 @@ def _to_summary(m: Mission) -> MissionSummary:
 
 @router.get("", response_model=BaseResponse[MissionListResponse])
 async def list_missions(
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
     workspace_id: uuid.UUID = Query(...),
     status: str | None = Query(None),
     parent_mission_id: uuid.UUID | None = Query(None),
@@ -78,6 +81,11 @@ async def create_mission(
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionSummary]:
     service = MissionService(db)
+
+    has_access = await check_workspace_access(db, request.workspace_id, current_user, WorkspaceMemberRole.member)
+    if not has_access:
+        raise ForbiddenException("No access to workspace")
+
     try:
         priority = MissionPriority(request.priority)
     except ValueError:
@@ -99,7 +107,7 @@ async def create_mission(
 @router.get("/{mission_id}", response_model=BaseResponse[MissionSummary])
 async def get_mission(
     mission_id: uuid.UUID,
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionSummary]:
@@ -114,7 +122,7 @@ async def get_mission(
 async def update_mission(
     mission_id: uuid.UUID,
     request: UpdateMissionRequest,
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.member),
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionSummary]:
@@ -130,19 +138,16 @@ async def update_mission(
 async def assign_mission(
     mission_id: uuid.UUID,
     request: AssignMissionRequest,
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.member),
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionSummary]:
     service = MissionService(db)
-    try:
-        mission = await service.assign_to_agent(
-            mission_id=mission_id,
-            workspace_id=workspace_id,
-            agent_profile_id=request.agent_profile_id,
-        )
-    except ValueError as exc:
-        raise BadRequestException(str(exc))
+    mission = await service.assign_to_agent(
+        mission_id=mission_id,
+        workspace_id=workspace_id,
+        agent_profile_id=request.agent_profile_id,
+    )
     return BaseResponse(success=True, code=200, msg="Mission assigned", data=_to_summary(mission))
 
 
@@ -150,27 +155,24 @@ async def assign_mission(
 async def dispatch_mission(
     mission_id: uuid.UUID,
     request: DispatchMissionRequest,
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.member),
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionSummary]:
     service = MissionService(db)
-    try:
-        mission, _execution = await service.dispatch_mission(
-            mission_id=mission_id,
-            workspace_id=workspace_id,
-            user_id=str(current_user.id),
-            runtime_config=request.runtime_config,
-        )
-    except ValueError as exc:
-        raise BadRequestException(str(exc))
+    mission, _execution = await service.dispatch_mission(
+        mission_id=mission_id,
+        workspace_id=workspace_id,
+        user_id=str(current_user.id),
+        runtime_config=request.runtime_config,
+    )
     return BaseResponse(success=True, code=200, msg="Mission dispatched", data=_to_summary(mission))
 
 
 @router.post("/{mission_id}/cancel", response_model=BaseResponse[MissionSummary])
 async def cancel_mission(
     mission_id: uuid.UUID,
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.member),
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionSummary]:

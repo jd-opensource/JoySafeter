@@ -7,9 +7,12 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.dependencies import CurrentUser
+from app.common.dependencies import CurrentUser, require_workspace_role
+from app.common.exceptions import ForbiddenException
 from app.core.database import get_db
 from app.models.agent_profile import AgentProfile
+from app.models.auth import AuthUser as User
+from app.models.workspace import WorkspaceMemberRole
 from app.schemas import BaseResponse
 from app.schemas.execution import (
     AgentProfileListResponse,
@@ -18,6 +21,7 @@ from app.schemas.execution import (
     UpdateAgentProfileRequest,
 )
 from app.services.agent_profile_service import AgentProfileService
+from app.services.workspace_permission import check_workspace_access
 
 router = APIRouter(prefix="/v1/agent-profiles", tags=["Agent Profiles"])
 
@@ -39,7 +43,7 @@ def _to_summary(p: AgentProfile) -> AgentProfileSummary:
 
 @router.get("", response_model=BaseResponse[AgentProfileListResponse])
 async def list_agent_profiles(
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
     workspace_id: uuid.UUID = Query(...),
     status: str | None = Query(None),
     runtime_type: str | None = Query(None),
@@ -65,6 +69,10 @@ async def create_agent_profile(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[AgentProfileSummary]:
+    has_access = await check_workspace_access(db, request.workspace_id, current_user, WorkspaceMemberRole.member)
+    if not has_access:
+        raise ForbiddenException("No access to workspace")
+
     service = AgentProfileService(db)
     profile = await service.create_profile(
         workspace_id=request.workspace_id,
@@ -84,7 +92,7 @@ async def create_agent_profile(
 @router.get("/{profile_id}", response_model=BaseResponse[AgentProfileSummary])
 async def get_agent_profile(
     profile_id: uuid.UUID,
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[AgentProfileSummary]:
@@ -99,7 +107,7 @@ async def get_agent_profile(
 async def update_agent_profile(
     profile_id: uuid.UUID,
     request: UpdateAgentProfileRequest,
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.member),
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[AgentProfileSummary]:
