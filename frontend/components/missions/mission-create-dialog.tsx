@@ -60,17 +60,20 @@ export function MissionCreateDialog({ workspaceId, trigger }: MissionCreateDialo
       .map((t) => t.trim())
       .filter(Boolean)
 
-    await createMission.mutateAsync({
-      workspace_id: workspaceId,
-      title: title.trim(),
-      description: description.trim() || undefined,
-      objective: objective.trim() || undefined,
-      priority,
-      tags: tags.length > 0 ? tags : undefined,
-    })
-
-    reset()
-    setOpen(false)
+    try {
+      await createMission.mutateAsync({
+        workspace_id: workspaceId,
+        title: title.trim(),
+        description: description.trim() || undefined,
+        objective: objective.trim() || undefined,
+        priority,
+        tags: tags.length > 0 ? tags : undefined,
+      })
+      reset()
+      setOpen(false)
+    } catch {
+      // Global mutation error handler shows toast
+    }
   }
 
   return (

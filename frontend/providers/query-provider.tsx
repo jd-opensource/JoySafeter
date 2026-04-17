@@ -3,6 +3,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useState } from 'react'
 
+import { toastError } from '@/lib/utils/toast'
+
 interface QueryProviderProps {
   children: React.ReactNode
 }
@@ -19,6 +21,11 @@ export function QueryProvider({ children }: QueryProviderProps) {
             staleTime: 60 * 1000, // 1 minute
             gcTime: 10 * 60 * 1000, // 10 minutes (formerly cacheTime)
             refetchOnWindowFocus: false,
+          },
+          mutations: {
+            onError: (error) => {
+              toastError(error.message)
+            },
           },
         },
       }),

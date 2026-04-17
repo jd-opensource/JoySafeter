@@ -37,7 +37,6 @@ import {
   useUpdateMission,
 } from '@/hooks/queries/missions'
 import { cn } from '@/lib/utils'
-import { toastError } from '@/lib/utils/toast'
 import { ACTIVE_EXECUTION_STATUSES } from '@/types/executions'
 import type { MissionPriority, MissionStatus } from '@/types/missions'
 import {
@@ -440,10 +439,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                 {canDispatch && (
                   <Button
                     size="sm"
-                    onClick={() => dispatchMission.mutate(
-                      { missionId, workspaceId },
-                      { onError: (err) => toastError(err.message, 'Dispatch Failed') },
-                    )}
+                    onClick={() => dispatchMission.mutate({ missionId, workspaceId })}
                     disabled={dispatchMission.isPending}
                   >
                     <Play className="h-3.5 w-3.5" />
@@ -454,10 +450,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                   <Button
                     variant="destructive"
                     size="sm"
-                    onClick={() => cancelMission.mutate(
-                      { missionId, workspaceId },
-                      { onError: (err) => toastError(err.message, 'Cancel Failed') },
-                    )}
+                    onClick={() => cancelMission.mutate({ missionId, workspaceId })}
                     disabled={cancelMission.isPending}
                   >
                     <XCircle className="h-3.5 w-3.5" />
