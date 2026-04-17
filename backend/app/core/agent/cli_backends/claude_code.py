@@ -79,6 +79,7 @@ class ClaudeCodeProvider:
         accumulated_text: list[str] = []
         session_id = ""
         usage: dict = {}
+        is_error = False
 
         try:
             async with asyncio.timeout(timeout):
@@ -105,6 +106,8 @@ class ClaudeCodeProvider:
                             session_id = result_data.get("session_id", "")
                         if "usage" in event:
                             usage = event["usage"]
+                        if event.get("is_error"):
+                            is_error = True
 
         except TimeoutError:
             if not result_future.done():
@@ -116,7 +119,14 @@ class ClaudeCodeProvider:
         finally:
             if not result_future.done():
                 exit_code = await process.wait()
-                if exit_code == 0 or accumulated_text:
+                if is_error:
+                    result_future.set_result(CLIResult(
+                        status="failed",
+                        output="\n".join(accumulated_text),
+                        error="\n".join(accumulated_text) or "Claude Code reported an error",
+                        session_id=session_id,
+                    ))
+                elif exit_code == 0 or accumulated_text:
                     result_future.set_result(CLIResult(
                         status="completed",
                         output="\n".join(accumulated_text),

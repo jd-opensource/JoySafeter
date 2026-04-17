@@ -191,6 +191,11 @@ class MissionCommentService:
             logger.warning(f"Agent {mission.assignee_id} not found, skipping enqueue")
             return
 
+        # Validate credentials before creating the execution row
+        from app.utils.credentials import build_credentials
+
+        credentials = build_credentials(agent.custom_env)
+
         try:
             execution = await self.execution_service.create_execution(
                 workspace_id=mission.workspace_id,
@@ -224,8 +229,7 @@ class MissionCommentService:
         from app.services.mission_service import build_execution_prompt, _start_execution_runner
 
         prompt = build_execution_prompt(mission, trigger_comment=trigger_comment)
-        credentials = dict(agent.custom_env or {})
-        _start_execution_runner(execution.id, prompt, credentials or None)
+        _start_execution_runner(execution.id, prompt, credentials)
 
         logger.info(
             f"Comment-triggered execution {execution.id} for mission {mission.id} "

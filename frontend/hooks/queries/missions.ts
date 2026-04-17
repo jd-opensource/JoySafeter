@@ -9,6 +9,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 
 import { missionService } from '@/services/missionService'
 import type { Mission, CreateMissionRequest, UpdateMissionRequest } from '@/types/missions'
+import { TERMINAL_MISSION_STATUSES } from '@/types/missions'
 
 import { STALE_TIME } from './constants'
 
@@ -53,6 +54,11 @@ export function useMission(
     queryFn: () => missionService.get(missionId, workspaceId),
     enabled: Boolean(missionId) && Boolean(workspaceId) && options?.enabled !== false,
     staleTime: STALE_TIME.SHORT,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      if (status && TERMINAL_MISSION_STATUSES.includes(status)) return false
+      return 10_000
+    },
   })
 }
 

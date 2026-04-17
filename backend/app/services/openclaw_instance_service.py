@@ -220,17 +220,9 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
         }
 
         # Pass through AI provider keys from host environment
-        for key in (
-            "ANTHROPIC_API_KEY",
-            "OPENAI_API_KEY",
-            "AI_GATEWAY_BASE_URL",
-            "AI_GATEWAY_API_KEY",
-            "AI_GATEWAY_PROVIDER",
-            "AI_GATEWAY_MODEL",
-            "ANTHROPIC_BASE_URL",
-            "ANTHROPIC_AUTH_TOKEN",
-            "ANTHROPIC_MODEL",
-        ):
+        from app.utils.credentials import PASSTHROUGH_ENV_KEYS
+
+        for key in PASSTHROUGH_ENV_KEYS:
             val = os.environ.get(key)
             if val:
                 env_vars[key] = val

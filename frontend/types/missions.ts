@@ -52,6 +52,8 @@ export const MISSION_STATUS_ORDER: MissionStatus[] = [
   'backlog', 'todo', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled',
 ]
 
+export const TERMINAL_MISSION_STATUSES: readonly MissionStatus[] = ['done', 'cancelled'] as const
+
 export const MISSION_STATUS_LABELS: Record<MissionStatus, string> = {
   backlog: 'Backlog',
   todo: 'To Do',

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { useExecution, useExecutionEvents } from '@/hooks/queries/executions'
 import { useExecutionStream } from '@/hooks/use-execution-stream'
 import { cn } from '@/lib/utils'
+import { ACTIVE_EXECUTION_STATUSES } from '@/types/executions'
 
 import { executionService } from '@/services/executionService'
 
@@ -24,8 +25,6 @@ const STATUS_CONFIG: Record<string, { icon: React.ElementType; label: string; co
   cancelled: { icon: XCircle, label: 'Cancelled', color: 'text-[var(--text-muted)]' },
 }
 
-const ACTIVE_STATUSES = ['queued', 'dispatched', 'running', 'interrupt_wait', 'approval_wait']
-
 interface ExecutionTimelineProps {
   executionId: string
   workspaceId: string
@@ -36,8 +35,8 @@ interface ExecutionTimelineProps {
 
 export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = true }: ExecutionTimelineProps) {
   const { data: execution, isLoading: isExecLoading, error: execError, refetch: refetchExec } = useExecution(executionId, workspaceId)
-  const isActive = execution ? ACTIVE_STATUSES.includes(execution.status) : false
-  const shouldStream = isLive && Boolean(executionId)
+  const isActive = execution ? ACTIVE_EXECUTION_STATUSES.includes(execution.status) : false
+  const shouldStream = isLive && isActive && Boolean(executionId)
 
   // WebSocket stream — primary data source (disabled for terminal executions)
   const {

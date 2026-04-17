@@ -18,6 +18,7 @@ from app.models.mission import Mission, MissionPriority, MissionStatus
 from app.repositories.agent_profile import AgentProfileRepository
 from app.repositories.mission import MissionRepository
 from app.services.execution_service import ExecutionService
+from app.utils.credentials import build_credentials
 from app.utils.datetime import utc_now
 
 
@@ -243,6 +244,10 @@ class MissionService:
         if not agent:
             raise ValueError(f"Agent profile not found: {mission.assignee_id}")
 
+        # Validate credentials before creating the execution row
+        credentials = build_credentials(agent.custom_env)
+        prompt = build_execution_prompt(mission)
+
         execution = await self.execution_service.create_execution(
             workspace_id=workspace_id,
             user_id=user_id,
@@ -266,9 +271,7 @@ class MissionService:
         )
 
         # Start the runner in the background so the execution doesn't stay QUEUED
-        prompt = build_execution_prompt(mission)
-        credentials = dict(agent.custom_env or {})
-        _start_execution_runner(execution.id, prompt, credentials or None)
+        _start_execution_runner(execution.id, prompt, credentials)
 
         return mission, execution
 

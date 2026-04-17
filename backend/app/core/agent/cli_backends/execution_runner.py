@@ -160,7 +160,7 @@ class ExecutionRunner:
                 },
             )
 
-            # 5. Execute via provider (with session resume)
+            # 5. Execute via provider (with session resume + credentials)
             provider = runtime_registry.get(execution.runtime_type)
             session = await provider.execute(
                 prompt,
@@ -169,6 +169,7 @@ class ExecutionRunner:
                 model=model,
                 timeout=timeout,
                 resume_session_id=prior_session_id,
+                env=credentials,
             )
 
             # 5b. Register session so the API layer can inject messages

@@ -37,6 +37,8 @@ import {
   useUpdateMission,
 } from '@/hooks/queries/missions'
 import { cn } from '@/lib/utils'
+import { toastError } from '@/lib/utils/toast'
+import { ACTIVE_EXECUTION_STATUSES } from '@/types/executions'
 import type { MissionPriority, MissionStatus } from '@/types/missions'
 import {
   MISSION_PRIORITY_LABELS,
@@ -87,7 +89,12 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
     return hasAgent && notRunning && validStatus.includes(mission.status)
   }, [mission])
 
-  const canCancel = Boolean(mission?.current_execution_id)
+  const canCancel = useMemo(() => {
+    if (!mission?.current_execution_id) return false
+    const currentExec = executions.find((e) => e.id === mission.current_execution_id)
+    if (!currentExec) return false
+    return ACTIVE_EXECUTION_STATUSES.includes(currentExec.status)
+  }, [mission, executions])
 
   const pastExecutions = useMemo(() => {
     if (!mission) return []
@@ -248,7 +255,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                 </SelectContent>
               </Select>
 
-              {mission.current_execution_id && (
+              {canCancel && (
                 <span className="inline-flex items-center gap-1 text-xs text-[var(--status-success)]">
                   <span className="relative flex h-2 w-2">
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--status-success)] opacity-75" />
@@ -433,7 +440,10 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                 {canDispatch && (
                   <Button
                     size="sm"
-                    onClick={() => dispatchMission.mutate({ missionId, workspaceId })}
+                    onClick={() => dispatchMission.mutate(
+                      { missionId, workspaceId },
+                      { onError: (err) => toastError(err.message, 'Dispatch Failed') },
+                    )}
                     disabled={dispatchMission.isPending}
                   >
                     <Play className="h-3.5 w-3.5" />
@@ -444,7 +454,10 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                   <Button
                     variant="destructive"
                     size="sm"
-                    onClick={() => cancelMission.mutate({ missionId, workspaceId })}
+                    onClick={() => cancelMission.mutate(
+                      { missionId, workspaceId },
+                      { onError: (err) => toastError(err.message, 'Cancel Failed') },
+                    )}
                     disabled={cancelMission.isPending}
                   >
                     <XCircle className="h-3.5 w-3.5" />

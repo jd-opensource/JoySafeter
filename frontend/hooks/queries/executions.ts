@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { executionService } from '@/services/executionService'
 import type { Execution, ExecutionSnapshot } from '@/types/executions'
+import { TERMINAL_EXECUTION_STATUSES } from '@/types/executions'
 import type { ExecutionEventsPage } from '@/services/executionService'
 
 import { STALE_TIME } from './constants'
@@ -64,7 +65,11 @@ export function useExecution(
     queryFn: () => executionService.get(executionId, workspaceId),
     enabled: Boolean(executionId) && Boolean(workspaceId) && options?.enabled !== false,
     staleTime: STALE_TIME.SHORT,
-    refetchInterval: 10000,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      if (status && TERMINAL_EXECUTION_STATUSES.includes(status)) return false
+      return 10_000
+    },
   })
 }
 
@@ -79,7 +84,7 @@ export function useExecutionEvents(
     queryFn: () => executionService.getEvents(executionId, workspaceId, afterSeq),
     enabled: Boolean(executionId) && Boolean(workspaceId) && options?.enabled !== false,
     staleTime: STALE_TIME.SHORT,
-    refetchInterval: 5000,
+    refetchInterval: 5_000,
   })
 }
 
@@ -93,7 +98,11 @@ export function useExecutionSnapshot(
     queryFn: () => executionService.getSnapshot(executionId, workspaceId),
     enabled: Boolean(executionId) && Boolean(workspaceId) && options?.enabled !== false,
     staleTime: STALE_TIME.SHORT,
-    refetchInterval: 5000,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      if (status && TERMINAL_EXECUTION_STATUSES.includes(status as string)) return false
+      return 5_000
+    },
   })
 }
 
