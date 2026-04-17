@@ -131,7 +131,9 @@ def _fire_and_forget(
             runner = ExecutionRunner(db)
             await runner.run(execution_id=exec_id, prompt=prompt, model=model)
 
-    asyncio.create_task(
+    from app.utils.safe_task import safe_create_task
+
+    safe_create_task(
         _background(),
         name=f"coordinator-child-{exec_id}",
     )

@@ -159,8 +159,11 @@ class CodexProvider:
             # Server request (has id + method) — auto-approve
             if has_id and "method" in raw:
                 method = raw.get("method", "")
-                asyncio.ensure_future(
-                    self._rpc_respond(process, raw["id"], {"decision": "accept"})
+                from app.utils.safe_task import safe_create_task
+
+                safe_create_task(
+                    self._rpc_respond(process, raw["id"], {"decision": "accept"}),
+                    name=f"codex-rpc-{raw['id']}",
                 )
                 return
 
@@ -169,7 +172,10 @@ class CodexProvider:
                 for msg in self._parse_notification(raw):
                     if msg.type == "text":
                         accumulated_text.append(msg.content)
-                    asyncio.ensure_future(queue.put(msg))
+                    try:
+                        queue.put_nowait(msg)
+                    except asyncio.QueueFull:
+                        logger.warning(f"Codex event queue full, dropping message: {msg.type}")
 
                 # Detect turn completion
                 method = raw.get("method", "")

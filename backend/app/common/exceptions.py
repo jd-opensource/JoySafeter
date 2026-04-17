@@ -232,13 +232,29 @@ async def request_validation_exception_handler(request: Request, exc: Exception)
 
 
 async def general_exception_handler(request: Request, exc: Exception) -> Response:
-    """Handle uncaught exceptions (500)."""
+    """Handle uncaught exceptions — auto-translate common service-layer exceptions."""
+
+    # ValueError → 400 (or 404 if message says "not found")
+    if isinstance(exc, ValueError):
+        msg = str(exc)
+        if "not found" in msg.lower():
+            return await app_exception_handler(request, NotFoundException(msg))
+        return await app_exception_handler(request, BadRequestException(msg))
+
+    # PermissionError → 403
+    if isinstance(exc, PermissionError):
+        return await app_exception_handler(request, ForbiddenException(str(exc)))
+
+    # RuntimeError → 400 (service-layer operational errors)
+    if isinstance(exc, RuntimeError):
+        return await app_exception_handler(request, BadRequestException(str(exc)))
+
+    # Truly unexpected — 500
     try:
         from loguru import logger
 
         logger.exception("Unhandled exception: {}", exc)
     except Exception:
-        # fallback when logger is unavailable
         pass
 
     debug = False

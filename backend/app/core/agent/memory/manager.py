@@ -396,9 +396,9 @@ class MemoryManager:
             if hasattr(result, "__await__"):
                 import asyncio
 
-                asyncio.create_task(result)  # type: ignore[unused-coroutine]
+                from app.utils.safe_task import safe_create_task
 
-    def delete_user_memory(
+                safe_create_task(result, name="memory-clear")  # type: ignore[arg-type]
         self,
         memory_id: str,
         user_id: Optional[str] = None,
@@ -685,8 +685,9 @@ class MemoryManager:
             if hasattr(result, "__await__"):
                 import asyncio
 
-                asyncio.create_task(result)  # type: ignore[unused-coroutine]
-            return "Memory added successfully"
+                from app.utils.safe_task import safe_create_task
+
+                safe_create_task(result, name="memory-upsert")  # type: ignore[arg-type]
         except Exception as e:
             logger.warning(f"Error storing memory in db: {e}")
             return f"Error adding memory: {e}"
@@ -704,8 +705,9 @@ class MemoryManager:
             if hasattr(result, "__await__"):
                 import asyncio
 
-                asyncio.create_task(result)  # type: ignore[unused-coroutine]
-            return "Memory deleted successfully"
+                from app.utils.safe_task import safe_create_task
+
+                safe_create_task(result, name="memory-delete")  # type: ignore[arg-type]
         except Exception as e:
             logger.warning(f"Error deleting memory in db: {e}")
             return f"Error deleting memory: {e}"

@@ -1,6 +1,6 @@
 'use client'
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useState } from 'react'
 
 import { toastError } from '@/lib/utils/toast'
@@ -16,6 +16,15 @@ export function QueryProvider({ children }: QueryProviderProps) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
+        queryCache: new QueryCache({
+          onError: (error, query) => {
+            // Only toast background refetch failures (data was previously loaded).
+            // Fresh loads should show error state in the component, not a toast.
+            if (query.state.data !== undefined) {
+              toastError(error.message)
+            }
+          },
+        }),
         defaultOptions: {
           queries: {
             staleTime: 60 * 1000, // 1 minute

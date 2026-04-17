@@ -27,13 +27,20 @@ from app.services.openclaw_instance_service import OpenClawInstanceService
 from app.services.skill_service import SkillService
 
 
-async def _trigger_openclaw_skill_sync(user_id: str, db: AsyncSession):
-    """Trigger a sync of skills to the user's OpenClaw container if it is running."""
+async def _trigger_openclaw_skill_sync(user_id: str):
+    """Trigger a sync of skills to the user's OpenClaw container if it is running.
+
+    Uses its own DB session since this runs as a background task after the
+    request-scoped session is closed.
+    """
+    from app.core.database import AsyncSessionLocal
+
     try:
-        instance_service = OpenClawInstanceService(db)
-        instance = await instance_service.get_instance_by_user(user_id)
-        if instance and instance.container_id and instance.status == InstanceStatus.RUNNING:
-            await instance_service.sync_skills_to_container(user_id, instance.container_id)
+        async with AsyncSessionLocal() as db:
+            instance_service = OpenClawInstanceService(db)
+            instance = await instance_service.get_instance_by_user(user_id)
+            if instance and instance.container_id and instance.status == InstanceStatus.RUNNING:
+                await instance_service.sync_skills_to_container(user_id, instance.container_id)
     except Exception as e:
         logger.error(f"Failed to trigger openclaw skill sync for user {user_id}: {e}", exc_info=True)
 
@@ -94,9 +101,10 @@ async def create_skill(
     skill = await service.get_skill(skill.id, current_user.id)
 
     # Trigger sync to OpenClaw container
-    import asyncio
+    import asyncio  # noqa: E402 — kept for other async usage
+    from app.utils.safe_task import safe_create_task
 
-    asyncio.create_task(_trigger_openclaw_skill_sync(current_user.id, db))
+    safe_create_task(_trigger_openclaw_skill_sync(current_user.id))
 
     return {
         "success": True,
@@ -154,9 +162,10 @@ async def update_skill(
     skill = await service.get_skill(skill.id, current_user.id)
 
     # Trigger sync to OpenClaw container
-    import asyncio
+    import asyncio  # noqa: E402 — kept for other async usage
+    from app.utils.safe_task import safe_create_task
 
-    asyncio.create_task(_trigger_openclaw_skill_sync(current_user.id, db))
+    safe_create_task(_trigger_openclaw_skill_sync(current_user.id))
 
     return {
         "success": True,
@@ -204,8 +213,9 @@ async def delete_skill(
                 )
 
         import asyncio
+        from app.utils.safe_task import safe_create_task
 
-        asyncio.create_task(_delete_from_container())
+        safe_create_task(_delete_from_container())
 
     return {"success": True}
 
@@ -232,9 +242,10 @@ async def add_file(
     )
 
     # Trigger sync to OpenClaw container
-    import asyncio
+    import asyncio  # noqa: E402 — kept for other async usage
+    from app.utils.safe_task import safe_create_task
 
-    asyncio.create_task(_trigger_openclaw_skill_sync(current_user.id, db))
+    safe_create_task(_trigger_openclaw_skill_sync(current_user.id))
 
     return {
         "success": True,
@@ -253,9 +264,10 @@ async def delete_file(
     await service.delete_file(file_id, current_user.id)
 
     # Trigger sync to OpenClaw container
-    import asyncio
+    import asyncio  # noqa: E402 — kept for other async usage
+    from app.utils.safe_task import safe_create_task
 
-    asyncio.create_task(_trigger_openclaw_skill_sync(current_user.id, db))
+    safe_create_task(_trigger_openclaw_skill_sync(current_user.id))
 
     return {"success": True}
 
@@ -278,9 +290,10 @@ async def update_file(
     )
 
     # Trigger sync to OpenClaw container
-    import asyncio
+    import asyncio  # noqa: E402 — kept for other async usage
+    from app.utils.safe_task import safe_create_task
 
-    asyncio.create_task(_trigger_openclaw_skill_sync(current_user.id, db))
+    safe_create_task(_trigger_openclaw_skill_sync(current_user.id))
 
     return {
         "success": True,

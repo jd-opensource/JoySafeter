@@ -134,7 +134,12 @@ async def proxy_to_openclaw(
 
     # Auto device pair: wait for the client to connect WebSocket and then approve
     if is_entry and instance.container_id:
-        asyncio.create_task(_poll_approve_devices(instance.container_id))
+        from app.utils.safe_task import safe_create_task
+
+        safe_create_task(
+            _poll_approve_devices(instance.container_id),
+            name=f"device-approve-{instance.container_id[:12]}",
+        )
 
     query_params = {k: v for k, v in parse_qs(request.url.query).items()}
     if is_entry:
