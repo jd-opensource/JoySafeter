@@ -12,7 +12,7 @@ from app.common.exceptions import BadRequestException, ForbiddenException
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.models.mission import Mission, MissionPriority
-from app.models.enums import WorkspaceMemberRole
+from app.models.workspace import WorkspaceMemberRole
 from app.schemas import BaseResponse
 from app.schemas.execution import (
     AssignMissionRequest,
@@ -82,14 +82,15 @@ async def create_mission(
 ) -> BaseResponse[MissionSummary]:
     service = MissionService(db)
 
-    has_access = await check_workspace_access(db, request.workspace_id, current_user, WorkspaceMemberRole.member)
-    if not has_access:
-        raise ForbiddenException("No access to workspace")
-
     try:
         priority = MissionPriority(request.priority)
     except ValueError:
         raise BadRequestException(f"Invalid priority: {request.priority}")
+
+    has_access = await check_workspace_access(db, request.workspace_id, current_user, WorkspaceMemberRole.member)
+    if not has_access:
+        raise ForbiddenException("No access to workspace")
+
     mission = await service.create_mission(
         workspace_id=request.workspace_id,
         creator_id=str(current_user.id),

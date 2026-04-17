@@ -117,10 +117,10 @@ def execute_local_command(
         total 0
         ...
     """
-    try:
-        if DANGEROUS_RE.search(command):
-            return create_error_response("Command blocked by security policy")
+    if DANGEROUS_RE.search(command):
+        return create_error_response("Command blocked by security policy")
 
+    try:
         result = subprocess.run(
             command,
             shell=True,

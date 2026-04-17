@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser, require_workspace_role
 from app.common.exceptions import NotFoundException
+from app.core.agent.cli_backends.session_registry import session_registry
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.models.execution import Execution, MissionExecutionStatus
@@ -189,7 +190,6 @@ async def cancel_execution(
             await db.commit()
 
     # Terminate the running container process
-    from app.core.agent.cli_backends.session_registry import session_registry
     session = session_registry.get(execution_id)
     if session:
         await session.cancel()
@@ -205,16 +205,14 @@ async def inject_message(
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse:
     """Inject a user message into a running execution."""
+    session = session_registry.get(execution_id)
+    if not session:
+        raise NotFoundException("No active session for this execution")
+
     svc = ExecutionService(db)
     execution = await svc.get_execution(execution_id, str(current_user.id))
     if not execution:
         raise NotFoundException("Execution not found")
-
-    from app.core.agent.cli_backends.session_registry import session_registry
-
-    session = session_registry.get(execution_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="No active session for this execution")
 
     await session.inject_message(request.message)
 
@@ -235,16 +233,14 @@ async def approve_action(
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse:
     """Approve or reject a pending approval request."""
+    session = session_registry.get(execution_id)
+    if not session:
+        raise NotFoundException("No active session for this execution")
+
     svc = ExecutionService(db)
     execution = await svc.get_execution(execution_id, str(current_user.id))
     if not execution:
         raise NotFoundException("Execution not found")
-
-    from app.core.agent.cli_backends.session_registry import session_registry
-
-    session = session_registry.get(execution_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="No active session for this execution")
 
     if request.approved:
         msg = request.message or "Approved. Continue."

@@ -44,6 +44,7 @@ from app.core.agent.backends.runtime_config import (
     list_builtin_runtimes,
     resolve_runtime,
 )
+from app.core.agent.backends.utils.command_executor import DANGEROUS_RE
 from app.utils.backend_utils import create_execute_response
 
 # Re-export for backward compatibility
@@ -377,8 +378,6 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         Returns:
             Tuple of (output, exit_code)
         """
-        from app.core.agent.backends.utils.command_executor import DANGEROUS_RE
-
         if DANGEROUS_RE.search(command):
             logger.warning(f"[{self._id}] Blocked dangerous command: {command[:100]}")
             return "Error: command blocked by security policy", 1
