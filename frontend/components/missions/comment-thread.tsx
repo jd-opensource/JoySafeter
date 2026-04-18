@@ -9,9 +9,35 @@ import {
   useMissionComments,
   useCreateMissionComment,
 } from '@/hooks/queries/missionComments'
+import { useAgentProfiles } from '@/hooks/queries/agentProfiles'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/utils/runHelpers'
 import type { MissionComment } from '@/types/mission-comments'
+
+const MENTION_RE = /\[@([^\]]*)\]\(mention:\/\/(agent|member)\/[^)]+\)/g
+
+function renderContentWithMentions(content: string) {
+  const parts: (string | React.ReactElement)[] = []
+  let lastIndex = 0
+
+  for (const match of content.matchAll(MENTION_RE)) {
+    if (match.index! > lastIndex) {
+      parts.push(content.slice(lastIndex, match.index))
+    }
+    parts.push(
+      <span key={match.index} className="rounded bg-[var(--brand-400)]/10 px-1 font-medium text-[var(--brand-400)]">
+        @{match[1]}
+      </span>
+    )
+    lastIndex = match.index! + match[0].length
+  }
+
+  if (lastIndex < content.length) {
+    parts.push(content.slice(lastIndex))
+  }
+
+  return parts.length > 0 ? parts : content
+}
 
 interface CommentThreadProps {
   missionId: string
@@ -25,6 +51,10 @@ export function CommentThread({ missionId, workspaceId }: CommentThreadProps) {
   const createComment = useCreateMissionComment()
   const [newContent, setNewContent] = useState('')
   const [replyTo, setReplyTo] = useState<string | null>(null)
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  const [mentionStart, setMentionStart] = useState(0)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const { data: agents = [] } = useAgentProfiles(workspaceId, { enabled: mentionQuery !== null })
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const isAtBottomRef = useRef(true)
@@ -70,6 +100,7 @@ export function CommentThread({ missionId, workspaceId }: CommentThreadProps) {
     e.preventDefault()
     const trimmed = newContent.trim()
     if (!trimmed) return
+    setMentionQuery(null)
     createComment.mutate(
       {
         missionId,
@@ -85,6 +116,35 @@ export function CommentThread({ missionId, workspaceId }: CommentThreadProps) {
       },
     )
   }
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    setNewContent(value)
+
+    const cursorPos = e.target.selectionStart ?? value.length
+    const textBeforeCursor = value.slice(0, cursorPos)
+    const atMatch = textBeforeCursor.match(/@(\w*)$/)
+    if (atMatch) {
+      setMentionQuery(atMatch[1].toLowerCase())
+      setMentionStart(cursorPos - atMatch[0].length)
+    } else {
+      setMentionQuery(null)
+    }
+  }
+
+  const handleSelectAgent = (agentId: string, agentName: string) => {
+    const before = newContent.slice(0, mentionStart)
+    const after = newContent.slice(mentionStart + (mentionQuery?.length ?? 0) + 1)
+    const mention = `[@${agentName}](mention://agent/${agentId})`
+    setNewContent(before + mention + ' ' + after)
+    setMentionQuery(null)
+    inputRef.current?.focus()
+  }
+
+  const filteredAgents = useMemo(() => {
+    if (mentionQuery === null) return []
+    return agents.filter((a) => a.name.toLowerCase().includes(mentionQuery))
+  }, [agents, mentionQuery])
 
   if (isLoading) {
     return (
@@ -135,7 +195,7 @@ export function CommentThread({ missionId, workspaceId }: CommentThreadProps) {
       <div ref={bottomRef} />
 
       {/* Input */}
-      <form onSubmit={handleSubmit} className="mt-3 flex flex-col gap-2">
+      <form onSubmit={handleSubmit} className="relative mt-3 flex flex-col gap-2">
         {replyTo && (
           <div className="flex items-center gap-1 text-xs text-[var(--text-muted)]">
             <CornerDownRight className="h-3 w-3" />
@@ -149,11 +209,29 @@ export function CommentThread({ missionId, workspaceId }: CommentThreadProps) {
             </button>
           </div>
         )}
+        {/* @mention dropdown */}
+        {filteredAgents.length > 0 && (
+          <div className="absolute bottom-full left-0 mb-1 w-56 rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] py-1 shadow-lg">
+            {filteredAgents.slice(0, 5).map((agent) => (
+              <button
+                key={agent.id}
+                type="button"
+                onClick={() => handleSelectAgent(agent.id, agent.name)}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-[var(--surface-3)]"
+              >
+                <Bot className="h-3.5 w-3.5 text-[var(--brand-400)]" />
+                <span className="text-[var(--text-primary)]">{agent.name}</span>
+                <span className="ml-auto text-[10px] text-[var(--text-muted)]">{agent.runtime_type}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <Input
+            ref={inputRef}
             value={newContent}
-            onChange={(e) => setNewContent(e.target.value)}
-            placeholder={replyTo ? 'Write a reply...' : 'Write a comment...'}
+            onChange={handleInputChange}
+            placeholder={replyTo ? 'Write a reply... (@ to mention agent)' : 'Write a comment... (@ to mention agent)'}
             className="flex-1 text-sm"
           />
           <Button
@@ -224,7 +302,7 @@ function CommentItem({
           isSystem ? 'text-[var(--status-error)]' : 'text-[var(--text-primary)]',
         )}
       >
-        {comment.content}
+        {renderContentWithMentions(comment.content)}
       </p>
       {onReply && !isReply && (
         <button

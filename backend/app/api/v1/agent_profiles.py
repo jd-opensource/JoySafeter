@@ -35,6 +35,11 @@ def _to_summary(p: AgentProfile) -> AgentProfileSummary:
         status=p.status.value if hasattr(p.status, "value") else str(p.status),
         description=p.description,
         avatar=p.avatar,
+        instructions=p.instructions,
+        skill_ids=p.skill_ids,
+        has_custom_env=bool(p.custom_env),
+        runtime_config=p.runtime_config,
+        visibility=p.visibility or "workspace",
         max_concurrent_tasks=p.max_concurrent_tasks,
         created_at=p.created_at,
         updated_at=p.updated_at,
@@ -117,3 +122,17 @@ async def update_agent_profile(
     if not profile:
         return BaseResponse(success=False, code=404, msg="Agent profile not found", data=None)
     return BaseResponse(success=True, code=200, msg="Agent profile updated", data=_to_summary(profile))
+
+
+@router.delete("/{profile_id}", response_model=BaseResponse)
+async def delete_agent_profile(
+    profile_id: uuid.UUID,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.member),
+    workspace_id: uuid.UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+) -> BaseResponse:
+    service = AgentProfileService(db)
+    deleted = await service.delete_profile(profile_id, workspace_id)
+    if not deleted:
+        return BaseResponse(success=False, code=404, msg="Agent profile not found", data=None)
+    return BaseResponse(success=True, code=200, msg="Agent profile deleted")

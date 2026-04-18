@@ -9,10 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser, require_workspace_role
 from app.common.exceptions import NotFoundException
+from app.core.agent.cli_backends.base import build_control_response
 from app.core.agent.cli_backends.session_registry import session_registry
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
-from app.models.execution import Execution, MissionExecutionStatus
+from app.models.execution import Execution, MissionExecutionStatus, TERMINAL_EXECUTION_STATUSES
 from app.models.workspace import WorkspaceMemberRole
 from app.schemas import BaseResponse
 from app.schemas.execution import (
@@ -45,6 +46,7 @@ def _to_summary(e: Execution) -> ExecutionSummary:
         started_at=e.started_at,
         finished_at=e.finished_at,
         last_seq=e.last_seq,
+        result_summary=e.result_summary,
         error_code=e.error_code,
         error_message=e.error_message,
         created_at=e.created_at,
@@ -167,6 +169,17 @@ async def cancel_execution(
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[ExecutionSummary]:
     service = ExecutionService(db)
+    execution = await service.get_execution(execution_id, str(current_user.id))
+    if not execution:
+        return BaseResponse(success=False, code=404, msg="Execution not found", data=None)
+
+    if execution.status in TERMINAL_EXECUTION_STATUSES:
+        return BaseResponse(
+            success=False, code=409,
+            msg=f"Execution already in terminal state: {execution.status.value}",
+            data=_to_summary(execution),
+        )
+
     execution = await service.mark_status(
         execution_id=execution_id,
         user_id=str(current_user.id),
@@ -174,15 +187,13 @@ async def cancel_execution(
         error_code="cancelled",
         error_message="Cancelled by user",
     )
-    if not execution:
-        return BaseResponse(success=False, code=404, msg="Execution not found", data=None)
 
     # Cascade: update parent mission if this was the active execution
-    if execution.mission_id:
+    if execution and execution.mission_id:
         from app.repositories.mission import MissionRepository
         from app.models.mission import MissionStatus
         mission_repo = MissionRepository(db)
-        mission = await mission_repo.get_for_update(execution.mission_id)
+        mission = await mission_repo.get_for_update(execution.mission_id, execution.workspace_id)
         if mission and mission.current_execution_id == execution_id:
             mission.current_execution_id = None
             if mission.status == MissionStatus.IN_PROGRESS:
@@ -242,25 +253,32 @@ async def approve_action(
     if not execution:
         raise NotFoundException("Execution not found")
 
+    # Get request_id from the pending approval snapshot
+    snapshot = await svc.repo.get_snapshot(execution_id)
+    request_id = ""
+    if snapshot and snapshot.projection:
+        meta = snapshot.projection.get("meta", {})
+        pending = meta.get("pending_approval", {})
+        if isinstance(pending, dict):
+            request_id = pending.get("request_id", "")
+
     if request.approved:
-        msg = request.message or "Approved. Continue."
-        await session.inject_message(msg)
+        await session.inject_message(build_control_response(request_id, "allow"))
         await svc.append_event(
             execution_id=execution_id,
             event_type="approval_resolved",
-            payload={"decision": "approved", "content": msg},
+            payload={"decision": "approved", "request_id": request_id},
         )
         await svc.mark_status(
             execution_id=execution_id,
             status=MissionExecutionStatus.RUNNING,
         )
     else:
-        msg = request.message or "Rejected. Stop this action."
-        await session.inject_message(msg)
+        await session.inject_message(build_control_response(request_id, "deny"))
         await svc.append_event(
             execution_id=execution_id,
             event_type="approval_resolved",
-            payload={"decision": "rejected", "content": msg},
+            payload={"decision": "rejected", "request_id": request_id},
         )
         # Keep running — the agent will decide how to handle the rejection
 

@@ -26,12 +26,15 @@ class ClaudeCodeProvider:
         timeout: int = 7200,
         resume_session_id: str | None = None,
         env: dict[str, str] | None = None,
+        auto_approve: bool = True,
     ) -> RuntimeSession:
         cmd = [
             self.executable_path,
             "--output-format", "stream-json",
+            "--input-format", "stream-json",
             "--verbose",
             "--max-turns", "200",
+            "--permission-mode", "bypassPermissions" if auto_approve else "default",
         ]
         if model:
             cmd.extend(["--model", model])
@@ -125,6 +128,7 @@ class ClaudeCodeProvider:
                         output="\n".join(accumulated_text),
                         error="\n".join(accumulated_text) or "Claude Code reported an error",
                         session_id=session_id,
+                        usage=usage,
                     ))
                 elif exit_code == 0 or accumulated_text:
                     result_future.set_result(CLIResult(
@@ -138,6 +142,7 @@ class ClaudeCodeProvider:
                     result_future.set_result(CLIResult(
                         status="failed",
                         error=f"Exit code {exit_code}: {stderr_bytes.decode()[:2000]}",
+                        usage=usage,
                     ))
             await queue.put(None)
 
@@ -172,6 +177,16 @@ class ClaudeCodeProvider:
                 tool=event.get("tool", ""),
                 call_id=event.get("call_id", ""),
                 output=str(event.get("output", ""))[:8192],
+            ))
+
+        elif event_type == "control_request":
+            request = event.get("request", {})
+            messages.append(CLIMessage(
+                type="approval_request",
+                tool=request.get("tool_name", ""),
+                call_id=event.get("request_id", ""),
+                input=request.get("input"),
+                content=request.get("subtype", ""),
             ))
 
         return messages

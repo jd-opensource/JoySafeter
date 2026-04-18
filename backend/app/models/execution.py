@@ -26,6 +26,13 @@ class MissionExecutionStatus(str, enum.Enum):
     CANCELLED = "cancelled"
 
 
+TERMINAL_EXECUTION_STATUSES: frozenset[MissionExecutionStatus] = frozenset({
+    MissionExecutionStatus.COMPLETED,
+    MissionExecutionStatus.FAILED,
+    MissionExecutionStatus.CANCELLED,
+})
+
+
 class ExecutionSource(str, enum.Enum):
     MISSION = "mission"
     CHAT = "chat"

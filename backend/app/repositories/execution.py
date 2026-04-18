@@ -89,13 +89,17 @@ class ExecutionRepository(BaseRepository[Execution]):
         return result.scalars().all()
 
     async def list_recoverable_stale(
-        self, *, stale_before: datetime
+        self,
+        *,
+        stale_before: datetime,
+        statuses: tuple[MissionExecutionStatus, ...] | None = None,
     ) -> Sequence[Execution]:
-        recoverable = (MissionExecutionStatus.QUEUED, MissionExecutionStatus.DISPATCHED, MissionExecutionStatus.RUNNING)
+        if statuses is None:
+            statuses = (MissionExecutionStatus.QUEUED, MissionExecutionStatus.DISPATCHED, MissionExecutionStatus.RUNNING)
         result = await self.db.execute(
             select(Execution)
             .where(
-                Execution.status.in_(recoverable),
+                Execution.status.in_(statuses),
                 or_(
                     and_(
                         Execution.last_heartbeat_at.is_(None),

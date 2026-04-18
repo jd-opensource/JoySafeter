@@ -26,9 +26,10 @@ import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { useAgentProfile, useAgentProfiles } from '@/hooks/queries/agentProfiles'
-import { useExecutions } from '@/hooks/queries/executions'
+import { useExecutions, useCancelExecution } from '@/hooks/queries/executions'
 import {
   useAssignMission,
   useCancelMission,
@@ -40,10 +41,12 @@ import { cn } from '@/lib/utils'
 import { ACTIVE_EXECUTION_STATUSES } from '@/types/executions'
 import type { MissionPriority, MissionStatus } from '@/types/missions'
 import {
+  MANUAL_TRANSITIONS,
   MISSION_PRIORITY_LABELS,
   MISSION_STATUS_LABELS,
   MISSION_STATUS_ORDER,
   MISSION_STATUS_STYLES,
+  TERMINAL_MISSION_STATUSES,
 } from '@/types/missions'
 
 import { PriorityBadge } from './priority-badge'
@@ -67,6 +70,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
   const assignMission = useAssignMission()
   const dispatchMission = useDispatchMission()
   const cancelMission = useCancelMission()
+  const cancelExecution = useCancelExecution()
   const updateMission = useUpdateMission()
 
   // Editing states
@@ -84,7 +88,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
     if (!mission) return false
     const hasAgent = mission.assignee_type === 'agent' && mission.assignee_id
     const notRunning = !mission.current_execution_id
-    const validStatus: MissionStatus[] = ['todo', 'in_progress', 'backlog']
+    const validStatus: MissionStatus[] = ['todo', 'in_progress', 'in_review', 'backlog']
     return hasAgent && notRunning && validStatus.includes(mission.status)
   }, [mission])
 
@@ -232,7 +236,10 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
               {/* Status Select */}
               <Select
                 value={mission.status}
-                onValueChange={(v) => doUpdate({ status: v })}
+                onValueChange={(v) => {
+                  if (mission.current_execution_id && (TERMINAL_MISSION_STATUSES as readonly string[]).includes(v)) return
+                  doUpdate({ status: v })
+                }}
               >
                 <SelectTrigger className="h-auto w-auto border-0 bg-transparent p-0 shadow-none focus:ring-0">
                   <span
@@ -246,8 +253,15 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                   </span>
                 </SelectTrigger>
                 <SelectContent>
-                  {MISSION_STATUS_ORDER.map((s) => (
-                    <SelectItem key={s} value={s}>
+                  <SelectItem key={mission.status} value={mission.status}>
+                    {MISSION_STATUS_LABELS[mission.status]}
+                  </SelectItem>
+                  {(MANUAL_TRANSITIONS[mission.status] ?? []).map((s) => (
+                    <SelectItem
+                      key={s}
+                      value={s}
+                      disabled={Boolean(mission.current_execution_id) && (TERMINAL_MISSION_STATUSES as readonly string[]).includes(s)}
+                    >
                       {MISSION_STATUS_LABELS[s]}
                     </SelectItem>
                   ))}
@@ -362,6 +376,27 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
               </div>
             </section>
 
+            {/* Settings */}
+            <section>
+              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                Settings
+              </h3>
+              <div className="flex items-center justify-between rounded-lg border border-[var(--border)] px-3 py-2">
+                <div className="space-y-0.5">
+                  <p className="text-sm font-medium text-[var(--text-primary)]">Auto Approve</p>
+                  <p className="text-xs text-[var(--text-muted)]">
+                    {mission.auto_approve
+                      ? 'Tool calls auto-approved, completes to Done'
+                      : 'Tool calls need approval, completes to In Review'}
+                  </p>
+                </div>
+                <Switch
+                  checked={mission.auto_approve}
+                  onCheckedChange={(checked) => doUpdate({ auto_approve: checked })}
+                />
+              </div>
+            </section>
+
             {/* Due Date */}
             <section>
               <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
@@ -446,15 +481,15 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                     {dispatchMission.isPending ? 'Dispatching...' : 'Dispatch'}
                   </Button>
                 )}
-                {canCancel && (
+                {canCancel && mission.current_execution_id && (
                   <Button
                     variant="destructive"
                     size="sm"
-                    onClick={() => cancelMission.mutate({ missionId, workspaceId })}
-                    disabled={cancelMission.isPending}
+                    onClick={() => cancelExecution.mutate({ executionId: mission.current_execution_id!, workspaceId })}
+                    disabled={cancelExecution.isPending}
                   >
                     <XCircle className="h-3.5 w-3.5" />
-                    {cancelMission.isPending ? 'Cancelling...' : 'Cancel Execution'}
+                    {cancelExecution.isPending ? 'Cancelling...' : 'Cancel Execution'}
                   </Button>
                 )}
               </div>
@@ -505,7 +540,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                   <Clock className="h-3 w-3" />
                   Created {formatDate(mission.created_at)}
                 </div>
-                {mission.status !== 'cancelled' && !mission.current_execution_id && (
+                {mission.status !== 'cancelled' && mission.status !== 'done' && !mission.current_execution_id && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -536,7 +571,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
         confirmLabel="Cancel Mission"
         variant="destructive"
         onConfirm={() => {
-          doUpdate({ status: 'cancelled' })
+          cancelMission.mutate({ missionId, workspaceId })
           setShowCancelConfirm(false)
         }}
       />

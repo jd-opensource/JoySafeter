@@ -16,6 +16,7 @@ from app.models.execution import (
     ExecutionSnapshot,
     ExecutionSource,
     MissionExecutionStatus,
+    TERMINAL_EXECUTION_STATUSES,
 )
 from app.repositories.execution import ExecutionRepository
 from app.services.execution_reducer import apply_execution_event, make_initial_projection
@@ -154,7 +155,7 @@ class ExecutionService:
 
         if status == MissionExecutionStatus.RUNNING and not execution.started_at:
             execution.started_at = now
-        if status in {MissionExecutionStatus.COMPLETED, MissionExecutionStatus.FAILED, MissionExecutionStatus.CANCELLED}:
+        if status in TERMINAL_EXECUTION_STATUSES:
             execution.finished_at = now
 
         snapshot = await self.repo.get_snapshot(execution_id)

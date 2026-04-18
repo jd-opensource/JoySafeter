@@ -8,11 +8,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { executionService } from '@/services/executionService'
-import type { Execution, ExecutionSnapshot } from '@/types/executions'
+import type { Execution, ExecutionSnapshot, ExecutionStatus } from '@/types/executions'
 import { TERMINAL_EXECUTION_STATUSES } from '@/types/executions'
 import type { ExecutionEventsPage } from '@/services/executionService'
 
 import { STALE_TIME } from './constants'
+import { missionKeys } from './missions'
 
 // ==================== Query Keys ====================
 
@@ -100,7 +101,7 @@ export function useExecutionSnapshot(
     staleTime: STALE_TIME.SHORT,
     refetchInterval: (query) => {
       const status = query.state.data?.status
-      if (status && TERMINAL_EXECUTION_STATUSES.includes(status as string)) return false
+      if (status && TERMINAL_EXECUTION_STATUSES.includes(status as ExecutionStatus)) return false
       return 5_000
     },
   })
@@ -123,6 +124,7 @@ export function useCancelExecution() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: executionKeys.all })
+      queryClient.invalidateQueries({ queryKey: missionKeys.all })
     },
   })
 }

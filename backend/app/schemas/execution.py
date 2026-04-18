@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -15,29 +15,35 @@ from pydantic import BaseModel, Field
 # Mission
 # ---------------------------------------------------------------------------
 
+MissionStatusLiteral = Literal["backlog", "todo", "in_progress", "in_review", "done", "cancelled"]
+MissionPriorityLiteral = Literal["none", "low", "medium", "high", "urgent"]
+
+
 class CreateMissionRequest(BaseModel):
     workspace_id: uuid.UUID
     title: str = Field(..., max_length=500)
     description: Optional[str] = None
     objective: Optional[str] = None
-    priority: str = "none"
+    priority: MissionPriorityLiteral = "none"
     parent_mission_id: Optional[uuid.UUID] = None
     tags: Optional[list[str]] = None
     position: float = 0.0
+    auto_approve: bool = False
 
 
 class UpdateMissionRequest(BaseModel):
     title: Optional[str] = Field(None, max_length=500)
     description: Optional[str] = None
     objective: Optional[str] = None
-    priority: Optional[str] = None
-    status: Optional[str] = None
+    priority: Optional[MissionPriorityLiteral] = None
+    status: Optional[MissionStatusLiteral] = None
     assignee_type: Optional[str] = None
     assignee_id: Optional[uuid.UUID] = None
     parent_mission_id: Optional[uuid.UUID] = None
     due_date: Optional[datetime] = None
     position: Optional[float] = None
     tags: Optional[list[str]] = None
+    auto_approve: Optional[bool] = None
 
 
 class AssignMissionRequest(BaseModel):
@@ -63,6 +69,7 @@ class MissionSummary(BaseModel):
     parent_mission_id: Optional[uuid.UUID] = None
     tags: Optional[list[str]] = None
     position: float
+    auto_approve: bool = False
     due_date: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
@@ -110,6 +117,11 @@ class AgentProfileSummary(BaseModel):
     status: str
     description: Optional[str] = None
     avatar: Optional[str] = None
+    instructions: Optional[str] = None
+    skill_ids: Optional[list[str]] = None
+    has_custom_env: bool = False
+    runtime_config: Optional[dict[str, Any]] = None
+    visibility: str = "workspace"
     max_concurrent_tasks: int
     created_at: datetime
     updated_at: datetime
@@ -138,6 +150,7 @@ class ExecutionSummary(BaseModel):
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     last_seq: int
+    result_summary: Optional[dict[str, Any]] = None
     error_code: Optional[str] = None
     error_message: Optional[str] = None
     created_at: datetime

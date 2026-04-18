@@ -15,6 +15,7 @@ export interface Execution {
   finished_at?: string | null
   last_seq: number
   session_id?: string | null
+  result_summary?: Record<string, unknown> | null
   created_at: string
   updated_at: string
 }
@@ -41,7 +42,7 @@ export type ExecutionEventType =
   | 'tool_result' | 'tool_use_end'
   | 'error'
   | 'artifact' | 'artifact_created'
-  | 'approval_request' | 'approval_requested'
+  | 'approval_request' | 'approval_requested' | 'approval_resolved'
   | 'user_message'
   | 'status'
   | 'execution_started' | 'execution_completed'

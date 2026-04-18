@@ -1,18 +1,30 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
 from typing import AsyncIterator, Awaitable, Callable, Protocol
 
 
 @dataclass
 class CLIMessage:
-    type: str  # "text" | "thinking" | "tool_use" | "tool_result" | "error" | "artifact"
+    type: str  # "text" | "thinking" | "tool_use" | "tool_result" | "error" | "artifact" | "approval_request"
     content: str = ""
     tool: str = ""
     call_id: str = ""
     input: dict | None = None
     output: str = ""
+
+
+def build_control_response(request_id: str, behavior: str) -> str:
+    return json.dumps({
+        "type": "control_response",
+        "response": {
+            "subtype": "success",
+            "request_id": request_id,
+            "response": {"behavior": behavior},
+        },
+    })
 
 
 @dataclass
@@ -64,4 +76,5 @@ class RuntimeProvider(Protocol):
         timeout: int = 7200,
         resume_session_id: str | None = None,
         env: dict[str, str] | None = None,
+        auto_approve: bool = True,
     ) -> RuntimeSession: ...

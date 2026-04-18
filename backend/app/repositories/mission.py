@@ -10,7 +10,7 @@ from typing import Optional, Sequence
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.mission import Mission, MissionStatus
+from app.models.mission import Mission, AssigneeType, MissionStatus
 
 from .base import BaseRepository
 
@@ -64,18 +64,21 @@ class MissionRepository(BaseRepository[Mission]):
         return result.scalars().all()
 
     async def list_dispatchable(
-        self, *, workspace_id: uuid.UUID, limit: int = 10
+        self, *, workspace_id: Optional[uuid.UUID] = None, limit: int = 10
     ) -> Sequence[Mission]:
-        """Find missions in TODO status with an agent assignee, ready for dispatch."""
+        """Find TODO missions with an agent assignee, ready for dispatch.
+
+        When workspace_id is None, searches across all workspaces.
+        """
+        query = select(Mission).where(
+            Mission.status == MissionStatus.TODO,
+            Mission.assignee_type == AssigneeType.AGENT,
+            Mission.assignee_id.isnot(None),
+            Mission.current_execution_id.is_(None),
+        )
+        if workspace_id is not None:
+            query = query.where(Mission.workspace_id == workspace_id)
         result = await self.db.execute(
-            select(Mission)
-            .where(
-                Mission.workspace_id == workspace_id,
-                Mission.status == MissionStatus.TODO,
-                Mission.assignee_type == "agent",
-                Mission.assignee_id.isnot(None),
-            )
-            .order_by(Mission.position.asc(), Mission.created_at.asc())
-            .limit(limit)
+            query.order_by(Mission.position.asc(), Mission.created_at.asc()).limit(limit)
         )
         return result.scalars().all()

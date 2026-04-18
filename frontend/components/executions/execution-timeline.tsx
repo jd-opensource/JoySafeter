@@ -92,6 +92,16 @@ export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = 
     [events],
   )
 
+  const tokenDisplay = useMemo(() => {
+    const summary = execution?.result_summary as Record<string, number> | undefined
+    if (!summary) return null
+    const input = summary.input_tokens ?? 0
+    const output = summary.output_tokens ?? 0
+    if (!input && !output) return null
+    const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+    return `${fmt(input)} in / ${fmt(output)} out`
+  }, [execution?.result_summary])
+
   const handleSendMessage = async (message: string) => {
     try {
       await executionService.injectMessage(executionId, message)
@@ -170,6 +180,11 @@ export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = 
           {toolCount > 0 && (
             <span className="text-xs text-[var(--text-muted)]">
               Tools: {toolCount} call{toolCount !== 1 ? 's' : ''}
+            </span>
+          )}
+          {tokenDisplay && (
+            <span className="text-xs text-[var(--text-muted)]">
+              Tokens: {tokenDisplay}
             </span>
           )}
           {/* Connection indicator */}

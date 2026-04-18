@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  CheckCircle,
   ChevronDown,
   ChevronRight,
   FileText,
@@ -47,6 +48,7 @@ const EVENT_CONFIG: Partial<Record<
   status: { icon: Info, label: 'Status', style: '' },
   execution_started: { icon: Info, label: 'Started', style: '' },
   execution_completed: { icon: Info, label: 'Completed', style: '' },
+  approval_resolved: { icon: CheckCircle, label: 'Resolved', style: '' },
 }
 
 interface ExecutionEventItemProps {
@@ -153,12 +155,31 @@ export function ExecutionEventItem({ event, onApprove, onReject }: ExecutionEven
         )
 
       case 'approval_request':
-      case 'approval_requested':
+      case 'approval_requested': {
+        const toolName = String(payload.tool_name ?? '')
+        const toolInput = payload.input ?? {}
         return (
           <div>
-            <p className="text-sm text-[var(--text-primary)]">
-              {String(payload.message ?? payload.description ?? 'Agent requests approval')}
+            <p className="text-sm font-medium text-[var(--text-primary)]">
+              {String(payload.message ?? `Agent wants to use: ${toolName || 'unknown tool'}`)}
             </p>
+            {toolName && (
+              <div className="mt-1">
+                <button
+                  type="button"
+                  onClick={() => setExpanded(!expanded)}
+                  className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                >
+                  {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                  {toolName} input
+                </button>
+                {expanded && (
+                  <pre className="mt-1 max-h-48 overflow-auto rounded bg-[var(--surface-3)] p-2 text-xs text-[var(--text-secondary)]">
+                    {JSON.stringify(toolInput, null, 2)}
+                  </pre>
+                )}
+              </div>
+            )}
             <div className="mt-2 flex gap-2">
               <Button size="sm" onClick={() => onApprove?.(event.id)}>
                 Approve
@@ -168,6 +189,18 @@ export function ExecutionEventItem({ event, onApprove, onReject }: ExecutionEven
               </Button>
             </div>
           </div>
+        )
+      }
+
+      case 'approval_resolved':
+        return (
+          <p className="text-xs text-[var(--text-muted)]">
+            {payload.decision === 'auto_approved'
+              ? 'Auto-approved'
+              : payload.decision === 'approved'
+                ? 'Approved'
+                : 'Rejected'}
+          </p>
         )
 
       case 'user_message':

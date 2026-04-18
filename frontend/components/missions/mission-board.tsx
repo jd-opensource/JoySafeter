@@ -13,8 +13,9 @@ import {
 import { useCallback, useMemo, useState } from 'react'
 
 import { useUpdateMission } from '@/hooks/queries/missions'
+import { toastError } from '@/lib/utils/toast'
 import type { Mission, MissionStatus } from '@/types/missions'
-import { MISSION_STATUS_ORDER } from '@/types/missions'
+import { MANUAL_TRANSITIONS, MISSION_STATUS_ORDER, TERMINAL_MISSION_STATUSES } from '@/types/missions'
 
 import { MissionCard } from './mission-card'
 import { MissionColumn } from './mission-column'
@@ -41,7 +42,6 @@ export function MissionBoard({ missions, workspaceId, agentsMap, onSelectMission
       in_progress: [],
       in_review: [],
       done: [],
-      blocked: [],
       cancelled: [],
     }
     for (const m of missions) {
@@ -118,6 +118,20 @@ export function MissionBoard({ missions, workspaceId, agentsMap, onSelectMission
       const positionChanged = draggedMission.position !== newPosition
 
       if (!statusChanged && !positionChanged) return
+
+      if (statusChanged) {
+        const from = draggedMission.status
+        const allowed = MANUAL_TRANSITIONS[from] ?? []
+        if (!allowed.includes(targetStatus)) {
+          toastError(`Cannot move from ${from} to ${targetStatus}`)
+          return
+        }
+        const toTerminal = (TERMINAL_MISSION_STATUSES as readonly string[]).includes(targetStatus)
+        if (draggedMission.current_execution_id && toTerminal) {
+          toastError('Cancel the running execution before moving to this status')
+          return
+        }
+      }
 
       const updates: Record<string, unknown> = {}
       if (statusChanged) updates.status = targetStatus

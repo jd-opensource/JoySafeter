@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { useCreateMission } from '@/hooks/queries/missions'
 import type { MissionPriority } from '@/types/missions'
@@ -40,6 +41,7 @@ export function MissionCreateDialog({ workspaceId, trigger }: MissionCreateDialo
   const [objective, setObjective] = useState('')
   const [priority, setPriority] = useState<MissionPriority>('none')
   const [tagsInput, setTagsInput] = useState('')
+  const [autoApprove, setAutoApprove] = useState(false)
 
   const createMission = useCreateMission()
 
@@ -49,6 +51,7 @@ export function MissionCreateDialog({ workspaceId, trigger }: MissionCreateDialo
     setObjective('')
     setPriority('none')
     setTagsInput('')
+    setAutoApprove(false)
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -68,6 +71,7 @@ export function MissionCreateDialog({ workspaceId, trigger }: MissionCreateDialo
         objective: objective.trim() || undefined,
         priority,
         tags: tags.length > 0 ? tags : undefined,
+        auto_approve: autoApprove,
       })
       reset()
       setOpen(false)
@@ -143,6 +147,20 @@ export function MissionCreateDialog({ workspaceId, trigger }: MissionCreateDialo
                 placeholder="security, mobile, audit (comma-separated)"
                 value={tagsInput}
                 onChange={(e) => setTagsInput(e.target.value)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="mission-auto-approve">Auto Approve</Label>
+                <p className="text-xs text-[var(--text-muted)]">
+                  Skip human review — auto-approve tool calls and mark done on completion
+                </p>
+              </div>
+              <Switch
+                id="mission-auto-approve"
+                checked={autoApprove}
+                onCheckedChange={setAutoApprove}
               />
             </div>
           </div>

@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Enum, Float, ForeignKey, Index, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,8 +18,12 @@ class MissionStatus(str, enum.Enum):
     IN_PROGRESS = "in_progress"
     IN_REVIEW = "in_review"
     DONE = "done"
-    BLOCKED = "blocked"
     CANCELLED = "cancelled"
+
+
+class AssigneeType(str, enum.Enum):
+    AGENT = "agent"
+    MEMBER = "member"
 
 
 class MissionPriority(str, enum.Enum):
@@ -73,6 +77,7 @@ class Mission(BaseModel):
     due_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     position: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     tags: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    auto_approve: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     __table_args__ = (
         Index("missions_workspace_status_idx", "workspace_id", "status"),

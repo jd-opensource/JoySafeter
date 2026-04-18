@@ -220,7 +220,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     except Exception as e:
         logger.warning(f"   ⚠️  Container pool reaper failed to start: {e}")
 
+    # Scheduler: stale execution recovery (one-shot) + periodic loops
+    _dispatcher_task: Optional[asyncio.Task] = None
+    _exec_reaper_task: Optional[asyncio.Task] = None
+    try:
+        from app.core.scheduler import (
+            execution_reaper_loop,
+            mission_dispatcher_loop,
+            recover_stale_on_startup,
+        )
+
+        await recover_stale_on_startup()
+        _dispatcher_task = asyncio.create_task(mission_dispatcher_loop(), name="mission-dispatcher")
+        _exec_reaper_task = asyncio.create_task(execution_reaper_loop(), name="execution-reaper")
+        logger.info("   ✓ Mission dispatcher and execution reaper started (interval=30s)")
+    except Exception as e:
+        logger.warning(f"   ⚠️  Scheduler startup failed: {e}")
+
     yield
+
+    # Shutdown: Cancel scheduler loops
+    for task in (_dispatcher_task, _exec_reaper_task):
+        if task:
+            task.cancel()
 
     # Shutdown: Cancel container pool reaper and mark pool as shut down
     try:

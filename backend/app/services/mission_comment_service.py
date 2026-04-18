@@ -12,13 +12,15 @@ from loguru import logger
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.agent_profile import AgentProfile
 from app.models.execution import ExecutionSource, MissionExecutionStatus
-from app.models.mission import Mission, MissionStatus
+from app.models.mission import Mission, AssigneeType, MissionStatus
 from app.models.mission_comment import CommentAuthorType, CommentType, MissionComment
 from app.repositories.agent_profile import AgentProfileRepository
 from app.repositories.mission import MissionRepository
 from app.repositories.mission_comment import MissionCommentRepository
 from app.services.execution_service import ExecutionService
+from app.utils.credentials import build_credentials
 
 
 class MissionCommentService:
@@ -77,6 +79,13 @@ class MissionCommentService:
                     trigger_comment=comment,
                     user_id=author_id,
                 )
+
+            # @agent mentions: dispatch to mentioned agents (even if not mission assignee)
+            await self._enqueue_mentioned_agent_executions(
+                mission=mission,
+                trigger_comment=comment,
+                user_id=author_id,
+            )
 
         return comment, mission
 
@@ -167,15 +176,53 @@ class MissionCommentService:
 
     @staticmethod
     def _should_enqueue_on_comment(mission: Mission) -> bool:
-        if mission.assignee_type != "agent" or mission.assignee_id is None:
+        if mission.assignee_type != AssigneeType.AGENT or mission.assignee_id is None:
             return False
-        if mission.status in {MissionStatus.DONE, MissionStatus.CANCELLED}:
+        if mission.status in {MissionStatus.DONE, MissionStatus.CANCELLED, MissionStatus.BACKLOG}:
             return False
         # If there's already a running execution, skip — the dedup index only
         # covers queued/dispatched. We avoid creating a second concurrent execution.
         if mission.current_execution_id is not None and mission.status == MissionStatus.IN_PROGRESS:
             return False
         return True
+
+    async def _create_and_start_execution(
+        self,
+        *,
+        mission: Mission,
+        agent: AgentProfile,
+        trigger_comment: MissionComment,
+        user_id: str,
+    ) -> Optional[uuid.UUID]:
+        """Shared helper: validate credentials, create execution row, start runner.
+
+        Returns execution_id on success, None if deduped.
+        """
+        from app.services.mission_service import build_execution_prompt, _start_execution_runner
+
+        credentials = build_credentials(agent.custom_env)
+
+        try:
+            execution = await self.execution_service.create_execution(
+                workspace_id=mission.workspace_id,
+                user_id=user_id,
+                source=ExecutionSource.MISSION,
+                source_id=str(mission.id),
+                runtime_type=agent.runtime_type,
+                title=mission.title,
+                mission_id=mission.id,
+                agent_profile_id=agent.id,
+                runtime_config=agent.runtime_config,
+                trigger_comment_id=trigger_comment.id,
+            )
+        except IntegrityError:
+            await self.db.rollback()
+            logger.info(f"Dedup: skipped enqueue for agent {agent.id} on mission {mission.id}")
+            return None
+
+        prompt = build_execution_prompt(mission, trigger_comment=trigger_comment)
+        _start_execution_runner(execution.id, prompt, credentials)
+        return execution.id
 
     async def _enqueue_comment_execution(
         self,
@@ -191,60 +238,71 @@ class MissionCommentService:
             logger.warning(f"Agent {mission.assignee_id} not found, skipping enqueue")
             return
 
-        # Validate credentials before creating the execution row
-        from app.utils.credentials import build_credentials
-
-        credentials = build_credentials(agent.custom_env)
-
-        try:
-            execution = await self.execution_service.create_execution(
-                workspace_id=mission.workspace_id,
-                user_id=user_id,
-                source=ExecutionSource.MISSION,
-                source_id=str(mission.id),
-                runtime_type=agent.runtime_type,
-                title=mission.title,
-                mission_id=mission.id,
-                agent_profile_id=mission.assignee_id,
-                runtime_config=agent.runtime_config,
-                trigger_comment_id=trigger_comment.id,
-            )
-        except IntegrityError:
-            await self.db.rollback()
-            logger.info(
-                f"Dedup: skipped enqueue for mission {mission.id}, "
-                f"pending execution already exists"
-            )
+        execution_id = await self._create_and_start_execution(
+            mission=mission, agent=agent, trigger_comment=trigger_comment, user_id=user_id,
+        )
+        if not execution_id:
             return
 
-        # Update mission state
         mission_for_update = await self.mission_repo.get_for_update(mission.id, mission.workspace_id)
         if mission_for_update:
-            mission_for_update.current_execution_id = execution.id
-            if mission_for_update.status not in {MissionStatus.IN_PROGRESS, MissionStatus.IN_REVIEW}:
+            mission_for_update.current_execution_id = execution_id
+            if mission_for_update.status != MissionStatus.IN_PROGRESS:
                 mission_for_update.status = MissionStatus.IN_PROGRESS
             await self.db.commit()
 
-        # Build prompt with comment and fire runner
-        from app.services.mission_service import build_execution_prompt, _start_execution_runner
-
-        prompt = build_execution_prompt(mission, trigger_comment=trigger_comment)
-        _start_execution_runner(execution.id, prompt, credentials)
-
         logger.info(
-            f"Comment-triggered execution {execution.id} for mission {mission.id} "
+            f"Comment-triggered execution {execution_id} for mission {mission.id} "
             f"(comment={trigger_comment.id})"
         )
+
+    async def _enqueue_mentioned_agent_executions(
+        self,
+        *,
+        mission: Mission,
+        trigger_comment: MissionComment,
+        user_id: str,
+    ) -> None:
+        """Dispatch executions for @agent mentions that aren't the mission assignee."""
+        from app.utils.mentions import agent_mentions
+
+        mentions = agent_mentions(trigger_comment.content)
+        if not mentions:
+            return
+
+        if mission.status in {MissionStatus.DONE, MissionStatus.CANCELLED, MissionStatus.BACKLOG}:
+            return
+
+        seen: set[uuid.UUID] = set()
+        for mention in mentions:
+            # Skip the mission assignee — already handled by _enqueue_comment_execution
+            if mention.id == mission.assignee_id:
+                continue
+            if mention.id in seen:
+                continue
+            seen.add(mention.id)
+
+            agent = await self.agent_repo.get_by_id_and_workspace(mention.id, mission.workspace_id)
+            if not agent:
+                logger.debug(f"Mentioned agent {mention.id} not found, skipping")
+                continue
+
+            execution_id = await self._create_and_start_execution(
+                mission=mission, agent=agent, trigger_comment=trigger_comment, user_id=user_id,
+            )
+            if execution_id:
+                logger.info(
+                    f"Mention-triggered execution {execution_id} for agent {agent.name} "
+                    f"on mission {mission.id} (comment={trigger_comment.id})"
+                )
 
     # ------------------------------------------------------------------
     # Auto-comment on execution completion/failure
     # ------------------------------------------------------------------
 
-    @classmethod
     async def post_execution_comment(
-        cls,
+        self,
         *,
-        db: AsyncSession,
         execution,
         result_status: MissionExecutionStatus,
         result_output: str = "",
@@ -254,16 +312,20 @@ class MissionCommentService:
         if not execution.mission_id or not execution.agent_profile_id:
             return None
 
-        repo = MissionCommentRepository(db)
         agent_id = str(execution.agent_profile_id)
 
         if result_status == MissionExecutionStatus.COMPLETED:
-            # Skip auto-comment if this was a comment-triggered execution
+            # Skip auto-comment for comment-triggered assignee executions
+            # (the assignee is continuing conversational work).
+            # Mention executions (non-assignee agents) still get auto-comments.
             if execution.trigger_comment_id:
-                return None
-            # Skip if agent already commented during this execution
+                mission = await self.mission_repo.get_by_id_and_workspace(
+                    execution.mission_id, execution.workspace_id
+                )
+                if mission and str(mission.assignee_id) == agent_id:
+                    return None
             if execution.started_at:
-                already = await repo.has_agent_commented_since(
+                already = await self.repo.has_agent_commented_since(
                     execution.mission_id, agent_id, execution.started_at
                 )
                 if already:
@@ -287,9 +349,9 @@ class MissionCommentService:
             type=comment_type,
             parent_comment_id=None,
         )
-        db.add(comment)
-        await db.commit()
-        await db.refresh(comment)
+        self.db.add(comment)
+        await self.db.commit()
+        await self.db.refresh(comment)
         logger.info(
             f"Auto-posted {comment_type.value} comment {comment.id} "
             f"for execution {execution.id}"

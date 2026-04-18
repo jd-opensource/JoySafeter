@@ -13,8 +13,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent_profile import AgentStatus
-from app.models.execution import Execution as ExecModel, ExecutionSource, MissionExecutionStatus
-from app.models.mission import Mission, MissionPriority, MissionStatus
+from app.models.execution import Execution as ExecModel, ExecutionSource, MissionExecutionStatus, TERMINAL_EXECUTION_STATUSES
+from app.models.mission import Mission, AssigneeType, MissionPriority, MissionStatus
 from app.repositories.agent_profile import AgentProfileRepository
 from app.repositories.mission import MissionRepository
 from app.services.execution_service import ExecutionService
@@ -93,6 +93,7 @@ class MissionService:
         parent_mission_id: Optional[uuid.UUID] = None,
         tags: Optional[list] = None,
         position: float = 0.0,
+        auto_approve: bool = False,
     ) -> Mission:
         mission = Mission(
             workspace_id=workspace_id,
@@ -105,6 +106,7 @@ class MissionService:
             parent_mission_id=parent_mission_id,
             tags=tags,
             position=position,
+            auto_approve=auto_approve,
         )
         self.db.add(mission)
         await self.db.commit()
@@ -138,6 +140,15 @@ class MissionService:
             )
         )
 
+    MANUAL_TRANSITIONS: dict[MissionStatus, set[MissionStatus]] = {
+        MissionStatus.BACKLOG:     {MissionStatus.TODO, MissionStatus.IN_PROGRESS, MissionStatus.CANCELLED},
+        MissionStatus.TODO:        {MissionStatus.BACKLOG, MissionStatus.IN_PROGRESS, MissionStatus.CANCELLED},
+        MissionStatus.IN_PROGRESS: {MissionStatus.TODO, MissionStatus.IN_REVIEW, MissionStatus.DONE, MissionStatus.CANCELLED},
+        MissionStatus.IN_REVIEW:   {MissionStatus.TODO, MissionStatus.IN_PROGRESS, MissionStatus.DONE, MissionStatus.CANCELLED},
+        MissionStatus.DONE:        {MissionStatus.BACKLOG, MissionStatus.TODO},
+        MissionStatus.CANCELLED:   {MissionStatus.BACKLOG, MissionStatus.TODO},
+    }
+
     async def update_mission(
         self,
         mission_id: uuid.UUID,
@@ -147,10 +158,33 @@ class MissionService:
         mission = await self.repo.get_by_id_and_workspace(mission_id, workspace_id)
         if not mission:
             return None
+
+        new_status = kwargs.get("status")
+        if new_status is not None:
+            try:
+                new_status = MissionStatus(new_status)
+            except ValueError:
+                raise ValueError(f"Invalid status: {new_status}")
+
+            if new_status != mission.status:
+                allowed_targets = self.MANUAL_TRANSITIONS.get(mission.status, set())
+                if new_status not in allowed_targets:
+                    raise ValueError(
+                        f"Cannot transition from {mission.status.value} to {new_status.value}"
+                    )
+                if mission.current_execution_id and new_status in {
+                    MissionStatus.DONE, MissionStatus.CANCELLED,
+                }:
+                    raise ValueError(
+                        f"Cannot move to {new_status.value} while an execution is active — "
+                        f"cancel the execution first"
+                    )
+
         allowed = {
             "title", "description", "objective", "priority",
             "status", "assignee_type", "assignee_id",
             "parent_mission_id", "due_date", "position", "tags",
+            "auto_approve",
         }
         for key, value in kwargs.items():
             if key in allowed:
@@ -175,7 +209,7 @@ class MissionService:
         if not agent:
             raise ValueError(f"Agent profile not found: {agent_profile_id}")
 
-        mission.assignee_type = "agent"
+        mission.assignee_type = AssigneeType.AGENT
         mission.assignee_id = agent_profile_id
         if mission.status == MissionStatus.BACKLOG:
             mission.status = MissionStatus.TODO
@@ -201,7 +235,8 @@ class MissionService:
             raise ValueError(f"Mission not found: {mission_id}")
 
         if mission.status not in {
-            MissionStatus.TODO, MissionStatus.BACKLOG, MissionStatus.IN_PROGRESS,
+            MissionStatus.TODO, MissionStatus.BACKLOG,
+            MissionStatus.IN_PROGRESS, MissionStatus.IN_REVIEW,
         }:
             raise ValueError(
                 f"Mission {mission_id} cannot be dispatched from status {mission.status.value}"
@@ -227,7 +262,7 @@ class MissionService:
             # Stale IN_PROGRESS — reset so we can re-dispatch
             mission.current_execution_id = None
 
-        if not mission.assignee_id or mission.assignee_type != "agent":
+        if not mission.assignee_id or mission.assignee_type != AssigneeType.AGENT:
             raise ValueError(f"Mission {mission_id} has no agent assignee")
 
         agent = await self.agent_repo.get_by_id_and_workspace(
@@ -278,7 +313,9 @@ class MissionService:
 
         mission = (
             await self.db.execute(
-                select(Mission).where(Mission.current_execution_id == execution_id)
+                select(Mission)
+                .where(Mission.current_execution_id == execution_id)
+                .with_for_update()
             )
         ).scalar_one_or_none()
         if not mission:
@@ -287,7 +324,8 @@ class MissionService:
         mission.current_execution_id = None
 
         if status == MissionExecutionStatus.COMPLETED:
-            mission.status = MissionStatus.DONE
+            if mission.status != MissionStatus.CANCELLED:
+                mission.status = MissionStatus.DONE if mission.auto_approve else MissionStatus.IN_REVIEW
         elif status == MissionExecutionStatus.FAILED:
             if mission.status == MissionStatus.IN_PROGRESS:
                 mission.status = MissionStatus.TODO
@@ -320,18 +358,24 @@ class MissionService:
 
         if mission.current_execution_id:
             exec_id = mission.current_execution_id
-            await self.execution_service.mark_status(
-                execution_id=exec_id,
-                status=MissionExecutionStatus.CANCELLED,
-            )
-            # Terminate the running container process
-            from app.core.agent.cli_backends.session_registry import session_registry
-            session = session_registry.get(exec_id)
-            if session:
-                await session.cancel()
-            # Cancel the asyncio background task
-            from app.utils.task_manager import task_manager
-            await task_manager.cancel_task(str(exec_id))
+            current_exec = (
+                await self.db.execute(
+                    select(ExecModel).where(ExecModel.id == exec_id)
+                )
+            ).scalar_one_or_none()
+            if current_exec and current_exec.status not in TERMINAL_EXECUTION_STATUSES:
+                await self.execution_service.mark_status(
+                    execution_id=exec_id,
+                    status=MissionExecutionStatus.CANCELLED,
+                )
+                # Terminate the running container process
+                from app.core.agent.cli_backends.session_registry import session_registry
+                session = session_registry.get(exec_id)
+                if session:
+                    await session.cancel()
+                # Cancel the asyncio background task
+                from app.utils.task_manager import task_manager
+                await task_manager.cancel_task(str(exec_id))
 
         mission.status = MissionStatus.CANCELLED
         mission.current_execution_id = None
@@ -367,3 +411,19 @@ class MissionService:
                     f"Failed to dispatch mission {mission.id}: {exc}"
                 )
         return results
+
+    async def dispatch_all_ready_missions(self, *, limit: int = 20) -> int:
+        """Cross-workspace auto-dispatch: find all ready TODO missions and dispatch them."""
+        dispatchable = await self.repo.list_dispatchable(limit=limit)
+        dispatched = 0
+        for mission in dispatchable:
+            try:
+                await self.dispatch_mission(
+                    mission_id=mission.id,
+                    workspace_id=mission.workspace_id,
+                    user_id=mission.creator_id,
+                )
+                dispatched += 1
+            except Exception as exc:
+                logger.warning(f"Auto-dispatch failed for mission {mission.id}: {exc}")
+        return dispatched

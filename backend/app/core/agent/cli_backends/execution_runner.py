@@ -18,7 +18,7 @@ from typing import Any, Optional
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.agent.cli_backends.base import CLIMessage, CLIResult, RuntimeSession
+from app.core.agent.cli_backends.base import CLIMessage, CLIResult, RuntimeSession, build_control_response
 from app.core.agent.cli_backends.container_pool import container_pool
 from app.core.agent.cli_backends.container_service import (
     CLIContainerService,
@@ -49,6 +49,8 @@ class ExecutionRunner:
         self.execution_service = ExecutionService(db)
         self.agent_repo = AgentProfileRepository(db)
         self.container_service = container_service or CLIContainerService()
+        self._auto_approve: bool = True
+        self._session: Optional[RuntimeSession] = None
 
     async def run(
         self,
@@ -162,6 +164,10 @@ class ExecutionRunner:
 
             # 5. Execute via provider (with session resume + credentials)
             provider = runtime_registry.get(execution.runtime_type)
+
+            # Determine auto_approve from mission settings
+            self._auto_approve = await self._get_mission_auto_approve(execution)
+
             session = await provider.execute(
                 prompt,
                 container_id=container.container_id,
@@ -170,13 +176,15 @@ class ExecutionRunner:
                 timeout=timeout,
                 resume_session_id=prior_session_id,
                 env=credentials,
+                auto_approve=self._auto_approve,
             )
 
             # 5b. Register session so the API layer can inject messages
             session_registry.register(execution_id, session)
+            self._session = session
 
             # 6. Drain messages → events
-            await self._drain_to_events(execution_id, session)
+            await self._drain_to_events(execution_id)
 
             # 7. Await final result
             result = await session.result
@@ -236,6 +244,17 @@ class ExecutionRunner:
             return None
         return await self.agent_repo.get(execution.agent_profile_id)
 
+    async def _get_mission_auto_approve(self, execution: Execution) -> bool:
+        if not execution.mission_id:
+            return True
+        from sqlalchemy import select
+        from app.models.mission import Mission
+        result = await self.db.execute(
+            select(Mission.auto_approve).where(Mission.id == execution.mission_id)
+        )
+        val = result.scalar_one_or_none()
+        return val if val is not None else True
+
     async def _inject(
         self,
         *,
@@ -265,11 +284,12 @@ class ExecutionRunner:
     _DRAIN_BATCH_SIZE = 10
 
     async def _drain_to_events(
-        self, execution_id: uuid.UUID, session: RuntimeSession
+        self, execution_id: uuid.UUID,
     ) -> None:
+        assert self._session is not None, "_drain_to_events called before session was set"
         pending: list[tuple[CLIMessage, str, dict[str, Any]]] = []
 
-        async for msg in session.iter_messages():
+        async for msg in self._session.iter_messages():
             event_type = self._msg_to_event_type(msg)
             payload = self._msg_to_payload(msg)
             pending.append((msg, event_type, payload))
@@ -299,13 +319,23 @@ class ExecutionRunner:
                     for _, event_type, payload in pending
                 ],
             )
-            # Check if any message in the batch requires an approval status change
-            for msg, _, _ in pending:
+            for msg, _, payload in pending:
                 if msg.type == "approval_request":
-                    await self.execution_service.mark_status(
-                        execution_id=execution_id,
-                        status=MissionExecutionStatus.APPROVAL_WAIT,
-                    )
+                    if self._auto_approve:
+                        request_id = payload.get("request_id", "")
+                        await self._session.inject_message(
+                            build_control_response(request_id, "allow")
+                        )
+                        await self.execution_service.append_event(
+                            execution_id=execution_id,
+                            event_type="approval_resolved",
+                            payload={"decision": "auto_approved", "request_id": request_id},
+                        )
+                    else:
+                        await self.execution_service.mark_status(
+                            execution_id=execution_id,
+                            status=MissionExecutionStatus.APPROVAL_WAIT,
+                        )
                     break
         except Exception as exc:
             logger.warning(
@@ -406,8 +436,8 @@ class ExecutionRunner:
             if not execution.mission_id:
                 return
             from app.services.mission_comment_service import MissionCommentService
-            await MissionCommentService.post_execution_comment(
-                db=self.db,
+            svc = MissionCommentService(self.db)
+            await svc.post_execution_comment(
                 execution=execution,
                 result_status=status,
                 result_output=result.output[:2000] if result and result.output else "",
@@ -471,4 +501,12 @@ class ExecutionRunner:
             return {"message": msg.content}
         if msg.type == "artifact":
             return {"artifact": {"content": msg.content}}
+        if msg.type == "approval_request":
+            return {
+                "request_id": msg.call_id,
+                "subtype": msg.content,
+                "tool_name": msg.tool,
+                "input": msg.input,
+                "message": f"Agent wants to use: {msg.tool or 'unknown tool'}",
+            }
         return {"content": msg.content}

@@ -115,3 +115,24 @@ class AgentProfileService:
         await self.db.commit()
         await self.db.refresh(profile)
         return profile
+
+    async def delete_profile(
+        self, profile_id: uuid.UUID, workspace_id: uuid.UUID
+    ) -> bool:
+        profile = await self.repo.get_by_id_and_workspace(profile_id, workspace_id)
+        if not profile:
+            return False
+
+        # Clear assignee on missions pointing to this agent
+        from sqlalchemy import update
+        from app.models.mission import Mission
+        await self.db.execute(
+            update(Mission)
+            .where(Mission.assignee_id == profile_id, Mission.workspace_id == workspace_id)
+            .values(assignee_type=None, assignee_id=None)
+        )
+
+        await self.db.delete(profile)
+        await self.db.commit()
+        logger.info(f"Deleted agent profile: {profile_id}")
+        return True

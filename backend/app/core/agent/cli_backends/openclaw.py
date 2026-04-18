@@ -39,6 +39,7 @@ class OpenClawProvider:
         timeout: int = 7200,
         resume_session_id: str | None = None,
         env: dict[str, str] | None = None,
+        auto_approve: bool = True,
     ) -> RuntimeSession:
         session_id = resume_session_id or f"joysafeter-{int(time.time() * 1e9)}"
 

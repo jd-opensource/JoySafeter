@@ -44,6 +44,7 @@ def _to_summary(m: Mission) -> MissionSummary:
         parent_mission_id=m.parent_mission_id,
         tags=m.tags,
         position=m.position,
+        auto_approve=m.auto_approve,
         due_date=m.due_date,
         created_at=m.created_at,
         updated_at=m.updated_at,
@@ -101,6 +102,7 @@ async def create_mission(
         parent_mission_id=request.parent_mission_id,
         tags=request.tags,
         position=request.position,
+        auto_approve=request.auto_approve,
     )
     return BaseResponse(success=True, code=200, msg="Mission created", data=_to_summary(mission))
 
