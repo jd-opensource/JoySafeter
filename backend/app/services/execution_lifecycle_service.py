@@ -14,6 +14,7 @@ import uuid
 from typing import Any, Optional
 
 from loguru import logger
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import BadRequestException, ConflictException, NotFoundException
@@ -24,6 +25,7 @@ from app.core.agent.cli_backends.base import CLIResult
 from app.core.agent.cli_backends.runner_callbacks import RunnerCallbacks
 from app.core.agent.cli_backends.session_registry import session_registry
 from app.models.execution import (
+    Execution as ExecModel,
     ExecutionSource,
     MissionExecutionStatus,
     TERMINAL_EXECUTION_STATUSES,
@@ -132,7 +134,6 @@ class ExecutionLifecycleService(RunnerCallbacks):
         execution_id: uuid.UUID,
         status: MissionExecutionStatus,
     ) -> None:
-        from sqlalchemy import select
 
         try:
             mission = (
@@ -335,8 +336,6 @@ class ExecutionLifecycleService(RunnerCallbacks):
             )
 
         if mission.status == MissionStatus.IN_PROGRESS and mission.current_execution_id:
-            from sqlalchemy import select
-            from app.models.execution import Execution as ExecModel
             current_exec = (
                 await self.db.execute(
                     select(ExecModel).where(ExecModel.id == mission.current_execution_id)
@@ -354,6 +353,24 @@ class ExecutionLifecycleService(RunnerCallbacks):
         )
         if not agent:
             raise NotFoundException(f"Agent profile not found: {mission.assignee_id}")
+
+        active_count_result = await self.db.execute(
+            select(func.count()).select_from(ExecModel).where(
+                ExecModel.agent_profile_id == agent.id,
+                ExecModel.status.in_([
+                    MissionExecutionStatus.QUEUED,
+                    MissionExecutionStatus.DISPATCHED,
+                    MissionExecutionStatus.RUNNING,
+                    MissionExecutionStatus.APPROVAL_WAIT,
+                ]),
+            )
+        )
+        active_count = active_count_result.scalar() or 0
+        if active_count >= agent.max_concurrent_tasks:
+            raise ConflictException(
+                f"Agent {agent.name} already has {active_count}/{agent.max_concurrent_tasks} "
+                f"active executions"
+            )
 
         credentials = build_credentials(agent.custom_env)
         prompt = build_execution_prompt(mission)
@@ -467,6 +484,26 @@ class ExecutionLifecycleService(RunnerCallbacks):
         from sqlalchemy.exc import IntegrityError
 
         credentials = build_credentials(agent.custom_env)
+
+        active_count_result = await self.db.execute(
+            select(func.count()).select_from(ExecModel).where(
+                ExecModel.agent_profile_id == agent.id,
+                ExecModel.status.in_([
+                    MissionExecutionStatus.QUEUED,
+                    MissionExecutionStatus.DISPATCHED,
+                    MissionExecutionStatus.RUNNING,
+                    MissionExecutionStatus.APPROVAL_WAIT,
+                ]),
+            )
+        )
+        active_count = active_count_result.scalar() or 0
+        if active_count >= agent.max_concurrent_tasks:
+            logger.info(
+                f"Agent {agent.name} at concurrency limit ({active_count}/{agent.max_concurrent_tasks}), "
+                f"skipping comment-triggered dispatch for mission {mission.id}"
+            )
+            return None
+
         try:
             execution = await self.execution_service.create_execution(
                 workspace_id=mission.workspace_id,
