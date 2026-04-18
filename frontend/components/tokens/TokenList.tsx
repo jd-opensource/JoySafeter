@@ -7,6 +7,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
+import { getErrorMessage } from '@/lib/utils/toast'
 import {
   Table,
   TableBody,
@@ -126,7 +127,7 @@ export function TokenList({ resourceType, resourceId, header }: TokenListProps) 
     } catch (error) {
       toast({
         title: t('common.error'),
-        description: error instanceof Error ? error.message : t('common.operationFailed'),
+        description: getErrorMessage(error, t('common.operationFailed')),
         variant: 'destructive',
       })
     } finally {

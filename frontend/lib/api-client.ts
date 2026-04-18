@@ -82,6 +82,20 @@ export class ApiError extends Error {
   }
 }
 
+async function extractErrorFromResponse(response: Response): Promise<ApiError> {
+  let errorMessage = response.statusText
+  let errorCode: string | undefined
+  try {
+    const text = await response.text()
+    const errorData = JSON.parse(text)
+    errorMessage = errorData.detail || errorData.message || errorMessage
+    errorCode = errorData.code
+  } catch {
+    /* not JSON or empty body */
+  }
+  return new ApiError(response.status, response.statusText, errorMessage, errorCode)
+}
+
 export interface ApiRequestOptions extends Omit<RequestInit, 'body'> {
   /** Whether to include authentication (default true) */
   withAuth?: boolean
@@ -238,16 +252,7 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
       }
 
       if (!response.ok) {
-        let errorMessage = response.statusText
-        let errorCode: string | undefined
-        try {
-          const errorData = await response.json()
-          errorMessage = errorData.detail || errorData.message || errorMessage
-          errorCode = errorData.code
-        } catch {
-          /* ignore */
-        }
-        throw new ApiError(response.status, response.statusText, errorMessage, errorCode)
+        throw await extractErrorFromResponse(response)
       }
 
       return response
@@ -369,17 +374,7 @@ export async function apiStream(
     }
 
     if (!response.ok) {
-      const errorText = await response.text().catch(() => response.statusText)
-      let errorMessage = errorText
-      let errorCode: string | undefined
-      try {
-        const errorData = JSON.parse(errorText)
-        errorMessage = errorData.detail || errorData.message || errorText
-        errorCode = errorData.code
-      } catch {
-        /* not JSON */
-      }
-      throw new ApiError(response.status, response.statusText, errorMessage, errorCode)
+      throw await extractErrorFromResponse(response)
     }
 
     return response

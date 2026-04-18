@@ -283,6 +283,9 @@ def register_exception_handlers(app: Any) -> None:
     app.add_exception_handler(HTTPException, http_exception_handler)
     app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
     app.add_exception_handler(PydanticValidationError, request_validation_exception_handler)
+    app.add_exception_handler(ValueError, general_exception_handler)
+    app.add_exception_handler(PermissionError, general_exception_handler)
+    app.add_exception_handler(RuntimeError, general_exception_handler)
     app.add_exception_handler(Exception, general_exception_handler)
 
 

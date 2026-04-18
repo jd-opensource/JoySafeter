@@ -5,6 +5,7 @@ import { useState, useRef } from 'react'
 import { useCodeEditorStore } from '../stores/codeEditorStore'
 import { apiPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
+import { getErrorMessage } from '@/lib/utils/toast'
 
 interface Props {
   graphId: string
@@ -38,7 +39,7 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
       const result = await apiPost<any>(`graphs/${graphId}/code/run`, { input: {} })
       setRunResult(result?.result ?? result)
     } catch (e: unknown) {
-      setRunError(e instanceof Error ? e.message : t('common.operationFailed'))
+      setRunError(getErrorMessage(e, t('common.operationFailed')))
     } finally {
       setRunDuration(Date.now() - startTimeRef.current)
       setIsRunning(false)

@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { API_BASE } from '@/lib/api-client'
-import { toastSuccess, toastError } from '@/lib/utils/toast'
+import { toastSuccess, toastError, getErrorMessage } from '@/lib/utils/toast'
 import { getFilenameFromPath } from '@/services/skillService'
 
 import type { SkillPreviewData } from '../page'
@@ -111,7 +111,7 @@ export default function SkillSaveDialog({
       onSaved?.(skillId)
     } catch (err: unknown) {
       console.error('Failed to save skill:', err)
-      toastError(err instanceof Error ? err.message : 'Failed to save skill')
+      toastError(getErrorMessage(err, 'Failed to save skill'))
     } finally {
       setIsSaving(false)
     }

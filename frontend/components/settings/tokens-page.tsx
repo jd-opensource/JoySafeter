@@ -5,6 +5,7 @@ import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
+import { getErrorMessage } from '@/lib/utils/toast'
 import { TokenList } from '@/components/tokens/TokenList'
 import { usePlatformTokens, useCreateToken } from '@/hooks/queries/platformTokens'
 import type { PlatformTokenCreateResponse } from '@/hooks/queries/platformTokens'
@@ -38,7 +39,7 @@ export const TokensPage = () => {
     } catch (error) {
       toast({
         title: t('common.error'),
-        description: error instanceof Error ? error.message : t('common.operationFailed'),
+        description: getErrorMessage(error, t('common.operationFailed')),
         variant: 'destructive',
       })
     }

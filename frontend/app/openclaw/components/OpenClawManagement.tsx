@@ -38,6 +38,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
+import { getErrorMessage } from '@/lib/utils/toast'
 import { apiDelete, apiGet, apiPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -109,7 +110,7 @@ export function OpenClawManagement() {
     onError: (err: unknown) => {
       toast({
         title: t('common.error'),
-        description: err instanceof Error ? err.message : t('common.operationFailed'),
+        description: getErrorMessage(err, t('common.operationFailed')),
         variant: 'destructive',
       })
     },
@@ -120,7 +121,7 @@ export function OpenClawManagement() {
     onError: (err: unknown) => {
       toast({
         title: t('common.error'),
-        description: err instanceof Error ? err.message : t('common.operationFailed'),
+        description: getErrorMessage(err, t('common.operationFailed')),
         variant: 'destructive',
       })
     },
@@ -134,7 +135,7 @@ export function OpenClawManagement() {
     onError: (err: unknown) => {
       toast({
         title: t('common.error'),
-        description: err instanceof Error ? err.message : t('common.operationFailed'),
+        description: getErrorMessage(err, t('common.operationFailed')),
         variant: 'destructive',
       })
     },
@@ -145,7 +146,7 @@ export function OpenClawManagement() {
     onError: (err: unknown) => {
       toast({
         title: t('common.error'),
-        description: err instanceof Error ? err.message : t('common.operationFailed'),
+        description: getErrorMessage(err, t('common.operationFailed')),
         variant: 'destructive',
       })
     },
@@ -156,7 +157,7 @@ export function OpenClawManagement() {
     onError: (err: unknown) => {
       toast({
         title: t('common.error'),
-        description: err instanceof Error ? err.message : t('common.operationFailed'),
+        description: getErrorMessage(err, t('common.operationFailed')),
         variant: 'destructive',
       })
     },
@@ -167,7 +168,7 @@ export function OpenClawManagement() {
     onError: (err: unknown) => {
       toast({
         title: t('common.error'),
-        description: err instanceof Error ? err.message : t('common.operationFailed'),
+        description: getErrorMessage(err, t('common.operationFailed')),
         variant: 'destructive',
       })
     },
@@ -184,7 +185,7 @@ export function OpenClawManagement() {
     onError: (err: unknown) => {
       toast({
         title: t('common.error'),
-        description: err instanceof Error ? err.message : t('openclaw.syncSkillsFailed'),
+        description: getErrorMessage(err, t('openclaw.syncSkillsFailed')),
         variant: 'destructive',
       })
     },
