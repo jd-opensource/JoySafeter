@@ -9,18 +9,13 @@ from datetime import datetime
 from typing import Optional
 
 from loguru import logger
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.agent_profile import AgentProfile
-from app.models.execution import ExecutionSource, MissionExecutionStatus
+from app.models.execution import MissionExecutionStatus
 from app.models.mission import Mission, AssigneeType, MissionStatus
 from app.models.mission_comment import CommentAuthorType, CommentType, MissionComment
-from app.repositories.agent_profile import AgentProfileRepository
 from app.repositories.mission import MissionRepository
 from app.repositories.mission_comment import MissionCommentRepository
-from app.services.execution_service import ExecutionService
-from app.utils.credentials import build_credentials
 
 
 class MissionCommentService:
@@ -30,8 +25,6 @@ class MissionCommentService:
         self.db = db
         self.repo = MissionCommentRepository(db)
         self.mission_repo = MissionRepository(db)
-        self.agent_repo = AgentProfileRepository(db)
-        self.execution_service = ExecutionService(db)
 
     # ------------------------------------------------------------------
     # CRUD
@@ -47,12 +40,12 @@ class MissionCommentService:
         content: str,
         comment_type: CommentType = CommentType.COMMENT,
         parent_comment_id: Optional[uuid.UUID] = None,
-    ) -> tuple[MissionComment, Mission]:
+    ) -> tuple[MissionComment, Mission, bool, list[uuid.UUID]]:
+        """Returns (comment, mission, should_dispatch_assignee, mentioned_agent_ids)."""
         mission = await self.mission_repo.get_by_id_and_workspace(mission_id, workspace_id)
         if not mission:
             raise ValueError(f"Mission not found: {mission_id}")
 
-        # Single-level threading: collapse reply-to-reply to the root
         if parent_comment_id is not None:
             parent = await self.repo.get(parent_comment_id)
             if parent and parent.parent_comment_id is not None:
@@ -71,23 +64,21 @@ class MissionCommentService:
         await self.db.commit()
         await self.db.refresh(comment)
 
-        # Auto-enqueue: only member comments of type COMMENT trigger execution
+        should_dispatch = False
+        mentioned_agent_ids: list[uuid.UUID] = []
+
         if author_type == CommentAuthorType.MEMBER and comment_type == CommentType.COMMENT:
-            if self._should_enqueue_on_comment(mission):
-                await self._enqueue_comment_execution(
-                    mission=mission,
-                    trigger_comment=comment,
-                    user_id=author_id,
-                )
+            should_dispatch = self._should_enqueue_on_comment(mission)
 
-            # @agent mentions: dispatch to mentioned agents (even if not mission assignee)
-            await self._enqueue_mentioned_agent_executions(
-                mission=mission,
-                trigger_comment=comment,
-                user_id=author_id,
-            )
+            from app.utils.mentions import agent_mentions
+            mentions = agent_mentions(content)
+            seen: set[uuid.UUID] = set()
+            for m in mentions:
+                if m.id != mission.assignee_id and m.id not in seen:
+                    seen.add(m.id)
+                    mentioned_agent_ids.append(m.id)
 
-        return comment, mission
+        return comment, mission, should_dispatch, mentioned_agent_ids
 
     async def list_comments(
         self,
@@ -185,116 +176,6 @@ class MissionCommentService:
         if mission.current_execution_id is not None and mission.status == MissionStatus.IN_PROGRESS:
             return False
         return True
-
-    async def _create_and_start_execution(
-        self,
-        *,
-        mission: Mission,
-        agent: AgentProfile,
-        trigger_comment: MissionComment,
-        user_id: str,
-    ) -> Optional[uuid.UUID]:
-        """Shared helper: validate credentials, create execution row, start runner.
-
-        Returns execution_id on success, None if deduped.
-        """
-        from app.services.mission_service import build_execution_prompt, _start_execution_runner
-
-        credentials = build_credentials(agent.custom_env)
-
-        try:
-            execution = await self.execution_service.create_execution(
-                workspace_id=mission.workspace_id,
-                user_id=user_id,
-                source=ExecutionSource.MISSION,
-                source_id=str(mission.id),
-                runtime_type=agent.runtime_type,
-                title=mission.title,
-                mission_id=mission.id,
-                agent_profile_id=agent.id,
-                runtime_config=agent.runtime_config,
-                trigger_comment_id=trigger_comment.id,
-            )
-        except IntegrityError:
-            await self.db.rollback()
-            logger.info(f"Dedup: skipped enqueue for agent {agent.id} on mission {mission.id}")
-            return None
-
-        prompt = build_execution_prompt(mission, trigger_comment=trigger_comment)
-        _start_execution_runner(execution.id, prompt, credentials)
-        return execution.id
-
-    async def _enqueue_comment_execution(
-        self,
-        *,
-        mission: Mission,
-        trigger_comment: MissionComment,
-        user_id: str,
-    ) -> None:
-        agent = await self.agent_repo.get_by_id_and_workspace(
-            mission.assignee_id, mission.workspace_id  # type: ignore[arg-type]
-        )
-        if not agent:
-            logger.warning(f"Agent {mission.assignee_id} not found, skipping enqueue")
-            return
-
-        execution_id = await self._create_and_start_execution(
-            mission=mission, agent=agent, trigger_comment=trigger_comment, user_id=user_id,
-        )
-        if not execution_id:
-            return
-
-        mission_for_update = await self.mission_repo.get_for_update(mission.id, mission.workspace_id)
-        if mission_for_update:
-            mission_for_update.current_execution_id = execution_id
-            if mission_for_update.status != MissionStatus.IN_PROGRESS:
-                mission_for_update.status = MissionStatus.IN_PROGRESS
-            await self.db.commit()
-
-        logger.info(
-            f"Comment-triggered execution {execution_id} for mission {mission.id} "
-            f"(comment={trigger_comment.id})"
-        )
-
-    async def _enqueue_mentioned_agent_executions(
-        self,
-        *,
-        mission: Mission,
-        trigger_comment: MissionComment,
-        user_id: str,
-    ) -> None:
-        """Dispatch executions for @agent mentions that aren't the mission assignee."""
-        from app.utils.mentions import agent_mentions
-
-        mentions = agent_mentions(trigger_comment.content)
-        if not mentions:
-            return
-
-        if mission.status in {MissionStatus.DONE, MissionStatus.CANCELLED, MissionStatus.BACKLOG}:
-            return
-
-        seen: set[uuid.UUID] = set()
-        for mention in mentions:
-            # Skip the mission assignee — already handled by _enqueue_comment_execution
-            if mention.id == mission.assignee_id:
-                continue
-            if mention.id in seen:
-                continue
-            seen.add(mention.id)
-
-            agent = await self.agent_repo.get_by_id_and_workspace(mention.id, mission.workspace_id)
-            if not agent:
-                logger.debug(f"Mentioned agent {mention.id} not found, skipping")
-                continue
-
-            execution_id = await self._create_and_start_execution(
-                mission=mission, agent=agent, trigger_comment=trigger_comment, user_id=user_id,
-            )
-            if execution_id:
-                logger.info(
-                    f"Mention-triggered execution {execution_id} for agent {agent.name} "
-                    f"on mission {mission.id} (comment={trigger_comment.id})"
-                )
 
     # ------------------------------------------------------------------
     # Auto-comment on execution completion/failure
