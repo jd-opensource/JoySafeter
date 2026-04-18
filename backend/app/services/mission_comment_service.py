@@ -11,6 +11,7 @@ from typing import Optional
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.exceptions import NotFoundException
 from app.models.execution import MissionExecutionStatus
 from app.models.mission import Mission, AssigneeType, MissionStatus
 from app.models.mission_comment import CommentAuthorType, CommentType, MissionComment
@@ -44,7 +45,7 @@ class MissionCommentService:
         """Returns (comment, mission, should_dispatch_assignee, mentioned_agent_ids)."""
         mission = await self.mission_repo.get_by_id_and_workspace(mission_id, workspace_id)
         if not mission:
-            raise ValueError(f"Mission not found: {mission_id}")
+            raise NotFoundException(f"Mission not found: {mission_id}")
 
         if parent_comment_id is not None:
             parent = await self.repo.get(parent_comment_id)
@@ -91,7 +92,7 @@ class MissionCommentService:
         """Return (comments, has_more, next_cursor)."""
         mission = await self.mission_repo.get_by_id_and_workspace(mission_id, workspace_id)
         if not mission:
-            raise ValueError(f"Mission not found: {mission_id}")
+            raise NotFoundException(f"Mission not found: {mission_id}")
 
         cursor_dt = None
         if cursor:

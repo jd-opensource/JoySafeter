@@ -12,6 +12,7 @@ from typing import Any, Optional
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.exceptions import BadRequestException, ConflictException, NotFoundException
 from app.models.mission import Mission, AssigneeType, MissionPriority, MissionStatus
 from app.repositories.agent_profile import AgentProfileRepository
 from app.repositories.mission import MissionRepository
@@ -108,18 +109,18 @@ class MissionService:
             try:
                 new_status = MissionStatus(new_status)
             except ValueError:
-                raise ValueError(f"Invalid status: {new_status}")
+                raise BadRequestException(f"Invalid status: {new_status}")
 
             if new_status != mission.status:
                 allowed_targets = self.MANUAL_TRANSITIONS.get(mission.status, set())
                 if new_status not in allowed_targets:
-                    raise ValueError(
+                    raise BadRequestException(
                         f"Cannot transition from {mission.status.value} to {new_status.value}"
                     )
                 if mission.current_execution_id and new_status in {
                     MissionStatus.DONE, MissionStatus.CANCELLED,
                 }:
-                    raise ValueError(
+                    raise ConflictException(
                         f"Cannot move to {new_status.value} while an execution is active — "
                         f"cancel the execution first"
                     )
@@ -147,11 +148,11 @@ class MissionService:
         """Assign a mission to an agent profile and move it to TODO status."""
         mission = await self.repo.get_for_update(mission_id, workspace_id)
         if not mission:
-            raise ValueError(f"Mission not found: {mission_id}")
+            raise NotFoundException(f"Mission not found: {mission_id}")
 
         agent = await self.agent_repo.get_by_id_and_workspace(agent_profile_id, workspace_id)
         if not agent:
-            raise ValueError(f"Agent profile not found: {agent_profile_id}")
+            raise NotFoundException(f"Agent profile not found: {agent_profile_id}")
 
         mission.assignee_type = AssigneeType.AGENT
         mission.assignee_id = agent_profile_id

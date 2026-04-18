@@ -16,6 +16,7 @@ from typing import Any, Optional
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.exceptions import BadRequestException, ConflictException, NotFoundException
 from app.utils.credentials import build_credentials
 from app.utils.safe_task import safe_create_task
 
@@ -323,13 +324,13 @@ class ExecutionLifecycleService(RunnerCallbacks):
     ) -> tuple[Mission, Any]:
         mission = await self.mission_repo.get_for_update(mission_id, workspace_id)
         if not mission:
-            raise ValueError(f"Mission not found: {mission_id}")
+            raise NotFoundException(f"Mission not found: {mission_id}")
 
         if mission.status not in {
             MissionStatus.TODO, MissionStatus.BACKLOG,
             MissionStatus.IN_PROGRESS, MissionStatus.IN_REVIEW,
         }:
-            raise ValueError(
+            raise BadRequestException(
                 f"Mission {mission_id} cannot be dispatched from status {mission.status.value}"
             )
 
@@ -342,17 +343,17 @@ class ExecutionLifecycleService(RunnerCallbacks):
                 )
             ).scalar_one_or_none()
             if current_exec and current_exec.status not in TERMINAL_EXECUTION_STATUSES:
-                raise ValueError(f"Mission {mission_id} already has an active execution")
+                raise ConflictException(f"Mission {mission_id} already has an active execution")
             mission.current_execution_id = None
 
         if not mission.assignee_id or mission.assignee_type != AssigneeType.AGENT:
-            raise ValueError(f"Mission {mission_id} has no agent assignee")
+            raise BadRequestException(f"Mission {mission_id} has no agent assignee")
 
         agent = await self.agent_repo.get_by_id_and_workspace(
             mission.assignee_id, workspace_id
         )
         if not agent:
-            raise ValueError(f"Agent profile not found: {mission.assignee_id}")
+            raise NotFoundException(f"Agent profile not found: {mission.assignee_id}")
 
         credentials = build_credentials(agent.custom_env)
         prompt = build_execution_prompt(mission)
@@ -361,7 +362,6 @@ class ExecutionLifecycleService(RunnerCallbacks):
             workspace_id=workspace_id,
             user_id=user_id,
             source=ExecutionSource.MISSION,
-            source_id=str(mission_id),
             runtime_type=agent.runtime_type,
             title=mission.title,
             mission_id=mission_id,
@@ -472,7 +472,6 @@ class ExecutionLifecycleService(RunnerCallbacks):
                 workspace_id=mission.workspace_id,
                 user_id=user_id,
                 source=ExecutionSource.MISSION,
-                source_id=str(mission.id),
                 runtime_type=agent.runtime_type,
                 title=mission.title,
                 mission_id=mission.id,
