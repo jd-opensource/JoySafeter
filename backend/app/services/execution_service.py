@@ -84,6 +84,15 @@ class ExecutionService:
     async def get_execution(self, execution_id: uuid.UUID, user_id: str) -> Optional[Execution]:
         return await self.repo.get_by_id_and_user(execution_id, user_id)
 
+    async def get_execution_internal(self, execution_id: uuid.UUID) -> Optional[Execution]:
+        """Internal use — no user-scope check, no FOR UPDATE lock."""
+        from sqlalchemy import select
+        from app.models.execution import Execution as ExecModel
+        result = await self.db.execute(
+            select(ExecModel).where(ExecModel.id == execution_id)
+        )
+        return result.scalar_one_or_none()
+
     async def get_snapshot(self, execution_id: uuid.UUID, user_id: str) -> Optional[ExecutionSnapshot]:
         execution = await self.get_execution(execution_id, user_id)
         if not execution:
