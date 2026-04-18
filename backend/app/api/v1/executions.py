@@ -168,43 +168,17 @@ async def cancel_execution(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[ExecutionSummary]:
-    service = ExecutionService(db)
-    execution = await service.get_execution(execution_id, str(current_user.id))
+    from app.services.execution_lifecycle_service import ExecutionLifecycleService
+    lifecycle = ExecutionLifecycleService(db)
+    execution = await lifecycle.cancel_execution(execution_id, str(current_user.id))
     if not execution:
         return BaseResponse(success=False, code=404, msg="Execution not found", data=None)
-
-    if execution.status in TERMINAL_EXECUTION_STATUSES:
+    if execution.status in TERMINAL_EXECUTION_STATUSES and execution.error_code != "cancelled":
         return BaseResponse(
             success=False, code=409,
             msg=f"Execution already in terminal state: {execution.status.value}",
             data=_to_summary(execution),
         )
-
-    execution = await service.mark_status(
-        execution_id=execution_id,
-        user_id=str(current_user.id),
-        status=MissionExecutionStatus.CANCELLED,
-        error_code="cancelled",
-        error_message="Cancelled by user",
-    )
-
-    # Cascade: update parent mission if this was the active execution
-    if execution and execution.mission_id:
-        from app.repositories.mission import MissionRepository
-        from app.models.mission import MissionStatus
-        mission_repo = MissionRepository(db)
-        mission = await mission_repo.get_for_update(execution.mission_id, execution.workspace_id)
-        if mission and mission.current_execution_id == execution_id:
-            mission.current_execution_id = None
-            if mission.status == MissionStatus.IN_PROGRESS:
-                mission.status = MissionStatus.TODO
-            await db.commit()
-
-    # Terminate the running container process
-    session = session_registry.get(execution_id)
-    if session:
-        await session.cancel()
-
     return BaseResponse(success=True, code=200, msg="Execution cancelled", data=_to_summary(execution))
 
 

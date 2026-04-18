@@ -17,7 +17,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.execution import MissionExecutionStatus
 from app.repositories.execution import ExecutionRepository
 from app.services.execution_service import ExecutionService
-from app.services.mission_service import MissionService
+from app.services.execution_lifecycle_service import ExecutionLifecycleService
 from app.utils.datetime import utc_now
 
 _DISPATCH_INTERVAL = 30
@@ -45,8 +45,8 @@ async def mission_dispatcher_loop() -> None:
         await asyncio.sleep(_DISPATCH_INTERVAL)
         try:
             async with AsyncSessionLocal() as db:
-                svc = MissionService(db)
-                count = await svc.dispatch_all_ready_missions()
+                lifecycle = ExecutionLifecycleService(db)
+                count = await lifecycle.dispatch_all_ready_missions()
                 if count:
                     logger.info(f"Scheduler: auto-dispatched {count} missions")
         except Exception as exc:
@@ -85,7 +85,7 @@ async def _reap_stale_executions() -> int:
     async with AsyncSessionLocal() as db:
         exec_repo = ExecutionRepository(db)
         exec_svc = ExecutionService(db)
-        mission_svc = MissionService(db)
+        lifecycle = ExecutionLifecycleService(db)
 
         for statuses, threshold in _STALE_THRESHOLDS:
             stale = await exec_repo.list_recoverable_stale(
@@ -105,9 +105,8 @@ async def _reap_stale_executions() -> int:
                     )
 
                     if execution.mission_id:
-                        await mission_svc.finalize_mission_execution(
-                            execution_id=execution.id,
-                            status=MissionExecutionStatus.FAILED,
+                        await lifecycle._finalize_mission(
+                            execution.id, MissionExecutionStatus.FAILED
                         )
 
                     total += 1

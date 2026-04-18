@@ -162,8 +162,9 @@ async def dispatch_mission(
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionSummary]:
-    service = MissionService(db)
-    mission, _execution = await service.dispatch_mission(
+    from app.services.execution_lifecycle_service import ExecutionLifecycleService
+    lifecycle = ExecutionLifecycleService(db)
+    mission, _execution = await lifecycle.dispatch_mission(
         mission_id=mission_id,
         workspace_id=workspace_id,
         user_id=str(current_user.id),
@@ -179,8 +180,9 @@ async def cancel_mission(
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionSummary]:
-    service = MissionService(db)
-    mission = await service.cancel_mission(mission_id=mission_id, workspace_id=workspace_id)
+    from app.services.execution_lifecycle_service import ExecutionLifecycleService
+    lifecycle = ExecutionLifecycleService(db)
+    mission = await lifecycle.cancel_mission(mission_id=mission_id, workspace_id=workspace_id)
     if not mission:
         return BaseResponse(success=False, code=404, msg="Mission not found", data=None)
     return BaseResponse(success=True, code=200, msg="Mission cancelled", data=_to_summary(mission))

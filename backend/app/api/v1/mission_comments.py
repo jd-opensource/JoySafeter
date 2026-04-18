@@ -61,7 +61,7 @@ async def create_comment(
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionCommentResponse]:
     service = MissionCommentService(db)
-    comment, mission = await service.create_comment(
+    comment, mission, should_dispatch, mentioned_agent_ids = await service.create_comment(
         mission_id=mission_id,
         workspace_id=workspace_id,
         author_type=CommentAuthorType.MEMBER,
@@ -70,6 +70,19 @@ async def create_comment(
         comment_type=CommentType.COMMENT,
         parent_comment_id=request.parent_comment_id,
     )
+
+    # Trigger executions via lifecycle service
+    if should_dispatch or mentioned_agent_ids:
+        from app.services.execution_lifecycle_service import ExecutionLifecycleService
+        lifecycle = ExecutionLifecycleService(db)
+        if should_dispatch:
+            await lifecycle.dispatch_for_comment(
+                mission=mission, trigger_comment=comment, user_id=str(current_user.id),
+            )
+        if mentioned_agent_ids:
+            await lifecycle.dispatch_for_mention(
+                mission=mission, trigger_comment=comment, user_id=str(current_user.id),
+            )
 
     # Push notification to mission creator (if not the commenter)
     if mission.creator_id != str(current_user.id):
