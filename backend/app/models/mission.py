@@ -71,7 +71,9 @@ class Mission(BaseModel):
         nullable=True,
     )
     current_execution_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), nullable=True
+        UUID(as_uuid=True),
+        ForeignKey("executions.id", ondelete="SET NULL"),
+        nullable=True,
     )
 
     due_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
