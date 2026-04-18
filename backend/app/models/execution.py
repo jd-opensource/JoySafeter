@@ -19,7 +19,7 @@ class MissionExecutionStatus(str, enum.Enum):
     QUEUED = "queued"
     DISPATCHED = "dispatched"
     RUNNING = "running"
-    INTERRUPT_WAIT = "interrupt_wait"
+    INTERRUPT_WAIT = "interrupt_wait"  # Reserved: legacy AgentRun status, not used in execution flow
     APPROVAL_WAIT = "approval_wait"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -59,8 +59,6 @@ class Execution(BaseModel):
         Enum(ExecutionSource, values_callable=lambda e: [m.value for m in e], name="executionsource"),
         nullable=False,
     )
-    source_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-
     status: Mapped[MissionExecutionStatus] = mapped_column(
         Enum(MissionExecutionStatus, values_callable=lambda e: [m.value for m in e], name="missionexecutionstatus"),
         nullable=False,
