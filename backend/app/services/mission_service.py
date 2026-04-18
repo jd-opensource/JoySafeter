@@ -31,6 +31,7 @@ def _start_execution_runner(
     """Fire-and-forget: launch an ExecutionRunner in a background task."""
     from app.core.agent.cli_backends.execution_runner import ExecutionRunner
     from app.core.database import AsyncSessionLocal
+    from app.services.execution_lifecycle_service import ExecutionLifecycleService
     from app.utils.task_manager import task_manager
 
     async def _run() -> None:
@@ -39,7 +40,8 @@ def _start_execution_runner(
             await task_manager.register_task(str(execution_id), current_task)
         try:
             async with AsyncSessionLocal() as db:
-                runner = ExecutionRunner(db)
+                lifecycle = ExecutionLifecycleService(db)
+                runner = ExecutionRunner(db, callbacks=lifecycle)
                 await runner.run(
                     execution_id=execution_id,
                     prompt=prompt,
@@ -50,7 +52,7 @@ def _start_execution_runner(
         finally:
             await task_manager.unregister_task(str(execution_id))
 
-    task = safe_create_task(_run(), name=f"dispatch-{execution_id}")
+    safe_create_task(_run(), name=f"exec-{execution_id}")
 
 
 def build_execution_prompt(mission: Mission, trigger_comment=None) -> str:
