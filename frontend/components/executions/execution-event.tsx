@@ -56,9 +56,10 @@ interface ExecutionEventItemProps {
   onApprove?: (eventId: string) => void
   onReject?: (eventId: string) => void
   disabled?: boolean
+  isPendingApproval?: boolean
 }
 
-export function ExecutionEventItem({ event, onApprove, onReject, disabled }: ExecutionEventItemProps) {
+export function ExecutionEventItem({ event, onApprove, onReject, disabled, isPendingApproval }: ExecutionEventItemProps) {
   const [expanded, setExpanded] = useState(false)
   const defaultConfig = { icon: Info, label: event.event_type, style: '' }
   const config = EVENT_CONFIG[event.event_type] ?? defaultConfig
@@ -182,12 +183,18 @@ export function ExecutionEventItem({ event, onApprove, onReject, disabled }: Exe
               </div>
             )}
             <div className="mt-2 flex gap-2">
-              <Button size="sm" onClick={() => onApprove?.(event.id)} disabled={disabled}>
-                Approve
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => onReject?.(event.id)} disabled={disabled}>
-                Reject
-              </Button>
+              {isPendingApproval ? (
+                <>
+                  <Button size="sm" onClick={() => onApprove?.(event.id)} disabled={disabled}>
+                    Approve
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => onReject?.(event.id)} disabled={disabled}>
+                    Reject
+                  </Button>
+                </>
+              ) : (
+                <span className="text-xs text-[var(--text-muted)]">Resolved</span>
+              )}
             </div>
           </div>
         )

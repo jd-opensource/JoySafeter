@@ -54,7 +54,7 @@ export function CommentThread({ missionId, workspaceId }: CommentThreadProps) {
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mentionStart, setMentionStart] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
-  const { data: agents = [] } = useAgentProfiles(workspaceId, { enabled: mentionQuery !== null })
+  const { data: agents = [] } = useAgentProfiles(workspaceId, { enabled: Boolean(workspaceId) })
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const isAtBottomRef = useRef(true)
@@ -63,6 +63,12 @@ export function CommentThread({ missionId, workspaceId }: CommentThreadProps) {
     if (!data?.pages) return []
     return data.pages.flatMap((page) => page.items)
   }, [data])
+
+  const agentNameMap = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const a of agents) map[a.id] = a.name
+    return map
+  }, [agents])
 
   // Group into threads: root comments + their replies
   const threads = useMemo(() => {
@@ -182,10 +188,11 @@ export function CommentThread({ missionId, workspaceId }: CommentThreadProps) {
             <CommentItem
               comment={root}
               onReply={() => setReplyTo(root.id)}
+              agentNameMap={agentNameMap}
             />
             {replies.map((reply) => (
               <div key={reply.id} className="ml-6 mt-1.5">
-                <CommentItem comment={reply} isReply />
+                <CommentItem comment={reply} isReply agentNameMap={agentNameMap} />
               </div>
             ))}
           </div>
@@ -257,10 +264,12 @@ function CommentItem({
   comment,
   onReply,
   isReply,
+  agentNameMap,
 }: {
   comment: MissionComment
   onReply?: () => void
   isReply?: boolean
+  agentNameMap?: Record<string, string>
 }) {
   const isAgent = comment.author_type === 'agent'
   const isSystem = comment.type === 'system'
@@ -281,7 +290,7 @@ function CommentItem({
           <User className="h-3.5 w-3.5 text-[var(--text-muted)]" />
         )}
         <span className="text-xs font-medium text-[var(--text-secondary)]">
-          {isAgent ? 'Agent' : 'You'}
+          {isAgent ? (agentNameMap?.[comment.author_id] ?? 'Agent') : 'You'}
         </span>
         {isSystem && (
           <span className="flex items-center gap-0.5 text-xs text-[var(--status-error)]">

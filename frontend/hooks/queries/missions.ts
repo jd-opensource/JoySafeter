@@ -95,21 +95,38 @@ export function useUpdateMission() {
       await queryClient.cancelQueries({ queryKey: missionKeys.all })
       const previous = queryClient.getQueriesData<Mission[]>({ queryKey: missionKeys.all })
 
+      const { missionId: _id, workspaceId: _ws, ...updates } = variables
+
       queryClient.setQueriesData<Mission[]>({ queryKey: missionKeys.all }, (old) => {
         if (!old || !Array.isArray(old)) return old
-        const { missionId: _id, workspaceId: _ws, ...updates } = variables
         return old.map((m) =>
           m.id === variables.missionId ? ({ ...m, ...updates } as Mission) : m,
         )
       })
 
-      return { previous }
+      const previousDetail = queryClient.getQueryData<Mission>(
+        missionKeys.detail(variables.missionId, variables.workspaceId),
+      )
+      if (previousDetail) {
+        queryClient.setQueryData<Mission>(
+          missionKeys.detail(variables.missionId, variables.workspaceId),
+          { ...previousDetail, ...updates } as Mission,
+        )
+      }
+
+      return { previous, previousDetail }
     },
-    onError: (_err, _vars, context) => {
+    onError: (_err, variables, context) => {
       if (context?.previous) {
         for (const [key, data] of context.previous) {
           queryClient.setQueryData(key, data)
         }
+      }
+      if (context?.previousDetail) {
+        queryClient.setQueryData(
+          missionKeys.detail(variables.missionId, variables.workspaceId),
+          context.previousDetail,
+        )
       }
     },
     onSettled: () => {

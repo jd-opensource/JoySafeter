@@ -3,7 +3,6 @@
 import {
   Archive,
   Bot,
-  Calendar,
   Check,
   ChevronDown,
   Clock,
@@ -43,9 +42,9 @@ import {
 } from '@/hooks/queries/missions'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
-import { toastSuccess } from '@/lib/utils/toast'
+import { toastSuccess, toastError } from '@/lib/utils/toast'
 import { ACTIVE_EXECUTION_STATUSES } from '@/types/executions'
-import type { MissionPriority, MissionStatus } from '@/types/missions'
+import type { MissionPriority, MissionStatus, UpdateMissionRequest } from '@/types/missions'
 import {
   DEFAULT_MANUAL_TRANSITIONS,
   MISSION_PRIORITY_LABELS,
@@ -56,6 +55,17 @@ import {
 } from '@/types/missions'
 
 import { PriorityBadge } from './priority-badge'
+
+function formatDate(dateStr: string) {
+  const d = new Date(dateStr)
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
 
 interface MissionDetailPanelProps {
   missionId: string
@@ -113,10 +123,13 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
 
   // Update helpers
   const doUpdate = useCallback(
-    (updates: Record<string, unknown>) => {
-      updateMission.mutate({ missionId, workspaceId, ...updates })
+    (updates: Partial<UpdateMissionRequest>) => {
+      updateMission.mutate(
+        { missionId, workspaceId, ...updates },
+        { onError: () => toastError(t('common.operationFailed')) },
+      )
     },
-    [missionId, workspaceId, updateMission],
+    [missionId, workspaceId, updateMission, t],
   )
 
   const handleTitleSave = () => {
@@ -129,14 +142,14 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
 
   const handleDescSave = () => {
     if (editDesc !== (mission?.description ?? '')) {
-      doUpdate({ description: editDesc || null })
+      doUpdate({ description: editDesc || undefined })
     }
     setIsEditingDesc(false)
   }
 
   const handleObjSave = () => {
     if (editObj !== (mission?.objective ?? '')) {
-      doUpdate({ objective: editObj || null })
+      doUpdate({ objective: editObj || undefined })
     }
     setIsEditingObj(false)
   }
@@ -157,7 +170,10 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
   }
 
   const handleAssign = (agentId: string) => {
-    assignMission.mutate({ missionId, workspaceId, agentProfileId: agentId })
+    assignMission.mutate(
+      { missionId, workspaceId, agentProfileId: agentId },
+      { onError: () => toastError(t('common.operationFailed')) },
+    )
     setAgentPickerOpen(false)
   }
 
@@ -166,22 +182,11 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
     setAgentPickerOpen(false)
   }
 
-  const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr)
-    return d.toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  }
-
   return (
     <div className="fixed inset-y-0 right-0 z-50 flex w-[480px] flex-col border-l border-[var(--border)] bg-[var(--bg)] shadow-xl">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3">
-        <span className="text-xs font-medium text-[var(--text-muted)]">Mission Detail</span>
+        <span className="text-xs font-medium text-[var(--text-muted)]">{t('missions.detailTitle')}</span>
         <button
           type="button"
           onClick={onClose}
@@ -224,7 +229,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
               {/* Priority Select */}
               <Select
                 value={mission.priority}
-                onValueChange={(v) => doUpdate({ priority: v })}
+                onValueChange={(v) => doUpdate({ priority: v as MissionPriority })}
               >
                 <SelectTrigger className="h-auto w-auto border-0 bg-transparent p-0 shadow-none focus:ring-0">
                   <PriorityBadge priority={mission.priority} />
@@ -243,18 +248,17 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                 value={mission.status}
                 onValueChange={(v) => {
                   if (mission.current_execution_id && (TERMINAL_MISSION_STATUSES as readonly string[]).includes(v)) return
-                  doUpdate({ status: v })
+                  doUpdate({ status: v as MissionStatus })
                 }}
               >
-                <SelectTrigger className="h-auto w-auto border-0 bg-transparent p-0 shadow-none focus:ring-0">
+                <SelectTrigger className="h-auto w-auto border-0 bg-transparent p-0 shadow-none [&>span]:line-clamp-none focus:ring-0">
                   <span
                     className={cn(
-                      'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium',
+                      'inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium',
                       MISSION_STATUS_STYLES[mission.status] ?? 'bg-[var(--surface-3)] text-[var(--text-muted)]',
                     )}
                   >
                     {MISSION_STATUS_LABELS[mission.status]}
-                    <ChevronDown className="h-3 w-3 opacity-50" />
                   </span>
                 </SelectTrigger>
                 <SelectContent>
@@ -281,112 +285,175 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
               )}
             </div>
 
-            {/* Objective — click to edit */}
-            <section>
-              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                Objective
-              </h3>
-              {isEditingObj ? (
-                <div className="space-y-1.5">
-                  <Textarea
-                    value={editObj}
-                    onChange={(e) => setEditObj(e.target.value)}
-                    rows={2}
-                    autoFocus
-                    className="text-sm"
-                  />
-                  <div className="flex gap-1">
-                    <Button size="sm" variant="outline" onClick={handleObjSave}>Save</Button>
-                    <Button size="sm" variant="ghost" onClick={() => setIsEditingObj(false)}>Cancel</Button>
+            {/* Objective + Description */}
+            <section className="space-y-3">
+              <div>
+                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                  {t('missions.objective')}
+                </h3>
+                {isEditingObj ? (
+                  <div className="space-y-1.5">
+                    <Textarea
+                      value={editObj}
+                      onChange={(e) => setEditObj(e.target.value)}
+                      rows={2}
+                      autoFocus
+                      className="text-sm"
+                    />
+                    <div className="flex gap-1">
+                      <Button size="sm" variant="outline" onClick={handleObjSave}>Save</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setIsEditingObj(false)}>Cancel</Button>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <p
-                  className="cursor-pointer rounded px-1 text-sm leading-relaxed text-[var(--text-secondary)] hover:bg-[var(--surface-3)]"
-                  onClick={() => {
-                    setEditObj(mission.objective ?? '')
-                    setIsEditingObj(true)
-                  }}
-                >
-                  {mission.objective || <span className="italic text-[var(--text-muted)]">Click to add objective...</span>}
-                </p>
-              )}
-            </section>
-
-            {/* Description — click to edit */}
-            <section>
-              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                Description
-              </h3>
-              {isEditingDesc ? (
-                <div className="space-y-1.5">
-                  <Textarea
-                    value={editDesc}
-                    onChange={(e) => setEditDesc(e.target.value)}
-                    rows={4}
-                    autoFocus
-                    className="text-sm"
-                  />
-                  <div className="flex gap-1">
-                    <Button size="sm" variant="outline" onClick={handleDescSave}>Save</Button>
-                    <Button size="sm" variant="ghost" onClick={() => setIsEditingDesc(false)}>Cancel</Button>
+                ) : (
+                  <p
+                    className="cursor-pointer rounded px-1 text-sm leading-relaxed text-[var(--text-secondary)] hover:bg-[var(--surface-3)]"
+                    onClick={() => {
+                      setEditObj(mission.objective ?? '')
+                      setIsEditingObj(true)
+                    }}
+                  >
+                    {mission.objective || <span className="italic text-[var(--text-muted)]">Click to add objective...</span>}
+                  </p>
+                )}
+              </div>
+              <div>
+                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                  {t('missions.description')}
+                </h3>
+                {isEditingDesc ? (
+                  <div className="space-y-1.5">
+                    <Textarea
+                      value={editDesc}
+                      onChange={(e) => setEditDesc(e.target.value)}
+                      rows={4}
+                      autoFocus
+                      className="text-sm"
+                    />
+                    <div className="flex gap-1">
+                      <Button size="sm" variant="outline" onClick={handleDescSave}>Save</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setIsEditingDesc(false)}>Cancel</Button>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <p
-                  className="cursor-pointer rounded px-1 text-sm leading-relaxed whitespace-pre-wrap text-[var(--text-secondary)] hover:bg-[var(--surface-3)]"
-                  onClick={() => {
-                    setEditDesc(mission.description ?? '')
-                    setIsEditingDesc(true)
-                  }}
-                >
-                  {mission.description || <span className="italic text-[var(--text-muted)]">Click to add description...</span>}
-                </p>
-              )}
-            </section>
-
-            {/* Tags editor */}
-            <section>
-              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                Tags
-              </h3>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {(mission.tags ?? []).map((tag) => (
-                  <Badge key={tag} variant="secondary" className="gap-1 pr-1">
-                    {tag}
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveTag(tag)}
-                      className="rounded-full p-0.5 hover:bg-[var(--surface-5)]"
-                    >
-                      <X className="h-2.5 w-2.5" />
-                    </button>
-                  </Badge>
-                ))}
-                <Input
-                  placeholder="Add tag..."
-                  value={tagInput}
-                  onChange={(e) => setTagInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault()
-                      handleAddTag()
-                    }
-                  }}
-                  className="h-6 w-24 border-dashed px-2 text-xs"
-                />
+                ) : (
+                  <p
+                    className="cursor-pointer rounded px-1 text-sm leading-relaxed whitespace-pre-wrap text-[var(--text-secondary)] hover:bg-[var(--surface-3)]"
+                    onClick={() => {
+                      setEditDesc(mission.description ?? '')
+                      setIsEditingDesc(true)
+                    }}
+                  >
+                    {mission.description || <span className="italic text-[var(--text-muted)]">Click to add description...</span>}
+                  </p>
+                )}
               </div>
             </section>
 
-            {/* Settings */}
-            <section>
-              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                Settings
-              </h3>
-              <div className="flex items-center justify-between rounded-lg border border-[var(--border)] px-3 py-2">
+            {/* Metadata card */}
+            <section className="overflow-hidden rounded-lg border border-[var(--border)]">
+              {/* Tags */}
+              <div className="flex items-start gap-3 px-3 py-2.5">
+                <span className="shrink-0 pt-0.5 text-xs font-medium text-[var(--text-muted)]">{t('missions.tags')}</span>
+                <div className="flex flex-1 flex-wrap items-center gap-1.5">
+                  {(mission.tags ?? []).map((tag) => (
+                    <Badge key={tag} variant="secondary" className="gap-1 pr-1">
+                      {tag}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveTag(tag)}
+                        className="rounded-full p-0.5 hover:bg-[var(--surface-5)]"
+                      >
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </Badge>
+                  ))}
+                  <Input
+                    placeholder="Add tag..."
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        handleAddTag()
+                      }
+                    }}
+                    className="h-6 w-24 border-dashed px-2 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="h-px bg-[var(--border)]" />
+
+              {/* Due Date */}
+              <div className="flex items-center justify-between px-3 py-2.5">
+                <span className="text-xs font-medium text-[var(--text-muted)]">{t('missions.dueDate')}</span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={mission.due_date ? new Date(mission.due_date).toISOString().split('T')[0] : ''}
+                    onChange={(e) => doUpdate({ due_date: e.target.value || null })}
+                    className="h-7 rounded border border-[var(--border)] bg-transparent px-2 text-xs text-[var(--text-secondary)] outline-none focus:ring-1 focus:ring-[var(--brand-400)]"
+                  />
+                  {mission.due_date && (
+                    <button
+                      type="button"
+                      onClick={() => doUpdate({ due_date: null })}
+                      className="text-xs text-[var(--text-muted)] hover:text-[var(--status-error)]"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="h-px bg-[var(--border)]" />
+
+              {/* Agent */}
+              <div className="flex items-center justify-between px-3 py-2.5">
+                <span className="text-xs font-medium text-[var(--text-muted)]">{t('missions.agent')}</span>
+                {mission.assignee_type === 'agent' && agent ? (
+                  <div className="flex items-center gap-2">
+                    <Bot className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
+                    <span className="text-sm font-medium text-[var(--text-primary)]">{agent.name}</span>
+                    <AgentStatusIndicator status={agent.status} />
+                    <Popover open={agentPickerOpen} onOpenChange={setAgentPickerOpen}>
+                      <PopoverTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs">
+                          Change
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-60 p-0" align="end">
+                        <AgentPickerContent
+                          agents={agents}
+                          currentAgentId={mission.assignee_id}
+                          onSelect={handleAssign}
+                          onUnassign={handleUnassign}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                ) : (
+                  <Popover open={agentPickerOpen} onOpenChange={setAgentPickerOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs text-[var(--text-muted)]">
+                        <Bot className="h-3 w-3" />
+                        Assign...
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-60 p-0" align="end">
+                      <AgentPickerContent agents={agents} onSelect={handleAssign} />
+                    </PopoverContent>
+                  </Popover>
+                )}
+              </div>
+
+              <div className="h-px bg-[var(--border)]" />
+
+              {/* Auto Approve */}
+              <div className="flex items-center justify-between px-3 py-2.5">
                 <div className="space-y-0.5">
-                  <p className="text-sm font-medium text-[var(--text-primary)]">Auto Approve</p>
-                  <p className="text-xs text-[var(--text-muted)]">
+                  <p className="text-xs font-medium text-[var(--text-primary)]">Auto Approve</p>
+                  <p className="text-[10px] text-[var(--text-muted)]">
                     {mission.auto_approve
                       ? 'Tool calls auto-approved, completes to Done'
                       : 'Tool calls need approval, completes to In Review'}
@@ -399,96 +466,22 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
               </div>
             </section>
 
-            {/* Due Date */}
-            <section>
-              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                Due Date
-              </h3>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5">
-                  <Calendar className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-                  <input
-                    type="date"
-                    value={mission.due_date ? new Date(mission.due_date).toISOString().split('T')[0] : ''}
-                    onChange={(e) => doUpdate({ due_date: e.target.value || null })}
-                    className="h-7 rounded border border-[var(--border)] bg-transparent px-2 text-xs text-[var(--text-secondary)] outline-none focus:ring-1 focus:ring-[var(--brand-400)]"
-                  />
-                </div>
-                {mission.due_date && (
-                  <button
-                    type="button"
-                    onClick={() => doUpdate({ due_date: null })}
-                    className="text-xs text-[var(--text-muted)] hover:text-[var(--status-error)]"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-            </section>
-
-            {/* Agent — combobox picker */}
-            <section>
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                Agent
-              </h3>
-              {mission.assignee_type === 'agent' && agent ? (
-                <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-3)] p-3">
-                  <Bot className="h-5 w-5 text-[var(--text-secondary)]" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-[var(--text-primary)]">{agent.name}</p>
-                    <AgentStatusIndicator status={agent.status} />
-                  </div>
-                  <Popover open={agentPickerOpen} onOpenChange={setAgentPickerOpen}>
-                    <PopoverTrigger asChild>
-                      <Button variant="ghost" size="sm" className="text-xs">
-                        Change
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-60 p-0" align="end">
-                      <AgentPickerContent
-                        agents={agents}
-                        currentAgentId={mission.assignee_id}
-                        onSelect={handleAssign}
-                        onUnassign={handleUnassign}
-                      />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-              ) : (
-                <Popover open={agentPickerOpen} onOpenChange={setAgentPickerOpen}>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" size="sm" className="w-full justify-start text-[var(--text-muted)]">
-                      <Bot className="mr-2 h-3.5 w-3.5" />
-                      Assign an agent...
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-60 p-0" align="start">
-                    <AgentPickerContent
-                      agents={agents}
-                      onSelect={handleAssign}
-                    />
-                  </PopoverContent>
-                </Popover>
-              )}
-
-              {/* Action buttons */}
-              <div className="mt-3 flex gap-2">
-                {canDispatch && (
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      dispatchMission.mutate({ missionId, workspaceId }, {
-                        onSuccess: () => toastSuccess(t('runs.dispatchedToast')),
-                      })
-                    }}
-                    disabled={dispatchMission.isPending}
-                  >
-                    <Play className="h-3.5 w-3.5" />
-                    {dispatchMission.isPending ? t('runs.dispatching') : t('runs.dispatch')}
-                  </Button>
-                )}
-              </div>
-            </section>
+            {/* Dispatch */}
+            {canDispatch && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  dispatchMission.mutate({ missionId, workspaceId }, {
+                    onSuccess: () => toastSuccess(t('runs.dispatchedToast')),
+                    onError: () => toastError(t('common.operationFailed')),
+                  })
+                }}
+                disabled={dispatchMission.isPending}
+              >
+                <Play className="h-3.5 w-3.5" />
+                {dispatchMission.isPending ? t('runs.dispatching') : t('runs.dispatch')}
+              </Button>
+            )}
 
             {mission.current_execution_id && (
               <section>
@@ -507,7 +500,10 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                           variant="destructive"
                           size="sm"
                           className="h-6 px-2 text-xs"
-                          onClick={() => cancelExecution.mutate({ executionId: mission.current_execution_id!, workspaceId })}
+                          onClick={() => cancelExecution.mutate(
+                            { executionId: mission.current_execution_id!, workspaceId },
+                            { onError: () => toastError(t('common.operationFailed')) },
+                          )}
                           disabled={cancelExecution.isPending}
                         >
                           <Square className="mr-1 h-3 w-3" />
@@ -552,7 +548,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                   {t('runs.pastExecutions')}
                 </h3>
                 <p className="text-xs text-[var(--text-muted)]">
-                  {pastExecutionCount} {t('runs.pastExecutions')} —{' '}
+                  {t('runs.pastExecutionsCount', { count: pastExecutionCount })} —{' '}
                   <Link
                     href={`/runs?tab=executions&mission=${missionId}`}
                     className="text-[var(--brand-400)] hover:underline"
@@ -566,7 +562,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
             {/* Comments */}
             <section>
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                Comments
+                {t('missions.comments')}
               </h3>
               <CommentThread missionId={missionId} workspaceId={workspaceId} />
             </section>
@@ -609,7 +605,10 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
         confirmLabel={t('missions.archiveConfirm')}
         variant="default"
         onConfirm={() => {
-          cancelMission.mutate({ missionId, workspaceId })
+          cancelMission.mutate(
+            { missionId, workspaceId },
+            { onError: () => toastError(t('common.operationFailed')) },
+          )
           setShowCancelConfirm(false)
         }}
       />
