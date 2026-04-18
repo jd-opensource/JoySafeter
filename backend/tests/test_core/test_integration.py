@@ -42,7 +42,7 @@ from app.schemas.execution import (
     MissionSummary,
 )
 from app.services.execution_reducer import apply_execution_event, make_initial_projection
-from app.services.mission_service import build_execution_prompt
+from app.services.execution_lifecycle_service import build_execution_prompt
 from app.websocket.execution_subscription_manager import ExecutionSubscriptionManager
 
 

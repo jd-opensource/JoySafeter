@@ -4,7 +4,7 @@ import uuid
 from unittest.mock import MagicMock
 
 from app.models.mission import Mission, MissionPriority, MissionStatus
-from app.services.mission_service import build_execution_prompt
+from app.services.execution_lifecycle_service import build_execution_prompt
 
 
 def _make_mission(**overrides) -> Mission:
