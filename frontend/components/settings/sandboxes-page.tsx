@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useToast } from '@/hooks/use-toast'
+import { getErrorMessage } from '@/lib/utils/toast'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { sandboxService, Sandbox } from '@/services/sandbox-service'
@@ -79,7 +80,7 @@ export const SandboxesPage = () => {
     } catch (error) {
       toast({
         title: t('settings.sandboxes.operationFailed'),
-        description: String(error),
+        description: getErrorMessage(error),
         variant: 'destructive',
       })
     } finally {
@@ -127,7 +128,7 @@ export const SandboxesPage = () => {
     } catch (error) {
       toast({
         title: t('settings.sandboxes.operationFailed'),
-        description: String(error),
+        description: getErrorMessage(error),
         variant: 'destructive',
       })
     } finally {
@@ -166,7 +167,7 @@ export const SandboxesPage = () => {
     } catch (error) {
       toast({
         title: t('settings.sandboxes.operationFailed'),
-        description: String(error),
+        description: getErrorMessage(error),
         variant: 'destructive',
       })
     } finally {

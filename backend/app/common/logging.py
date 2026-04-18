@@ -71,7 +71,13 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 
         except Exception as e:
             process_time = time.time() - start_time
-            log.opt(exception=True).error(f"request.failed duration={process_time:.3f}s error={type(e).__name__}")
+            from app.common.exceptions import AppException
+
+            is_business_error = isinstance(e, (AppException, ValueError, PermissionError, RuntimeError))
+            if is_business_error:
+                log.warning(f"request.failed duration={process_time:.3f}s error={type(e).__name__}: {e}")
+            else:
+                log.opt(exception=True).error(f"request.failed duration={process_time:.3f}s error={type(e).__name__}")
             raise
 
 

@@ -370,7 +370,16 @@ export async function apiStream(
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => response.statusText)
-      throw new ApiError(response.status, response.statusText, errorText)
+      let errorMessage = errorText
+      let errorCode: string | undefined
+      try {
+        const errorData = JSON.parse(errorText)
+        errorMessage = errorData.detail || errorData.message || errorText
+        errorCode = errorData.code
+      } catch {
+        /* not JSON */
+      }
+      throw new ApiError(response.status, response.statusText, errorMessage, errorCode)
     }
 
     return response

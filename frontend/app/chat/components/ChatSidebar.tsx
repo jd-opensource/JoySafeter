@@ -6,7 +6,7 @@ import React, { useState, useMemo, useCallback } from 'react'
 
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import { toastSuccess, toastError } from '@/lib/utils/toast'
+import { toastSuccess, toastError, getErrorMessage } from '@/lib/utils/toast'
 import { conversationService, type Conversation } from '@/services/conversationService'
 
 import ConversationGroup from './ConversationGroup'
@@ -79,7 +79,7 @@ export default function ChatSidebar({
     },
     onError: (error) => {
       console.error('Failed to delete conversation:', error)
-      toastError(t('chat.deleteFailed'))
+      toastError(getErrorMessage(error, t('chat.deleteFailed')))
       setDeleteConfirmOpen(false)
       setConversationToDelete(null)
     },

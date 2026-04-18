@@ -175,12 +175,15 @@ async def dispatch_mission(
 ) -> BaseResponse[MissionSummary]:
     from app.services.execution_lifecycle_service import ExecutionLifecycleService
     lifecycle = ExecutionLifecycleService(db)
-    mission, _execution = await lifecycle.dispatch_mission(
-        mission_id=mission_id,
-        workspace_id=workspace_id,
-        user_id=str(current_user.id),
-        runtime_config=request.runtime_config,
-    )
+    try:
+        mission, _execution = await lifecycle.dispatch_mission(
+            mission_id=mission_id,
+            workspace_id=workspace_id,
+            user_id=str(current_user.id),
+            runtime_config=request.runtime_config,
+        )
+    except (ValueError, RuntimeError) as e:
+        raise BadRequestException(str(e))
     return BaseResponse(success=True, code=200, msg="Mission dispatched", data=_to_summary(mission))
 
 
@@ -193,7 +196,10 @@ async def cancel_mission(
 ) -> BaseResponse[MissionSummary]:
     from app.services.execution_lifecycle_service import ExecutionLifecycleService
     lifecycle = ExecutionLifecycleService(db)
-    mission = await lifecycle.cancel_mission(mission_id=mission_id, workspace_id=workspace_id)
+    try:
+        mission = await lifecycle.cancel_mission(mission_id=mission_id, workspace_id=workspace_id)
+    except (ValueError, RuntimeError) as e:
+        raise BadRequestException(str(e))
     if not mission:
         return BaseResponse(success=False, code=404, msg="Mission not found", data=None)
     return BaseResponse(success=True, code=200, msg="Mission cancelled", data=_to_summary(mission))
