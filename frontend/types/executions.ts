@@ -3,7 +3,6 @@ export interface Execution {
   workspace_id: string
   user_id: string
   source: ExecutionSource
-  source_id?: string | null
   status: ExecutionStatus
   title?: string | null
   mission_id?: string | null
@@ -23,7 +22,7 @@ export interface Execution {
 export type ExecutionStatus = 'queued' | 'dispatched' | 'running' | 'interrupt_wait' | 'approval_wait' | 'completed' | 'failed' | 'cancelled'
 export type ExecutionSource = 'mission' | 'chat' | 'graph' | 'coordinator' | 'api'
 
-export const ACTIVE_EXECUTION_STATUSES: readonly ExecutionStatus[] = ['queued', 'dispatched', 'running', 'interrupt_wait', 'approval_wait'] as const
+export const ACTIVE_EXECUTION_STATUSES: readonly ExecutionStatus[] = ['queued', 'dispatched', 'running', 'approval_wait'] as const
 export const TERMINAL_EXECUTION_STATUSES: readonly ExecutionStatus[] = ['completed', 'failed', 'cancelled'] as const
 
 export interface ExecutionEvent {

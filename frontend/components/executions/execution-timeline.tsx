@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils'
 import { ACTIVE_EXECUTION_STATUSES } from '@/types/executions'
 
 import { executionService } from '@/services/executionService'
+import { missionService } from '@/services/missionService'
 
 import { ExecutionEventItem } from './execution-event'
 import { MessageInput } from './message-input'
@@ -31,9 +32,11 @@ interface ExecutionTimelineProps {
   compact?: boolean
   /** Set to false for terminal executions to skip WebSocket and polling. Defaults to true. */
   isLive?: boolean
+  /** When set, write operations (message/approve) use mission-scoped endpoints. */
+  missionId?: string
 }
 
-export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = true }: ExecutionTimelineProps) {
+export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = true, missionId }: ExecutionTimelineProps) {
   const { data: execution, isLoading: isExecLoading, error: execError, refetch: refetchExec } = useExecution(executionId, workspaceId)
   const isActive = execution ? ACTIVE_EXECUTION_STATUSES.includes(execution.status) : false
   const shouldStream = isLive && isActive && Boolean(executionId)
@@ -104,25 +107,25 @@ export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = 
 
   const handleSendMessage = async (message: string) => {
     try {
-      await executionService.injectMessage(executionId, message)
+      if (missionId) {
+        await missionService.injectExecutionMessage(missionId, workspaceId, message)
+      } else {
+        await executionService.injectMessage(executionId, message)
+      }
     } catch (err) {
       console.error('Failed to inject message', err)
     }
   }
 
-  const handleApprove = async (_eventId: string) => {
+  const handleApproveOrReject = async (_eventId: string, approved: boolean) => {
     try {
-      await executionService.approveAction(executionId, true)
+      if (missionId) {
+        await missionService.approveExecutionAction(missionId, workspaceId, approved)
+      } else {
+        await executionService.approveAction(executionId, approved)
+      }
     } catch (err) {
-      console.error('Failed to approve action', err)
-    }
-  }
-
-  const handleReject = async (_eventId: string) => {
-    try {
-      await executionService.approveAction(executionId, false)
-    } catch (err) {
-      console.error('Failed to reject action', err)
+      console.error(`Failed to ${approved ? 'approve' : 'reject'} action`, err)
     }
   }
 
@@ -209,7 +212,7 @@ export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = 
             <Loader2 className="h-5 w-5 animate-spin text-[var(--text-muted)]" />
           </div>
         ) : (
-          events.map((event) => <ExecutionEventItem key={event.id} event={event} onApprove={handleApprove} onReject={handleReject} />)
+          events.map((event) => <ExecutionEventItem key={event.id} event={event} onApprove={(id) => handleApproveOrReject(id, true)} onReject={(id) => handleApproveOrReject(id, false)} />)
         )}
       </div>
 

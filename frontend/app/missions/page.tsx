@@ -1,7 +1,8 @@
 'use client'
 
 import { Kanban, List, Loader2, Plus, Target } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
+import { useCallback, useMemo, useState } from 'react'
 
 import { MissionBoard } from '@/components/missions/mission-board'
 import { MissionCreateDialog } from '@/components/missions/mission-create-dialog'
@@ -17,7 +18,23 @@ type ViewMode = 'board' | 'list'
 
 export default function MissionsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('board')
-  const [selectedMissionId, setSelectedMissionId] = useState<string | null>(null)
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const selectedMissionId = searchParams.get('mission')
+
+  const setSelectedMissionId = useCallback(
+    (id: string | null) => {
+      const params = new URLSearchParams(searchParams.toString())
+      if (id) {
+        params.set('mission', id)
+      } else {
+        params.delete('mission')
+      }
+      router.replace(`/missions?${params.toString()}`, { scroll: false })
+    },
+    [searchParams, router],
+  )
+
   const { data: workspaces = [], isLoading: isWorkspacesLoading } = useWorkspaces()
   const workspaceId = workspaces[0]?.id ?? ''
 

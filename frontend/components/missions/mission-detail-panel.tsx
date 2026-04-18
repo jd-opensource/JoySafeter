@@ -35,13 +35,14 @@ import {
   useCancelMission,
   useDispatchMission,
   useMission,
+  useMissionTransitions,
   useUpdateMission,
 } from '@/hooks/queries/missions'
 import { cn } from '@/lib/utils'
 import { ACTIVE_EXECUTION_STATUSES } from '@/types/executions'
 import type { MissionPriority, MissionStatus } from '@/types/missions'
 import {
-  MANUAL_TRANSITIONS,
+  DEFAULT_MANUAL_TRANSITIONS,
   MISSION_PRIORITY_LABELS,
   MISSION_STATUS_LABELS,
   MISSION_STATUS_ORDER,
@@ -66,6 +67,8 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
   )
   const { data: agents = [] } = useAgentProfiles(workspaceId)
   const { data: executions = [] } = useExecutions(workspaceId, { mission_id: missionId })
+  const { data: transitions } = useMissionTransitions(workspaceId)
+  const effectiveTransitions = transitions ?? DEFAULT_MANUAL_TRANSITIONS
 
   const assignMission = useAssignMission()
   const dispatchMission = useDispatchMission()
@@ -256,7 +259,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                   <SelectItem key={mission.status} value={mission.status}>
                     {MISSION_STATUS_LABELS[mission.status]}
                   </SelectItem>
-                  {(MANUAL_TRANSITIONS[mission.status] ?? []).map((s) => (
+                  {(effectiveTransitions[mission.status] ?? []).map((s) => (
                     <SelectItem
                       key={s}
                       value={s}
@@ -506,6 +509,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                     executionId={mission.current_execution_id}
                     workspaceId={workspaceId}
                     compact
+                    missionId={missionId}
                   />
                 </div>
               </section>

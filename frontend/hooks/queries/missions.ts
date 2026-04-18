@@ -8,10 +8,11 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { missionService } from '@/services/missionService'
-import type { Mission, CreateMissionRequest, UpdateMissionRequest } from '@/types/missions'
-import { TERMINAL_MISSION_STATUSES } from '@/types/missions'
+import type { Mission, CreateMissionRequest, UpdateMissionRequest, MissionStatus } from '@/types/missions'
+import { TERMINAL_MISSION_STATUSES, DEFAULT_MANUAL_TRANSITIONS } from '@/types/missions'
 
 import { STALE_TIME } from './constants'
+import { executionKeys } from './executions'
 
 // ==================== Query Keys ====================
 
@@ -21,6 +22,8 @@ export const missionKeys = {
     [...missionKeys.all, 'list', workspaceId, filters?.status || '', filters?.limit || 50] as const,
   detail: (missionId: string, workspaceId: string) =>
     [...missionKeys.all, 'detail', missionId, workspaceId] as const,
+  transitions: (workspaceId: string) =>
+    [...missionKeys.all, 'meta', 'transitions', workspaceId] as const,
 }
 
 // ==================== Query Hooks ====================
@@ -143,8 +146,11 @@ export function useDispatchMission() {
     mutationFn: async ({ missionId, workspaceId }: { missionId: string; workspaceId: string }) => {
       return missionService.dispatch(missionId, workspaceId)
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: missionKeys.all })
+      queryClient.invalidateQueries({
+        queryKey: executionKeys.list(variables.workspaceId, { mission_id: variables.missionId }),
+      })
     },
   })
 }
@@ -156,8 +162,25 @@ export function useCancelMission() {
     mutationFn: async ({ missionId, workspaceId }: { missionId: string; workspaceId: string }) => {
       return missionService.cancel(missionId, workspaceId)
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: missionKeys.all })
+      queryClient.invalidateQueries({
+        queryKey: executionKeys.list(variables.workspaceId, { mission_id: variables.missionId }),
+      })
     },
+  })
+}
+
+// ==================== Mission Meta ====================
+
+export function useMissionTransitions(workspaceId: string) {
+  return useQuery({
+    queryKey: missionKeys.transitions(workspaceId),
+    queryFn: async (): Promise<Record<MissionStatus, MissionStatus[]>> => {
+      const res = await missionService.getTransitions(workspaceId)
+      return (res ?? DEFAULT_MANUAL_TRANSITIONS) as Record<MissionStatus, MissionStatus[]>
+    },
+    enabled: Boolean(workspaceId),
+    staleTime: Infinity,
   })
 }

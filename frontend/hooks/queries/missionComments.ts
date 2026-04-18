@@ -53,7 +53,6 @@ export function useCreateMissionComment() {
       queryClient.invalidateQueries({
         queryKey: missionCommentKeys.list(variables.missionId, variables.workspaceId),
       })
-      // Refresh this mission since a comment may trigger an execution
       queryClient.invalidateQueries({
         queryKey: missionKeys.detail(variables.missionId, variables.workspaceId),
       })

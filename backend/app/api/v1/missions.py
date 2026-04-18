@@ -107,6 +107,17 @@ async def create_mission(
     return BaseResponse(success=True, code=200, msg="Mission created", data=_to_summary(mission))
 
 
+@router.get("/meta/transitions", response_model=BaseResponse)
+async def get_transitions(
+    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
+    workspace_id: uuid.UUID = Query(...),
+) -> BaseResponse:
+    return BaseResponse(
+        success=True, code=200, msg="ok",
+        data=MissionService.get_transitions(),
+    )
+
+
 @router.get("/{mission_id}", response_model=BaseResponse[MissionSummary])
 async def get_mission(
     mission_id: uuid.UUID,

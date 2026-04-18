@@ -83,7 +83,8 @@ export const MISSION_STATUS_STYLES: Record<string, string> = {
   cancelled: 'bg-[var(--surface-3)] text-[var(--text-muted)]',
 }
 
-export const MANUAL_TRANSITIONS: Record<MissionStatus, readonly MissionStatus[]> = {
+/** Fallback transitions — used before API response arrives. */
+export const DEFAULT_MANUAL_TRANSITIONS: Record<MissionStatus, readonly MissionStatus[]> = {
   backlog: ['todo', 'in_progress', 'cancelled'],
   todo: ['backlog', 'in_progress', 'cancelled'],
   in_progress: ['todo', 'in_review', 'done', 'cancelled'],

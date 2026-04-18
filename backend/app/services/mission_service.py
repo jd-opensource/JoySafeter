@@ -94,6 +94,13 @@ class MissionService:
         MissionStatus.CANCELLED:   {MissionStatus.BACKLOG, MissionStatus.TODO},
     }
 
+    @classmethod
+    def get_transitions(cls) -> dict[str, list[str]]:
+        return {
+            status.value: sorted(t.value for t in targets)
+            for status, targets in cls.MANUAL_TRANSITIONS.items()
+        }
+
     async def update_mission(
         self,
         mission_id: uuid.UUID,
