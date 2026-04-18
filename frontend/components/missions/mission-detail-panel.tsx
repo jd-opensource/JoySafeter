@@ -1,22 +1,25 @@
 'use client'
 
 import {
+  Archive,
   Bot,
   Calendar,
   Check,
   ChevronDown,
   Clock,
+  ExternalLink,
   Loader2,
   Play,
-  Trash2,
+  Square,
   X,
-  XCircle,
 } from 'lucide-react'
+import Link from 'next/link'
 import { useCallback, useMemo, useState } from 'react'
 
 import { AgentStatusIndicator } from '@/components/agents/agent-status'
 import { ExecutionTimeline } from '@/components/executions/execution-timeline'
 import { CommentThread } from '@/components/missions/comment-thread'
+import { PulsingDot } from '@/components/ui/pulsing-dot'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
@@ -39,6 +42,8 @@ import {
   useUpdateMission,
 } from '@/hooks/queries/missions'
 import { cn } from '@/lib/utils'
+import { useTranslation } from '@/lib/i18n'
+import { toastSuccess } from '@/lib/utils/toast'
 import { ACTIVE_EXECUTION_STATUSES } from '@/types/executions'
 import type { MissionPriority, MissionStatus } from '@/types/missions'
 import {
@@ -59,13 +64,14 @@ interface MissionDetailPanelProps {
 }
 
 export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionDetailPanelProps) {
+  const { t } = useTranslation()
   const { data: mission, isLoading } = useMission(missionId, workspaceId)
   const { data: agent } = useAgentProfile(
     mission?.assignee_id ?? '',
     workspaceId,
     { enabled: mission?.assignee_type === 'agent' && Boolean(mission?.assignee_id) },
   )
-  const { data: agents = [] } = useAgentProfiles(workspaceId)
+  const { data: agents = [] } = useAgentProfiles(workspaceId, { enabled: Boolean(workspaceId) })
   const { data: executions = [] } = useExecutions(workspaceId, { mission_id: missionId })
   const { data: transitions } = useMissionTransitions(workspaceId)
   const effectiveTransitions = transitions ?? DEFAULT_MANUAL_TRANSITIONS
@@ -86,6 +92,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
   const [tagInput, setTagInput] = useState('')
   const [agentPickerOpen, setAgentPickerOpen] = useState(false)
   const [showCancelConfirm, setShowCancelConfirm] = useState(false)
+  const [timelineExpanded, setTimelineExpanded] = useState(false)
 
   const canDispatch = useMemo(() => {
     if (!mission) return false
@@ -95,19 +102,14 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
     return hasAgent && notRunning && validStatus.includes(mission.status)
   }, [mission])
 
-  const canCancel = useMemo(() => {
-    if (!mission?.current_execution_id) return false
-    const currentExec = executions.find((e) => e.id === mission.current_execution_id)
-    if (!currentExec) return false
-    return ACTIVE_EXECUTION_STATUSES.includes(currentExec.status)
-  }, [mission, executions])
+  const currentExecution = useMemo(
+    () => mission?.current_execution_id ? executions.find((e) => e.id === mission.current_execution_id) : undefined,
+    [mission, executions],
+  )
 
-  const pastExecutions = useMemo(() => {
-    if (!mission) return []
-    return executions
-      .filter((e) => e.id !== mission.current_execution_id)
-      .slice(0, 10)
-  }, [executions, mission])
+  const canCancel = currentExecution ? ACTIVE_EXECUTION_STATUSES.includes(currentExecution.status) : false
+
+  const pastExecutionCount = executions.length - (currentExecution ? 1 : 0)
 
   // Update helpers
   const doUpdate = useCallback(
@@ -273,11 +275,8 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
 
               {canCancel && (
                 <span className="inline-flex items-center gap-1 text-xs text-[var(--status-success)]">
-                  <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--status-success)] opacity-75" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--status-success)]" />
-                  </span>
-                  Running
+                  <PulsingDot />
+                  {t('missions.running')}
                 </span>
               )}
             </div>
@@ -477,55 +476,90 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                 {canDispatch && (
                   <Button
                     size="sm"
-                    onClick={() => dispatchMission.mutate({ missionId, workspaceId })}
+                    onClick={() => {
+                      dispatchMission.mutate({ missionId, workspaceId }, {
+                        onSuccess: () => toastSuccess(t('runs.dispatchedToast')),
+                      })
+                    }}
                     disabled={dispatchMission.isPending}
                   >
                     <Play className="h-3.5 w-3.5" />
-                    {dispatchMission.isPending ? 'Dispatching...' : 'Dispatch'}
-                  </Button>
-                )}
-                {canCancel && mission.current_execution_id && (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => cancelExecution.mutate({ executionId: mission.current_execution_id!, workspaceId })}
-                    disabled={cancelExecution.isPending}
-                  >
-                    <XCircle className="h-3.5 w-3.5" />
-                    {cancelExecution.isPending ? 'Cancelling...' : 'Cancel Execution'}
+                    {dispatchMission.isPending ? t('runs.dispatching') : t('runs.dispatch')}
                   </Button>
                 )}
               </div>
             </section>
 
-            {/* Current Execution */}
             {mission.current_execution_id && (
               <section>
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                  Current Execution
+                  {t('missions.currentExecution')}
                 </h3>
                 <div className="overflow-hidden rounded-lg border border-[var(--border)]">
-                  <ExecutionTimeline
-                    executionId={mission.current_execution_id}
-                    workspaceId={workspaceId}
-                    compact
-                    missionId={missionId}
-                  />
+                  <div className="flex items-center justify-between px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <PulsingDot className="text-[var(--status-success)]" />
+                      <Badge variant="outline" className="text-xs">
+                        {currentExecution?.status ?? 'running'}
+                      </Badge>
+                      {canCancel && (
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          className="h-6 px-2 text-xs"
+                          onClick={() => cancelExecution.mutate({ executionId: mission.current_execution_id!, workspaceId })}
+                          disabled={cancelExecution.isPending}
+                        >
+                          <Square className="mr-1 h-3 w-3" />
+                          {cancelExecution.isPending ? t('missions.stoppingRun') : t('missions.stopRun')}
+                        </Button>
+                      )}
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 gap-1 px-2 text-xs"
+                      onClick={() => setTimelineExpanded(!timelineExpanded)}
+                    >
+                      <ChevronDown className={cn('h-3 w-3 transition-transform', timelineExpanded && 'rotate-180')} />
+                      {timelineExpanded ? t('missions.collapseTimeline') : t('missions.expandTimeline')}
+                    </Button>
+                  </div>
+                  {timelineExpanded && (
+                    <div className="border-t border-[var(--border)]">
+                      <ExecutionTimeline
+                        executionId={mission.current_execution_id}
+                        workspaceId={workspaceId}
+                        compact
+                        missionId={missionId}
+                      />
+                    </div>
+                  )}
                 </div>
+                <Link
+                  href={`/runs?tab=executions&mission=${missionId}`}
+                  className="mt-1.5 flex items-center gap-1 text-xs text-[var(--brand-400)] hover:underline"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  {t('missions.viewFullLogs')}
+                </Link>
               </section>
             )}
 
-            {/* Past Executions */}
-            {pastExecutions.length > 0 && (
+            {pastExecutionCount > 0 && (
               <section>
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                  Past Executions
+                <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                  {t('runs.pastExecutions')}
                 </h3>
-                <div className="space-y-1.5">
-                  {pastExecutions.map((exec) => (
-                    <PastExecutionRow key={exec.id} execution={exec} workspaceId={workspaceId} />
-                  ))}
-                </div>
+                <p className="text-xs text-[var(--text-muted)]">
+                  {pastExecutionCount} {t('runs.pastExecutions')} —{' '}
+                  <Link
+                    href={`/runs?tab=executions&mission=${missionId}`}
+                    className="text-[var(--brand-400)] hover:underline"
+                  >
+                    {t('runs.pastExecutionsLink')}
+                  </Link>
+                </p>
               </section>
             )}
 
@@ -544,15 +578,15 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                   <Clock className="h-3 w-3" />
                   Created {formatDate(mission.created_at)}
                 </div>
-                {mission.status !== 'cancelled' && mission.status !== 'done' && !mission.current_execution_id && (
+                {!TERMINAL_MISSION_STATUSES.includes(mission.status) && !mission.current_execution_id && (
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-[var(--text-muted)] hover:text-[var(--status-error)]"
+                    className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
                     onClick={() => setShowCancelConfirm(true)}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Cancel Mission
+                    <Archive className="h-3.5 w-3.5" />
+                    {t('missions.archive')}
                   </Button>
                 )}
               </div>
@@ -570,10 +604,10 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
       <ConfirmDialog
         open={showCancelConfirm}
         onOpenChange={setShowCancelConfirm}
-        title="Cancel Mission"
-        description="This will move the mission to Cancelled status. This action can be undone by changing the status back."
-        confirmLabel="Cancel Mission"
-        variant="destructive"
+        title={t('missions.archiveConfirmTitle')}
+        description={t('missions.archiveConfirmDesc')}
+        confirmLabel={t('missions.archiveConfirm')}
+        variant="default"
         onConfirm={() => {
           cancelMission.mutate({ missionId, workspaceId })
           setShowCancelConfirm(false)
@@ -625,50 +659,3 @@ function AgentPickerContent({
   )
 }
 
-function PastExecutionRow({ execution, workspaceId }: { execution: { id: string; status: string; started_at?: string | null; finished_at?: string | null }; workspaceId: string }) {
-  const [expanded, setExpanded] = useState(false)
-
-  const statusColor: Record<string, string> = {
-    completed: 'bg-[var(--status-success-bg)] text-[var(--status-success)]',
-    failed: 'bg-[var(--status-error-bg)] text-[var(--status-error)]',
-    cancelled: 'bg-[var(--surface-3)] text-[var(--text-muted)]',
-  }
-
-  const duration = useMemo(() => {
-    if (!execution.started_at || !execution.finished_at) return null
-    const ms = new Date(execution.finished_at).getTime() - new Date(execution.started_at).getTime()
-    if (ms < 60_000) return `${Math.round(ms / 1000)}s`
-    return `${Math.round(ms / 60_000)}m`
-  }, [execution.started_at, execution.finished_at])
-
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-[var(--surface-3)]"
-      >
-        <span
-          className={cn(
-            'inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium',
-            statusColor[execution.status] ?? 'bg-[var(--surface-3)] text-[var(--text-muted)]',
-          )}
-        >
-          {execution.status}
-        </span>
-        {execution.started_at && (
-          <span className="text-[var(--text-muted)]">
-            {new Date(execution.started_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-          </span>
-        )}
-        {duration && <span className="text-[var(--text-muted)]">({duration})</span>}
-        <ChevronDown className={cn('ml-auto h-3 w-3 text-[var(--text-muted)] transition-transform', expanded && 'rotate-180')} />
-      </button>
-      {expanded && (
-        <div className="mt-1 overflow-hidden rounded-lg border border-[var(--border)]">
-          <ExecutionTimeline executionId={execution.id} workspaceId={workspaceId} compact isLive={false} />
-        </div>
-      )}
-    </div>
-  )
-}

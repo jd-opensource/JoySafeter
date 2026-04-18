@@ -5,17 +5,19 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities'
 
 import { cn } from '@/lib/utils'
+import { useTranslation } from '@/lib/i18n'
 import type { Mission, MissionStatus } from '@/types/missions'
 import { MISSION_STATUS_LABELS } from '@/types/missions'
 
 import { MissionCard } from './mission-card'
 
-const STATUS_COLUMN_STYLES: Record<string, string> = {
-  backlog: 'bg-[var(--surface-1)]',
-  todo: 'bg-[var(--surface-2)]',
-  in_progress: 'bg-[var(--surface-2)]',
-  in_review: 'bg-[var(--surface-2)]',
-  done: 'bg-[var(--surface-2)]',
+const STATUS_COLUMN_STYLES: Record<MissionStatus, { bg: string; indicator: string }> = {
+  backlog: { bg: 'bg-[var(--surface-1)]', indicator: 'bg-[var(--text-muted)]' },
+  todo: { bg: 'bg-[var(--surface-1)]', indicator: 'bg-[var(--brand-400)]' },
+  in_progress: { bg: 'bg-[var(--surface-1)]', indicator: 'bg-[var(--status-warning)]' },
+  in_review: { bg: 'bg-[var(--surface-1)]', indicator: 'bg-[var(--brand-400)]' },
+  done: { bg: 'bg-[var(--surface-1)]', indicator: 'bg-[var(--status-success)]' },
+  cancelled: { bg: 'bg-[var(--surface-1)]', indicator: 'bg-[var(--text-muted)]' },
 }
 
 interface SortableMissionCardProps {
@@ -57,22 +59,25 @@ interface MissionColumnProps {
 }
 
 export function MissionColumn({ status, missions, agentsMap, onSelectMission }: MissionColumnProps) {
+  const { t } = useTranslation()
   const { setNodeRef, isOver } = useDroppable({
     id: `column-${status}`,
     data: { type: 'column', status },
   })
 
   const missionIds = missions.map((m) => m.id)
+  const colStyle = STATUS_COLUMN_STYLES[status]
 
   return (
     <div
       className={cn(
-        'flex h-full w-[230px] flex-shrink-0 flex-col rounded-lg border border-[var(--border)] transition-all',
-        STATUS_COLUMN_STYLES[status] ?? 'bg-[var(--surface-1)]',
+        'flex min-w-[200px] flex-1 flex-col rounded-lg border border-[var(--border)] transition-all',
+        colStyle.bg,
         isOver && 'ring-2 ring-[var(--brand-400)]/30',
       )}
     >
-      <div className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-2.5">
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <span className={cn('h-2.5 w-2.5 rounded-full', colStyle.indicator)} />
         <span className="text-sm font-semibold text-[var(--text-primary)]">
           {MISSION_STATUS_LABELS[status]}
         </span>
@@ -93,7 +98,10 @@ export function MissionColumn({ status, missions, agentsMap, onSelectMission }: 
           ))}
         </SortableContext>
         {missions.length === 0 && (
-          <p className="py-8 text-center text-xs text-[var(--text-muted)]">No missions</p>
+          <div className="flex flex-col items-center justify-center py-8 text-[var(--text-muted)]">
+            <div className="mb-1.5 h-8 w-8 rounded-full border-2 border-dashed border-[var(--border)]" />
+            <p className="text-xs">{t('missions.noMissions')}</p>
+          </div>
         )}
       </div>
     </div>

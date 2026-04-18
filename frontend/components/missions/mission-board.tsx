@@ -155,7 +155,7 @@ export function MissionBoard({ missions, workspaceId, agentsMap, onSelectMission
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="flex h-full gap-3 overflow-x-auto p-4 [-webkit-overflow-scrolling:touch]">
+      <div className="flex h-full gap-3 p-4">
         {MISSION_STATUS_ORDER.map((status) => (
           <MissionColumn
             key={status}

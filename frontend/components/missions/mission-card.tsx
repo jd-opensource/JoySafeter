@@ -1,12 +1,23 @@
 'use client'
 
-import { Bot, Calendar, User } from 'lucide-react'
+import { Bot, Calendar, ExternalLink, User } from 'lucide-react'
+import Link from 'next/link'
 import { forwardRef } from 'react'
 
 import { cn } from '@/lib/utils'
-import type { Mission } from '@/types/missions'
+import { useTranslation } from '@/lib/i18n'
+import { PulsingDot } from '@/components/ui/pulsing-dot'
+import type { Mission, MissionPriority } from '@/types/missions'
 
 import { PriorityBadge } from './priority-badge'
+
+const PRIORITY_LEFT_BORDER: Record<MissionPriority, string> = {
+  urgent: 'border-l-[var(--status-error)]',
+  high: 'border-l-[var(--status-warning)]',
+  medium: 'border-l-[var(--brand-400)]',
+  low: 'border-l-[var(--text-muted)]',
+  none: 'border-l-transparent',
+}
 
 interface MissionCardProps {
   mission: Mission
@@ -18,6 +29,7 @@ interface MissionCardProps {
 
 export const MissionCard = forwardRef<HTMLButtonElement, MissionCardProps & React.HTMLAttributes<HTMLButtonElement>>(
   function MissionCard({ mission, agentName, onSelectMission, isDragOverlay, style, className, ...props }, ref) {
+    const { t } = useTranslation()
     const hasActiveExecution = Boolean(mission.current_execution_id)
     const isAssignedToAgent = mission.assignee_type === 'agent'
 
@@ -30,7 +42,8 @@ export const MissionCard = forwardRef<HTMLButtonElement, MissionCardProps & Reac
         onClick={() => onSelectMission?.(mission.id)}
         style={style}
         className={cn(
-          'w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-3 text-left',
+          'w-full rounded-lg border border-[var(--border)] border-l-[3px] bg-[var(--surface-elevated)] p-3 text-left',
+          PRIORITY_LEFT_BORDER[mission.priority],
           'transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-400)]',
           isDragOverlay && 'shadow-lg ring-2 ring-[var(--brand-400)]/40',
           className,
@@ -58,18 +71,8 @@ export const MissionCard = forwardRef<HTMLButtonElement, MissionCardProps & Reac
             )}
           </span>
 
-          {hasActiveExecution && (
-            <span className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)]">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--status-success)] opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--status-success)]" />
-              </span>
-              Running
-            </span>
-          )}
         </div>
 
-        {/* Tags + Due Date row */}
         {(mission.tags?.length || mission.due_date) && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {mission.tags?.slice(0, 2).map((tag) => (
@@ -97,6 +100,18 @@ export const MissionCard = forwardRef<HTMLButtonElement, MissionCardProps & Reac
               </span>
             )}
           </div>
+        )}
+
+        {hasActiveExecution && (
+          <Link
+            href={`/runs?tab=executions&mission=${mission.id}`}
+            onClick={(e) => e.stopPropagation()}
+            className="mt-2 -mx-3 -mb-3 flex items-center gap-1.5 rounded-b-lg border-t border-[var(--border)] bg-[var(--surface-3)]/50 px-3 py-1.5 text-xs text-[var(--status-success)] hover:bg-[var(--surface-3)]"
+          >
+            <PulsingDot />
+            {t('missions.running')}
+            <ExternalLink className="ml-auto h-3 w-3" />
+          </Link>
         )}
       </button>
     )

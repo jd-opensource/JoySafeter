@@ -55,9 +55,10 @@ interface ExecutionEventItemProps {
   event: ExecutionEvent
   onApprove?: (eventId: string) => void
   onReject?: (eventId: string) => void
+  disabled?: boolean
 }
 
-export function ExecutionEventItem({ event, onApprove, onReject }: ExecutionEventItemProps) {
+export function ExecutionEventItem({ event, onApprove, onReject, disabled }: ExecutionEventItemProps) {
   const [expanded, setExpanded] = useState(false)
   const defaultConfig = { icon: Info, label: event.event_type, style: '' }
   const config = EVENT_CONFIG[event.event_type] ?? defaultConfig
@@ -181,10 +182,10 @@ export function ExecutionEventItem({ event, onApprove, onReject }: ExecutionEven
               </div>
             )}
             <div className="mt-2 flex gap-2">
-              <Button size="sm" onClick={() => onApprove?.(event.id)}>
+              <Button size="sm" onClick={() => onApprove?.(event.id)} disabled={disabled}>
                 Approve
               </Button>
-              <Button size="sm" variant="outline" onClick={() => onReject?.(event.id)}>
+              <Button size="sm" variant="outline" onClick={() => onReject?.(event.id)} disabled={disabled}>
                 Reject
               </Button>
             </div>

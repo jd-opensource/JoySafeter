@@ -1,6 +1,7 @@
 'use client'
 
 import { ArrowDown, ArrowUp, Calendar } from 'lucide-react'
+import Link from 'next/link'
 import { useMemo, useState } from 'react'
 
 import {
@@ -12,6 +13,8 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
+import { useTranslation } from '@/lib/i18n'
+import { PulsingDot } from '@/components/ui/pulsing-dot'
 import type { Mission, MissionStatus } from '@/types/missions'
 import { MISSION_PRIORITY_LABELS, MISSION_STATUS_LABELS, MISSION_STATUS_ORDER, MISSION_STATUS_STYLES } from '@/types/missions'
 
@@ -33,6 +36,7 @@ const STATUS_ORDER: Record<string, number> = Object.fromEntries(
 )
 
 export function MissionListView({ missions, agentsMap, onSelectMission }: MissionListViewProps) {
+  const { t } = useTranslation()
   const [sortField, setSortField] = useState<SortField>('updated_at')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
@@ -113,14 +117,26 @@ export function MissionListView({ missions, agentsMap, onSelectMission }: Missio
               >
                 <TableCell className="font-medium">{m.title}</TableCell>
                 <TableCell>
-                  <span
-                    className={cn(
-                      'inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium',
-                      MISSION_STATUS_STYLES[m.status] ?? 'bg-[var(--surface-3)] text-[var(--text-muted)]',
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={cn(
+                        'inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium',
+                        MISSION_STATUS_STYLES[m.status] ?? 'bg-[var(--surface-3)] text-[var(--text-muted)]',
+                      )}
+                    >
+                      {MISSION_STATUS_LABELS[m.status]}
+                    </span>
+                    {m.current_execution_id && (
+                      <Link
+                        href={`/runs?tab=executions&mission=${m.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 text-[10px] text-[var(--status-success)] hover:underline"
+                      >
+                        <PulsingDot size="sm" />
+                        {t('missions.running')}
+                      </Link>
                     )}
-                  >
-                    {MISSION_STATUS_LABELS[m.status]}
-                  </span>
+                  </div>
                 </TableCell>
                 <TableCell>
                   <PriorityBadge priority={m.priority} />

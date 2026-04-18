@@ -146,7 +146,11 @@ export function useDispatchMission() {
     mutationFn: async ({ missionId, workspaceId }: { missionId: string; workspaceId: string }) => {
       return missionService.dispatch(missionId, workspaceId)
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: (data, variables) => {
+      queryClient.setQueryData(
+        missionKeys.detail(variables.missionId, variables.workspaceId),
+        data,
+      )
       queryClient.invalidateQueries({ queryKey: missionKeys.all })
       queryClient.invalidateQueries({
         queryKey: executionKeys.list(variables.workspaceId, { mission_id: variables.missionId }),

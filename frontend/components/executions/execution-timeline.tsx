@@ -122,6 +122,8 @@ export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = 
     }
   }
 
+  const actionsDisabled = !missionId
+
   const handleRetry = () => {
     void refetchExec()
     void refetchEvents()
@@ -205,12 +207,12 @@ export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = 
             <Loader2 className="h-5 w-5 animate-spin text-[var(--text-muted)]" />
           </div>
         ) : (
-          events.map((event) => <ExecutionEventItem key={event.id} event={event} onApprove={(id) => handleApproveOrReject(id, true)} onReject={(id) => handleApproveOrReject(id, false)} />)
+          events.map((event) => <ExecutionEventItem key={event.id} event={event} onApprove={(id) => handleApproveOrReject(id, true)} onReject={(id) => handleApproveOrReject(id, false)} disabled={actionsDisabled} />)
         )}
       </div>
 
       {/* Message input */}
-      <MessageInput disabled={!isActive} onSend={handleSendMessage} />
+      <MessageInput disabled={!isActive || actionsDisabled} onSend={handleSendMessage} />
     </div>
   )
 }
