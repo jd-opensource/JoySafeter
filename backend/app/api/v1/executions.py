@@ -7,7 +7,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.dependencies import CurrentUser, require_workspace_role
+from app.common.dependencies import require_workspace_role
 from app.common.exceptions import NotFoundException
 from app.core.agent.cli_backends.base import build_control_response
 from app.core.agent.cli_backends.session_registry import session_registry
@@ -82,20 +82,24 @@ async def list_executions(
 @router.get("/{execution_id}", response_model=BaseResponse[ExecutionSummary])
 async def get_execution(
     execution_id: uuid.UUID,
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
+    workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[ExecutionSummary]:
     service = ExecutionService(db)
     execution = await service.get_execution(execution_id, str(current_user.id))
     if not execution:
         return BaseResponse(success=False, code=404, msg="Execution not found", data=None)
+    if execution.workspace_id != workspace_id:
+        return BaseResponse(success=False, code=403, msg="Execution does not belong to this workspace", data=None)
     return BaseResponse(success=True, code=200, msg="ok", data=_to_summary(execution))
 
 
 @router.get("/{execution_id}/children", response_model=BaseResponse[ExecutionListResponse])
 async def list_child_executions(
     execution_id: uuid.UUID,
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
+    workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[ExecutionListResponse]:
     """List child executions spawned by a coordinator."""
@@ -104,6 +108,8 @@ async def list_child_executions(
     parent = await service.get_execution(execution_id, str(current_user.id))
     if not parent:
         return BaseResponse(success=False, code=404, msg="Execution not found", data=None)
+    if parent.workspace_id != workspace_id:
+        return BaseResponse(success=False, code=403, msg="Execution does not belong to this workspace", data=None)
     children = await service.list_children(execution_id)
     return BaseResponse(
         success=True, code=200, msg="ok",
@@ -114,11 +120,17 @@ async def list_child_executions(
 @router.get("/{execution_id}/snapshot", response_model=BaseResponse[ExecutionSnapshotResponse])
 async def get_execution_snapshot(
     execution_id: uuid.UUID,
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
+    workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[ExecutionSnapshotResponse]:
     service = ExecutionService(db)
-    snapshot = await service.get_snapshot(execution_id, str(current_user.id))
+    execution = await service.get_execution(execution_id, str(current_user.id))
+    if not execution:
+        return BaseResponse(success=False, code=404, msg="Execution not found", data=None)
+    if execution.workspace_id != workspace_id:
+        return BaseResponse(success=False, code=403, msg="Execution does not belong to this workspace", data=None)
+    snapshot = await service.repo.get_snapshot(execution_id)
     if not snapshot:
         return BaseResponse(success=False, code=404, msg="Snapshot not found", data=None)
     return BaseResponse(
@@ -135,12 +147,18 @@ async def get_execution_snapshot(
 @router.get("/{execution_id}/events", response_model=BaseResponse[ExecutionEventsPageResponse])
 async def get_execution_events(
     execution_id: uuid.UUID,
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
+    workspace_id: uuid.UUID = Query(...),
     after_seq: int = Query(0, ge=0),
     limit: int = Query(500, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[ExecutionEventsPageResponse]:
     service = ExecutionService(db)
+    execution = await service.get_execution(execution_id, str(current_user.id))
+    if not execution:
+        return BaseResponse(success=False, code=404, msg="Execution not found", data=None)
+    if execution.workspace_id != workspace_id:
+        return BaseResponse(success=False, code=403, msg="Execution does not belong to this workspace", data=None)
     events = await service.list_events_after(
         execution_id, str(current_user.id), after_seq=after_seq, limit=limit,
     )
@@ -165,7 +183,8 @@ async def get_execution_events(
 @router.post("/{execution_id}/cancel", response_model=BaseResponse[ExecutionSummary])
 async def cancel_execution(
     execution_id: uuid.UUID,
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.member),
+    workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[ExecutionSummary]:
     from app.services.execution_lifecycle_service import ExecutionLifecycleService
@@ -173,6 +192,8 @@ async def cancel_execution(
     execution = await lifecycle.cancel_execution(execution_id, str(current_user.id))
     if not execution:
         return BaseResponse(success=False, code=404, msg="Execution not found", data=None)
+    if execution.workspace_id != workspace_id:
+        return BaseResponse(success=False, code=403, msg="Execution does not belong to this workspace", data=None)
     if execution.status in TERMINAL_EXECUTION_STATUSES and execution.error_code != "cancelled":
         return BaseResponse(
             success=False, code=409,
@@ -186,7 +207,8 @@ async def cancel_execution(
 async def inject_message(
     execution_id: uuid.UUID,
     request: InjectMessageRequest,
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.member),
+    workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse:
     """Inject a user message into a running execution."""
@@ -198,6 +220,8 @@ async def inject_message(
     execution = await svc.get_execution(execution_id, str(current_user.id))
     if not execution:
         raise NotFoundException("Execution not found")
+    if execution.workspace_id != workspace_id:
+        return BaseResponse(success=False, code=403, msg="Execution does not belong to this workspace", data=None)
 
     await session.inject_message(request.message)
 
@@ -214,7 +238,8 @@ async def inject_message(
 async def approve_action(
     execution_id: uuid.UUID,
     request: ApproveActionRequest,
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.member),
+    workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse:
     """Approve or reject a pending approval request."""
@@ -226,6 +251,8 @@ async def approve_action(
     execution = await svc.get_execution(execution_id, str(current_user.id))
     if not execution:
         raise NotFoundException("Execution not found")
+    if execution.workspace_id != workspace_id:
+        return BaseResponse(success=False, code=403, msg="Execution does not belong to this workspace", data=None)
 
     # Get request_id from the pending approval snapshot
     snapshot = await svc.repo.get_snapshot(execution_id)
