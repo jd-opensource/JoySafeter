@@ -84,3 +84,24 @@ def test_msg_to_payload_unknown():
     msg = CLIMessage(type="custom", content="stuff")
     payload = ExecutionRunner._msg_to_payload(msg)
     assert payload == {"content": "stuff"}
+
+
+def test_runner_accepts_none_callbacks():
+    """Standalone executions pass callbacks=None."""
+    from unittest.mock import MagicMock
+    db = MagicMock()
+    runner = ExecutionRunner(db, callbacks=None)
+    assert runner.callbacks is None
+
+
+def test_runner_accepts_callbacks():
+    """Mission executions pass a callbacks implementation."""
+    from unittest.mock import MagicMock
+    db = MagicMock()
+
+    class StubCallbacks:
+        async def on_execution_finalized(self, execution_id, status, result): ...
+        async def on_execution_failed(self, execution_id, error): ...
+
+    runner = ExecutionRunner(db, callbacks=StubCallbacks())
+    assert runner.callbacks is not None

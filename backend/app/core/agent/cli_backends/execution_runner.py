@@ -30,6 +30,7 @@ from app.core.agent.cli_backends.injectors import (
     RuntimeConfigInjector,
 )
 from app.core.agent.cli_backends.registry import runtime_registry
+from app.core.agent.cli_backends.runner_callbacks import RunnerCallbacks
 from app.core.agent.cli_backends.session_registry import session_registry
 from app.models.agent_profile import AgentProfile, AgentStatus
 from app.models.execution import Execution, MissionExecutionStatus
@@ -44,11 +45,13 @@ class ExecutionRunner:
         self,
         db: AsyncSession,
         container_service: Optional[CLIContainerService] = None,
+        callbacks: Optional[RunnerCallbacks] = None,
     ):
         self.db = db
         self.execution_service = ExecutionService(db)
         self.agent_repo = AgentProfileRepository(db)
         self.container_service = container_service or CLIContainerService()
+        self.callbacks = callbacks
         self._auto_approve: bool = True
         self._session: Optional[RuntimeSession] = None
 
@@ -373,11 +376,11 @@ class ExecutionRunner:
         if agent_profile:
             await self._update_agent_status(agent_profile, AgentStatus.IDLE)
 
-        # Auto-post agent comment on mission completion
-        await self._post_completion_comment(execution_id, status, result)
-
-        # Update mission status (DONE/TODO) and clear current_execution_id
-        await self._update_mission_status(execution_id, status)
+        if self.callbacks:
+            try:
+                await self.callbacks.on_execution_finalized(execution_id, status, result)
+            except Exception as exc:
+                logger.warning(f"Callback on_execution_finalized failed for {execution_id}: {exc}")
 
     async def _mark_failed(
         self,
@@ -402,49 +405,11 @@ class ExecutionRunner:
         if agent_profile:
             await self._update_agent_status(agent_profile, AgentStatus.ERROR)
 
-        # Auto-post agent comment on mission failure
-        await self._post_completion_comment(
-            execution_id, MissionExecutionStatus.FAILED, error_message=error
-        )
-
-        # Update mission status and clear current_execution_id
-        await self._update_mission_status(execution_id, MissionExecutionStatus.FAILED)
-
-    async def _update_mission_status(
-        self,
-        execution_id: uuid.UUID,
-        status: MissionExecutionStatus,
-    ) -> None:
-        try:
-            from app.services.mission_service import MissionService
-            svc = MissionService(self.db)
-            await svc.finalize_mission_execution(
-                execution_id=execution_id, status=status,
-            )
-        except Exception as exc:
-            logger.warning(f"Failed to update mission for execution {execution_id}: {exc}")
-
-    async def _post_completion_comment(
-        self,
-        execution_id: uuid.UUID,
-        status: MissionExecutionStatus,
-        result: Optional[CLIResult] = None,
-        error_message: str = "",
-    ) -> None:
-        try:
-            execution = await self._get_execution(execution_id)
-            if not execution.mission_id:
-                return
-            from app.services.mission_comment_service import MissionCommentService
-            svc = MissionCommentService(self.db)
-            await svc.post_execution_comment(
-                execution=execution,
-                result_status=status,
-                result_output=result.output[:2000] if result and result.output else "",
-                error_message=error_message[:2000] if error_message else "",
-            )
-        except Exception as exc:
-            logger.warning(f"Failed to post completion comment for {execution_id}: {exc}")
+        if self.callbacks:
+            try:
+                await self.callbacks.on_execution_failed(execution_id, error)
+            except Exception as exc:
+                logger.warning(f"Callback on_execution_failed failed for {execution_id}: {exc}")
 
     async def _update_agent_status(
         self, agent_profile: AgentProfile, status: AgentStatus
