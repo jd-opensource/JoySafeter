@@ -1,9 +1,8 @@
 'use client'
 
 import { apiGet, apiPost, apiPatch } from '@/lib/api-client'
-import type { ExecutionSnapshot } from '@/types/executions'
+import type { ExecutionSnapshot, ExecutionEventsPage } from '@/types/executions'
 import type { Mission, CreateMissionRequest, UpdateMissionRequest } from '@/types/missions'
-import type { ExecutionEventsPage } from '@/services/executionService'
 
 export interface MissionListResponse {
   items: Mission[]

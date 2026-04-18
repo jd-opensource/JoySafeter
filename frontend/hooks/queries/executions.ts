@@ -8,9 +8,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { executionService } from '@/services/executionService'
-import type { Execution, ExecutionSnapshot, ExecutionStatus } from '@/types/executions'
+import type { Execution, ExecutionEventsPage } from '@/types/executions'
 import { TERMINAL_EXECUTION_STATUSES } from '@/types/executions'
-import type { ExecutionEventsPage } from '@/services/executionService'
 
 import { STALE_TIME } from './constants'
 import { missionKeys } from './missions'
@@ -32,8 +31,6 @@ export const executionKeys = {
     [...executionKeys.all, 'detail', executionId, workspaceId] as const,
   events: (executionId: string, workspaceId: string) =>
     [...executionKeys.all, 'events', executionId, workspaceId] as const,
-  snapshot: (executionId: string, workspaceId: string) =>
-    [...executionKeys.all, 'snapshot', executionId, workspaceId] as const,
 }
 
 // ==================== Query Hooks ====================
@@ -86,24 +83,6 @@ export function useExecutionEvents(
     enabled: Boolean(executionId) && Boolean(workspaceId) && options?.enabled !== false,
     staleTime: STALE_TIME.SHORT,
     refetchInterval: 5_000,
-  })
-}
-
-export function useExecutionSnapshot(
-  executionId: string,
-  workspaceId: string,
-  options?: { enabled?: boolean },
-) {
-  return useQuery<ExecutionSnapshot>({
-    queryKey: executionKeys.snapshot(executionId, workspaceId),
-    queryFn: () => executionService.getSnapshot(executionId, workspaceId),
-    enabled: Boolean(executionId) && Boolean(workspaceId) && options?.enabled !== false,
-    staleTime: STALE_TIME.SHORT,
-    refetchInterval: (query) => {
-      const status = query.state.data?.status
-      if (status && TERMINAL_EXECUTION_STATUSES.includes(status as ExecutionStatus)) return false
-      return 5_000
-    },
   })
 }
 

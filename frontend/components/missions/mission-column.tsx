@@ -67,7 +67,7 @@ export function MissionColumn({ status, missions, agentsMap, onSelectMission }: 
   return (
     <div
       className={cn(
-        'flex h-full w-72 flex-shrink-0 flex-col rounded-lg border border-[var(--border)] transition-all',
+        'flex h-full w-[230px] flex-shrink-0 flex-col rounded-lg border border-[var(--border)] transition-all',
         STATUS_COLUMN_STYLES[status] ?? 'bg-[var(--surface-1)]',
         isOver && 'ring-2 ring-[var(--brand-400)]/30',
       )}

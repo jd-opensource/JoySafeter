@@ -59,3 +59,9 @@ export interface ExecutionSnapshot {
     error?: string | null
   }
 }
+
+export interface ExecutionEventsPage {
+  execution_id: string
+  events: ExecutionEvent[]
+  next_after_seq: number
+}

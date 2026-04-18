@@ -9,7 +9,6 @@ import { useExecutionStream } from '@/hooks/use-execution-stream'
 import { cn } from '@/lib/utils'
 import { ACTIVE_EXECUTION_STATUSES } from '@/types/executions'
 
-import { executionService } from '@/services/executionService'
 import { missionService } from '@/services/missionService'
 
 import { ExecutionEventItem } from './execution-event'
@@ -106,24 +105,18 @@ export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = 
   }, [execution?.result_summary])
 
   const handleSendMessage = async (message: string) => {
+    if (!missionId) return
     try {
-      if (missionId) {
-        await missionService.injectExecutionMessage(missionId, workspaceId, message)
-      } else {
-        await executionService.injectMessage(executionId, message)
-      }
+      await missionService.injectExecutionMessage(missionId, workspaceId, message)
     } catch (err) {
       console.error('Failed to inject message', err)
     }
   }
 
   const handleApproveOrReject = async (_eventId: string, approved: boolean) => {
+    if (!missionId) return
     try {
-      if (missionId) {
-        await missionService.approveExecutionAction(missionId, workspaceId, approved)
-      } else {
-        await executionService.approveAction(executionId, approved)
-      }
+      await missionService.approveExecutionAction(missionId, workspaceId, approved)
     } catch (err) {
       console.error(`Failed to ${approved ? 'approve' : 'reject'} action`, err)
     }
