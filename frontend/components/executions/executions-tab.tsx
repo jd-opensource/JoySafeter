@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useExecutions, useCancelExecution } from '@/hooks/queries/executions'
 import { useMissions } from '@/hooks/queries/missions'
-import { useAgentProfiles } from '@/hooks/queries/agentProfiles'
+import { useAgentNameMap } from '@/hooks/queries/agentProfiles'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -46,15 +46,11 @@ export function ExecutionsTab() {
   )
 
   const { data: missions = [] } = useMissions(workspaceId, undefined, { enabled: Boolean(workspaceId) })
-  const { data: agents = [] } = useAgentProfiles(workspaceId, { enabled: Boolean(workspaceId) })
+  const agentNameMap = useAgentNameMap(workspaceId)
 
   const missionTitleMap = useMemo(
     () => Object.fromEntries(missions.map((m) => [m.id, m.title])),
     [missions],
-  )
-  const agentNameMap = useMemo(
-    () => Object.fromEntries(agents.map((a) => [a.id, a.name])),
-    [agents],
   )
 
   const cancelMutation = useCancelExecution()

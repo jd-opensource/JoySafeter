@@ -42,7 +42,7 @@ import {
 } from '@/hooks/queries/missions'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
-import { toastSuccess, toastError } from '@/lib/utils/toast'
+import { toastSuccess, toastError, getErrorMessage } from '@/lib/utils/toast'
 import { ACTIVE_EXECUTION_STATUSES } from '@/types/executions'
 import type { MissionPriority, MissionStatus, UpdateMissionRequest } from '@/types/missions'
 import {
@@ -121,15 +121,16 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
 
   const pastExecutionCount = executions.length - (currentExecution ? 1 : 0)
 
-  // Update helpers
+  const onMutationError = useCallback((err: unknown) => toastError(getErrorMessage(err, t('common.operationFailed'))), [t])
+
   const doUpdate = useCallback(
     (updates: Partial<UpdateMissionRequest>) => {
       updateMission.mutate(
         { missionId, workspaceId, ...updates },
-        { onError: () => toastError(t('common.operationFailed')) },
+        { onError: onMutationError },
       )
     },
-    [missionId, workspaceId, updateMission, t],
+    [missionId, workspaceId, updateMission, onMutationError],
   )
 
   const handleTitleSave = () => {
@@ -166,13 +167,13 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
 
   const handleRemoveTag = (tag: string) => {
     if (!mission) return
-    doUpdate({ tags: (mission.tags ?? []).filter((t) => t !== tag) })
+    doUpdate({ tags: (mission.tags ?? []).filter((v) => v !== tag) })
   }
 
   const handleAssign = (agentId: string) => {
     assignMission.mutate(
       { missionId, workspaceId, agentProfileId: agentId },
-      { onError: () => toastError(t('common.operationFailed')) },
+      { onError: onMutationError },
     )
     setAgentPickerOpen(false)
   }
@@ -473,7 +474,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                 onClick={() => {
                   dispatchMission.mutate({ missionId, workspaceId }, {
                     onSuccess: () => toastSuccess(t('runs.dispatchedToast')),
-                    onError: () => toastError(t('common.operationFailed')),
+                    onError: onMutationError,
                   })
                 }}
                 disabled={dispatchMission.isPending}
@@ -502,7 +503,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                           className="h-6 px-2 text-xs"
                           onClick={() => cancelExecution.mutate(
                             { executionId: mission.current_execution_id!, workspaceId },
-                            { onError: () => toastError(t('common.operationFailed')) },
+                            { onError: onMutationError },
                           )}
                           disabled={cancelExecution.isPending}
                         >
@@ -607,7 +608,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
         onConfirm={() => {
           cancelMission.mutate(
             { missionId, workspaceId },
-            { onError: () => toastError(t('common.operationFailed')) },
+            { onError: onMutationError },
           )
           setShowCancelConfirm(false)
         }}

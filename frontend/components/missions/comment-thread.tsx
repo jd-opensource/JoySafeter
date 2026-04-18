@@ -9,7 +9,7 @@ import {
   useMissionComments,
   useCreateMissionComment,
 } from '@/hooks/queries/missionComments'
-import { useAgentProfiles } from '@/hooks/queries/agentProfiles'
+import { useAgentProfiles, useAgentNameMap } from '@/hooks/queries/agentProfiles'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/utils/runHelpers'
 import type { MissionComment } from '@/types/mission-comments'
@@ -55,6 +55,7 @@ export function CommentThread({ missionId, workspaceId }: CommentThreadProps) {
   const [mentionStart, setMentionStart] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const { data: agents = [] } = useAgentProfiles(workspaceId, { enabled: Boolean(workspaceId) })
+  const agentNameMap = useAgentNameMap(workspaceId)
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const isAtBottomRef = useRef(true)
@@ -63,12 +64,6 @@ export function CommentThread({ missionId, workspaceId }: CommentThreadProps) {
     if (!data?.pages) return []
     return data.pages.flatMap((page) => page.items)
   }, [data])
-
-  const agentNameMap = useMemo(() => {
-    const map: Record<string, string> = {}
-    for (const a of agents) map[a.id] = a.name
-    return map
-  }, [agents])
 
   // Group into threads: root comments + their replies
   const threads = useMemo(() => {

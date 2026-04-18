@@ -6,6 +6,7 @@
  * - API response: { success: true, data: {...} }
  */
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMemo } from 'react'
 
 import { agentProfileService } from '@/services/agentProfileService'
 import type { AgentProfile, CreateAgentRequest, UpdateAgentRequest } from '@/types/agents'
@@ -48,6 +49,14 @@ export function useAgentProfile(
     enabled: Boolean(agentId) && Boolean(workspaceId) && options?.enabled !== false,
     staleTime: STALE_TIME.STANDARD,
   })
+}
+
+export function useAgentNameMap(workspaceId: string) {
+  const { data: agents = [] } = useAgentProfiles(workspaceId)
+  return useMemo(
+    () => Object.fromEntries(agents.map((a) => [a.id, a.name])) as Record<string, string>,
+    [agents],
+  )
 }
 
 // ==================== Mutation Hooks ====================

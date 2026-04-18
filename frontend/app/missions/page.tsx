@@ -2,14 +2,14 @@
 
 import { Kanban, List, Loader2, Plus, Target } from 'lucide-react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useState } from 'react'
 
 import { MissionBoard } from '@/components/missions/mission-board'
 import { MissionCreateDialog } from '@/components/missions/mission-create-dialog'
 import { MissionDetailPanel } from '@/components/missions/mission-detail-panel'
 import { MissionListView } from '@/components/missions/mission-list-view'
 import { Button } from '@/components/ui/button'
-import { useAgentProfiles } from '@/hooks/queries/agentProfiles'
+import { useAgentNameMap } from '@/hooks/queries/agentProfiles'
 import { useMissions } from '@/hooks/queries/missions'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { cn } from '@/lib/utils'
@@ -39,12 +39,7 @@ export default function MissionsPage() {
   const workspaceId = workspaces[0]?.id ?? ''
 
   const { data: missions = [], isLoading: isMissionsLoading } = useMissions(workspaceId)
-  const { data: agents = [] } = useAgentProfiles(workspaceId, { enabled: Boolean(workspaceId) })
-
-  const agentsMap = useMemo(
-    () => Object.fromEntries(agents.map((a) => [a.id, a.name])),
-    [agents],
-  )
+  const agentsMap = useAgentNameMap(workspaceId)
 
   const isLoading = isWorkspacesLoading || isMissionsLoading
 

@@ -66,6 +66,15 @@ export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = 
 
   const currentStatus = wsStatus ?? execution?.status ?? 'queued'
 
+  const pendingApprovalEventId = useMemo(() => {
+    if (currentStatus !== 'approval_wait') return null
+    for (let i = events.length - 1; i >= 0; i--) {
+      const et = events[i].event_type
+      if (et === 'approval_request' || et === 'approval_requested') return events[i].id
+    }
+    return null
+  }, [currentStatus, events])
+
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom on new events
@@ -207,7 +216,7 @@ export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = 
             <Loader2 className="h-5 w-5 animate-spin text-[var(--text-muted)]" />
           </div>
         ) : (
-          events.map((event) => <ExecutionEventItem key={event.id} event={event} onApprove={(id) => handleApproveOrReject(id, true)} onReject={(id) => handleApproveOrReject(id, false)} disabled={actionsDisabled} isPendingApproval={currentStatus === 'approval_wait'} />)
+          events.map((event) => <ExecutionEventItem key={event.id} event={event} onApprove={(id) => handleApproveOrReject(id, true)} onReject={(id) => handleApproveOrReject(id, false)} disabled={actionsDisabled} isPendingApproval={event.id === pendingApprovalEventId} />)
         )}
       </div>
 
