@@ -55,21 +55,6 @@ class AgentRunRepository(BaseRepository[AgentRun]):
         result = await self.db.execute(query.with_for_update())
         return result.scalar_one_or_none()
 
-    async def find_latest_active_skill_creator_run(
-        self,
-        *,
-        user_id: str,
-        graph_id: uuid.UUID,
-        thread_id: Optional[str] = None,
-    ) -> Optional[AgentRun]:
-        # Wrapper kept for backward compatibility with external callers.
-        return await self.find_latest_active_run(
-            user_id=user_id,
-            agent_name="skill_creator",
-            graph_id=graph_id,
-            thread_id=thread_id,
-        )
-
     async def find_latest_active_run(
         self,
         *,

@@ -111,17 +111,7 @@ const result = await apiUpload<UploadResult>('upload', file)
 
 ## 迁移指南
 
-### 从旧代码迁移
-
-旧代码：
-```ts
-// ❌ 直接使用 fetch
-const response = await fetch('/api/v1/users')
-
-// ❌ 使用废弃的 apiClient
-import { api } from './services/apiClient'
-const data = await api.get('/v1/users')
-```
+> **迁移已完成。** 旧 `./services/apiClient` 模块已删除，所有调用方已迁移到 `@/lib/api-client`。
 
 新代码：
 ```ts

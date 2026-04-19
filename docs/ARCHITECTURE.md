@@ -276,25 +276,24 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Frontend as Frontend
-    participant API as REST API
+    participant API as API (WebSocket)
     participant Service as GraphService
     participant Runtime as LangGraph Runtime
-    participant SSE as SSE Stream
 
-    Frontend->>API: POST /api/chat (SSE)
+    Frontend->>API: WS /ws/chat (WebSocket)
     API->>Service: Load and compile graph
     Service-->>Runtime: CompiledStateGraph
     Service->>Runtime: ainvoke({"messages": [...]})
 
     loop Each Node
         Runtime->>Runtime: Execute node
-        Runtime->>SSE: Push event (node_start/node_end)
-        SSE-->>Frontend: Stream update
+        Runtime->>API: Push event (node_start/node_end)
+        API-->>Frontend: Stream update via WebSocket
     end
 
     Runtime-->>Service: Final result
-    Service-->>SSE: End event
-    SSE-->>Frontend: Stream complete
+    Service-->>API: End event
+    API-->>Frontend: Stream complete
 ```
 
 ### Data Flow

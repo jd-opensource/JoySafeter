@@ -18,7 +18,7 @@ import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
-import { useExecutionStore } from '../../stores/executionStore'
+import { useExecutionStore } from '../../stores/execution/executionStore'
 import { InterruptPanel } from '../InterruptPanel'
 
 import { ExecutionDataProvider, useExecutionData } from './contexts/ExecutionDataContext'

@@ -64,7 +64,7 @@ class AgentBridge:
         self.engine = engine
 
         # Create per-session directories using configured workspace root
-        workspace_root = Path(settings.WORKSPACE_ROOT)
+        workspace_root = Path(settings.workspace_root)
         self.session_dir = workspace_root / "sessions" / session_id
         self.session_dir.mkdir(parents=True, exist_ok=True)
 

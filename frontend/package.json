@@ -19,7 +19,6 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,md}\""
   },
   "dependencies": {
-    "@azure/communication-email": "^1.1.0",
     "@codemirror/lang-python": "^6.1.6",
     "@codemirror/lint": "^6.8.4",
     "@codemirror/view": "^6.36.5",
@@ -86,7 +85,6 @@
     "reactflow": "^11.11.4",
     "recharts": "^3.8.1",
     "remark-gfm": "^4.0.1",
-    "resend": "^6.6.0",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "zod": "^3.24.2",

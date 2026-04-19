@@ -60,6 +60,5 @@ export function useSkillManager() {
     handleSelectSkill,
     handleDelete,
     filteredSkills,
-    form: null, // Placeholder for form integration
   }
 }

@@ -227,12 +227,14 @@ backend/app/
 - `POST /api/v1/models/instances` - 创建模型实例配置
 - `GET /api/v1/models/instances` - 获取模型实例配置列表
 - `POST /api/v1/models/test-output` - 测试模型输出
+- `POST /api/v1/models/test-output-stream` - 测试模型输出（SSE 流式）
 
 ### 模型供应商 API
 
 - `GET /api/v1/model-providers` - 获取所有供应商列表
 - `GET /api/v1/model-providers/{provider_name}` - 获取单个供应商详情
 - `POST /api/v1/model-providers/sync` - 同步供应商、模型和认证信息
+- `POST /api/v1/model-providers/custom` - 添加自定义供应商
 
 ### 模型凭据 API
 
@@ -279,7 +281,7 @@ backend/app/
 ## 注意事项
 
 1. **全局可见性**: 当前实现中，模型实例和凭据对所有用户和工作空间可见（user_id 和 workspace_id 为 NULL 的记录）
-2. **认证**: 当前代码中用户认证部分被注释，使用匿名用户ID，后续需要恢复认证机制
+2. **认证**: 所有 API 端点使用 `get_current_user` 依赖进行用户认证
 3. **同步机制**: 供应商和模型信息通过工厂模式从代码同步到数据库
 4. **凭据管理**: 凭据加密存储，解密操作只在 Service 层进行
 
@@ -290,7 +292,6 @@ backend/app/
 - [Repository 层文档](./repositories/MODEL.md)
 - [Model 层文档](./models/MODEL.md)
 - [Core 层文档](./core/model/MODEL.md)
-- [Core 层详细文档](./core/model/README_CN.md)
 
 ## 未来改进
 

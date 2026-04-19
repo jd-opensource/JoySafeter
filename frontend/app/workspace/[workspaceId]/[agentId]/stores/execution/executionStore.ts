@@ -22,9 +22,9 @@ import type { GraphState, TraceStep } from '../../services/eventProcessor'
 import {
   processEvent,
   createEventProcessorContext,
-  generateId as genId,
   type EventProcessorStore,
 } from '../../services/eventProcessor'
+import { generateId as genId } from './utils'
 
 import {
   createEmptyGraphState,

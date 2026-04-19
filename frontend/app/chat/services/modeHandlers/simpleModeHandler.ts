@@ -46,6 +46,3 @@ export function createSimpleModeHandler(metadata: ModeMetadata): ModeHandler {
     },
   }
 }
-
-// Note: These handlers are now created from config via handlerFactory
-// Keeping these exports for backward compatibility, but recommend using createHandlerFromConfig

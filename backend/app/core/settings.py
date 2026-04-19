@@ -368,11 +368,6 @@ class Settings(BaseSettings):
         description="Workspace root directory for storing session files and workspace data",
     )
 
-    @property
-    def WORKSPACE_ROOT(self) -> str:
-        """Alias for workspace_root for backward compatibility"""
-        return self.workspace_root
-
     # OAuth Configuration
     oauth_config_path: Optional[str] = Field(
         default=None,

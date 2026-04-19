@@ -1,21 +1,9 @@
-import { EmailClient } from '@azure/communication-email'
-import { Resend } from 'resend'
-
 import { env } from '@/lib/core/config/env'
 
-const resendApiKey = env.RESEND_API_KEY
-const azureConnectionString = env.AZURE_ACS_CONNECTION_STRING
-
-const resend =
-  resendApiKey && resendApiKey !== 'placeholder' && resendApiKey.trim() !== ''
-    ? new Resend(resendApiKey)
-    : null
-
-const azureEmailClient =
-  azureConnectionString && azureConnectionString.trim() !== ''
-    ? new EmailClient(azureConnectionString)
-    : null
-
 export function hasEmailService(): boolean {
-  return !!(resend || azureEmailClient)
+  const resendKey = env.RESEND_API_KEY
+  const azureConn = env.AZURE_ACS_CONNECTION_STRING
+  const hasResend = !!(resendKey && resendKey !== 'placeholder' && resendKey.trim())
+  const hasAzure = !!(azureConn && azureConn.trim())
+  return hasResend || hasAzure
 }

@@ -45,7 +45,7 @@ class WorkspaceFileService(BaseService):
     # ------------------------------------------------------------------ #
     def _storage_root(self) -> Path:
         """Unified file storage root directory."""
-        return Path(settings.WORKSPACE_ROOT) / "workspace_files"
+        return Path(settings.workspace_root) / "workspace_files"
 
     def _sanitize_filename(self, filename: str) -> str:
         """Sanitize filename to prevent path traversal.

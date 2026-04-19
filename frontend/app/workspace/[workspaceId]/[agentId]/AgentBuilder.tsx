@@ -32,7 +32,7 @@ import { useCodeEditorStore } from './stores/codeEditorStore'
 import { ErrorBoundary } from './error-boundary'
 import { agentService, AgentGraph } from './services/agentService'
 import { useBuilderStore } from './stores/builderStore'
-import { useExecutionStore } from './stores/executionStore'
+import { useExecutionStore } from './stores/execution/executionStore'
 import type { StateField } from './types/graph'
 
 /** Typed shape of graph variables stored alongside canvas state. */
@@ -143,18 +143,14 @@ const AgentBuilderContent = () => {
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      const { hasPendingChanges, autoSaveDebounceTimer, nodes, edges, rfInstance, graphId } =
+      const { hasPendingChanges, nodes, edges, rfInstance, graphId } =
         useBuilderStore.getState()
 
       if (!graphId || graphId !== agentId || !isValidUUID(graphId)) {
         return
       }
 
-      if (hasPendingChanges || autoSaveDebounceTimer) {
-        if (autoSaveDebounceTimer) {
-          clearTimeout(autoSaveDebounceTimer)
-        }
-
+      if (hasPendingChanges) {
         try {
           const viewport = rfInstance?.getViewport() || { x: 0, y: 0, zoom: 1 }
           const payload = JSON.stringify({

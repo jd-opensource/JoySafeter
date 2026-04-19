@@ -27,7 +27,8 @@ import { useTranslation } from '@/lib/i18n'
 
 import { resumeWithCommand } from '../services/commandService'
 import { useBuilderStore } from '../stores/builderStore'
-import { useExecutionStore, type InterruptInfo } from '../stores/executionStore'
+import { useExecutionStore } from '../stores/execution/executionStore'
+import type { InterruptInfo } from '../stores/execution/types'
 import { getNodeNameFromFlowNode } from '../utils/nodeNameUtils'
 
 interface InterruptPanelProps {

@@ -263,26 +263,6 @@ class RunService:
             return []
         return list(await self.repo.list_events_after(run_id, after_seq=after_seq, limit=limit))
 
-    async def find_latest_active_skill_creator_run(
-        self, *, user_id: str, graph_id: uuid.UUID, thread_id: Optional[str] = None
-    ) -> Optional[AgentRun]:
-        """Find the most recent active skill_creator run for a user and graph.
-
-        Args:
-            user_id: Owner user ID.
-            graph_id: Graph the run belongs to.
-            thread_id: Optional thread ID to narrow the search.
-
-        Returns:
-            The latest active skill_creator run, or None.
-        """
-        return await self.find_latest_active_run(
-            user_id=user_id,
-            agent_name="skill_creator",
-            graph_id=graph_id,
-            thread_id=thread_id,
-        )
-
     async def find_latest_active_run(
         self,
         *,

@@ -67,7 +67,7 @@ export interface ExecutionStoreState {
   contexts: Map<string, ExecutionContext>
   currentGraphId: string | null
 
-  // Computed properties for current graph (backward compatible)
+  // Computed properties for current graph
   steps: ExecutionStep[]
   isExecuting: boolean
   showPanel: boolean

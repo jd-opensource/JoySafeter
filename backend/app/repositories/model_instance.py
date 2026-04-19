@@ -32,7 +32,6 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
         self,
         model_name: str,
         provider_id: uuid.UUID,
-        provider_name: str = "",  # kept for call-site compatibility; unused
         user_id: Optional[str] = None,
     ) -> ModelInstance | None:
         """Get an instance by provider and model name. Prefer global instances; fall back to any valid one."""
@@ -63,7 +62,6 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
     async def list_by_provider(
         self,
         provider_id: uuid.UUID,
-        provider_name: Optional[str] = None,  # kept for call-site compatibility; unused
     ) -> list[ModelInstance]:
         """Filter model instances by provider."""
         query = (

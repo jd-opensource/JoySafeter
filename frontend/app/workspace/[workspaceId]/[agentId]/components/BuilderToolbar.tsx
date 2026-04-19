@@ -32,7 +32,7 @@ import { cn } from '@/lib/utils'
 import { useDeploymentStore } from '@/stores/deploymentStore'
 
 import { useBuilderStore } from '../stores/builderStore'
-import { useExecutionStore } from '../stores/executionStore'
+import { useExecutionStore } from '../stores/execution/executionStore'
 
 import { ApiAccessDialog } from './ApiAccessDialog'
 import { DeploymentHistoryPanel } from './DeploymentHistoryPanel'

@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils'
 
 import { nodeRegistry, type FieldSchema } from '../services/nodeRegistry'
 import { useBuilderStore } from '../stores/builderStore'
-import { useExecutionStore } from '../stores/executionStore'
+import { useExecutionStore } from '../stores/execution/executionStore'
 
 
 interface BuilderNodeProps {

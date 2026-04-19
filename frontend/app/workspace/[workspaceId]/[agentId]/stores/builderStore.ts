@@ -13,8 +13,6 @@
  * Save Management:
  * - All save operations are managed by SaveManager (see utils/saveManager.ts)
  * - SaveManager handles: manual saves, auto-saves, and debounced saves
- * - Timer fields (autoSaveTimer, autoSaveDebounceTimer) are kept for backward compatibility
- *   but are actually managed by SaveManager internally
  */
 
 import {
@@ -130,8 +128,6 @@ interface BuilderState {
   workspaceId: string | null
   graphId: string | null
   graphName: string | null
-  autoSaveTimer: NodeJS.Timeout | null // Managed by SaveManager, kept for backward compatibility
-  autoSaveDebounceTimer: NodeJS.Timeout | null // Managed by SaveManager, kept for backward compatibility
   lastSavedStateHash: string | null
   hasPendingChanges: boolean
   saveRetryCount: number
@@ -248,8 +244,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     graphName: null,
     lastAutoSaveTime: null,
     deployedAt: null,
-    autoSaveTimer: null,
-    autoSaveDebounceTimer: null,
     lastSavedStateHash: null,
     hasPendingChanges: false,
     saveRetryCount: 0,
@@ -745,11 +739,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
 
     stopAutoSave: () => {
       saveManager.stopAll()
-      // Clear timer references in state for backward compatibility
-      set({
-        autoSaveTimer: null,
-        autoSaveDebounceTimer: null,
-      })
     },
 
     setDeployedAt: (deployedAt: string | null) => {
