@@ -140,9 +140,6 @@ def extract_usage_from_output(output: Any) -> Optional[dict[str, int]]:
             # 4. amazon-bedrock-invocationMetrics (Bedrock-Titan)
             if raw_usage is None:
                 raw_usage = rm.get("amazon-bedrock-invocationMetrics")
-            # 5. usage_metadata (legacy fallback)
-            if raw_usage is None:
-                raw_usage = rm.get("usage_metadata")
 
     if raw_usage is None:
         return None
