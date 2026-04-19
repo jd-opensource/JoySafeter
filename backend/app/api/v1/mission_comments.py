@@ -43,7 +43,9 @@ async def list_comments(
     )
 
     return BaseResponse(
-        success=True, code=200, msg="ok",
+        success=True,
+        code=200,
+        msg="ok",
         data=MissionCommentListResponse(
             items=[MissionCommentResponse.model_validate(c) for c in comments],
             has_more=has_more,
@@ -74,28 +76,38 @@ async def create_comment(
     # Trigger executions via lifecycle service
     if should_dispatch or mentioned_agent_ids:
         from app.services.execution_lifecycle_service import ExecutionLifecycleService
+
         lifecycle = ExecutionLifecycleService(db)
         if should_dispatch:
             await lifecycle.dispatch_for_comment(
-                mission=mission, trigger_comment=comment, user_id=str(current_user.id),
+                mission=mission,
+                trigger_comment=comment,
+                user_id=str(current_user.id),
             )
         if mentioned_agent_ids:
             await lifecycle.dispatch_for_mention(
-                mission=mission, trigger_comment=comment, user_id=str(current_user.id),
+                mission=mission,
+                trigger_comment=comment,
+                user_id=str(current_user.id),
             )
 
     # Push notification to mission creator (if not the commenter)
     if mission.creator_id != str(current_user.id):
-        await notification_manager.send_to_user(mission.creator_id, {
-            "type": NotificationType.MISSION_COMMENT_ADDED.value,
-            "mission_id": str(mission_id),
-            "comment_id": str(comment.id),
-            "author_type": comment.author_type.value,
-            "author_id": comment.author_id,
-        })
+        await notification_manager.send_to_user(
+            mission.creator_id,
+            {
+                "type": NotificationType.MISSION_COMMENT_ADDED.value,
+                "mission_id": str(mission_id),
+                "comment_id": str(comment.id),
+                "author_type": comment.author_type.value,
+                "author_id": comment.author_id,
+            },
+        )
 
     return BaseResponse(
-        success=True, code=200, msg="Comment created",
+        success=True,
+        code=200,
+        msg="Comment created",
         data=MissionCommentResponse.model_validate(comment),
     )
 
@@ -122,7 +134,9 @@ async def update_comment(
         return BaseResponse(success=False, code=404, msg="Comment not found", data=None)
 
     return BaseResponse(
-        success=True, code=200, msg="Comment updated",
+        success=True,
+        code=200,
+        msg="Comment updated",
         data=MissionCommentResponse.model_validate(comment),
     )
 

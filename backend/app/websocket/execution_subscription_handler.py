@@ -45,9 +45,7 @@ class ExecutionSubscriptionHandler:
             return
 
         if frame_type != "subscribe":
-            await websocket.send_text(
-                json.dumps({"type": "ws_error", "message": f"unknown frame type: {frame_type}"})
-            )
+            await websocket.send_text(json.dumps({"type": "ws_error", "message": f"unknown frame type: {frame_type}"}))
             return
 
         execution_id_raw = frame.get("execution_id")
@@ -81,40 +79,44 @@ class ExecutionSubscriptionHandler:
 
             snapshot_last_seq = int(snapshot.last_seq or 0)
             await websocket.send_text(
-                json.dumps({
-                    "type": "snapshot",
-                    "execution_id": str(execution_id),
-                    "last_seq": snapshot_last_seq,
-                    "data": snapshot.projection,
-                })
+                json.dumps(
+                    {
+                        "type": "snapshot",
+                        "execution_id": str(execution_id),
+                        "last_seq": snapshot_last_seq,
+                        "data": snapshot.projection,
+                    }
+                )
             )
 
             await execution_subscription_manager.add_subscription(websocket, str(execution_id))
 
             catchup_after_seq = max(after_seq, snapshot_last_seq)
-            events = await service.list_events_after(
-                execution_id, user_id, after_seq=catchup_after_seq, limit=1000
-            )
+            events = await service.list_events_after(execution_id, user_id, after_seq=catchup_after_seq, limit=1000)
             replay_last_seq = snapshot_last_seq
             for event in events:
                 replay_last_seq = max(replay_last_seq, int(event.seq))
                 await websocket.send_text(
-                    json.dumps({
-                        "type": "event",
-                        "execution_id": str(execution_id),
-                        "seq": event.seq,
-                        "event_type": event.event_type,
-                        "data": event.payload,
-                        "created_at": event.created_at.isoformat() if event.created_at else None,
-                    })
+                    json.dumps(
+                        {
+                            "type": "event",
+                            "execution_id": str(execution_id),
+                            "seq": event.seq,
+                            "event_type": event.event_type,
+                            "data": event.payload,
+                            "created_at": event.created_at.isoformat() if event.created_at else None,
+                        }
+                    )
                 )
 
             await websocket.send_text(
-                json.dumps({
-                    "type": "replay_done",
-                    "execution_id": str(execution_id),
-                    "last_seq": replay_last_seq,
-                })
+                json.dumps(
+                    {
+                        "type": "replay_done",
+                        "execution_id": str(execution_id),
+                        "last_seq": replay_last_seq,
+                    }
+                )
             )
 
 

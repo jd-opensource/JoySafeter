@@ -25,8 +25,8 @@ from app.models.graph_execution import ExecutionStatus, GraphExecution
 from app.repositories.graph import GraphRepository
 from app.repositories.graph_execution import GraphExecutionRepository
 from app.services.graph_service import GraphService
-from app.utils.task_manager import task_manager
 from app.utils.safe_task import safe_create_task
+from app.utils.task_manager import task_manager
 
 from .base import BaseService
 

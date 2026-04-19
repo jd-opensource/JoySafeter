@@ -7,16 +7,15 @@ from __future__ import annotations
 import uuid
 from typing import Any, Optional
 
-from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.execution import (
+    TERMINAL_EXECUTION_STATUSES,
     Execution,
     ExecutionEvent,
     ExecutionSnapshot,
     ExecutionSource,
     MissionExecutionStatus,
-    TERMINAL_EXECUTION_STATUSES,
 )
 from app.repositories.execution import ExecutionRepository
 from app.services.execution_reducer import apply_execution_event, make_initial_projection
@@ -85,10 +84,10 @@ class ExecutionService:
     async def get_execution_internal(self, execution_id: uuid.UUID) -> Optional[Execution]:
         """Internal use — no user-scope check, no FOR UPDATE lock."""
         from sqlalchemy import select
+
         from app.models.execution import Execution as ExecModel
-        result = await self.db.execute(
-            select(ExecModel).where(ExecModel.id == execution_id)
-        )
+
+        result = await self.db.execute(select(ExecModel).where(ExecModel.id == execution_id))
         return result.scalar_one_or_none()
 
     async def get_snapshot(self, execution_id: uuid.UUID, user_id: str) -> Optional[ExecutionSnapshot]:
@@ -126,9 +125,7 @@ class ExecutionService:
             )
         )
 
-    async def list_children(
-        self, parent_execution_id: uuid.UUID
-    ) -> list[Execution]:
+    async def list_children(self, parent_execution_id: uuid.UUID) -> list[Execution]:
         return list(await self.repo.list_children(parent_execution_id))
 
     async def mark_status(
@@ -179,10 +176,10 @@ class ExecutionService:
         await self.db.commit()
 
         from app.websocket.execution_subscription_manager import execution_subscription_manager
+
         await execution_subscription_manager.broadcast_event(
             str(execution_id),
-            {"type": "execution_status", "execution_id": str(execution_id),
-             "status": status.value},
+            {"type": "execution_status", "execution_id": str(execution_id), "status": status.value},
         )
 
         return execution
@@ -239,11 +236,17 @@ class ExecutionService:
         if commit:
             await self.db.commit()
             from app.websocket.execution_subscription_manager import execution_subscription_manager
+
             await execution_subscription_manager.broadcast_event(
                 str(execution_id),
-                {"type": "event", "execution_id": str(execution_id),
-                 "seq": event.seq, "event_type": event_type,
-                 "data": payload, "created_at": str(event.created_at)},
+                {
+                    "type": "event",
+                    "execution_id": str(execution_id),
+                    "seq": event.seq,
+                    "event_type": event_type,
+                    "data": payload,
+                    "created_at": str(event.created_at),
+                },
             )
         return event
 
@@ -274,19 +277,23 @@ class ExecutionService:
         await self.db.commit()
 
         from app.websocket.execution_subscription_manager import execution_subscription_manager
+
         for evt in results:
             await execution_subscription_manager.broadcast_event(
                 str(execution_id),
-                {"type": "event", "execution_id": str(execution_id),
-                 "seq": evt.seq, "event_type": evt.event_type,
-                 "data": evt.payload, "created_at": str(evt.created_at)},
+                {
+                    "type": "event",
+                    "execution_id": str(execution_id),
+                    "seq": evt.seq,
+                    "event_type": evt.event_type,
+                    "data": evt.payload,
+                    "created_at": str(evt.created_at),
+                },
             )
 
         return results
 
-    async def touch_heartbeat(
-        self, *, execution_id: uuid.UUID
-    ) -> Optional[Execution]:
+    async def touch_heartbeat(self, *, execution_id: uuid.UUID) -> Optional[Execution]:
         execution = await self.repo.get_for_update(execution_id)
         if not execution:
             return None

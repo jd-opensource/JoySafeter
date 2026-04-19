@@ -3,7 +3,7 @@ import uuid
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-unit-tests")
 
-from app.models.mission import Mission, MissionStatus, MissionPriority
+from app.models.mission import Mission, MissionPriority, MissionStatus
 
 
 def test_mission_column_defaults():

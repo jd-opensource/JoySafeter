@@ -10,7 +10,6 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-
 # ---------------------------------------------------------------------------
 # Mission
 # ---------------------------------------------------------------------------
@@ -83,6 +82,7 @@ class MissionListResponse(BaseModel):
 # AgentProfile
 # ---------------------------------------------------------------------------
 
+
 class CreateAgentProfileRequest(BaseModel):
     workspace_id: uuid.UUID
     name: str = Field(..., max_length=255)
@@ -135,6 +135,7 @@ class AgentProfileListResponse(BaseModel):
 # Execution
 # ---------------------------------------------------------------------------
 
+
 class ExecutionSummary(BaseModel):
     id: uuid.UUID
     workspace_id: uuid.UUID
@@ -184,6 +185,7 @@ class ExecutionEventsPageResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Intervention / Approval
 # ---------------------------------------------------------------------------
+
 
 class InjectMessageRequest(BaseModel):
     message: str

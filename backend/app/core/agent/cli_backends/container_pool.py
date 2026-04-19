@@ -45,9 +45,7 @@ class ContainerPool:
         self._shutdown = False
         self.container_service = container_service or CLIContainerService()
 
-    async def get(
-        self, agent_profile_id: uuid.UUID
-    ) -> tuple[Optional[ContainerInfo], Optional[str]]:
+    async def get(self, agent_profile_id: uuid.UUID) -> tuple[Optional[ContainerInfo], Optional[str]]:
         """Return (container, last_session_id) if a pooled container exists."""
         async with self._lock:
             if self._shutdown:
@@ -73,10 +71,7 @@ class ContainerPool:
             if self._shutdown:
                 shutdown = True
             else:
-                if (
-                    len(self._pool) >= self._max_size
-                    and agent_profile_id not in self._pool
-                ):
+                if len(self._pool) >= self._max_size and agent_profile_id not in self._pool:
                     evicted = self._evict_lru_entry()
 
                 old = self._pool.pop(agent_profile_id, None)
@@ -108,9 +103,7 @@ class ContainerPool:
                 entry.active_count = max(0, entry.active_count - 1)
                 entry.last_used = time.time()
 
-    async def set_session_id(
-        self, agent_profile_id: uuid.UUID, session_id: str
-    ) -> None:
+    async def set_session_id(self, agent_profile_id: uuid.UUID, session_id: str) -> None:
         """Store Claude session_id for next --resume."""
         async with self._lock:
             entry = self._pool.get(agent_profile_id)
@@ -132,18 +125,14 @@ class ContainerPool:
 
         async with self._lock:
             for agent_id, entry in list(self._pool.items()):
-                idle = entry.active_count == 0 and (
-                    now - entry.last_used
-                ) > self._idle_timeout
+                idle = entry.active_count == 0 and (now - entry.last_used) > self._idle_timeout
                 if idle:
                     self._pool.pop(agent_id)
                     to_remove.append((agent_id, entry.container.container_id))
 
         for agent_id, container_id in to_remove:
             await self._safe_remove(container_id)
-            logger.info(
-                f"Evicted idle container {container_id[:12]} for agent {agent_id}"
-            )
+            logger.info(f"Evicted idle container {container_id[:12]} for agent {agent_id}")
 
         return len(to_remove)
 
@@ -152,9 +141,7 @@ class ContainerPool:
         async with self._lock:
             self._shutdown = True
             self._pool.clear()
-        logger.info(
-            "Container pool shut down (containers left running for reuse after restart)"
-        )
+        logger.info("Container pool shut down (containers left running for reuse after restart)")
 
     async def _evict_lru(self) -> None:
         """Evict the least-recently-used idle container. Called outside lock."""
@@ -178,9 +165,7 @@ class ContainerPool:
         try:
             await self.container_service.remove_container(container_id, force=True)
         except Exception as exc:
-            logger.warning(
-                f"Failed to remove pooled container {container_id[:12]}: {exc}"
-            )
+            logger.warning(f"Failed to remove pooled container {container_id[:12]}: {exc}")
 
 
 # Module-level singleton

@@ -394,11 +394,11 @@ class MemoryManager:
         if self.db:
             result = self.db.clear_memories()
             if hasattr(result, "__await__"):
-                import asyncio
-
                 from app.utils.safe_task import safe_create_task
 
                 safe_create_task(result, name="memory-clear")  # type: ignore[arg-type]
+
+    def delete_user_memory(
         self,
         memory_id: str,
         user_id: Optional[str] = None,
@@ -683,8 +683,6 @@ class MemoryManager:
                 raise ValueError("Memory db not initialized")
             result = self.db.upsert_user_memory(memory=memory)
             if hasattr(result, "__await__"):
-                import asyncio
-
                 from app.utils.safe_task import safe_create_task
 
                 safe_create_task(result, name="memory-upsert")  # type: ignore[arg-type]
@@ -703,8 +701,6 @@ class MemoryManager:
 
             result = self.db.delete_user_memory(memory_id=memory_id, user_id=user_id)
             if hasattr(result, "__await__"):
-                import asyncio
-
                 from app.utils.safe_task import safe_create_task
 
                 safe_create_task(result, name="memory-delete")  # type: ignore[arg-type]

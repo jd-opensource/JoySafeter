@@ -25,15 +25,8 @@ def upgrade() -> None:
 
     # PostgreSQL cannot DROP a value from an existing enum, so recreate it
     op.execute("ALTER TYPE missionstatus RENAME TO missionstatus_old")
-    op.execute(
-        "CREATE TYPE missionstatus AS ENUM "
-        "('backlog','todo','in_progress','in_review','done','cancelled')"
-    )
-    op.execute(
-        "ALTER TABLE missions "
-        "ALTER COLUMN status TYPE missionstatus "
-        "USING status::text::missionstatus"
-    )
+    op.execute("CREATE TYPE missionstatus AS ENUM ('backlog','todo','in_progress','in_review','done','cancelled')")
+    op.execute("ALTER TABLE missions ALTER COLUMN status TYPE missionstatus USING status::text::missionstatus")
     op.execute("DROP TYPE missionstatus_old")
 
     # Restore the default
@@ -45,14 +38,9 @@ def downgrade() -> None:
 
     op.execute("ALTER TYPE missionstatus RENAME TO missionstatus_old")
     op.execute(
-        "CREATE TYPE missionstatus AS ENUM "
-        "('backlog','todo','in_progress','in_review','done','blocked','cancelled')"
+        "CREATE TYPE missionstatus AS ENUM ('backlog','todo','in_progress','in_review','done','blocked','cancelled')"
     )
-    op.execute(
-        "ALTER TABLE missions "
-        "ALTER COLUMN status TYPE missionstatus "
-        "USING status::text::missionstatus"
-    )
+    op.execute("ALTER TABLE missions ALTER COLUMN status TYPE missionstatus USING status::text::missionstatus")
     op.execute("DROP TYPE missionstatus_old")
 
     op.execute("ALTER TABLE missions ALTER COLUMN status SET DEFAULT 'backlog'")

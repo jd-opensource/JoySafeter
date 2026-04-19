@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from app.services.execution_reducer import apply_execution_event, make_initial_projection
 
 
@@ -36,7 +34,10 @@ def test_prompt_sent():
     proj = make_initial_projection({}, "running")
     msg = {"role": "user", "content": "Fix the bug"}
     proj = apply_execution_event(
-        proj, event_type="prompt_sent", payload={"message": msg}, status="running",
+        proj,
+        event_type="prompt_sent",
+        payload={"message": msg},
+        status="running",
     )
     assert len(proj["messages"]) == 1
     assert proj["messages"][0]["content"] == "Fix the bug"
@@ -46,7 +47,10 @@ def test_assistant_text_with_message_dict():
     proj = make_initial_projection({}, "running")
     msg = {"role": "assistant", "content": "On it"}
     proj = apply_execution_event(
-        proj, event_type="assistant_text", payload={"message": msg}, status="running",
+        proj,
+        event_type="assistant_text",
+        payload={"message": msg},
+        status="running",
     )
     assert len(proj["messages"]) == 1
     assert proj["messages"][0]["content"] == "On it"
@@ -55,7 +59,10 @@ def test_assistant_text_with_message_dict():
 def test_assistant_text_with_content_string():
     proj = make_initial_projection({}, "running")
     proj = apply_execution_event(
-        proj, event_type="assistant_text", payload={"content": "Hello"}, status="running",
+        proj,
+        event_type="assistant_text",
+        payload={"content": "Hello"},
+        status="running",
     )
     assert len(proj["messages"]) == 1
     assert proj["messages"][0]["role"] == "assistant"
@@ -77,7 +84,10 @@ def test_content_delta_appends():
 def test_content_delta_no_messages_is_noop():
     proj = make_initial_projection({}, "running")
     proj = apply_execution_event(
-        proj, event_type="content_delta", payload={"delta": "x"}, status="running",
+        proj,
+        event_type="content_delta",
+        payload={"delta": "x"},
+        status="running",
     )
     assert proj["messages"] == []
 
@@ -86,7 +96,10 @@ def test_tool_use_start_with_dict():
     proj = make_initial_projection({}, "running")
     tool = {"name": "Bash", "call_id": "c1", "input": {"command": "ls"}, "status": "running"}
     proj = apply_execution_event(
-        proj, event_type="tool_use_start", payload={"tool": tool}, status="running",
+        proj,
+        event_type="tool_use_start",
+        payload={"tool": tool},
+        status="running",
     )
     assert len(proj["tool_calls"]) == 1
     assert proj["tool_calls"][0]["name"] == "Bash"
@@ -135,7 +148,10 @@ def test_tool_use_end_no_match():
 def test_thinking():
     proj = make_initial_projection({}, "running")
     proj = apply_execution_event(
-        proj, event_type="thinking", payload={"content": "analyzing..."}, status="running",
+        proj,
+        event_type="thinking",
+        payload={"content": "analyzing..."},
+        status="running",
     )
     assert proj["meta"]["last_thinking"] == "analyzing..."
 
@@ -144,7 +160,10 @@ def test_artifact_created():
     proj = make_initial_projection({}, "running")
     artifact = {"type": "file", "path": "/app/main.py"}
     proj = apply_execution_event(
-        proj, event_type="artifact_created", payload={"artifact": artifact}, status="running",
+        proj,
+        event_type="artifact_created",
+        payload={"artifact": artifact},
+        status="running",
     )
     assert len(proj["artifacts"]) == 1
     assert proj["artifacts"][0]["path"] == "/app/main.py"
@@ -161,7 +180,10 @@ def test_approval_requested_and_resolved():
     assert proj["meta"]["pending_approval"]["tool"] == "Bash"
 
     proj = apply_execution_event(
-        proj, event_type="approval_resolved", payload={"approved": True}, status="running",
+        proj,
+        event_type="approval_resolved",
+        payload={"approved": True},
+        status="running",
     )
     assert "pending_approval" not in proj["meta"]
 
@@ -169,7 +191,10 @@ def test_approval_requested_and_resolved():
 def test_error_event():
     proj = make_initial_projection({}, "failed")
     proj = apply_execution_event(
-        proj, event_type="error", payload={"message": "OOM"}, status="failed",
+        proj,
+        event_type="error",
+        payload={"message": "OOM"},
+        status="failed",
     )
     assert proj["meta"]["error"] == "OOM"
     assert proj["status"] == "failed"
@@ -191,7 +216,10 @@ def test_heartbeat_is_noop():
     proj = make_initial_projection({}, "running")
     original_messages = list(proj["messages"])
     proj = apply_execution_event(
-        proj, event_type="heartbeat", payload={}, status="running",
+        proj,
+        event_type="heartbeat",
+        payload={},
+        status="running",
     )
     assert proj["messages"] == original_messages
 
@@ -200,7 +228,10 @@ def test_unknown_event_preserves_projection():
     proj = make_initial_projection({}, "running")
     proj["messages"].append({"role": "user", "content": "hi"})
     proj = apply_execution_event(
-        proj, event_type="some_future_event", payload={"data": 1}, status="running",
+        proj,
+        event_type="some_future_event",
+        payload={"data": 1},
+        status="running",
     )
     assert len(proj["messages"]) == 1
     assert proj["status"] == "running"
@@ -225,7 +256,8 @@ def test_immutability():
 def test_full_lifecycle():
     """Walk through a realistic sequence of events."""
     proj = make_initial_projection(
-        {"source": "mission", "mission_id": "m1"}, "queued",
+        {"source": "mission", "mission_id": "m1"},
+        "queued",
     )
     assert proj["status"] == "queued"
 

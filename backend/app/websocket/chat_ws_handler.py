@@ -48,10 +48,10 @@ from app.schemas.chat import ChatRequest
 from app.services.graph_service import GraphService as GraphService
 from app.services.run_service import RunService
 from app.utils.file_event_emitter import FileEventEmitter as FileEventEmitter
+from app.utils.safe_task import safe_create_task
 from app.utils.stream_event_handler import StreamEventHandler as StreamEventHandler
 from app.utils.stream_event_handler import StreamState
 from app.utils.task_manager import task_manager
-from app.utils.safe_task import safe_create_task
 from app.websocket.chat_commands import (
     ChatTurnCommand,
     CopilotTurnCommand,

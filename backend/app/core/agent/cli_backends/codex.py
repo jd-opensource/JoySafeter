@@ -46,7 +46,10 @@ class CodexProvider:
         cmd = [self.executable_path, "app-server", "--listen", "stdio://"]
 
         process = await self.bridge.exec_streaming(
-            container_id, cmd, env=env, workdir=cwd,
+            container_id,
+            cmd,
+            env=env,
+            workdir=cwd,
         )
 
         queue: asyncio.Queue[CLIMessage | None] = asyncio.Queue(maxsize=512)
@@ -151,9 +154,7 @@ class CodexProvider:
                 req_id = raw.get("id")
                 if req_id in pending and not pending[req_id].done():
                     if "error" in raw:
-                        pending[req_id].set_exception(
-                            RuntimeError(f"RPC error: {raw['error']}")
-                        )
+                        pending[req_id].set_exception(RuntimeError(f"RPC error: {raw['error']}"))
                     else:
                         pending[req_id].set_result(raw.get("result", {}))
                 return
@@ -199,14 +200,18 @@ class CodexProvider:
         try:
             async with asyncio.timeout(timeout):
                 # 1. Send initialize
-                await self._rpc_request(process, "initialize", {
-                    "clientInfo": {
-                        "name": "joysafeter-agent",
-                        "title": "JoySafeter Agent",
-                        "version": "0.1.0",
+                await self._rpc_request(
+                    process,
+                    "initialize",
+                    {
+                        "clientInfo": {
+                            "name": "joysafeter-agent",
+                            "title": "JoySafeter Agent",
+                            "version": "0.1.0",
+                        },
+                        "capabilities": {"experimentalApi": True},
                     },
-                    "capabilities": {"experimentalApi": True},
-                })
+                )
                 init_id = self._next_id
 
                 # Read lines until we get the initialize response
@@ -226,12 +231,16 @@ class CodexProvider:
                 await self._rpc_notify(process, "initialized")
 
                 # 3. Start thread
-                await self._rpc_request(process, "thread/start", {
-                    "model": model,
-                    "cwd": None,
-                    "approvalPolicy": None,
-                    "sandbox": None,
-                })
+                await self._rpc_request(
+                    process,
+                    "thread/start",
+                    {
+                        "model": model,
+                        "cwd": None,
+                        "approvalPolicy": None,
+                        "sandbox": None,
+                    },
+                )
                 thread_start_id = self._next_id
                 thread_id = ""
 
@@ -256,10 +265,14 @@ class CodexProvider:
                 logger.info(f"codex thread started: {thread_id}")
 
                 # 4. Start turn
-                await self._rpc_request(process, "turn/start", {
-                    "threadId": thread_id,
-                    "input": [{"type": "text", "text": prompt}],
-                })
+                await self._rpc_request(
+                    process,
+                    "turn/start",
+                    {
+                        "threadId": thread_id,
+                        "input": [{"type": "text", "text": prompt}],
+                    },
+                )
 
                 # 5. Read events until turn completes
                 async for raw_line in process.stdout:
@@ -282,22 +295,28 @@ class CodexProvider:
                 exit_code = await process.wait()
                 aborted = turn_done.done() and turn_done.result()
                 if aborted:
-                    result_future.set_result(CLIResult(
-                        status="failed",
-                        output="\n".join(accumulated_text),
-                        error="Turn was aborted",
-                    ))
+                    result_future.set_result(
+                        CLIResult(
+                            status="failed",
+                            output="\n".join(accumulated_text),
+                            error="Turn was aborted",
+                        )
+                    )
                 elif exit_code == 0 or accumulated_text:
-                    result_future.set_result(CLIResult(
-                        status="completed",
-                        output="\n".join(accumulated_text),
-                    ))
+                    result_future.set_result(
+                        CLIResult(
+                            status="completed",
+                            output="\n".join(accumulated_text),
+                        )
+                    )
                 else:
                     stderr_bytes = await process.stderr.read() if process.stderr else b""
-                    result_future.set_result(CLIResult(
-                        status="failed",
-                        error=f"Exit code {exit_code}: {stderr_bytes.decode()[:2000]}",
-                    ))
+                    result_future.set_result(
+                        CLIResult(
+                            status="failed",
+                            error=f"Exit code {exit_code}: {stderr_bytes.decode()[:2000]}",
+                        )
+                    )
             await queue.put(None)
 
     # ── event parsing (testable without Docker) ─────────────────────────
@@ -334,31 +353,39 @@ class CodexProvider:
             if text:
                 messages.append(CLIMessage(type="text", content=text))
         elif msg_type == "exec_command_begin":
-            messages.append(CLIMessage(
-                type="tool_use",
-                tool="exec_command",
-                call_id=msg_data.get("call_id", ""),
-                input={"command": msg_data.get("command", "")},
-            ))
+            messages.append(
+                CLIMessage(
+                    type="tool_use",
+                    tool="exec_command",
+                    call_id=msg_data.get("call_id", ""),
+                    input={"command": msg_data.get("command", "")},
+                )
+            )
         elif msg_type == "exec_command_end":
-            messages.append(CLIMessage(
-                type="tool_result",
-                tool="exec_command",
-                call_id=msg_data.get("call_id", ""),
-                output=msg_data.get("output", ""),
-            ))
+            messages.append(
+                CLIMessage(
+                    type="tool_result",
+                    tool="exec_command",
+                    call_id=msg_data.get("call_id", ""),
+                    output=msg_data.get("output", ""),
+                )
+            )
         elif msg_type == "patch_apply_begin":
-            messages.append(CLIMessage(
-                type="tool_use",
-                tool="patch_apply",
-                call_id=msg_data.get("call_id", ""),
-            ))
+            messages.append(
+                CLIMessage(
+                    type="tool_use",
+                    tool="patch_apply",
+                    call_id=msg_data.get("call_id", ""),
+                )
+            )
         elif msg_type == "patch_apply_end":
-            messages.append(CLIMessage(
-                type="tool_result",
-                tool="patch_apply",
-                call_id=msg_data.get("call_id", ""),
-            ))
+            messages.append(
+                CLIMessage(
+                    type="tool_result",
+                    tool="patch_apply",
+                    call_id=msg_data.get("call_id", ""),
+                )
+            )
 
         return messages
 
@@ -371,34 +398,42 @@ class CodexProvider:
         item_id = item.get("id", "")
 
         if method == "item/started" and item_type == "commandExecution":
-            return [CLIMessage(
-                type="tool_use",
-                tool="exec_command",
-                call_id=item_id,
-                input={"command": item.get("command", "")},
-            )]
+            return [
+                CLIMessage(
+                    type="tool_use",
+                    tool="exec_command",
+                    call_id=item_id,
+                    input={"command": item.get("command", "")},
+                )
+            ]
 
         if method == "item/completed" and item_type == "commandExecution":
-            return [CLIMessage(
-                type="tool_result",
-                tool="exec_command",
-                call_id=item_id,
-                output=item.get("aggregatedOutput", ""),
-            )]
+            return [
+                CLIMessage(
+                    type="tool_result",
+                    tool="exec_command",
+                    call_id=item_id,
+                    output=item.get("aggregatedOutput", ""),
+                )
+            ]
 
         if method == "item/started" and item_type == "fileChange":
-            return [CLIMessage(
-                type="tool_use",
-                tool="patch_apply",
-                call_id=item_id,
-            )]
+            return [
+                CLIMessage(
+                    type="tool_use",
+                    tool="patch_apply",
+                    call_id=item_id,
+                )
+            ]
 
         if method == "item/completed" and item_type == "fileChange":
-            return [CLIMessage(
-                type="tool_result",
-                tool="patch_apply",
-                call_id=item_id,
-            )]
+            return [
+                CLIMessage(
+                    type="tool_result",
+                    tool="patch_apply",
+                    call_id=item_id,
+                )
+            ]
 
         if method == "item/completed" and item_type == "agentMessage":
             text = item.get("text", "")

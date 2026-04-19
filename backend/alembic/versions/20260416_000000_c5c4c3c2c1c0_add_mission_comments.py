@@ -41,13 +41,39 @@ def upgrade() -> None:
     op.create_table(
         "mission_comments",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("mission_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("missions.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("workspace_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("author_type", postgresql.ENUM("member", "agent", name="commentauthortype", create_type=False), nullable=False),
+        sa.Column(
+            "mission_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("missions.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "workspace_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("workspaces.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "author_type",
+            postgresql.ENUM("member", "agent", name="commentauthortype", create_type=False),
+            nullable=False,
+        ),
         sa.Column("author_id", sa.String(255), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),
-        sa.Column("type", postgresql.ENUM("comment", "status_change", "progress_update", "system", name="commenttype", create_type=False), nullable=False, server_default="comment"),
-        sa.Column("parent_comment_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("mission_comments.id", ondelete="SET NULL"), nullable=True),
+        sa.Column(
+            "type",
+            postgresql.ENUM(
+                "comment", "status_change", "progress_update", "system", name="commenttype", create_type=False
+            ),
+            nullable=False,
+            server_default="comment",
+        ),
+        sa.Column(
+            "parent_comment_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("mission_comments.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
     )

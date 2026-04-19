@@ -4,10 +4,11 @@ Callback protocol for ExecutionRunner — breaks circular dependency.
 ExecutionRunner calls these hooks after finalize/failure.
 The concrete implementation lives in ExecutionLifecycleService.
 """
+
 from __future__ import annotations
 
 import uuid
-from typing import Optional, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from app.core.agent.cli_backends.base import CLIResult
 from app.models.execution import MissionExecutionStatus

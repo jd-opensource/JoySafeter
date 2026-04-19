@@ -19,7 +19,6 @@ from app.schemas.execution import (
     ApproveActionRequest,
     ExecutionEventsPageResponse,
     ExecutionSnapshotResponse,
-    ExecutionSummary,
     InjectMessageRequest,
 )
 from app.services.execution_service import ExecutionService
@@ -29,7 +28,9 @@ router = APIRouter(prefix="/v1/missions/{mission_id}/execution", tags=["Mission 
 
 
 async def _get_current_execution_id(
-    mission_id: uuid.UUID, workspace_id: uuid.UUID, db: AsyncSession,
+    mission_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    db: AsyncSession,
 ) -> uuid.UUID:
     svc = MissionService(db)
     mission = await svc.get_mission(mission_id, workspace_id)
@@ -80,6 +81,7 @@ async def approve_action(
         raise NotFoundException("Execution snapshot not found")
 
     from app.core.agent.cli_backends.base import build_control_response
+
     pending = (snapshot.projection or {}).get("meta", {}).get("pending_approval", {})
     request_id = pending.get("request_id", "")
 
@@ -115,7 +117,9 @@ async def get_events(
     svc = ExecutionService(db)
     events = list(await svc.repo.list_events_after(exec_id, after_seq=after_seq, limit=limit))
     return BaseResponse(
-        success=True, code=200, msg="ok",
+        success=True,
+        code=200,
+        msg="ok",
         data=ExecutionEventsPageResponse(
             execution_id=exec_id,
             events=events,

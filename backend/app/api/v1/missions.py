@@ -70,7 +70,9 @@ async def list_missions(
         limit=limit,
     )
     return BaseResponse(
-        success=True, code=200, msg="ok",
+        success=True,
+        code=200,
+        msg="ok",
         data=MissionListResponse(items=[_to_summary(m) for m in missions]),
     )
 
@@ -113,7 +115,9 @@ async def get_transitions(
     workspace_id: uuid.UUID = Query(...),
 ) -> BaseResponse:
     return BaseResponse(
-        success=True, code=200, msg="ok",
+        success=True,
+        code=200,
+        msg="ok",
         data=MissionService.get_transitions(),
     )
 
@@ -174,6 +178,7 @@ async def dispatch_mission(
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionSummary]:
     from app.services.execution_lifecycle_service import ExecutionLifecycleService
+
     lifecycle = ExecutionLifecycleService(db)
     mission, _execution = await lifecycle.dispatch_mission(
         mission_id=mission_id,
@@ -192,6 +197,7 @@ async def cancel_mission(
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[MissionSummary]:
     from app.services.execution_lifecycle_service import ExecutionLifecycleService
+
     lifecycle = ExecutionLifecycleService(db)
     mission = await lifecycle.cancel_mission(mission_id=mission_id, workspace_id=workspace_id)
     if not mission:

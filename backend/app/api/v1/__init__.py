@@ -6,17 +6,22 @@ Each sub-router is expected to declare its own `prefix` and `tags`.
 
 from fastapi import APIRouter
 
+from .agent_profiles import router as agent_profiles_router
 from .artifacts import router as artifacts_router
 from .auth import router as auth_router
 from .conversations import router as conversations_router
 from .custom_tools import router as custom_tools_router
 from .environment import router as environment_router
+from .executions import router as executions_router
 from .files import router as files_router
 from .graph_code import router as graph_code_router
 from .graph_deployments import router as graph_deployments_router
 from .graphs import router as graphs_router
 from .mcp import router as mcp_router
 from .memory import router as memory_router
+from .mission_comments import router as mission_comments_router
+from .mission_execution import router as mission_execution_router
+from .missions import router as missions_router
 from .model_credentials import router as model_credentials_router
 from .model_providers import router as model_providers_router
 from .model_usage import router as model_usage_router
@@ -38,11 +43,6 @@ from .tools import router as tools_router
 from .traces import router as traces_router
 from .users import router as users_router
 from .version import router as version_router
-from .missions import router as missions_router
-from .executions import router as executions_router
-from .agent_profiles import router as agent_profiles_router
-from .mission_comments import router as mission_comments_router
-from .mission_execution import router as mission_execution_router
 from .workspace_files import router as workspace_files_router
 from .workspace_folders import router as workspace_folders_router
 from .workspaces import router as workspaces_router

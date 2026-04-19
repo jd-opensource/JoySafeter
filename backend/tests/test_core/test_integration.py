@@ -9,16 +9,14 @@ Exercises the complete flow without a live database or Docker daemon:
 
 from __future__ import annotations
 
-import asyncio
-import json
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.core.agent.cli_backends.base import CLIMessage, CLIResult, RuntimeSession
+from app.core.agent.cli_backends.base import CLIMessage
 from app.core.agent.cli_backends.claude_code import ClaudeCodeProvider
-from app.core.agent.cli_backends.container_service import ContainerConfig, ContainerInfo
+from app.core.agent.cli_backends.container_service import ContainerInfo
 from app.core.agent.cli_backends.execution_runner import ExecutionRunner
 from app.core.agent.cli_backends.injectors import (
     CLISkillInjector,
@@ -26,29 +24,19 @@ from app.core.agent.cli_backends.injectors import (
     RuntimeConfigInjector,
 )
 from app.core.agent.cli_backends.registry import RuntimeProviderRegistry
-from app.models.execution import ExecutionSource, MissionExecutionStatus
-from app.models.mission import MissionPriority, MissionStatus
 from app.schemas.execution import (
-    AgentProfileListResponse,
     AgentProfileSummary,
-    CreateAgentProfileRequest,
-    CreateMissionRequest,
-    ExecutionEventsPageResponse,
-    ExecutionEventResponse,
-    ExecutionListResponse,
-    ExecutionSnapshotResponse,
     ExecutionSummary,
-    MissionListResponse,
     MissionSummary,
 )
-from app.services.execution_reducer import apply_execution_event, make_initial_projection
 from app.services.execution_lifecycle_service import build_execution_prompt
+from app.services.execution_reducer import apply_execution_event, make_initial_projection
 from app.websocket.execution_subscription_manager import ExecutionSubscriptionManager
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_ws():
     ws = MagicMock()
@@ -68,8 +56,10 @@ class FakeContainerService:
         cid = f"fake-ctr-{execution_id!s:.8}"
         self.created.append(cid)
         return ContainerInfo(
-            container_id=cid, name=f"cli-agent-{execution_id!s:.12}",
-            status="running", working_dir="/workspace",
+            container_id=cid,
+            name=f"cli-agent-{execution_id!s:.12}",
+            status="running",
+            working_dir="/workspace",
         )
 
     async def exec_in_container(self, container_id, cmd, workdir=None):
@@ -90,29 +80,46 @@ class FakeContainerService:
 # 1. Schema validation
 # ---------------------------------------------------------------------------
 
+
 def test_schemas_round_trip():
     """Verify Pydantic schemas serialize/deserialize correctly."""
     profile = AgentProfileSummary(
-        id=uuid.uuid4(), workspace_id=uuid.uuid4(), name="test-agent",
-        runtime_type="claude_code", status="idle", max_concurrent_tasks=1,
-        created_at="2025-01-01T00:00:00Z", updated_at="2025-01-01T00:00:00Z",
+        id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        name="test-agent",
+        runtime_type="claude_code",
+        status="idle",
+        max_concurrent_tasks=1,
+        created_at="2025-01-01T00:00:00Z",
+        updated_at="2025-01-01T00:00:00Z",
     )
     data = profile.model_dump()
     assert data["name"] == "test-agent"
     assert data["runtime_type"] == "claude_code"
 
     mission = MissionSummary(
-        id=uuid.uuid4(), workspace_id=uuid.uuid4(), title="Fix bug",
-        status="todo", priority="high", creator_id="user-1", position=0.0,
-        created_at="2025-01-01T00:00:00Z", updated_at="2025-01-01T00:00:00Z",
+        id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        title="Fix bug",
+        status="todo",
+        priority="high",
+        creator_id="user-1",
+        position=0.0,
+        created_at="2025-01-01T00:00:00Z",
+        updated_at="2025-01-01T00:00:00Z",
     )
     data = mission.model_dump()
     assert data["title"] == "Fix bug"
 
     execution = ExecutionSummary(
-        id=uuid.uuid4(), workspace_id=uuid.uuid4(), user_id="user-1",
-        source="mission", status="running", runtime_type="claude_code",
-        last_seq=5, created_at="2025-01-01T00:00:00Z",
+        id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        user_id="user-1",
+        source="mission",
+        status="running",
+        runtime_type="claude_code",
+        last_seq=5,
+        created_at="2025-01-01T00:00:00Z",
         updated_at="2025-01-01T00:00:00Z",
     )
     data = execution.model_dump()
@@ -123,6 +130,7 @@ def test_schemas_round_trip():
 # ---------------------------------------------------------------------------
 # 2. Prompt building from mission
 # ---------------------------------------------------------------------------
+
 
 def test_prompt_building_integration():
     """Verify prompt building produces valid agent instructions."""
@@ -145,6 +153,7 @@ def test_prompt_building_integration():
 # 3. Registry + provider lookup
 # ---------------------------------------------------------------------------
 
+
 def test_registry_lifecycle():
     """Register a provider, look it up, list it."""
     reg = RuntimeProviderRegistry()
@@ -162,6 +171,7 @@ def test_registry_lifecycle():
 # 4. Container + injection pipeline
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_container_injection_pipeline():
     """Create container → inject credentials → inject skills → inject config."""
@@ -174,18 +184,23 @@ async def test_container_injection_pipeline():
 
     # Build credentials env (no longer writes to container filesystem)
     cred_injector = CredentialInjector()
-    env = cred_injector.build_env({
-        "ANTHROPIC_API_KEY": "sk-test-key",
-        "GITHUB_TOKEN": "ghp-test",
-    })
+    env = cred_injector.build_env(
+        {
+            "ANTHROPIC_API_KEY": "sk-test-key",
+            "GITHUB_TOKEN": "ghp-test",
+        }
+    )
     assert env == {"ANTHROPIC_API_KEY": "sk-test-key", "GITHUB_TOKEN": "ghp-test"}
 
     # Inject skills
     skill_injector = CLISkillInjector(svc)
-    await skill_injector.inject(container.container_id, [
-        {"name": "lint", "command": "ruff check ."},
-        {"name": "test", "command": "pytest -x"},
-    ])
+    await skill_injector.inject(
+        container.container_id,
+        [
+            {"name": "lint", "command": "ruff check ."},
+            {"name": "test", "command": "pytest -x"},
+        ],
+    )
     assert len(svc.calls) == 3  # 1 mkdir + 2 skills
 
     # Inject CLAUDE.md config
@@ -203,6 +218,7 @@ async def test_container_injection_pipeline():
 # 5. Event sourcing + reducer pipeline
 # ---------------------------------------------------------------------------
 
+
 def test_event_sourcing_full_lifecycle():
     """Walk through a complete execution event sequence and verify projection."""
     proj = make_initial_projection(
@@ -214,7 +230,8 @@ def test_event_sourcing_full_lifecycle():
 
     # Execution starts
     proj = apply_execution_event(
-        proj, event_type="execution_started",
+        proj,
+        event_type="execution_started",
         payload={"container_id": "ctr-abc", "session_id": "s-1"},
         status="running",
     )
@@ -222,7 +239,8 @@ def test_event_sourcing_full_lifecycle():
 
     # User prompt sent
     proj = apply_execution_event(
-        proj, event_type="prompt_sent",
+        proj,
+        event_type="prompt_sent",
         payload={"message": {"role": "user", "content": "Fix the login bug"}},
         status="running",
     )
@@ -230,7 +248,8 @@ def test_event_sourcing_full_lifecycle():
 
     # Agent thinks
     proj = apply_execution_event(
-        proj, event_type="thinking",
+        proj,
+        event_type="thinking",
         payload={"content": "Let me analyze the auth module..."},
         status="running",
     )
@@ -238,7 +257,8 @@ def test_event_sourcing_full_lifecycle():
 
     # Agent responds
     proj = apply_execution_event(
-        proj, event_type="assistant_text",
+        proj,
+        event_type="assistant_text",
         payload={"message": {"role": "assistant", "content": "Found the issue", "id": "a1"}},
         status="running",
     )
@@ -246,7 +266,8 @@ def test_event_sourcing_full_lifecycle():
 
     # Content delta
     proj = apply_execution_event(
-        proj, event_type="content_delta",
+        proj,
+        event_type="content_delta",
         payload={"delta": " in auth.py", "message_id": "a1"},
         status="running",
     )
@@ -254,7 +275,8 @@ def test_event_sourcing_full_lifecycle():
 
     # Tool use
     proj = apply_execution_event(
-        proj, event_type="tool_use_start",
+        proj,
+        event_type="tool_use_start",
         payload={"tool": {"name": "Edit", "call_id": "t1", "input": {"file": "auth.py"}, "status": "running"}},
         status="running",
     )
@@ -262,7 +284,8 @@ def test_event_sourcing_full_lifecycle():
     assert proj["tool_calls"][0]["status"] == "running"
 
     proj = apply_execution_event(
-        proj, event_type="tool_use_end",
+        proj,
+        event_type="tool_use_end",
         payload={"call_id": "t1", "output": "File edited successfully"},
         status="running",
     )
@@ -270,14 +293,16 @@ def test_event_sourcing_full_lifecycle():
 
     # Approval flow
     proj = apply_execution_event(
-        proj, event_type="approval_requested",
+        proj,
+        event_type="approval_requested",
         payload={"tool": "Bash", "command": "git push"},
         status="approval_wait",
     )
     assert "pending_approval" in proj["meta"]
 
     proj = apply_execution_event(
-        proj, event_type="approval_resolved",
+        proj,
+        event_type="approval_resolved",
         payload={"approved": True},
         status="running",
     )
@@ -285,7 +310,8 @@ def test_event_sourcing_full_lifecycle():
 
     # Artifact
     proj = apply_execution_event(
-        proj, event_type="artifact_created",
+        proj,
+        event_type="artifact_created",
         payload={"artifact": {"type": "file", "path": "/workspace/auth.py"}},
         status="running",
     )
@@ -293,7 +319,8 @@ def test_event_sourcing_full_lifecycle():
 
     # Completion
     proj = apply_execution_event(
-        proj, event_type="execution_completed",
+        proj,
+        event_type="execution_completed",
         payload={"result_summary": {"files_changed": 2, "tests_passed": True}},
         status="completed",
     )
@@ -305,6 +332,7 @@ def test_event_sourcing_full_lifecycle():
 # ---------------------------------------------------------------------------
 # 6. WebSocket subscription manager
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_subscription_manager_full_flow():
@@ -319,10 +347,16 @@ async def test_subscription_manager_full_flow():
     await mgr.add_subscription(ws2, exec_id)
 
     # Broadcast event
-    count = await mgr.broadcast_event(exec_id, {
-        "type": "event", "execution_id": exec_id, "seq": 1,
-        "event_type": "assistant_text", "data": {"content": "hello"},
-    })
+    count = await mgr.broadcast_event(
+        exec_id,
+        {
+            "type": "event",
+            "execution_id": exec_id,
+            "seq": 1,
+            "event_type": "assistant_text",
+            "data": {"content": "hello"},
+        },
+    )
     assert count == 2
 
     # Verify both received
@@ -344,6 +378,7 @@ async def test_subscription_manager_full_flow():
 # ---------------------------------------------------------------------------
 # 7. ExecutionRunner message mapping
 # ---------------------------------------------------------------------------
+
 
 def test_runner_message_mapping_pipeline():
     """Verify CLIMessage → event_type + payload mapping for all message types."""
@@ -372,6 +407,7 @@ def test_runner_message_mapping_pipeline():
 # ---------------------------------------------------------------------------
 # 8. Claude Code NDJSON parsing
 # ---------------------------------------------------------------------------
+
 
 def test_claude_code_ndjson_parsing():
     """Verify ClaudeCodeProvider parses a realistic NDJSON event stream."""
@@ -423,6 +459,7 @@ def test_claude_code_ndjson_parsing():
 # 9. Container lifecycle tracking
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_container_lifecycle():
     """Create → use → remove container, verify tracking."""
@@ -446,6 +483,7 @@ async def test_container_lifecycle():
 # ---------------------------------------------------------------------------
 # 10. End-to-end data flow validation
 # ---------------------------------------------------------------------------
+
 
 def test_end_to_end_data_flow():
     """Validate the complete data flow from mission to execution result.
@@ -473,8 +511,16 @@ def test_end_to_end_data_flow():
     events = [
         ("execution_started", {"container_id": "ctr-1", "session_id": "s-1"}, "running"),
         ("prompt_sent", {"message": {"role": "user", "content": prompt}}, "running"),
-        ("assistant_text", {"message": {"role": "assistant", "content": "Implementing rate limiter", "id": "a1"}}, "running"),
-        ("tool_use_start", {"tool": {"name": "Write", "call_id": "t1", "input": {"file": "rate_limiter.py"}, "status": "running"}}, "running"),
+        (
+            "assistant_text",
+            {"message": {"role": "assistant", "content": "Implementing rate limiter", "id": "a1"}},
+            "running",
+        ),
+        (
+            "tool_use_start",
+            {"tool": {"name": "Write", "call_id": "t1", "input": {"file": "rate_limiter.py"}, "status": "running"}},
+            "running",
+        ),
         ("tool_use_end", {"call_id": "t1", "output": "File written"}, "running"),
         ("execution_completed", {"result_summary": {"files_created": 1}}, "completed"),
     ]

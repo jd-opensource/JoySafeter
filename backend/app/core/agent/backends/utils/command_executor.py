@@ -25,10 +25,10 @@ from app.utils.backend_utils import create_execute_response
 # Shared denylist for obviously destructive commands.
 # Defense-in-depth — shell=True is kept for LLM agent pipe/redirect support.
 DANGEROUS_PATTERNS = [
-    r"rm\s+-rf\s+/\s*$",   # rm -rf /
-    r"mkfs\.",              # format disk
-    r"dd\s+.*of=/dev/",    # write to device
-    r":\(\)\s*\{",          # fork bomb :(){ :|:& };:
+    r"rm\s+-rf\s+/\s*$",  # rm -rf /
+    r"mkfs\.",  # format disk
+    r"dd\s+.*of=/dev/",  # write to device
+    r":\(\)\s*\{",  # fork bomb :(){ :|:& };:
 ]
 DANGEROUS_RE = re.compile("|".join(f"(?:{p})" for p in DANGEROUS_PATTERNS))
 

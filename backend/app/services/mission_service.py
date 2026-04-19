@@ -13,7 +13,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import BadRequestException, ConflictException, NotFoundException
-from app.models.mission import Mission, AssigneeType, MissionPriority, MissionStatus
+from app.models.mission import AssigneeType, Mission, MissionPriority, MissionStatus
 from app.repositories.agent_profile import AgentProfileRepository
 from app.repositories.mission import MissionRepository
 
@@ -59,9 +59,7 @@ class MissionService:
         logger.info(f"Created mission: {mission.id} ({title})")
         return mission
 
-    async def get_mission(
-        self, mission_id: uuid.UUID, workspace_id: uuid.UUID
-    ) -> Optional[Mission]:
+    async def get_mission(self, mission_id: uuid.UUID, workspace_id: uuid.UUID) -> Optional[Mission]:
         return await self.repo.get_by_id_and_workspace(mission_id, workspace_id)
 
     async def list_missions(
@@ -86,20 +84,27 @@ class MissionService:
         )
 
     MANUAL_TRANSITIONS: dict[MissionStatus, set[MissionStatus]] = {
-        MissionStatus.BACKLOG:     {MissionStatus.TODO, MissionStatus.IN_PROGRESS, MissionStatus.CANCELLED},
-        MissionStatus.TODO:        {MissionStatus.BACKLOG, MissionStatus.IN_PROGRESS, MissionStatus.CANCELLED},
-        MissionStatus.IN_PROGRESS: {MissionStatus.TODO, MissionStatus.IN_REVIEW, MissionStatus.DONE, MissionStatus.CANCELLED},
-        MissionStatus.IN_REVIEW:   {MissionStatus.TODO, MissionStatus.IN_PROGRESS, MissionStatus.DONE, MissionStatus.CANCELLED},
-        MissionStatus.DONE:        {MissionStatus.BACKLOG, MissionStatus.TODO},
-        MissionStatus.CANCELLED:   {MissionStatus.BACKLOG, MissionStatus.TODO},
+        MissionStatus.BACKLOG: {MissionStatus.TODO, MissionStatus.IN_PROGRESS, MissionStatus.CANCELLED},
+        MissionStatus.TODO: {MissionStatus.BACKLOG, MissionStatus.IN_PROGRESS, MissionStatus.CANCELLED},
+        MissionStatus.IN_PROGRESS: {
+            MissionStatus.TODO,
+            MissionStatus.IN_REVIEW,
+            MissionStatus.DONE,
+            MissionStatus.CANCELLED,
+        },
+        MissionStatus.IN_REVIEW: {
+            MissionStatus.TODO,
+            MissionStatus.IN_PROGRESS,
+            MissionStatus.DONE,
+            MissionStatus.CANCELLED,
+        },
+        MissionStatus.DONE: {MissionStatus.BACKLOG, MissionStatus.TODO},
+        MissionStatus.CANCELLED: {MissionStatus.BACKLOG, MissionStatus.TODO},
     }
 
     @classmethod
     def get_transitions(cls) -> dict[str, list[str]]:
-        return {
-            status.value: sorted(t.value for t in targets)
-            for status, targets in cls.MANUAL_TRANSITIONS.items()
-        }
+        return {status.value: sorted(t.value for t in targets) for status, targets in cls.MANUAL_TRANSITIONS.items()}
 
     async def update_mission(
         self,
@@ -121,21 +126,27 @@ class MissionService:
             if new_status != mission.status:
                 allowed_targets = self.MANUAL_TRANSITIONS.get(mission.status, set())
                 if new_status not in allowed_targets:
-                    raise BadRequestException(
-                        f"Cannot transition from {mission.status.value} to {new_status.value}"
-                    )
+                    raise BadRequestException(f"Cannot transition from {mission.status.value} to {new_status.value}")
                 if mission.current_execution_id and new_status in {
-                    MissionStatus.DONE, MissionStatus.CANCELLED,
+                    MissionStatus.DONE,
+                    MissionStatus.CANCELLED,
                 }:
                     raise ConflictException(
-                        f"Cannot move to {new_status.value} while an execution is active — "
-                        f"cancel the execution first"
+                        f"Cannot move to {new_status.value} while an execution is active — cancel the execution first"
                     )
 
         allowed = {
-            "title", "description", "objective", "priority",
-            "status", "assignee_type", "assignee_id",
-            "parent_mission_id", "due_date", "position", "tags",
+            "title",
+            "description",
+            "objective",
+            "priority",
+            "status",
+            "assignee_type",
+            "assignee_id",
+            "parent_mission_id",
+            "due_date",
+            "position",
+            "tags",
             "auto_approve",
         }
         for key, value in kwargs.items():

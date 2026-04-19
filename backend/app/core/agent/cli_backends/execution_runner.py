@@ -91,17 +91,13 @@ class ExecutionRunner:
             # 2. Get or create container
             prior_session_id: Optional[str] = None
             if agent_profile:
-                container, prior_session_id = await container_pool.get(
-                    agent_profile.id
-                )
+                container, prior_session_id = await container_pool.get(agent_profile.id)
 
             if container:
                 pooled = True
                 # Verify container is still running
                 try:
-                    status = await self.container_service.inspect_container(
-                        container.container_id
-                    )
+                    status = await self.container_service.inspect_container(container.container_id)
                     if "running" not in status.strip().lower():
                         logger.warning(
                             f"[exec:{execution_id}] Pooled container {container.container_id[:12]} "
@@ -112,9 +108,7 @@ class ExecutionRunner:
                         prior_session_id = None
                         pooled = False
                 except Exception as inspect_exc:
-                    logger.warning(
-                        f"[exec:{execution_id}] Failed to inspect pooled container: {inspect_exc}"
-                    )
+                    logger.warning(f"[exec:{execution_id}] Failed to inspect pooled container: {inspect_exc}")
                     await container_pool.remove(agent_profile.id)
                     container = None
                     prior_session_id = None
@@ -197,13 +191,8 @@ class ExecutionRunner:
 
             # 9. Store session_id back to pool for next resume
             if result.session_id and agent_profile:
-                await container_pool.set_session_id(
-                    agent_profile.id, result.session_id
-                )
-                logger.info(
-                    f"[exec:{execution_id}] Stored session {result.session_id} "
-                    f"for agent {agent_profile.id}"
-                )
+                await container_pool.set_session_id(agent_profile.id, result.session_id)
+                logger.info(f"[exec:{execution_id}] Stored session {result.session_id} for agent {agent_profile.id}")
 
             return result
 
@@ -217,32 +206,25 @@ class ExecutionRunner:
             session_registry.unregister(execution_id)
             if container and agent_profile and pooled:
                 await container_pool.release(agent_profile.id)
-                logger.info(
-                    f"[exec:{execution_id}] Released container "
-                    f"{container.container_id[:12]} back to pool"
-                )
+                logger.info(f"[exec:{execution_id}] Released container {container.container_id[:12]} back to pool")
             elif container:
                 await self._cleanup_container(container.container_id)
                 logger.info(
-                    f"[exec:{execution_id}] Destroyed container "
-                    f"{container.container_id[:12]} (no agent profile)"
+                    f"[exec:{execution_id}] Destroyed container {container.container_id[:12]} (no agent profile)"
                 )
 
     async def _get_execution(self, execution_id: uuid.UUID) -> Execution:
         from sqlalchemy import select
+
         from app.models.execution import Execution as ExecModel
 
-        result = await self.db.execute(
-            select(ExecModel).where(ExecModel.id == execution_id)
-        )
+        result = await self.db.execute(select(ExecModel).where(ExecModel.id == execution_id))
         execution = result.scalar_one_or_none()
         if not execution:
             raise ValueError(f"Execution not found: {execution_id}")
         return execution
 
-    async def _get_agent_profile(
-        self, execution: Execution
-    ) -> Optional[AgentProfile]:
+    async def _get_agent_profile(self, execution: Execution) -> Optional[AgentProfile]:
         if not execution.agent_profile_id:
             return None
         return await self.agent_repo.get(execution.agent_profile_id)
@@ -251,10 +233,10 @@ class ExecutionRunner:
         if not execution.mission_id:
             return True
         from sqlalchemy import select
+
         from app.models.mission import Mission
-        result = await self.db.execute(
-            select(Mission.auto_approve).where(Mission.id == execution.mission_id)
-        )
+
+        result = await self.db.execute(select(Mission.auto_approve).where(Mission.id == execution.mission_id))
         val = result.scalar_one_or_none()
         return val if val is not None else True
 
@@ -287,7 +269,8 @@ class ExecutionRunner:
     _DRAIN_BATCH_SIZE = 10
 
     async def _drain_to_events(
-        self, execution_id: uuid.UUID,
+        self,
+        execution_id: uuid.UUID,
     ) -> None:
         assert self._session is not None, "_drain_to_events called before session was set"
         pending: list[tuple[CLIMessage, str, dict[str, Any]]] = []
@@ -297,10 +280,7 @@ class ExecutionRunner:
             payload = self._msg_to_payload(msg)
             pending.append((msg, event_type, payload))
 
-            needs_flush = (
-                len(pending) >= self._DRAIN_BATCH_SIZE
-                or msg.type == "approval_request"
-            )
+            needs_flush = len(pending) >= self._DRAIN_BATCH_SIZE or msg.type == "approval_request"
             if needs_flush:
                 await self._flush_pending(execution_id, pending)
                 pending.clear()
@@ -317,18 +297,13 @@ class ExecutionRunner:
         try:
             await self.execution_service.batch_append_events(
                 execution_id=execution_id,
-                events=[
-                    {"event_type": event_type, "payload": payload}
-                    for _, event_type, payload in pending
-                ],
+                events=[{"event_type": event_type, "payload": payload} for _, event_type, payload in pending],
             )
             for msg, _, payload in pending:
                 if msg.type == "approval_request":
                     if self._auto_approve:
                         request_id = payload.get("request_id", "")
-                        await self._session.inject_message(
-                            build_control_response(request_id, "allow")
-                        )
+                        await self._session.inject_message(build_control_response(request_id, "allow"))
                         await self.execution_service.append_event(
                             execution_id=execution_id,
                             event_type="approval_resolved",
@@ -341,9 +316,7 @@ class ExecutionRunner:
                         )
                     break
         except Exception as exc:
-            logger.warning(
-                f"Failed to flush {len(pending)} events for {execution_id}: {exc}"
-            )
+            logger.warning(f"Failed to flush {len(pending)} events for {execution_id}: {exc}")
 
     async def _finalize(
         self,
@@ -411,9 +384,7 @@ class ExecutionRunner:
             except Exception as exc:
                 logger.warning(f"Callback on_execution_failed failed for {execution_id}: {exc}")
 
-    async def _update_agent_status(
-        self, agent_profile: AgentProfile, status: AgentStatus
-    ) -> None:
+    async def _update_agent_status(self, agent_profile: AgentProfile, status: AgentStatus) -> None:
         try:
             profile = await self.agent_repo.get_for_update(agent_profile.id)
             if profile:

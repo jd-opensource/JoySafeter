@@ -39,9 +39,7 @@ class CLISkillInjector:
     ) -> None:
         if not skills:
             return
-        await self.container_service.exec_in_container(
-            container_id, ["mkdir", "-p", target_dir]
-        )
+        await self.container_service.exec_in_container(container_id, ["mkdir", "-p", target_dir])
         for skill in skills:
             name = skill.get("name", "unnamed")
             filename = f"{target_dir}/{name}.json"

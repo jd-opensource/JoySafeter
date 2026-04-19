@@ -16,4 +16,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     import sqlalchemy as sa
+
     op.add_column("executions", sa.Column("source_id", sa.String(255), nullable=True))

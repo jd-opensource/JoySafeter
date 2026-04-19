@@ -49,9 +49,12 @@ class CLIContainerService:
         name = f"cli-agent-{execution_id!s:.12}"
 
         docker_cmd = [
-            "docker", "create",
-            "--name", name,
-            "-w", cfg.working_dir,
+            "docker",
+            "create",
+            "--name",
+            name,
+            "-w",
+            cfg.working_dir,
             f"--memory={cfg.memory_limit}",
             f"--cpu-quota={cfg.cpu_quota}",
             f"--network={cfg.network_mode}",
@@ -105,9 +108,7 @@ class CLIContainerService:
 
     async def stop_container(self, container_id: str, timeout: int = 10) -> None:
         try:
-            await self._run_docker(
-                ["docker", "stop", "-t", str(timeout), container_id]
-            )
+            await self._run_docker(["docker", "stop", "-t", str(timeout), container_id])
             logger.info(f"Stopped container {container_id[:12]}")
         except RuntimeError as exc:
             logger.warning(f"Failed to stop container {container_id[:12]}: {exc}")
@@ -123,16 +124,10 @@ class CLIContainerService:
         except RuntimeError as exc:
             logger.warning(f"Failed to remove container {container_id[:12]}: {exc}")
 
-    async def copy_to_container(
-        self, container_id: str, src_path: str, dest_path: str
-    ) -> None:
-        await self._run_docker(
-            ["docker", "cp", src_path, f"{container_id}:{dest_path}"]
-        )
+    async def copy_to_container(self, container_id: str, src_path: str, dest_path: str) -> None:
+        await self._run_docker(["docker", "cp", src_path, f"{container_id}:{dest_path}"])
 
-    async def exec_in_container(
-        self, container_id: str, cmd: list[str], workdir: Optional[str] = None
-    ) -> str:
+    async def exec_in_container(self, container_id: str, cmd: list[str], workdir: Optional[str] = None) -> str:
         docker_cmd = ["docker", "exec"]
         if workdir:
             docker_cmd.extend(["-w", workdir])
@@ -141,9 +136,7 @@ class CLIContainerService:
         return await self._run_docker(docker_cmd)
 
     async def inspect_container(self, container_id: str) -> str:
-        return await self._run_docker(
-            ["docker", "inspect", "--format", "{{.State.Status}}", container_id]
-        )
+        return await self._run_docker(["docker", "inspect", "--format", "{{.State.Status}}", container_id])
 
     async def _run_docker(self, cmd: list[str]) -> str:
         proc = await asyncio.create_subprocess_exec(
@@ -153,7 +146,5 @@ class CLIContainerService:
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
-            raise RuntimeError(
-                f"Docker command failed (exit {proc.returncode}): {stderr.decode()[:1000]}"
-            )
+            raise RuntimeError(f"Docker command failed (exit {proc.returncode}): {stderr.decode()[:1000]}")
         return stdout.decode()

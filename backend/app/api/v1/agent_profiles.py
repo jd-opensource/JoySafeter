@@ -63,7 +63,9 @@ async def list_agent_profiles(
         limit=limit,
     )
     return BaseResponse(
-        success=True, code=200, msg="ok",
+        success=True,
+        code=200,
+        msg="ok",
         data=AgentProfileListResponse(items=[_to_summary(p) for p in profiles]),
     )
 

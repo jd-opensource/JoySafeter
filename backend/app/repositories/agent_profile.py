@@ -19,9 +19,7 @@ class AgentProfileRepository(BaseRepository[AgentProfile]):
     def __init__(self, db: AsyncSession):
         super().__init__(AgentProfile, db)
 
-    async def get_by_id_and_workspace(
-        self, profile_id: uuid.UUID, workspace_id: uuid.UUID
-    ) -> Optional[AgentProfile]:
+    async def get_by_id_and_workspace(self, profile_id: uuid.UUID, workspace_id: uuid.UUID) -> Optional[AgentProfile]:
         result = await self.db.execute(
             select(AgentProfile).where(
                 AgentProfile.id == profile_id,
@@ -60,7 +58,5 @@ class AgentProfileRepository(BaseRepository[AgentProfile]):
         return result.scalars().all()
 
     async def get_for_update(self, profile_id: uuid.UUID) -> Optional[AgentProfile]:
-        result = await self.db.execute(
-            select(AgentProfile).where(AgentProfile.id == profile_id).with_for_update()
-        )
+        result = await self.db.execute(select(AgentProfile).where(AgentProfile.id == profile_id).with_for_update())
         return result.scalar_one_or_none()

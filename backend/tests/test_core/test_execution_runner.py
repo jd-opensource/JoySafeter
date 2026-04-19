@@ -89,6 +89,7 @@ def test_msg_to_payload_unknown():
 def test_runner_accepts_none_callbacks():
     """Standalone executions pass callbacks=None."""
     from unittest.mock import MagicMock
+
     db = MagicMock()
     runner = ExecutionRunner(db, callbacks=None)
     assert runner.callbacks is None
@@ -97,6 +98,7 @@ def test_runner_accepts_none_callbacks():
 def test_runner_accepts_callbacks():
     """Mission executions pass a callbacks implementation."""
     from unittest.mock import MagicMock
+
     db = MagicMock()
 
     class StubCallbacks:

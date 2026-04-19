@@ -7,6 +7,7 @@ All operations that touch BOTH domains go through this service.
 MissionService and ExecutionService remain single-domain and
 never import each other.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -18,22 +19,23 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import BadRequestException, ConflictException, NotFoundException
-from app.utils.credentials import build_credentials
-from app.utils.safe_task import safe_create_task
-
 from app.core.agent.cli_backends.base import CLIResult
 from app.core.agent.cli_backends.runner_callbacks import RunnerCallbacks
 from app.core.agent.cli_backends.session_registry import session_registry
 from app.models.execution import (
-    Execution as ExecModel,
+    TERMINAL_EXECUTION_STATUSES,
     ExecutionSource,
     MissionExecutionStatus,
-    TERMINAL_EXECUTION_STATUSES,
+)
+from app.models.execution import (
+    Execution as ExecModel,
 )
 from app.models.mission import AssigneeType, Mission, MissionStatus
 from app.repositories.agent_profile import AgentProfileRepository
 from app.repositories.mission import MissionRepository
 from app.services.execution_service import ExecutionService
+from app.utils.credentials import build_credentials
+from app.utils.safe_task import safe_create_task
 
 
 def build_execution_prompt(mission: Mission, trigger_comment=None) -> str:
@@ -134,13 +136,10 @@ class ExecutionLifecycleService(RunnerCallbacks):
         execution_id: uuid.UUID,
         status: MissionExecutionStatus,
     ) -> None:
-
         try:
             mission = (
                 await self.db.execute(
-                    select(Mission)
-                    .where(Mission.current_execution_id == execution_id)
-                    .with_for_update()
+                    select(Mission).where(Mission.current_execution_id == execution_id).with_for_update()
                 )
             ).scalar_one_or_none()
             if not mission:
@@ -150,10 +149,7 @@ class ExecutionLifecycleService(RunnerCallbacks):
 
             if status == MissionExecutionStatus.COMPLETED:
                 if mission.status != MissionStatus.CANCELLED:
-                    mission.status = (
-                        MissionStatus.DONE if mission.auto_approve
-                        else MissionStatus.IN_REVIEW
-                    )
+                    mission.status = MissionStatus.DONE if mission.auto_approve else MissionStatus.IN_REVIEW
             elif status == MissionExecutionStatus.FAILED:
                 if mission.status == MissionStatus.IN_PROGRESS:
                     mission.status = MissionStatus.TODO
@@ -167,20 +163,20 @@ class ExecutionLifecycleService(RunnerCallbacks):
                 NotificationType,
                 notification_manager,
             )
-            await notification_manager.broadcast({
-                "type": NotificationType.MISSION_UPDATED.value,
-                "mission_id": str(mission.id),
-                "status": mission.status.value,
-            })
+
+            await notification_manager.broadcast(
+                {
+                    "type": NotificationType.MISSION_UPDATED.value,
+                    "mission_id": str(mission.id),
+                    "status": mission.status.value,
+                }
+            )
 
             logger.info(
-                f"Finalized mission {mission.id}: execution {execution_id} "
-                f"-> mission status {mission.status.value}"
+                f"Finalized mission {mission.id}: execution {execution_id} -> mission status {mission.status.value}"
             )
         except Exception as exc:
-            logger.warning(
-                f"Failed to finalize mission for execution {execution_id}: {exc}"
-            )
+            logger.warning(f"Failed to finalize mission for execution {execution_id}: {exc}")
 
     # ------------------------------------------------------------------
     # Cancel: unified cancel path
@@ -191,9 +187,7 @@ class ExecutionLifecycleService(RunnerCallbacks):
         execution_id: uuid.UUID,
         user_id: str,
     ) -> Any:
-        execution = await self.execution_service.get_execution(
-            execution_id, user_id
-        )
+        execution = await self.execution_service.get_execution(execution_id, user_id)
         if not execution:
             return None
 
@@ -217,14 +211,13 @@ class ExecutionLifecycleService(RunnerCallbacks):
 
         try:
             from app.utils.task_manager import task_manager
+
             await task_manager.cancel_task(str(execution_id))
         except Exception as exc:
             logger.warning(f"Failed to cancel task {execution_id}: {exc}")
 
         if execution.mission_id:
-            await self._finalize_mission(
-                execution_id, MissionExecutionStatus.CANCELLED
-            )
+            await self._finalize_mission(execution_id, MissionExecutionStatus.CANCELLED)
 
         return execution
 
@@ -258,6 +251,7 @@ class ExecutionLifecycleService(RunnerCallbacks):
 
             try:
                 from app.utils.task_manager import task_manager
+
                 await task_manager.cancel_task(str(exec_id))
             except Exception as exc:
                 logger.warning(f"Failed to cancel task {exec_id}: {exc}")
@@ -271,11 +265,14 @@ class ExecutionLifecycleService(RunnerCallbacks):
             NotificationType,
             notification_manager,
         )
-        await notification_manager.broadcast({
-            "type": NotificationType.MISSION_UPDATED.value,
-            "mission_id": str(mission.id),
-            "status": mission.status.value,
-        })
+
+        await notification_manager.broadcast(
+            {
+                "type": NotificationType.MISSION_UPDATED.value,
+                "mission_id": str(mission.id),
+                "status": mission.status.value,
+            }
+        )
 
         return mission
 
@@ -291,25 +288,20 @@ class ExecutionLifecycleService(RunnerCallbacks):
         error_message: str = "",
     ) -> None:
         try:
-            execution = await self.execution_service.get_execution_internal(
-                execution_id
-            )
+            execution = await self.execution_service.get_execution_internal(execution_id)
             if not execution or not execution.mission_id:
                 return
             from app.services.mission_comment_service import MissionCommentService
+
             svc = MissionCommentService(self.db)
             await svc.post_execution_comment(
                 execution=execution,
                 result_status=status,
-                result_output=(
-                    result.output[:2000] if result and result.output else ""
-                ),
+                result_output=(result.output[:2000] if result and result.output else ""),
                 error_message=error_message[:2000] if error_message else "",
             )
         except Exception as exc:
-            logger.warning(
-                f"Failed to post completion comment for {execution_id}: {exc}"
-            )
+            logger.warning(f"Failed to post completion comment for {execution_id}: {exc}")
 
     # ------------------------------------------------------------------
     # Dispatch: create execution + start runner
@@ -328,18 +320,16 @@ class ExecutionLifecycleService(RunnerCallbacks):
             raise NotFoundException(f"Mission not found: {mission_id}")
 
         if mission.status not in {
-            MissionStatus.TODO, MissionStatus.BACKLOG,
-            MissionStatus.IN_PROGRESS, MissionStatus.IN_REVIEW,
+            MissionStatus.TODO,
+            MissionStatus.BACKLOG,
+            MissionStatus.IN_PROGRESS,
+            MissionStatus.IN_REVIEW,
         }:
-            raise BadRequestException(
-                f"Mission {mission_id} cannot be dispatched from status {mission.status.value}"
-            )
+            raise BadRequestException(f"Mission {mission_id} cannot be dispatched from status {mission.status.value}")
 
         if mission.status == MissionStatus.IN_PROGRESS and mission.current_execution_id:
             current_exec = (
-                await self.db.execute(
-                    select(ExecModel).where(ExecModel.id == mission.current_execution_id)
-                )
+                await self.db.execute(select(ExecModel).where(ExecModel.id == mission.current_execution_id))
             ).scalar_one_or_none()
             if current_exec and current_exec.status not in TERMINAL_EXECUTION_STATUSES:
                 raise ConflictException(f"Mission {mission_id} already has an active execution")
@@ -348,28 +338,29 @@ class ExecutionLifecycleService(RunnerCallbacks):
         if not mission.assignee_id or mission.assignee_type != AssigneeType.AGENT:
             raise BadRequestException(f"Mission {mission_id} has no agent assignee")
 
-        agent = await self.agent_repo.get_by_id_and_workspace(
-            mission.assignee_id, workspace_id
-        )
+        agent = await self.agent_repo.get_by_id_and_workspace(mission.assignee_id, workspace_id)
         if not agent:
             raise NotFoundException(f"Agent profile not found: {mission.assignee_id}")
 
         active_count_result = await self.db.execute(
-            select(func.count()).select_from(ExecModel).where(
+            select(func.count())
+            .select_from(ExecModel)
+            .where(
                 ExecModel.agent_profile_id == agent.id,
-                ExecModel.status.in_([
-                    MissionExecutionStatus.QUEUED,
-                    MissionExecutionStatus.DISPATCHED,
-                    MissionExecutionStatus.RUNNING,
-                    MissionExecutionStatus.APPROVAL_WAIT,
-                ]),
+                ExecModel.status.in_(
+                    [
+                        MissionExecutionStatus.QUEUED,
+                        MissionExecutionStatus.DISPATCHED,
+                        MissionExecutionStatus.RUNNING,
+                        MissionExecutionStatus.APPROVAL_WAIT,
+                    ]
+                ),
             )
         )
         active_count = active_count_result.scalar() or 0
         if active_count >= agent.max_concurrent_tasks:
             raise ConflictException(
-                f"Agent {agent.name} already has {active_count}/{agent.max_concurrent_tasks} "
-                f"active executions"
+                f"Agent {agent.name} already has {active_count}/{agent.max_concurrent_tasks} active executions"
             )
 
         credentials = build_credentials(agent.custom_env)
@@ -391,9 +382,7 @@ class ExecutionLifecycleService(RunnerCallbacks):
         await self.db.commit()
         await self.db.refresh(mission)
 
-        logger.info(
-            f"Dispatched mission {mission_id} -> execution {execution.id}"
-        )
+        logger.info(f"Dispatched mission {mission_id} -> execution {execution.id}")
 
         _start_execution_runner(execution.id, prompt, credentials)
         return mission, execution
@@ -420,22 +409,21 @@ class ExecutionLifecycleService(RunnerCallbacks):
         trigger_comment: Any,
         user_id: str,
     ) -> Optional[uuid.UUID]:
-        agent = await self.agent_repo.get_by_id_and_workspace(
-            mission.assignee_id, mission.workspace_id
-        )
+        agent = await self.agent_repo.get_by_id_and_workspace(mission.assignee_id, mission.workspace_id)
         if not agent:
             logger.warning(f"Agent {mission.assignee_id} not found, skipping enqueue")
             return None
 
         execution_id = await self._create_comment_execution(
-            mission=mission, agent=agent, trigger_comment=trigger_comment, user_id=user_id,
+            mission=mission,
+            agent=agent,
+            trigger_comment=trigger_comment,
+            user_id=user_id,
         )
         if not execution_id:
             return None
 
-        mission_for_update = await self.mission_repo.get_for_update(
-            mission.id, mission.workspace_id
-        )
+        mission_for_update = await self.mission_repo.get_for_update(mission.id, mission.workspace_id)
         if mission_for_update:
             mission_for_update.current_execution_id = execution_id
             if mission_for_update.status != MissionStatus.IN_PROGRESS:
@@ -464,13 +452,14 @@ class ExecutionLifecycleService(RunnerCallbacks):
             if mention.id == mission.assignee_id or mention.id in seen:
                 continue
             seen.add(mention.id)
-            agent = await self.agent_repo.get_by_id_and_workspace(
-                mention.id, mission.workspace_id
-            )
+            agent = await self.agent_repo.get_by_id_and_workspace(mention.id, mission.workspace_id)
             if not agent:
                 continue
             await self._create_comment_execution(
-                mission=mission, agent=agent, trigger_comment=trigger_comment, user_id=user_id,
+                mission=mission,
+                agent=agent,
+                trigger_comment=trigger_comment,
+                user_id=user_id,
             )
 
     async def _create_comment_execution(
@@ -486,14 +475,18 @@ class ExecutionLifecycleService(RunnerCallbacks):
         credentials = build_credentials(agent.custom_env)
 
         active_count_result = await self.db.execute(
-            select(func.count()).select_from(ExecModel).where(
+            select(func.count())
+            .select_from(ExecModel)
+            .where(
                 ExecModel.agent_profile_id == agent.id,
-                ExecModel.status.in_([
-                    MissionExecutionStatus.QUEUED,
-                    MissionExecutionStatus.DISPATCHED,
-                    MissionExecutionStatus.RUNNING,
-                    MissionExecutionStatus.APPROVAL_WAIT,
-                ]),
+                ExecModel.status.in_(
+                    [
+                        MissionExecutionStatus.QUEUED,
+                        MissionExecutionStatus.DISPATCHED,
+                        MissionExecutionStatus.RUNNING,
+                        MissionExecutionStatus.APPROVAL_WAIT,
+                    ]
+                ),
             )
         )
         active_count = active_count_result.scalar() or 0

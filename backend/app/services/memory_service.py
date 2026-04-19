@@ -285,9 +285,7 @@ class MemoryService:
                     if dialect == "postgresql":
                         # PostgreSQL: Use JSONB @> operator to check if array contains the topic
                         for topic in topics:
-                            stmt = stmt.where(
-                                text("topics::jsonb @> :val::jsonb").bindparams(val=json.dumps([topic]))
-                            )
+                            stmt = stmt.where(text("topics::jsonb @> :val::jsonb").bindparams(val=json.dumps([topic])))
                     else:
                         # SQLite or other: Use LIKE for compatibility
                         for topic in topics:

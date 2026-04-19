@@ -13,13 +13,13 @@ from app.core.agent.cli_backends.base import build_control_response
 from app.core.agent.cli_backends.session_registry import session_registry
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
-from app.models.execution import Execution, MissionExecutionStatus, TERMINAL_EXECUTION_STATUSES
+from app.models.execution import TERMINAL_EXECUTION_STATUSES, Execution, MissionExecutionStatus
 from app.models.workspace import WorkspaceMemberRole
 from app.schemas import BaseResponse
 from app.schemas.execution import (
     ApproveActionRequest,
-    ExecutionEventsPageResponse,
     ExecutionEventResponse,
+    ExecutionEventsPageResponse,
     ExecutionListResponse,
     ExecutionSnapshotResponse,
     ExecutionSummary,
@@ -74,7 +74,9 @@ async def list_executions(
         limit=limit,
     )
     return BaseResponse(
-        success=True, code=200, msg="ok",
+        success=True,
+        code=200,
+        msg="ok",
         data=ExecutionListResponse(items=[_to_summary(e) for e in executions]),
     )
 
@@ -112,7 +114,9 @@ async def list_child_executions(
         return BaseResponse(success=False, code=403, msg="Execution does not belong to this workspace", data=None)
     children = await service.list_children(execution_id)
     return BaseResponse(
-        success=True, code=200, msg="ok",
+        success=True,
+        code=200,
+        msg="ok",
         data=ExecutionListResponse(items=[_to_summary(e) for e in children]),
     )
 
@@ -134,7 +138,9 @@ async def get_execution_snapshot(
     if not snapshot:
         return BaseResponse(success=False, code=404, msg="Snapshot not found", data=None)
     return BaseResponse(
-        success=True, code=200, msg="ok",
+        success=True,
+        code=200,
+        msg="ok",
         data=ExecutionSnapshotResponse(
             execution_id=execution_id,
             status=snapshot.status,
@@ -160,10 +166,15 @@ async def get_execution_events(
     if execution.workspace_id != workspace_id:
         return BaseResponse(success=False, code=403, msg="Execution does not belong to this workspace", data=None)
     events = await service.list_events_after(
-        execution_id, str(current_user.id), after_seq=after_seq, limit=limit,
+        execution_id,
+        str(current_user.id),
+        after_seq=after_seq,
+        limit=limit,
     )
     return BaseResponse(
-        success=True, code=200, msg="ok",
+        success=True,
+        code=200,
+        msg="ok",
         data=ExecutionEventsPageResponse(
             execution_id=execution_id,
             events=[
@@ -188,6 +199,7 @@ async def cancel_execution(
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[ExecutionSummary]:
     from app.services.execution_lifecycle_service import ExecutionLifecycleService
+
     lifecycle = ExecutionLifecycleService(db)
     execution = await lifecycle.cancel_execution(execution_id, str(current_user.id))
     if not execution:
@@ -196,7 +208,8 @@ async def cancel_execution(
         return BaseResponse(success=False, code=403, msg="Execution does not belong to this workspace", data=None)
     if execution.status in TERMINAL_EXECUTION_STATUSES and execution.error_code != "cancelled":
         return BaseResponse(
-            success=False, code=409,
+            success=False,
+            code=409,
             msg=f"Execution already in terminal state: {execution.status.value}",
             data=_to_summary(execution),
         )

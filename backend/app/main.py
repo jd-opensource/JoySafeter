@@ -21,9 +21,9 @@ from app.core.redis import RedisClient
 from app.core.settings import settings
 from app.websocket.auth import WebSocketCloseCode, authenticate_websocket, reject_websocket
 from app.websocket.chat_ws_handler import ChatWsHandler
+from app.websocket.execution_subscription_handler import execution_subscription_handler
 from app.websocket.notification_manager import NotificationType, notification_manager
 from app.websocket.openclaw_handler import openclaw_bridge_handler
-from app.websocket.execution_subscription_handler import execution_subscription_handler
 from app.websocket.run_subscription_handler import run_subscription_handler
 
 setup_logging()

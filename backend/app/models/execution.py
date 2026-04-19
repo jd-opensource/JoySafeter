@@ -10,7 +10,6 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
-from app.utils.datetime import utc_now
 
 from .base import BaseModel, TimestampMixin
 
@@ -26,11 +25,13 @@ class MissionExecutionStatus(str, enum.Enum):
     CANCELLED = "cancelled"
 
 
-TERMINAL_EXECUTION_STATUSES: frozenset[MissionExecutionStatus] = frozenset({
-    MissionExecutionStatus.COMPLETED,
-    MissionExecutionStatus.FAILED,
-    MissionExecutionStatus.CANCELLED,
-})
+TERMINAL_EXECUTION_STATUSES: frozenset[MissionExecutionStatus] = frozenset(
+    {
+        MissionExecutionStatus.COMPLETED,
+        MissionExecutionStatus.FAILED,
+        MissionExecutionStatus.CANCELLED,
+    }
+)
 
 
 class ExecutionSource(str, enum.Enum):

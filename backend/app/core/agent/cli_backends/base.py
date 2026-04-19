@@ -17,14 +17,16 @@ class CLIMessage:
 
 
 def build_control_response(request_id: str, behavior: str) -> str:
-    return json.dumps({
-        "type": "control_response",
-        "response": {
-            "subtype": "success",
-            "request_id": request_id,
-            "response": {"behavior": behavior},
-        },
-    })
+    return json.dumps(
+        {
+            "type": "control_response",
+            "response": {
+                "subtype": "success",
+                "request_id": request_id,
+                "response": {"behavior": behavior},
+            },
+        }
+    )
 
 
 @dataclass

@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from typing import Optional, Sequence
 
-from sqlalchemy import select, desc, asc, exists, literal
+from sqlalchemy import asc, desc, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.mission_comment import CommentAuthorType, MissionComment
@@ -38,9 +38,7 @@ class MissionCommentRepository(BaseRepository[MissionComment]):
         result = await self.db.execute(query.order_by(order).limit(limit))
         return result.scalars().all()
 
-    async def get_by_id_and_mission(
-        self, comment_id: uuid.UUID, mission_id: uuid.UUID
-    ) -> Optional[MissionComment]:
+    async def get_by_id_and_mission(self, comment_id: uuid.UUID, mission_id: uuid.UUID) -> Optional[MissionComment]:
         result = await self.db.execute(
             select(MissionComment).where(
                 MissionComment.id == comment_id,

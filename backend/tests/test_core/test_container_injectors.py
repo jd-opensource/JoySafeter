@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import uuid
-
 import pytest
 
 from app.core.agent.cli_backends.container_service import ContainerConfig, ContainerInfo
@@ -11,10 +9,10 @@ from app.core.agent.cli_backends.injectors import (
     RuntimeConfigInjector,
 )
 
-
 # ---------------------------------------------------------------------------
 # ContainerConfig / ContainerInfo data classes
 # ---------------------------------------------------------------------------
+
 
 def test_container_config_defaults():
     cfg = ContainerConfig()
@@ -46,8 +44,10 @@ def test_container_info():
 # RuntimeConfigInjector._build_claude_md (pure logic, no Docker needed)
 # ---------------------------------------------------------------------------
 
+
 class _FakeContainerService:
     """Stub that records exec calls without touching Docker."""
+
     def __init__(self):
         self.calls: list[tuple[str, list[str]]] = []
 
@@ -107,6 +107,7 @@ def test_build_claude_md_full():
 # ---------------------------------------------------------------------------
 # Async injector tests (using fake container service)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_credential_injector_build_env():

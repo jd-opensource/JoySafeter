@@ -37,9 +37,7 @@ class ExecutionRepository(BaseRepository[Execution]):
         return result.scalar_one_or_none()
 
     async def get_snapshot(self, execution_id: uuid.UUID) -> Optional[ExecutionSnapshot]:
-        result = await self.db.execute(
-            select(ExecutionSnapshot).where(ExecutionSnapshot.execution_id == execution_id)
-        )
+        result = await self.db.execute(select(ExecutionSnapshot).where(ExecutionSnapshot.execution_id == execution_id))
         return result.scalar_one_or_none()
 
     async def list_events_after(
@@ -78,13 +76,9 @@ class ExecutionRepository(BaseRepository[Execution]):
         result = await self.db.execute(query.order_by(desc(Execution.created_at)).limit(limit))
         return result.scalars().all()
 
-    async def list_children(
-        self, parent_execution_id: uuid.UUID
-    ) -> Sequence[Execution]:
+    async def list_children(self, parent_execution_id: uuid.UUID) -> Sequence[Execution]:
         result = await self.db.execute(
-            select(Execution)
-            .where(Execution.parent_execution_id == parent_execution_id)
-            .order_by(Execution.created_at)
+            select(Execution).where(Execution.parent_execution_id == parent_execution_id).order_by(Execution.created_at)
         )
         return result.scalars().all()
 
@@ -95,7 +89,11 @@ class ExecutionRepository(BaseRepository[Execution]):
         statuses: tuple[MissionExecutionStatus, ...] | None = None,
     ) -> Sequence[Execution]:
         if statuses is None:
-            statuses = (MissionExecutionStatus.QUEUED, MissionExecutionStatus.DISPATCHED, MissionExecutionStatus.RUNNING)
+            statuses = (
+                MissionExecutionStatus.QUEUED,
+                MissionExecutionStatus.DISPATCHED,
+                MissionExecutionStatus.RUNNING,
+            )
         result = await self.db.execute(
             select(Execution)
             .where(

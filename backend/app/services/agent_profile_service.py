@@ -54,9 +54,7 @@ class AgentProfileService:
         logger.info(f"Created agent profile: {profile.id} ({name})")
         return profile
 
-    async def get_profile(
-        self, profile_id: uuid.UUID, workspace_id: uuid.UUID
-    ) -> Optional[AgentProfile]:
+    async def get_profile(self, profile_id: uuid.UUID, workspace_id: uuid.UUID) -> Optional[AgentProfile]:
         return await self.repo.get_by_id_and_workspace(profile_id, workspace_id)
 
     async def list_profiles(
@@ -76,9 +74,7 @@ class AgentProfileService:
             )
         )
 
-    async def update_status(
-        self, profile_id: uuid.UUID, status: AgentStatus
-    ) -> Optional[AgentProfile]:
+    async def update_status(self, profile_id: uuid.UUID, status: AgentStatus) -> Optional[AgentProfile]:
         profile = await self.repo.get_for_update(profile_id)
         if not profile:
             return None
@@ -89,11 +85,7 @@ class AgentProfileService:
     async def find_available_agents(
         self, *, workspace_id: uuid.UUID, runtime_type: Optional[str] = None
     ) -> list[AgentProfile]:
-        return list(
-            await self.repo.find_available(
-                workspace_id=workspace_id, runtime_type=runtime_type
-            )
-        )
+        return list(await self.repo.find_available(workspace_id=workspace_id, runtime_type=runtime_type))
 
     async def update_profile(
         self,
@@ -105,9 +97,16 @@ class AgentProfileService:
         if not profile:
             return None
         allowed = {
-            "name", "description", "avatar", "instructions",
-            "skill_ids", "custom_env", "runtime_config",
-            "max_concurrent_tasks", "runtime_type", "visibility",
+            "name",
+            "description",
+            "avatar",
+            "instructions",
+            "skill_ids",
+            "custom_env",
+            "runtime_config",
+            "max_concurrent_tasks",
+            "runtime_type",
+            "visibility",
         }
         for key, value in kwargs.items():
             if key in allowed:
@@ -116,16 +115,16 @@ class AgentProfileService:
         await self.db.refresh(profile)
         return profile
 
-    async def delete_profile(
-        self, profile_id: uuid.UUID, workspace_id: uuid.UUID
-    ) -> bool:
+    async def delete_profile(self, profile_id: uuid.UUID, workspace_id: uuid.UUID) -> bool:
         profile = await self.repo.get_by_id_and_workspace(profile_id, workspace_id)
         if not profile:
             return False
 
         # Clear assignee on missions pointing to this agent
         from sqlalchemy import update
+
         from app.models.mission import Mission
+
         await self.db.execute(
             update(Mission)
             .where(Mission.assignee_id == profile_id, Mission.workspace_id == workspace_id)

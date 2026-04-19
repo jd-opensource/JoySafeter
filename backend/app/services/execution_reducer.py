@@ -26,8 +26,10 @@ _EMPTY_PROJECTION: dict[str, Any] = {
 
 def _shallow_copy_projection(projection: dict[str, Any] | None) -> dict[str, Any]:
     if projection is None:
-        return {k: (list(v) if isinstance(v, list) else dict(v) if isinstance(v, dict) else v)
-                for k, v in _EMPTY_PROJECTION.items()}
+        return {
+            k: (list(v) if isinstance(v, list) else dict(v) if isinstance(v, dict) else v)
+            for k, v in _EMPTY_PROJECTION.items()
+        }
     copied = dict(projection)
     # Shallow-copy mutable containers so appends don't mutate the original
     copied["messages"] = list(copied.get("messages") or [])
@@ -72,10 +74,12 @@ def apply_execution_event(
         if isinstance(msg, dict):
             next_proj["messages"].append(msg)
         elif isinstance(payload.get("content"), str):
-            next_proj["messages"].append({
-                "role": "assistant",
-                "content": payload["content"],
-            })
+            next_proj["messages"].append(
+                {
+                    "role": "assistant",
+                    "content": payload["content"],
+                }
+            )
         return next_proj
 
     if event_type == "content_delta":
@@ -83,9 +87,7 @@ def apply_execution_event(
         message_id = payload.get("message_id")
         if delta and next_proj["messages"]:
             last = next_proj["messages"][-1]
-            if last.get("role") == "assistant" and (
-                not message_id or last.get("id") == message_id
-            ):
+            if last.get("role") == "assistant" and (not message_id or last.get("id") == message_id):
                 # Copy the message dict before mutating to avoid aliasing
                 updated = dict(last)
                 updated["content"] = f"{last.get('content', '')}{delta}"
@@ -97,12 +99,14 @@ def apply_execution_event(
         if isinstance(tool, dict):
             next_proj["tool_calls"].append(tool)
         else:
-            next_proj["tool_calls"].append({
-                "name": payload.get("tool_name", ""),
-                "call_id": payload.get("call_id", ""),
-                "input": payload.get("input"),
-                "status": "running",
-            })
+            next_proj["tool_calls"].append(
+                {
+                    "name": payload.get("tool_name", ""),
+                    "call_id": payload.get("call_id", ""),
+                    "input": payload.get("input"),
+                    "status": "running",
+                }
+            )
         return next_proj
 
     if event_type == "tool_use_end":
@@ -130,10 +134,12 @@ def apply_execution_event(
 
     if event_type == "user_message":
         content = payload.get("content", "")
-        next_proj["messages"].append({
-            "role": "user",
-            "content": content,
-        })
+        next_proj["messages"].append(
+            {
+                "role": "user",
+                "content": content,
+            }
+        )
         return next_proj
 
     if event_type == "approval_requested":

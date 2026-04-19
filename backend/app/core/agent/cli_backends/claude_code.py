@@ -30,11 +30,15 @@ class ClaudeCodeProvider:
     ) -> RuntimeSession:
         cmd = [
             self.executable_path,
-            "--output-format", "stream-json",
-            "--input-format", "stream-json",
+            "--output-format",
+            "stream-json",
+            "--input-format",
+            "stream-json",
             "--verbose",
-            "--max-turns", "200",
-            "--permission-mode", "bypassPermissions" if auto_approve else "default",
+            "--max-turns",
+            "200",
+            "--permission-mode",
+            "bypassPermissions" if auto_approve else "default",
         ]
         if model:
             cmd.extend(["--model", model])
@@ -44,7 +48,10 @@ class ClaudeCodeProvider:
             cmd.extend(["--print", prompt])
 
         process = await self.bridge.exec_streaming(
-            container_id, cmd, env=env, workdir=cwd,
+            container_id,
+            cmd,
+            env=env,
+            workdir=cwd,
         )
 
         queue: asyncio.Queue[CLIMessage | None] = asyncio.Queue(maxsize=512)
@@ -123,27 +130,33 @@ class ClaudeCodeProvider:
             if not result_future.done():
                 exit_code = await process.wait()
                 if is_error:
-                    result_future.set_result(CLIResult(
-                        status="failed",
-                        output="\n".join(accumulated_text),
-                        error="\n".join(accumulated_text) or "Claude Code reported an error",
-                        session_id=session_id,
-                        usage=usage,
-                    ))
+                    result_future.set_result(
+                        CLIResult(
+                            status="failed",
+                            output="\n".join(accumulated_text),
+                            error="\n".join(accumulated_text) or "Claude Code reported an error",
+                            session_id=session_id,
+                            usage=usage,
+                        )
+                    )
                 elif exit_code == 0 or accumulated_text:
-                    result_future.set_result(CLIResult(
-                        status="completed",
-                        output="\n".join(accumulated_text),
-                        session_id=session_id,
-                        usage=usage,
-                    ))
+                    result_future.set_result(
+                        CLIResult(
+                            status="completed",
+                            output="\n".join(accumulated_text),
+                            session_id=session_id,
+                            usage=usage,
+                        )
+                    )
                 else:
                     stderr_bytes = await process.stderr.read() if process.stderr else b""
-                    result_future.set_result(CLIResult(
-                        status="failed",
-                        error=f"Exit code {exit_code}: {stderr_bytes.decode()[:2000]}",
-                        usage=usage,
-                    ))
+                    result_future.set_result(
+                        CLIResult(
+                            status="failed",
+                            error=f"Exit code {exit_code}: {stderr_bytes.decode()[:2000]}",
+                            usage=usage,
+                        )
+                    )
             await queue.put(None)
 
     def _parse_event(self, event: dict) -> list[CLIMessage]:
@@ -162,31 +175,37 @@ class ClaudeCodeProvider:
                 if block_type == "text":
                     messages.append(CLIMessage(type="text", content=block.get("text", "")))
                 elif block_type == "tool_use":
-                    messages.append(CLIMessage(
-                        type="tool_use",
-                        tool=block.get("name", ""),
-                        call_id=block.get("id", ""),
-                        input=block.get("input"),
-                    ))
+                    messages.append(
+                        CLIMessage(
+                            type="tool_use",
+                            tool=block.get("name", ""),
+                            call_id=block.get("id", ""),
+                            input=block.get("input"),
+                        )
+                    )
                 elif block_type == "thinking":
                     messages.append(CLIMessage(type="thinking", content=block.get("thinking", "")))
 
         elif event_type == "tool_result":
-            messages.append(CLIMessage(
-                type="tool_result",
-                tool=event.get("tool", ""),
-                call_id=event.get("call_id", ""),
-                output=str(event.get("output", ""))[:8192],
-            ))
+            messages.append(
+                CLIMessage(
+                    type="tool_result",
+                    tool=event.get("tool", ""),
+                    call_id=event.get("call_id", ""),
+                    output=str(event.get("output", ""))[:8192],
+                )
+            )
 
         elif event_type == "control_request":
             request = event.get("request", {})
-            messages.append(CLIMessage(
-                type="approval_request",
-                tool=request.get("tool_name", ""),
-                call_id=event.get("request_id", ""),
-                input=request.get("input"),
-                content=request.get("subtype", ""),
-            ))
+            messages.append(
+                CLIMessage(
+                    type="approval_request",
+                    tool=request.get("tool_name", ""),
+                    call_id=event.get("request_id", ""),
+                    input=request.get("input"),
+                    content=request.get("subtype", ""),
+                )
+            )
 
         return messages

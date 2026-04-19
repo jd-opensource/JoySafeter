@@ -8,7 +8,7 @@ from app.core.agent.cli_backends.base import CLIMessage, CLIResult, RuntimeSessi
 from app.core.agent.cli_backends.claude_code import ClaudeCodeProvider
 from app.core.agent.cli_backends.codex import CodexProvider
 from app.core.agent.cli_backends.openclaw import OpenClawProvider
-from app.core.agent.cli_backends.registry import RuntimeProviderRegistry, init_providers, runtime_registry
+from app.core.agent.cli_backends.registry import RuntimeProviderRegistry
 
 
 def test_cli_message_defaults():
@@ -161,12 +161,15 @@ async def test_runtime_session_cancel():
     future: asyncio.Future[CLIResult] = loop.create_future()
 
     cancelled = False
+
     async def mock_cancel():
         nonlocal cancelled
         cancelled = True
 
     session = RuntimeSession(
-        messages=queue, result=future, _cancel_fn=mock_cancel,
+        messages=queue,
+        result=future,
+        _cancel_fn=mock_cancel,
     )
     await session.cancel()
     assert cancelled
@@ -179,11 +182,14 @@ async def test_runtime_session_inject():
     future: asyncio.Future[CLIResult] = loop.create_future()
 
     injected = []
+
     async def mock_inject(msg: str):
         injected.append(msg)
 
     session = RuntimeSession(
-        messages=queue, result=future, _inject_fn=mock_inject,
+        messages=queue,
+        result=future,
+        _inject_fn=mock_inject,
     )
     await session.inject_message("hello agent")
     assert injected == ["hello agent"]

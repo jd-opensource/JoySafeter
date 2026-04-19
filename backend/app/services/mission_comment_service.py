@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import NotFoundException
 from app.models.execution import MissionExecutionStatus
-from app.models.mission import Mission, AssigneeType, MissionStatus
+from app.models.mission import AssigneeType, Mission, MissionStatus
 from app.models.mission_comment import CommentAuthorType, CommentType, MissionComment
 from app.repositories.mission import MissionRepository
 from app.repositories.mission_comment import MissionCommentRepository
@@ -72,6 +72,7 @@ class MissionCommentService:
             should_dispatch = self._should_enqueue_on_comment(mission)
 
             from app.utils.mentions import agent_mentions
+
             mentions = agent_mentions(content)
             seen: set[uuid.UUID] = set()
             for m in mentions:
@@ -98,11 +99,7 @@ class MissionCommentService:
         if cursor:
             cursor_dt = datetime.fromisoformat(cursor)
 
-        comments = list(
-            await self.repo.list_by_mission(
-                mission_id, cursor=cursor_dt, limit=limit + 1, order_asc=True
-            )
-        )
+        comments = list(await self.repo.list_by_mission(mission_id, cursor=cursor_dt, limit=limit + 1, order_asc=True))
 
         has_more = len(comments) > limit
         if has_more:
@@ -201,9 +198,7 @@ class MissionCommentService:
             # (the assignee is continuing conversational work).
             # Mention executions (non-assignee agents) still get auto-comments.
             if execution.trigger_comment_id:
-                mission = await self.mission_repo.get_by_id_and_workspace(
-                    execution.mission_id, execution.workspace_id
-                )
+                mission = await self.mission_repo.get_by_id_and_workspace(execution.mission_id, execution.workspace_id)
                 if mission and str(mission.assignee_id) == agent_id:
                     return None
             if execution.started_at:
@@ -234,8 +229,5 @@ class MissionCommentService:
         self.db.add(comment)
         await self.db.commit()
         await self.db.refresh(comment)
-        logger.info(
-            f"Auto-posted {comment_type.value} comment {comment.id} "
-            f"for execution {execution.id}"
-        )
+        logger.info(f"Auto-posted {comment_type.value} comment {comment.id} for execution {execution.id}")
         return comment

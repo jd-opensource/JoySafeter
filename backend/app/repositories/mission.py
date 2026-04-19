@@ -10,7 +10,7 @@ from typing import Optional, Sequence
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.mission import Mission, AssigneeType, MissionStatus
+from app.models.mission import AssigneeType, Mission, MissionStatus
 
 from .base import BaseRepository
 
@@ -19,9 +19,7 @@ class MissionRepository(BaseRepository[Mission]):
     def __init__(self, db: AsyncSession):
         super().__init__(Mission, db)
 
-    async def get_by_id_and_workspace(
-        self, mission_id: uuid.UUID, workspace_id: uuid.UUID
-    ) -> Optional[Mission]:
+    async def get_by_id_and_workspace(self, mission_id: uuid.UUID, workspace_id: uuid.UUID) -> Optional[Mission]:
         result = await self.db.execute(
             select(Mission).where(
                 Mission.id == mission_id,
@@ -58,9 +56,7 @@ class MissionRepository(BaseRepository[Mission]):
             query = query.where(Mission.assignee_id == assignee_id)
         if parent_mission_id:
             query = query.where(Mission.parent_mission_id == parent_mission_id)
-        result = await self.db.execute(
-            query.order_by(Mission.position.asc(), desc(Mission.created_at)).limit(limit)
-        )
+        result = await self.db.execute(query.order_by(Mission.position.asc(), desc(Mission.created_at)).limit(limit))
         return result.scalars().all()
 
     async def list_dispatchable(
@@ -78,7 +74,5 @@ class MissionRepository(BaseRepository[Mission]):
         )
         if workspace_id is not None:
             query = query.where(Mission.workspace_id == workspace_id)
-        result = await self.db.execute(
-            query.order_by(Mission.position.asc(), Mission.created_at.asc()).limit(limit)
-        )
+        result = await self.db.execute(query.order_by(Mission.position.asc(), Mission.created_at.asc()).limit(limit))
         return result.scalars().all()

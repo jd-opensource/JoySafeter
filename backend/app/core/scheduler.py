@@ -16,8 +16,8 @@ from app.core.agent.cli_backends.session_registry import session_registry
 from app.core.database import AsyncSessionLocal
 from app.models.execution import MissionExecutionStatus
 from app.repositories.execution import ExecutionRepository
-from app.services.execution_service import ExecutionService
 from app.services.execution_lifecycle_service import ExecutionLifecycleService
+from app.services.execution_service import ExecutionService
 from app.utils.datetime import utc_now
 
 _DISPATCH_INTERVAL = 30
@@ -89,7 +89,8 @@ async def _reap_stale_executions() -> int:
 
         for statuses, threshold in _STALE_THRESHOLDS:
             stale = await exec_repo.list_recoverable_stale(
-                statuses=statuses, stale_before=now - threshold,
+                statuses=statuses,
+                stale_before=now - threshold,
             )
             for execution in stale:
                 try:
@@ -105,9 +106,7 @@ async def _reap_stale_executions() -> int:
                     )
 
                     if execution.mission_id:
-                        await lifecycle._finalize_mission(
-                            execution.id, MissionExecutionStatus.FAILED
-                        )
+                        await lifecycle._finalize_mission(execution.id, MissionExecutionStatus.FAILED)
 
                     total += 1
                     logger.info(

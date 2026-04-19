@@ -45,15 +45,21 @@ class OpenClawProvider:
 
         cmd = [
             self.executable_path,
-            "agent", "--local", "--json",
-            "--session-id", session_id,
+            "agent",
+            "--local",
+            "--json",
+            "--session-id",
+            session_id,
         ]
         if model:
             cmd.extend(["--model", model])
         cmd.extend(["--message", prompt])
 
         process = await self.bridge.exec_streaming(
-            container_id, cmd, env=env, workdir=cwd,
+            container_id,
+            cmd,
+            env=env,
+            workdir=cwd,
         )
 
         queue: asyncio.Queue[CLIMessage | None] = asyncio.Queue(maxsize=512)
@@ -113,42 +119,52 @@ class OpenClawProvider:
 
         except TimeoutError:
             if not result_future.done():
-                result_future.set_result(CLIResult(
-                    status="timeout",
-                    error="OpenClaw agent timed out",
-                    session_id=session_id,
-                ))
+                result_future.set_result(
+                    CLIResult(
+                        status="timeout",
+                        error="OpenClaw agent timed out",
+                        session_id=session_id,
+                    )
+                )
         except Exception as e:
             logger.error(f"OpenClaw drain error: {e}")
             if not result_future.done():
-                result_future.set_result(CLIResult(
-                    status="failed",
-                    error=str(e),
-                    session_id=session_id,
-                ))
+                result_future.set_result(
+                    CLIResult(
+                        status="failed",
+                        error=str(e),
+                        session_id=session_id,
+                    )
+                )
         finally:
             if not result_future.done():
                 exit_code = await process.wait()
                 if final_status == "failed":
-                    result_future.set_result(CLIResult(
-                        status="failed",
-                        output="\n".join(accumulated_text),
-                        error=final_error,
-                        session_id=session_id,
-                    ))
+                    result_future.set_result(
+                        CLIResult(
+                            status="failed",
+                            output="\n".join(accumulated_text),
+                            error=final_error,
+                            session_id=session_id,
+                        )
+                    )
                 elif exit_code == 0 or accumulated_text:
-                    result_future.set_result(CLIResult(
-                        status="completed",
-                        output="\n".join(accumulated_text),
-                        session_id=session_id,
-                    ))
+                    result_future.set_result(
+                        CLIResult(
+                            status="completed",
+                            output="\n".join(accumulated_text),
+                            session_id=session_id,
+                        )
+                    )
                 else:
                     stdout_bytes = await process.stdout.read() if process.stdout else b""
-                    result_future.set_result(CLIResult(
-                        status="failed",
-                        error=f"Exit code {exit_code}: {stdout_bytes.decode()[:2000]}",
-                        session_id=session_id,
-                    ))
+                    result_future.set_result(
+                        CLIResult(
+                            status="failed",
+                            error=f"Exit code {exit_code}: {stdout_bytes.decode()[:2000]}",
+                            session_id=session_id,
+                        )
+                    )
             await queue.put(None)
 
     # ── event parsing (testable without Docker) ─────────────────────────
@@ -188,20 +204,24 @@ class OpenClawProvider:
                     input_data = json.loads(input_data)
                 except json.JSONDecodeError:
                     input_data = None
-            return [CLIMessage(
-                type="tool_use",
-                tool=event.get("tool", ""),
-                call_id=event.get("callId", ""),
-                input=input_data if isinstance(input_data, dict) else None,
-            )]
+            return [
+                CLIMessage(
+                    type="tool_use",
+                    tool=event.get("tool", ""),
+                    call_id=event.get("callId", ""),
+                    input=input_data if isinstance(input_data, dict) else None,
+                )
+            ]
 
         if event_type == "tool_result":
-            return [CLIMessage(
-                type="tool_result",
-                tool=event.get("tool", ""),
-                call_id=event.get("callId", ""),
-                output=event.get("text", ""),
-            )]
+            return [
+                CLIMessage(
+                    type="tool_result",
+                    tool=event.get("tool", ""),
+                    call_id=event.get("callId", ""),
+                    output=event.get("text", ""),
+                )
+            ]
 
         if event_type == "error":
             error_msg = _extract_error_message(event)

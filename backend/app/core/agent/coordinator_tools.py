@@ -1,9 +1,9 @@
 """LangGraph tools for Coordinator agents to spawn and manage CLI agents."""
+
 from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Optional
 
 from loguru import logger
 
