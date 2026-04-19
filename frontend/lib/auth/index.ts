@@ -6,7 +6,6 @@ export {
   signUp,
   signOut,
   authApi,
-  clearTokens,
 } from './auth-client'
 
 // CSRF Token management

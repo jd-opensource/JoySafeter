@@ -13,7 +13,6 @@ import {
   signUp,
   signOut,
   onSessionChange,
-  clearCsrfToken,
   type AuthUser,
   type AuthSession,
 } from './api-client'
@@ -91,11 +90,6 @@ export const client = {
 
 // ==================== Exports ====================
 export { signIn, signUp, signOut, authApi, onSessionChange }
-
-/** @deprecated Use clearCsrfToken instead */
-export function clearTokens(): void {
-  clearCsrfToken()
-}
 
 /**
  * useActiveOrganization placeholder
