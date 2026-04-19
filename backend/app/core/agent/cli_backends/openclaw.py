@@ -104,6 +104,7 @@ class OpenClawProvider:
         try:
             async with asyncio.timeout(timeout):
                 # OpenClaw writes JSON events to stderr
+                assert process.stderr is not None
                 async for raw_line in process.stderr:
                     line = raw_line.decode().strip()
                     if not line:
@@ -251,16 +252,16 @@ def _extract_error_message(event: dict) -> str:
     if isinstance(err_obj, dict):
         data = err_obj.get("data")
         if isinstance(data, dict) and data.get("message"):
-            return data["message"]
+            return str(data["message"])
         if err_obj.get("message"):
-            return err_obj["message"]
+            return str(err_obj["message"])
         if err_obj.get("name"):
-            return err_obj["name"]
+            return str(err_obj["name"])
 
     # Flat fields
     if event.get("text"):
-        return event["text"]
+        return str(event["text"])
     if event.get("message"):
-        return event["message"]
+        return str(event["message"])
 
     return "unknown openclaw error"

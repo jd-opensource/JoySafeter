@@ -17,6 +17,7 @@ from app.models.workspace import WorkspaceMemberRole
 from app.schemas import BaseResponse
 from app.schemas.execution import (
     ApproveActionRequest,
+    ExecutionEventResponse,
     ExecutionEventsPageResponse,
     ExecutionSnapshotResponse,
     InjectMessageRequest,
@@ -116,13 +117,22 @@ async def get_events(
     exec_id = await _get_current_execution_id(mission_id, workspace_id, db)
     svc = ExecutionService(db)
     events = list(await svc.repo.list_events_after(exec_id, after_seq=after_seq, limit=limit))
+    event_responses = [
+        ExecutionEventResponse(
+            seq=e.seq,
+            event_type=e.event_type,
+            payload=e.payload,
+            created_at=e.created_at,
+        )
+        for e in events
+    ]
     return BaseResponse(
         success=True,
         code=200,
         msg="ok",
         data=ExecutionEventsPageResponse(
             execution_id=exec_id,
-            events=events,
+            events=event_responses,
             next_after_seq=events[-1].seq if events else after_seq,
         ),
     )

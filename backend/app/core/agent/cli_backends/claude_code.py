@@ -93,6 +93,7 @@ class ClaudeCodeProvider:
 
         try:
             async with asyncio.timeout(timeout):
+                assert process.stdout is not None
                 async for raw_line in process.stdout:
                     line = raw_line.decode().strip()
                     if not line:

@@ -103,12 +103,14 @@ class ExecutionRunner:
                             f"[exec:{execution_id}] Pooled container {container.container_id[:12]} "
                             f"not running (status={status.strip()}), creating new one"
                         )
+                        assert agent_profile is not None
                         await container_pool.remove(agent_profile.id)
                         container = None
                         prior_session_id = None
                         pooled = False
                 except Exception as inspect_exc:
                     logger.warning(f"[exec:{execution_id}] Failed to inspect pooled container: {inspect_exc}")
+                    assert agent_profile is not None
                     await container_pool.remove(agent_profile.id)
                     container = None
                     prior_session_id = None
@@ -303,6 +305,7 @@ class ExecutionRunner:
                 if msg.type == "approval_request":
                     if self._auto_approve:
                         request_id = payload.get("request_id", "")
+                        assert self._session is not None
                         await self._session.inject_message(build_control_response(request_id, "allow"))
                         await self.execution_service.append_event(
                             execution_id=execution_id,

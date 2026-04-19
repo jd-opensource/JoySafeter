@@ -689,6 +689,7 @@ class MemoryManager:
         except Exception as e:
             logger.warning(f"Error storing memory in db: {e}")
             return f"Error adding memory: {e}"
+        return ""
 
     def _delete_db_memory(self, memory_id: str, user_id: Optional[str] = None) -> str:
         """Use this function to delete a memory from the database."""
@@ -707,6 +708,7 @@ class MemoryManager:
         except Exception as e:
             logger.warning(f"Error deleting memory in db: {e}")
             return f"Error deleting memory: {e}"
+        return ""
 
     # -*- Utility Functions
     def search_user_memories(

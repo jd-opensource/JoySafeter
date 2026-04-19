@@ -278,16 +278,16 @@ class ExecutionService:
 
         from app.websocket.execution_subscription_manager import execution_subscription_manager
 
-        for evt in results:
+        for saved_event in results:
             await execution_subscription_manager.broadcast_event(
                 str(execution_id),
                 {
                     "type": "event",
                     "execution_id": str(execution_id),
-                    "seq": evt.seq,
-                    "event_type": evt.event_type,
-                    "data": evt.payload,
-                    "created_at": str(evt.created_at),
+                    "seq": saved_event.seq,
+                    "event_type": saved_event.event_type,
+                    "data": saved_event.payload,
+                    "created_at": str(saved_event.created_at),
                 },
             )
 

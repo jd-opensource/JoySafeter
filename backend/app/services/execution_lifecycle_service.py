@@ -216,7 +216,7 @@ class ExecutionLifecycleService(RunnerCallbacks):
         except Exception as exc:
             logger.warning(f"Failed to cancel task {execution_id}: {exc}")
 
-        if execution.mission_id:
+        if execution and execution.mission_id:
             await self._finalize_mission(execution_id, MissionExecutionStatus.CANCELLED)
 
         return execution
@@ -409,6 +409,7 @@ class ExecutionLifecycleService(RunnerCallbacks):
         trigger_comment: Any,
         user_id: str,
     ) -> Optional[uuid.UUID]:
+        assert mission.assignee_id is not None
         agent = await self.agent_repo.get_by_id_and_workspace(mission.assignee_id, mission.workspace_id)
         if not agent:
             logger.warning(f"Agent {mission.assignee_id} not found, skipping enqueue")

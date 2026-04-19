@@ -42,6 +42,7 @@ class CodexProvider:
         timeout: int = 7200,
         resume_session_id: str | None = None,
         env: dict[str, str] | None = None,
+        auto_approve: bool = True,
     ) -> RuntimeSession:
         cmd = [self.executable_path, "app-server", "--listen", "stdio://"]
 
@@ -92,6 +93,7 @@ class CodexProvider:
         req_id = self._next_id
         msg = {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}
         line = json.dumps(msg) + "\n"
+        assert process.stdin is not None
         process.stdin.write(line.encode())
         await process.stdin.drain()
         return {"_pending_id": req_id}
@@ -103,6 +105,7 @@ class CodexProvider:
     ) -> None:
         msg = {"jsonrpc": "2.0", "method": method}
         line = json.dumps(msg) + "\n"
+        assert process.stdin is not None
         process.stdin.write(line.encode())
         await process.stdin.drain()
 
@@ -114,6 +117,7 @@ class CodexProvider:
     ) -> None:
         msg = {"jsonrpc": "2.0", "id": req_id, "result": result}
         line = json.dumps(msg) + "\n"
+        assert process.stdin is not None
         process.stdin.write(line.encode())
         await process.stdin.drain()
 
@@ -215,6 +219,7 @@ class CodexProvider:
                 init_id = self._next_id
 
                 # Read lines until we get the initialize response
+                assert process.stdout is not None
                 async for raw_line in process.stdout:
                     line = raw_line.decode().strip()
                     if not line:
@@ -244,6 +249,7 @@ class CodexProvider:
                 thread_start_id = self._next_id
                 thread_id = ""
 
+                assert process.stdout is not None
                 async for raw_line in process.stdout:
                     line = raw_line.decode().strip()
                     if not line:
@@ -275,6 +281,7 @@ class CodexProvider:
                 )
 
                 # 5. Read events until turn completes
+                assert process.stdout is not None
                 async for raw_line in process.stdout:
                     line = raw_line.decode().strip()
                     if not line:
