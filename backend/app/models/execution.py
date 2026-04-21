@@ -72,9 +72,9 @@ class Execution(BaseModel):
         ForeignKey("missions.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # TODO: Phase 4 will rename this column to agent_id and reference the new agents table
     agent_profile_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("agent_profiles.id", ondelete="SET NULL"),
         nullable=True,
     )
     parent_execution_id: Mapped[Optional[uuid.UUID]] = mapped_column(
@@ -110,7 +110,6 @@ class Execution(BaseModel):
     __table_args__ = (
         Index("executions_workspace_status_idx", "workspace_id", "status"),
         Index("executions_mission_idx", "mission_id"),
-        Index("executions_agent_profile_idx", "agent_profile_id"),
         Index("executions_parent_idx", "parent_execution_id"),
         Index("executions_user_created_idx", "user_id", "created_at"),
         Index("executions_trigger_comment_idx", "trigger_comment_id"),

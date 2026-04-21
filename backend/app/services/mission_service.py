@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import BadRequestException, ConflictException, NotFoundException
 from app.models.mission import AssigneeType, Mission, MissionPriority, MissionStatus
-from app.repositories.agent_profile import AgentProfileRepository
 from app.repositories.mission import MissionRepository
 
 
@@ -24,7 +23,6 @@ class MissionService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.repo = MissionRepository(db)
-        self.agent_repo = AgentProfileRepository(db)
 
     async def create_mission(
         self,
@@ -163,14 +161,13 @@ class MissionService:
         workspace_id: uuid.UUID,
         agent_profile_id: uuid.UUID,
     ) -> Mission:
-        """Assign a mission to an agent profile and move it to TODO status."""
+        """Assign a mission to an agent and move it to TODO status.
+
+        TODO: Phase 4 will validate agent_profile_id against the new Agent model.
+        """
         mission = await self.repo.get_for_update(mission_id, workspace_id)
         if not mission:
             raise NotFoundException(f"Mission not found: {mission_id}")
-
-        agent = await self.agent_repo.get_by_id_and_workspace(agent_profile_id, workspace_id)
-        if not agent:
-            raise NotFoundException(f"Agent profile not found: {agent_profile_id}")
 
         mission.assignee_type = AssigneeType.AGENT
         mission.assignee_id = agent_profile_id

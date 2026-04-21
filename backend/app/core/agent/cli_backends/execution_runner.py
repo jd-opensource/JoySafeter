@@ -33,10 +33,16 @@ from app.core.agent.cli_backends.injectors import (
 from app.core.agent.cli_backends.registry import runtime_registry
 from app.core.agent.cli_backends.runner_callbacks import RunnerCallbacks
 from app.core.agent.cli_backends.session_registry import session_registry
-from app.models.agent_profile import AgentProfile, AgentStatus
+# TODO: Phase 4 rewrite
+# from app.models.agent_profile import AgentProfile, AgentStatus
 from app.models.execution import Execution, MissionExecutionStatus
-from app.repositories.agent_profile import AgentProfileRepository
+# TODO: Phase 4 rewrite
+# from app.repositories.agent_profile import AgentProfileRepository
 from app.services.execution_service import ExecutionService
+
+# Placeholder types for Phase 4 rewrite
+AgentProfile = None
+AgentStatus = type("AgentStatus", (), {"WORKING": "working", "IDLE": "idle", "ERROR": "error"})()
 
 
 class ExecutionRunner:
@@ -50,7 +56,7 @@ class ExecutionRunner:
     ):
         self.db = db
         self.execution_service = ExecutionService(db)
-        self.agent_repo = AgentProfileRepository(db)
+        self.agent_repo = None  # TODO: Phase 4 rewrite — was AgentProfileRepository(db)
         self.container_service = container_service or CLIContainerService()
         self.callbacks = callbacks
         self._auto_approve: bool = True
@@ -227,10 +233,9 @@ class ExecutionRunner:
             raise ValueError(f"Execution not found: {execution_id}")
         return execution
 
-    async def _get_agent_profile(self, execution: Execution) -> Optional[AgentProfile]:
-        if not execution.agent_profile_id:
-            return None
-        return await self.agent_repo.get(execution.agent_profile_id)
+    async def _get_agent_profile(self, execution: Execution) -> None:  # TODO: Phase 4 rewrite
+        # agent_profile_id column remains as a bare UUID; actual profile lookup removed
+        return None
 
     async def _get_mission_auto_approve(self, execution: Execution) -> bool:
         if not execution.mission_id:
@@ -248,7 +253,7 @@ class ExecutionRunner:
         *,
         container_id: str,
         skills: Optional[list[dict[str, Any]]],
-        agent_profile: Optional[AgentProfile],
+        agent_profile: None,  # TODO: Phase 4 rewrite — was Optional[AgentProfile]
         working_dir: str,
     ) -> None:
         skill_injector = CLISkillInjector(self.container_service)
@@ -341,7 +346,7 @@ class ExecutionRunner:
         self,
         execution_id: uuid.UUID,
         result: CLIResult,
-        agent_profile: Optional[AgentProfile],
+        agent_profile: None,  # TODO: Phase 4 rewrite — was Optional[AgentProfile]
     ) -> None:
         if result.status == "completed":
             status = MissionExecutionStatus.COMPLETED
@@ -378,7 +383,7 @@ class ExecutionRunner:
         self,
         execution_id: uuid.UUID,
         error: str,
-        agent_profile: Optional[AgentProfile],
+        agent_profile: None,  # TODO: Phase 4 rewrite — was Optional[AgentProfile]
     ) -> None:
         try:
             await self.execution_service.append_event(
@@ -403,14 +408,8 @@ class ExecutionRunner:
             except Exception as exc:
                 logger.warning(f"Callback on_execution_failed failed for {execution_id}: {exc}")
 
-    async def _update_agent_status(self, agent_profile: AgentProfile, status: AgentStatus) -> None:
-        try:
-            profile = await self.agent_repo.get_for_update(agent_profile.id)
-            if profile:
-                profile.status = status
-                await self.db.commit()
-        except Exception as exc:
-            logger.warning(f"Failed to update agent status: {exc}")
+    async def _update_agent_status(self, agent_profile: Any, status: Any) -> None:  # TODO: Phase 4 rewrite
+        pass  # agent_profile is always None until Phase 4
 
     async def _cleanup_container(self, container_id: str) -> None:
         try:

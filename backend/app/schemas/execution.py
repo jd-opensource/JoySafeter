@@ -1,5 +1,5 @@
 """
-Pydantic schemas for Mission, AgentProfile, and Execution APIs.
+Pydantic schemas for Mission and Execution APIs.
 """
 
 from __future__ import annotations
@@ -76,59 +76,6 @@ class MissionSummary(BaseModel):
 
 class MissionListResponse(BaseModel):
     items: list[MissionSummary]
-
-
-# ---------------------------------------------------------------------------
-# AgentProfile
-# ---------------------------------------------------------------------------
-
-
-class CreateAgentProfileRequest(BaseModel):
-    workspace_id: uuid.UUID
-    name: str = Field(..., max_length=255)
-    runtime_type: str = Field(..., max_length=50)
-    description: Optional[str] = None
-    avatar: Optional[str] = None
-    instructions: Optional[str] = None
-    skill_ids: Optional[list[str]] = None
-    custom_env: Optional[dict[str, Any]] = None
-    runtime_config: Optional[dict[str, Any]] = None
-    max_concurrent_tasks: int = 1
-
-
-class UpdateAgentProfileRequest(BaseModel):
-    name: Optional[str] = Field(None, max_length=255)
-    description: Optional[str] = None
-    avatar: Optional[str] = None
-    instructions: Optional[str] = None
-    skill_ids: Optional[list[str]] = None
-    custom_env: Optional[dict[str, Any]] = None
-    runtime_config: Optional[dict[str, Any]] = None
-    max_concurrent_tasks: Optional[int] = None
-    runtime_type: Optional[str] = None
-    visibility: Optional[str] = None
-
-
-class AgentProfileSummary(BaseModel):
-    id: uuid.UUID
-    workspace_id: uuid.UUID
-    name: str
-    runtime_type: str
-    status: str
-    description: Optional[str] = None
-    avatar: Optional[str] = None
-    instructions: Optional[str] = None
-    skill_ids: Optional[list[str]] = None
-    has_custom_env: bool = False
-    runtime_config: Optional[dict[str, Any]] = None
-    visibility: str = "workspace"
-    max_concurrent_tasks: int
-    created_at: datetime
-    updated_at: datetime
-
-
-class AgentProfileListResponse(BaseModel):
-    items: list[AgentProfileSummary]
 
 
 # ---------------------------------------------------------------------------

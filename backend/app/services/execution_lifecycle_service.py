@@ -31,7 +31,7 @@ from app.models.execution import (
     Execution as ExecModel,
 )
 from app.models.mission import AssigneeType, Mission, MissionStatus
-from app.repositories.agent_profile import AgentProfileRepository
+from app.repositories.agent import AgentRepository
 from app.repositories.mission import MissionRepository
 from app.services.execution_service import ExecutionService
 from app.utils.credentials import build_credentials
@@ -98,7 +98,7 @@ class ExecutionLifecycleService(RunnerCallbacks):
         self.db = db
         self.execution_service = ExecutionService(db)
         self.mission_repo = MissionRepository(db)
-        self.agent_repo = AgentProfileRepository(db)
+        self.agent_repo = AgentRepository(db)
 
     # ------------------------------------------------------------------
     # RunnerCallbacks implementation

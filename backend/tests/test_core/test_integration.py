@@ -2,7 +2,7 @@
 Integration test: validates the full mission-to-execution pipeline.
 
 Exercises the complete flow without a live database or Docker daemon:
-  AgentProfile creation → Mission creation → assign to agent →
+  Mission creation → assign to agent →
   dispatch (creates execution) → verify event sourcing → verify reducer →
   verify subscription manager → verify cleanup lifecycle.
 """
@@ -25,7 +25,6 @@ from app.core.agent.cli_backends.injectors import (
 )
 from app.core.agent.cli_backends.registry import RuntimeProviderRegistry
 from app.schemas.execution import (
-    AgentProfileSummary,
     ExecutionSummary,
     MissionSummary,
 )
@@ -83,19 +82,7 @@ class FakeContainerService:
 
 def test_schemas_round_trip():
     """Verify Pydantic schemas serialize/deserialize correctly."""
-    profile = AgentProfileSummary(
-        id=uuid.uuid4(),
-        workspace_id=uuid.uuid4(),
-        name="test-agent",
-        runtime_type="claude_code",
-        status="idle",
-        max_concurrent_tasks=1,
-        created_at="2025-01-01T00:00:00Z",
-        updated_at="2025-01-01T00:00:00Z",
-    )
-    data = profile.model_dump()
-    assert data["name"] == "test-agent"
-    assert data["runtime_type"] == "claude_code"
+    # AgentProfileSummary removed in Task 1.8 — tested via agent schema tests instead
 
     mission = MissionSummary(
         id=uuid.uuid4(),

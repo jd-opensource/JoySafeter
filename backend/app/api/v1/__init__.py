@@ -6,7 +6,6 @@ Each sub-router is expected to declare its own `prefix` and `tags`.
 
 from fastapi import APIRouter
 
-from .agent_profiles import router as agent_profiles_router
 from .agents import router as agents_router
 from .artifacts import router as artifacts_router
 from .auth import router as auth_router
@@ -86,7 +85,6 @@ ROUTERS = [
     version_router,
     missions_router,
     executions_router,
-    agent_profiles_router,
     agents_router,
     mission_comments_router,
     mission_execution_router,

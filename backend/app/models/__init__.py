@@ -12,7 +12,6 @@ from .access_control import (
     WorkspaceInvitation,
     WorkspaceInvitationStatus,
 )
-from .agent_profile import AgentProfile, AgentStatus
 from .agent_run import AgentRun, AgentRunEvent, AgentRunSnapshot, AgentRunStatus
 from .auth import AuthSession, AuthUser
 from .auth import AuthUser as User
@@ -116,8 +115,6 @@ __all__ = [
     "MissionPriority",
     "Agent",
     "AgentVersion",
-    "AgentProfile",
-    "AgentStatus",
     "Execution",
     "ExecutionEvent",
     "ExecutionSnapshot",
