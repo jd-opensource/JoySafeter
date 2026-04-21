@@ -5,7 +5,7 @@ Data models
 from app.models.conversation import Conversation
 from app.models.message import Message
 
-from .agent import Agent, AgentVersion
+from .agent import Agent, AgentRelease, AgentVersion
 from .access_control import (
     Permission,
     PermissionType,
@@ -114,6 +114,7 @@ __all__ = [
     "MissionStatus",
     "MissionPriority",
     "Agent",
+    "AgentRelease",
     "AgentVersion",
     "Execution",
     "ExecutionEvent",

@@ -39,7 +39,7 @@ class Agent(BaseModel):
         UUID(as_uuid=True), ForeignKey("agent_versions.id"), nullable=True
     )
     active_release_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), nullable=True
+        UUID(as_uuid=True), ForeignKey("agent_releases.id"), nullable=True
     )
     created_by: Mapped[str] = mapped_column(
         String(255), ForeignKey("user.id", ondelete="SET NULL"), nullable=False
@@ -54,6 +54,10 @@ class Agent(BaseModel):
     current_draft_version: Mapped[Optional[AgentVersion]] = relationship(
         "AgentVersion",
         foreign_keys=[current_draft_version_id],
+    )
+    active_release: Mapped[Optional[AgentRelease]] = relationship(
+        "AgentRelease",
+        foreign_keys=[active_release_id],
     )
 
 
@@ -91,3 +95,27 @@ class AgentVersion(Base):
         back_populates="versions",
         foreign_keys=[agent_id],
     )
+
+
+class AgentRelease(Base):
+    """A release artifact built from a specific agent version."""
+
+    __tablename__ = "agent_releases"
+    __table_args__ = (
+        UniqueConstraint("agent_version_id", "release_number", name="uq_agent_releases_version_number"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_versions.id"), nullable=False)
+    release_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="building")
+    runtime_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    builder_kind: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    executable_ref: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    runtime_binding: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    published_by: Mapped[Optional[str]] = mapped_column(String(255), ForeignKey("user.id"), nullable=True)
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    retired_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    version: Mapped[AgentVersion] = relationship("AgentVersion")
