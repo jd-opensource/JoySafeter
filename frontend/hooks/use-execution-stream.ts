@@ -58,7 +58,10 @@ export function useExecutionStream({
       payload: frame.payload,
       created_at: frame.created_at,
     }
-    setEvents((prev) => [...prev, newEvent])
+    setEvents((prev) => {
+      if (prev.some((e) => e.seq === newEvent.seq)) return prev
+      return [...prev, newEvent]
+    })
     failCountRef.current = 0
   }, [])
 

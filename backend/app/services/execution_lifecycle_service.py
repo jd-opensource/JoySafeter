@@ -216,10 +216,36 @@ class ExecutionLifecycleService(RunnerCallbacks):
         except Exception as exc:
             logger.warning(f"Failed to cancel task {execution_id}: {exc}")
 
+        # Force-remove the Docker container so it doesn't linger
+        await self._destroy_execution_container(execution)
+
         if execution and execution.mission_id:
             await self._finalize_mission(execution_id, MissionExecutionStatus.CANCELLED)
 
         return execution
+
+    async def _destroy_execution_container(self, execution: Any) -> None:
+        """Force-remove the Docker container associated with an execution."""
+        from app.core.agent.cli_backends.container_pool import container_pool
+        from app.core.agent.cli_backends.container_service import CLIContainerService
+
+        # If the execution has an agent_profile, remove via pool (handles both pool bookkeeping and docker rm)
+        if execution.agent_profile_id:
+            try:
+                await container_pool.remove(execution.agent_profile_id)
+                logger.info(f"Removed pooled container for agent {execution.agent_profile_id} (execution {execution.id})")
+                return
+            except Exception as exc:
+                logger.warning(f"Failed to remove pooled container for agent {execution.agent_profile_id}: {exc}")
+
+        # Fallback: remove by container_id directly
+        if execution.container_id:
+            try:
+                svc = CLIContainerService()
+                await svc.remove_container(execution.container_id, force=True)
+                logger.info(f"Removed container {execution.container_id[:12]} for execution {execution.id}")
+            except Exception as exc:
+                logger.warning(f"Failed to remove container {execution.container_id[:12]}: {exc}")
 
     async def cancel_mission(
         self,
@@ -255,6 +281,11 @@ class ExecutionLifecycleService(RunnerCallbacks):
                 await task_manager.cancel_task(str(exec_id))
             except Exception as exc:
                 logger.warning(f"Failed to cancel task {exec_id}: {exc}")
+
+            # Force-remove the Docker container
+            execution = await self.execution_service.get_execution_internal(exec_id)
+            if execution:
+                await self._destroy_execution_container(execution)
 
         mission.status = MissionStatus.CANCELLED
         mission.current_execution_id = None

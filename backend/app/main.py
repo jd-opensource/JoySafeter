@@ -2,6 +2,11 @@
 FastAPI Main Application
 """
 
+from dotenv import load_dotenv
+from app.core.settings import ENV_FILE
+
+load_dotenv(ENV_FILE, override=False)
+
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone

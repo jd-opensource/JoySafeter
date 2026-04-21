@@ -216,7 +216,7 @@ export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = 
             <Loader2 className="h-5 w-5 animate-spin text-[var(--text-muted)]" />
           </div>
         ) : (
-          events.map((event) => <ExecutionEventItem key={event.id} event={event} onApprove={(id) => handleApproveOrReject(id, true)} onReject={(id) => handleApproveOrReject(id, false)} disabled={actionsDisabled} isPendingApproval={event.id === pendingApprovalEventId} />)
+          events.map((event) => <ExecutionEventItem key={`${event.execution_id}-${event.seq}`} event={event} onApprove={(id) => handleApproveOrReject(id, true)} onReject={(id) => handleApproveOrReject(id, false)} disabled={actionsDisabled} isPendingApproval={event.id === pendingApprovalEventId} />)
         )}
       </div>
 
