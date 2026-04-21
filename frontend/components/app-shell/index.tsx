@@ -39,9 +39,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen bg-[var(--bg)]">
       <div
         style={{
-          width: isAppSidebarCollapsed
-            ? 'var(--sidebar-width-collapsed)'
-            : 'var(--sidebar-width)',
+          width: isAppSidebarCollapsed ? 'var(--sidebar-width-collapsed)' : 'var(--sidebar-width)',
         }}
         className="flex-shrink-0 overflow-hidden transition-all duration-300 ease-in-out"
       >

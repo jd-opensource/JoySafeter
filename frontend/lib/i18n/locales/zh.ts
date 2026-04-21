@@ -990,7 +990,8 @@ const zh = {
       baseUrl: '基础 URL',
       endpoint: '端点',
       authentication: '认证',
-      authenticationDescription: '在 {{header}} HTTP 请求头中以 Bearer Token 的形式包含您的 API Token 来认证 API 请求。',
+      authenticationDescription:
+        '在 {{header}} HTTP 请求头中以 Bearer Token 的形式包含您的 API Token 来认证 API 请求。',
       exampleRequest: '请求示例',
       viewFullApiDocs: '查看完整 API 文档',
       copy: '复制',

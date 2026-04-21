@@ -4,20 +4,13 @@ import { Plus } from 'lucide-react'
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 
 import { Button } from '@/components/ui/button'
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from '@/components/ui/resizable'
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { useSkillCollaborators } from '@/hooks/queries/skillCollaborators'
 import { useCreateSkill, useUpdateSkill } from '@/hooks/queries/skills'
 import { useToast } from '@/hooks/use-toast'
 import { useSession } from '@/lib/auth/auth-client'
 import { useTranslation } from '@/lib/i18n'
-import {
-  generateSkillMd,
-  parseSkillMd,
-} from '@/services/skillService'
+import { generateSkillMd, parseSkillMd } from '@/services/skillService'
 import { SkillFile } from '@/types'
 import { getSkillValidationMessage } from '@/lib/utils/skillValidationI18n'
 
@@ -318,7 +311,12 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
     <div className="flex h-full w-full overflow-hidden bg-[var(--bg)] text-[var(--text-primary)]">
       <ResizablePanelGroup direction="horizontal">
         {/* 1. List Sidebar */}
-        <ResizablePanel defaultSize={20} minSize={15} maxSize={40} className="flex shrink-0 flex-col bg-[var(--surface-1)]">
+        <ResizablePanel
+          defaultSize={20}
+          minSize={15}
+          maxSize={40}
+          className="flex shrink-0 flex-col bg-[var(--surface-1)]"
+        >
           <SkillListSidebar
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
@@ -333,12 +331,20 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
         <ResizableHandle withHandle />
 
         {/* 2. File Explorer & Editor */}
-        <ResizablePanel defaultSize={80} className="flex flex-col bg-[var(--surface-2)] outline-none">
+        <ResizablePanel
+          defaultSize={80}
+          className="flex flex-col bg-[var(--surface-2)] outline-none"
+        >
           <div className="flex flex-1 overflow-hidden">
             {selectedSkill || formData.name ? (
               <ResizablePanelGroup direction="horizontal">
                 {/* Hierarchical File Explorer */}
-                <ResizablePanel defaultSize={20} minSize={10} maxSize={30} className="flex shrink-0 flex-col border-r border-[var(--border-muted)] bg-[var(--surface-2)]">
+                <ResizablePanel
+                  defaultSize={20}
+                  minSize={10}
+                  maxSize={30}
+                  className="flex shrink-0 flex-col border-r border-[var(--border-muted)] bg-[var(--surface-2)]"
+                >
                   <div className="flex items-center justify-between border-b border-[var(--border-muted)] p-3">
                     <span className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">
                       {t('skills.workspace') || 'Workspace'}
@@ -366,7 +372,10 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                 <ResizableHandle withHandle />
 
                 {/* Editor Area */}
-                <ResizablePanel defaultSize={80} className="flex min-w-0 flex-col bg-[var(--surface-2)] outline-none">
+                <ResizablePanel
+                  defaultSize={80}
+                  className="flex min-w-0 flex-col bg-[var(--surface-2)] outline-none"
+                >
                   <EditorHeader
                     skillName={formData.name}
                     activeFilePath={activeFilePath}
@@ -448,8 +457,8 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
               description: frontmatter.description || '',
               license: frontmatter.license || '',
               content:
-                parseSkillMd(skillFiles.find((f) => f.path === 'SKILL.md')?.content || '')
-                  .body || '',
+                parseSkillMd(skillFiles.find((f) => f.path === 'SKILL.md')?.content || '').body ||
+                '',
               source_type: 'local',
               tags: frontmatter.tags || [],
               is_public: false,

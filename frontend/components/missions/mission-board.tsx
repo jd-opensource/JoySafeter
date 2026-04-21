@@ -15,7 +15,11 @@ import { useCallback, useMemo, useState } from 'react'
 import { useUpdateMission, useMissionTransitions } from '@/hooks/queries/missions'
 import { toastError } from '@/lib/utils/toast'
 import type { Mission, MissionStatus } from '@/types/missions'
-import { DEFAULT_MANUAL_TRANSITIONS, MISSION_STATUS_ORDER, TERMINAL_MISSION_STATUSES } from '@/types/missions'
+import {
+  DEFAULT_MANUAL_TRANSITIONS,
+  MISSION_STATUS_ORDER,
+  TERMINAL_MISSION_STATUSES,
+} from '@/types/missions'
 
 import { MissionCard } from './mission-card'
 import { MissionColumn } from './mission-column'
@@ -27,15 +31,18 @@ interface MissionBoardProps {
   onSelectMission?: (id: string) => void
 }
 
-export function MissionBoard({ missions, workspaceId, agentsMap, onSelectMission }: MissionBoardProps) {
+export function MissionBoard({
+  missions,
+  workspaceId,
+  agentsMap,
+  onSelectMission,
+}: MissionBoardProps) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const updateMission = useUpdateMission()
   const { data: transitions } = useMissionTransitions(workspaceId)
   const effectiveTransitions = transitions ?? DEFAULT_MANUAL_TRANSITIONS
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-  )
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   const grouped = useMemo(() => {
     const map: Record<MissionStatus, Mission[]> = {

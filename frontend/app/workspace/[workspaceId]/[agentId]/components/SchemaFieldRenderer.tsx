@@ -76,7 +76,9 @@ const SchemaFieldRenderer = React.memo(function SchemaFieldRenderer({
         <div
           className={cn(
             'flex cursor-pointer select-none items-center justify-between rounded-lg border p-2 transition-all',
-            value ? 'border-[var(--brand-200)] bg-[var(--brand-50)]' : 'border-[var(--border)] bg-[var(--surface-2)]',
+            value
+              ? 'border-[var(--brand-200)] bg-[var(--brand-50)]'
+              : 'border-[var(--border)] bg-[var(--surface-2)]',
           )}
           onClick={() => onChange(!value)}
         >
@@ -86,7 +88,9 @@ const SchemaFieldRenderer = React.memo(function SchemaFieldRenderer({
           <div
             className={cn(
               'relative h-4 w-7 rounded-full border transition-all',
-              value ? 'border-[var(--brand-600)] bg-[var(--brand-500)]' : 'border-[var(--border-strong)] bg-[var(--surface-3)]',
+              value
+                ? 'border-[var(--brand-600)] bg-[var(--brand-500)]'
+                : 'border-[var(--border-strong)] bg-[var(--surface-3)]',
             )}
           >
             <div
@@ -111,11 +115,7 @@ const SchemaFieldRenderer = React.memo(function SchemaFieldRenderer({
       break
     case 'textarea': {
       // Check if variable input support is needed (for expression fields)
-      const needsVariableSupport = [
-        'expression',
-        'prompt',
-        'template',
-      ].includes(schema.key)
+      const needsVariableSupport = ['expression', 'prompt', 'template'].includes(schema.key)
 
       if (needsVariableSupport && nodes && edges && currentNodeId) {
         input = (
@@ -219,7 +219,9 @@ const SchemaFieldRenderer = React.memo(function SchemaFieldRenderer({
       </Label>
       {input}
       {schema.description && (
-        <p className="text-xs italic leading-tight text-[var(--text-muted)]">{schema.description}</p>
+        <p className="text-xs italic leading-tight text-[var(--text-muted)]">
+          {schema.description}
+        </p>
       )}
     </div>
   )

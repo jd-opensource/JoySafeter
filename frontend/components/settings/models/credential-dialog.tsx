@@ -49,7 +49,7 @@ export function CredentialDialog({
       }
       setFields(initial)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, formFields])
 
   const isDirty = useMemo(() => {
@@ -62,9 +62,8 @@ export function CredentialDialog({
     return false
   }, [fields, formFields, existingCredential])
 
-  const canSubmit = isDirty && formFields
-    .filter((f) => f.required)
-    .every((f) => fields[f.key]?.trim())
+  const canSubmit =
+    isDirty && formFields.filter((f) => f.required).every((f) => fields[f.key]?.trim())
 
   const handleSave = async () => {
     const credentials: Record<string, string> = {}
@@ -84,7 +83,8 @@ export function CredentialDialog({
       toast({
         variant: 'destructive',
         title: 'Failed to save credential',
-        description: err instanceof Error ? err.message : 'Please check credential info and try again',
+        description:
+          err instanceof Error ? err.message : 'Please check credential info and try again',
       })
     }
   }
@@ -113,14 +113,12 @@ export function CredentialDialog({
           <div key={field.key} className="space-y-1.5">
             <Label htmlFor={field.key}>
               {field.title}
-              {field.required && <span className="text-destructive ml-1">*</span>}
+              {field.required && <span className="ml-1 text-destructive">*</span>}
             </Label>
             {field.enum ? (
               <Select
                 value={fields[field.key] || ''}
-                onValueChange={(val) =>
-                  setFields((f) => ({ ...f, [field.key]: val }))
-                }
+                onValueChange={(val) => setFields((f) => ({ ...f, [field.key]: val }))}
               >
                 <SelectTrigger>
                   <SelectValue placeholder={`Select ${field.title}`} />
@@ -144,9 +142,7 @@ export function CredentialDialog({
                 }
                 placeholder={field.description}
                 value={fields[field.key] ?? ''}
-                onChange={(e) =>
-                  setFields((f) => ({ ...f, [field.key]: e.target.value }))
-                }
+                onChange={(e) => setFields((f) => ({ ...f, [field.key]: e.target.value }))}
               />
             )}
             {field.description && !field.enum && (

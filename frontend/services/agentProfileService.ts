@@ -5,7 +5,9 @@ import type { AgentProfile, CreateAgentRequest, UpdateAgentRequest } from '@/typ
 
 export const agentProfileService = {
   list: async (workspaceId: string): Promise<AgentProfile[]> => {
-    const res = await apiGet<{ items: AgentProfile[] }>(`agent-profiles?workspace_id=${workspaceId}`)
+    const res = await apiGet<{ items: AgentProfile[] }>(
+      `agent-profiles?workspace_id=${workspaceId}`,
+    )
     return res?.items ?? []
   },
 
@@ -17,7 +19,11 @@ export const agentProfileService = {
     return apiPost<AgentProfile>('agent-profiles', data)
   },
 
-  update: async (agentId: string, workspaceId: string, data: UpdateAgentRequest): Promise<AgentProfile> => {
+  update: async (
+    agentId: string,
+    workspaceId: string,
+    data: UpdateAgentRequest,
+  ): Promise<AgentProfile> => {
     return apiPatch<AgentProfile>(`agent-profiles/${agentId}?workspace_id=${workspaceId}`, data)
   },
 

@@ -11,7 +11,11 @@ import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/utils/runHelpers'
 import type { Execution } from '@/types/executions'
-import { ACTIVE_EXECUTION_STATUSES, EXECUTION_STATUS_STYLES, EXECUTION_STATUS_I18N } from '@/types/executions'
+import {
+  ACTIVE_EXECUTION_STATUSES,
+  EXECUTION_STATUS_STYLES,
+  EXECUTION_STATUS_I18N,
+} from '@/types/executions'
 
 interface ExecutionRowProps {
   execution: Execution
@@ -66,7 +70,10 @@ export function ExecutionRow({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className={cn('text-xs', EXECUTION_STATUS_STYLES[execution.status])}>
+            <Badge
+              variant="outline"
+              className={cn('text-xs', EXECUTION_STATUS_STYLES[execution.status])}
+            >
               {t(EXECUTION_STATUS_I18N[execution.status])}
             </Badge>
             {missionTitle && execution.mission_id && (
@@ -84,7 +91,10 @@ export function ExecutionRow({
               </span>
             )}
             {agentName && (
-              <Badge variant="outline" className="border-[var(--border)] bg-[var(--surface-2)] text-xs text-[var(--text-secondary)]">
+              <Badge
+                variant="outline"
+                className="border-[var(--border)] bg-[var(--surface-2)] text-xs text-[var(--text-secondary)]"
+              >
                 <Bot className="mr-1 h-3 w-3" />
                 {agentName}
               </Badge>
@@ -125,7 +135,11 @@ export function ExecutionRow({
               disabled={isCancelling}
               className="gap-1.5"
             >
-              {isCancelling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
+              {isCancelling ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Square className="h-3.5 w-3.5" />
+              )}
               {t('runs.cancel')}
             </Button>
           )}

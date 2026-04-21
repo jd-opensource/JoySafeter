@@ -26,10 +26,7 @@ export function ModelsPage() {
         onAddCustomModel={() => setShowAddCustomModel(true)}
       />
 
-      <DetailPanel
-        selectedProvider={selectedProvider}
-        onProviderDeleted={handleProviderDeleted}
-      />
+      <DetailPanel selectedProvider={selectedProvider} onProviderDeleted={handleProviderDeleted} />
 
       <AddCustomModelDialog
         open={showAddCustomModel}

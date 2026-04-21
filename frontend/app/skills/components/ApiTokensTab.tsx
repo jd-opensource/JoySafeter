@@ -53,7 +53,10 @@ export function ApiTokensTab({ skillId }: ApiTokensTabProps) {
       setTokenName('')
       setShowCreateForm(false)
     } catch (error: unknown) {
-      toast({ title: error instanceof Error ? error.message : String(error), variant: 'destructive' })
+      toast({
+        title: error instanceof Error ? error.message : String(error),
+        variant: 'destructive',
+      })
     }
   }
 
@@ -70,7 +73,9 @@ export function ApiTokensTab({ skillId }: ApiTokensTabProps) {
         {t('settings.tokens.create')}
       </Button>
       {tokens.length >= 50 && (
-        <p className="mt-1 text-xs text-[var(--status-warning)]">{t('settings.tokens.limitReached')}</p>
+        <p className="mt-1 text-xs text-[var(--status-warning)]">
+          {t('settings.tokens.limitReached')}
+        </p>
       )}
 
       {showCreateForm && (

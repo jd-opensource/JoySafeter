@@ -51,10 +51,7 @@ import { useUserPermissions } from '@/hooks/use-user-permissions'
 import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
 import { useTranslation } from '@/lib/i18n'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
-import {
-  workspaceService,
-  type PaginatedMembersResponse,
-} from '@/services/workspaceService'
+import { workspaceService, type PaginatedMembersResponse } from '@/services/workspaceService'
 import { useSidebarStore } from '@/stores/sidebar/store'
 
 // WorkspaceMember and PaginatedMembersResponse types imported from workspaceService
@@ -262,8 +259,12 @@ export default function WorkspaceMembersPage() {
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
           <Shield className="mx-auto mb-4 h-12 w-12 text-[var(--text-muted)]" />
-          <h2 className="mb-2 text-base font-semibold text-[var(--text-primary)]">{t('workspace.noAccess')}</h2>
-          <p className="text-xs text-[var(--text-tertiary)]">{t('workspace.noAccessDescription')}</p>
+          <h2 className="mb-2 text-base font-semibold text-[var(--text-primary)]">
+            {t('workspace.noAccess')}
+          </h2>
+          <p className="text-xs text-[var(--text-tertiary)]">
+            {t('workspace.noAccessDescription')}
+          </p>
         </div>
       </div>
     )
@@ -447,8 +448,12 @@ export default function WorkspaceMembersPage() {
         ) : members.length === 0 ? (
           <div className="flex h-64 flex-col items-center justify-center text-center">
             <Users className="mb-4 h-16 w-16 text-[var(--text-subtle)]" />
-            <h3 className="mb-2 text-base font-medium text-[var(--text-primary)]">{t('workspace.noMembers')}</h3>
-            <p className="mb-4 text-xs text-[var(--text-tertiary)]">{t('workspace.noMembersDescription')}</p>
+            <h3 className="mb-2 text-base font-medium text-[var(--text-primary)]">
+              {t('workspace.noMembers')}
+            </h3>
+            <p className="mb-4 text-xs text-[var(--text-tertiary)]">
+              {t('workspace.noMembersDescription')}
+            </p>
             {userPermissions.canAdmin && (
               <Button onClick={() => setInviteDialogOpen(true)}>
                 <UserPlus className="mr-2 h-4 w-4" />

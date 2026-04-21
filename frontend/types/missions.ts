@@ -52,7 +52,12 @@ export interface AssignMissionRequest {
 }
 
 export const MISSION_STATUS_ORDER: MissionStatus[] = [
-  'backlog', 'todo', 'in_progress', 'in_review', 'done', 'cancelled',
+  'backlog',
+  'todo',
+  'in_progress',
+  'in_review',
+  'done',
+  'cancelled',
 ]
 
 export const TERMINAL_MISSION_STATUSES: readonly MissionStatus[] = ['done', 'cancelled'] as const

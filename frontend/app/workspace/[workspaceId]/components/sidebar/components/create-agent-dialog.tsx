@@ -38,9 +38,13 @@ export function CreateAgentDialog({
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>{t('workspace.createAgent', { defaultValue: 'Create New Agent' })}</AlertDialogTitle>
+          <AlertDialogTitle>
+            {t('workspace.createAgent', { defaultValue: 'Create New Agent' })}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            {t('workspace.createAgentDescription', { defaultValue: 'Choose a mode and name for your agent.' })}
+            {t('workspace.createAgentDescription', {
+              defaultValue: 'Choose a mode and name for your agent.',
+            })}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
@@ -54,7 +58,7 @@ export function CreateAgentDialog({
                 'flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-all',
                 createAgentMode === 'canvas'
                   ? 'border-primary bg-primary/5 ring-1 ring-primary'
-                  : 'border-[var(--border)] hover:border-primary/30'
+                  : 'border-[var(--border)] hover:border-primary/30',
               )}
             >
               <span className="text-sm font-medium">Canvas</span>
@@ -69,7 +73,7 @@ export function CreateAgentDialog({
                 'flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-all',
                 createAgentMode === 'code'
                   ? 'border-primary bg-primary/5 ring-1 ring-primary'
-                  : 'border-[var(--border)] hover:border-primary/30'
+                  : 'border-[var(--border)] hover:border-primary/30',
               )}
             >
               <span className="text-sm font-medium">Code</span>
@@ -96,10 +100,7 @@ export function CreateAgentDialog({
 
         <AlertDialogFooter>
           <AlertDialogCancel>{t('workspace.cancel')}</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={onConfirm}
-            disabled={!newAgentName.trim()}
-          >
+          <AlertDialogAction onClick={onConfirm} disabled={!newAgentName.trim()}>
             {t('workspace.create', { defaultValue: 'Create' })}
           </AlertDialogAction>
         </AlertDialogFooter>

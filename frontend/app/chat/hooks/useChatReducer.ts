@@ -122,9 +122,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case 'UPDATE_MESSAGE':
       return {
         ...state,
-        messages: state.messages.map((m) =>
-          m.id === action.id ? { ...m, ...action.patch } : m,
-        ),
+        messages: state.messages.map((m) => (m.id === action.id ? { ...m, ...action.patch } : m)),
       }
 
     case 'SET_MESSAGES':
@@ -265,7 +263,12 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                 ...m,
                 tool_calls: m.tool_calls?.map((tc) =>
                   tc.id === action.id
-                    ? { ...tc, status: 'completed' as const, result: action.result, endTime: Date.now() }
+                    ? {
+                        ...tc,
+                        status: 'completed' as const,
+                        result: action.result,
+                        endTime: Date.now(),
+                      }
                     : tc,
                 ),
               }

@@ -3,9 +3,17 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { STALE_TIME } from './constants'
 import { skillKeys } from './skills'
 import { skillCollaboratorService } from '@/services/skillCollaboratorService'
-import type { SkillCollaborator, SkillOwnerInfo, CollaboratorRole } from '@/services/skillCollaboratorService'
+import type {
+  SkillCollaborator,
+  SkillOwnerInfo,
+  CollaboratorRole,
+} from '@/services/skillCollaboratorService'
 
-export { type SkillCollaborator, type SkillOwnerInfo, type CollaboratorRole } from '@/services/skillCollaboratorService'
+export {
+  type SkillCollaborator,
+  type SkillOwnerInfo,
+  type CollaboratorRole,
+} from '@/services/skillCollaboratorService'
 
 export const skillCollaboratorKeys = {
   all: ['skill-collaborators'] as const,
@@ -47,8 +55,7 @@ export function useUpdateCollaboratorRole(skillId: string) {
 export function useRemoveCollaborator(skillId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (userId: string) =>
-      skillCollaboratorService.removeCollaborator(skillId, userId),
+    mutationFn: (userId: string) => skillCollaboratorService.removeCollaborator(skillId, userId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: skillCollaboratorKeys.list(skillId) })
     },

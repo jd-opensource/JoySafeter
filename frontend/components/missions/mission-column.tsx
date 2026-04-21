@@ -58,7 +58,12 @@ interface MissionColumnProps {
   onSelectMission?: (id: string) => void
 }
 
-export function MissionColumn({ status, missions, agentsMap, onSelectMission }: MissionColumnProps) {
+export function MissionColumn({
+  status,
+  missions,
+  agentsMap,
+  onSelectMission,
+}: MissionColumnProps) {
   const { t } = useTranslation()
   const { setNodeRef, isOver } = useDroppable({
     id: `column-${status}`,
@@ -73,7 +78,7 @@ export function MissionColumn({ status, missions, agentsMap, onSelectMission }: 
       className={cn(
         'flex min-w-[200px] flex-1 flex-col rounded-lg border border-[var(--border)] transition-all',
         colStyle.bg,
-        isOver && 'ring-2 ring-[var(--brand-400)]/30',
+        isOver && 'ring-[var(--brand-400)]/30 ring-2',
       )}
     >
       <div className="flex items-center gap-2 px-3 py-2.5">

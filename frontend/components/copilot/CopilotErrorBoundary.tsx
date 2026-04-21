@@ -61,7 +61,9 @@ export class CopilotErrorBoundary extends Component<Props, State> {
       return (
         <div className="flex min-h-[200px] flex-col items-center justify-center p-8 text-center">
           <AlertCircle className="mb-4 h-12 w-12 text-[var(--status-error)]" />
-          <h3 className="mb-2 text-lg font-semibold text-[var(--text-primary)]">Something went wrong</h3>
+          <h3 className="mb-2 text-lg font-semibold text-[var(--text-primary)]">
+            Something went wrong
+          </h3>
           <p className="mb-4 max-w-md text-sm text-[var(--text-secondary)]">
             {isNetworkError
               ? 'Network connection error. Please check your internet connection and try again.'

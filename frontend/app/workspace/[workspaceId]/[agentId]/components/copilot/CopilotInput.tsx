@@ -111,7 +111,9 @@ export function CopilotInput({
               disabled={loading || executingActions}
             >
               <SelectTrigger className="h-6 min-w-[6rem] max-w-[8rem] border-[var(--border)] px-2 py-0.5 text-xs text-[var(--text-secondary)]">
-                <SelectValue placeholder={t('workspace.selectModel', { defaultValue: 'Select model' })} />
+                <SelectValue
+                  placeholder={t('workspace.selectModel', { defaultValue: 'Select model' })}
+                />
               </SelectTrigger>
               <SelectContent>
                 {availableModels.map((m) => (

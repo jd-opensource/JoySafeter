@@ -45,18 +45,26 @@ const getTypeBadgeColor = (type?: string | null) => {
   }
 }
 
-function TokenTableRow({ token, onRevoke, revokingId }: { token: PlatformToken, onRevoke: (t: PlatformToken) => void, revokingId: string | null }) {
+function TokenTableRow({
+  token,
+  onRevoke,
+  revokingId,
+}: {
+  token: PlatformToken
+  onRevoke: (t: PlatformToken) => void
+  revokingId: string | null
+}) {
   const { t } = useTranslation()
   const { copied, handleCopy } = useCopyToClipboard()
 
   return (
     <TableRow>
-      <TableCell className="font-medium text-[var(--text-primary)] border-b border-[var(--border-muted)]">
+      <TableCell className="border-b border-[var(--border-muted)] font-medium text-[var(--text-primary)]">
         {token.name}
       </TableCell>
       <TableCell className="border-b border-[var(--border-muted)]">
         <div className="flex items-center gap-2">
-          <code className="bg-[var(--surface-1)] px-2 py-1 rounded text-xs text-[var(--text-secondary)] font-mono border border-[var(--border-muted)]">
+          <code className="rounded border border-[var(--border-muted)] bg-[var(--surface-1)] px-2 py-1 font-mono text-xs text-[var(--text-secondary)]">
             {token.tokenPrefix}...
           </code>
           <TooltipProvider delayDuration={300}>
@@ -68,7 +76,11 @@ function TokenTableRow({ token, onRevoke, revokingId }: { token: PlatformToken, 
                   className="h-6 w-6 text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
                   onClick={() => handleCopy(token.tokenPrefix)}
                 >
-                  {copied ? <Check className="h-3.5 w-3.5 text-[var(--status-success)]" /> : <Copy className="h-3.5 w-3.5" />}
+                  {copied ? (
+                    <Check className="h-3.5 w-3.5 text-[var(--status-success)]" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>{t('common.copy', { defaultValue: 'Copy' })}</TooltipContent>
@@ -81,13 +93,15 @@ function TokenTableRow({ token, onRevoke, revokingId }: { token: PlatformToken, 
           {formatResourceType(token.resourceType)}
         </Badge>
       </TableCell>
-      <TableCell className="text-[var(--text-tertiary)] text-sm border-b border-[var(--border-muted)]">
+      <TableCell className="border-b border-[var(--border-muted)] text-sm text-[var(--text-tertiary)]">
         {token.createdAt ? new Date(token.createdAt).toLocaleDateString() : '-'}
       </TableCell>
-      <TableCell className="text-[var(--text-tertiary)] text-sm border-b border-[var(--border-muted)]">
-        {token.expiresAt ? new Date(token.expiresAt).toLocaleDateString() : t('settings.tokens.noExpiry', { defaultValue: 'No expiry' })}
+      <TableCell className="border-b border-[var(--border-muted)] text-sm text-[var(--text-tertiary)]">
+        {token.expiresAt
+          ? new Date(token.expiresAt).toLocaleDateString()
+          : t('settings.tokens.noExpiry', { defaultValue: 'No expiry' })}
       </TableCell>
-      <TableCell className="text-right border-b border-[var(--border-muted)]">
+      <TableCell className="border-b border-[var(--border-muted)] text-right">
         <Button
           variant="ghost"
           size="icon"
@@ -151,21 +165,35 @@ export function TokenList({ resourceType, resourceId, header }: TokenListProps) 
       {!tokens || tokens.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-1)] py-12">
           <div className="rounded-full border border-[var(--border)] bg-[var(--surface-3)] p-4">
-             <Key className="h-8 w-8 text-[var(--text-subtle)]" />
+            <Key className="h-8 w-8 text-[var(--text-subtle)]" />
           </div>
-          <p className="text-sm font-medium text-[var(--text-tertiary)]">{t('settings.tokens.emptyState')}</p>
+          <p className="text-sm font-medium text-[var(--text-tertiary)]">
+            {t('settings.tokens.emptyState')}
+          </p>
         </div>
       ) : (
         <div className="rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] shadow-sm">
           <Table>
             <TableHeader>
               <TableRow className="bg-[var(--surface-1)] hover:bg-[var(--surface-1)]">
-                <TableHead className="w-[200px] text-[var(--text-secondary)] font-medium">{t('settings.tokens.name', { defaultValue: 'Name' })}</TableHead>
-                <TableHead className="text-[var(--text-secondary)] font-medium">{t('settings.tokens.key', { defaultValue: 'Key' })}</TableHead>
-                <TableHead className="text-[var(--text-secondary)] font-medium">{t('settings.tokens.type', { defaultValue: 'Type' })}</TableHead>
-                <TableHead className="text-[var(--text-secondary)] font-medium">{t('settings.tokens.createdAt', { defaultValue: 'Created At' })}</TableHead>
-                <TableHead className="text-[var(--text-secondary)] font-medium">{t('settings.tokens.expiresAt', { defaultValue: 'Expires At' })}</TableHead>
-                <TableHead className="w-[80px] text-right text-[var(--text-secondary)] font-medium">{t('settings.tokens.actions', { defaultValue: 'Actions' })}</TableHead>
+                <TableHead className="w-[200px] font-medium text-[var(--text-secondary)]">
+                  {t('settings.tokens.name', { defaultValue: 'Name' })}
+                </TableHead>
+                <TableHead className="font-medium text-[var(--text-secondary)]">
+                  {t('settings.tokens.key', { defaultValue: 'Key' })}
+                </TableHead>
+                <TableHead className="font-medium text-[var(--text-secondary)]">
+                  {t('settings.tokens.type', { defaultValue: 'Type' })}
+                </TableHead>
+                <TableHead className="font-medium text-[var(--text-secondary)]">
+                  {t('settings.tokens.createdAt', { defaultValue: 'Created At' })}
+                </TableHead>
+                <TableHead className="font-medium text-[var(--text-secondary)]">
+                  {t('settings.tokens.expiresAt', { defaultValue: 'Expires At' })}
+                </TableHead>
+                <TableHead className="w-[80px] text-right font-medium text-[var(--text-secondary)]">
+                  {t('settings.tokens.actions', { defaultValue: 'Actions' })}
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -174,7 +202,7 @@ export function TokenList({ resourceType, resourceId, header }: TokenListProps) 
                   key={token.id}
                   token={token}
                   onRevoke={openRevokeDialog}
-                  revokingId={revokeToken.isPending ? tokenToRevoke?.id ?? null : null}
+                  revokingId={revokeToken.isPending ? (tokenToRevoke?.id ?? null) : null}
                 />
               ))}
             </TableBody>

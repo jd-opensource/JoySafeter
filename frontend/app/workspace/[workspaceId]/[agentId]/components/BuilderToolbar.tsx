@@ -69,9 +69,7 @@ export function BuilderToolbar({
   // Get UI state and operation methods from Zustand store
   const { isDeploying, deploy } = useDeploymentStore()
 
-  const {
-    setDeployedAt,
-  } = useBuilderStore()
+  const { setDeployedAt } = useBuilderStore()
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [showDeploymentHistory, setShowDeploymentHistory] = useState(false)

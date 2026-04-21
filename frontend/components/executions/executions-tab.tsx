@@ -20,7 +20,14 @@ import { ExecutionRow } from './execution-row'
 import { ExecutionTimeline } from './execution-timeline'
 
 const STATUS_OPTIONS: Array<ExecutionStatus | 'all'> = [
-  'all', 'queued', 'dispatched', 'running', 'approval_wait', 'completed', 'failed', 'cancelled',
+  'all',
+  'queued',
+  'dispatched',
+  'running',
+  'approval_wait',
+  'completed',
+  'failed',
+  'cancelled',
 ]
 
 export function ExecutionsTab() {
@@ -45,7 +52,9 @@ export function ExecutionsTab() {
     { enabled: Boolean(workspaceId) },
   )
 
-  const { data: missions = [] } = useMissions(workspaceId, undefined, { enabled: Boolean(workspaceId) })
+  const { data: missions = [] } = useMissions(workspaceId, undefined, {
+    enabled: Boolean(workspaceId),
+  })
   const agentNameMap = useAgentNameMap(workspaceId)
 
   const missionTitleMap = useMemo(
@@ -69,7 +78,12 @@ export function ExecutionsTab() {
 
   return (
     <div className="flex h-full">
-      <div className={cn('flex flex-1 flex-col overflow-hidden', selectedExecutionId && 'border-r border-[var(--border)]')}>
+      <div
+        className={cn(
+          'flex flex-1 flex-col overflow-hidden',
+          selectedExecutionId && 'border-r border-[var(--border)]',
+        )}
+      >
         <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] px-6 py-3">
           {STATUS_OPTIONS.map((status) => (
             <Button
@@ -124,10 +138,14 @@ export function ExecutionsTab() {
                   key={exec.id}
                   execution={exec}
                   missionTitle={exec.mission_id ? missionTitleMap[exec.mission_id] : undefined}
-                  agentName={exec.agent_profile_id ? agentNameMap[exec.agent_profile_id] : undefined}
+                  agentName={
+                    exec.agent_profile_id ? agentNameMap[exec.agent_profile_id] : undefined
+                  }
                   onSelect={setSelectedExecutionId}
                   onCancel={(id) => cancelMutation.mutate({ executionId: id, workspaceId })}
-                  isCancelling={cancelMutation.isPending && cancelMutation.variables?.executionId === exec.id}
+                  isCancelling={
+                    cancelMutation.isPending && cancelMutation.variables?.executionId === exec.id
+                  }
                   isSelected={exec.id === selectedExecutionId}
                 />
               ))}

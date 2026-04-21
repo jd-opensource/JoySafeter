@@ -78,7 +78,9 @@ async function fetchWorkspaceSettings(workspaceId: string) {
 
   const settings = settingsResult.status === 'fulfilled' ? settingsResult.value : null
   const permissions =
-    permissionsResult.status === 'fulfilled' ? permissionsResult.value : { users: [] as BackendPermissionUser[] }
+    permissionsResult.status === 'fulfilled'
+      ? permissionsResult.value
+      : { users: [] as BackendPermissionUser[] }
 
   if (!settings) {
     throw new Error('Failed to fetch workspace settings')
@@ -160,18 +162,16 @@ async function fetchAdminWorkspaces(userId: string | undefined): Promise<AdminWo
   const workspacesData = await apiGet<{ workspaces: BackendWorkspace[] }>(API_ENDPOINTS.workspaces)
   const allUserWorkspaces = workspacesData.workspaces || []
 
-  const permissionPromises = allUserWorkspaces.map(
-    async (workspace) => {
-      try {
-        const permissionData = await apiGet<BackendPermissions>(
-          `${API_ENDPOINTS.workspaces}/${workspace.id}/permissions`,
-        )
-        return { workspace, permissionData }
-      } catch {
-        return null
-      }
-    },
-  )
+  const permissionPromises = allUserWorkspaces.map(async (workspace) => {
+    try {
+      const permissionData = await apiGet<BackendPermissions>(
+        `${API_ENDPOINTS.workspaces}/${workspace.id}/permissions`,
+      )
+      return { workspace, permissionData }
+    } catch {
+      return null
+    }
+  })
 
   const results = await Promise.all(permissionPromises)
 
@@ -189,7 +189,8 @@ async function fetchAdminWorkspaces(userId: string | undefined): Promise<AdminWo
       hasAdminAccess = currentUserPermission?.permissionType === 'admin'
     }
 
-    const isOwner = workspace.isOwner || workspace.ownerId === userId || workspace.owner_id === userId
+    const isOwner =
+      workspace.isOwner || workspace.ownerId === userId || workspace.owner_id === userId
 
     if (hasAdminAccess || isOwner) {
       adminWorkspaces.push({

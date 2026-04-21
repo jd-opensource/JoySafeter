@@ -16,7 +16,12 @@ import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import { PulsingDot } from '@/components/ui/pulsing-dot'
 import type { Mission, MissionStatus } from '@/types/missions'
-import { MISSION_PRIORITY_LABELS, MISSION_STATUS_LABELS, MISSION_STATUS_ORDER, MISSION_STATUS_STYLES } from '@/types/missions'
+import {
+  MISSION_PRIORITY_LABELS,
+  MISSION_STATUS_LABELS,
+  MISSION_STATUS_ORDER,
+  MISSION_STATUS_STYLES,
+} from '@/types/missions'
 
 import { PriorityBadge } from './priority-badge'
 
@@ -29,7 +34,9 @@ interface MissionListViewProps {
 }
 
 const PRIORITY_ORDER: Record<string, number> = Object.fromEntries(
-  Object.keys(MISSION_PRIORITY_LABELS).reverse().map((k, i) => [k, i]),
+  Object.keys(MISSION_PRIORITY_LABELS)
+    .reverse()
+    .map((k, i) => [k, i]),
 )
 const STATUS_ORDER: Record<string, number> = Object.fromEntries(
   MISSION_STATUS_ORDER.map((s, i) => [s, i]),
@@ -77,9 +84,11 @@ export function MissionListView({ missions, agentsMap, onSelectMission }: Missio
 
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) return null
-    return sortDir === 'asc'
-      ? <ArrowUp className="ml-1 inline h-3 w-3" />
-      : <ArrowDown className="ml-1 inline h-3 w-3" />
+    return sortDir === 'asc' ? (
+      <ArrowUp className="ml-1 inline h-3 w-3" />
+    ) : (
+      <ArrowDown className="ml-1 inline h-3 w-3" />
+    )
   }
 
   return (
@@ -101,7 +110,10 @@ export function MissionListView({ missions, agentsMap, onSelectMission }: Missio
             <TableHead className="cursor-pointer" onClick={() => toggleSort('due_date')}>
               Due <SortIcon field="due_date" />
             </TableHead>
-            <TableHead className="cursor-pointer text-right" onClick={() => toggleSort('updated_at')}>
+            <TableHead
+              className="cursor-pointer text-right"
+              onClick={() => toggleSort('updated_at')}
+            >
               Updated <SortIcon field="updated_at" />
             </TableHead>
           </TableRow>
@@ -121,7 +133,8 @@ export function MissionListView({ missions, agentsMap, onSelectMission }: Missio
                     <span
                       className={cn(
                         'inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium',
-                        MISSION_STATUS_STYLES[m.status] ?? 'bg-[var(--surface-3)] text-[var(--text-muted)]',
+                        MISSION_STATUS_STYLES[m.status] ??
+                          'bg-[var(--surface-3)] text-[var(--text-muted)]',
                       )}
                     >
                       {MISSION_STATUS_LABELS[m.status]}
@@ -147,18 +160,28 @@ export function MissionListView({ missions, agentsMap, onSelectMission }: Missio
                 <TableCell>
                   <div className="flex flex-wrap gap-1">
                     {m.tags?.slice(0, 2).map((t) => (
-                      <span key={t} className="inline-block max-w-[60px] truncate rounded bg-[var(--surface-3)] px-1 py-0.5 text-[10px] text-[var(--text-secondary)]">
+                      <span
+                        key={t}
+                        className="inline-block max-w-[60px] truncate rounded bg-[var(--surface-3)] px-1 py-0.5 text-[10px] text-[var(--text-secondary)]"
+                      >
                         {t}
                       </span>
                     ))}
                     {(m.tags?.length ?? 0) > 2 && (
-                      <span className="text-[10px] text-[var(--text-muted)]">+{(m.tags?.length ?? 0) - 2}</span>
+                      <span className="text-[10px] text-[var(--text-muted)]">
+                        +{(m.tags?.length ?? 0) - 2}
+                      </span>
                     )}
                   </div>
                 </TableCell>
                 <TableCell>
                   {m.due_date ? (
-                    <span className={cn('inline-flex items-center gap-1 text-xs', isOverdue ? 'text-[var(--status-error)]' : 'text-[var(--text-muted)]')}>
+                    <span
+                      className={cn(
+                        'inline-flex items-center gap-1 text-xs',
+                        isOverdue ? 'text-[var(--status-error)]' : 'text-[var(--text-muted)]',
+                      )}
+                    >
                       <Calendar className="h-3 w-3" />
                       {new Date(m.due_date).toLocaleDateString()}
                     </span>

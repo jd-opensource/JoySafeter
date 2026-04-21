@@ -69,11 +69,14 @@ interface DeviceResponse {
 }
 
 const instanceStatusStyles: Record<string, string> = {
-  running: 'bg-[color-mix(in_srgb,var(--status-success)_15%,transparent)] text-[var(--status-success)] border-[var(--status-success-border)]',
-  starting: 'bg-[color-mix(in_srgb,var(--brand-500)_15%,transparent)] text-[var(--brand-700)] border-[var(--brand-200)]',
+  running:
+    'bg-[color-mix(in_srgb,var(--status-success)_15%,transparent)] text-[var(--status-success)] border-[var(--status-success-border)]',
+  starting:
+    'bg-[color-mix(in_srgb,var(--brand-500)_15%,transparent)] text-[var(--brand-700)] border-[var(--brand-200)]',
   pending: 'bg-[var(--text-tertiary)] text-[var(--text-secondary)] border-[var(--border)]',
   stopped: 'bg-[var(--text-tertiary)] text-[var(--text-secondary)] border-[var(--border)]',
-  failed: 'bg-[color-mix(in_srgb,var(--status-error)_15%,transparent)] text-[var(--status-error)] border-[var(--status-error-border)]',
+  failed:
+    'bg-[color-mix(in_srgb,var(--status-error)_15%,transparent)] text-[var(--status-error)] border-[var(--status-error-border)]',
 }
 
 export function OpenClawManagement() {
@@ -340,9 +343,7 @@ export function OpenClawManagement() {
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>
-                      {t('openclaw.confirmDeleteInstance')}
-                    </AlertDialogTitle>
+                    <AlertDialogTitle>{t('openclaw.confirmDeleteInstance')}</AlertDialogTitle>
                     <AlertDialogDescription>
                       {t('openclaw.confirmDeleteInstanceDesc')}
                     </AlertDialogDescription>
@@ -519,7 +520,7 @@ export function OpenClawManagement() {
             </div>
           ) : pending.length === 0 && paired.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-8 text-center">
-              <div className="bg-[var(--muted)] mb-3 flex h-12 w-12 items-center justify-center rounded-full">
+              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--muted)]">
                 <Smartphone className="h-5 w-5 text-[var(--text-tertiary)]" />
               </div>
               <p className="text-sm font-medium text-[var(--text-secondary)]">
@@ -534,7 +535,7 @@ export function OpenClawManagement() {
               {pending.map((d) => (
                 <li
                   key={d.deviceId}
-                  className="hover:bg-[var(--muted)] flex flex-col justify-between gap-3 p-3 transition-colors sm:flex-row sm:items-center sm:px-4"
+                  className="flex flex-col justify-between gap-3 p-3 transition-colors hover:bg-[var(--muted)] sm:flex-row sm:items-center sm:px-4"
                 >
                   <div className="flex min-w-0 items-start gap-3">
                     <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_srgb,var(--status-warning)_10%,transparent)] text-[var(--status-warning)] dark:bg-[color-mix(in_srgb,var(--status-warning)_20%,transparent)] dark:text-[var(--status-warning)]">
@@ -568,7 +569,7 @@ export function OpenClawManagement() {
               {paired.map((d) => (
                 <li
                   key={d.deviceId}
-                  className="hover:bg-[var(--muted)] flex items-center justify-between p-3 transition-colors sm:px-4"
+                  className="flex items-center justify-between p-3 transition-colors hover:bg-[var(--muted)] sm:px-4"
                 >
                   <div className="flex min-w-0 items-start gap-3">
                     <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_srgb,var(--status-success)_10%,transparent)] text-[var(--status-success)] dark:bg-[color-mix(in_srgb,var(--status-success)_20%,transparent)] dark:text-[var(--status-success)]">

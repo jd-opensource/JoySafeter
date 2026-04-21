@@ -60,8 +60,7 @@ export function useDeleteVersion(skillId: string) {
 export function useRestoreDraft(skillId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (version: string) =>
-      skillVersionService.restoreDraft(skillId, { version }),
+    mutationFn: (version: string) => skillVersionService.restoreDraft(skillId, { version }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: skillKeys.all })
     },

@@ -47,9 +47,7 @@ export function StatsTab({ providerName }: StatsTabProps) {
 
       <SummaryCards summary={data?.summary} loading={isLoading} />
 
-      {!isLoading && data && (
-        <UsageChart timeline={data.timeline} byModel={data.by_model} />
-      )}
+      {!isLoading && data && <UsageChart timeline={data.timeline} byModel={data.by_model} />}
     </div>
   )
 }

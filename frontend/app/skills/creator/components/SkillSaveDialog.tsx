@@ -75,9 +75,8 @@ export default function SkillSaveDialog({
         size: f.size,
       }))
 
-      const skillMdContent = files.find(f => f.path === 'SKILL.md')?.content
-      const effectiveDescription =
-        description.trim() || extractDescription(skillMdContent) || name
+      const skillMdContent = files.find((f) => f.path === 'SKILL.md')?.content
+      const effectiveDescription = description.trim() || extractDescription(skillMdContent) || name
 
       const body = {
         name: name.trim(),
@@ -173,7 +172,9 @@ export default function SkillSaveDialog({
 
           {/* Name input */}
           <div>
-            <label className="mb-1 block text-sm font-medium text-[var(--text-secondary)]">Skill Name</label>
+            <label className="mb-1 block text-sm font-medium text-[var(--text-secondary)]">
+              Skill Name
+            </label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -198,7 +199,8 @@ export default function SkillSaveDialog({
           {/* File count */}
           {previewData && (
             <p className="text-xs text-[var(--text-tertiary)]">
-              {previewData.files.length} file{previewData.files.length !== 1 ? 's' : ''} will be saved.
+              {previewData.files.length} file{previewData.files.length !== 1 ? 's' : ''} will be
+              saved.
             </p>
           )}
         </div>

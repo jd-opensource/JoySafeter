@@ -105,9 +105,18 @@ export default function MissionsPage() {
             <Loader2 className="h-6 w-6 animate-spin text-[var(--text-muted)]" />
           </div>
         ) : viewMode === 'board' ? (
-          <MissionBoard missions={missions} workspaceId={workspaceId} agentsMap={agentsMap} onSelectMission={setSelectedMissionId} />
+          <MissionBoard
+            missions={missions}
+            workspaceId={workspaceId}
+            agentsMap={agentsMap}
+            onSelectMission={setSelectedMissionId}
+          />
         ) : (
-          <MissionListView missions={missions} agentsMap={agentsMap} onSelectMission={setSelectedMissionId} />
+          <MissionListView
+            missions={missions}
+            agentsMap={agentsMap}
+            onSelectMission={setSelectedMissionId}
+          />
         )}
       </div>
 

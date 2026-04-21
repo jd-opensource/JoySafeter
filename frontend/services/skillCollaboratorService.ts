@@ -61,18 +61,30 @@ export const skillCollaboratorService = {
       owner: { id: string; name: string | null; email: string | null }
     }>(`skills/${skillId}/collaborators`)
     return {
-      collaborators: (Array.isArray(data.collaborators) ? data.collaborators : []).map(normalizeCollaborator),
+      collaborators: (Array.isArray(data.collaborators) ? data.collaborators : []).map(
+        normalizeCollaborator,
+      ),
       owner: data.owner ?? { id: '', name: null, email: null },
     }
   },
 
-  async addCollaborator(skillId: string, payload: { email: string; role: CollaboratorRole }): Promise<SkillCollaborator> {
+  async addCollaborator(
+    skillId: string,
+    payload: { email: string; role: CollaboratorRole },
+  ): Promise<SkillCollaborator> {
     const data = await apiPost<BackendCollaborator>(`skills/${skillId}/collaborators`, payload)
     return normalizeCollaborator(data)
   },
 
-  async updateRole(skillId: string, userId: string, payload: { role: CollaboratorRole }): Promise<SkillCollaborator> {
-    const data = await apiPut<BackendCollaborator>(`skills/${skillId}/collaborators/${userId}`, payload)
+  async updateRole(
+    skillId: string,
+    userId: string,
+    payload: { role: CollaboratorRole },
+  ): Promise<SkillCollaborator> {
+    const data = await apiPut<BackendCollaborator>(
+      `skills/${skillId}/collaborators/${userId}`,
+      payload,
+    )
     return normalizeCollaborator(data)
   },
 

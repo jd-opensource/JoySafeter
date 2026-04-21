@@ -21,7 +21,12 @@ export function AgentStatusIndicator({ status, className }: AgentStatusIndicator
   const config = statusConfig[status]
 
   return (
-    <span className={cn('inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)]', className)}>
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)]',
+        className,
+      )}
+    >
       <span className="relative flex h-2 w-2">
         {config.pulse && (
           <span

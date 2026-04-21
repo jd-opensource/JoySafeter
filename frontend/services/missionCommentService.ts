@@ -14,9 +14,7 @@ export const missionCommentService = {
     const searchParams = new URLSearchParams({ workspace_id: workspaceId })
     if (params?.cursor) searchParams.set('cursor', params.cursor)
     if (params?.limit) searchParams.set('limit', String(params.limit))
-    return apiGet<MissionCommentListResponse>(
-      `missions/${missionId}/comments?${searchParams}`,
-    )
+    return apiGet<MissionCommentListResponse>(`missions/${missionId}/comments?${searchParams}`)
   },
 
   create: async (
@@ -42,11 +40,7 @@ export const missionCommentService = {
     )
   },
 
-  delete: async (
-    missionId: string,
-    commentId: string,
-    workspaceId: string,
-  ): Promise<void> => {
+  delete: async (missionId: string, commentId: string, workspaceId: string): Promise<void> => {
     return apiDelete(`missions/${missionId}/comments/${commentId}?workspace_id=${workspaceId}`)
   },
 }

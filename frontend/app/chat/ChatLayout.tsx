@@ -97,12 +97,21 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
       const promptMessage: Message = {
         id: generateId(),
         role: 'assistant',
-        content: t('chat.apkUploadPrompt', { defaultValue: 'Please upload an APK file to start vulnerability analysis.' }),
+        content: t('chat.apkUploadPrompt', {
+          defaultValue: 'Please upload an APK file to start vulnerability analysis.',
+        }),
         timestamp: Date.now(),
       }
       dispatch({ type: 'APPEND_MESSAGE', message: promptMessage })
     }
-  }, [state.mode.currentMode, state.messages.length, state.mode.hasShownApkPrompt, stream.isProcessing, t, dispatch])
+  }, [
+    state.mode.currentMode,
+    state.messages.length,
+    state.mode.hasShownApkPrompt,
+    stream.isProcessing,
+    t,
+    dispatch,
+  ])
 
   // Handle conversation selection from sidebar
   const handleSelectConversation = useCallback(
@@ -257,7 +266,9 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
   const hasMessages = state.messages.length > 0 || !!state.threadId || !!propChatId
 
   // ─── Header ──────────────────────────────────────────────────────────────
-  const headerTitle = (state.mode.currentMode && getModeConfig(state.mode.currentMode)?.labelKey) || 'chat.defaultChat'
+  const headerTitle =
+    (state.mode.currentMode && getModeConfig(state.mode.currentMode)?.labelKey) ||
+    'chat.defaultChat'
   const renderHeader = () => (
     <div className="z-10 flex h-14 flex-shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--surface-1)] px-6">
       <TooltipProvider>
@@ -311,9 +322,11 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
                     dispatch({ type: 'SHOW_PREVIEW' })
                   }
                 }}
-                aria-label={state.preview.visible
-                  ? t('chat.closeArtifacts', { defaultValue: 'Close artifacts' })
-                  : t('chat.openArtifacts', { defaultValue: 'Open artifacts' })}
+                aria-label={
+                  state.preview.visible
+                    ? t('chat.closeArtifacts', { defaultValue: 'Close artifacts' })
+                    : t('chat.openArtifacts', { defaultValue: 'Open artifacts' })
+                }
                 className="h-9 w-9 rounded-lg p-0 transition-colors hover:bg-[var(--surface-2)]"
               >
                 <FolderOpen size={18} className="text-[var(--text-secondary)]" />
@@ -360,7 +373,7 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
         <ResizablePanel defaultSize={state.preview.visible ? 55 : 88} minSize={40}>
           <div className="relative flex h-full flex-col overflow-hidden">
             {renderHeader()}
-            <div className="flex-1 min-h-0 relative overflow-hidden">
+            <div className="relative min-h-0 flex-1 overflow-hidden">
               {!hasMessages ? (
                 <ChatHome
                   onStartChat={handleSubmit}

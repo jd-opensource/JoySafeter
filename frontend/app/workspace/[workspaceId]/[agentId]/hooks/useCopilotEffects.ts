@@ -95,7 +95,10 @@ export function useCopilotEffects({
               actions.setStreamingContent(content)
             }
             const stage = projection.stage as string | undefined
-            actions.setCurrentStage({ stage: (stage || 'processing') as any, message: 'Processing...' })
+            actions.setCurrentStage({
+              stage: (stage || 'processing') as any,
+              message: 'Processing...',
+            })
             if (!hasCurrentMessage(state.messages, false)) actions.setThinkingMessage()
           }
 
@@ -114,29 +117,34 @@ export function useCopilotEffects({
                   getRunWsClient().unsubscribe(currentRunId)
                   activeSubscriptionRef.current = null
                   // Re-fetch final snapshot to get complete projection
-                  runService.getRunSnapshot(currentRunId).then((finalSnapshot) => {
-                    if (!refs.isMountedRef.current || !finalSnapshot) return
-                    const fp = finalSnapshot.projection as Record<string, unknown> | undefined
-                    if (frame.status === 'completed' && fp) {
-                      const resultMessage = (fp.result_message as string) ?? ''
-                      const resultActions = fp.result_actions as Array<Record<string, unknown>> | undefined
-                      actions.clearStreaming()
-                      actions.finalizeCurrentMessage(resultMessage, resultActions as any)
-                      if (resultActions && resultActions.length > 0) {
-                        actions.executeActions(resultActions as any)
+                  runService
+                    .getRunSnapshot(currentRunId)
+                    .then((finalSnapshot) => {
+                      if (!refs.isMountedRef.current || !finalSnapshot) return
+                      const fp = finalSnapshot.projection as Record<string, unknown> | undefined
+                      if (frame.status === 'completed' && fp) {
+                        const resultMessage = (fp.result_message as string) ?? ''
+                        const resultActions = fp.result_actions as
+                          | Array<Record<string, unknown>>
+                          | undefined
+                        actions.clearStreaming()
+                        actions.finalizeCurrentMessage(resultMessage, resultActions as any)
+                        if (resultActions && resultActions.length > 0) {
+                          actions.executeActions(resultActions as any)
+                        }
+                      } else if (frame.status === 'failed') {
+                        actions.clearStreaming()
+                        actions.finalizeCurrentMessage(
+                          (fp?.error as string) || frame.error_message || 'Copilot task failed',
+                        )
                       }
-                    } else if (frame.status === 'failed') {
-                      actions.clearStreaming()
-                      actions.finalizeCurrentMessage(
-                        (fp?.error as string) || frame.error_message || 'Copilot task failed',
-                      )
-                    }
-                    actions.clearSession()
-                    actions.setLoading(false)
-                  }).catch(() => {
-                    actions.clearSession()
-                    actions.setLoading(false)
-                  })
+                      actions.clearSession()
+                      actions.setLoading(false)
+                    })
+                    .catch(() => {
+                      actions.clearSession()
+                      actions.setLoading(false)
+                    })
                 }
               },
               onError: (message: string) => {
@@ -149,7 +157,9 @@ export function useCopilotEffects({
         } else if (status === 'completed') {
           if (projection) {
             const resultMessage = (projection.result_message as string) ?? ''
-            const resultActions = projection.result_actions as Array<Record<string, unknown>> | undefined
+            const resultActions = projection.result_actions as
+              | Array<Record<string, unknown>>
+              | undefined
             if (resultMessage || (resultActions && resultActions.length > 0)) {
               actions.finalizeCurrentMessage(resultMessage, resultActions as any)
             }
@@ -159,7 +169,8 @@ export function useCopilotEffects({
         } else if (status === 'failed') {
           toast({
             title: 'Copilot task failed',
-            description: (projection?.error as string) || 'An error occurred during execution. Please retry.',
+            description:
+              (projection?.error as string) || 'An error occurred during execution. Please retry.',
             variant: 'destructive',
           })
           actions.clearSession()
@@ -172,7 +183,7 @@ export function useCopilotEffects({
     }
 
     restoreSession()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.currentRunId, actions, refs, handleCopilotEvent])
 
   // Update page title to show loading status

@@ -14,9 +14,9 @@ export function AppLogo({ isCollapsed = false }: AppLogoProps) {
     <div className="flex h-[60px] min-w-0 items-center pl-2 pr-4">
       <Link href="/chat" className="flex min-w-0 flex-1 items-center gap-1.5">
         <div className="relative flex h-8 w-8 flex-shrink-0 items-center justify-center">
-          <div className="absolute inset-0 rounded-lg brand-gradient opacity-100" />
+          <div className="brand-gradient absolute inset-0 rounded-lg opacity-100" />
 
-          <div className="absolute inset-0 rounded-lg brand-gradient opacity-20 blur-md" />
+          <div className="brand-gradient absolute inset-0 rounded-lg opacity-20 blur-md" />
 
           <svg
             className="relative z-10 h-5 w-5 text-white"
@@ -61,7 +61,7 @@ export function AppLogo({ isCollapsed = false }: AppLogoProps) {
         </div>
 
         {!isCollapsed && (
-          <span className="whitespace-nowrap brand-gradient-text text-xl font-bold tracking-tight">
+          <span className="brand-gradient-text whitespace-nowrap text-xl font-bold tracking-tight">
             JoySafeter
           </span>
         )}

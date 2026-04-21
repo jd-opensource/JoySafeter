@@ -375,10 +375,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
     addRouteDecision: (nodeId, decision) => {
       const state = getCurrentState()
       updateCurrentState({
-        routeDecisions: [
-          ...state.routeDecisions,
-          { nodeId, decision, timestamp: Date.now() },
-        ],
+        routeDecisions: [...state.routeDecisions, { nodeId, decision, timestamp: Date.now() }],
       })
     },
 

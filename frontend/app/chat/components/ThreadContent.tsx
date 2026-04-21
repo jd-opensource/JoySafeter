@@ -3,7 +3,6 @@
 import { Bot, MessageSquare } from 'lucide-react'
 import React, { useMemo } from 'react'
 
-
 import { useTranslation } from '@/lib/i18n'
 
 import { CopyAction } from '../shared/ActionBar'
@@ -53,8 +52,12 @@ export default function ThreadContent({
               <div className="rounded-full bg-[var(--brand-50)] p-4">
                 <MessageSquare size={24} className="text-[var(--brand-500)]" />
               </div>
-              <p className="text-base font-medium text-[var(--text-secondary)]">{t('chat.startConversation')}</p>
-              <p className="text-sm text-[var(--text-muted)]">{t('chat.askAnything', { defaultValue: 'Ask anything to get started' })}</p>
+              <p className="text-base font-medium text-[var(--text-secondary)]">
+                {t('chat.startConversation')}
+              </p>
+              <p className="text-sm text-[var(--text-muted)]">
+                {t('chat.askAnything', { defaultValue: 'Ask anything to get started' })}
+              </p>
             </div>
           ) : (
             messagesToRender.map((msg, idx) => (
@@ -81,7 +84,7 @@ export default function ThreadContent({
 
           {/* Streaming indicator - current reply at bottom */}
           {streamingText && agentStatus === 'running' && (
-            <div className="group flex w-full gap-3 justify-start duration-200 animate-in fade-in">
+            <div className="group flex w-full justify-start gap-3 duration-200 animate-in fade-in">
               <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-[var(--brand-50)]">
                 <Bot size={14} className="text-[var(--brand-500)]" />
               </div>
@@ -99,7 +102,7 @@ export default function ThreadContent({
 
           {/* Processing indicator - thinking at bottom */}
           {agentStatus === 'running' && messages.length > 0 && !streamingText && (
-            <div className="flex w-full gap-3 justify-start duration-200 animate-in fade-in">
+            <div className="flex w-full justify-start gap-3 duration-200 animate-in fade-in">
               <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-[var(--brand-50)]">
                 <div className="flex gap-0.5">
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--brand-500)] [animation-delay:0ms]" />
@@ -112,7 +115,10 @@ export default function ThreadContent({
                   {t('chat.thinking')}
                 </span>
                 {currentNodeLabel && (
-                  <span className="truncate text-xs text-[var(--text-muted)]" title={currentNodeLabel}>
+                  <span
+                    className="truncate text-xs text-[var(--text-muted)]"
+                    title={currentNodeLabel}
+                  >
                     {currentNodeLabel}
                   </span>
                 )}

@@ -56,13 +56,15 @@ class ClaudeCodeProvider:
 
         # Send the initial prompt via stdin as stream-json (not --print)
         if not resume_session_id and process.stdin:
-            user_msg = json.dumps({
-                "type": "user",
-                "message": {
-                    "role": "user",
-                    "content": [{"type": "text", "text": prompt}],
-                },
-            })
+            user_msg = json.dumps(
+                {
+                    "type": "user",
+                    "message": {
+                        "role": "user",
+                        "content": [{"type": "text", "text": prompt}],
+                    },
+                }
+            )
             process.stdin.write(f"{user_msg}\n".encode())
             await process.stdin.drain()
             logger.info(f"[claude] Sent initial prompt via stdin ({len(prompt)} chars)")
@@ -107,7 +109,7 @@ class ClaudeCodeProvider:
         try:
             async with asyncio.timeout(timeout):
                 assert process.stdout is not None
-                logger.info(f"[claude] Drain loop started, reading stdout...")
+                logger.info("[claude] Drain loop started, reading stdout...")
                 async for raw_line in process.stdout:
                     line = raw_line.decode().strip()
                     if not line:

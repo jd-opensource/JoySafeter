@@ -82,7 +82,8 @@ export function CopilotStreaming({
               <span
                 className={`text-xs font-medium ${currentStage ? stageConfig[currentStage.stage]?.color || 'text-[var(--text-tertiary)]' : 'text-[var(--text-tertiary)]'}`}
               >
-                {(currentStage && stageConfig[currentStage.stage]?.label) || t('workspace.processing', { defaultValue: 'Processing...' })}
+                {(currentStage && stageConfig[currentStage.stage]?.label) ||
+                  t('workspace.processing', { defaultValue: 'Processing...' })}
               </span>
               <Loader2 size={12} className="animate-spin text-[var(--brand-500)]" />
             </div>
@@ -107,18 +108,25 @@ export function CopilotStreaming({
         {(streamingContent || currentToolCall) && (
           <div
             className={`overflow-hidden rounded-2xl rounded-bl-none border shadow-sm duration-200 animate-in fade-in ${
-              streamingContent ? 'border-[var(--border-muted)] bg-[var(--surface-elevated)]' : 'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)]'
+              streamingContent
+                ? 'border-[var(--border-muted)] bg-[var(--surface-elevated)]'
+                : 'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)]'
             }`}
           >
             {/* Tool call info - fixed at top, always visible */}
             {currentToolCall && (
               <div
                 className={`shrink-0 p-2.5 ${
-                  streamingContent ? 'border-b border-[color-mix(in_srgb,var(--status-warning-border)_50%,transparent)] bg-[var(--status-warning-bg)]' : ''
+                  streamingContent
+                    ? 'border-b border-[color-mix(in_srgb,var(--status-warning-border)_50%,transparent)] bg-[var(--status-warning-bg)]'
+                    : ''
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <Loader2 size={12} className="shrink-0 animate-spin text-[var(--status-warning)]" />
+                  <Loader2
+                    size={12}
+                    className="shrink-0 animate-spin text-[var(--status-warning)]"
+                  />
                   <span className="text-xs font-medium text-[var(--status-warning)]">
                     {t('workspace.callingTool') || 'Calling Tool'}:
                   </span>

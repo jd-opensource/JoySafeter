@@ -5,9 +5,11 @@ import type { MissionPriority } from '@/types/missions'
 import { MISSION_PRIORITY_LABELS } from '@/types/missions'
 
 const PRIORITY_STYLES: Record<MissionPriority, string> = {
-  urgent: 'bg-[var(--status-error-bg)] text-[var(--status-error)] border-[var(--status-error-border)]',
+  urgent:
+    'bg-[var(--status-error-bg)] text-[var(--status-error)] border-[var(--status-error-border)]',
   high: 'bg-[var(--status-warning-bg)] text-[var(--status-warning)] border-[var(--status-warning-border)]',
-  medium: 'bg-[var(--status-warning-bg)] text-[var(--status-warning)] border-[var(--status-warning-border)]',
+  medium:
+    'bg-[var(--status-warning-bg)] text-[var(--status-warning)] border-[var(--status-warning-border)]',
   low: 'bg-[var(--surface-3)] text-[var(--brand-400)] border-[var(--border)]',
   none: 'bg-[var(--surface-3)] text-[var(--text-muted)] border-[var(--border)]',
 }

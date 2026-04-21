@@ -55,7 +55,9 @@ export const TokensPage = () => {
           <h2 className="text-lg font-bold tracking-tight text-[var(--text-primary)]">
             {t('settings.tokens.title')}
           </h2>
-          <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">{t('settings.tokens.description')}</p>
+          <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">
+            {t('settings.tokens.description')}
+          </p>
         </div>
       </div>
       <Button
@@ -66,7 +68,9 @@ export const TokensPage = () => {
       >
         <Key className="h-3.5 w-3.5" />
         <span className="text-xs font-medium">
-          {(tokens?.length ?? 0) >= 50 ? t('settings.tokens.limitReached') : t('settings.tokens.create')}
+          {(tokens?.length ?? 0) >= 50
+            ? t('settings.tokens.limitReached')
+            : t('settings.tokens.create')}
         </span>
       </Button>
     </div>

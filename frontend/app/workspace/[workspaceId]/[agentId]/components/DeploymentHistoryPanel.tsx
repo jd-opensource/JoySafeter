@@ -1,9 +1,6 @@
 'use client'
 
-import {
-  History,
-  Loader2,
-} from 'lucide-react'
+import { History, Loader2 } from 'lucide-react'
 import { useCallback } from 'react'
 
 import {
@@ -115,7 +112,9 @@ export function DeploymentHistoryPanel({
               <DeploymentPreview
                 previewMode={previewMode}
                 selectedVersion={selectedVersion}
-                selectedVersionName={selectedVersionInfo?.name || (selectedVersion ? `v${selectedVersion}` : undefined)}
+                selectedVersionName={
+                  selectedVersionInfo?.name || (selectedVersion ? `v${selectedVersion}` : undefined)
+                }
                 showToggle={showToggle}
                 isLoadingPreview={isLoadingPreview}
                 previewState={previewState}
@@ -172,10 +171,7 @@ export function DeploymentHistoryPanel({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel
-              onClick={handleRevertCancel}
-              disabled={isReverting}
-            >
+            <AlertDialogCancel onClick={handleRevertCancel} disabled={isReverting}>
               {t('workspace.cancel')}
             </AlertDialogCancel>
             <AlertDialogAction
@@ -217,10 +213,7 @@ export function DeploymentHistoryPanel({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel
-              onClick={handleDeleteCancel}
-              disabled={isDeleting}
-            >
+            <AlertDialogCancel onClick={handleDeleteCancel} disabled={isDeleting}>
               {t('workspace.cancel')}
             </AlertDialogCancel>
             <AlertDialogAction
@@ -249,10 +242,7 @@ export function DeploymentHistoryPanel({
             <AlertDialogDescription>{t('workspace.undeployConfirmMessage')}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel
-              onClick={handleUndeployCancel}
-              disabled={isUndeploying}
-            >
+            <AlertDialogCancel onClick={handleUndeployCancel} disabled={isUndeploying}>
               {t('workspace.cancel')}
             </AlertDialogCancel>
             <AlertDialogAction

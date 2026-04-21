@@ -55,30 +55,54 @@ export function WorkspaceHeader({
   const { t } = useTranslation()
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
 
-  const handleHeaderRename = useCallback((newName: string) => {
-    if (activeWorkspace?.type === 'personal') return
-    onRenameWorkspace?.(workspaceId, newName)
-  }, [activeWorkspace?.type, workspaceId, onRenameWorkspace])
+  const handleHeaderRename = useCallback(
+    (newName: string) => {
+      if (activeWorkspace?.type === 'personal') return
+      onRenameWorkspace?.(workspaceId, newName)
+    },
+    [activeWorkspace?.type, workspaceId, onRenameWorkspace],
+  )
 
   const {
-    isEditing: isRenaming, editName, setEditName,
-    startEditing: handleStartHeaderRename, handleSave: handleSaveHeaderRename,
+    isEditing: isRenaming,
+    editName,
+    setEditName,
+    startEditing: handleStartHeaderRename,
+    handleSave: handleSaveHeaderRename,
     handleCancel: handleCancelHeaderRename,
   } = useInlineRename(activeWorkspace?.name || '', handleHeaderRename)
 
   const {
-    editingWorkspaceId, setEditingWorkspaceId,
-    editName: dropdownEditName, setEditName: setDropdownEditName,
-    deleteConfirmOpen, setDeleteConfirmOpen,
-    workspaceToDelete, setWorkspaceToDelete,
-    handleSaveWorkspaceRename, handleCancelWorkspaceRename,
-    handleDeleteWorkspace, handleConfirmDelete, handleDuplicateWorkspace,
-    handleStartWorkspaceRenameWithClose, handleRenameKeyDown,
-  } = useWorkspaceRename(activeWorkspace, workspaceId, workspaces, onRenameWorkspace, onDeleteWorkspace, onDuplicateWorkspace)
+    editingWorkspaceId,
+    setEditingWorkspaceId,
+    editName: dropdownEditName,
+    setEditName: setDropdownEditName,
+    deleteConfirmOpen,
+    setDeleteConfirmOpen,
+    workspaceToDelete,
+    setWorkspaceToDelete,
+    handleSaveWorkspaceRename,
+    handleCancelWorkspaceRename,
+    handleDeleteWorkspace,
+    handleConfirmDelete,
+    handleDuplicateWorkspace,
+    handleStartWorkspaceRenameWithClose,
+    handleRenameKeyDown,
+  } = useWorkspaceRename(
+    activeWorkspace,
+    workspaceId,
+    workspaces,
+    onRenameWorkspace,
+    onDeleteWorkspace,
+    onDuplicateWorkspace,
+  )
 
   const getWorkspaceDisplayName = useCallback(
     (workspace: Workspace | { id?: string; name: string; type?: string }): string => {
-      if (workspace.type === 'personal' && (workspace.name === '个人空间' || workspace.name === 'Personal Space')) {
+      if (
+        workspace.type === 'personal' &&
+        (workspace.name === '个人空间' || workspace.name === 'Personal Space')
+      ) {
         return t('workspace.personalSpace')
       }
       return workspace.name
@@ -104,11 +128,19 @@ export function WorkspaceHeader({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <h2 className="flex-1 truncate text-base font-medium text-[var(--text-primary)]">
-                      {activeWorkspace ? getWorkspaceDisplayName(activeWorkspace) : t('workspace.workspace')}
+                      {activeWorkspace
+                        ? getWorkspaceDisplayName(activeWorkspace)
+                        : t('workspace.workspace')}
                     </h2>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom" sideOffset={4} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg">
-                    {activeWorkspace ? getWorkspaceDisplayName(activeWorkspace) : t('workspace.workspace')}
+                  <TooltipContent
+                    side="bottom"
+                    sideOffset={4}
+                    className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg"
+                  >
+                    {activeWorkspace
+                      ? getWorkspaceDisplayName(activeWorkspace)
+                      : t('workspace.workspace')}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
@@ -134,7 +166,11 @@ export function WorkspaceHeader({
                       <Pencil className="h-3 w-3 text-[var(--text-tertiary)]" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom" sideOffset={4} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg">
+                  <TooltipContent
+                    side="bottom"
+                    sideOffset={4}
+                    className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg"
+                  >
                     {t('workspace.renameWorkspace')}
                   </TooltipContent>
                 </Tooltip>
@@ -153,10 +189,19 @@ export function WorkspaceHeader({
                 className="flex items-center justify-center rounded-sm p-[4px] transition-colors hover:bg-[var(--surface-5)]"
                 onClick={() => setIsDropdownOpen(!isDropdownOpen)}
               >
-                <ChevronDown className={cn('h-[11px] w-[11px] text-[var(--text-secondary)] transition-transform duration-100', isDropdownOpen && 'rotate-180')} />
+                <ChevronDown
+                  className={cn(
+                    'h-[11px] w-[11px] text-[var(--text-secondary)] transition-transform duration-100',
+                    isDropdownOpen && 'rotate-180',
+                  )}
+                />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={4} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg">
+            <TooltipContent
+              side="bottom"
+              sideOffset={4}
+              className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg"
+            >
               {t('workspace.switchWorkspace')}
             </TooltipContent>
           </Tooltip>
@@ -174,7 +219,11 @@ export function WorkspaceHeader({
                   <PanelLeft className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={4} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg">
+              <TooltipContent
+                side="bottom"
+                sideOffset={4}
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg"
+              >
                 {isCollapsed ? t('workspace.expandSidebar') : t('workspace.collapseSidebar')}
               </TooltipContent>
             </Tooltip>
@@ -190,7 +239,10 @@ export function WorkspaceHeader({
           isCreatingWorkspace={isCreatingWorkspace}
           onWorkspaceSwitch={onWorkspaceSwitch}
           onCreateWorkspace={onCreateWorkspace}
-          onClose={() => { setIsDropdownOpen(false); setEditingWorkspaceId(null) }}
+          onClose={() => {
+            setIsDropdownOpen(false)
+            setEditingWorkspaceId(null)
+          }}
           getWorkspaceDisplayName={getWorkspaceDisplayName}
           onStartRenameWithClose={handleStartWorkspaceRenameWithClose}
           onDeleteWorkspace={handleDeleteWorkspace}

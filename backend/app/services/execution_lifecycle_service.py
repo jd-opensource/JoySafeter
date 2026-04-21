@@ -233,7 +233,9 @@ class ExecutionLifecycleService(RunnerCallbacks):
             try:
                 destroyed = await container_pool.release_and_destroy_if_idle(execution.agent_profile_id)
                 if destroyed:
-                    logger.info(f"Destroyed container for agent {execution.agent_profile_id} (execution {execution.id})")
+                    logger.info(
+                        f"Destroyed container for agent {execution.agent_profile_id} (execution {execution.id})"
+                    )
                 else:
                     logger.info(
                         f"Released container for agent {execution.agent_profile_id} "

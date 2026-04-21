@@ -127,7 +127,9 @@ export function ToolCallCard({
             )}
             <div className="flex min-w-0 flex-1 items-center gap-1.5">
               {getStatusIcon()}
-              <span className="truncate text-sm font-semibold text-[var(--text-secondary)]">{step.title}</span>
+              <span className="truncate text-sm font-semibold text-[var(--text-secondary)]">
+                {step.title}
+              </span>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -140,8 +142,10 @@ export function ToolCallCard({
             <div
               className={cn(
                 'rounded px-1.5 py-0.5 text-xs font-medium',
-                step.status === 'running' && 'bg-[color-mix(in_srgb,var(--brand-secondary)_10%,transparent)] text-[var(--brand-secondary)]',
-                step.status === 'success' && 'bg-[var(--status-success-bg)] text-[var(--status-success)]',
+                step.status === 'running' &&
+                  'bg-[color-mix(in_srgb,var(--brand-secondary)_10%,transparent)] text-[var(--brand-secondary)]',
+                step.status === 'success' &&
+                  'bg-[var(--status-success-bg)] text-[var(--status-success)]',
                 step.status === 'error' && 'bg-[var(--status-error-bg)] text-[var(--status-error)]',
                 step.status === 'pending' && 'bg-[var(--surface-3)] text-[var(--text-secondary)]',
               )}

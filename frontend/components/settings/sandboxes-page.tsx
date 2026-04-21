@@ -179,7 +179,8 @@ export const SandboxesPage = () => {
     switch (status.toLowerCase()) {
       case 'running':
         return {
-          color: 'bg-[var(--status-success-bg)] text-[var(--status-success)] border-[var(--status-success-border)]',
+          color:
+            'bg-[var(--status-success-bg)] text-[var(--status-success)] border-[var(--status-success-border)]',
           dot: 'bg-[var(--status-success)]',
           animate: true,
         }
@@ -197,7 +198,8 @@ export const SandboxesPage = () => {
         }
       case 'failed':
         return {
-          color: 'bg-[var(--status-error-bg)] text-[var(--status-error-hover)] border-[var(--status-error-border)]',
+          color:
+            'bg-[var(--status-error-bg)] text-[var(--status-error-hover)] border-[var(--status-error-border)]',
           dot: 'bg-[var(--status-error)]',
           animate: false,
         }
@@ -231,7 +233,9 @@ export const SandboxesPage = () => {
               <h2 className="text-lg font-bold tracking-tight text-[var(--text-primary)]">
                 {t('settings.sandboxes.title')}
               </h2>
-              <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">{t('settings.sandboxes.description')}</p>
+              <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">
+                {t('settings.sandboxes.description')}
+              </p>
             </div>
           </div>
           <Button
@@ -324,7 +328,10 @@ export const SandboxesPage = () => {
                                 {sandbox.id.substring(0, 8)}...
                               </span>
                               {sandbox.container_id && (
-                                <span className="font-mono text-xs text-[var(--text-muted)]" title={sandbox.container_id}>
+                                <span
+                                  className="font-mono text-xs text-[var(--text-muted)]"
+                                  title={sandbox.container_id}
+                                >
                                   {sandbox.container_id.substring(0, 12)}
                                 </span>
                               )}
@@ -447,7 +454,10 @@ export const SandboxesPage = () => {
                             <div className="flex items-center gap-1.5 text-xs text-[var(--status-success)]">
                               <Clock className="h-3.5 w-3.5" />
                               <span className="font-medium">
-                                {formatDistance(new Date(sandbox.last_active_at), now, { addSuffix: true, includeSeconds: true })}
+                                {formatDistance(new Date(sandbox.last_active_at), now, {
+                                  addSuffix: true,
+                                  includeSeconds: true,
+                                })}
                               </span>
                             </div>
                           ) : (

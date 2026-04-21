@@ -5,10 +5,7 @@ import { useMemo, useRef, useState, useEffect, useCallback } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import {
-  useMissionComments,
-  useCreateMissionComment,
-} from '@/hooks/queries/missionComments'
+import { useMissionComments, useCreateMissionComment } from '@/hooks/queries/missionComments'
 import { useAgentProfiles, useAgentNameMap } from '@/hooks/queries/agentProfiles'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/utils/runHelpers'
@@ -25,9 +22,12 @@ function renderContentWithMentions(content: string) {
       parts.push(content.slice(lastIndex, match.index))
     }
     parts.push(
-      <span key={match.index} className="rounded bg-[var(--brand-400)]/10 px-1 font-medium text-[var(--brand-400)]">
+      <span
+        key={match.index}
+        className="bg-[var(--brand-400)]/10 rounded px-1 font-medium text-[var(--brand-400)]"
+      >
         @{match[1]}
-      </span>
+      </span>,
     )
     lastIndex = match.index! + match[0].length
   }
@@ -45,8 +45,10 @@ interface CommentThreadProps {
 }
 
 export function CommentThread({ missionId, workspaceId }: CommentThreadProps) {
-  const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } =
-    useMissionComments(missionId, workspaceId)
+  const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useMissionComments(
+    missionId,
+    workspaceId,
+  )
 
   const createComment = useCreateMissionComment()
   const [newContent, setNewContent] = useState('')
@@ -171,9 +173,7 @@ export function CommentThread({ missionId, workspaceId }: CommentThreadProps) {
 
       {/* Empty state */}
       {threads.length === 0 && (
-        <p className="py-4 text-center text-xs text-[var(--text-muted)]">
-          No comments yet
-        </p>
+        <p className="py-4 text-center text-xs text-[var(--text-muted)]">No comments yet</p>
       )}
 
       {/* Comment threads */}
@@ -223,7 +223,9 @@ export function CommentThread({ missionId, workspaceId }: CommentThreadProps) {
               >
                 <Bot className="h-3.5 w-3.5 text-[var(--brand-400)]" />
                 <span className="text-[var(--text-primary)]">{agent.name}</span>
-                <span className="ml-auto text-[10px] text-[var(--text-muted)]">{agent.runtime_type}</span>
+                <span className="ml-auto text-[10px] text-[var(--text-muted)]">
+                  {agent.runtime_type}
+                </span>
               </button>
             ))}
           </div>
@@ -233,7 +235,11 @@ export function CommentThread({ missionId, workspaceId }: CommentThreadProps) {
             ref={inputRef}
             value={newContent}
             onChange={handleInputChange}
-            placeholder={replyTo ? 'Write a reply... (@ to mention agent)' : 'Write a comment... (@ to mention agent)'}
+            placeholder={
+              replyTo
+                ? 'Write a reply... (@ to mention agent)'
+                : 'Write a comment... (@ to mention agent)'
+            }
             className="flex-1 text-sm"
           />
           <Button

@@ -32,10 +32,12 @@ export function useDeploymentHistory(
   const pageSize = 10
 
   const { data: deploymentStatus } = useDeploymentStatus(graphId, { enabled: open })
-  const {
-    data: versionsData,
-    isLoading: isLoadingVersions,
-  } = useDeploymentVersions(graphId, currentPage, pageSize, { enabled: open })
+  const { data: versionsData, isLoading: isLoadingVersions } = useDeploymentVersions(
+    graphId,
+    currentPage,
+    pageSize,
+    { enabled: open },
+  )
 
   const versions = versionsData?.versions || []
   const totalVersions = versionsData?.total || 0
@@ -68,22 +70,25 @@ export function useDeploymentHistory(
   const currentNodes = useBuilderStore((state) => state.nodes)
   const currentEdges = useBuilderStore((state) => state.edges)
 
-  const currentState: GraphVersionState = useMemo(() => ({
-    nodes: currentNodes.map((node) => ({
-      id: node.id,
-      type: node.type || 'custom',
-      position: node.position,
-      data: node.data as Record<string, unknown>,
-    })),
-    edges: currentEdges.map((edge) => ({
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-    })),
-  }), [currentNodes, currentEdges])
+  const currentState: GraphVersionState = useMemo(
+    () => ({
+      nodes: currentNodes.map((node) => ({
+        id: node.id,
+        type: node.type || 'custom',
+        position: node.position,
+        data: node.data as Record<string, unknown>,
+      })),
+      edges: currentEdges.map((edge) => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+      })),
+    }),
+    [currentNodes, currentEdges],
+  )
 
   const cachedSelectedState =
-    selectedVersion !== null ? versionCache[selectedVersion] ?? null : null
+    selectedVersion !== null ? (versionCache[selectedVersion] ?? null) : null
 
   const fetchVersionState = useCallback(
     async (version: number) => {

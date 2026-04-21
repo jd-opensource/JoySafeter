@@ -190,7 +190,6 @@ interface BuilderState {
     edges: { source: string; target: string }[]
   }
 
-
   // State Schema Actions
   graphStateFields: import('../types/graph').StateField[]
   addStateField: (field: import('../types/graph').StateField) => void
@@ -448,9 +447,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     onNodesChange: (changes: NodeChange[]) => {
       if (changes.some((c) => c.type === 'remove')) get().takeSnapshot()
       set({ nodes: applyNodeChanges(changes, get().nodes) })
-      const isContentChange = changes.some(
-        (c) => c.type !== 'select' && c.type !== 'dimensions',
-      )
+      const isContentChange = changes.some((c) => c.type !== 'select' && c.type !== 'dimensions')
       if (isContentChange) get().triggerAutoSave()
     },
 
@@ -560,7 +557,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         }),
       })
 
-
       get().triggerAutoSave()
     },
 
@@ -650,7 +646,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       return get().edges.filter((e) => e.source === nodeId)
     },
 
-
     loadGraph: async (graphId?: string) => {
       set({ isInitializing: true })
       try {
@@ -707,7 +702,12 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         })
         // Save state using SaveManager
         await saveManager.save('manual')
-        const currentStateHash = computeGraphStateHash(nodes, edges, get().graphStateFields, get().fallbackNodeId)
+        const currentStateHash = computeGraphStateHash(
+          nodes,
+          edges,
+          get().graphStateFields,
+          get().fallbackNodeId,
+        )
         set({
           graphId,
           graphName: name,
@@ -833,7 +833,8 @@ useBuilderStore.subscribe((state, prevState) => {
     state.fallbackNodeId === prevState.fallbackNodeId &&
     state.lastSavedStateHash === prevState.lastSavedStateHash &&
     state.graphId === prevState.graphId
-  ) return
+  )
+    return
 
   const { graphId, nodes, edges, graphStateFields, fallbackNodeId, lastSavedStateHash } = state
   let hasPendingChanges: boolean

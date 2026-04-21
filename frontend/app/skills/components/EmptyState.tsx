@@ -20,7 +20,9 @@ export function EmptyState({ onNewSkillManual, onImportLocal }: EmptyStateProps)
       <div className="mb-6 rounded-full border border-[var(--border-muted)] bg-[var(--surface-elevated)] p-8 shadow-xl">
         <ShieldCheck size={48} className="text-[var(--skill-brand-200)]" />
       </div>
-      <h3 className="text-sm font-bold text-[var(--text-primary)]">{t('skills.chooseCreationMethod')}</h3>
+      <h3 className="text-sm font-bold text-[var(--text-primary)]">
+        {t('skills.chooseCreationMethod')}
+      </h3>
       <p className="mt-1 text-xs text-[var(--text-muted)]">{t('skills.populateSkillsLibrary')}</p>
       <div className="mt-8 flex max-w-lg flex-wrap justify-center gap-3">
         <Link href="/skills/creator">

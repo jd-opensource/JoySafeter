@@ -21,27 +21,29 @@ const variantStyles = {
     icon: <Info className="mr-2 h-4 w-4 flex-shrink-0 text-muted-foreground" />,
   },
   info: {
-    container: 'bg-[var(--brand-50)] border-[var(--brand-200)] dark:bg-[var(--brand-50)] dark:border-[var(--brand-200)]',
+    container:
+      'bg-[var(--brand-50)] border-[var(--brand-200)] dark:bg-[var(--brand-50)] dark:border-[var(--brand-200)]',
     text: 'text-[var(--text-primary)] dark:text-[var(--text-primary)]',
     title: 'text-[var(--text-primary)] dark:text-[var(--text-primary)] font-medium',
     icon: <Info className="mr-2 h-4 w-4 flex-shrink-0 text-[var(--brand-500)]" />,
   },
   warning: {
-    container: 'bg-[var(--status-warning-bg)] border-[var(--status-warning-border)] dark:bg-[var(--status-warning-bg)] dark:border-[var(--status-warning-border)]',
+    container:
+      'bg-[var(--status-warning-bg)] border-[var(--status-warning-border)] dark:bg-[var(--status-warning-bg)] dark:border-[var(--status-warning-border)]',
     text: 'text-[var(--text-primary)] dark:text-[var(--text-primary)]',
     title: 'text-[var(--text-primary)] dark:text-[var(--text-primary)] font-medium',
-    icon: (
-      <AlertTriangle className="mr-2 h-4 w-4 flex-shrink-0 text-[var(--status-warning)]" />
-    ),
+    icon: <AlertTriangle className="mr-2 h-4 w-4 flex-shrink-0 text-[var(--status-warning)]" />,
   },
   success: {
-    container: 'bg-[var(--status-success-bg)] border-[var(--status-success-border)] dark:bg-[var(--status-success-bg)] dark:border-[var(--status-success-border)]',
+    container:
+      'bg-[var(--status-success-bg)] border-[var(--status-success-border)] dark:bg-[var(--status-success-bg)] dark:border-[var(--status-success-border)]',
     text: 'text-[var(--text-primary)] dark:text-[var(--text-primary)]',
     title: 'text-[var(--text-primary)] dark:text-[var(--text-primary)] font-medium',
     icon: <Check className="mr-2 h-4 w-4 flex-shrink-0 text-[var(--status-success)]" />,
   },
   error: {
-    container: 'bg-[var(--status-error-bg)] border-[var(--status-error-border)] dark:bg-[var(--status-error-bg)] dark:border-[var(--status-error-border)]',
+    container:
+      'bg-[var(--status-error-bg)] border-[var(--status-error-border)] dark:bg-[var(--status-error-bg)] dark:border-[var(--status-error-border)]',
     text: 'text-[var(--text-primary)] dark:text-[var(--text-primary)]',
     title: 'text-[var(--text-primary)] dark:text-[var(--text-primary)] font-medium',
     icon: <AlertCircle className="mr-2 h-4 w-4 flex-shrink-0 text-[var(--status-error)]" />,

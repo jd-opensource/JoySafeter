@@ -1,14 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { agentService } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
-import { runService, type AgentListResponse, type RunListResponse, type RunSummary } from '@/services/runService'
+import {
+  runService,
+  type AgentListResponse,
+  type RunListResponse,
+  type RunSummary,
+} from '@/services/runService'
 
 import { STALE_TIME } from './constants'
 import { useWorkspaces } from './workspaces'
 
 export const runKeys = {
   all: ['runs'] as const,
-  list: (filters?: { runType?: string; agentName?: string; status?: string; search?: string; limit?: number }) =>
+  list: (filters?: {
+    runType?: string
+    agentName?: string
+    status?: string
+    search?: string
+    limit?: number
+  }) =>
     [
       ...runKeys.all,
       'list',

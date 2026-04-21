@@ -20,7 +20,10 @@ export function getWsBaseUrl(): string {
 
 /** Fetch a short-lived WS token from the backend and return a ready-to-use WS URL for the given path. */
 async function getWsTokenUrl(path: string): Promise<string> {
-  const apiUrl = runtimeEnv('NEXT_PUBLIC_API_URL') || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+  const apiUrl =
+    runtimeEnv('NEXT_PUBLIC_API_URL') ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    'http://localhost:8000/api'
   const base = apiUrl.replace(/\/api\/?$/, '')
   const res = await fetch(`${base}/api/v1/auth/ws-token`, { credentials: 'include' })
   if (!res.ok) throw new Error('Failed to obtain WS token')

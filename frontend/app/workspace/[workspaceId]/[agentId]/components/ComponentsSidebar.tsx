@@ -20,7 +20,9 @@ export function ComponentsSidebar({ showHeader = true }: ComponentsSidebarProps)
       {showHeader && (
         <div className="flex items-center gap-2 border-b border-[var(--border-muted)] px-3 py-3">
           <Wrench size={14} className="text-[var(--text-tertiary)]" />
-          <span className="text-base font-medium text-[var(--text-secondary)]">{t('workspace.components')}</span>
+          <span className="text-base font-medium text-[var(--text-secondary)]">
+            {t('workspace.components')}
+          </span>
         </div>
       )}
 

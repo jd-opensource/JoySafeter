@@ -31,7 +31,7 @@ interface MenuItem {
 }
 
 interface MenuGroup {
-  label?: string           // optional small group label (hidden when collapsed)
+  label?: string // optional small group label (hidden when collapsed)
   items: MenuItem[]
 }
 
@@ -79,9 +79,7 @@ export function AppSidebar({ isCollapsed = false }: AppSidebarProps) {
   // Filter out openclaw if disabled
   const visibleGroups = menuGroups.map((group) => ({
     ...group,
-    items: openclawEnabled
-      ? group.items
-      : group.items.filter((item) => item.id !== 'openclaw'),
+    items: openclawEnabled ? group.items : group.items.filter((item) => item.id !== 'openclaw'),
   }))
 
   return (
@@ -93,9 +91,7 @@ export function AppSidebar({ isCollapsed = false }: AppSidebarProps) {
           <nav className="flex-1 px-2 py-2">
             {visibleGroups.map((group, groupIdx) => (
               <div key={groupIdx}>
-                {groupIdx > 0 && (
-                  <div className="mx-2 my-2 border-t border-[var(--border)]" />
-                )}
+                {groupIdx > 0 && <div className="mx-2 my-2 border-t border-[var(--border)]" />}
                 <ul className="space-y-1">
                   {group.items.map((item) => {
                     const Icon = item.icon
@@ -109,11 +105,14 @@ export function AppSidebar({ isCollapsed = false }: AppSidebarProps) {
                           'flex items-center gap-2 rounded-lg px-2 py-1.5 text-base leading-[16px] transition-colors',
                           isCollapsed ? 'justify-center' : '',
                           isActive
-                            ? 'bg-[var(--surface-5)] text-[var(--text-primary)] font-medium'
-                            : 'text-[var(--text-tertiary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)] font-normal',
+                            ? 'bg-[var(--surface-5)] font-medium text-[var(--text-primary)]'
+                            : 'font-normal text-[var(--text-tertiary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]',
                         )}
                       >
-                        <Icon className="h-3.5 w-3.5 flex-shrink-0" strokeWidth={isActive ? 2 : 1.75} />
+                        <Icon
+                          className="h-3.5 w-3.5 flex-shrink-0"
+                          strokeWidth={isActive ? 2 : 1.75}
+                        />
                         {!isCollapsed && <span className="truncate">{label}</span>}
                       </Link>
                     )

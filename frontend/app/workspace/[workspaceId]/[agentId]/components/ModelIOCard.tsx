@@ -78,7 +78,9 @@ function DataSection({
       >
         <div className="flex items-center gap-2">
           <span className={iconColor}>{icon}</span>
-          <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">{title}</span>
+          <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">
+            {title}
+          </span>
         </div>
         {collapsed ? (
           <ChevronRight size={12} className="text-[var(--text-muted)]" />
@@ -185,7 +187,9 @@ export function ModelIOCard({
           {!hasOutput && hasInput && (
             <div className="flex items-center gap-2 rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] p-3">
               <div className="h-2 w-2 animate-pulse rounded-full bg-[var(--status-warning)]" />
-              <span className="text-xs text-[var(--status-warning)]">Awaiting model response...</span>
+              <span className="text-xs text-[var(--status-warning)]">
+                Awaiting model response...
+              </span>
             </div>
           )}
         </div>
@@ -198,7 +202,9 @@ export function ModelIOCard({
     <div
       className={cn(
         'rounded-lg border transition-all',
-        hasOutput ? 'border-[var(--status-success-border)] bg-[var(--status-success-bg)]' : 'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)]',
+        hasOutput
+          ? 'border-[var(--status-success-border)] bg-[var(--status-success-bg)]'
+          : 'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)]',
       )}
     >
       {/* Header */}
@@ -214,7 +220,9 @@ export function ModelIOCard({
             <ChevronDown size={14} className="shrink-0 text-[var(--text-tertiary)]" />
           )}
           <Brain size={14} className="shrink-0 text-[var(--brand-600)]" />
-          <span className="truncate text-xs font-semibold text-[var(--text-secondary)]">Model I/O</span>
+          <span className="truncate text-xs font-semibold text-[var(--text-secondary)]">
+            Model I/O
+          </span>
           <span className="truncate font-mono text-xs text-[var(--text-tertiary)]">
             {modelProvider}/{modelName}
           </span>
@@ -272,7 +280,9 @@ export function ModelIOCard({
           {!hasOutput && hasInput && (
             <div className="flex items-center gap-2 rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] p-2">
               <div className="h-2 w-2 animate-pulse rounded-full bg-[var(--status-warning)]" />
-              <span className="text-xs text-[var(--status-warning)]">Awaiting model response...</span>
+              <span className="text-xs text-[var(--status-warning)]">
+                Awaiting model response...
+              </span>
             </div>
           )}
         </div>

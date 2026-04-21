@@ -35,8 +35,19 @@ interface ExecutionTimelineProps {
   missionId?: string
 }
 
-export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = true, missionId }: ExecutionTimelineProps) {
-  const { data: execution, isLoading: isExecLoading, error: execError, refetch: refetchExec } = useExecution(executionId, workspaceId)
+export function ExecutionTimeline({
+  executionId,
+  workspaceId,
+  compact,
+  isLive = true,
+  missionId,
+}: ExecutionTimelineProps) {
+  const {
+    data: execution,
+    isLoading: isExecLoading,
+    error: execError,
+    refetch: refetchExec,
+  } = useExecution(executionId, workspaceId)
   const isActive = execution ? ACTIVE_EXECUTION_STATUSES.includes(execution.status) : false
   const shouldStream = isLive && isActive && Boolean(executionId)
 
@@ -99,7 +110,8 @@ export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = 
   }, [execution?.started_at, execution?.finished_at])
 
   const toolCount = useMemo(
-    () => events.filter((e) => e.event_type === 'tool_use' || e.event_type === 'tool_use_start').length,
+    () =>
+      events.filter((e) => e.event_type === 'tool_use' || e.event_type === 'tool_use_start').length,
     [events],
   )
 
@@ -109,7 +121,7 @@ export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = 
     const input = summary.input_tokens ?? 0
     const output = summary.output_tokens ?? 0
     if (!input && !output) return null
-    const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+    const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
     return `${fmt(input)} in / ${fmt(output)} out`
   }, [execution?.result_summary])
 
@@ -141,7 +153,12 @@ export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = 
   // Error state
   if (execError || eventsError) {
     return (
-      <div className={cn('flex flex-col items-center justify-center gap-3', compact ? 'h-80' : 'h-full')}>
+      <div
+        className={cn(
+          'flex flex-col items-center justify-center gap-3',
+          compact ? 'h-80' : 'h-full',
+        )}
+      >
         <AlertCircle className="h-8 w-8 text-[var(--status-error)]" />
         <p className="text-sm text-[var(--text-secondary)]">Failed to load execution data</p>
         <Button variant="outline" size="sm" onClick={handleRetry} className="gap-1.5">
@@ -155,7 +172,12 @@ export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = 
   // Loading state
   if (isExecLoading && !execution) {
     return (
-      <div className={cn('flex flex-col items-center justify-center gap-2', compact ? 'h-80' : 'h-full')}>
+      <div
+        className={cn(
+          'flex flex-col items-center justify-center gap-2',
+          compact ? 'h-80' : 'h-full',
+        )}
+      >
         <Loader2 className="h-6 w-6 animate-spin text-[var(--text-muted)]" />
         <p className="text-sm text-[var(--text-muted)]">Loading execution...</p>
       </div>
@@ -178,9 +200,7 @@ export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = 
             {statusConfig.label}
           </span>
           {duration && (
-            <span className="text-xs text-[var(--text-muted)]">
-              Duration: {duration}
-            </span>
+            <span className="text-xs text-[var(--text-muted)]">Duration: {duration}</span>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -190,9 +210,7 @@ export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = 
             </span>
           )}
           {tokenDisplay && (
-            <span className="text-xs text-[var(--text-muted)]">
-              Tokens: {tokenDisplay}
-            </span>
+            <span className="text-xs text-[var(--text-muted)]">Tokens: {tokenDisplay}</span>
           )}
           {/* Connection indicator */}
           <span
@@ -216,7 +234,16 @@ export function ExecutionTimeline({ executionId, workspaceId, compact, isLive = 
             <Loader2 className="h-5 w-5 animate-spin text-[var(--text-muted)]" />
           </div>
         ) : (
-          events.map((event) => <ExecutionEventItem key={`${event.execution_id}-${event.seq}`} event={event} onApprove={(id) => handleApproveOrReject(id, true)} onReject={(id) => handleApproveOrReject(id, false)} disabled={actionsDisabled} isPendingApproval={event.id === pendingApprovalEventId} />)
+          events.map((event) => (
+            <ExecutionEventItem
+              key={`${event.execution_id}-${event.seq}`}
+              event={event}
+              onApprove={(id) => handleApproveOrReject(id, true)}
+              onReject={(id) => handleApproveOrReject(id, false)}
+              disabled={actionsDisabled}
+              isPendingApproval={event.id === pendingApprovalEventId}
+            />
+          ))
         )}
       </div>
 

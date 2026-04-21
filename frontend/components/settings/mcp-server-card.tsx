@@ -7,7 +7,6 @@
 import { Server, MoreHorizontal, Wrench, Edit2, Trash2, Ban, Check } from 'lucide-react'
 import React from 'react'
 
-
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -103,7 +102,10 @@ export function McpServerCard({
         {/* Active Status */}
         <div className="flex items-center gap-1.5 rounded-md border border-[var(--border-muted)] bg-[var(--surface-1)] px-2 py-1">
           <div
-            className={cn('h-1.5 w-1.5 rounded-full', isActive ? 'bg-[var(--status-success)]' : 'bg-[var(--text-subtle)]')}
+            className={cn(
+              'h-1.5 w-1.5 rounded-full',
+              isActive ? 'bg-[var(--status-success)]' : 'bg-[var(--text-subtle)]',
+            )}
           />
           <span className="text-xs font-medium uppercase text-[var(--text-secondary)]">
             {isActive ? t('settings.active') : t('settings.inactive')}

@@ -79,9 +79,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <ChatStateContext.Provider value={stateValue}>
-      <ChatStreamContext.Provider value={streamValue}>
-        {children}
-      </ChatStreamContext.Provider>
+      <ChatStreamContext.Provider value={streamValue}>{children}</ChatStreamContext.Provider>
     </ChatStateContext.Provider>
   )
 }

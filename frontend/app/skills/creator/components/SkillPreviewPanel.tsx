@@ -1,11 +1,18 @@
 'use client'
 
-import { Save, RefreshCw, AlertTriangle, CheckCircle2, PackageOpen, FileCode, Loader2 } from 'lucide-react'
+import {
+  Save,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle2,
+  PackageOpen,
+  FileCode,
+  Loader2,
+} from 'lucide-react'
 import { ArtifactPanel } from '@/app/chat/components/ArtifactPanel'
 import { Button } from '@/components/ui/button'
 
 import type { SkillPreviewData } from '../page'
-
 
 // ---------------------------------------------------------------------------
 // Props
@@ -46,7 +53,9 @@ export default function SkillPreviewPanel({
             <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--surface-3)]">
               <PackageOpen size={22} className="text-[var(--text-muted)]" />
             </div>
-            <h4 className="mb-1 text-sm font-medium text-[var(--text-secondary)]">No preview yet</h4>
+            <h4 className="mb-1 text-sm font-medium text-[var(--text-secondary)]">
+              No preview yet
+            </h4>
             <p className="max-w-[220px] text-xs leading-relaxed text-[var(--text-muted)]">
               Start a conversation to generate skill files. The preview will appear here.
             </p>
@@ -98,13 +107,19 @@ export default function SkillPreviewPanel({
       {validation && (!validation.valid || validation.warnings.length > 0) && (
         <div className="flex-shrink-0 space-y-1 border-b border-[var(--border-muted)] px-4 py-2">
           {validation.errors.map((err, i) => (
-            <div key={`e-${i}`} className="flex items-center gap-1.5 text-xs text-[var(--status-error)]">
+            <div
+              key={`e-${i}`}
+              className="flex items-center gap-1.5 text-xs text-[var(--status-error)]"
+            >
               <AlertTriangle size={10} className="flex-shrink-0" />
               <span>{err}</span>
             </div>
           ))}
           {validation.warnings.map((w, i) => (
-            <div key={`w-${i}`} className="flex items-center gap-1.5 text-xs text-[var(--status-warning)]">
+            <div
+              key={`w-${i}`}
+              className="flex items-center gap-1.5 text-xs text-[var(--status-warning)]"
+            >
               <AlertTriangle size={10} className="flex-shrink-0" />
               <span>{w}</span>
             </div>

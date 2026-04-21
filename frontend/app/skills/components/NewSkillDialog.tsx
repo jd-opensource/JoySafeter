@@ -35,7 +35,9 @@ export function NewSkillDialog({ open, onOpenChange, onSelectOption }: NewSkillD
             <Wand2 size={32} />
           </div>
           <div>
-            <h3 className="font-semibold text-[var(--skill-brand-700)]">{t('skills.aiCreate', 'AI Create')}</h3>
+            <h3 className="font-semibold text-[var(--skill-brand-700)]">
+              {t('skills.aiCreate', 'AI Create')}
+            </h3>
             <p className="mt-1 text-xs text-[var(--skill-brand-600)] opacity-80">
               {t('skills.aiCreateDesc', 'Generate automatically via chat.')}
             </p>
@@ -54,7 +56,9 @@ export function NewSkillDialog({ open, onOpenChange, onSelectOption }: NewSkillD
             <FileCode size={32} />
           </div>
           <div>
-            <h3 className="font-semibold text-[var(--text-primary)]">{t('skills.manual', 'Blank Template')}</h3>
+            <h3 className="font-semibold text-[var(--text-primary)]">
+              {t('skills.manual', 'Blank Template')}
+            </h3>
             <p className="mt-1 text-xs text-[var(--text-tertiary)]">
               {t('skills.manualDesc', 'Start from scratch with a basic Markdown template.')}
             </p>
@@ -73,7 +77,9 @@ export function NewSkillDialog({ open, onOpenChange, onSelectOption }: NewSkillD
             <FolderOpen size={32} />
           </div>
           <div>
-            <h3 className="font-semibold text-[var(--text-primary)]">{t('skills.importFromLocal', 'Import Folder')}</h3>
+            <h3 className="font-semibold text-[var(--text-primary)]">
+              {t('skills.importFromLocal', 'Import Folder')}
+            </h3>
             <p className="mt-1 text-xs text-[var(--text-tertiary)]">
               {t('skills.importDesc', 'Upload an existing folder of skill files.')}
             </p>

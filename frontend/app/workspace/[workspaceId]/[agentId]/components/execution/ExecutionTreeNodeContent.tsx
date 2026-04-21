@@ -37,7 +37,12 @@ interface ExecutionTreeNodeContentProps {
 
 function getNodeIcon(node: ExecutionTreeNode) {
   if (node.status === 'running') {
-    return <Zap size={13} className="animate-pulse fill-[color-mix(in_srgb,var(--brand-secondary)_10%,transparent)] text-[var(--brand-secondary)]" />
+    return (
+      <Zap
+        size={13}
+        className="animate-pulse fill-[color-mix(in_srgb,var(--brand-secondary)_10%,transparent)] text-[var(--brand-secondary)]"
+      />
+    )
   }
 
   const stepType = node.step?.stepType
@@ -46,7 +51,9 @@ function getNodeIcon(node: ExecutionTreeNode) {
       return (
         <Cpu
           size={13}
-          className={node.status === 'success' ? 'text-[var(--status-success)]' : 'text-[var(--brand-500)]'}
+          className={
+            node.status === 'success' ? 'text-[var(--status-success)]' : 'text-[var(--brand-500)]'
+          }
         />
       )
     case 'agent_thought':
@@ -75,13 +82,17 @@ function getNodeIcon(node: ExecutionTreeNode) {
 function getStatusDot(status: string) {
   switch (status) {
     case 'running':
-      return <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--brand-secondary)]" />
+      return (
+        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--brand-secondary)]" />
+      )
     case 'success':
       return <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--status-success)]" />
     case 'error':
       return <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--status-error)]" />
     case 'waiting':
-      return <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--status-warning)]" />
+      return (
+        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--status-warning)]" />
+      )
     default:
       return <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--text-subtle)]" />
   }
@@ -114,7 +125,9 @@ export function ExecutionTreeNodeContent({
       <div
         className={cn(
           'flex h-5 w-5 shrink-0 items-center justify-center rounded',
-          isParentNode ? 'border border-[var(--border)] bg-[var(--surface-3)]' : 'border border-[var(--border-muted)] bg-[var(--surface-elevated)]',
+          isParentNode
+            ? 'border border-[var(--border)] bg-[var(--surface-3)]'
+            : 'border border-[var(--border-muted)] bg-[var(--surface-elevated)]',
         )}
       >
         {getNodeIcon(node)}
@@ -124,7 +137,9 @@ export function ExecutionTreeNodeContent({
       <span
         className={cn(
           'min-w-0 flex-1 truncate text-sm font-medium',
-          isParentNode ? 'font-semibold text-[var(--text-primary)]' : 'text-[var(--text-secondary)]',
+          isParentNode
+            ? 'font-semibold text-[var(--text-primary)]'
+            : 'text-[var(--text-secondary)]',
           isSelected && 'text-primary',
         )}
       >

@@ -7,11 +7,7 @@
  */
 import { apiGet } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
-import type {
-  CustomToolDefinition,
-  CustomToolSchema,
-} from '@/stores/custom-tools/types'
-
+import type { CustomToolDefinition, CustomToolSchema } from '@/stores/custom-tools/types'
 
 const logger = createLogger('CustomToolsQueries')
 

@@ -41,8 +41,8 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
               {/* Brand identity */}
               <div className="flex items-center gap-3">
                 <div className="relative flex h-12 w-12 flex-shrink-0 items-center justify-center">
-                  <div className="absolute inset-0 rounded-xl brand-gradient opacity-100" />
-                  <div className="absolute inset-0 rounded-xl brand-gradient opacity-20 blur-md" />
+                  <div className="brand-gradient absolute inset-0 rounded-xl opacity-100" />
+                  <div className="brand-gradient absolute inset-0 rounded-xl opacity-20 blur-md" />
                   <svg
                     className="relative z-10 h-6 w-6 text-white"
                     viewBox="0 0 24 24"
@@ -79,9 +79,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                   </svg>
                 </div>
                 <div>
-                  <span
-                    className={`${soehne.className} brand-gradient-text text-2xl font-bold`}
-                  >
+                  <span className={`${soehne.className} brand-gradient-text text-2xl font-bold`}>
                     JoySafeter
                   </span>
                   <p className="text-xs font-medium text-[var(--text-tertiary)]">

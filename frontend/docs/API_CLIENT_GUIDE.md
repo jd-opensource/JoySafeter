@@ -3,6 +3,7 @@
 ## 概述
 
 所有前端 API 请求都应使用 `@/lib/api-client` 中的统一方法，确保：
+
 - 统一的 URL 构建规则（所有端点都在 `/api/v1` 下）
 - 统一的 CSRF Token 处理
 - 统一的 401 自动刷新
@@ -33,10 +34,10 @@ await apiPatch('users/123', { name: 'John Updated' })
 
 **相对路径**会自动添加 `/api/v1` 前缀：
 
-| 调用 | 实际请求 URL |
-|------|-------------|
-| `apiGet('users')` | `/api/v1/users` |
-| `apiGet('graphs/123')` | `/api/v1/graphs/123` |
+| 调用                           | 实际请求 URL         |
+| ------------------------------ | -------------------- |
+| `apiGet('users')`              | `/api/v1/users`      |
+| `apiGet('graphs/123')`         | `/api/v1/graphs/123` |
 | `apiPost('auth/login', {...})` | `/api/v1/auth/login` |
 
 ## 流式请求
@@ -83,9 +84,9 @@ try {
   const data = await apiGet('some-endpoint')
 } catch (error) {
   if (error instanceof ApiError) {
-    console.log(error.status)     // HTTP 状态码
+    console.log(error.status) // HTTP 状态码
     console.log(error.statusText) // 状态文本
-    console.log(error.detail)     // 详细错误信息
+    console.log(error.detail) // 详细错误信息
   }
 }
 ```
@@ -114,6 +115,7 @@ const result = await apiUpload<UploadResult>('upload', file)
 > **迁移已完成。** 旧 `./services/apiClient` 模块已删除，所有调用方已迁移到 `@/lib/api-client`。
 
 新代码：
+
 ```ts
 // ✅ 使用统一 API 客户端
 import { apiGet } from '@/lib/api-client'

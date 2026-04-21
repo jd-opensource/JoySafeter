@@ -131,7 +131,6 @@ export default function LoginPage() {
         window.history.replaceState({}, '', url.toString())
       }
     }
-
   }, [searchParams, t])
 
   const handleForgotPassword = useCallback(async () => {
@@ -390,7 +389,9 @@ export default function LoginPage() {
 
       {/* OAuth error message */}
       {oauthError && (
-        <div className="mt-4 rounded-md bg-[var(--status-error-bg)] p-3 text-sm text-[var(--status-error)]">{oauthError}</div>
+        <div className="mt-4 rounded-md bg-[var(--status-error-bg)] p-3 text-sm text-[var(--status-error)]">
+          {oauthError}
+        </div>
       )}
 
       {!isFalsy(getEnv('NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED')) && (
@@ -414,7 +415,7 @@ export default function LoginPage() {
                 {...form.register('email')}
                 className={cn(
                   'rounded-auth shadow-sm transition-colors focus:border-[var(--brand-400)] focus:ring-2 focus:ring-[var(--brand-100)]',
-                    'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)] focus-visible:ring-[var(--status-error)]',
+                  'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)] focus-visible:ring-[var(--status-error)]',
                 )}
               />
             </div>
@@ -463,7 +464,7 @@ export default function LoginPage() {
             type="submit"
             onMouseEnter={() => setIsButtonHovered(true)}
             onMouseLeave={() => setIsButtonHovered(false)}
-            className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-600)] bg-gradient-to-b from-[var(--brand-500)] to-[var(--brand-600)] py-1.5 px-3 pr-2.5 text-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
+            className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-600)] bg-gradient-to-b from-[var(--brand-500)] to-[var(--brand-600)] px-3 py-1.5 pr-2.5 text-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
             disabled={isLoading}
             suppressHydrationWarning
           >
@@ -541,7 +542,7 @@ export default function LoginPage() {
                 type="email"
                 className={cn(
                   'rounded-auth shadow-sm transition-colors focus:border-[var(--brand-400)] focus:ring-2 focus:ring-[var(--brand-100)]',
-                    'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)] focus-visible:ring-[var(--status-error)]',
+                  'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)] focus-visible:ring-[var(--status-error)]',
                 )}
               />
             </div>
@@ -550,7 +551,7 @@ export default function LoginPage() {
               onClick={handleForgotPassword}
               onMouseEnter={() => setIsResetButtonHovered(true)}
               onMouseLeave={() => setIsResetButtonHovered(false)}
-              className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-600)] bg-gradient-to-b from-[var(--brand-500)] to-[var(--brand-600)] py-1.5 px-3 pr-2.5 text-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
+              className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-600)] bg-gradient-to-b from-[var(--brand-500)] to-[var(--brand-600)] px-3 py-1.5 pr-2.5 text-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
               disabled={isSubmittingReset}
             >
               <span className="flex items-center gap-1" suppressHydrationWarning>

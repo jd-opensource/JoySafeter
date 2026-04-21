@@ -79,9 +79,7 @@ class SharedExecutionWsClient extends BaseWsClient<ExecutionConnectionState> {
   ): Promise<void> {
     await this.connect()
     const existing = this.subscriptions.get(executionId)
-    const normalizedAfterSeq = existing
-      ? Math.max(existing.afterSeq, afterSeq)
-      : afterSeq
+    const normalizedAfterSeq = existing ? Math.max(existing.afterSeq, afterSeq) : afterSeq
     this.subscriptions.set(executionId, {
       afterSeq: normalizedAfterSeq,
       callbacks,

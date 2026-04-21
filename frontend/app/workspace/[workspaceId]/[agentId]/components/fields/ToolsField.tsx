@@ -3,7 +3,6 @@
 import { Loader2, Check, Search, X, Hammer, Server } from 'lucide-react'
 import { useState, useMemo } from 'react'
 
-
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { useBuiltinTools } from '@/hooks/queries/tools'
@@ -211,7 +210,9 @@ export function ToolsField({ value, onChange }: ToolsFieldProps) {
                     ) : (
                       <Server
                         size={11}
-                        className={isSelected ? 'text-[var(--brand-500)]' : 'text-[var(--text-subtle)]'}
+                        className={
+                          isSelected ? 'text-[var(--brand-500)]' : 'text-[var(--text-subtle)]'
+                        }
                       />
                     )}
                     <span

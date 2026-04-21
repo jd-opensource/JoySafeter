@@ -125,7 +125,11 @@ export abstract class BaseWsClient<TState extends BaseConnectionState = BaseConn
 
               this.onUnexpectedClose()
 
-              if (UNRECOVERABLE_CLOSE_CODES.includes(event.code as (typeof UNRECOVERABLE_CLOSE_CODES)[number])) {
+              if (
+                UNRECOVERABLE_CLOSE_CODES.includes(
+                  event.code as (typeof UNRECOVERABLE_CLOSE_CODES)[number],
+                )
+              ) {
                 return
               }
 
@@ -213,7 +217,9 @@ export abstract class BaseWsClient<TState extends BaseConnectionState = BaseConn
     this.heartbeatTimer = setInterval(() => {
       if (this.ws?.readyState !== WebSocket.OPEN) return
       if (Date.now() - this.lastPongTime > this.config.pongTimeoutMs) {
-        console.warn(`${this.config.name} Heartbeat timeout — no pong in ${this.config.pongTimeoutMs}ms, reconnecting`)
+        console.warn(
+          `${this.config.name} Heartbeat timeout — no pong in ${this.config.pongTimeoutMs}ms, reconnecting`,
+        )
         this.ws.close()
         return
       }

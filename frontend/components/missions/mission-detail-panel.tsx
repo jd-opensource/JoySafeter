@@ -21,13 +21,26 @@ import { CommentThread } from '@/components/missions/comment-thread'
 import { PulsingDot } from '@/components/ui/pulsing-dot'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { InlineRenameInput } from '@/components/ui/inline-rename-input'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { useAgentProfile, useAgentProfiles } from '@/hooks/queries/agentProfiles'
@@ -76,11 +89,9 @@ interface MissionDetailPanelProps {
 export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionDetailPanelProps) {
   const { t } = useTranslation()
   const { data: mission, isLoading } = useMission(missionId, workspaceId)
-  const { data: agent } = useAgentProfile(
-    mission?.assignee_id ?? '',
-    workspaceId,
-    { enabled: mission?.assignee_type === 'agent' && Boolean(mission?.assignee_id) },
-  )
+  const { data: agent } = useAgentProfile(mission?.assignee_id ?? '', workspaceId, {
+    enabled: mission?.assignee_type === 'agent' && Boolean(mission?.assignee_id),
+  })
   const { data: agents = [] } = useAgentProfiles(workspaceId, { enabled: Boolean(workspaceId) })
   const { data: executions = [] } = useExecutions(workspaceId, { mission_id: missionId })
   const { data: transitions } = useMissionTransitions(workspaceId)
@@ -113,22 +124,27 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
   }, [mission])
 
   const currentExecution = useMemo(
-    () => mission?.current_execution_id ? executions.find((e) => e.id === mission.current_execution_id) : undefined,
+    () =>
+      mission?.current_execution_id
+        ? executions.find((e) => e.id === mission.current_execution_id)
+        : undefined,
     [mission, executions],
   )
 
-  const canCancel = currentExecution ? ACTIVE_EXECUTION_STATUSES.includes(currentExecution.status) : false
+  const canCancel = currentExecution
+    ? ACTIVE_EXECUTION_STATUSES.includes(currentExecution.status)
+    : false
 
   const pastExecutionCount = executions.length - (currentExecution ? 1 : 0)
 
-  const onMutationError = useCallback((err: unknown) => toastError(getErrorMessage(err, t('common.operationFailed'))), [t])
+  const onMutationError = useCallback(
+    (err: unknown) => toastError(getErrorMessage(err, t('common.operationFailed'))),
+    [t],
+  )
 
   const doUpdate = useCallback(
     (updates: Partial<UpdateMissionRequest>) => {
-      updateMission.mutate(
-        { missionId, workspaceId, ...updates },
-        { onError: onMutationError },
-      )
+      updateMission.mutate({ missionId, workspaceId, ...updates }, { onError: onMutationError })
     },
     [missionId, workspaceId, updateMission, onMutationError],
   )
@@ -187,7 +203,9 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
     <div className="fixed inset-y-0 right-0 z-50 flex w-[480px] flex-col border-l border-[var(--border)] bg-[var(--bg)] shadow-xl">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3">
-        <span className="text-xs font-medium text-[var(--text-muted)]">{t('missions.detailTitle')}</span>
+        <span className="text-xs font-medium text-[var(--text-muted)]">
+          {t('missions.detailTitle')}
+        </span>
         <button
           type="button"
           onClick={onClose}
@@ -248,15 +266,20 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
               <Select
                 value={mission.status}
                 onValueChange={(v) => {
-                  if (mission.current_execution_id && (TERMINAL_MISSION_STATUSES as readonly string[]).includes(v)) return
+                  if (
+                    mission.current_execution_id &&
+                    (TERMINAL_MISSION_STATUSES as readonly string[]).includes(v)
+                  )
+                    return
                   doUpdate({ status: v as MissionStatus })
                 }}
               >
-                <SelectTrigger className="h-auto w-auto border-0 bg-transparent p-0 shadow-none [&>span]:line-clamp-none focus:ring-0">
+                <SelectTrigger className="h-auto w-auto border-0 bg-transparent p-0 shadow-none focus:ring-0 [&>span]:line-clamp-none">
                   <span
                     className={cn(
                       'inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium',
-                      MISSION_STATUS_STYLES[mission.status] ?? 'bg-[var(--surface-3)] text-[var(--text-muted)]',
+                      MISSION_STATUS_STYLES[mission.status] ??
+                        'bg-[var(--surface-3)] text-[var(--text-muted)]',
                     )}
                   >
                     {MISSION_STATUS_LABELS[mission.status]}
@@ -270,7 +293,10 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                     <SelectItem
                       key={s}
                       value={s}
-                      disabled={Boolean(mission.current_execution_id) && (TERMINAL_MISSION_STATUSES as readonly string[]).includes(s)}
+                      disabled={
+                        Boolean(mission.current_execution_id) &&
+                        (TERMINAL_MISSION_STATUSES as readonly string[]).includes(s)
+                      }
                     >
                       {MISSION_STATUS_LABELS[s]}
                     </SelectItem>
@@ -302,8 +328,12 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                       className="text-sm"
                     />
                     <div className="flex gap-1">
-                      <Button size="sm" variant="outline" onClick={handleObjSave}>Save</Button>
-                      <Button size="sm" variant="ghost" onClick={() => setIsEditingObj(false)}>Cancel</Button>
+                      <Button size="sm" variant="outline" onClick={handleObjSave}>
+                        Save
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setIsEditingObj(false)}>
+                        Cancel
+                      </Button>
                     </div>
                   </div>
                 ) : (
@@ -314,7 +344,11 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                       setIsEditingObj(true)
                     }}
                   >
-                    {mission.objective || <span className="italic text-[var(--text-muted)]">Click to add objective...</span>}
+                    {mission.objective || (
+                      <span className="italic text-[var(--text-muted)]">
+                        Click to add objective...
+                      </span>
+                    )}
                   </p>
                 )}
               </div>
@@ -332,19 +366,27 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                       className="text-sm"
                     />
                     <div className="flex gap-1">
-                      <Button size="sm" variant="outline" onClick={handleDescSave}>Save</Button>
-                      <Button size="sm" variant="ghost" onClick={() => setIsEditingDesc(false)}>Cancel</Button>
+                      <Button size="sm" variant="outline" onClick={handleDescSave}>
+                        Save
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setIsEditingDesc(false)}>
+                        Cancel
+                      </Button>
                     </div>
                   </div>
                 ) : (
                   <p
-                    className="cursor-pointer rounded px-1 text-sm leading-relaxed whitespace-pre-wrap text-[var(--text-secondary)] hover:bg-[var(--surface-3)]"
+                    className="cursor-pointer whitespace-pre-wrap rounded px-1 text-sm leading-relaxed text-[var(--text-secondary)] hover:bg-[var(--surface-3)]"
                     onClick={() => {
                       setEditDesc(mission.description ?? '')
                       setIsEditingDesc(true)
                     }}
                   >
-                    {mission.description || <span className="italic text-[var(--text-muted)]">Click to add description...</span>}
+                    {mission.description || (
+                      <span className="italic text-[var(--text-muted)]">
+                        Click to add description...
+                      </span>
+                    )}
                   </p>
                 )}
               </div>
@@ -354,7 +396,9 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
             <section className="overflow-hidden rounded-lg border border-[var(--border)]">
               {/* Tags */}
               <div className="flex items-start gap-3 px-3 py-2.5">
-                <span className="shrink-0 pt-0.5 text-xs font-medium text-[var(--text-muted)]">{t('missions.tags')}</span>
+                <span className="shrink-0 pt-0.5 text-xs font-medium text-[var(--text-muted)]">
+                  {t('missions.tags')}
+                </span>
                 <div className="flex flex-1 flex-wrap items-center gap-1.5">
                   {(mission.tags ?? []).map((tag) => (
                     <Badge key={tag} variant="secondary" className="gap-1 pr-1">
@@ -387,11 +431,15 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
 
               {/* Due Date */}
               <div className="flex items-center justify-between px-3 py-2.5">
-                <span className="text-xs font-medium text-[var(--text-muted)]">{t('missions.dueDate')}</span>
+                <span className="text-xs font-medium text-[var(--text-muted)]">
+                  {t('missions.dueDate')}
+                </span>
                 <div className="flex items-center gap-2">
                   <input
                     type="date"
-                    value={mission.due_date ? new Date(mission.due_date).toISOString().split('T')[0] : ''}
+                    value={
+                      mission.due_date ? new Date(mission.due_date).toISOString().split('T')[0] : ''
+                    }
                     onChange={(e) => doUpdate({ due_date: e.target.value || null })}
                     className="h-7 rounded border border-[var(--border)] bg-transparent px-2 text-xs text-[var(--text-secondary)] outline-none focus:ring-1 focus:ring-[var(--brand-400)]"
                   />
@@ -411,11 +459,15 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
 
               {/* Agent */}
               <div className="flex items-center justify-between px-3 py-2.5">
-                <span className="text-xs font-medium text-[var(--text-muted)]">{t('missions.agent')}</span>
+                <span className="text-xs font-medium text-[var(--text-muted)]">
+                  {t('missions.agent')}
+                </span>
                 {mission.assignee_type === 'agent' && agent ? (
                   <div className="flex items-center gap-2">
                     <Bot className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
-                    <span className="text-sm font-medium text-[var(--text-primary)]">{agent.name}</span>
+                    <span className="text-sm font-medium text-[var(--text-primary)]">
+                      {agent.name}
+                    </span>
                     <AgentStatusIndicator status={agent.status} />
                     <Popover open={agentPickerOpen} onOpenChange={setAgentPickerOpen}>
                       <PopoverTrigger asChild>
@@ -436,7 +488,11 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                 ) : (
                   <Popover open={agentPickerOpen} onOpenChange={setAgentPickerOpen}>
                     <PopoverTrigger asChild>
-                      <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs text-[var(--text-muted)]">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 gap-1 px-2 text-xs text-[var(--text-muted)]"
+                      >
                         <Bot className="h-3 w-3" />
                         Assign...
                       </Button>
@@ -472,10 +528,13 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
               <Button
                 size="sm"
                 onClick={() => {
-                  dispatchMission.mutate({ missionId, workspaceId }, {
-                    onSuccess: () => toastSuccess(t('runs.dispatchedToast')),
-                    onError: onMutationError,
-                  })
+                  dispatchMission.mutate(
+                    { missionId, workspaceId },
+                    {
+                      onSuccess: () => toastSuccess(t('runs.dispatchedToast')),
+                      onError: onMutationError,
+                    },
+                  )
                 }}
                 disabled={dispatchMission.isPending}
               >
@@ -501,14 +560,18 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                           variant="destructive"
                           size="sm"
                           className="h-6 px-2 text-xs"
-                          onClick={() => cancelExecution.mutate(
-                            { executionId: mission.current_execution_id!, workspaceId },
-                            { onError: onMutationError },
-                          )}
+                          onClick={() =>
+                            cancelExecution.mutate(
+                              { executionId: mission.current_execution_id!, workspaceId },
+                              { onError: onMutationError },
+                            )
+                          }
                           disabled={cancelExecution.isPending}
                         >
                           <Square className="mr-1 h-3 w-3" />
-                          {cancelExecution.isPending ? t('missions.stoppingRun') : t('missions.stopRun')}
+                          {cancelExecution.isPending
+                            ? t('missions.stoppingRun')
+                            : t('missions.stopRun')}
                         </Button>
                       )}
                     </div>
@@ -518,8 +581,15 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                       className="h-6 gap-1 px-2 text-xs"
                       onClick={() => setTimelineExpanded(!timelineExpanded)}
                     >
-                      <ChevronDown className={cn('h-3 w-3 transition-transform', timelineExpanded && 'rotate-180')} />
-                      {timelineExpanded ? t('missions.collapseTimeline') : t('missions.expandTimeline')}
+                      <ChevronDown
+                        className={cn(
+                          'h-3 w-3 transition-transform',
+                          timelineExpanded && 'rotate-180',
+                        )}
+                      />
+                      {timelineExpanded
+                        ? t('missions.collapseTimeline')
+                        : t('missions.expandTimeline')}
                     </Button>
                   </div>
                   {timelineExpanded && (
@@ -575,17 +645,18 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                   <Clock className="h-3 w-3" />
                   Created {formatDate(mission.created_at)}
                 </div>
-                {!TERMINAL_MISSION_STATUSES.includes(mission.status) && !mission.current_execution_id && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-                    onClick={() => setShowCancelConfirm(true)}
-                  >
-                    <Archive className="h-3.5 w-3.5" />
-                    {t('missions.archive')}
-                  </Button>
-                )}
+                {!TERMINAL_MISSION_STATUSES.includes(mission.status) &&
+                  !mission.current_execution_id && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                      onClick={() => setShowCancelConfirm(true)}
+                    >
+                      <Archive className="h-3.5 w-3.5" />
+                      {t('missions.archive')}
+                    </Button>
+                  )}
               </div>
               {mission.updated_at !== mission.created_at && (
                 <div className="mt-1 flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
@@ -606,10 +677,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
         confirmLabel={t('missions.archiveConfirm')}
         variant="default"
         onConfirm={() => {
-          cancelMission.mutate(
-            { missionId, workspaceId },
-            { onError: onMutationError },
-          )
+          cancelMission.mutate({ missionId, workspaceId }, { onError: onMutationError })
           setShowCancelConfirm(false)
         }}
       />

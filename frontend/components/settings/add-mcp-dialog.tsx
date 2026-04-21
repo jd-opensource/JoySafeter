@@ -3,7 +3,6 @@
 import { Info, Plus, FileJson, SquarePen, Trash2, Save, Loader2 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 
-
 import { Button } from '@/components/ui/button'
 import { UnifiedDialog } from '@/components/ui/unified-dialog'
 import { Input } from '@/components/ui/input'
@@ -23,10 +22,7 @@ import type { McpServer } from '@/hooks/queries/mcp'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
-import {
-  serverToEditData,
-  DEFAULT_MCP_FORM_CONFIG,
-} from './mcp-dialog-utils'
+import { serverToEditData, DEFAULT_MCP_FORM_CONFIG } from './mcp-dialog-utils'
 
 interface AddMcpDialogProps {
   open: boolean
@@ -226,9 +222,9 @@ export function AddMcpDialog({ open, onOpenChange, editingServer }: AddMcpDialog
       onOpenChange={onOpenChange}
       maxWidth="xl"
       title={isEditMode ? t('settings.editMcpServer') : t('settings.addMcpServer')}
-      description={isEditMode
-        ? t('settings.editMcpServerDescription')
-        : t('settings.addMcpServerDescription')}
+      description={
+        isEditMode ? t('settings.editMcpServerDescription') : t('settings.addMcpServerDescription')
+      }
       showContentBg={false}
       contentClassName="!p-0"
       footer={
@@ -314,9 +310,7 @@ export function AddMcpDialog({ open, onOpenChange, editingServer }: AddMcpDialog
                     <SelectValue placeholder={t('settings.selectType')} />
                   </SelectTrigger>
                   <SelectContent position="popper">
-                    <SelectItem value="streamable-http">
-                      {t('settings.streamableHttp')}
-                    </SelectItem>
+                    <SelectItem value="streamable-http">{t('settings.streamableHttp')}</SelectItem>
                     <SelectItem value="sse">{t('settings.sse')}</SelectItem>
                     <SelectItem value="stdio">{t('settings.stdio')}</SelectItem>
                   </SelectContent>
@@ -325,7 +319,8 @@ export function AddMcpDialog({ open, onOpenChange, editingServer }: AddMcpDialog
 
               <div className="space-y-1.5">
                 <Label className="flex items-center gap-1 text-xs font-semibold text-[var(--text-secondary)]">
-                  <span className="text-[var(--status-error)]">*</span> {t('settings.addressCommand')}
+                  <span className="text-[var(--status-error)]">*</span>{' '}
+                  {t('settings.addressCommand')}
                 </Label>
                 <Input
                   value={address}
@@ -430,7 +425,9 @@ export function AddMcpDialog({ open, onOpenChange, editingServer }: AddMcpDialog
                 <Label className="text-sm font-medium text-[var(--text-primary)]">
                   {t('settings.activeStatus')}
                 </Label>
-                <p className="text-xs text-[var(--text-muted)]">{t('settings.activeStatusDescription')}</p>
+                <p className="text-xs text-[var(--text-muted)]">
+                  {t('settings.activeStatusDescription')}
+                </p>
               </div>
               <Switch checked={statusEnabled} onCheckedChange={setStatusEnabled} />
             </div>

@@ -181,9 +181,7 @@ describe('useChatWebSocket', () => {
       ws.receive({ type: 'content', request_id: requestId, data: { delta: 'late delta' } })
     })
 
-    expect(dispatch).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'STREAM_CONTENT' }),
-    )
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'STREAM_CONTENT' }))
   })
 
   // -------------------------------------------------------------------------
@@ -232,9 +230,7 @@ describe('useChatWebSocket', () => {
       ws.receive({ type: 'content', request_id: requestId, data: { delta: 'ignored' } })
     })
 
-    expect(dispatch).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'STREAM_CONTENT' }),
-    )
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'STREAM_CONTENT' }))
   })
 
   // -------------------------------------------------------------------------

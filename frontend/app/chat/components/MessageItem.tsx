@@ -18,16 +18,64 @@ import { Message, ToolCall } from '../types'
 
 const SANITIZE_CONFIG = {
   ALLOWED_TAGS: [
-    'p', 'br', 'strong', 'em', 'code', 'pre', 'blockquote',
-    'ul', 'ol', 'li', 'a', 'img',
-    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr',
-    'div', 'span', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
-    'details', 'summary', 'sup', 'sub', 'del', 's', 'ins', 'mark',
-    'abbr', 'b', 'i', 'u', 'small', 'tt', 'kbd', 'samp', 'var',
+    'p',
+    'br',
+    'strong',
+    'em',
+    'code',
+    'pre',
+    'blockquote',
+    'ul',
+    'ol',
+    'li',
+    'a',
+    'img',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'hr',
+    'div',
+    'span',
+    'table',
+    'thead',
+    'tbody',
+    'tr',
+    'th',
+    'td',
+    'details',
+    'summary',
+    'sup',
+    'sub',
+    'del',
+    's',
+    'ins',
+    'mark',
+    'abbr',
+    'b',
+    'i',
+    'u',
+    'small',
+    'tt',
+    'kbd',
+    'samp',
+    'var',
   ],
   ALLOWED_ATTR: [
-    'href', 'src', 'alt', 'title', 'class', 'id',
-    'width', 'height', 'target', 'rel', 'name', 'open',
+    'href',
+    'src',
+    'alt',
+    'title',
+    'class',
+    'id',
+    'width',
+    'height',
+    'target',
+    'rel',
+    'name',
+    'open',
   ],
   ALLOW_DATA_ATTR: false,
   ALLOW_UNKNOWN_PROTOCOLS: false,
@@ -78,15 +126,13 @@ export default function MessageItem({ message, onToolClick, onRetry }: MessageIt
   if (isUser) {
     return (
       <motion.div
-        className="flex w-full gap-3 justify-end"
+        className="flex w-full justify-end gap-3"
         variants={messageVariants}
         initial="hidden"
         animate="visible"
       >
         <div className="max-w-[85%] rounded-2xl rounded-br-md bg-gray-900 px-4 py-2.5 text-sm leading-relaxed text-white">
-          <p className="whitespace-pre-wrap">
-            {message.content}
-          </p>
+          <p className="whitespace-pre-wrap">{message.content}</p>
         </div>
         <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-[var(--surface-5)]">
           <User size={14} className="text-[var(--text-secondary)]" />
@@ -98,7 +144,7 @@ export default function MessageItem({ message, onToolClick, onRetry }: MessageIt
   // Assistant Message
   return (
     <motion.div
-      className="group flex w-full gap-3 justify-start"
+      className="group flex w-full justify-start gap-3"
       variants={messageVariants}
       initial="hidden"
       animate="visible"
@@ -132,9 +178,7 @@ export default function MessageItem({ message, onToolClick, onRetry }: MessageIt
         {/* Main Content */}
         <div className="prose prose-sm max-w-none prose-headings:my-2 prose-p:my-1 prose-ol:my-1 prose-ul:my-1 prose-li:my-0.5">
           {sanitizedContent ? (
-            <ReactMarkdown components={markdownComponents}>
-              {sanitizedContent}
-            </ReactMarkdown>
+            <ReactMarkdown components={markdownComponents}>{sanitizedContent}</ReactMarkdown>
           ) : message.metadata?.error ? null : (
             message.isStreaming && (
               <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-[var(--brand-500)] align-middle" />

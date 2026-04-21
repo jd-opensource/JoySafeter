@@ -80,7 +80,11 @@ class SharedRunWsClient extends BaseWsClient<RunConnectionState> implements RunW
     })
   }
 
-  async subscribe(runId: string, afterSeq: number, callbacks?: RunSubscriptionCallbacks): Promise<void> {
+  async subscribe(
+    runId: string,
+    afterSeq: number,
+    callbacks?: RunSubscriptionCallbacks,
+  ): Promise<void> {
     await this.connect()
     const existing = this.subscriptions.get(runId)
     const normalizedAfterSeq = existing ? Math.max(existing.afterSeq, afterSeq) : afterSeq

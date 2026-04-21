@@ -24,7 +24,12 @@ interface CreateTokenDialogProps {
   isPending: boolean
 }
 
-export function CreateTokenDialog({ open, onOpenChange, onSubmit, isPending }: CreateTokenDialogProps) {
+export function CreateTokenDialog({
+  open,
+  onOpenChange,
+  onSubmit,
+  isPending,
+}: CreateTokenDialogProps) {
   const { t } = useTranslation()
   const [name, setName] = useState('')
   const [scopes, setScopes] = useState<string[]>([])
@@ -39,9 +44,7 @@ export function CreateTokenDialog({ open, onOpenChange, onSubmit, isPending }: C
   }, [open])
 
   const handleScopeToggle = (scope: string) => {
-    setScopes((prev) =>
-      prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope],
-    )
+    setScopes((prev) => (prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope]))
   }
 
   const handleSubmit = async () => {
@@ -111,7 +114,7 @@ export function CreateTokenDialog({ open, onOpenChange, onSubmit, isPending }: C
                 />
                 <label
                   htmlFor={`scope-${scope.value}`}
-                  className="cursor-pointer text-sm font-medium text-[var(--text-secondary)] select-none"
+                  className="cursor-pointer select-none text-sm font-medium text-[var(--text-secondary)]"
                 >
                   {t(scope.labelKey)}
                 </label>

@@ -26,7 +26,15 @@ import {
 import { getRunWsClient } from '@/lib/ws/runs/runWsClient'
 import type { RunSummary } from '@/services/runService'
 
-const RUN_STATUS_OPTIONS = ['all', 'queued', 'running', 'interrupt_wait', 'completed', 'failed', 'cancelled'] as const
+const RUN_STATUS_OPTIONS = [
+  'all',
+  'queued',
+  'running',
+  'interrupt_wait',
+  'completed',
+  'failed',
+  'cancelled',
+] as const
 
 function RunRow({
   run,
@@ -110,7 +118,11 @@ function RunRow({
               disabled={isCancelling}
               className="gap-1.5"
             >
-              {isCancelling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
+              {isCancelling ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Square className="h-3.5 w-3.5" />
+              )}
               {t('runs.cancel')}
             </Button>
           )}
@@ -166,7 +178,9 @@ function AgentRunsTab() {
           status: wsIsFresher ? existing.status : run.status,
           last_seq: Math.max(existing.last_seq, run.last_seq),
           error_code: wsIsFresher ? (existing.error_code ?? run.error_code) : run.error_code,
-          error_message: wsIsFresher ? (existing.error_message ?? run.error_message) : run.error_message,
+          error_message: wsIsFresher
+            ? (existing.error_message ?? run.error_message)
+            : run.error_message,
           updated_at:
             new Date(existing.updated_at).getTime() > new Date(run.updated_at).getTime()
               ? existing.updated_at
@@ -186,17 +200,23 @@ function AgentRunsTab() {
       void runWsClientRef.current.subscribe(run.run_id, run.last_seq, {
         onSnapshot: (frame) => {
           setLiveRuns((current) =>
-            current.map((item) => (item.run_id === frame.run_id ? applyRunSnapshot(item, frame) : item)),
+            current.map((item) =>
+              item.run_id === frame.run_id ? applyRunSnapshot(item, frame) : item,
+            ),
           )
         },
         onEvent: (frame) => {
           setLiveRuns((current) =>
-            current.map((item) => (item.run_id === frame.run_id ? applyRunEvent(item, frame) : item)),
+            current.map((item) =>
+              item.run_id === frame.run_id ? applyRunEvent(item, frame) : item,
+            ),
           )
         },
         onStatus: (frame) => {
           setLiveRuns((current) =>
-            current.map((item) => (item.run_id === frame.run_id ? applyRunStatus(item, frame) : item)),
+            current.map((item) =>
+              item.run_id === frame.run_id ? applyRunStatus(item, frame) : item,
+            ),
           )
         },
       })
@@ -258,9 +278,7 @@ function AgentRunsTab() {
             <h2 className="mt-4 text-sm font-semibold text-[var(--text-primary)]">
               {t('runs.emptyTitle')}
             </h2>
-            <p className="mt-1 text-sm text-[var(--text-muted)]">
-              {t('runs.emptyDescription')}
-            </p>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">{t('runs.emptyDescription')}</p>
           </Card>
         ) : (
           <div className="space-y-3">
@@ -269,7 +287,9 @@ function AgentRunsTab() {
                 key={run.run_id}
                 run={run}
                 onCancel={(runId) => cancelRunMutation.mutate(runId)}
-                isCancelling={cancelRunMutation.isPending && cancelRunMutation.variables === run.run_id}
+                isCancelling={
+                  cancelRunMutation.isPending && cancelRunMutation.variables === run.run_id
+                }
               />
             ))}
           </div>
@@ -327,9 +347,7 @@ export default function RunsPage() {
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <Activity className="h-5 w-5 text-[var(--skill-brand-600)]" />
-            <h1 className="text-lg font-semibold text-[var(--text-primary)]">
-              {t('runs.title')}
-            </h1>
+            <h1 className="text-lg font-semibold text-[var(--text-primary)]">{t('runs.title')}</h1>
           </div>
 
           <Tabs value={activeTab} onValueChange={setTab}>
@@ -355,11 +373,7 @@ export default function RunsPage() {
         </div>
       </div>
 
-      {activeTab === 'runs' ? (
-        <AgentRunsTab />
-      ) : (
-        <ExecutionsTab />
-      )}
+      {activeTab === 'runs' ? <AgentRunsTab /> : <ExecutionsTab />}
     </div>
   )
 }

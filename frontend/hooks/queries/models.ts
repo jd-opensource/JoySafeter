@@ -405,10 +405,7 @@ export function useUpdateModelInstance() {
       instanceId: string
       request: UpdateModelInstanceRequest
     }) => {
-      const data = await apiPatch<ModelInstance>(
-        `${MODELS_PATH}/instances/${instanceId}`,
-        request,
-      )
+      const data = await apiPatch<ModelInstance>(`${MODELS_PATH}/instances/${instanceId}`, request)
       logger.info(`Updated model instance: ${instanceId}`)
       return data
     },
@@ -429,7 +426,14 @@ export function useModelUsageStats(params: {
 }) {
   const { period = '24h', granularity = 'hour', providerName, modelName, enabled = true } = params
   return useQuery({
-    queryKey: [...modelKeys.all, 'usage-stats', period, granularity, providerName, modelName] as const,
+    queryKey: [
+      ...modelKeys.all,
+      'usage-stats',
+      period,
+      granularity,
+      providerName,
+      modelName,
+    ] as const,
     queryFn: async (): Promise<ModelUsageStats> => {
       const p = new URLSearchParams({ period, granularity })
       if (providerName) p.set('provider_name', providerName)

@@ -8,7 +8,12 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { missionService } from '@/services/missionService'
-import type { Mission, CreateMissionRequest, UpdateMissionRequest, MissionStatus } from '@/types/missions'
+import type {
+  Mission,
+  CreateMissionRequest,
+  UpdateMissionRequest,
+  MissionStatus,
+} from '@/types/missions'
 import { TERMINAL_MISSION_STATUSES, DEFAULT_MANUAL_TRANSITIONS } from '@/types/missions'
 
 import { STALE_TIME } from './constants'
@@ -164,10 +169,7 @@ export function useDispatchMission() {
       return missionService.dispatch(missionId, workspaceId)
     },
     onSuccess: (data, variables) => {
-      queryClient.setQueryData(
-        missionKeys.detail(variables.missionId, variables.workspaceId),
-        data,
-      )
+      queryClient.setQueryData(missionKeys.detail(variables.missionId, variables.workspaceId), data)
       queryClient.invalidateQueries({ queryKey: missionKeys.all })
       queryClient.invalidateQueries({
         queryKey: executionKeys.list(variables.workspaceId, { mission_id: variables.missionId }),

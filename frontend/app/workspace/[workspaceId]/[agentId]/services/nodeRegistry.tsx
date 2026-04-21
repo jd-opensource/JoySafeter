@@ -1,11 +1,6 @@
 'use client'
 
-import {
-  Bot,
-  LucideIcon,
-  Globe2,
-  BrainCircuit,
-} from 'lucide-react'
+import { Bot, LucideIcon, Globe2, BrainCircuit } from 'lucide-react'
 
 // --- Types ---
 

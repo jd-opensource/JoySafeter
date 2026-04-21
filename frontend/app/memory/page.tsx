@@ -229,12 +229,8 @@ export default function KnowledgePage() {
               <Brain size={18} />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-[var(--text-primary)]">
-                {t('memory.title')}
-              </h2>
-              <p className="mt-1 text-xs text-[var(--text-muted)]">
-                {t('memory.subtitle')}
-              </p>
+              <h2 className="text-lg font-bold text-[var(--text-primary)]">{t('memory.title')}</h2>
+              <p className="mt-1 text-xs text-[var(--text-muted)]">{t('memory.subtitle')}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -285,9 +281,7 @@ export default function KnowledgePage() {
               <SelectValue placeholder={t('memory.allTopics')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">
-                {t('memory.allTopics')}
-              </SelectItem>
+              <SelectItem value="all">{t('memory.allTopics')}</SelectItem>
               {topics.map((topic) => (
                 <SelectItem key={topic} value={topic}>
                   {topic}
@@ -301,9 +295,7 @@ export default function KnowledgePage() {
             onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
             className="h-9 text-xs"
           >
-            {sortOrder === 'desc'
-              ? t('memory.newest')
-              : t('memory.oldest')}
+            {sortOrder === 'desc' ? t('memory.newest') : t('memory.oldest')}
           </Button>
         </div>
       </div>
@@ -326,8 +318,9 @@ export default function KnowledgePage() {
             return (
               <div
                 className={cn(
-                  'flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-1)] p-4 text-center py-12',
-                  !hasFilters && 'cursor-pointer transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)]',
+                  'flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-1)] p-4 py-12 text-center',
+                  !hasFilters &&
+                    'cursor-pointer transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)]',
                 )}
                 onClick={hasFilters ? undefined : openCreate}
               >
@@ -336,9 +329,7 @@ export default function KnowledgePage() {
                 </div>
                 <div>
                   <h4 className="text-sm font-medium text-[var(--text-primary)]">
-                    {hasFilters
-                      ? t('memory.noMemoriesFiltered')
-                      : t('memory.noMemories')}
+                    {hasFilters ? t('memory.noMemoriesFiltered') : t('memory.noMemories')}
                   </h4>
                   <p className="mt-1 max-w-md text-xs text-[var(--text-tertiary)]">
                     {hasFilters
@@ -444,15 +435,11 @@ export default function KnowledgePage() {
               <Brain className="h-5 w-5 text-[var(--skill-brand-600)]" />
               {t('memory.createMemory')}
             </DialogTitle>
-            <DialogDescription>
-              {t('memory.createMemoryDescription')}
-            </DialogDescription>
+            <DialogDescription>{t('memory.createMemoryDescription')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label className="text-xs font-medium">
-                {t('memory.memoryContent')}
-              </Label>
+              <Label className="text-xs font-medium">{t('memory.memoryContent')}</Label>
               <Textarea
                 value={formMemory}
                 onChange={(e) => setFormMemory(e.target.value)}
@@ -462,9 +449,7 @@ export default function KnowledgePage() {
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-xs font-medium">
-                {t('memory.topics')}
-              </Label>
+              <Label className="text-xs font-medium">{t('memory.topics')}</Label>
               <Input
                 value={formTopics}
                 onChange={(e) => setFormTopics(e.target.value)}
@@ -500,9 +485,7 @@ export default function KnowledgePage() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label className="text-xs font-medium">
-                {t('memory.memoryContent')}
-              </Label>
+              <Label className="text-xs font-medium">{t('memory.memoryContent')}</Label>
               <Textarea
                 value={formMemory}
                 onChange={(e) => setFormMemory(e.target.value)}
@@ -511,9 +494,7 @@ export default function KnowledgePage() {
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-xs font-medium">
-                {t('memory.topics')}
-              </Label>
+              <Label className="text-xs font-medium">{t('memory.topics')}</Label>
               <Input
                 value={formTopics}
                 onChange={(e) => setFormTopics(e.target.value)}
@@ -545,12 +526,8 @@ export default function KnowledgePage() {
       >
         <AlertDialogContent variant="destructive">
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t('memory.confirmDelete')}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('memory.confirmDeleteDescription')}
-            </AlertDialogDescription>
+            <AlertDialogTitle>{t('memory.confirmDelete')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('memory.confirmDeleteDescription')}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>

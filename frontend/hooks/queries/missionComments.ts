@@ -29,8 +29,7 @@ export function useMissionComments(missionId: string, workspaceId: string) {
       })
     },
     initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) =>
-      lastPage.has_more ? lastPage.next_cursor : undefined,
+    getNextPageParam: (lastPage) => (lastPage.has_more ? lastPage.next_cursor : undefined),
     enabled: Boolean(missionId) && Boolean(workspaceId),
     staleTime: STALE_TIME.SHORT,
   })

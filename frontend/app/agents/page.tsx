@@ -87,9 +87,7 @@ export default function AgentsPage() {
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--surface-3)] text-[var(--text-muted)]">
               <Bot className="h-5 w-5" />
             </div>
-            <h2 className="mt-4 text-sm font-semibold text-[var(--text-primary)]">
-              No agents yet
-            </h2>
+            <h2 className="mt-4 text-sm font-semibold text-[var(--text-primary)]">No agents yet</h2>
             <p className="mt-1 text-sm text-[var(--text-muted)]">
               Create your first AI agent to get started.
             </p>

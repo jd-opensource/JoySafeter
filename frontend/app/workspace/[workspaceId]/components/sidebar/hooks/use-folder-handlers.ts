@@ -11,10 +11,7 @@ import { useTranslation } from '@/lib/i18n'
 import { isPermissionError } from '@/lib/utils/is-permission-error'
 import { useFolderStore, type WorkflowFolder } from '@/stores/folders/store'
 
-export function useFolderHandlers(
-  workspaceId: string,
-  canEdit: boolean,
-) {
+export function useFolderHandlers(workspaceId: string, canEdit: boolean) {
   const { t } = useTranslation()
   const { toast } = useToast()
 
@@ -105,7 +102,8 @@ export function useFolderHandlers(
         })
         return
       }
-      const folder = folderStoreData[folderId] || foldersData?.find((f: WorkflowFolder) => f.id === folderId)
+      const folder =
+        folderStoreData[folderId] || foldersData?.find((f: WorkflowFolder) => f.id === folderId)
       if (!folder) {
         return
       }

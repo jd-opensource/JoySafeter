@@ -114,7 +114,12 @@ describe('workspaceChatWsService', () => {
     })
 
     // Server delivers thread info then signals completion
-    mockWsInstance.receive({ type: 'content', request_id, thread_id: 'thread-abc', data: { delta: 'hi' } })
+    mockWsInstance.receive({
+      type: 'content',
+      request_id,
+      thread_id: 'thread-abc',
+      data: { delta: 'hi' },
+    })
     mockWsInstance.receive({ type: 'done', request_id, thread_id: 'thread-abc' })
 
     const result = await sendP
@@ -193,7 +198,12 @@ describe('workspaceChatWsService', () => {
     const { request_id } = JSON.parse(mockWsInstance.sent[mockWsInstance.sent.length - 1])
 
     // Server notifies the client of the thread_id so threadToRequest is populated
-    mockWsInstance.receive({ type: 'content', request_id, thread_id: 'thread-stop', data: { delta: '' } })
+    mockWsInstance.receive({
+      type: 'content',
+      request_id,
+      thread_id: 'thread-stop',
+      data: { delta: '' },
+    })
 
     // Client requests stop
     svc.stopByThreadId('thread-stop')

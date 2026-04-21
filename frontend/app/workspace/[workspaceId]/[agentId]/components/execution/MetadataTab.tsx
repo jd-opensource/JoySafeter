@@ -51,7 +51,11 @@ export const MetadataTab = React.memo(function MetadataTab() {
               {key}
             </span>
             <span className="break-all font-mono text-sm text-[var(--text-secondary)]">
-              {value === null ? <span className="italic text-[var(--text-subtle)]">null</span> : String(value)}
+              {value === null ? (
+                <span className="italic text-[var(--text-subtle)]">null</span>
+              ) : (
+                String(value)
+              )}
             </span>
           </div>
         ))}

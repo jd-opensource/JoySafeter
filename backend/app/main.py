@@ -2,34 +2,37 @@
 FastAPI Main Application
 """
 
-from dotenv import load_dotenv
-from app.core.settings import ENV_FILE
+from __future__ import annotations
+
+import asyncio  # noqa: E402
+from contextlib import asynccontextmanager  # noqa: E402
+from datetime import datetime, timedelta, timezone  # noqa: E402
+from typing import AsyncGenerator, Optional  # noqa: E402
+
+from dotenv import load_dotenv  # noqa: E402
+
+from app.core.settings import ENV_FILE  # noqa: E402
 
 load_dotenv(ENV_FILE, override=False)
 
-import asyncio
-from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
-from typing import AsyncGenerator, Optional
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from loguru import logger  # noqa: E402
+from sqlalchemy import text  # noqa: E402
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
-from loguru import logger
-from sqlalchemy import text
-
-from app.api import api_router
-from app.api.v1.sessions import router as sessions_router
-from app.common.exceptions import register_exception_handlers
-from app.common.logging import LoggingMiddleware, setup_logging
-from app.core.database import AsyncSessionLocal, close_db, engine
-from app.core.redis import RedisClient
-from app.core.settings import settings
-from app.websocket.auth import WebSocketCloseCode, authenticate_websocket, reject_websocket
-from app.websocket.chat_ws_handler import ChatWsHandler
-from app.websocket.execution_subscription_handler import execution_subscription_handler
-from app.websocket.notification_manager import NotificationType, notification_manager
-from app.websocket.openclaw_handler import openclaw_bridge_handler
-from app.websocket.run_subscription_handler import run_subscription_handler
+from app.api import api_router  # noqa: E402
+from app.api.v1.sessions import router as sessions_router  # noqa: E402
+from app.common.exceptions import register_exception_handlers  # noqa: E402
+from app.common.logging import LoggingMiddleware, setup_logging  # noqa: E402
+from app.core.database import AsyncSessionLocal, close_db, engine  # noqa: E402
+from app.core.redis import RedisClient  # noqa: E402
+from app.core.settings import settings  # noqa: E402
+from app.websocket.auth import WebSocketCloseCode, authenticate_websocket, reject_websocket  # noqa: E402
+from app.websocket.chat_ws_handler import ChatWsHandler  # noqa: E402
+from app.websocket.execution_subscription_handler import execution_subscription_handler  # noqa: E402
+from app.websocket.notification_manager import NotificationType, notification_manager  # noqa: E402
+from app.websocket.openclaw_handler import openclaw_bridge_handler  # noqa: E402
+from app.websocket.run_subscription_handler import run_subscription_handler  # noqa: E402
 
 setup_logging()
 

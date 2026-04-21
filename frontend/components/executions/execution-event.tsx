@@ -28,10 +28,9 @@ const APPROVAL_CFG = {
 } as const
 const ARTIFACT_CFG = { icon: Paperclip, label: 'Artifact', style: '' } as const
 
-const EVENT_CONFIG: Partial<Record<
-  ExecutionEventType,
-  { icon: React.ElementType; label: string; style: string }
->> = {
+const EVENT_CONFIG: Partial<
+  Record<ExecutionEventType, { icon: React.ElementType; label: string; style: string }>
+> = {
   text: TEXT_CFG,
   assistant_text: TEXT_CFG,
   thinking: { icon: MessageSquare, label: 'Thinking', style: 'bg-[var(--surface-3)] italic' },
@@ -39,7 +38,11 @@ const EVENT_CONFIG: Partial<Record<
   tool_use_start: TOOL_CFG,
   tool_result: RESULT_CFG,
   tool_use_end: RESULT_CFG,
-  error: { icon: XCircle, label: 'Error', style: 'border-l-2 border-l-[var(--status-error)] text-[var(--status-error)]' },
+  error: {
+    icon: XCircle,
+    label: 'Error',
+    style: 'border-l-2 border-l-[var(--status-error)] text-[var(--status-error)]',
+  },
   approval_request: APPROVAL_CFG,
   approval_requested: APPROVAL_CFG,
   user_message: { icon: MessageSquare, label: 'User', style: 'bg-[var(--surface-3)]' },
@@ -59,7 +62,13 @@ interface ExecutionEventItemProps {
   isPendingApproval?: boolean
 }
 
-export function ExecutionEventItem({ event, onApprove, onReject, disabled, isPendingApproval }: ExecutionEventItemProps) {
+export function ExecutionEventItem({
+  event,
+  onApprove,
+  onReject,
+  disabled,
+  isPendingApproval,
+}: ExecutionEventItemProps) {
   const [expanded, setExpanded] = useState(false)
   const defaultConfig = { icon: Info, label: event.event_type, style: '' }
   const config = EVENT_CONFIG[event.event_type] ?? defaultConfig
@@ -89,7 +98,11 @@ export function ExecutionEventItem({ event, onApprove, onReject, disabled, isPen
               onClick={() => setExpanded(!expanded)}
               className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
             >
-              {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              {expanded ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronRight className="h-3 w-3" />
+              )}
               Thinking...
             </button>
             {expanded && (
@@ -107,15 +120,17 @@ export function ExecutionEventItem({ event, onApprove, onReject, disabled, isPen
         const toolInput = tool.input ?? payload.input ?? payload.arguments ?? {}
         return (
           <div>
-            <p className="text-sm font-medium text-[var(--text-primary)]">
-              {toolName}
-            </p>
+            <p className="text-sm font-medium text-[var(--text-primary)]">{toolName}</p>
             <button
               type="button"
               onClick={() => setExpanded(!expanded)}
               className="mt-0.5 flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
             >
-              {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              {expanded ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronRight className="h-3 w-3" />
+              )}
               Input
             </button>
             {expanded && (
@@ -136,7 +151,11 @@ export function ExecutionEventItem({ event, onApprove, onReject, disabled, isPen
               onClick={() => setExpanded(!expanded)}
               className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
             >
-              {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              {expanded ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronRight className="h-3 w-3" />
+              )}
               Output
             </button>
             {expanded && (
@@ -172,7 +191,11 @@ export function ExecutionEventItem({ event, onApprove, onReject, disabled, isPen
                   onClick={() => setExpanded(!expanded)}
                   className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
                 >
-                  {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                  {expanded ? (
+                    <ChevronDown className="h-3 w-3" />
+                  ) : (
+                    <ChevronRight className="h-3 w-3" />
+                  )}
                   {toolName} input
                 </button>
                 {expanded && (
@@ -188,7 +211,12 @@ export function ExecutionEventItem({ event, onApprove, onReject, disabled, isPen
                   <Button size="sm" onClick={() => onApprove?.(event.id)} disabled={disabled}>
                     Approve
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => onReject?.(event.id)} disabled={disabled}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onReject?.(event.id)}
+                    disabled={disabled}
+                  >
                     Reject
                   </Button>
                 </>

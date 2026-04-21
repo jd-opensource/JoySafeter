@@ -42,7 +42,9 @@ export function PlaygroundTab({ providerName }: PlaygroundTabProps) {
   if (providerModels.length === 0) {
     return (
       <div className="flex h-40 items-center justify-center text-[var(--text-muted)]">
-        <p className="text-sm">No available models for this provider. Please configure credentials first.</p>
+        <p className="text-sm">
+          No available models for this provider. Please configure credentials first.
+        </p>
       </div>
     )
   }
@@ -51,7 +53,7 @@ export function PlaygroundTab({ providerName }: PlaygroundTabProps) {
     <div className="flex h-full flex-col gap-4">
       {/* Model selector */}
       <div className="flex items-center gap-2">
-        <span className="text-xs text-[var(--text-muted)] shrink-0">Model</span>
+        <span className="shrink-0 text-xs text-[var(--text-muted)]">Model</span>
         <select
           value={effectiveModel}
           onChange={(e) => setSelectedModel(e.target.value)}
@@ -96,7 +98,13 @@ export function PlaygroundTab({ providerName }: PlaygroundTabProps) {
             Run
           </Button>
         )}
-        <Button size="sm" variant="ghost" onClick={handleReset} disabled={isStreaming} className="gap-1.5">
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={handleReset}
+          disabled={isStreaming}
+          className="gap-1.5"
+        >
           <RotateCcw className="h-3.5 w-3.5" />
           Reset
         </Button>
@@ -104,16 +112,16 @@ export function PlaygroundTab({ providerName }: PlaygroundTabProps) {
 
       {/* Output */}
       {(output || error || isStreaming) && (
-        <div className="flex flex-col gap-1.5 flex-1 min-h-0">
+        <div className="flex min-h-0 flex-1 flex-col gap-1.5">
           <span className="text-xs text-[var(--text-muted)]">Output</span>
-          <div className="flex-1 min-h-[120px] rounded-md border border-[var(--border-muted)] bg-[var(--surface-3)] p-3 overflow-y-auto">
+          <div className="min-h-[120px] flex-1 overflow-y-auto rounded-md border border-[var(--border-muted)] bg-[var(--surface-3)] p-3">
             {error ? (
               <p className="text-sm text-[var(--status-error)]">{error}</p>
             ) : (
-              <p className="text-sm text-[var(--text-primary)] whitespace-pre-wrap break-words">
+              <p className="whitespace-pre-wrap break-words text-sm text-[var(--text-primary)]">
                 {output}
                 {isStreaming && (
-                  <span className="inline-block w-1.5 h-4 ml-0.5 bg-[var(--text-primary)] animate-pulse align-middle" />
+                  <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-[var(--text-primary)] align-middle" />
                 )}
               </p>
             )}

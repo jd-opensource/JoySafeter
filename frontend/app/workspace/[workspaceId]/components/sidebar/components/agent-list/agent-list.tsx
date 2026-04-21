@@ -177,7 +177,10 @@ export function AgentList({
     return (
       <div className="space-y-[4px]">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={`skeleton-${i}`} className="flex items-center gap-1.5 rounded-md px-1.5 py-[5px]">
+          <div
+            key={`skeleton-${i}`}
+            className="flex items-center gap-1.5 rounded-md px-1.5 py-[5px]"
+          >
             <Skeleton className="h-3 w-3 rounded-xs" />
             <Skeleton className="h-3.5 w-[80px]" />
           </div>

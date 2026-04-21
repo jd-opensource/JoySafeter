@@ -14,7 +14,11 @@ export function PulsingDot({ size = 'md', className }: PulsingDotProps) {
   const sizeClass = SIZE_CLASSES[size]
   return (
     <span className={cn('relative flex', sizeClass, className)}>
-      <span className={cn('absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-75')} />
+      <span
+        className={cn(
+          'absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-75',
+        )}
+      />
       <span className={cn('relative inline-flex rounded-full bg-current', sizeClass)} />
     </span>
   )

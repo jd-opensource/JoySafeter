@@ -39,7 +39,12 @@ function CredentialStatusBadge({ credential }: { credential?: ModelCredential })
   )
 }
 
-export function ProviderHeader({ provider, credential, onEditCredential, onDeleteProvider }: ProviderHeaderProps) {
+export function ProviderHeader({
+  provider,
+  credential,
+  onEditCredential,
+  onDeleteProvider,
+}: ProviderHeaderProps) {
   const validateMutation = useValidateCredential()
   const deleteMutation = useDeleteCredential()
   const { toast } = useToast()
@@ -48,7 +53,9 @@ export function ProviderHeader({ provider, credential, onEditCredential, onDelet
     if (credential?.id) {
       validateMutation.mutate(credential.id, {
         onSuccess: (data) => {
-          toast({ title: data.is_valid ? 'Credential validation passed' : 'Credential validation failed' })
+          toast({
+            title: data.is_valid ? 'Credential validation passed' : 'Credential validation failed',
+          })
         },
         onError: (err) => {
           toast({
@@ -89,14 +96,21 @@ export function ProviderHeader({ provider, credential, onEditCredential, onDelet
             {initials}
           </div>
           <div>
-            <h2 className="text-base font-semibold text-[var(--text-primary)]">{provider.display_name}</h2>
+            <h2 className="text-base font-semibold text-[var(--text-primary)]">
+              {provider.display_name}
+            </h2>
             <p className="text-xs text-[var(--text-tertiary)]">{provider.provider_name}</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           {provider.provider_type === 'custom' && onDeleteProvider && (
-            <Button variant="outline" size="sm" onClick={onDeleteProvider} className="text-[var(--status-error)] hover:text-[var(--status-error-hover)]">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onDeleteProvider}
+              className="text-[var(--status-error)] hover:text-[var(--status-error-hover)]"
+            >
               Delete
             </Button>
           )}
@@ -110,7 +124,9 @@ export function ProviderHeader({ provider, credential, onEditCredential, onDelet
       <div className="mt-4 rounded-lg border border-[var(--border-muted)] bg-[var(--surface-3)] p-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-[var(--text-secondary)]">Credential Status</span>
+            <span className="text-xs font-medium text-[var(--text-secondary)]">
+              Credential Status
+            </span>
             <CredentialStatusBadge credential={credential} />
           </div>
           {credential && (
@@ -147,7 +163,9 @@ export function ProviderHeader({ provider, credential, onEditCredential, onDelet
         )}
 
         {credential?.validation_error && !credential.is_valid && (
-          <p className="mt-1 text-xs text-[var(--status-error)] line-clamp-2">{credential.validation_error}</p>
+          <p className="mt-1 line-clamp-2 text-xs text-[var(--status-error)]">
+            {credential.validation_error}
+          </p>
         )}
       </div>
     </div>

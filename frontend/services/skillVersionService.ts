@@ -112,17 +112,18 @@ function normalizeVersion(raw: BackendVersion): SkillVersion {
     publishedById: raw.published_by_id,
     publishedAt: raw.published_at ?? null,
     createdAt: raw.created_at ?? null,
-    files: raw.files?.map((f) => ({
-      id: f.id,
-      versionId: f.version_id,
-      path: f.path,
-      fileName: f.file_name,
-      fileType: f.file_type,
-      content: f.content ?? null,
-      storageType: f.storage_type,
-      storageKey: f.storage_key ?? null,
-      size: f.size ?? 0,
-    })) ?? null,
+    files:
+      raw.files?.map((f) => ({
+        id: f.id,
+        versionId: f.version_id,
+        path: f.path,
+        fileName: f.file_name,
+        fileType: f.file_type,
+        content: f.content ?? null,
+        storageType: f.storage_type,
+        storageKey: f.storage_key ?? null,
+        size: f.size ?? 0,
+      })) ?? null,
   }
 }
 
@@ -144,7 +145,10 @@ export const skillVersionService = {
     return normalizeVersion(data)
   },
 
-  async publishVersion(skillId: string, payload: { version: string; release_notes?: string }): Promise<SkillVersion> {
+  async publishVersion(
+    skillId: string,
+    payload: { version: string; release_notes?: string },
+  ): Promise<SkillVersion> {
     const data = await apiPost<BackendVersion>(`skills/${skillId}/versions`, payload)
     return normalizeVersion(data)
   },
@@ -153,7 +157,10 @@ export const skillVersionService = {
     await apiDelete<void>(`skills/${skillId}/versions/${version}`)
   },
 
-  async restoreDraft(skillId: string, payload: { version: string }): Promise<Record<string, unknown>> {
+  async restoreDraft(
+    skillId: string,
+    payload: { version: string },
+  ): Promise<Record<string, unknown>> {
     return await apiPost<Record<string, unknown>>(`skills/${skillId}/restore`, payload)
   },
 }

@@ -9,7 +9,10 @@ export interface MissionListResponse {
 }
 
 export const missionService = {
-  list: async (workspaceId: string, params?: { status?: string; limit?: number }): Promise<Mission[]> => {
+  list: async (
+    workspaceId: string,
+    params?: { status?: string; limit?: number },
+  ): Promise<Mission[]> => {
     const searchParams = new URLSearchParams({ workspace_id: workspaceId })
     if (params?.status) searchParams.set('status', params.status)
     if (params?.limit) searchParams.set('limit', String(params.limit))
@@ -25,11 +28,19 @@ export const missionService = {
     return apiPost<Mission>('missions', data)
   },
 
-  update: async (missionId: string, workspaceId: string, data: UpdateMissionRequest): Promise<Mission> => {
+  update: async (
+    missionId: string,
+    workspaceId: string,
+    data: UpdateMissionRequest,
+  ): Promise<Mission> => {
     return apiPatch<Mission>(`missions/${missionId}?workspace_id=${workspaceId}`, data)
   },
 
-  assign: async (missionId: string, workspaceId: string, agentProfileId: string): Promise<Mission> => {
+  assign: async (
+    missionId: string,
+    workspaceId: string,
+    agentProfileId: string,
+  ): Promise<Mission> => {
     return apiPost<Mission>(`missions/${missionId}/assign?workspace_id=${workspaceId}`, {
       agent_profile_id: agentProfileId,
     })
@@ -44,25 +55,24 @@ export const missionService = {
   },
 
   getTransitions: async (workspaceId: string): Promise<Record<string, string[]>> => {
-    return apiGet<Record<string, string[]>>(
-      `missions/meta/transitions?workspace_id=${workspaceId}`,
-    )
+    return apiGet<Record<string, string[]>>(`missions/meta/transitions?workspace_id=${workspaceId}`)
   },
 
   // --- Mission-scoped execution operations ---
 
   getExecutionEvents: async (
-    missionId: string, workspaceId: string, afterSeq?: number,
+    missionId: string,
+    workspaceId: string,
+    afterSeq?: number,
   ): Promise<ExecutionEventsPage> => {
     const params = new URLSearchParams({ workspace_id: workspaceId })
     if (afterSeq !== undefined) params.set('after_seq', String(afterSeq))
-    return apiGet<ExecutionEventsPage>(
-      `missions/${missionId}/execution/events?${params}`,
-    )
+    return apiGet<ExecutionEventsPage>(`missions/${missionId}/execution/events?${params}`)
   },
 
   getExecutionSnapshot: async (
-    missionId: string, workspaceId: string,
+    missionId: string,
+    workspaceId: string,
   ): Promise<ExecutionSnapshot> => {
     return apiGet<ExecutionSnapshot>(
       `missions/${missionId}/execution/snapshot?workspace_id=${workspaceId}`,
@@ -70,20 +80,22 @@ export const missionService = {
   },
 
   injectExecutionMessage: async (
-    missionId: string, workspaceId: string, message: string,
+    missionId: string,
+    workspaceId: string,
+    message: string,
   ): Promise<void> => {
-    await apiPost(
-      `missions/${missionId}/execution/message?workspace_id=${workspaceId}`,
-      { message },
-    )
+    await apiPost(`missions/${missionId}/execution/message?workspace_id=${workspaceId}`, {
+      message,
+    })
   },
 
   approveExecutionAction: async (
-    missionId: string, workspaceId: string, approved: boolean,
+    missionId: string,
+    workspaceId: string,
+    approved: boolean,
   ): Promise<void> => {
-    await apiPost(
-      `missions/${missionId}/execution/approve?workspace_id=${workspaceId}`,
-      { approved },
-    )
+    await apiPost(`missions/${missionId}/execution/approve?workspace_id=${workspaceId}`, {
+      approved,
+    })
   },
 }

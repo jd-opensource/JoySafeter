@@ -11,11 +11,11 @@ export default {
   theme: {
     fontSize: {
       '2xs': ['7px', { lineHeight: '10px' }],
-      'xs':  ['9px', { lineHeight: '14px' }],
-      'sm':  ['11px', { lineHeight: '16px' }],
-      'base': ['13px', { lineHeight: '18px' }],
-      'lg':  ['15px', { lineHeight: '22px' }],
-      'xl':  ['18px', { lineHeight: '26px' }],
+      xs: ['9px', { lineHeight: '14px' }],
+      sm: ['11px', { lineHeight: '16px' }],
+      base: ['13px', { lineHeight: '18px' }],
+      lg: ['15px', { lineHeight: '22px' }],
+      xl: ['18px', { lineHeight: '26px' }],
       '2xl': ['22px', { lineHeight: '30px' }],
       '3xl': ['28px', { lineHeight: '36px' }],
     },
@@ -25,10 +25,10 @@ export default {
         mono: ['var(--font-geist-mono)'],
       },
       zIndex: {
-        'popover': '100',
-        'modal':   '200',
-        'sheet':   '250',
-        'top':     '300',
+        popover: '100',
+        modal: '200',
+        sheet: '250',
+        top: '300',
       },
       colors: {
         background: 'hsl(var(--background))',

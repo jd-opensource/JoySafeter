@@ -27,93 +27,96 @@ interface MissionCardProps {
   style?: React.CSSProperties
 }
 
-export const MissionCard = forwardRef<HTMLButtonElement, MissionCardProps & React.HTMLAttributes<HTMLButtonElement>>(
-  function MissionCard({ mission, agentName, onSelectMission, isDragOverlay, style, className, ...props }, ref) {
-    const { t } = useTranslation()
-    const hasActiveExecution = Boolean(mission.current_execution_id)
-    const isAssignedToAgent = mission.assignee_type === 'agent'
+export const MissionCard = forwardRef<
+  HTMLButtonElement,
+  MissionCardProps & React.HTMLAttributes<HTMLButtonElement>
+>(function MissionCard(
+  { mission, agentName, onSelectMission, isDragOverlay, style, className, ...props },
+  ref,
+) {
+  const { t } = useTranslation()
+  const hasActiveExecution = Boolean(mission.current_execution_id)
+  const isAssignedToAgent = mission.assignee_type === 'agent'
 
-    const isOverdue = mission.due_date ? Date.parse(mission.due_date) < Date.now() : false
+  const isOverdue = mission.due_date ? Date.parse(mission.due_date) < Date.now() : false
 
-    return (
-      <button
-        ref={ref}
-        type="button"
-        onClick={() => onSelectMission?.(mission.id)}
-        style={style}
-        className={cn(
-          'w-full rounded-lg border border-[var(--border)] border-l-[3px] bg-[var(--surface-elevated)] p-3 text-left',
-          PRIORITY_LEFT_BORDER[mission.priority],
-          'transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-400)]',
-          isDragOverlay && 'shadow-lg ring-2 ring-[var(--brand-400)]/40',
-          className,
-        )}
-        {...props}
-      >
-        <p className="line-clamp-2 text-sm font-medium text-[var(--text-primary)]">
-          {mission.title}
-        </p>
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onClick={() => onSelectMission?.(mission.id)}
+      style={style}
+      className={cn(
+        'w-full rounded-lg border border-l-[3px] border-[var(--border)] bg-[var(--surface-elevated)] p-3 text-left',
+        PRIORITY_LEFT_BORDER[mission.priority],
+        'transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-400)]',
+        isDragOverlay && 'ring-[var(--brand-400)]/40 shadow-lg ring-2',
+        className,
+      )}
+      {...props}
+    >
+      <p className="line-clamp-2 text-sm font-medium text-[var(--text-primary)]">{mission.title}</p>
 
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <PriorityBadge priority={mission.priority} />
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <PriorityBadge priority={mission.priority} />
 
-          <span className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)]">
-            {isAssignedToAgent ? (
-              <>
-                <Bot className="h-3 w-3" />
-                <span className="max-w-[80px] truncate">{agentName || (mission.assignee_id ? 'Agent' : 'Unassigned')}</span>
-              </>
-            ) : (
-              <>
-                <User className="h-3 w-3" />
-                <span>{mission.assignee_id ? 'Assigned' : 'Unassigned'}</span>
-              </>
-            )}
-          </span>
+        <span className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)]">
+          {isAssignedToAgent ? (
+            <>
+              <Bot className="h-3 w-3" />
+              <span className="max-w-[80px] truncate">
+                {agentName || (mission.assignee_id ? 'Agent' : 'Unassigned')}
+              </span>
+            </>
+          ) : (
+            <>
+              <User className="h-3 w-3" />
+              <span>{mission.assignee_id ? 'Assigned' : 'Unassigned'}</span>
+            </>
+          )}
+        </span>
+      </div>
 
+      {(mission.tags?.length || mission.due_date) && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {mission.tags?.slice(0, 2).map((tag) => (
+            <span
+              key={tag}
+              className="inline-block max-w-[80px] truncate rounded bg-[var(--surface-3)] px-1.5 py-0.5 text-[10px] text-[var(--text-secondary)]"
+            >
+              {tag}
+            </span>
+          ))}
+          {(mission.tags?.length ?? 0) > 2 && (
+            <span className="text-[10px] text-[var(--text-muted)]">
+              +{(mission.tags?.length ?? 0) - 2}
+            </span>
+          )}
+          {mission.due_date && (
+            <span
+              className={cn(
+                'inline-flex items-center gap-0.5 text-[10px]',
+                isOverdue ? 'text-[var(--status-error)]' : 'text-[var(--text-muted)]',
+              )}
+            >
+              <Calendar className="h-2.5 w-2.5" />
+              {new Date(mission.due_date).toLocaleDateString()}
+            </span>
+          )}
         </div>
+      )}
 
-        {(mission.tags?.length || mission.due_date) && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            {mission.tags?.slice(0, 2).map((tag) => (
-              <span
-                key={tag}
-                className="inline-block max-w-[80px] truncate rounded bg-[var(--surface-3)] px-1.5 py-0.5 text-[10px] text-[var(--text-secondary)]"
-              >
-                {tag}
-              </span>
-            ))}
-            {(mission.tags?.length ?? 0) > 2 && (
-              <span className="text-[10px] text-[var(--text-muted)]">
-                +{(mission.tags?.length ?? 0) - 2}
-              </span>
-            )}
-            {mission.due_date && (
-              <span
-                className={cn(
-                  'inline-flex items-center gap-0.5 text-[10px]',
-                  isOverdue ? 'text-[var(--status-error)]' : 'text-[var(--text-muted)]',
-                )}
-              >
-                <Calendar className="h-2.5 w-2.5" />
-                {new Date(mission.due_date).toLocaleDateString()}
-              </span>
-            )}
-          </div>
-        )}
-
-        {hasActiveExecution && (
-          <Link
-            href={`/runs?tab=executions&mission=${mission.id}`}
-            onClick={(e) => e.stopPropagation()}
-            className="mt-2 -mx-3 -mb-3 flex items-center gap-1.5 rounded-b-lg border-t border-[var(--border)] bg-[var(--surface-3)]/50 px-3 py-1.5 text-xs text-[var(--status-success)] hover:bg-[var(--surface-3)]"
-          >
-            <PulsingDot />
-            {t('missions.running')}
-            <ExternalLink className="ml-auto h-3 w-3" />
-          </Link>
-        )}
-      </button>
-    )
-  },
-)
+      {hasActiveExecution && (
+        <Link
+          href={`/runs?tab=executions&mission=${mission.id}`}
+          onClick={(e) => e.stopPropagation()}
+          className="bg-[var(--surface-3)]/50 -mx-3 -mb-3 mt-2 flex items-center gap-1.5 rounded-b-lg border-t border-[var(--border)] px-3 py-1.5 text-xs text-[var(--status-success)] hover:bg-[var(--surface-3)]"
+        >
+          <PulsingDot />
+          {t('missions.running')}
+          <ExternalLink className="ml-auto h-3 w-3" />
+        </Link>
+      )}
+    </button>
+  )
+})

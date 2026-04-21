@@ -4,7 +4,10 @@ import { apiGet, apiPost } from '@/lib/api-client'
 import type { Execution, ExecutionEventsPage } from '@/types/executions'
 
 export const executionService = {
-  list: async (workspaceId: string, params?: { mission_id?: string; status?: string; limit?: number }): Promise<Execution[]> => {
+  list: async (
+    workspaceId: string,
+    params?: { mission_id?: string; status?: string; limit?: number },
+  ): Promise<Execution[]> => {
     const searchParams = new URLSearchParams({ workspace_id: workspaceId })
     if (params?.mission_id) searchParams.set('mission_id', params.mission_id)
     if (params?.status) searchParams.set('status', params.status)
@@ -17,7 +20,11 @@ export const executionService = {
     return apiGet<Execution>(`executions/${executionId}?workspace_id=${workspaceId}`)
   },
 
-  getEvents: async (executionId: string, workspaceId: string, afterSeq?: number): Promise<ExecutionEventsPage> => {
+  getEvents: async (
+    executionId: string,
+    workspaceId: string,
+    afterSeq?: number,
+  ): Promise<ExecutionEventsPage> => {
     const searchParams = new URLSearchParams({ workspace_id: workspaceId })
     if (afterSeq !== undefined) searchParams.set('after_seq', String(afterSeq))
     return apiGet<ExecutionEventsPage>(`executions/${executionId}/events?${searchParams}`)

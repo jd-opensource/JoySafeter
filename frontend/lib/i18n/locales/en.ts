@@ -120,7 +120,8 @@ const en = {
       stoppingRun: 'Stopping...',
       archive: 'Archive',
       archiveConfirmTitle: 'Archive Mission',
-      archiveConfirmDesc: 'Mission will be moved to Archived status. You can restore it by changing the status back.',
+      archiveConfirmDesc:
+        'Mission will be moved to Archived status. You can restore it by changing the status back.',
       archiveConfirm: 'Archive',
       currentExecution: 'Current Execution',
       expandTimeline: 'Show execution logs',
@@ -346,8 +347,7 @@ const en = {
         create: 'Create Token',
         revoke: 'Revoke',
         revokeConfirmTitle: 'Revoke Token',
-        revokeConfirmMessage:
-          'API calls using this token will fail immediately after revoking.',
+        revokeConfirmMessage: 'API calls using this token will fail immediately after revoking.',
         name: 'Token Name',
         namePlaceholder: 'e.g. CI deploy token',
         scopes: 'Scopes',
@@ -358,8 +358,7 @@ const en = {
         createdSuccess: 'Token created successfully',
         revokedSuccess: 'Token revoked',
         tokenCreatedTitle: 'Token Created',
-        tokenCreatedMessage:
-          "Copy this token now. You won't be able to see it again.",
+        tokenCreatedMessage: "Copy this token now. You won't be able to see it again.",
         copyToken: 'Copy Token',
         copied: 'Copied!',
         emptyState: 'No API tokens created yet',
@@ -1010,7 +1009,8 @@ const en = {
       baseUrl: 'Base URL',
       endpoint: 'ENDPOINT',
       authentication: 'Authentication',
-      authenticationDescription: 'Authenticate your API requests by including your API Token in the {{header}} HTTP header as a Bearer token.',
+      authenticationDescription:
+        'Authenticate your API requests by including your API Token in the {{header}} HTTP header as a Bearer token.',
       exampleRequest: 'Example Request',
       viewFullApiDocs: 'View Full API Documentation',
       copy: 'Copy',
@@ -1140,7 +1140,8 @@ const en = {
       baseUrl: 'Base URL',
       endpoint: 'ENDPOINT',
       authentication: 'Authentication',
-      authDescription: 'Authenticate your API requests by including your API Token in the Authorization HTTP header as a Bearer token.',
+      authDescription:
+        'Authenticate your API requests by including your API Token in the Authorization HTTP header as a Bearer token.',
       exampleRequest: 'Example Request',
       curl: 'cURL',
       skillApiTokens: 'Skill API Tokens',
@@ -1162,8 +1163,7 @@ const en = {
       restoreConfirmMessage:
         'This will overwrite the current draft with version {{version}}. Continue?',
       deleteConfirmTitle: 'Delete Version',
-      deleteConfirmMessage:
-        'This version will be permanently deleted. This cannot be undone.',
+      deleteConfirmMessage: 'This version will be permanently deleted. This cannot be undone.',
       publishedBy: 'by {{user}}',
       publishedSuccess: 'Version {{version}} published',
       restoredSuccess: 'Draft restored from version {{version}}',
@@ -1453,7 +1453,8 @@ const en = {
       syncSkillsFailed: 'Failed to sync skills',
       confirmDeleteInstance: 'Delete Instance?',
       confirmDeleteInstanceDesc: 'Are you sure you want to delete this OpenClaw instance?',
-      deleteInstanceWarning: 'Warning: Deleting the instance will clear all of its execution history.',
+      deleteInstanceWarning:
+        'Warning: Deleting the instance will clear all of its execution history.',
       syncSkillsDesc: 'Manually synchronize skills between the OpenClaw instance and the platform.',
     },
   },

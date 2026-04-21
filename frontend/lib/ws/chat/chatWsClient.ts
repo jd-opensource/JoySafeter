@@ -73,7 +73,9 @@ class SharedChatWsClient extends BaseWsClient<ConnectionState> implements ChatWs
   }
 
   protected override onReconnectExhausted(): void {
-    this.rejectAllPending(new ChatWsError('WS_CONNECTION_LOST', 'Connection lost. Please refresh the page.'))
+    this.rejectAllPending(
+      new ChatWsError('WS_CONNECTION_LOST', 'Connection lost. Please refresh the page.'),
+    )
   }
 
   protected override onDispose(): void {
@@ -115,7 +117,11 @@ class SharedChatWsClient extends BaseWsClient<ConnectionState> implements ChatWs
         })
       } catch (error) {
         this.clearPending(requestId)
-        reject(error instanceof Error ? error : new ChatWsError('WS_NOT_CONNECTED', 'WebSocket not connected'))
+        reject(
+          error instanceof Error
+            ? error
+            : new ChatWsError('WS_NOT_CONNECTED', 'WebSocket not connected'),
+        )
       }
     })
   }
@@ -142,7 +148,11 @@ class SharedChatWsClient extends BaseWsClient<ConnectionState> implements ChatWs
         })
       } catch (error) {
         this.clearPending(requestId)
-        reject(error instanceof Error ? error : new ChatWsError('WS_NOT_CONNECTED', 'WebSocket not connected'))
+        reject(
+          error instanceof Error
+            ? error
+            : new ChatWsError('WS_NOT_CONNECTED', 'WebSocket not connected'),
+        )
       }
     })
   }
@@ -202,7 +212,8 @@ class SharedChatWsClient extends BaseWsClient<ConnectionState> implements ChatWs
       return
     }
     if (type === 'error') {
-      const message = (typeof evt.data?.message === 'string' ? evt.data.message : null) || 'Unknown error'
+      const message =
+        (typeof evt.data?.message === 'string' ? evt.data.message : null) || 'Unknown error'
       if (message === 'Stream stopped' || message.includes('stopped')) {
         this.resolvePending(requestId, 'stopped')
       } else {
@@ -254,17 +265,24 @@ function serializeInput(input: ChatSendParams['input']): Record<string, unknown>
   return result
 }
 
-function serializeExtension(extension?: SkillCreatorExtension | ChatExtension | CopilotExtension | null): Record<string, unknown> | null {
+function serializeExtension(
+  extension?: SkillCreatorExtension | ChatExtension | CopilotExtension | null,
+): Record<string, unknown> | null {
   if (!extension) return null
   if (extension.kind === 'skill_creator') {
-    return { kind: extension.kind, run_id: extension.runId ?? null, edit_skill_id: extension.editSkillId ?? null }
+    return {
+      kind: extension.kind,
+      run_id: extension.runId ?? null,
+      edit_skill_id: extension.editSkillId ?? null,
+    }
   }
   if (extension.kind === 'chat') {
     return { kind: extension.kind, run_id: extension.runId ?? null }
   }
   if (extension.kind === 'copilot') {
     return {
-      kind: extension.kind, run_id: extension.runId ?? null,
+      kind: extension.kind,
+      run_id: extension.runId ?? null,
       graph_context: extension.graphContext,
       conversation_history: extension.conversationHistory,
       mode: extension.mode,

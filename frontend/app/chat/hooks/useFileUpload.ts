@@ -24,7 +24,8 @@ export function useFileUpload(options: UseFileUploadOptions = {}) {
       const validation = isAllowedFile(file)
       if (!validation.allowed) {
         toastError(
-          validation.reason || t('chat.fileNotAllowed', { defaultValue: 'File does not meet requirements' }),
+          validation.reason ||
+            t('chat.fileNotAllowed', { defaultValue: 'File does not meet requirements' }),
           t('chat.fileUploadFailed'),
         )
         return

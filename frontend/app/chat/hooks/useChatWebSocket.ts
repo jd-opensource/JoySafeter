@@ -4,7 +4,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { generateUUID } from '@/lib/utils/uuid'
 import { getChatWsClient } from '@/lib/ws/chat/chatWsClient'
-import type { ChatSendInput, IncomingChatWsEvent, SkillCreatorExtension, ChatExtension } from '@/lib/ws/chat/types'
+import type {
+  ChatSendInput,
+  IncomingChatWsEvent,
+  SkillCreatorExtension,
+  ChatExtension,
+} from '@/lib/ws/chat/types'
 import { toastError } from '@/lib/utils/toast'
 import { useTranslation } from '@/lib/i18n'
 import { runService } from '@/services/runService'
@@ -179,7 +184,12 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
       }
 
       if (type === 'file_event') {
-        const { action, path, size, timestamp: ts } = data as {
+        const {
+          action,
+          path,
+          size,
+          timestamp: ts,
+        } = data as {
           action: string
           path: string
           size?: number
@@ -267,7 +277,9 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
               nodeName:
                 typeof data?.node_name === 'string' ? data.node_name : node_name || 'unknown',
               nodeLabel:
-                typeof data?.node_label === 'string' ? data.node_label : node_name || 'Unknown Node',
+                typeof data?.node_label === 'string'
+                  ? data.node_label
+                  : node_name || 'Unknown Node',
               state:
                 data && typeof data === 'object' && data.state && typeof data.state === 'object'
                   ? (data.state as Record<string, unknown>)
@@ -413,7 +425,11 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
         window.location.assign('/signin')
         return
       }
-      if (prevConnected && !state.isConnected && Object.keys(activeRequestsRef.current).length > 0) {
+      if (
+        prevConnected &&
+        !state.isConnected &&
+        Object.keys(activeRequestsRef.current).length > 0
+      ) {
         finalizeActiveRequests('Chat connection lost')
       }
       prevConnected = state.isConnected

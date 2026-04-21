@@ -1086,7 +1086,9 @@ export const skillService = {
    */
   async togglePublic(skillId: string, isPublic: boolean): Promise<Skill> {
     try {
-      const response = await apiPut<BackendSkill>(`${SKILLS_ENDPOINT}/${skillId}`, { is_public: isPublic })
+      const response = await apiPut<BackendSkill>(`${SKILLS_ENDPOINT}/${skillId}`, {
+        is_public: isPublic,
+      })
       return normalizeSkill(response)
     } catch (error) {
       console.error('Failed to toggle skill public status:', error)

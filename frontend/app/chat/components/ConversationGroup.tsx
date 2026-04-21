@@ -67,16 +67,11 @@ function ConversationItem({
       >
         <MessageSquare
           size={14}
-          className={cn(
-            'flex-shrink-0',
-            isActive ? 'text-primary' : 'text-[var(--text-muted)]',
-          )}
+          className={cn('flex-shrink-0', isActive ? 'text-primary' : 'text-[var(--text-muted)]')}
         />
         {!isCollapsed && (
           <>
-            <div className="min-w-0 flex-1 truncate text-xs">
-              {conv.title || t('chat.newChat')}
-            </div>
+            <div className="min-w-0 flex-1 truncate text-xs">{conv.title || t('chat.newChat')}</div>
             <div className="flex-shrink-0 text-xs text-[var(--text-muted)]">
               {formatTime(conv.updated_at)}
             </div>
@@ -85,24 +80,19 @@ function ConversationItem({
       </button>
       {!isCollapsed && (
         <AlertDialog
-          open={
-            deleteConfirmOpen && conversationToDelete?.threadId === conv.thread_id
-          }
+          open={deleteConfirmOpen && conversationToDelete?.threadId === conv.thread_id}
           onOpenChange={onDeleteConfirmChange}
         >
           <AlertDialogTrigger asChild>
             <button
-              onClick={(e) =>
-                onDeleteClick(
-                  e,
-                  conv.thread_id,
-                  conv.title || t('chat.newChat'),
-                )
-              }
+              onClick={(e) => onDeleteClick(e, conv.thread_id, conv.title || t('chat.newChat'))}
               className="flex-shrink-0 rounded p-1 opacity-0 transition-all hover:bg-[var(--status-error-bg)] group-hover:opacity-100"
               title={t('chat.delete')}
             >
-              <Trash2 size={12} className="text-[var(--text-muted)] hover:text-[var(--status-error)]" />
+              <Trash2
+                size={12}
+                className="text-[var(--text-muted)] hover:text-[var(--status-error)]"
+              />
             </button>
           </AlertDialogTrigger>
           <AlertDialogContent variant="destructive">
@@ -117,9 +107,7 @@ function ConversationItem({
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel onClick={onCancelDelete}>
-                {t('chat.cancel')}
-              </AlertDialogCancel>
+              <AlertDialogCancel onClick={onCancelDelete}>{t('chat.cancel')}</AlertDialogCancel>
               <AlertDialogAction
                 onClick={onConfirmDelete}
                 className="bg-[var(--status-error)] text-white hover:bg-[var(--status-error-hover)]"

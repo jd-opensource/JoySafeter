@@ -106,7 +106,11 @@ export interface AvailableModel {
   description: string
   is_available: boolean
   model_parameters?: Record<string, unknown>
-  unavailable_reason?: 'no_credentials' | 'invalid_credentials' | 'model_not_found' | 'provider_error'
+  unavailable_reason?:
+    | 'no_credentials'
+    | 'invalid_credentials'
+    | 'model_not_found'
+    | 'provider_error'
 }
 
 // ==================== Provider Defaults ====================
