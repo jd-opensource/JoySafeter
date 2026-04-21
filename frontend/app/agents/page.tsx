@@ -8,13 +8,9 @@ import { AgentCard } from '@/components/agents/agent-card'
 import { AgentFormDialog } from '@/components/agents/agent-form-dialog'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import {
-  useAgentProfiles,
-  useCreateAgentProfile,
-  useUpdateAgentProfile,
-} from '@/hooks/queries/agentProfiles'
+import { useAgents, useCreateAgent, useUpdateAgent } from '@/hooks/queries/agents'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
-import type { AgentProfile, CreateAgentRequest } from '@/types/agents'
+import type { Agent, CreateAgentRequest } from '@/types/agent'
 
 export default function AgentsPage() {
   const router = useRouter()
@@ -22,38 +18,39 @@ export default function AgentsPage() {
   const personalWorkspace = workspaces.find((ws) => ws.type === 'personal')
   const workspaceId = personalWorkspace?.id || ''
 
-  const { data: agents = [], isLoading } = useAgentProfiles(workspaceId)
-  const createMutation = useCreateAgentProfile()
-  const updateMutation = useUpdateAgentProfile()
+  const { data: agents = [], isLoading } = useAgents(workspaceId)
+  const createMutation = useCreateAgent()
+  const updateMutation = useUpdateAgent()
 
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [editingAgent, setEditingAgent] = useState<AgentProfile | null>(null)
+  const [editingAgent, setEditingAgent] = useState<Agent | null>(null)
 
   function handleCreate() {
     setEditingAgent(null)
     setDialogOpen(true)
   }
 
-  function handleConfigure(agent: AgentProfile) {
+  function handleEdit(agent: Agent) {
     setEditingAgent(agent)
     setDialogOpen(true)
   }
 
-  function handleHistory(agent: AgentProfile) {
-    router.push(`/runs?agent=${encodeURIComponent(agent.name)}`)
+  function handleNavigate(agent: Agent) {
+    router.push(`/agents/${agent.id}`)
   }
 
   function handleSubmit(data: CreateAgentRequest) {
     if (editingAgent) {
-      const { workspace_id, name, runtime_type, ...rest } = data
+      const { definition_kind, definition_payload, capability_manifest, ...rest } = data
       updateMutation.mutate(
-        { agentId: editingAgent.id, workspaceId, name, ...rest },
+        { agentId: editingAgent.id, workspaceId, ...rest },
         { onSuccess: () => setDialogOpen(false) },
       )
     } else {
-      createMutation.mutate(data, {
-        onSuccess: () => setDialogOpen(false),
-      })
+      createMutation.mutate(
+        { ...data, workspace_id: workspaceId },
+        { onSuccess: () => setDialogOpen(false) },
+      )
     }
   }
 
@@ -102,8 +99,8 @@ export default function AgentsPage() {
               <AgentCard
                 key={agent.id}
                 agent={agent}
-                onConfigure={handleConfigure}
-                onHistory={handleHistory}
+                onClick={handleNavigate}
+                onEdit={handleEdit}
               />
             ))}
           </div>

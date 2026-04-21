@@ -21,19 +21,27 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import type { AgentProfile, CreateAgentRequest, RuntimeType } from '@/types/agents'
-import { RUNTIME_TYPE_LABELS } from '@/types/agents'
+import type { Agent, CreateAgentRequest } from '@/types/agent'
+
+type DefinitionKind = 'prompt' | 'graph' | 'code' | 'hybrid'
 
 interface AgentFormDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  agent?: AgentProfile | null
+  agent?: Agent | null
   workspaceId: string
   onSubmit: (data: CreateAgentRequest) => void
   isPending?: boolean
 }
 
-const RUNTIME_OPTIONS: RuntimeType[] = ['claude_code', 'codex', 'openclaw', 'langgraph']
+const DEFINITION_KIND_LABELS: Record<DefinitionKind, string> = {
+  prompt: 'Prompt',
+  graph: 'Graph',
+  code: 'Code',
+  hybrid: 'Hybrid',
+}
+
+const DEFINITION_KIND_OPTIONS: DefinitionKind[] = ['prompt', 'graph', 'code', 'hybrid']
 
 export function AgentFormDialog({
   open,
@@ -47,27 +55,20 @@ export function AgentFormDialog({
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [runtimeType, setRuntimeType] = useState<RuntimeType>('claude_code')
-  const [instructions, setInstructions] = useState('')
-  const [maxConcurrentTasks, setMaxConcurrentTasks] = useState(1)
-  const [skillIdsText, setSkillIdsText] = useState('')
+  const [avatar, setAvatar] = useState('')
+  const [definitionKind, setDefinitionKind] = useState<DefinitionKind>('prompt')
 
   useEffect(() => {
     if (open) {
       if (agent) {
         setName(agent.name)
         setDescription(agent.description || '')
-        setRuntimeType(agent.runtime_type)
-        setInstructions(agent.instructions || '')
-        setMaxConcurrentTasks(agent.max_concurrent_tasks)
-        setSkillIdsText(agent.skill_ids?.join(', ') || '')
+        setAvatar(agent.avatar || '')
       } else {
         setName('')
         setDescription('')
-        setRuntimeType('claude_code')
-        setInstructions('')
-        setMaxConcurrentTasks(1)
-        setSkillIdsText('')
+        setAvatar('')
+        setDefinitionKind('prompt')
       }
     }
   }, [open, agent])
@@ -76,19 +77,11 @@ export function AgentFormDialog({
     e.preventDefault()
     if (!name.trim()) return
 
-    const skillIds = skillIdsText
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-
     onSubmit({
-      workspace_id: workspaceId,
       name: name.trim(),
-      runtime_type: runtimeType,
       description: description.trim() || undefined,
-      instructions: instructions.trim() || undefined,
-      max_concurrent_tasks: maxConcurrentTasks,
-      skill_ids: skillIds.length > 0 ? skillIds : undefined,
+      avatar: avatar.trim() || undefined,
+      definition_kind: definitionKind,
     })
   }
 
@@ -99,7 +92,7 @@ export function AgentFormDialog({
           <DialogTitle>{isEdit ? 'Edit Agent' : 'New Agent'}</DialogTitle>
           <DialogDescription>
             {isEdit
-              ? 'Update the agent configuration.'
+              ? 'Update the agent details.'
               : 'Create a new AI agent for your workspace.'}
           </DialogDescription>
         </DialogHeader>
@@ -129,58 +122,38 @@ export function AgentFormDialog({
             />
           </div>
 
-          {/* Runtime Type */}
+          {/* Avatar URL */}
           <div className="space-y-2">
-            <Label htmlFor="agent-runtime">Runtime Type</Label>
-            <Select value={runtimeType} onValueChange={(v) => setRuntimeType(v as RuntimeType)}>
-              <SelectTrigger id="agent-runtime">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {RUNTIME_OPTIONS.map((rt) => (
-                  <SelectItem key={rt} value={rt}>
-                    {RUNTIME_TYPE_LABELS[rt]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Instructions */}
-          <div className="space-y-2">
-            <Label htmlFor="agent-instructions">Instructions</Label>
-            <Textarea
-              id="agent-instructions"
-              value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
-              placeholder="Custom instructions for the agent..."
-              rows={3}
-            />
-          </div>
-
-          {/* Max Concurrent Tasks */}
-          <div className="space-y-2">
-            <Label htmlFor="agent-max-tasks">Max Concurrent Tasks</Label>
+            <Label htmlFor="agent-avatar">Avatar URL</Label>
             <Input
-              id="agent-max-tasks"
-              type="number"
-              min={1}
-              max={10}
-              value={maxConcurrentTasks}
-              onChange={(e) => setMaxConcurrentTasks(Number(e.target.value) || 1)}
+              id="agent-avatar"
+              value={avatar}
+              onChange={(e) => setAvatar(e.target.value)}
+              placeholder="https://..."
             />
           </div>
 
-          {/* Skill IDs */}
-          <div className="space-y-2">
-            <Label htmlFor="agent-skills">Skill IDs (comma-separated)</Label>
-            <Input
-              id="agent-skills"
-              value={skillIdsText}
-              onChange={(e) => setSkillIdsText(e.target.value)}
-              placeholder="skill-1, skill-2"
-            />
-          </div>
+          {/* Definition Kind (only for create) */}
+          {!isEdit && (
+            <div className="space-y-2">
+              <Label htmlFor="agent-definition-kind">Definition Kind</Label>
+              <Select
+                value={definitionKind}
+                onValueChange={(v) => setDefinitionKind(v as DefinitionKind)}
+              >
+                <SelectTrigger id="agent-definition-kind">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DEFINITION_KIND_OPTIONS.map((dk) => (
+                    <SelectItem key={dk} value={dk}>
+                      {DEFINITION_KIND_LABELS[dk]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

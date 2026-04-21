@@ -1,15 +1,13 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-import type { AgentStatus } from '@/types/agents'
-import { AGENT_STATUS_LABELS } from '@/types/agents'
 
-const statusConfig: Record<AgentStatus, { color: string; pulse?: boolean }> = {
-  idle: { color: 'bg-[var(--status-success)]' },
-  working: { color: 'bg-[var(--brand-400)]', pulse: true },
-  blocked: { color: 'bg-[var(--status-warning)]' },
-  error: { color: 'bg-[var(--status-error)]' },
-  offline: { color: 'bg-[var(--surface-muted)]' },
+type AgentStatus = 'draft' | 'active' | 'archived'
+
+const statusConfig: Record<AgentStatus, { color: string; label: string }> = {
+  draft: { color: 'bg-[var(--status-warning)]', label: 'Draft' },
+  active: { color: 'bg-[var(--status-success)]', label: 'Active' },
+  archived: { color: 'bg-[var(--surface-muted)]', label: 'Archived' },
 }
 
 interface AgentStatusIndicatorProps {
@@ -27,18 +25,8 @@ export function AgentStatusIndicator({ status, className }: AgentStatusIndicator
         className,
       )}
     >
-      <span className="relative flex h-2 w-2">
-        {config.pulse && (
-          <span
-            className={cn(
-              'absolute inline-flex h-full w-full animate-ping rounded-full opacity-75',
-              config.color,
-            )}
-          />
-        )}
-        <span className={cn('relative inline-flex h-2 w-2 rounded-full', config.color)} />
-      </span>
-      {AGENT_STATUS_LABELS[status]}
+      <span className={cn('inline-flex h-2 w-2 rounded-full', config.color)} />
+      {config.label}
     </span>
   )
 }
