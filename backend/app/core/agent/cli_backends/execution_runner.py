@@ -12,6 +12,7 @@ Lifecycle:
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any, Optional
 
@@ -268,7 +269,8 @@ class ExecutionRunner:
             working_dir=working_dir,
         )
 
-    _DRAIN_BATCH_SIZE = 10
+    _DRAIN_BATCH_SIZE = 5
+    _DRAIN_FLUSH_INTERVAL = 0.5  # seconds — flush at least every 500ms
 
     async def _drain_to_events(
         self,
@@ -276,8 +278,22 @@ class ExecutionRunner:
     ) -> None:
         assert self._session is not None, "_drain_to_events called before session was set"
         pending: list[tuple[CLIMessage, str, dict[str, Any]]] = []
+        logger.info(f"[exec:{execution_id}] _drain_to_events started")
+        queue = self._session.messages
 
-        async for msg in self._session.iter_messages():
+        while True:
+            try:
+                msg = await asyncio.wait_for(queue.get(), timeout=self._DRAIN_FLUSH_INTERVAL)
+            except asyncio.TimeoutError:
+                # Timeout — flush whatever we have so far
+                if pending:
+                    await self._flush_pending(execution_id, pending)
+                    pending.clear()
+                continue
+
+            if msg is None:
+                break
+
             event_type = self._msg_to_event_type(msg)
             payload = self._msg_to_payload(msg)
             pending.append((msg, event_type, payload))
@@ -287,9 +303,9 @@ class ExecutionRunner:
                 await self._flush_pending(execution_id, pending)
                 pending.clear()
 
-        # Flush remaining events
         if pending:
             await self._flush_pending(execution_id, pending)
+        logger.info(f"[exec:{execution_id}] _drain_to_events finished")
 
     async def _flush_pending(
         self,

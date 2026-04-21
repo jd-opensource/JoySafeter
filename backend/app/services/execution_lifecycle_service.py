@@ -225,20 +225,25 @@ class ExecutionLifecycleService(RunnerCallbacks):
         return execution
 
     async def _destroy_execution_container(self, execution: Any) -> None:
-        """Force-remove the Docker container associated with an execution."""
+        """Release this execution's container; destroy it if no other execution is using it."""
         from app.core.agent.cli_backends.container_pool import container_pool
         from app.core.agent.cli_backends.container_service import CLIContainerService
 
-        # If the execution has an agent_profile, remove via pool (handles both pool bookkeeping and docker rm)
         if execution.agent_profile_id:
             try:
-                await container_pool.remove(execution.agent_profile_id)
-                logger.info(f"Removed pooled container for agent {execution.agent_profile_id} (execution {execution.id})")
+                destroyed = await container_pool.release_and_destroy_if_idle(execution.agent_profile_id)
+                if destroyed:
+                    logger.info(f"Destroyed container for agent {execution.agent_profile_id} (execution {execution.id})")
+                else:
+                    logger.info(
+                        f"Released container for agent {execution.agent_profile_id} "
+                        f"(execution {execution.id}, still in use by other executions)"
+                    )
                 return
             except Exception as exc:
-                logger.warning(f"Failed to remove pooled container for agent {execution.agent_profile_id}: {exc}")
+                logger.warning(f"Failed to release/destroy container for agent {execution.agent_profile_id}: {exc}")
 
-        # Fallback: remove by container_id directly
+        # No agent profile — remove by container_id directly
         if execution.container_id:
             try:
                 svc = CLIContainerService()

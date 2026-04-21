@@ -103,6 +103,27 @@ class ContainerPool:
                 entry.active_count = max(0, entry.active_count - 1)
                 entry.last_used = time.time()
 
+    async def release_and_destroy_if_idle(self, agent_profile_id: uuid.UUID) -> bool:
+        """Decrement active count; if no other executions are using it, remove the container.
+
+        Returns True if the container was destroyed."""
+        entry: Optional[PoolEntry] = None
+        async with self._lock:
+            e = self._pool.get(agent_profile_id)
+            if not e:
+                return False
+            e.active_count = max(0, e.active_count - 1)
+            if e.active_count == 0:
+                entry = self._pool.pop(agent_profile_id)
+        if entry:
+            await self._safe_remove(entry.container.container_id)
+            logger.info(
+                f"Destroyed idle container {entry.container.container_id[:12]} "
+                f"for agent {agent_profile_id} after cancel"
+            )
+            return True
+        return False
+
     async def set_session_id(self, agent_profile_id: uuid.UUID, session_id: str) -> None:
         """Store Claude session_id for next --resume."""
         async with self._lock:

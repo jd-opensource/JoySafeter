@@ -30,6 +30,7 @@ class ClaudeCodeProvider:
     ) -> RuntimeSession:
         cmd = [
             self.executable_path,
+            "-p",
             "--output-format",
             "stream-json",
             "--input-format",
@@ -44,8 +45,6 @@ class ClaudeCodeProvider:
             cmd.extend(["--model", model])
         if resume_session_id:
             cmd.extend(["--resume", resume_session_id])
-        else:
-            cmd.extend(["--print", prompt])
 
         process = await self.bridge.exec_streaming(
             container_id,
@@ -53,6 +52,20 @@ class ClaudeCodeProvider:
             env=env,
             workdir=cwd,
         )
+        logger.info(f"[claude] docker exec started for container {container_id[:12]}, pid={process.pid}")
+
+        # Send the initial prompt via stdin as stream-json (not --print)
+        if not resume_session_id and process.stdin:
+            user_msg = json.dumps({
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": [{"type": "text", "text": prompt}],
+                },
+            })
+            process.stdin.write(f"{user_msg}\n".encode())
+            await process.stdin.drain()
+            logger.info(f"[claude] Sent initial prompt via stdin ({len(prompt)} chars)")
 
         queue: asyncio.Queue[CLIMessage | None] = asyncio.Queue(maxsize=512)
         loop = asyncio.get_event_loop()
@@ -94,6 +107,7 @@ class ClaudeCodeProvider:
         try:
             async with asyncio.timeout(timeout):
                 assert process.stdout is not None
+                logger.info(f"[claude] Drain loop started, reading stdout...")
                 async for raw_line in process.stdout:
                     line = raw_line.decode().strip()
                     if not line:
@@ -101,10 +115,14 @@ class ClaudeCodeProvider:
                     try:
                         event = json.loads(line)
                     except json.JSONDecodeError:
+                        logger.warning(f"[claude] Non-JSON line from stdout: {line[:200]}")
                         continue
 
                     if not isinstance(event, dict):
                         continue
+
+                    event_type = event.get("type", "unknown")
+                    logger.info(f"[claude] Received event: type={event_type}")
 
                     for msg in self._parse_event(event):
                         if msg.type == "text":
@@ -119,6 +137,10 @@ class ClaudeCodeProvider:
                             usage = event["usage"]
                         if event.get("is_error"):
                             is_error = True
+                        # result received — close stdin so the process exits cleanly
+                        if process.stdin and not process.stdin.is_closing():
+                            process.stdin.close()
+                        break
 
         except TimeoutError:
             if not result_future.done():
