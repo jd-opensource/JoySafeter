@@ -23,6 +23,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import type { AgentProfile, CreateAgentRequest, RuntimeType } from '@/types/agents'
 import { RUNTIME_TYPE_LABELS } from '@/types/agents'
+import { SkillsField } from '@/app/workspace/[workspaceId]/[agentId]/components/fields/SkillsField'
 
 interface AgentFormDialogProps {
   open: boolean
@@ -50,7 +51,7 @@ export function AgentFormDialog({
   const [runtimeType, setRuntimeType] = useState<RuntimeType>('claude_code')
   const [instructions, setInstructions] = useState('')
   const [maxConcurrentTasks, setMaxConcurrentTasks] = useState(1)
-  const [skillIdsText, setSkillIdsText] = useState('')
+  const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([])
 
   useEffect(() => {
     if (open) {
@@ -60,14 +61,14 @@ export function AgentFormDialog({
         setRuntimeType(agent.runtime_type)
         setInstructions(agent.instructions || '')
         setMaxConcurrentTasks(agent.max_concurrent_tasks)
-        setSkillIdsText(agent.skill_ids?.join(', ') || '')
+        setSelectedSkillIds(agent.skill_ids || [])
       } else {
         setName('')
         setDescription('')
         setRuntimeType('claude_code')
         setInstructions('')
         setMaxConcurrentTasks(1)
-        setSkillIdsText('')
+        setSelectedSkillIds([])
       }
     }
   }, [open, agent])
@@ -76,11 +77,6 @@ export function AgentFormDialog({
     e.preventDefault()
     if (!name.trim()) return
 
-    const skillIds = skillIdsText
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-
     onSubmit({
       workspace_id: workspaceId,
       name: name.trim(),
@@ -88,7 +84,7 @@ export function AgentFormDialog({
       description: description.trim() || undefined,
       instructions: instructions.trim() || undefined,
       max_concurrent_tasks: maxConcurrentTasks,
-      skill_ids: skillIds.length > 0 ? skillIds : undefined,
+      skill_ids: selectedSkillIds.length > 0 ? selectedSkillIds : undefined,
     })
   }
 
@@ -171,14 +167,12 @@ export function AgentFormDialog({
             />
           </div>
 
-          {/* Skill IDs */}
+          {/* Skills */}
           <div className="space-y-2">
-            <Label htmlFor="agent-skills">Skill IDs (comma-separated)</Label>
-            <Input
-              id="agent-skills"
-              value={skillIdsText}
-              onChange={(e) => setSkillIdsText(e.target.value)}
-              placeholder="skill-1, skill-2"
+            <Label>Skills</Label>
+            <SkillsField
+              value={selectedSkillIds}
+              onChange={(val) => setSelectedSkillIds(val as string[])}
             />
           </div>
 

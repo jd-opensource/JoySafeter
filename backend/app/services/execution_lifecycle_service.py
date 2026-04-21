@@ -61,6 +61,7 @@ def _start_execution_runner(
     execution_id: uuid.UUID,
     prompt: str,
     credentials: dict[str, str] | None,
+    skills: list[dict[str, Any]] | None = None,
 ) -> None:
     """Fire-and-forget: launch an ExecutionRunner in a background task."""
     from app.core.agent.cli_backends.execution_runner import ExecutionRunner
@@ -79,6 +80,7 @@ def _start_execution_runner(
                     execution_id=execution_id,
                     prompt=prompt,
                     credentials=credentials,
+                    skills=skills,
                 )
         except Exception as exc:
             logger.error(f"Background runner failed for {execution_id}: {exc}")
@@ -99,6 +101,33 @@ class ExecutionLifecycleService(RunnerCallbacks):
         self.execution_service = ExecutionService(db)
         self.mission_repo = MissionRepository(db)
         self.agent_repo = AgentProfileRepository(db)
+
+    async def _resolve_agent_skills(self, agent: Any) -> list[dict[str, Any]] | None:
+        """Fetch skill records for an agent's skill_ids list and serialize to dicts."""
+        if not agent.skill_ids:
+            return None
+        from app.repositories.skill import SkillRepository
+
+        skill_repo = SkillRepository(self.db)
+        skill_uuids = [uuid.UUID(sid) if isinstance(sid, str) else sid for sid in agent.skill_ids]
+        skills = await skill_repo.get_by_ids(skill_uuids)
+        if not skills:
+            return None
+        result = []
+        for s in skills:
+            skill_dict: dict[str, Any] = {
+                "name": s.name,
+                "description": s.description,
+                "content": s.content,
+                "tags": s.tags or [],
+                "allowed_tools": s.allowed_tools or [],
+            }
+            if s.files:
+                skill_dict["files"] = [
+                    {"path": f.path, "file_name": f.file_name, "content": f.content or ""} for f in s.files
+                ]
+            result.append(skill_dict)
+        return result
 
     # ------------------------------------------------------------------
     # RunnerCallbacks implementation
@@ -403,6 +432,7 @@ class ExecutionLifecycleService(RunnerCallbacks):
 
         credentials = build_credentials(agent.custom_env)
         prompt = build_execution_prompt(mission)
+        skills = await self._resolve_agent_skills(agent)
 
         execution = await self.execution_service.create_execution(
             workspace_id=workspace_id,
@@ -422,7 +452,7 @@ class ExecutionLifecycleService(RunnerCallbacks):
 
         logger.info(f"Dispatched mission {mission_id} -> execution {execution.id}")
 
-        _start_execution_runner(execution.id, prompt, credentials)
+        _start_execution_runner(execution.id, prompt, credentials, skills)
         return mission, execution
 
     async def dispatch_all_ready_missions(self, *, limit: int = 20) -> int:
@@ -512,6 +542,7 @@ class ExecutionLifecycleService(RunnerCallbacks):
         from sqlalchemy.exc import IntegrityError
 
         credentials = build_credentials(agent.custom_env)
+        skills = await self._resolve_agent_skills(agent)
 
         active_count_result = await self.db.execute(
             select(func.count())
@@ -554,5 +585,5 @@ class ExecutionLifecycleService(RunnerCallbacks):
             return None
 
         prompt = build_execution_prompt(mission, trigger_comment=trigger_comment)
-        _start_execution_runner(execution.id, prompt, credentials)
+        _start_execution_runner(execution.id, prompt, credentials, skills)
         return execution.id

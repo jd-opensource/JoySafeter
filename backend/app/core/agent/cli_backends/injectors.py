@@ -4,10 +4,11 @@ Credential, skill, and runtime config injectors for CLI agent containers.
 
 from __future__ import annotations
 
-import json
 from typing import Any, Optional
 
 from loguru import logger
+
+from app.utils.path_utils import sanitize_skill_name
 
 from .container_service import CLIContainerService
 
@@ -26,7 +27,15 @@ class CredentialInjector:
 
 
 class CLISkillInjector:
-    """Writes skill definitions into the container filesystem."""
+    """Writes skill file trees into the container filesystem.
+
+    Each skill is written as a directory under ``target_dir``:
+        /workspace/skills/{skill_name}/
+            SKILL.md
+            scripts/rotate_pdf.py
+            references/tools.md
+            ...
+    """
 
     def __init__(self, container_service: CLIContainerService):
         self.container_service = container_service
@@ -35,20 +44,48 @@ class CLISkillInjector:
         self,
         container_id: str,
         skills: list[dict[str, Any]],
-        target_dir: str = "/workspace/.skills",
+        target_dir: str = "/workspace/skills",
     ) -> None:
         if not skills:
             return
         await self.container_service.exec_in_container(container_id, ["mkdir", "-p", target_dir])
+
+        total_files = 0
         for skill in skills:
-            name = skill.get("name", "unnamed")
-            filename = f"{target_dir}/{name}.json"
-            content = json.dumps(skill, indent=2)
-            await self.container_service.exec_in_container(
-                container_id,
-                ["sh", "-c", f"cat > {filename} << 'SKILLEOF'\n{content}\nSKILLEOF"],
-            )
-        logger.debug(f"Injected {len(skills)} skills into {container_id[:12]}")
+            name = sanitize_skill_name(skill.get("name", "unnamed"))
+            skill_dir = f"{target_dir}/{name}"
+            await self.container_service.exec_in_container(container_id, ["mkdir", "-p", skill_dir])
+
+            files: list[dict[str, str]] = skill.get("files", [])
+            if files:
+                for f in files:
+                    content = f.get("content", "")
+                    if not content:
+                        continue
+                    rel_path = f.get("path", f.get("file_name", "unknown"))
+                    full_path = f"{skill_dir}/{rel_path}"
+                    parent = "/".join(full_path.rsplit("/", 1)[:-1])
+                    if parent:
+                        await self.container_service.exec_in_container(container_id, ["mkdir", "-p", parent])
+                    escaped = content.replace("\\", "\\\\").replace("'", "'\\''")
+                    await self.container_service.exec_in_container(
+                        container_id,
+                        ["sh", "-c", f"cat > '{full_path}' << 'SKILLEOF'\n{escaped}\nSKILLEOF"],
+                    )
+                    total_files += 1
+            else:
+                # Fallback: write SKILL.md from top-level content field
+                body = skill.get("content", "")
+                if body:
+                    desc = skill.get("description", "")
+                    skill_md = f"---\nname: {name}\ndescription: {desc}\n---\n\n{body}"
+                    await self.container_service.exec_in_container(
+                        container_id,
+                        ["sh", "-c", f"cat > '{skill_dir}/SKILL.md' << 'SKILLEOF'\n{skill_md}\nSKILLEOF"],
+                    )
+                    total_files += 1
+
+        logger.info(f"Injected {len(skills)} skills ({total_files} files) into {container_id[:12]}")
 
 
 class RuntimeConfigInjector:
@@ -101,8 +138,13 @@ class RuntimeConfigInjector:
             sections.append("")
             sections.append("## Available Skills")
             sections.append("")
+            sections.append(
+                "Skills are located in `/workspace/skills/`. Each skill directory contains a SKILL.md and related files."
+            )
+            sections.append("")
             for name in skill_names:
-                sections.append(f"- {name}")
+                safe = sanitize_skill_name(name)
+                sections.append(f"- **{name}** → `/workspace/skills/{safe}/SKILL.md`")
 
         if project_context:
             sections.append("")
