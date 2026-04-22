@@ -2,7 +2,7 @@
 from alembic import op
 
 revision = "z1a2b3c4d5e6"
-down_revision = "f6a7b8c9d0e1"
+down_revision = "ff66aa77bb88"
 
 
 def upgrade():

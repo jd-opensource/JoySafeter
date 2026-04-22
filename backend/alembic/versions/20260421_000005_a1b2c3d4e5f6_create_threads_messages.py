@@ -3,7 +3,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 
-revision = "a1b2c3d4e5f6"
+revision = "aa11bb22cc33"
 down_revision = "f5f6f7f8f9f0"
 
 

@@ -1,8 +1,8 @@
 """add run_id and execution_id FKs on thread_messages"""
 from alembic import op
 
-revision = "e5f6a7b8c9d0"
-down_revision = "d4e5f6a7b8c9"
+revision = "ee55ff66aa77"
+down_revision = "dd44ee55ff66"
 
 
 def upgrade():

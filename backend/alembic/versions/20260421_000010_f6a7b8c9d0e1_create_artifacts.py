@@ -3,8 +3,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-revision = "f6a7b8c9d0e1"
-down_revision = "e5f6a7b8c9d0"
+revision = "ff66aa77bb88"
+down_revision = "ee55ff66aa77"
 
 
 def upgrade():

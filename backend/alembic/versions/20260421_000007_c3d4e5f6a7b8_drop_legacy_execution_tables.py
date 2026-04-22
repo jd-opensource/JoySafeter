@@ -1,8 +1,8 @@
 """drop legacy execution tables"""
 from alembic import op
 
-revision = "c3d4e5f6a7b8"
-down_revision = "b2c3d4e5f6a7"
+revision = "cc33dd44ee55"
+down_revision = "bb22cc33dd44"
 
 
 def upgrade():
