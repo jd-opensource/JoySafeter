@@ -29,6 +29,7 @@ import { useToast } from '@/hooks/use-toast'
 import { useDeploymentStatus, graphKeys } from '@/hooks/queries/graphs'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
 import { useBuilderStore } from '../stores/builderStore'
 import { useExecutionStore } from '../stores/execution/executionStore'
 
@@ -54,6 +55,7 @@ export function BuilderToolbar({
   const { t } = useTranslation()
   const { toast } = useToast()
   const queryClient = useQueryClient()
+  const { canAdmin, canEdit } = useUserPermissionsContext()
   const {
     isExecuting,
     stopExecution,
@@ -233,7 +235,7 @@ export function BuilderToolbar({
                       <Button
                         size="sm"
                         onClick={handleDeploy}
-                        disabled={isDeploying || nodesCount === 0}
+                        disabled={isDeploying || nodesCount === 0 || !canAdmin}
                         className={cn(
                           'h-7 gap-1.5 rounded-r-none px-3 text-base font-medium transition-all',
                           isDeployed
@@ -276,7 +278,7 @@ export function BuilderToolbar({
               </div>
 
               <DropdownMenuContent align="end" side="bottom" sideOffset={8}>
-                <DropdownMenuItem onClick={handleDeploy} disabled={isDeploying || nodesCount === 0}>
+                <DropdownMenuItem onClick={handleDeploy} disabled={isDeploying || nodesCount === 0 || !canAdmin}>
                   <Rocket size={14} className="mr-2" />
                   {getDeployText()}
                 </DropdownMenuItem>
@@ -293,6 +295,7 @@ export function BuilderToolbar({
             <Button
               size="sm"
               onClick={toggleRun}
+              disabled={!canEdit}
               className={cn(
                 'h-7 gap-1.5 rounded-md px-3 text-base font-medium shadow-sm transition-all hover:shadow',
                 isExecuting

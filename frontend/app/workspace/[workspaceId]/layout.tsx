@@ -4,7 +4,7 @@ import { useSidebarStore } from '@/stores/sidebar/store'
 
 import { Sidebar } from './components/sidebar/sidebar'
 import { GlobalCommandsProvider } from './providers/global-commands-provider'
-import { WorkspacePermissionsProvider } from './providers/workspace-permissions-provider'
+import { WorkspacePermissionsProvider } from '@/providers/workspace-permissions-provider'
 
 /**
  * Workspace Detail Layout

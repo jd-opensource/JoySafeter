@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { useAgent } from '@/hooks/queries/agents'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { cn } from '@/lib/utils'
+import { WorkspacePermissionsProvider } from '@/providers/workspace-permissions-provider'
 
 const NAV_ITEMS = [
   { label: 'Overview', href: '' },
@@ -54,53 +55,55 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
   }
 
   return (
-    <div className="flex h-full flex-col bg-[var(--bg)]">
-      {/* Header */}
-      <div className="border-b border-[var(--border)] bg-[var(--surface-elevated)] px-6 py-4">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" asChild>
-            <Link href="/agents">
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-          </Button>
-          <Bot className="h-5 w-5 text-[var(--skill-brand-600)]" />
-          <div className="min-w-0">
-            <h1 className="truncate text-lg font-semibold text-[var(--text-primary)]">
-              {agent.name}
-            </h1>
-            <p className="text-xs text-[var(--text-muted)]">{agent.slug}</p>
+    <WorkspacePermissionsProvider workspaceId={workspaceId}>
+      <div className="flex h-full flex-col bg-[var(--bg)]">
+        {/* Header */}
+        <div className="border-b border-[var(--border)] bg-[var(--surface-elevated)] px-6 py-4">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/agents">
+                <ArrowLeft className="h-4 w-4" />
+              </Link>
+            </Button>
+            <Bot className="h-5 w-5 text-[var(--skill-brand-600)]" />
+            <div className="min-w-0">
+              <h1 className="truncate text-lg font-semibold text-[var(--text-primary)]">
+                {agent.name}
+              </h1>
+              <p className="text-xs text-[var(--text-muted)]">{agent.slug}</p>
+            </div>
+            <AgentStatusIndicator status={agent.status} className="ml-2" />
           </div>
-          <AgentStatusIndicator status={agent.status} className="ml-2" />
+
+          {/* Sub-navigation */}
+          <nav className="mt-3 flex gap-1">
+            {NAV_ITEMS.map((item) => {
+              const href = `${basePath}${item.href}`
+              const isActive = item.href === ''
+                ? pathname === basePath
+                : pathname.startsWith(href)
+
+              return (
+                <Link
+                  key={item.href}
+                  href={href}
+                  className={cn(
+                    'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-[var(--surface-3)] text-[var(--text-primary)]'
+                      : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]',
+                  )}
+                >
+                  {item.label}
+                </Link>
+              )
+            })}
+          </nav>
         </div>
 
-        {/* Sub-navigation */}
-        <nav className="mt-3 flex gap-1">
-          {NAV_ITEMS.map((item) => {
-            const href = `${basePath}${item.href}`
-            const isActive = item.href === ''
-              ? pathname === basePath
-              : pathname.startsWith(href)
-
-            return (
-              <Link
-                key={item.href}
-                href={href}
-                className={cn(
-                  'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-                  isActive
-                    ? 'bg-[var(--surface-3)] text-[var(--text-primary)]'
-                    : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]',
-                )}
-              >
-                {item.label}
-              </Link>
-            )
-          })}
-        </nav>
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto">{children}</div>
       </div>
-
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto">{children}</div>
-    </div>
+    </WorkspacePermissionsProvider>
   )
 }
