@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { label: 'Overview', href: '' },
   { label: 'Edit', href: '/edit' },
   { label: 'Versions', href: '/versions' },
+  { label: 'Releases', href: '/releases' },
 ]
 
 export default function AgentDetailLayout({ children }: { children: React.ReactNode }) {
