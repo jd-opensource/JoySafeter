@@ -13,7 +13,15 @@ from app.core.agent.cli_backends.base import build_control_response
 from app.core.agent.cli_backends.session_registry import session_registry
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
-from app.models.execution import TERMINAL_EXECUTION_STATUSES, Execution, MissionExecutionStatus
+# TODO: Phase 4/5 cleanup - TERMINAL_EXECUTION_STATUSES, MissionExecutionStatus removed
+# from app.models.execution import TERMINAL_EXECUTION_STATUSES, Execution, MissionExecutionStatus
+from app.models.execution import Execution
+TERMINAL_EXECUTION_STATUSES = frozenset({"completed", "failed", "cancelled"})  # TODO: Phase 4/5 cleanup
+MissionExecutionStatus = type("MissionExecutionStatus", (), {
+    "QUEUED": "queued", "DISPATCHED": "dispatched", "RUNNING": "running",
+    "INTERRUPT_WAIT": "interrupt_wait", "APPROVAL_WAIT": "approval_wait",
+    "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "cancelled"
+})()
 from app.models.workspace import WorkspaceMemberRole
 from app.schemas import BaseResponse
 from app.schemas.execution import (

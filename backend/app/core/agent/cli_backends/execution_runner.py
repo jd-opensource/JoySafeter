@@ -35,7 +35,14 @@ from app.core.agent.cli_backends.runner_callbacks import RunnerCallbacks
 from app.core.agent.cli_backends.session_registry import session_registry
 # TODO: Phase 4 rewrite
 # from app.models.agent_profile import AgentProfile, AgentStatus
-from app.models.execution import Execution, MissionExecutionStatus
+# TODO: Phase 4/5 cleanup - MissionExecutionStatus removed; migrate to string literals
+# from app.models.execution import Execution, MissionExecutionStatus
+from app.models.execution import Execution
+MissionExecutionStatus = type("MissionExecutionStatus", (), {
+    "QUEUED": "queued", "DISPATCHED": "dispatched", "RUNNING": "running",
+    "INTERRUPT_WAIT": "interrupt_wait", "APPROVAL_WAIT": "approval_wait",
+    "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "cancelled"
+})()
 # TODO: Phase 4 rewrite
 # from app.repositories.agent_profile import AgentProfileRepository
 from app.services.execution_service import ExecutionService

@@ -9,14 +9,20 @@ from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# TODO: Phase 4/5 cleanup - ExecutionSnapshot, ExecutionSource, MissionExecutionStatus removed
 from app.models.execution import (
-    TERMINAL_EXECUTION_STATUSES,
     Execution,
     ExecutionEvent,
-    ExecutionSnapshot,
-    ExecutionSource,
-    MissionExecutionStatus,
 )
+# Temporary placeholders for Phase 4/5 cleanup
+TERMINAL_EXECUTION_STATUSES = frozenset({"completed", "failed", "cancelled"})
+ExecutionSnapshot = None
+ExecutionSource = type("ExecutionSource", (), {"MISSION": "mission", "CHAT": "chat", "GRAPH": "graph", "COORDINATOR": "coordinator", "API": "api"})()
+MissionExecutionStatus = type("MissionExecutionStatus", (), {
+    "QUEUED": "queued", "DISPATCHED": "dispatched", "RUNNING": "running",
+    "INTERRUPT_WAIT": "interrupt_wait", "APPROVAL_WAIT": "approval_wait",
+    "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "cancelled"
+})()
 from app.repositories.execution import ExecutionRepository
 from app.services.execution_reducer import apply_execution_event, make_initial_projection
 from app.utils.datetime import utc_now

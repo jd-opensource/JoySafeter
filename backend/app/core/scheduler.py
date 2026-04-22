@@ -14,7 +14,13 @@ from loguru import logger
 
 from app.core.agent.cli_backends.session_registry import session_registry
 from app.core.database import AsyncSessionLocal
-from app.models.execution import MissionExecutionStatus
+# TODO: Phase 4/5 cleanup - MissionExecutionStatus removed; migrate to string literals
+# from app.models.execution import MissionExecutionStatus
+MissionExecutionStatus = type("MissionExecutionStatus", (), {
+    "QUEUED": "queued", "DISPATCHED": "dispatched", "RUNNING": "running",
+    "INTERRUPT_WAIT": "interrupt_wait", "APPROVAL_WAIT": "approval_wait",
+    "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "cancelled"
+})()
 from app.repositories.execution import ExecutionRepository
 from app.services.execution_lifecycle_service import ExecutionLifecycleService
 from app.services.execution_service import ExecutionService

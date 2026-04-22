@@ -44,7 +44,9 @@ from app.core.database import async_session_factory
 from app.core.settings import settings
 # TODO: Phase 5 cleanup - migrate to Thread model
 # from app.models import Conversation as Conversation
-from app.models.agent_run import AgentRunStatus
+# TODO: Phase 4/5 cleanup - AgentRunStatus removed; migrate to string literals
+# from app.models.agent_run import AgentRunStatus
+AgentRunStatus = type("AgentRunStatus", (), {"QUEUED": "queued", "RUNNING": "running", "INTERRUPT_WAIT": "interrupt_wait", "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "cancelled"})()
 from app.schemas.chat import ChatRequest
 from app.services.graph_service import GraphService as GraphService
 from app.services.run_service import RunService

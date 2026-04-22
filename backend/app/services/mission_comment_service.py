@@ -12,7 +12,13 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import NotFoundException
-from app.models.execution import MissionExecutionStatus
+# TODO: Phase 4/5 cleanup - MissionExecutionStatus removed; migrate to string literals
+# from app.models.execution import MissionExecutionStatus
+MissionExecutionStatus = type("MissionExecutionStatus", (), {
+    "QUEUED": "queued", "DISPATCHED": "dispatched", "RUNNING": "running",
+    "INTERRUPT_WAIT": "interrupt_wait", "APPROVAL_WAIT": "approval_wait",
+    "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "cancelled"
+})()
 from app.models.mission import AssigneeType, Mission, MissionStatus
 from app.models.mission_comment import CommentAuthorType, CommentType, MissionComment
 from app.repositories.mission import MissionRepository

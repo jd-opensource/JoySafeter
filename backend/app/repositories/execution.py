@@ -11,7 +11,15 @@ from typing import Optional, Sequence
 from sqlalchemy import and_, desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.execution import Execution, ExecutionEvent, ExecutionSnapshot, MissionExecutionStatus
+# TODO: Phase 4/5 cleanup - ExecutionSnapshot, MissionExecutionStatus removed
+# from app.models.execution import Execution, ExecutionEvent, ExecutionSnapshot, MissionExecutionStatus
+from app.models.execution import Execution, ExecutionEvent
+ExecutionSnapshot = None  # TODO: Phase 4/5 cleanup
+MissionExecutionStatus = type("MissionExecutionStatus", (), {
+    "QUEUED": "queued", "DISPATCHED": "dispatched", "RUNNING": "running",
+    "INTERRUPT_WAIT": "interrupt_wait", "APPROVAL_WAIT": "approval_wait",
+    "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "cancelled"
+})()
 
 from .base import BaseRepository
 

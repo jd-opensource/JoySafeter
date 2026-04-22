@@ -10,7 +10,14 @@ from loguru import logger
 from app.core.agent.cli_backends.base import CLIResult
 from app.core.agent.cli_backends.execution_runner import ExecutionRunner
 from app.core.database import async_session_factory
-from app.models.execution import ExecutionSource, MissionExecutionStatus
+# TODO: Phase 4/5 cleanup - ExecutionSource, MissionExecutionStatus removed; migrate to string literals
+# from app.models.execution import ExecutionSource, MissionExecutionStatus
+ExecutionSource = type("ExecutionSource", (), {"MISSION": "mission", "CHAT": "chat", "GRAPH": "graph", "COORDINATOR": "coordinator", "API": "api"})()
+MissionExecutionStatus = type("MissionExecutionStatus", (), {
+    "QUEUED": "queued", "DISPATCHED": "dispatched", "RUNNING": "running",
+    "INTERRUPT_WAIT": "interrupt_wait", "APPROVAL_WAIT": "approval_wait",
+    "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "cancelled"
+})()
 from app.services.execution_service import ExecutionService
 from app.utils.safe_task import safe_create_task
 

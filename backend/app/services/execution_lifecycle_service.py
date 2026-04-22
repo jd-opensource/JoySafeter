@@ -22,14 +22,18 @@ from app.common.exceptions import BadRequestException, ConflictException, NotFou
 from app.core.agent.cli_backends.base import CLIResult
 from app.core.agent.cli_backends.runner_callbacks import RunnerCallbacks
 from app.core.agent.cli_backends.session_registry import session_registry
-from app.models.execution import (
-    TERMINAL_EXECUTION_STATUSES,
-    ExecutionSource,
-    MissionExecutionStatus,
-)
+# TODO: Phase 4/5 cleanup - ExecutionSource, MissionExecutionStatus removed
 from app.models.execution import (
     Execution as ExecModel,
 )
+# Temporary placeholders for Phase 4/5 cleanup
+TERMINAL_EXECUTION_STATUSES = frozenset({"completed", "failed", "cancelled"})
+ExecutionSource = type("ExecutionSource", (), {"MISSION": "mission", "CHAT": "chat", "GRAPH": "graph", "COORDINATOR": "coordinator", "API": "api"})()
+MissionExecutionStatus = type("MissionExecutionStatus", (), {
+    "QUEUED": "queued", "DISPATCHED": "dispatched", "RUNNING": "running",
+    "INTERRUPT_WAIT": "interrupt_wait", "APPROVAL_WAIT": "approval_wait",
+    "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "cancelled"
+})()
 from app.models.mission import AssigneeType, Mission, MissionStatus
 from app.repositories.agent import AgentRepository
 from app.repositories.mission import MissionRepository

@@ -11,7 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.dependencies import CurrentUser
 from app.common.exceptions import BadRequestException
 from app.core.database import get_db
-from app.models.agent_run import AgentRun, AgentRunStatus
+# TODO: Phase 4/5 cleanup - AgentRunStatus removed; migrate to string literals
+# from app.models.agent_run import AgentRun, AgentRunStatus
+from app.models.agent_run import AgentRun
+AgentRunStatus = type("AgentRunStatus", (), {"QUEUED": "queued", "RUNNING": "running", "INTERRUPT_WAIT": "interrupt_wait", "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "cancelled"})()
 from app.schemas import BaseResponse
 from app.schemas.runs import (
     AgentDefinitionResponse,

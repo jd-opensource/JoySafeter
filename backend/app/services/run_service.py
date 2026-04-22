@@ -14,7 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.redis import RedisClient
 from app.core.settings import settings
-from app.models.agent_run import AgentRun, AgentRunEvent, AgentRunSnapshot, AgentRunStatus
+# TODO: Phase 4/5 cleanup - AgentRunEvent, AgentRunSnapshot, AgentRunStatus removed
+# from app.models.agent_run import AgentRun, AgentRunEvent, AgentRunSnapshot, AgentRunStatus
+from app.models.agent_run import AgentRun
+AgentRunEvent = None  # TODO: Phase 4/5 cleanup
+AgentRunSnapshot = None  # TODO: Phase 4/5 cleanup
+AgentRunStatus = type("AgentRunStatus", (), {"QUEUED": "queued", "RUNNING": "running", "INTERRUPT_WAIT": "interrupt_wait", "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "cancelled"})()
 from app.models.enums import ModelUsageSource
 from app.repositories.agent_run import AgentRunRepository
 from app.services.agent_registry import AgentDefinition
