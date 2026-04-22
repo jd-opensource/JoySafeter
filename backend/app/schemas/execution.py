@@ -79,54 +79,37 @@ class MissionListResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Execution
+# Execution (Phase 4 - new schema)
 # ---------------------------------------------------------------------------
 
 
-class ExecutionSummary(BaseModel):
+class ExecutionResponse(BaseModel):
     id: uuid.UUID
-    workspace_id: uuid.UUID
-    user_id: str
-    source: str
+    run_id: uuid.UUID
+    parent_execution_id: Optional[uuid.UUID]
+    attempt_index: int
+    executor_kind: str
+    runtime_session_ref: Optional[str]
     status: str
-    title: Optional[str] = None
-    mission_id: Optional[uuid.UUID] = None
-    agent_profile_id: Optional[uuid.UUID] = None
-    runtime_type: str
-    container_id: Optional[str] = None
-    session_id: Optional[str] = None
-    started_at: Optional[datetime] = None
-    finished_at: Optional[datetime] = None
-    last_seq: int
-    result_summary: Optional[dict[str, Any]] = None
-    error_code: Optional[str] = None
-    error_message: Optional[str] = None
+    error_code: Optional[str]
+    error_message: Optional[str]
+    metrics: Optional[dict]
+    started_at: Optional[datetime]
+    ended_at: Optional[datetime]
     created_at: datetime
-    updated_at: datetime
 
-
-class ExecutionListResponse(BaseModel):
-    items: list[ExecutionSummary]
-
-
-class ExecutionSnapshotResponse(BaseModel):
-    execution_id: uuid.UUID
-    status: str
-    last_seq: int
-    projection: dict[str, Any]
+    model_config = {"from_attributes": True}
 
 
 class ExecutionEventResponse(BaseModel):
-    seq: int
+    id: uuid.UUID
+    execution_id: uuid.UUID
+    sequence_no: int
     event_type: str
-    payload: dict[str, Any]
+    payload: dict
     created_at: datetime
 
-
-class ExecutionEventsPageResponse(BaseModel):
-    execution_id: uuid.UUID
-    events: list[ExecutionEventResponse]
-    next_after_seq: int
+    model_config = {"from_attributes": True}
 
 
 # ---------------------------------------------------------------------------

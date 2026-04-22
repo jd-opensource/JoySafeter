@@ -203,3 +203,23 @@ async def cancel_mission(
     if not mission:
         return BaseResponse(success=False, code=404, msg="Mission not found", data=None)
     return BaseResponse(success=True, code=200, msg="Mission cancelled", data=_to_summary(mission))
+
+
+@router.get("/{mission_id}/runs")
+async def list_mission_runs(
+    mission_id: uuid.UUID,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
+    workspace_id: uuid.UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+) -> BaseResponse:
+    from app.schemas.agent_run import AgentRunResponse
+    from app.services.agent_run_service import AgentRunService
+
+    service = AgentRunService(db)
+    runs = await service.list_runs(mission_id=mission_id)
+    return BaseResponse(
+        success=True,
+        code=200,
+        msg="ok",
+        data=[AgentRunResponse.model_validate(r) for r in runs],
+    )
