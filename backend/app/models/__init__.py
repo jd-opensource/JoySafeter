@@ -27,9 +27,6 @@ from .execution_trace import (
     ObservationType,
     TraceStatus,
 )
-# TODO: removed in greenfield rewrite - graph models deleted
-# from .graph import AgentGraph, GraphEdge, GraphNode, GraphNodeSecret
-# from .graph_execution import ExecutionStatus, GraphExecution
 from .mcp import McpServer
 from .memory import Memory
 from .task import Task, TaskPriority, TaskStatus
@@ -80,13 +77,6 @@ __all__ = [
     "WorkspaceStoredFile",
     "CustomTool",
     "McpServer",
-    # TODO: removed in greenfield rewrite - graph models deleted
-    # "AgentGraph",
-    # "GraphNode",
-    # "GraphEdge",
-    # "GraphNodeSecret",
-    # "GraphExecution",
-    # "ExecutionStatus",
     "ModelProvider",
     "ModelCredential",
     "ModelInstance",

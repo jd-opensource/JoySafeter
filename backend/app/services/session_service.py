@@ -10,8 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ai_adapter import AgentBridge
 from app.core.settings import settings
-# TODO: Phase 5 cleanup - migrate to Thread model
-# from app.models import Conversation, Message
 from app.models import Message
 from app.schemas.common import SessionCreate, SessionResponse
 from app.utils.datetime import utc_now

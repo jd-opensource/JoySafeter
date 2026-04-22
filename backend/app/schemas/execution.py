@@ -1,82 +1,14 @@
 """
-Pydantic schemas for Mission and Execution APIs.
+Pydantic schemas for Execution APIs.
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Optional
 
-from pydantic import BaseModel, Field
-
-# ---------------------------------------------------------------------------
-# Mission
-# ---------------------------------------------------------------------------
-
-MissionStatusLiteral = Literal["backlog", "todo", "in_progress", "in_review", "done", "cancelled"]
-MissionPriorityLiteral = Literal["none", "low", "medium", "high", "urgent"]
-
-
-class CreateMissionRequest(BaseModel):
-    workspace_id: uuid.UUID
-    title: str = Field(..., max_length=500)
-    description: Optional[str] = None
-    objective: Optional[str] = None
-    priority: MissionPriorityLiteral = "none"
-    parent_mission_id: Optional[uuid.UUID] = None
-    tags: Optional[list[str]] = None
-    position: float = 0.0
-    auto_approve: bool = False
-
-
-class UpdateMissionRequest(BaseModel):
-    title: Optional[str] = Field(None, max_length=500)
-    description: Optional[str] = None
-    objective: Optional[str] = None
-    priority: Optional[MissionPriorityLiteral] = None
-    status: Optional[MissionStatusLiteral] = None
-    assignee_type: Optional[str] = None
-    assignee_id: Optional[uuid.UUID] = None
-    parent_mission_id: Optional[uuid.UUID] = None
-    due_date: Optional[datetime] = None
-    position: Optional[float] = None
-    tags: Optional[list[str]] = None
-    auto_approve: Optional[bool] = None
-
-
-class AssignMissionRequest(BaseModel):
-    agent_profile_id: uuid.UUID
-
-
-class DispatchMissionRequest(BaseModel):
-    runtime_config: Optional[dict[str, Any]] = None
-
-
-class MissionSummary(BaseModel):
-    id: uuid.UUID
-    workspace_id: uuid.UUID
-    title: str
-    description: Optional[str] = None
-    objective: Optional[str] = None
-    status: str
-    priority: str
-    assignee_type: Optional[str] = None
-    assignee_id: Optional[uuid.UUID] = None
-    creator_id: str
-    current_execution_id: Optional[uuid.UUID] = None
-    parent_mission_id: Optional[uuid.UUID] = None
-    tags: Optional[list[str]] = None
-    position: float
-    auto_approve: bool = False
-    due_date: Optional[datetime] = None
-    created_at: datetime
-    updated_at: datetime
-
-
-class MissionListResponse(BaseModel):
-    items: list[MissionSummary]
-
+from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------
 # Execution (Phase 4 - new schema)
