@@ -14,7 +14,7 @@ export * from './custom-tools'
 export * from './general-settings'
 export * from './useMemories'
 export * from './platformTokens'
-export * from './missions'
+export * from './tasks'
 // TODO: removed in greenfield rewrite - agentProfiles deleted
 // export * from './agentProfiles'
 export * from './executions'

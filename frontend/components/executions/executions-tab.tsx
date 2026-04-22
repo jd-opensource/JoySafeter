@@ -8,8 +8,8 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useExecutions, useCancelExecution } from '@/hooks/queries/executions'
-import { useMissions } from '@/hooks/queries/missions'
-import { useAgentNameMap } from '@/hooks/queries/agentProfiles'
+import { useTasks } from '@/hooks/queries/tasks'
+import { useAgentNameMap } from '@/hooks/queries/agents'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -34,7 +34,7 @@ export function ExecutionsTab() {
   const { t } = useTranslation()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const missionFilter = searchParams.get('mission') || undefined
+  const taskFilter = searchParams.get('task') || searchParams.get('mission') || undefined
 
   const { data: workspaces = [] } = useWorkspaces()
   const workspaceId = workspaces[0]?.id ?? ''
@@ -45,27 +45,28 @@ export function ExecutionsTab() {
   const { data: executions = [], isLoading } = useExecutions(
     workspaceId,
     {
-      mission_id: missionFilter,
+      mission_id: taskFilter,
       status: statusFilter !== 'all' ? statusFilter : undefined,
       limit: 100,
     },
     { enabled: Boolean(workspaceId) },
   )
 
-  const { data: missions = [] } = useMissions(workspaceId, undefined, {
+  const { data: tasks = [] } = useTasks(workspaceId, undefined, {
     enabled: Boolean(workspaceId),
   })
   const agentNameMap = useAgentNameMap(workspaceId)
 
-  const missionTitleMap = useMemo(
-    () => Object.fromEntries(missions.map((m) => [m.id, m.title])),
-    [missions],
+  const taskTitleMap = useMemo(
+    () => Object.fromEntries(tasks.map((m) => [m.id, m.title])),
+    [tasks],
   )
 
   const cancelMutation = useCancelExecution()
 
-  function clearMissionFilter() {
+  function clearTaskFilter() {
     const next = new URLSearchParams(searchParams.toString())
+    next.delete('task')
     next.delete('mission')
     const qs = next.toString()
     router.replace(qs ? `/runs?${qs}` : '/runs')
@@ -97,14 +98,14 @@ export function ExecutionsTab() {
           ))}
         </div>
 
-        {missionFilter && (
+        {taskFilter && (
           <div className="flex items-center gap-2 border-b border-[var(--border)] px-6 py-2">
-            <span className="text-xs text-[var(--text-muted)]">{t('runs.filteredByMission')}:</span>
+            <span className="text-xs text-[var(--text-muted)]">{t('runs.filteredByTask')}:</span>
             <Badge variant="secondary" className="gap-1 pr-1">
-              {missionTitleMap[missionFilter] || missionFilter.slice(0, 8)}
+              {taskTitleMap[taskFilter] || taskFilter.slice(0, 8)}
               <button
                 type="button"
-                onClick={clearMissionFilter}
+                onClick={clearTaskFilter}
                 className="ml-0.5 rounded-full p-0.5 hover:bg-[var(--surface-5)]"
               >
                 <X className="h-2.5 w-2.5" />
@@ -137,7 +138,7 @@ export function ExecutionsTab() {
                 <ExecutionRow
                   key={exec.id}
                   execution={exec}
-                  missionTitle={exec.mission_id ? missionTitleMap[exec.mission_id] : undefined}
+                  missionTitle={exec.mission_id ? taskTitleMap[exec.mission_id] : undefined}
                   agentName={
                     exec.agent_profile_id ? agentNameMap[exec.agent_profile_id] : undefined
                   }

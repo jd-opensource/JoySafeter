@@ -12,7 +12,7 @@ import type { Execution, ExecutionEventsPage } from '@/types/executions'
 import { TERMINAL_EXECUTION_STATUSES } from '@/types/executions'
 
 import { STALE_TIME } from './constants'
-import { missionKeys } from './missions'
+import { taskKeys } from './tasks'
 
 // ==================== Query Keys ====================
 
@@ -103,7 +103,7 @@ export function useCancelExecution() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: executionKeys.all })
-      queryClient.invalidateQueries({ queryKey: missionKeys.all })
+      queryClient.invalidateQueries({ queryKey: taskKeys.all })
     },
   })
 }

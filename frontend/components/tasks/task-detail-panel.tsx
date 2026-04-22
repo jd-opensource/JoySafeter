@@ -17,7 +17,7 @@ import { useCallback, useMemo, useState } from 'react'
 
 import { AgentStatusIndicator } from '@/components/agents/agent-status'
 import { ExecutionTimeline } from '@/components/executions/execution-timeline'
-import { CommentThread } from '@/components/missions/comment-thread'
+import { CommentThread } from '@/components/tasks/comment-thread'
 import { PulsingDot } from '@/components/ui/pulsing-dot'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -43,16 +43,16 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { useAgentProfile, useAgentProfiles } from '@/hooks/queries/agentProfiles'
+import { useAgentProfile, useAgentProfiles } from '@/hooks/queries/agents'
 import { useExecutions, useCancelExecution } from '@/hooks/queries/executions'
 import {
-  useAssignMission,
-  useCancelMission,
-  useDispatchMission,
-  useMission,
-  useMissionTransitions,
-  useUpdateMission,
-} from '@/hooks/queries/missions'
+  useAssignTask,
+  useCancelTask,
+  useDispatchTask,
+  useTask,
+  useTaskTransitions,
+  useUpdateTask,
+} from '@/hooks/queries/tasks'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import { toastSuccess, toastError, getErrorMessage } from '@/lib/utils/toast'
@@ -80,28 +80,28 @@ function formatDate(dateStr: string) {
   })
 }
 
-interface MissionDetailPanelProps {
-  missionId: string
+interface TaskDetailPanelProps {
+  taskId: string
   workspaceId: string
   onClose: () => void
 }
 
-export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionDetailPanelProps) {
+export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPanelProps) {
   const { t } = useTranslation()
-  const { data: mission, isLoading } = useMission(missionId, workspaceId)
+  const { data: mission, isLoading } = useTask(taskId, workspaceId)
   const { data: agent } = useAgentProfile(mission?.assignee_id ?? '', workspaceId, {
     enabled: mission?.assignee_type === 'agent' && Boolean(mission?.assignee_id),
   })
   const { data: agents = [] } = useAgentProfiles(workspaceId, { enabled: Boolean(workspaceId) })
-  const { data: executions = [] } = useExecutions(workspaceId, { mission_id: missionId })
-  const { data: transitions } = useMissionTransitions(workspaceId)
+  const { data: executions = [] } = useExecutions(workspaceId, { mission_id: taskId })
+  const { data: transitions } = useTaskTransitions(workspaceId)
   const effectiveTransitions = transitions ?? DEFAULT_MANUAL_TRANSITIONS
 
-  const assignMission = useAssignMission()
-  const dispatchMission = useDispatchMission()
-  const cancelMission = useCancelMission()
+  const assignTask = useAssignTask()
+  const dispatchTask = useDispatchTask()
+  const cancelTask = useCancelTask()
   const cancelExecution = useCancelExecution()
-  const updateMission = useUpdateMission()
+  const updateTask = useUpdateTask()
 
   // Editing states
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -144,9 +144,9 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
 
   const doUpdate = useCallback(
     (updates: Partial<UpdateMissionRequest>) => {
-      updateMission.mutate({ missionId, workspaceId, ...updates }, { onError: onMutationError })
+      updateTask.mutate({ taskId, workspaceId, ...updates }, { onError: onMutationError })
     },
-    [missionId, workspaceId, updateMission, onMutationError],
+    [taskId, workspaceId, updateTask, onMutationError],
   )
 
   const handleTitleSave = () => {
@@ -187,8 +187,8 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
   }
 
   const handleAssign = (agentId: string) => {
-    assignMission.mutate(
-      { missionId, workspaceId, agentProfileId: agentId },
+    assignTask.mutate(
+      { taskId, workspaceId, agentProfileId: agentId },
       { onError: onMutationError },
     )
     setAgentPickerOpen(false)
@@ -204,7 +204,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
       {/* Header */}
       <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3">
         <span className="text-xs font-medium text-[var(--text-muted)]">
-          {t('missions.detailTitle')}
+          {t('tasks.detailTitle')}
         </span>
         <button
           type="button"
@@ -307,7 +307,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
               {canCancel && (
                 <span className="inline-flex items-center gap-1 text-xs text-[var(--status-success)]">
                   <PulsingDot />
-                  {t('missions.running')}
+                  {t('tasks.running')}
                 </span>
               )}
             </div>
@@ -316,7 +316,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
             <section className="space-y-3">
               <div>
                 <h3 className="mb-1 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                  {t('missions.objective')}
+                  {t('tasks.objective')}
                 </h3>
                 {isEditingObj ? (
                   <div className="space-y-1.5">
@@ -354,7 +354,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
               </div>
               <div>
                 <h3 className="mb-1 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                  {t('missions.description')}
+                  {t('tasks.description')}
                 </h3>
                 {isEditingDesc ? (
                   <div className="space-y-1.5">
@@ -397,7 +397,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
               {/* Tags */}
               <div className="flex items-start gap-3 px-3 py-2.5">
                 <span className="shrink-0 pt-0.5 text-xs font-medium text-[var(--text-muted)]">
-                  {t('missions.tags')}
+                  {t('tasks.tags')}
                 </span>
                 <div className="flex flex-1 flex-wrap items-center gap-1.5">
                   {(mission.tags ?? []).map((tag) => (
@@ -432,7 +432,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
               {/* Due Date */}
               <div className="flex items-center justify-between px-3 py-2.5">
                 <span className="text-xs font-medium text-[var(--text-muted)]">
-                  {t('missions.dueDate')}
+                  {t('tasks.dueDate')}
                 </span>
                 <div className="flex items-center gap-2">
                   <input
@@ -460,7 +460,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
               {/* Agent */}
               <div className="flex items-center justify-between px-3 py-2.5">
                 <span className="text-xs font-medium text-[var(--text-muted)]">
-                  {t('missions.agent')}
+                  {t('tasks.agent')}
                 </span>
                 {mission.assignee_type === 'agent' && agent ? (
                   <div className="flex items-center gap-2">
@@ -528,25 +528,25 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
               <Button
                 size="sm"
                 onClick={() => {
-                  dispatchMission.mutate(
-                    { missionId, workspaceId },
+                  dispatchTask.mutate(
+                    { taskId, workspaceId },
                     {
                       onSuccess: () => toastSuccess(t('runs.dispatchedToast')),
                       onError: onMutationError,
                     },
                   )
                 }}
-                disabled={dispatchMission.isPending}
+                disabled={dispatchTask.isPending}
               >
                 <Play className="h-3.5 w-3.5" />
-                {dispatchMission.isPending ? t('runs.dispatching') : t('runs.dispatch')}
+                {dispatchTask.isPending ? t('runs.dispatching') : t('runs.dispatch')}
               </Button>
             )}
 
             {mission.current_execution_id && (
               <section>
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                  {t('missions.currentExecution')}
+                  {t('tasks.currentExecution')}
                 </h3>
                 <div className="overflow-hidden rounded-lg border border-[var(--border)]">
                   <div className="flex items-center justify-between px-3 py-2.5">
@@ -570,8 +570,8 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                         >
                           <Square className="mr-1 h-3 w-3" />
                           {cancelExecution.isPending
-                            ? t('missions.stoppingRun')
-                            : t('missions.stopRun')}
+                            ? t('tasks.stoppingRun')
+                            : t('tasks.stopRun')}
                         </Button>
                       )}
                     </div>
@@ -588,8 +588,8 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                         )}
                       />
                       {timelineExpanded
-                        ? t('missions.collapseTimeline')
-                        : t('missions.expandTimeline')}
+                        ? t('tasks.collapseTimeline')
+                        : t('tasks.expandTimeline')}
                     </Button>
                   </div>
                   {timelineExpanded && (
@@ -598,17 +598,17 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                         executionId={mission.current_execution_id}
                         workspaceId={workspaceId}
                         compact
-                        missionId={missionId}
+                        taskId={taskId}
                       />
                     </div>
                   )}
                 </div>
                 <Link
-                  href={`/runs?tab=executions&mission=${missionId}`}
+                  href={`/runs?tab=executions&task=${taskId}`}
                   className="mt-1.5 flex items-center gap-1 text-xs text-[var(--brand-400)] hover:underline"
                 >
                   <ExternalLink className="h-3 w-3" />
-                  {t('missions.viewFullLogs')}
+                  {t('tasks.viewFullLogs')}
                 </Link>
               </section>
             )}
@@ -621,7 +621,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                 <p className="text-xs text-[var(--text-muted)]">
                   {t('runs.pastExecutionsCount', { count: pastExecutionCount })} —{' '}
                   <Link
-                    href={`/runs?tab=executions&mission=${missionId}`}
+                    href={`/runs?tab=executions&task=${taskId}`}
                     className="text-[var(--brand-400)] hover:underline"
                   >
                     {t('runs.pastExecutionsLink')}
@@ -633,12 +633,12 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
             {/* Comments */}
             <section>
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                {t('missions.comments')}
+                {t('tasks.comments')}
               </h3>
-              <CommentThread missionId={missionId} workspaceId={workspaceId} />
+              <CommentThread taskId={taskId} workspaceId={workspaceId} />
             </section>
 
-            {/* Cancel Mission */}
+            {/* Cancel Task */}
             <section className="border-t border-[var(--border)] pt-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
@@ -654,7 +654,7 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
                       onClick={() => setShowCancelConfirm(true)}
                     >
                       <Archive className="h-3.5 w-3.5" />
-                      {t('missions.archive')}
+                      {t('tasks.archive')}
                     </Button>
                   )}
               </div>
@@ -672,12 +672,12 @@ export function MissionDetailPanel({ missionId, workspaceId, onClose }: MissionD
       <ConfirmDialog
         open={showCancelConfirm}
         onOpenChange={setShowCancelConfirm}
-        title={t('missions.archiveConfirmTitle')}
-        description={t('missions.archiveConfirmDesc')}
-        confirmLabel={t('missions.archiveConfirm')}
+        title={t('tasks.archiveConfirmTitle')}
+        description={t('tasks.archiveConfirmDesc')}
+        confirmLabel={t('tasks.archiveConfirm')}
         variant="default"
         onConfirm={() => {
-          cancelMission.mutate({ missionId, workspaceId }, { onError: onMutationError })
+          cancelTask.mutate({ taskId, workspaceId }, { onError: onMutationError })
           setShowCancelConfirm(false)
         }}
       />

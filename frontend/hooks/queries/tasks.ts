@@ -1,5 +1,5 @@
 /**
- * Missions Queries
+ * Tasks Queries
  *
  * Follow project standards:
  * - Use camelCase for types
@@ -7,7 +7,7 @@
  */
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { missionService } from '@/services/missionService'
+import { taskService } from '@/services/taskService'
 import type {
   Mission,
   CreateMissionRequest,
@@ -21,28 +21,28 @@ import { executionKeys } from './executions'
 
 // ==================== Query Keys ====================
 
-export const missionKeys = {
-  all: ['missions'] as const,
+export const taskKeys = {
+  all: ['tasks'] as const,
   list: (workspaceId: string, filters?: { status?: string; limit?: number }) =>
-    [...missionKeys.all, 'list', workspaceId, filters?.status || '', filters?.limit || 50] as const,
-  detail: (missionId: string, workspaceId: string) =>
-    [...missionKeys.all, 'detail', missionId, workspaceId] as const,
+    [...taskKeys.all, 'list', workspaceId, filters?.status || '', filters?.limit || 50] as const,
+  detail: (taskId: string, workspaceId: string) =>
+    [...taskKeys.all, 'detail', taskId, workspaceId] as const,
   transitions: (workspaceId: string) =>
-    [...missionKeys.all, 'meta', 'transitions', workspaceId] as const,
+    [...taskKeys.all, 'meta', 'transitions', workspaceId] as const,
 }
 
 // ==================== Query Hooks ====================
 
-export function useMissions(
+export function useTasks(
   workspaceId: string,
   filters?: { status?: string; limit?: number },
   options?: { enabled?: boolean },
 ) {
   return useQuery({
-    queryKey: missionKeys.list(workspaceId, filters),
+    queryKey: taskKeys.list(workspaceId, filters),
     queryFn: async (): Promise<Mission[]> => {
-      const missions = await missionService.list(workspaceId, filters)
-      return missions || []
+      const tasks = await taskService.list(workspaceId, filters)
+      return tasks || []
     },
     enabled: Boolean(workspaceId) && options?.enabled !== false,
     staleTime: STALE_TIME.SHORT,
@@ -52,15 +52,15 @@ export function useMissions(
   })
 }
 
-export function useMission(
-  missionId: string,
+export function useTask(
+  taskId: string,
   workspaceId: string,
   options?: { enabled?: boolean },
 ) {
   return useQuery({
-    queryKey: missionKeys.detail(missionId, workspaceId),
-    queryFn: () => missionService.get(missionId, workspaceId),
-    enabled: Boolean(missionId) && Boolean(workspaceId) && options?.enabled !== false,
+    queryKey: taskKeys.detail(taskId, workspaceId),
+    queryFn: () => taskService.get(taskId, workspaceId),
+    enabled: Boolean(taskId) && Boolean(workspaceId) && options?.enabled !== false,
     staleTime: STALE_TIME.SHORT,
     refetchInterval: (query) => {
       const status = query.state.data?.status
@@ -72,49 +72,49 @@ export function useMission(
 
 // ==================== Mutation Hooks ====================
 
-export function useCreateMission() {
+export function useCreateTask() {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async (data: CreateMissionRequest) => {
-      return missionService.create(data)
+      return taskService.create(data)
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: missionKeys.all })
+      queryClient.invalidateQueries({ queryKey: taskKeys.all })
     },
   })
 }
 
-export function useUpdateMission() {
+export function useUpdateTask() {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async ({
-      missionId,
+      taskId,
       workspaceId,
       ...updates
-    }: UpdateMissionRequest & { missionId: string; workspaceId: string }) => {
-      return missionService.update(missionId, workspaceId, updates)
+    }: UpdateMissionRequest & { taskId: string; workspaceId: string }) => {
+      return taskService.update(taskId, workspaceId, updates)
     },
     onMutate: async (variables) => {
-      await queryClient.cancelQueries({ queryKey: missionKeys.all })
-      const previous = queryClient.getQueriesData<Mission[]>({ queryKey: missionKeys.all })
+      await queryClient.cancelQueries({ queryKey: taskKeys.all })
+      const previous = queryClient.getQueriesData<Mission[]>({ queryKey: taskKeys.all })
 
-      const { missionId: _id, workspaceId: _ws, ...updates } = variables
+      const { taskId: _id, workspaceId: _ws, ...updates } = variables
 
-      queryClient.setQueriesData<Mission[]>({ queryKey: missionKeys.all }, (old) => {
+      queryClient.setQueriesData<Mission[]>({ queryKey: taskKeys.all }, (old) => {
         if (!old || !Array.isArray(old)) return old
         return old.map((m) =>
-          m.id === variables.missionId ? ({ ...m, ...updates } as Mission) : m,
+          m.id === variables.taskId ? ({ ...m, ...updates } as Mission) : m,
         )
       })
 
       const previousDetail = queryClient.getQueryData<Mission>(
-        missionKeys.detail(variables.missionId, variables.workspaceId),
+        taskKeys.detail(variables.taskId, variables.workspaceId),
       )
       if (previousDetail) {
         queryClient.setQueryData<Mission>(
-          missionKeys.detail(variables.missionId, variables.workspaceId),
+          taskKeys.detail(variables.taskId, variables.workspaceId),
           { ...previousDetail, ...updates } as Mission,
         )
       }
@@ -129,78 +129,78 @@ export function useUpdateMission() {
       }
       if (context?.previousDetail) {
         queryClient.setQueryData(
-          missionKeys.detail(variables.missionId, variables.workspaceId),
+          taskKeys.detail(variables.taskId, variables.workspaceId),
           context.previousDetail,
         )
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: missionKeys.all })
+      queryClient.invalidateQueries({ queryKey: taskKeys.all })
     },
   })
 }
 
-export function useAssignMission() {
+export function useAssignTask() {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async ({
-      missionId,
+      taskId,
       workspaceId,
       agentProfileId,
     }: {
-      missionId: string
+      taskId: string
       workspaceId: string
       agentProfileId: string
     }) => {
-      return missionService.assign(missionId, workspaceId, agentProfileId)
+      return taskService.assign(taskId, workspaceId, agentProfileId)
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: missionKeys.all })
+      queryClient.invalidateQueries({ queryKey: taskKeys.all })
     },
   })
 }
 
-export function useDispatchMission() {
+export function useDispatchTask() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ missionId, workspaceId }: { missionId: string; workspaceId: string }) => {
-      return missionService.dispatch(missionId, workspaceId)
+    mutationFn: async ({ taskId, workspaceId }: { taskId: string; workspaceId: string }) => {
+      return taskService.dispatch(taskId, workspaceId)
     },
     onSuccess: (data, variables) => {
-      queryClient.setQueryData(missionKeys.detail(variables.missionId, variables.workspaceId), data)
-      queryClient.invalidateQueries({ queryKey: missionKeys.all })
+      queryClient.setQueryData(taskKeys.detail(variables.taskId, variables.workspaceId), data)
+      queryClient.invalidateQueries({ queryKey: taskKeys.all })
       queryClient.invalidateQueries({
-        queryKey: executionKeys.list(variables.workspaceId, { mission_id: variables.missionId }),
+        queryKey: executionKeys.list(variables.workspaceId, { mission_id: variables.taskId }),
       })
     },
   })
 }
 
-export function useCancelMission() {
+export function useCancelTask() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ missionId, workspaceId }: { missionId: string; workspaceId: string }) => {
-      return missionService.cancel(missionId, workspaceId)
+    mutationFn: async ({ taskId, workspaceId }: { taskId: string; workspaceId: string }) => {
+      return taskService.cancel(taskId, workspaceId)
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: missionKeys.all })
+      queryClient.invalidateQueries({ queryKey: taskKeys.all })
       queryClient.invalidateQueries({
-        queryKey: executionKeys.list(variables.workspaceId, { mission_id: variables.missionId }),
+        queryKey: executionKeys.list(variables.workspaceId, { mission_id: variables.taskId }),
       })
     },
   })
 }
 
-// ==================== Mission Meta ====================
+// ==================== Task Meta ====================
 
-export function useMissionTransitions(workspaceId: string) {
+export function useTaskTransitions(workspaceId: string) {
   return useQuery({
-    queryKey: missionKeys.transitions(workspaceId),
+    queryKey: taskKeys.transitions(workspaceId),
     queryFn: async (): Promise<Record<MissionStatus, MissionStatus[]>> => {
-      const res = await missionService.getTransitions(workspaceId)
+      const res = await taskService.getTransitions(workspaceId)
       return (res ?? DEFAULT_MANUAL_TRANSITIONS) as Record<MissionStatus, MissionStatus[]>
     },
     enabled: Boolean(workspaceId),

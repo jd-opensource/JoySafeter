@@ -5,8 +5,8 @@ import { useMemo, useRef, useState, useEffect, useCallback } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useMissionComments, useCreateMissionComment } from '@/hooks/queries/missionComments'
-import { useAgentProfiles, useAgentNameMap } from '@/hooks/queries/agentProfiles'
+import { useTaskComments, useCreateTaskComment } from '@/hooks/queries/taskComments'
+import { useAgentProfiles, useAgentNameMap } from '@/hooks/queries/agents'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/utils/runHelpers'
 import type { MissionComment } from '@/types/mission-comments'
@@ -40,17 +40,17 @@ function renderContentWithMentions(content: string) {
 }
 
 interface CommentThreadProps {
-  missionId: string
+  taskId: string
   workspaceId: string
 }
 
-export function CommentThread({ missionId, workspaceId }: CommentThreadProps) {
-  const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useMissionComments(
-    missionId,
+export function CommentThread({ taskId, workspaceId }: CommentThreadProps) {
+  const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useTaskComments(
+    taskId,
     workspaceId,
   )
 
-  const createComment = useCreateMissionComment()
+  const createComment = useCreateTaskComment()
   const [newContent, setNewContent] = useState('')
   const [replyTo, setReplyTo] = useState<string | null>(null)
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
@@ -106,7 +106,7 @@ export function CommentThread({ missionId, workspaceId }: CommentThreadProps) {
     setMentionQuery(null)
     createComment.mutate(
       {
-        missionId,
+        taskId,
         workspaceId,
         content: trimmed,
         parent_comment_id: replyTo ?? undefined,

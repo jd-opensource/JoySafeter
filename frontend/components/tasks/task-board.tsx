@@ -12,7 +12,7 @@ import {
 } from '@dnd-kit/core'
 import { useCallback, useMemo, useState } from 'react'
 
-import { useUpdateMission, useMissionTransitions } from '@/hooks/queries/missions'
+import { useUpdateTask, useTaskTransitions } from '@/hooks/queries/tasks'
 import { toastError } from '@/lib/utils/toast'
 import type { Mission, MissionStatus } from '@/types/missions'
 import {
@@ -21,25 +21,25 @@ import {
   TERMINAL_MISSION_STATUSES,
 } from '@/types/missions'
 
-import { MissionCard } from './mission-card'
-import { MissionColumn } from './mission-column'
+import { TaskCard } from './task-card'
+import { TaskColumn } from './task-column'
 
-interface MissionBoardProps {
-  missions: Mission[]
+interface TaskBoardProps {
+  tasks: Mission[]
   workspaceId: string
   agentsMap: Record<string, string>
-  onSelectMission?: (id: string) => void
+  onSelectTask?: (id: string) => void
 }
 
-export function MissionBoard({
-  missions,
+export function TaskBoard({
+  tasks,
   workspaceId,
   agentsMap,
-  onSelectMission,
-}: MissionBoardProps) {
+  onSelectTask,
+}: TaskBoardProps) {
   const [activeId, setActiveId] = useState<string | null>(null)
-  const updateMission = useUpdateMission()
-  const { data: transitions } = useMissionTransitions(workspaceId)
+  const updateTask = useUpdateTask()
+  const { data: transitions } = useTaskTransitions(workspaceId)
   const effectiveTransitions = transitions ?? DEFAULT_MANUAL_TRANSITIONS
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
@@ -53,7 +53,7 @@ export function MissionBoard({
       done: [],
       cancelled: [],
     }
-    for (const m of missions) {
+    for (const m of tasks) {
       if (map[m.status]) {
         map[m.status].push(m)
       }
@@ -62,11 +62,11 @@ export function MissionBoard({
       map[key].sort((a, b) => a.position - b.position)
     }
     return map
-  }, [missions])
+  }, [tasks])
 
-  const activeMission = useMemo(
-    () => (activeId ? missions.find((m) => m.id === activeId) : undefined),
-    [activeId, missions],
+  const activeTask = useMemo(
+    () => (activeId ? tasks.find((m) => m.id === activeId) : undefined),
+    [activeId, tasks],
   )
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
@@ -79,8 +79,8 @@ export function MissionBoard({
       const { active, over } = event
       if (!over) return
 
-      const draggedMission = missions.find((m) => m.id === active.id)
-      if (!draggedMission) return
+      const draggedTask = tasks.find((m) => m.id === active.id)
+      if (!draggedTask) return
 
       // Determine target column
       const overData = over.data.current
@@ -97,9 +97,9 @@ export function MissionBoard({
           targetStatus = overId.slice(colPrefix.length) as MissionStatus
         } else {
           // Dropped on a card — find its status
-          const targetMission = missions.find((m) => m.id === over.id)
-          if (!targetMission) return
-          targetStatus = targetMission.status
+          const targetTask = tasks.find((m) => m.id === over.id)
+          if (!targetTask) return
+          targetStatus = targetTask.status
         }
       }
 
@@ -123,20 +123,20 @@ export function MissionBoard({
         newPosition = last ? last.position + 1 : 0
       }
 
-      const statusChanged = draggedMission.status !== targetStatus
-      const positionChanged = draggedMission.position !== newPosition
+      const statusChanged = draggedTask.status !== targetStatus
+      const positionChanged = draggedTask.position !== newPosition
 
       if (!statusChanged && !positionChanged) return
 
       if (statusChanged) {
-        const from = draggedMission.status
+        const from = draggedTask.status
         const allowed = effectiveTransitions[from] ?? []
         if (!allowed.includes(targetStatus)) {
           toastError(`Cannot move from ${from} to ${targetStatus}`)
           return
         }
         const toTerminal = (TERMINAL_MISSION_STATUSES as readonly string[]).includes(targetStatus)
-        if (draggedMission.current_execution_id && toTerminal) {
+        if (draggedTask.current_execution_id && toTerminal) {
           toastError('Cancel the running execution before moving to this status')
           return
         }
@@ -146,13 +146,13 @@ export function MissionBoard({
       if (statusChanged) updates.status = targetStatus
       if (positionChanged) updates.position = newPosition
 
-      updateMission.mutate({
-        missionId: draggedMission.id,
+      updateTask.mutate({
+        taskId: draggedTask.id,
         workspaceId,
         ...updates,
       })
     },
-    [missions, grouped, workspaceId, updateMission],
+    [tasks, grouped, workspaceId, updateTask],
   )
 
   return (
@@ -164,21 +164,21 @@ export function MissionBoard({
     >
       <div className="flex h-full gap-3 p-4">
         {MISSION_STATUS_ORDER.map((status) => (
-          <MissionColumn
+          <TaskColumn
             key={status}
             status={status}
             missions={grouped[status]}
             agentsMap={agentsMap}
-            onSelectMission={onSelectMission}
+            onSelectMission={onSelectTask}
           />
         ))}
       </div>
 
       <DragOverlay>
-        {activeMission ? (
-          <MissionCard
-            mission={activeMission}
-            agentName={agentsMap[activeMission.assignee_id ?? '']}
+        {activeTask ? (
+          <TaskCard
+            mission={activeTask}
+            agentName={agentsMap[activeTask.assignee_id ?? '']}
             isDragOverlay
           />
         ) : null}

@@ -4,8 +4,8 @@ import { createContext, ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { useNotificationWebSocket, NotificationMessage } from '@/hooks/use-notification-websocket'
-import { missionKeys } from '@/hooks/queries/missions'
-import { missionCommentKeys } from '@/hooks/queries/missionComments'
+import { taskKeys } from '@/hooks/queries/tasks'
+import { taskCommentKeys } from '@/hooks/queries/taskComments'
 import { useAuthStore } from '@/stores/auth/store'
 
 interface NotificationContextValue {
@@ -29,10 +29,10 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
   const handleNotification = (notification: NotificationMessage) => {
     const { type } = notification
     if (type === 'mission_updated' || type === 'execution_status_changed') {
-      queryClient.invalidateQueries({ queryKey: missionKeys.all })
+      queryClient.invalidateQueries({ queryKey: taskKeys.all })
     }
     if (type === 'mission_comment_added') {
-      queryClient.invalidateQueries({ queryKey: missionCommentKeys.all })
+      queryClient.invalidateQueries({ queryKey: taskCommentKeys.all })
     }
   }
 

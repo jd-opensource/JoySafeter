@@ -1,82 +1,82 @@
 /**
- * Mission Comments Queries
+ * Task Comments Queries
  */
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
-import { missionCommentService } from '@/services/missionCommentService'
+import { taskCommentService } from '@/services/taskCommentService'
 import type { CreateMissionCommentRequest } from '@/types/mission-comments'
 
-import { missionKeys } from './missions'
+import { taskKeys } from './tasks'
 import { STALE_TIME } from './constants'
 
 // ==================== Query Keys ====================
 
-export const missionCommentKeys = {
-  all: ['missionComments'] as const,
-  list: (missionId: string, workspaceId: string) =>
-    [...missionCommentKeys.all, 'list', missionId, workspaceId] as const,
+export const taskCommentKeys = {
+  all: ['taskComments'] as const,
+  list: (taskId: string, workspaceId: string) =>
+    [...taskCommentKeys.all, 'list', taskId, workspaceId] as const,
 }
 
 // ==================== Query Hooks ====================
 
-export function useMissionComments(missionId: string, workspaceId: string) {
+export function useTaskComments(taskId: string, workspaceId: string) {
   return useInfiniteQuery({
-    queryKey: missionCommentKeys.list(missionId, workspaceId),
+    queryKey: taskCommentKeys.list(taskId, workspaceId),
     queryFn: async ({ pageParam }) => {
-      return missionCommentService.list(missionId, workspaceId, {
+      return taskCommentService.list(taskId, workspaceId, {
         cursor: pageParam ?? undefined,
         limit: 50,
       })
     },
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => (lastPage.has_more ? lastPage.next_cursor : undefined),
-    enabled: Boolean(missionId) && Boolean(workspaceId),
+    enabled: Boolean(taskId) && Boolean(workspaceId),
     staleTime: STALE_TIME.SHORT,
   })
 }
 
 // ==================== Mutation Hooks ====================
 
-export function useCreateMissionComment() {
+export function useCreateTaskComment() {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async ({
-      missionId,
+      taskId,
       workspaceId,
       ...data
-    }: CreateMissionCommentRequest & { missionId: string; workspaceId: string }) => {
-      return missionCommentService.create(missionId, workspaceId, data)
+    }: CreateMissionCommentRequest & { taskId: string; workspaceId: string }) => {
+      return taskCommentService.create(taskId, workspaceId, data)
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: missionCommentKeys.list(variables.missionId, variables.workspaceId),
+        queryKey: taskCommentKeys.list(variables.taskId, variables.workspaceId),
       })
       queryClient.invalidateQueries({
-        queryKey: missionKeys.detail(variables.missionId, variables.workspaceId),
+        queryKey: taskKeys.detail(variables.taskId, variables.workspaceId),
       })
     },
   })
 }
 
-export function useDeleteMissionComment() {
+export function useDeleteTaskComment() {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async ({
-      missionId,
+      taskId,
       commentId,
       workspaceId,
     }: {
-      missionId: string
+      taskId: string
       commentId: string
       workspaceId: string
     }) => {
-      return missionCommentService.delete(missionId, commentId, workspaceId)
+      return taskCommentService.delete(taskId, commentId, workspaceId)
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: missionCommentKeys.list(variables.missionId, variables.workspaceId),
+        queryKey: taskCommentKeys.list(variables.taskId, variables.workspaceId),
       })
     },
   })

@@ -9,7 +9,7 @@ import { useTranslation } from '@/lib/i18n'
 import type { Mission, MissionStatus } from '@/types/missions'
 import { MISSION_STATUS_LABELS } from '@/types/missions'
 
-import { MissionCard } from './mission-card'
+import { TaskCard } from './task-card'
 
 const STATUS_COLUMN_STYLES: Record<MissionStatus, { bg: string; indicator: string }> = {
   backlog: { bg: 'bg-[var(--surface-1)]', indicator: 'bg-[var(--text-muted)]' },
@@ -20,13 +20,13 @@ const STATUS_COLUMN_STYLES: Record<MissionStatus, { bg: string; indicator: strin
   cancelled: { bg: 'bg-[var(--surface-1)]', indicator: 'bg-[var(--text-muted)]' },
 }
 
-interface SortableMissionCardProps {
+interface SortableTaskCardProps {
   mission: Mission
   agentName?: string
   onSelectMission?: (id: string) => void
 }
 
-function SortableMissionCard({ mission, agentName, onSelectMission }: SortableMissionCardProps) {
+function SortableTaskCard({ mission, agentName, onSelectMission }: SortableTaskCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: mission.id,
     data: { type: 'mission', mission },
@@ -39,7 +39,7 @@ function SortableMissionCard({ mission, agentName, onSelectMission }: SortableMi
   }
 
   return (
-    <MissionCard
+    <TaskCard
       ref={setNodeRef}
       mission={mission}
       agentName={agentName}
@@ -51,19 +51,19 @@ function SortableMissionCard({ mission, agentName, onSelectMission }: SortableMi
   )
 }
 
-interface MissionColumnProps {
+interface TaskColumnProps {
   status: MissionStatus
   missions: Mission[]
   agentsMap?: Record<string, string>
   onSelectMission?: (id: string) => void
 }
 
-export function MissionColumn({
+export function TaskColumn({
   status,
   missions,
   agentsMap,
   onSelectMission,
-}: MissionColumnProps) {
+}: TaskColumnProps) {
   const { t } = useTranslation()
   const { setNodeRef, isOver } = useDroppable({
     id: `column-${status}`,
@@ -94,7 +94,7 @@ export function MissionColumn({
       <div ref={setNodeRef} className="flex-1 space-y-2 overflow-y-auto p-2">
         <SortableContext items={missionIds} strategy={verticalListSortingStrategy}>
           {missions.map((mission) => (
-            <SortableMissionCard
+            <SortableTaskCard
               key={mission.id}
               mission={mission}
               agentName={agentsMap?.[mission.assignee_id ?? '']}
@@ -105,7 +105,7 @@ export function MissionColumn({
         {missions.length === 0 && (
           <div className="flex flex-col items-center justify-center py-8 text-[var(--text-muted)]">
             <div className="mb-1.5 h-8 w-8 rounded-full border-2 border-dashed border-[var(--border)]" />
-            <p className="text-xs">{t('missions.noMissions')}</p>
+            <p className="text-xs">{t('tasks.noTasks')}</p>
           </div>
         )}
       </div>

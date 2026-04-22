@@ -23,18 +23,18 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { useCreateMission } from '@/hooks/queries/missions'
+import { useCreateTask } from '@/hooks/queries/tasks'
 import type { MissionPriority } from '@/types/missions'
 import { MISSION_PRIORITY_LABELS } from '@/types/missions'
 
-interface MissionCreateDialogProps {
+interface TaskCreateDialogProps {
   workspaceId: string
   trigger: React.ReactNode
 }
 
 const PRIORITIES = Object.entries(MISSION_PRIORITY_LABELS) as [MissionPriority, string][]
 
-export function MissionCreateDialog({ workspaceId, trigger }: MissionCreateDialogProps) {
+export function TaskCreateDialog({ workspaceId, trigger }: TaskCreateDialogProps) {
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -43,7 +43,7 @@ export function MissionCreateDialog({ workspaceId, trigger }: MissionCreateDialo
   const [tagsInput, setTagsInput] = useState('')
   const [autoApprove, setAutoApprove] = useState(false)
 
-  const createMission = useCreateMission()
+  const createTask = useCreateTask()
 
   function reset() {
     setTitle('')
@@ -64,7 +64,7 @@ export function MissionCreateDialog({ workspaceId, trigger }: MissionCreateDialo
       .filter(Boolean)
 
     try {
-      await createMission.mutateAsync({
+      await createTask.mutateAsync({
         workspace_id: workspaceId,
         title: title.trim(),
         description: description.trim() || undefined,
@@ -86,15 +86,15 @@ export function MissionCreateDialog({ workspaceId, trigger }: MissionCreateDialo
       <DialogContent>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>New Mission</DialogTitle>
-            <DialogDescription>Create a new mission for your team or agents.</DialogDescription>
+            <DialogTitle>New Task</DialogTitle>
+            <DialogDescription>Create a new task for your team or agents.</DialogDescription>
           </DialogHeader>
 
           <div className="mt-4 space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="mission-title">Title</Label>
+              <Label htmlFor="task-title">Title</Label>
               <Input
-                id="mission-title"
+                id="task-title"
                 placeholder="e.g. Scan target.apk for OWASP Top 10"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -103,10 +103,10 @@ export function MissionCreateDialog({ workspaceId, trigger }: MissionCreateDialo
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="mission-description">Description</Label>
+              <Label htmlFor="task-description">Description</Label>
               <Textarea
-                id="mission-description"
-                placeholder="Describe what this mission involves..."
+                id="task-description"
+                placeholder="Describe what this task involves..."
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={3}
@@ -114,10 +114,10 @@ export function MissionCreateDialog({ workspaceId, trigger }: MissionCreateDialo
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="mission-objective">Objective</Label>
+              <Label htmlFor="task-objective">Objective</Label>
               <Textarea
-                id="mission-objective"
-                placeholder="Success criteria for this mission..."
+                id="task-objective"
+                placeholder="Success criteria for this task..."
                 value={objective}
                 onChange={(e) => setObjective(e.target.value)}
                 rows={2}
@@ -125,9 +125,9 @@ export function MissionCreateDialog({ workspaceId, trigger }: MissionCreateDialo
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="mission-priority">Priority</Label>
+              <Label htmlFor="task-priority">Priority</Label>
               <Select value={priority} onValueChange={(v) => setPriority(v as MissionPriority)}>
-                <SelectTrigger id="mission-priority">
+                <SelectTrigger id="task-priority">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -141,9 +141,9 @@ export function MissionCreateDialog({ workspaceId, trigger }: MissionCreateDialo
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="mission-tags">Tags</Label>
+              <Label htmlFor="task-tags">Tags</Label>
               <Input
-                id="mission-tags"
+                id="task-tags"
                 placeholder="security, mobile, audit (comma-separated)"
                 value={tagsInput}
                 onChange={(e) => setTagsInput(e.target.value)}
@@ -152,13 +152,13 @@ export function MissionCreateDialog({ workspaceId, trigger }: MissionCreateDialo
 
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
-                <Label htmlFor="mission-auto-approve">Auto Approve</Label>
+                <Label htmlFor="task-auto-approve">Auto Approve</Label>
                 <p className="text-xs text-[var(--text-muted)]">
                   Skip human review — auto-approve tool calls and mark done on completion
                 </p>
               </div>
               <Switch
-                id="mission-auto-approve"
+                id="task-auto-approve"
                 checked={autoApprove}
                 onCheckedChange={setAutoApprove}
               />
@@ -169,8 +169,8 @@ export function MissionCreateDialog({ workspaceId, trigger }: MissionCreateDialo
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!title.trim() || createMission.isPending}>
-              {createMission.isPending ? 'Creating...' : 'Create Mission'}
+            <Button type="submit" disabled={!title.trim() || createTask.isPending}>
+              {createTask.isPending ? 'Creating...' : 'Create Task'}
             </Button>
           </DialogFooter>
         </form>

@@ -9,7 +9,7 @@ import { useExecutionStream } from '@/hooks/use-execution-stream'
 import { cn } from '@/lib/utils'
 import { ACTIVE_EXECUTION_STATUSES } from '@/types/executions'
 
-import { missionService } from '@/services/missionService'
+import { taskService } from '@/services/taskService'
 
 import { ExecutionEventItem } from './execution-event'
 import { MessageInput } from './message-input'
@@ -31,7 +31,9 @@ interface ExecutionTimelineProps {
   compact?: boolean
   /** Set to false for terminal executions to skip WebSocket and polling. Defaults to true. */
   isLive?: boolean
-  /** When set, write operations (message/approve) use mission-scoped endpoints. */
+  /** When set, write operations (message/approve) use task-scoped endpoints. */
+  taskId?: string
+  /** @deprecated use taskId */
   missionId?: string
 }
 
@@ -40,6 +42,7 @@ export function ExecutionTimeline({
   workspaceId,
   compact,
   isLive = true,
+  taskId,
   missionId,
 }: ExecutionTimelineProps) {
   const {
@@ -125,25 +128,27 @@ export function ExecutionTimeline({
     return `${fmt(input)} in / ${fmt(output)} out`
   }, [execution?.result_summary])
 
+  const effectiveId = taskId ?? missionId
+
   const handleSendMessage = async (message: string) => {
-    if (!missionId) return
+    if (!effectiveId) return
     try {
-      await missionService.injectExecutionMessage(missionId, workspaceId, message)
+      await taskService.injectExecutionMessage(effectiveId, workspaceId, message)
     } catch (err) {
       console.error('Failed to inject message', err)
     }
   }
 
   const handleApproveOrReject = async (_eventId: string, approved: boolean) => {
-    if (!missionId) return
+    if (!effectiveId) return
     try {
-      await missionService.approveExecutionAction(missionId, workspaceId, approved)
+      await taskService.approveExecutionAction(effectiveId, workspaceId, approved)
     } catch (err) {
       console.error(`Failed to ${approved ? 'approve' : 'reject'} action`, err)
     }
   }
 
-  const actionsDisabled = !missionId
+  const actionsDisabled = !effectiveId
 
   const handleRetry = () => {
     void refetchExec()

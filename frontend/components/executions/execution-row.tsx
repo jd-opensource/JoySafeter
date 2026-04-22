@@ -78,7 +78,7 @@ export function ExecutionRow({
             </Badge>
             {missionTitle && execution.mission_id && (
               <Link
-                href={`/missions?mission=${execution.mission_id}`}
+                href={`/tasks?task=${execution.mission_id}`}
                 onClick={(e) => e.stopPropagation()}
                 className="truncate text-sm font-medium text-[var(--text-primary)] hover:underline"
               >

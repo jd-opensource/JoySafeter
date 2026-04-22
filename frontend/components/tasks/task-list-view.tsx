@@ -27,10 +27,10 @@ import { PriorityBadge } from './priority-badge'
 
 type SortField = 'title' | 'status' | 'priority' | 'updated_at' | 'due_date'
 
-interface MissionListViewProps {
-  missions: Mission[]
+interface TaskListViewProps {
+  tasks: Mission[]
   agentsMap: Record<string, string>
-  onSelectMission?: (id: string) => void
+  onSelectTask?: (id: string) => void
 }
 
 const PRIORITY_ORDER: Record<string, number> = Object.fromEntries(
@@ -42,7 +42,7 @@ const STATUS_ORDER: Record<string, number> = Object.fromEntries(
   MISSION_STATUS_ORDER.map((s, i) => [s, i]),
 )
 
-export function MissionListView({ missions, agentsMap, onSelectMission }: MissionListViewProps) {
+export function TaskListView({ tasks, agentsMap, onSelectTask }: TaskListViewProps) {
   const { t } = useTranslation()
   const [sortField, setSortField] = useState<SortField>('updated_at')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
@@ -57,7 +57,7 @@ export function MissionListView({ missions, agentsMap, onSelectMission }: Missio
   }
 
   const sorted = useMemo(() => {
-    const arr = [...missions]
+    const arr = [...tasks]
     const dir = sortDir === 'asc' ? 1 : -1
 
     arr.sort((a, b) => {
@@ -80,7 +80,7 @@ export function MissionListView({ missions, agentsMap, onSelectMission }: Missio
       }
     })
     return arr
-  }, [missions, sortField, sortDir])
+  }, [tasks, sortField, sortDir])
 
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) return null
@@ -125,7 +125,7 @@ export function MissionListView({ missions, agentsMap, onSelectMission }: Missio
               <TableRow
                 key={m.id}
                 className="cursor-pointer hover:bg-[var(--surface-2)]"
-                onClick={() => onSelectMission?.(m.id)}
+                onClick={() => onSelectTask?.(m.id)}
               >
                 <TableCell className="font-medium">{m.title}</TableCell>
                 <TableCell>
@@ -141,12 +141,12 @@ export function MissionListView({ missions, agentsMap, onSelectMission }: Missio
                     </span>
                     {m.current_execution_id && (
                       <Link
-                        href={`/runs?tab=executions&mission=${m.id}`}
+                        href={`/runs?tab=executions&task=${m.id}`}
                         onClick={(e) => e.stopPropagation()}
                         className="inline-flex items-center gap-1 text-[10px] text-[var(--status-success)] hover:underline"
                       >
                         <PulsingDot size="sm" />
-                        {t('missions.running')}
+                        {t('tasks.running')}
                       </Link>
                     )}
                   </div>
@@ -198,7 +198,7 @@ export function MissionListView({ missions, agentsMap, onSelectMission }: Missio
           {sorted.length === 0 && (
             <TableRow>
               <TableCell colSpan={7} className="py-8 text-center text-sm text-[var(--text-muted)]">
-                No missions yet
+                No tasks yet
               </TableCell>
             </TableRow>
           )}

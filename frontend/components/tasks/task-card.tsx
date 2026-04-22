@@ -19,7 +19,7 @@ const PRIORITY_LEFT_BORDER: Record<MissionPriority, string> = {
   none: 'border-l-transparent',
 }
 
-interface MissionCardProps {
+interface TaskCardProps {
   mission: Mission
   agentName?: string
   onSelectMission?: (id: string) => void
@@ -27,10 +27,10 @@ interface MissionCardProps {
   style?: React.CSSProperties
 }
 
-export const MissionCard = forwardRef<
+export const TaskCard = forwardRef<
   HTMLButtonElement,
-  MissionCardProps & React.HTMLAttributes<HTMLButtonElement>
->(function MissionCard(
+  TaskCardProps & React.HTMLAttributes<HTMLButtonElement>
+>(function TaskCard(
   { mission, agentName, onSelectMission, isDragOverlay, style, className, ...props },
   ref,
 ) {
@@ -113,7 +113,7 @@ export const MissionCard = forwardRef<
           className="bg-[var(--surface-3)]/50 -mx-3 -mb-3 mt-2 flex items-center gap-1.5 rounded-b-lg border-t border-[var(--border)] px-3 py-1.5 text-xs text-[var(--status-success)] hover:bg-[var(--surface-3)]"
         >
           <PulsingDot />
-          {t('missions.running')}
+          {t('tasks.running')}
           <ExternalLink className="ml-auto h-3 w-3" />
         </Link>
       )}

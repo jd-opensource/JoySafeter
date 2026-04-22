@@ -41,7 +41,7 @@ const menuGroups: MenuGroup[] = [
     items: [
       { id: 'agents', labelKey: 'sidebar.agents', icon: Bot, href: '/agents' },
       { id: 'runs', labelKey: 'sidebar.runCenter', icon: Activity, href: '/runs' },
-      { id: 'missions', labelKey: 'sidebar.missions', icon: Target, href: '/missions' },
+      { id: 'tasks', labelKey: 'sidebar.tasks', icon: Target, href: '/tasks' },
     ],
   },
   {

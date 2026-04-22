@@ -4,33 +4,33 @@ import { Kanban, List, Loader2, Plus, Target } from 'lucide-react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useCallback, useState } from 'react'
 
-import { MissionBoard } from '@/components/missions/mission-board'
-import { MissionCreateDialog } from '@/components/missions/mission-create-dialog'
-import { MissionDetailPanel } from '@/components/missions/mission-detail-panel'
-import { MissionListView } from '@/components/missions/mission-list-view'
+import { TaskBoard } from '@/components/tasks/task-board'
+import { TaskCreateDialog } from '@/components/tasks/task-create-dialog'
+import { TaskDetailPanel } from '@/components/tasks/task-detail-panel'
+import { TaskListView } from '@/components/tasks/task-list-view'
 import { Button } from '@/components/ui/button'
-import { useAgentNameMap } from '@/hooks/queries/agentProfiles'
-import { useMissions } from '@/hooks/queries/missions'
+import { useAgentNameMap } from '@/hooks/queries/agents'
+import { useTasks } from '@/hooks/queries/tasks'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { cn } from '@/lib/utils'
 
 type ViewMode = 'board' | 'list'
 
-export default function MissionsPage() {
+export default function TasksPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('board')
   const searchParams = useSearchParams()
   const router = useRouter()
-  const selectedMissionId = searchParams.get('mission')
+  const selectedTaskId = searchParams.get('task')
 
-  const setSelectedMissionId = useCallback(
+  const setSelectedTaskId = useCallback(
     (id: string | null) => {
       const params = new URLSearchParams(searchParams.toString())
       if (id) {
-        params.set('mission', id)
+        params.set('task', id)
       } else {
-        params.delete('mission')
+        params.delete('task')
       }
-      router.replace(`/missions?${params.toString()}`, { scroll: false })
+      router.replace(`/tasks?${params.toString()}`, { scroll: false })
     },
     [searchParams, router],
   )
@@ -38,10 +38,10 @@ export default function MissionsPage() {
   const { data: workspaces = [], isLoading: isWorkspacesLoading } = useWorkspaces()
   const workspaceId = workspaces[0]?.id ?? ''
 
-  const { data: missions = [], isLoading: isMissionsLoading } = useMissions(workspaceId)
+  const { data: tasks = [], isLoading: isTasksLoading } = useTasks(workspaceId)
   const agentsMap = useAgentNameMap(workspaceId)
 
-  const isLoading = isWorkspacesLoading || isMissionsLoading
+  const isLoading = isWorkspacesLoading || isTasksLoading
 
   return (
     <div className="flex h-full flex-col bg-[var(--bg)]">
@@ -49,7 +49,7 @@ export default function MissionsPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Target className="h-5 w-5 text-[var(--skill-brand-600)]" />
-            <h1 className="text-lg font-semibold text-[var(--text-primary)]">Missions</h1>
+            <h1 className="text-lg font-semibold text-[var(--text-primary)]">Tasks</h1>
           </div>
 
           <div className="flex items-center gap-2">
@@ -85,12 +85,12 @@ export default function MissionsPage() {
             </div>
 
             {workspaceId && (
-              <MissionCreateDialog
+              <TaskCreateDialog
                 workspaceId={workspaceId}
                 trigger={
                   <Button size="sm">
                     <Plus className="h-4 w-4" />
-                    New Mission
+                    New Task
                   </Button>
                 }
               />
@@ -105,26 +105,26 @@ export default function MissionsPage() {
             <Loader2 className="h-6 w-6 animate-spin text-[var(--text-muted)]" />
           </div>
         ) : viewMode === 'board' ? (
-          <MissionBoard
-            missions={missions}
+          <TaskBoard
+            tasks={tasks}
             workspaceId={workspaceId}
             agentsMap={agentsMap}
-            onSelectMission={setSelectedMissionId}
+            onSelectTask={setSelectedTaskId}
           />
         ) : (
-          <MissionListView
-            missions={missions}
+          <TaskListView
+            tasks={tasks}
             agentsMap={agentsMap}
-            onSelectMission={setSelectedMissionId}
+            onSelectTask={setSelectedTaskId}
           />
         )}
       </div>
 
-      {selectedMissionId && workspaceId && (
-        <MissionDetailPanel
-          missionId={selectedMissionId}
+      {selectedTaskId && workspaceId && (
+        <TaskDetailPanel
+          taskId={selectedTaskId}
           workspaceId={workspaceId}
-          onClose={() => setSelectedMissionId(null)}
+          onClose={() => setSelectedTaskId(null)}
         />
       )}
     </div>
