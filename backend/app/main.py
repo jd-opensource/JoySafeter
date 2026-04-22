@@ -28,11 +28,9 @@ from app.core.database import AsyncSessionLocal, close_db, engine  # noqa: E402
 from app.core.redis import RedisClient  # noqa: E402
 from app.core.settings import settings  # noqa: E402
 from app.websocket.auth import WebSocketCloseCode, authenticate_websocket, reject_websocket  # noqa: E402
-from app.websocket.chat_ws_handler import ChatWsHandler  # noqa: E402
 from app.websocket.execution_subscription_handler import execution_subscription_handler  # noqa: E402
 from app.websocket.notification_manager import NotificationType, notification_manager  # noqa: E402
 from app.websocket.openclaw_handler import openclaw_bridge_handler  # noqa: E402
-from app.websocket.run_subscription_handler import run_subscription_handler  # noqa: E402
 
 setup_logging()
 
@@ -321,19 +319,6 @@ async def root():
     }
 
 
-@app.websocket("/ws/chat")
-async def chat_websocket_endpoint(websocket: WebSocket):
-    """Persistent WebSocket endpoint for Chat page streaming."""
-    is_authenticated, user_id = await authenticate_websocket(websocket)
-    if not is_authenticated or not user_id:
-        await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
-        return
-
-    await websocket.accept()
-    handler = ChatWsHandler(user_id=str(user_id), websocket=websocket)
-    await handler.run()
-
-
 async def _run_notification_loop(websocket: WebSocket, user_id: str) -> None:
     """Shared ping/pong loop for notification WebSocket endpoints."""
     import json
@@ -372,18 +357,6 @@ async def notification_websocket_endpoint(websocket: WebSocket):
         await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
         return
     await _run_notification_loop(websocket, user_id)
-
-
-@app.websocket("/ws/runs")
-async def runs_websocket_endpoint(websocket: WebSocket):
-    """Subscription endpoint for durable run snapshot/replay/live events."""
-    is_authenticated, user_id = await authenticate_websocket(websocket)
-
-    if not is_authenticated or not user_id:
-        await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
-        return
-
-    await run_subscription_handler.handle_connection(websocket, str(user_id))
 
 
 @app.websocket("/ws/executions")

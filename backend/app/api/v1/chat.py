@@ -1,15 +1,13 @@
 """
-Module: Chat API (Production Ready)
+Module: Chat API helpers
 
 Overview:
-- Streaming helper module reused by the chat WebSocket handler
-- Provide LangGraph event dispatch, state queries, message persistence, and result archival
+- Streaming helper functions for LangGraph event dispatch, state queries, message persistence, and result archival
 - No longer exposes a `/v1/chat` HTTP endpoint
 
 Dependencies:
 - Database: async SQLAlchemy session
 - LangGraph: v2 event stream processing
-- WebSocket chat handler: `app.websocket.chat_ws_handler`
 """
 
 import asyncio

@@ -1,5 +1,5 @@
 """
-Graph Execution Engine — wraps the existing LangGraph chat_turn_executor.
+Graph Execution Engine — LangGraph-based executor.
 
 runtime_kind: "graph"
 Compiles AgentVersion.definition_payload (nodes/edges) into a LangGraph StateGraph and executes it.
@@ -58,26 +58,12 @@ class GraphEngine:
         })
 
         try:
-            # Lazy import to avoid circular deps and heavy LangGraph import at module level
-            from app.websocket.chat_turn_executor import ChatTurnExecutor
-            from app.core.database import AsyncSessionLocal
-
-            async with AsyncSessionLocal() as db:
-                executor = ChatTurnExecutor(db)
-
-                # The executor streams events — we bridge them to context.emit()
-                async for event in executor.execute_graph(
-                    nodes=nodes,
-                    edges=edges,
-                    variables=variables,
-                    prompt=prompt,
-                    credentials=context.credentials,
-                    execution_id=execution_id,
-                ):
-                    event_type = event.get("type", "unknown")
-                    await context.emit(event_type, event)
-
-            await context.complete("succeeded")
+            # ChatTurnExecutor (chat_turn_executor.py) has been removed.
+            # Graph execution via this engine is not yet implemented without it.
+            raise RuntimeError(
+                "GraphEngine.start is not implemented: ChatTurnExecutor has been removed. "
+                "Graph execution must be migrated to a LangGraph-native engine."
+            )
 
         except Exception as exc:
             logger.error(f"[GraphEngine] Execution {execution_id} failed: {exc}")
