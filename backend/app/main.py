@@ -115,8 +115,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # Check Docker availability (non-blocking, just warn)
     await _check_docker_availability()
 
-    # TODO: Phase 5 cleanup - durable run recovery removed with RunService; AgentRun lifecycle
-    # is now managed by AgentRunService which does not require startup recovery.
+    # Durable run recovery is no longer needed. AgentRun lifecycle is now managed
+    # by AgentRunService which does not require startup recovery.
 
     # Automatically sync providers and models to database on startup (if not present)
     try:

@@ -10,8 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-# TODO: removed in greenfield rewrite
-# from app.models.graph import GraphNode
+# GraphNode model was removed in greenfield rewrite.
+# Functions in this module accept Any-typed objects and access attributes dynamically.
 GraphNode = None  # type: ignore[assignment,misc]
 
 

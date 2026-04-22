@@ -12,9 +12,6 @@ from typing import Any
 from loguru import logger as _logger
 
 from app.common.exceptions import ModelConfigError
-# TODO: Phase 4/5 cleanup - AgentRunStatus removed; migrate to string literals
-# from app.models.agent_run import AgentRunStatus
-AgentRunStatus = type("AgentRunStatus", (), {"QUEUED": "queued", "RUNNING": "running", "INTERRUPT_WAIT": "interrupt_wait", "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "cancelled"})()
 from app.schemas.chat import ChatRequest
 from app.utils.stream_event_handler import StreamState
 from app.websocket.chat_commands import ChatRunTurnCommand, ChatTurnCommand, CopilotTurnCommand, SkillCreatorTurnCommand
@@ -211,7 +208,7 @@ class ChatTurnExecutor:
             if agent_run_id is not None:
                 await handler._mark_run_status(
                     run_id=agent_run_id,
-                    status=AgentRunStatus.RUNNING,
+                    status="running",
                     runtime_owner_id=handler._runtime_owner_id,
                 )
                 heartbeat_task = asyncio.create_task(
@@ -563,7 +560,7 @@ class ChatTurnExecutor:
             if agent_run_id is not None:
                 await handler._mark_run_status(
                     run_id=agent_run_id,
-                    status=AgentRunStatus.RUNNING,
+                    status="running",
                     runtime_owner_id=handler._runtime_owner_id,
                 )
                 heartbeat_task = asyncio.create_task(
@@ -840,7 +837,7 @@ class ChatTurnExecutor:
             if agent_run_id is not None:
                 await handler._mark_run_status(
                     run_id=agent_run_id,
-                    status=AgentRunStatus.RUNNING,
+                    status="running",
                     runtime_owner_id=handler._runtime_owner_id,
                 )
                 heartbeat_task = asyncio.create_task(

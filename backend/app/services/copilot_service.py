@@ -38,8 +38,9 @@ from app.core.copilot.response_parser import (
 from app.core.copilot.tool_output_parser import parse_tool_output
 from app.core.copilot.tools import reset_node_registry
 from app.repositories.auth_user import AuthUserRepository
-# TODO: removed in greenfield rewrite
-# from app.services.graph_service import GraphService
+
+# GraphService was removed in greenfield rewrite.
+# Copilot now operates directly on graph state without the service layer.
 GraphService = None  # type: ignore[assignment,misc]
 
 

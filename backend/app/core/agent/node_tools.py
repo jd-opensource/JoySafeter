@@ -23,10 +23,11 @@ from loguru import logger
 # Import default user ID constant
 from app.core.constants import DEFAULT_USER_ID
 from app.core.tools.tool import EnhancedTool, ToolMetadata, ToolSourceType
-# TODO: removed in greenfield rewrite
-# from app.models.graph import GraphNode
-GraphNode = None  # type: ignore[assignment,misc]
 from app.utils.sandbox_paths import get_user_sandbox_host_dir
+
+# GraphNode is no longer imported from app.models.graph (removed in greenfield rewrite).
+# Functions in this module accept Any-typed node objects and access attributes dynamically.
+GraphNode = None  # type: ignore[assignment,misc]
 
 
 def _first_dict(*candidates: Any) -> Optional[dict]:

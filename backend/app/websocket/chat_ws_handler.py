@@ -481,7 +481,7 @@ class ChatWsHandler:
                 if state is None:
                     await self._mark_run_status(
                         run_id=agent_run_id,
-                        status=AgentRunStatus.FAILED,
+                        status="failed",
                         error_code="missing_state",
                         error_message="Run finalized without stream state",
                         result_summary=result_summary,
@@ -489,13 +489,13 @@ class ChatWsHandler:
                 elif state.interrupted:
                     await self._mark_run_status(
                         run_id=agent_run_id,
-                        status=AgentRunStatus.INTERRUPT_WAIT,
+                        status="interrupt_wait",
                         result_summary=result_summary,
                     )
                 elif state.stopped:
                     await self._mark_run_status(
                         run_id=agent_run_id,
-                        status=AgentRunStatus.CANCELLED,
+                        status="cancelled",
                         error_code="stopped",
                         error_message="Stopped by user",
                         result_summary=result_summary,
@@ -503,7 +503,7 @@ class ChatWsHandler:
                 elif state.has_error:
                     await self._mark_run_status(
                         run_id=agent_run_id,
-                        status=AgentRunStatus.FAILED,
+                        status="failed",
                         error_code="stream_error",
                         error_message="Agent run failed",
                         result_summary=result_summary,
@@ -511,7 +511,7 @@ class ChatWsHandler:
                 else:
                     await self._mark_run_status(
                         run_id=agent_run_id,
-                        status=AgentRunStatus.COMPLETED,
+                        status="completed",
                         result_summary=result_summary,
                     )
             except Exception as exc:

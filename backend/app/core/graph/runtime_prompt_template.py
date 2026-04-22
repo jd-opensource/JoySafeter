@@ -4,8 +4,8 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-# TODO: removed in greenfield rewrite
-# from app.models.graph import AgentGraph
+# AgentGraph model was removed in greenfield rewrite.
+# Functions in this module accept Any-typed objects and access attributes dynamically.
 AgentGraph = None  # type: ignore[assignment,misc]
 
 _PLACEHOLDER_PATTERN = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")

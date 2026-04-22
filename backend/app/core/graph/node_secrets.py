@@ -16,8 +16,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.model.utils import decrypt_credentials, encrypt_credentials
-# TODO: removed in greenfield rewrite
-# from app.models.graph import GraphNode, GraphNodeSecret
+
+# GraphNode and GraphNodeSecret models were removed in greenfield rewrite.
+# Functions in this module accept Any-typed objects and access attributes dynamically.
 GraphNode = None  # type: ignore[assignment,misc]
 GraphNodeSecret = None  # type: ignore[assignment,misc]
 

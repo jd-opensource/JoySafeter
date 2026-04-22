@@ -25,8 +25,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
 from app.core.settings import settings
-# TODO: Phase 5 cleanup - migrate to Thread model
-# from app.models import Conversation, Message
 from app.models import Message
 from app.utils.datetime import utc_now
 from app.utils.file_event_emitter import FileEventEmitter
@@ -289,46 +287,22 @@ async def _persist_trace_data(
 # ==================== Database Operations ====================
 
 
-# TODO: Phase 5 cleanup - migrate to Thread model
-# async def get_or_create_conversation(
-#     thread_id: str | None,
-#     message: str,
-#     user_id: str,
-#     metadata: dict | None,
-#     db: AsyncSession,
-# ) -> tuple[str, Conversation]:
-#     if not thread_id:
-#         # No thread_id provided, create new conversation
-#         thread_id = str(uuid.uuid4())
-#         conversation = Conversation(
-#             thread_id=thread_id,
-#             user_id=user_id,
-#             title=message[:50] if len(message) > 50 else message,
-#             meta_data=metadata or {},
-#         )
-#         db.add(conversation)
-#         await db.commit()
-#         return thread_id, conversation
-#     else:
-#         # Thread_id provided, try to find existing conversation
-#         result = await db.execute(
-#             select(Conversation).where(Conversation.thread_id == thread_id, Conversation.user_id == user_id)
-#         )
-#         conv = result.scalar_one_or_none()
-#         if not conv:
-#             # Conversation not found - create new one with the provided thread_id
-#             # This allows frontend to generate thread_id and let backend create conversation on first message
-#             conversation = Conversation(
-#                 thread_id=thread_id,
-#                 user_id=user_id,
-#                 title=message[:50] if len(message) > 50 else message,
-#                 meta_data=metadata or {},
-#             )
-#             db.add(conversation)
-#             await db.commit()
-#             await db.refresh(conversation)
-#             return thread_id, conversation
-#         return thread_id, conv
+async def get_or_create_conversation(
+    thread_id: str | None,
+    message: str,
+    user_id: str,
+    metadata: dict | None,
+    db: AsyncSession,
+) -> tuple[str, None]:
+    """Return a thread_id for the chat session.
+
+    The Conversation table has been dropped. This function now simply
+    generates a new thread_id when one is not provided and returns
+    ``(thread_id, None)`` to keep the call-site contract stable.
+    """
+    if not thread_id:
+        thread_id = str(uuid.uuid4())
+    return thread_id, None
 
 
 async def get_user_config(user_id: str, thread_id: str):
@@ -382,18 +356,16 @@ async def save_assistant_message(
     )
     db.add(message)
 
-    # TODO: Phase 5 cleanup - migrate to Thread model
-    # if update_conversation:
-    #     result = await db.execute(select(Conversation).where(Conversation.thread_id == thread_id))
-    #     if conv := result.scalar_one_or_none():
-    #         conv.updated_at = utc_now()
     await db.commit()
 
 
 async def _clear_interrupt_marker(thread_id: str, log: Any) -> None:
-    """Clear the interrupted_graph_id marker from thread metadata."""
-    # TODO: Phase 5 cleanup - migrate to Thread model
-    log.debug(f"_clear_interrupt_marker: skipped (Conversation removed) | thread_id={thread_id}")
+    """Clear the interrupted_graph_id marker from thread metadata.
+
+    The Conversation table has been dropped; interrupt state is now
+    tracked via the LangGraph checkpointer, so this is a no-op.
+    """
+    log.debug(f"_clear_interrupt_marker: no-op (Conversation table removed) | thread_id={thread_id}")
 
 
 # ==================== Message Enrichment ====================

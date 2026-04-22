@@ -1,4 +1,7 @@
-"""WebSocket handler for durable run subscriptions."""
+"""WebSocket handler for durable run subscriptions (deprecated).
+
+This endpoint is deprecated. Clients should use /ws/executions instead.
+"""
 
 from __future__ import annotations
 
@@ -7,14 +10,16 @@ import uuid
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from app.core.database import AsyncSessionLocal
-# TODO: Phase 5 cleanup - RunService removed; run persistence now handled by AgentRunService
-RunService = None  # type: ignore[assignment,misc]
 from app.websocket.run_subscription_manager import run_subscription_manager
 
 
 class RunSubscriptionHandler:
-    """Handles subscribe/unsubscribe frames for durable run event streams."""
+    """Handles subscribe/unsubscribe frames for durable run event streams.
+
+    Deprecated: run event streaming has moved to /ws/executions.
+    This handler remains for backward compatibility and directs clients
+    to the new endpoint.
+    """
 
     async def handle_connection(self, websocket: WebSocket, user_id: str) -> None:
         """Accept the WebSocket and process frames until disconnect."""
@@ -68,9 +73,11 @@ class RunSubscriptionHandler:
             await websocket.send_text(json.dumps({"type": "ws_error", "message": "invalid after_seq"}))
             return
 
-        # TODO: Phase 5 cleanup - RunService removed; re-implement snapshot/event replay
-        # via AgentRunService + ExecutionService once the new run model is wired to WS.
-        await websocket.send_text(json.dumps({"type": "ws_error", "message": "run not found"}))
+        # This endpoint is deprecated; run event streaming uses /ws/executions.
+        await websocket.send_text(json.dumps({
+            "type": "ws_error",
+            "message": "This endpoint is deprecated. Use /ws/executions instead.",
+        }))
         return
 
 

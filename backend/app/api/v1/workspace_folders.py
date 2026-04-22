@@ -183,7 +183,7 @@ async def list_folder_graphs(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """List all graphs in a folder. TODO: removed in greenfield rewrite — graphs table dropped."""
+    """List all graphs in a folder. The graphs table was dropped; returns an empty list."""
     from app.common.exceptions import NotFoundException
 
     repo = WorkflowFolderRepository(db)

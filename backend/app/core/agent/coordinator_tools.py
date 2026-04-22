@@ -10,16 +10,13 @@ from loguru import logger
 from app.core.agent.cli_backends.base import CLIResult
 from app.core.agent.cli_backends.execution_runner import ExecutionRunner
 from app.core.database import async_session_factory
-# TODO: Phase 4/5 cleanup - ExecutionSource, MissionExecutionStatus removed; migrate to string literals
-# from app.models.execution import ExecutionSource, MissionExecutionStatus
-ExecutionSource = type("ExecutionSource", (), {"MISSION": "mission", "CHAT": "chat", "GRAPH": "graph", "COORDINATOR": "coordinator", "API": "api"})()
-MissionExecutionStatus = type("MissionExecutionStatus", (), {
-    "QUEUED": "queued", "DISPATCHED": "dispatched", "RUNNING": "running",
-    "INTERRUPT_WAIT": "interrupt_wait", "APPROVAL_WAIT": "approval_wait",
-    "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "cancelled"
-})()
 from app.services.execution_service import ExecutionService
 from app.utils.safe_task import safe_create_task
+
+# Execution source and status string literals
+EXECUTION_SOURCE_COORDINATOR = "coordinator"
+EXECUTION_STATUS_COMPLETED = "completed"
+EXECUTION_STATUS_FAILED = "failed"
 
 
 async def spawn_agent(
@@ -60,7 +57,7 @@ async def spawn_agent(
         execution = await svc.create_execution(
             user_id=user_id,
             workspace_id=ws_id,
-            source=ExecutionSource.COORDINATOR,
+            source=EXECUTION_SOURCE_COORDINATOR,
             runtime_type=runtime_type,
             title=f"[Sub] {agent_name}: {prompt[:80]}",
             parent_execution_id=parent_id,
@@ -167,12 +164,12 @@ async def get_agent_result(execution_id: str, *, user_id: str) -> dict:
 
         status = execution.status.value if hasattr(execution.status, "value") else str(execution.status)
 
-        if status == MissionExecutionStatus.COMPLETED.value:
+        if status == EXECUTION_STATUS_COMPLETED:
             output = ""
             if execution.result_summary:
                 output = execution.result_summary.get("output", "")
             return {"status": "completed", "output": output}
-        elif status == MissionExecutionStatus.FAILED.value:
+        elif status == EXECUTION_STATUS_FAILED:
             return {"status": "failed", "output": execution.error_message or "Unknown error"}
         else:
             return {"status": status, "output": f"Agent is still {status}"}
