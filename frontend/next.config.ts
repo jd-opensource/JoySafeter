@@ -1,6 +1,15 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
+  async redirects() {
+    return [
+      {
+        source: '/workspace/:path*',
+        destination: '/agents',
+        permanent: true,
+      },
+    ]
+  },
   devIndicators: false,
   output: 'standalone',
   // Next config is loaded by Node; path.join is standard

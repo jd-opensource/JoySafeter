@@ -52,7 +52,6 @@ import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
 import { useTranslation } from '@/lib/i18n'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
 import { workspaceService, type PaginatedMembersResponse } from '@/services/workspaceService'
-import { useSidebarStore } from '@/stores/sidebar/store'
 
 // WorkspaceMember and PaginatedMembersResponse types imported from workspaceService
 
@@ -74,9 +73,6 @@ export default function WorkspaceMembersPage() {
 
   const { permissions, loading: permissionsLoading, refetch } = useWorkspacePermissions(workspaceId)
   const userPermissions = useUserPermissions(permissions, permissionsLoading, null)
-
-  // Get sidebar state to adjust layout
-  const isSidebarCollapsed = useSidebarStore((state) => state.isCollapsed)
 
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
@@ -272,12 +268,7 @@ export default function WorkspaceMembersPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <div
-        className="flex-shrink-0 border-b border-[var(--border)] bg-[var(--surface-elevated)] px-6 py-4 transition-all duration-300"
-        style={{
-          marginLeft: isSidebarCollapsed ? '280px' : '0px',
-        }}
-      >
+      <div className="flex-shrink-0 border-b border-[var(--border)] bg-[var(--surface-elevated)] px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Users className="h-6 w-6 text-[var(--text-secondary)]" />
@@ -435,12 +426,7 @@ export default function WorkspaceMembersPage() {
         </div>
       </div>
 
-      <div
-        className="flex-1 overflow-y-auto p-6 transition-all duration-300"
-        style={{
-          marginLeft: isSidebarCollapsed ? '280px' : '0px',
-        }}
-      >
+      <div className="flex-1 overflow-y-auto p-6">
         {membersLoading ? (
           <div className="flex h-64 items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-[var(--text-muted)]" />
