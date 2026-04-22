@@ -177,15 +177,15 @@ async def dispatch_task(
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[TaskSummary]:
-    from app.services.execution_lifecycle_service import ExecutionLifecycleService
+    from app.core.engine.orchestrator import ExecutionOrchestrator
 
-    lifecycle = ExecutionLifecycleService(db)
-    task, _execution = await lifecycle.dispatch_task(
+    orchestrator = ExecutionOrchestrator(db)
+    run = await orchestrator.dispatch_task(
         task_id=task_id,
-        workspace_id=workspace_id,
         user_id=str(current_user.id),
-        runtime_config=request.runtime_config,
     )
+    service = TaskService(db)
+    task = await service.get_task(task_id, workspace_id)
     return BaseResponse(success=True, code=200, msg="Task dispatched", data=_to_summary(task))
 
 

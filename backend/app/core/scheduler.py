@@ -14,8 +14,8 @@ from loguru import logger
 
 from app.core.agent.cli_backends.session_registry import session_registry
 from app.core.database import AsyncSessionLocal
+from app.core.engine.orchestrator import ExecutionOrchestrator
 from app.repositories.execution import ExecutionRepository
-from app.services.execution_lifecycle_service import ExecutionLifecycleService
 from app.services.execution_service import ExecutionService
 from app.utils.datetime import utc_now
 
@@ -44,8 +44,26 @@ async def mission_dispatcher_loop() -> None:
         await asyncio.sleep(_DISPATCH_INTERVAL)
         try:
             async with AsyncSessionLocal() as db:
-                lifecycle = ExecutionLifecycleService(db)
-                count = await lifecycle.dispatch_all_ready_tasks()
+                from sqlalchemy import select
+                from app.models.task import Task
+
+                # Find backlog tasks with assigned agents
+                tasks = (await db.execute(
+                    select(Task).where(
+                        Task.status == "backlog",
+                        Task.agent_id.isnot(None),
+                    )
+                )).scalars().all()
+
+                count = 0
+                for task in tasks:
+                    try:
+                        orchestrator = ExecutionOrchestrator(db)
+                        await orchestrator.dispatch_task(task.id, task.creator_id)
+                        count += 1
+                    except Exception as task_exc:
+                        logger.warning(f"Auto-dispatch failed for task {task.id}: {task_exc}")
+
                 if count:
                     logger.info(f"Scheduler: auto-dispatched {count} tasks")
         except Exception as exc:

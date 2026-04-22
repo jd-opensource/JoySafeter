@@ -17,7 +17,6 @@ class CreateAgentRunRequest(BaseModel):
     release_id: uuid.UUID
     thread_id: Optional[uuid.UUID] = None
     task_id: Optional[uuid.UUID] = None
-    mission_id: Optional[uuid.UUID] = None
     trigger_source: TriggerSourceLiteral
     goal: Optional[str] = None
     input_payload: Optional[dict] = None
@@ -29,7 +28,6 @@ class AgentRunResponse(BaseModel):
     workspace_id: uuid.UUID
     thread_id: Optional[uuid.UUID]
     task_id: Optional[uuid.UUID]
-    mission_id: Optional[uuid.UUID]
     trigger_source: str
     goal: Optional[str]
     input_payload: Optional[dict]

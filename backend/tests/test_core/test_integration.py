@@ -209,7 +209,7 @@ async def test_container_injection_pipeline():
 def test_event_sourcing_full_lifecycle():
     """Walk through a complete execution event sequence and verify projection."""
     proj = make_initial_projection(
-        {"source": "mission", "mission_id": "m-1", "agent_profile_id": "a-1"},
+        {"source": "task", "task_id": "t-1", "agent_profile_id": "a-1"},
         "queued",
     )
     assert proj["status"] == "queued"
@@ -490,7 +490,7 @@ def test_end_to_end_data_flow():
 
     # 2. Initialize projection
     proj = make_initial_projection(
-        {"source": "mission", "mission_id": "m-1"},
+        {"source": "task", "task_id": "t-1"},
         "queued",
     )
 

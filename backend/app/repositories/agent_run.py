@@ -42,11 +42,11 @@ class AgentRunRepository(BaseRepository[AgentRun]):
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def list_by_mission(self, mission_id: uuid.UUID) -> List[AgentRun]:
-        """List all runs for a specific mission."""
+    async def list_by_task(self, task_id: uuid.UUID) -> List[AgentRun]:
+        """List all runs for a specific task."""
         query = (
             select(AgentRun)
-            .where(AgentRun.mission_id == mission_id)
+            .where(AgentRun.task_id == task_id)
             .order_by(AgentRun.created_at.desc())
         )
         result = await self.db.execute(query)

@@ -5,12 +5,12 @@ from app.services.execution_reducer import apply_execution_event, make_initial_p
 
 def test_make_initial_projection():
     proj = make_initial_projection(
-        {"source": "mission", "mission_id": "m1", "agent_profile_id": "a1"},
+        {"source": "task", "task_id": "m1", "agent_profile_id": "a1"},
         "queued",
     )
     assert proj["status"] == "queued"
-    assert proj["source"] == "mission"
-    assert proj["mission_id"] == "m1"
+    assert proj["source"] == "task"
+    assert proj["task_id"] == "m1"  
     assert proj["agent_profile_id"] == "a1"
     assert proj["messages"] == []
     assert proj["tool_calls"] == []
@@ -256,7 +256,7 @@ def test_immutability():
 def test_full_lifecycle():
     """Walk through a realistic sequence of events."""
     proj = make_initial_projection(
-        {"source": "mission", "mission_id": "m1"},
+        {"source": "task", "task_id": "m1"},
         "queued",
     )
     assert proj["status"] == "queued"

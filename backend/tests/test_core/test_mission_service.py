@@ -20,7 +20,7 @@ def _make_mission(**overrides) -> Mission:
         "priority": MissionPriority.MEDIUM,
         "assignee_type": "agent",
         "assignee_id": uuid.uuid4(),
-        "parent_mission_id": None,
+        "parent_task_id": None,
         "current_execution_id": None,
         "due_date": None,
         "position": 0.0,
