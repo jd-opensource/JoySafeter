@@ -68,64 +68,10 @@ class RunSubscriptionHandler:
             await websocket.send_text(json.dumps({"type": "ws_error", "message": "invalid after_seq"}))
             return
 
-        async with AsyncSessionLocal() as db:
-            service = RunService(db)
-            run = await service.get_run(run_id, user_id)
-            if run is None:
-                await websocket.send_text(json.dumps({"type": "ws_error", "message": "run not found"}))
-                return
-
-            snapshot = await service.get_snapshot(run_id, user_id)
-            if snapshot is None:
-                await websocket.send_text(json.dumps({"type": "ws_error", "message": "snapshot not found"}))
-                return
-
-            snapshot_last_seq = int(snapshot.last_seq or 0)
-            await websocket.send_text(
-                json.dumps(
-                    {
-                        "type": "snapshot",
-                        "run_id": str(run_id),
-                        "last_seq": snapshot_last_seq,
-                        "data": snapshot.projection,
-                    }
-                )
-            )
-
-            await run_subscription_manager.add_subscription(websocket, str(run_id))
-
-            catchup_after_seq = max(after_seq, snapshot_last_seq)
-            events = await service.list_events_after(run_id, user_id, after_seq=catchup_after_seq, limit=1000)
-            replay_last_seq = snapshot_last_seq
-            for event in events:
-                replay_last_seq = max(replay_last_seq, int(event.seq))
-                await websocket.send_text(
-                    json.dumps(
-                        {
-                            "type": "event",
-                            "run_id": str(run_id),
-                            "seq": event.seq,
-                            "event_type": event.event_type,
-                            "data": event.payload,
-                            "trace_id": str(event.trace_id) if event.trace_id else None,
-                            "observation_id": str(event.observation_id) if event.observation_id else None,
-                            "parent_observation_id": (
-                                str(event.parent_observation_id) if event.parent_observation_id else None
-                            ),
-                            "created_at": event.created_at.isoformat() if event.created_at else None,
-                        }
-                    )
-                )
-
-            await websocket.send_text(
-                json.dumps(
-                    {
-                        "type": "replay_done",
-                        "run_id": str(run_id),
-                        "last_seq": replay_last_seq,
-                    }
-                )
-            )
+        # TODO: Phase 5 cleanup - RunService removed; re-implement snapshot/event replay
+        # via AgentRunService + ExecutionService once the new run model is wired to WS.
+        await websocket.send_text(json.dumps({"type": "ws_error", "message": "run not found"}))
+        return
 
 
 run_subscription_handler = RunSubscriptionHandler()

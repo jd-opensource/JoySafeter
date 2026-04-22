@@ -265,17 +265,8 @@ class ChatWsHandler:
         observation_id: uuid_lib.UUID | None = None,
         parent_observation_id: uuid_lib.UUID | None = None,
     ) -> None:
-        """Persist a stream event to the durable run event log."""
-        async with async_session_factory() as db:
-            service = RunService(db)
-            await service.append_event(
-                run_id=run_id,
-                event_type=event_type,
-                payload=payload,
-                trace_id=trace_id,
-                observation_id=observation_id,
-                parent_observation_id=parent_observation_id,
-            )
+        # TODO: Phase 5 cleanup - RunService removed; re-implement via AgentRunService/ExecutionService
+        pass
 
     async def _mark_run_status(
         self,
@@ -287,27 +278,12 @@ class ChatWsHandler:
         error_message: str | None = None,
         result_summary: dict[str, Any] | None = None,
     ) -> None:
-        """Update the persisted status of a durable agent run."""
-        async with async_session_factory() as db:
-            service = RunService(db)
-            await service.mark_status(
-                run_id=run_id,
-                user_id=self.user_id,
-                status=status,
-                runtime_owner_id=runtime_owner_id,
-                error_code=error_code,
-                error_message=error_message,
-                result_summary=result_summary,
-            )
+        # TODO: Phase 5 cleanup - RunService removed; re-implement via AgentRunService/ExecutionService
+        pass
 
     async def _touch_run_heartbeat(self, *, run_id: uuid_lib.UUID) -> None:
-        """Send a single heartbeat for a durable run to indicate liveness."""
-        async with async_session_factory() as db:
-            service = RunService(db)
-            await service.touch_run_heartbeat(
-                run_id=run_id,
-                runtime_owner_id=self._runtime_owner_id,
-            )
+        # TODO: Phase 5 cleanup - RunService removed; re-implement via AgentRunService/ExecutionService
+        pass
 
     async def _run_persisted_run_heartbeat(self, run_id: uuid_lib.UUID) -> None:
         """Periodically touch the heartbeat for a persisted run until cancelled."""
