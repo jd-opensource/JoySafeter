@@ -41,16 +41,21 @@ export default function AgentTasksPage() {
   const personalWorkspace = workspaces.find((ws) => ws.type === 'personal')
   const workspaceId = personalWorkspace?.id ?? ''
 
-  const { data: allTasks = [], isLoading: isTasksLoading } = useTasks(workspaceId)
+  const { data: allTasks = [], isLoading: isTasksLoading } = useTasks(
+    workspaceId,
+    // Use server-side agent_id filter when workspaceId is ready
+    workspaceId ? { agent_id: agentId } : undefined,
+  )
   const agentsMap = useAgentNameMap(workspaceId)
 
-  // Filter tasks for this agent
-  // Tasks may reference agent via agent_profile_id or similar field; filter client-side
-  const tasks = allTasks.filter(
-    (t) =>
-      (t as unknown as Record<string, unknown>).agent_id === agentId ||
-      (t as unknown as Record<string, unknown>).agent_profile_id === agentId,
-  )
+  // Tasks are already filtered server-side by agent_id.
+  // Keep a lightweight client-side fallback for legacy assignee_id field just in case.
+  const tasks = allTasks.filter((t) => {
+    // If the task has agent_id set (new backend field), it was already filtered server-side
+    if (t.agent_id) return true
+    // Fallback: check legacy assignee_id
+    return t.assignee_id === agentId
+  })
 
   const isLoading = isWorkspacesLoading || isTasksLoading
 

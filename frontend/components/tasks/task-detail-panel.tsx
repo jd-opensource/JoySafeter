@@ -89,8 +89,10 @@ interface TaskDetailPanelProps {
 export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPanelProps) {
   const { t } = useTranslation()
   const { data: task, isLoading } = useTask(taskId, workspaceId)
-  const { data: agent } = useAgent(task?.assignee_id ?? '', workspaceId, {
-    enabled: task?.assignee_type === 'agent' && Boolean(task?.assignee_id),
+  const { data: agent } = useAgent(task?.agent_id ?? task?.assignee_id ?? '', workspaceId, {
+    enabled:
+      (task?.assignee_type === 'agent' || Boolean(task?.agent_id)) &&
+      Boolean(task?.agent_id ?? task?.assignee_id),
   })
   const { data: agents = [] } = useAgents(workspaceId, { enabled: Boolean(workspaceId) })
   const { data: executions = [] } = useExecutions(workspaceId, { task_id: taskId })
@@ -117,8 +119,9 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
 
   const canDispatch = useMemo(() => {
     if (!task) return false
-    const hasAgent = task.assignee_type === 'agent' && task.assignee_id
-    const notRunning = !task.current_execution_id
+    const hasAgent =
+      (task.assignee_type === 'agent' && task.assignee_id) || Boolean(task.agent_id)
+    const notRunning = !task.current_execution_id && !task.latest_run_id
     const validStatus: TaskStatus[] = ['todo', 'in_progress', 'in_review', 'backlog']
     return hasAgent && notRunning && validStatus.includes(task.status)
   }, [task])
@@ -462,7 +465,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                 <span className="text-xs font-medium text-[var(--text-muted)]">
                   {t('tasks.agent')}
                 </span>
-                {task.assignee_type === 'agent' && agent ? (
+                {(task.assignee_type === 'agent' || Boolean(task.agent_id)) && agent ? (
                   <div className="flex items-center gap-2">
                     <Bot className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
                     <span className="text-sm font-medium text-[var(--text-primary)]">
@@ -478,7 +481,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                       <PopoverContent className="w-60 p-0" align="end">
                         <AgentPickerContent
                           agents={agents}
-                          currentAgentId={task.assignee_id}
+                          currentAgentId={task.agent_id ?? task.assignee_id}
                           onSelect={handleAssign}
                           onUnassign={handleUnassign}
                         />
@@ -627,6 +630,22 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                     {t('runs.pastExecutionsLink')}
                   </Link>
                 </p>
+              </section>
+            )}
+
+            {/* Latest run link — shown when there's a linked run but no active execution */}
+            {task.latest_run_id && !task.current_execution_id && pastExecutionCount === 0 && (
+              <section>
+                <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                  {t('tasks.lastRun')}
+                </h3>
+                <Link
+                  href={`/runs?task=${taskId}`}
+                  className="flex items-center gap-1 text-xs text-[var(--brand-400)] hover:underline"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  {t('tasks.viewRunHistory')}
+                </Link>
               </section>
             )}
 

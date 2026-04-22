@@ -97,7 +97,7 @@ export function TaskColumn({
             <SortableTaskCard
               key={task.id}
               task={task}
-              agentName={agentsMap?.[task.assignee_id ?? '']}
+              agentName={agentsMap?.[task.agent_id ?? task.assignee_id ?? '']}
               onSelectTask={onSelectTask}
             />
           ))}

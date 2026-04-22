@@ -139,6 +139,9 @@ const en = {
       dueDate: 'Due Date',
       agent: 'Agent',
       comments: 'Comments',
+      lastRun: 'Last Run',
+      viewRunHistory: 'View run history',
+      activities: 'Activities',
     },
     user: {
       settingsAndPlan: 'Settings & Plan',

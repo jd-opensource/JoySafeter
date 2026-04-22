@@ -23,8 +23,15 @@ import { executionKeys } from './executions'
 
 export const taskKeys = {
   all: ['tasks'] as const,
-  list: (workspaceId: string, filters?: { status?: string; limit?: number }) =>
-    [...taskKeys.all, 'list', workspaceId, filters?.status || '', filters?.limit || 50] as const,
+  list: (workspaceId: string, filters?: { status?: string; limit?: number; agent_id?: string }) =>
+    [
+      ...taskKeys.all,
+      'list',
+      workspaceId,
+      filters?.status || '',
+      filters?.limit || 50,
+      filters?.agent_id || '',
+    ] as const,
   detail: (taskId: string, workspaceId: string) =>
     [...taskKeys.all, 'detail', taskId, workspaceId] as const,
   transitions: (workspaceId: string) =>
@@ -35,7 +42,7 @@ export const taskKeys = {
 
 export function useTasks(
   workspaceId: string,
-  filters?: { status?: string; limit?: number },
+  filters?: { status?: string; limit?: number; agent_id?: string },
   options?: { enabled?: boolean },
 ) {
   return useQuery({

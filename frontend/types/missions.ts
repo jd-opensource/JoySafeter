@@ -4,11 +4,20 @@ export interface Task {
   title: string
   description?: string | null
   objective?: string | null
+  /** Backend field: matches TaskSummary.goal */
+  goal?: string | null
   status: TaskStatus
   priority: TaskPriority
+  /** Backend primary field for assigned agent */
+  agent_id?: string | null
+  /** Legacy alias kept for backward compatibility */
   assignee_type?: 'member' | 'agent' | null
+  /** Legacy alias kept for backward compatibility; prefer agent_id */
   assignee_id?: string | null
   creator_id: string
+  /** ID of the most recent AgentRun for this task */
+  latest_run_id?: string | null
+  /** Legacy alias: some views use current_execution_id */
   current_execution_id?: string | null
   parent_task_id?: string | null
   tags?: string[] | null

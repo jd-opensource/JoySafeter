@@ -178,7 +178,7 @@ export function TaskBoard({
         {activeTask ? (
           <TaskCard
             task={activeTask}
-            agentName={agentsMap[activeTask.assignee_id ?? '']}
+            agentName={agentsMap[activeTask.agent_id ?? activeTask.assignee_id ?? '']}
             isDragOverlay
           />
         ) : null}

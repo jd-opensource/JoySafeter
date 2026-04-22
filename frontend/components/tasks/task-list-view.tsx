@@ -1,6 +1,6 @@
 'use client'
 
-import { ArrowDown, ArrowUp, Calendar } from 'lucide-react'
+import { ArrowDown, ArrowUp, Calendar, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 
@@ -149,13 +149,27 @@ export function TaskListView({ tasks, agentsMap, onSelectTask }: TaskListViewPro
                         {t('tasks.running')}
                       </Link>
                     )}
+                    {/* Show last run link when there's a linked run but no active execution */}
+                    {m.latest_run_id && !m.current_execution_id && (
+                      <Link
+                        href={`/runs?task=${m.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:underline"
+                      >
+                        <ExternalLink className="h-2.5 w-2.5" />
+                        {t('tasks.lastRun')}
+                      </Link>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell>
                   <PriorityBadge priority={m.priority} />
                 </TableCell>
                 <TableCell className="text-xs text-[var(--text-muted)]">
-                  {m.assignee_id ? (agentsMap[m.assignee_id] ?? 'Agent') : '—'}
+                  {/* Support both new agent_id and legacy assignee_id */}
+                  {(m.agent_id ?? m.assignee_id)
+                    ? (agentsMap[m.agent_id ?? m.assignee_id ?? ''] ?? 'Agent')
+                    : '—'}
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-1">

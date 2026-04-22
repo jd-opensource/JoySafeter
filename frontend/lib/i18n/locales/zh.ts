@@ -138,6 +138,9 @@ const zh = {
       dueDate: '截止日期',
       agent: '智能体',
       comments: '评论',
+      lastRun: '最近一次运行',
+      viewRunHistory: '查看运行历史',
+      activities: '活动记录',
     },
     user: {
       settingsAndPlan: '设置与订阅',

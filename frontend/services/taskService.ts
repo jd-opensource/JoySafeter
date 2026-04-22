@@ -11,11 +11,12 @@ export interface TaskListResponse {
 export const taskService = {
   list: async (
     workspaceId: string,
-    params?: { status?: string; limit?: number },
+    params?: { status?: string; limit?: number; agent_id?: string },
   ): Promise<Task[]> => {
     const searchParams = new URLSearchParams({ workspace_id: workspaceId })
     if (params?.status) searchParams.set('status', params.status)
     if (params?.limit) searchParams.set('limit', String(params.limit))
+    if (params?.agent_id) searchParams.set('agent_id', params.agent_id)
     const res = await apiGet<{ items: Task[] }>(`tasks?${searchParams}`)
     return res?.items ?? []
   },

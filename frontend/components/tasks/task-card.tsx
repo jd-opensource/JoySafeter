@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import { PulsingDot } from '@/components/ui/pulsing-dot'
 import type { Task, TaskPriority } from '@/types/missions'
+import { TASK_STATUS_STYLES } from '@/types/missions'
 
 import { PriorityBadge } from './priority-badge'
 
@@ -35,8 +36,12 @@ export const TaskCard = forwardRef<
   ref,
 ) {
   const { t } = useTranslation()
+  // Support both new agent_id (backend) and legacy assignee_id fields
+  const effectiveAgentId = task.agent_id ?? task.assignee_id
   const hasActiveExecution = Boolean(task.current_execution_id)
-  const isAssignedToAgent = task.assignee_type === 'agent'
+  const isAssignedToAgent = task.assignee_type === 'agent' || Boolean(task.agent_id)
+  // Show run status badge when there's a linked run but no active execution
+  const hasLinkedRun = Boolean(task.latest_run_id) && !hasActiveExecution
 
   const isOverdue = task.due_date ? Date.parse(task.due_date) < Date.now() : false
 
@@ -65,16 +70,32 @@ export const TaskCard = forwardRef<
             <>
               <Bot className="h-3 w-3" />
               <span className="max-w-[80px] truncate">
-                {agentName || (task.assignee_id ? 'Agent' : 'Unassigned')}
+                {agentName || (effectiveAgentId ? 'Agent' : 'Unassigned')}
               </span>
             </>
           ) : (
             <>
               <User className="h-3 w-3" />
-              <span>{task.assignee_id ? 'Assigned' : 'Unassigned'}</span>
+              <span>{effectiveAgentId ? 'Assigned' : 'Unassigned'}</span>
             </>
           )}
         </span>
+
+        {/* Latest run status badge — shown when a prior run exists but is no longer active */}
+        {hasLinkedRun && (
+          <Link
+            href={`/runs?task=${task.id}`}
+            onClick={(e) => e.stopPropagation()}
+            className={cn(
+              'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium',
+              TASK_STATUS_STYLES[task.status] ??
+                'border-[var(--border)] bg-[var(--surface-3)] text-[var(--text-muted)]',
+            )}
+          >
+            <ExternalLink className="h-2.5 w-2.5" />
+            {t('tasks.lastRun')}
+          </Link>
+        )}
       </div>
 
       {(task.tags?.length || task.due_date) && (
