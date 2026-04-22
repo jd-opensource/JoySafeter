@@ -21,7 +21,6 @@ from loguru import logger  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
 from app.api import api_router  # noqa: E402
-from app.api.v1.sessions import router as sessions_router  # noqa: E402
 from app.common.exceptions import register_exception_handlers  # noqa: E402
 from app.common.logging import LoggingMiddleware, setup_logging  # noqa: E402
 from app.core.database import AsyncSessionLocal, close_db, engine  # noqa: E402
@@ -302,9 +301,6 @@ app.add_middleware(
 
 
 app.include_router(api_router, prefix="/api")
-
-# Sessions router mounted outside /api/v1 to keep /api/sessions path compatible
-app.include_router(sessions_router, prefix="/api/sessions", tags=["sessions"])
 
 
 # Register Router
