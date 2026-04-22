@@ -38,6 +38,7 @@ from .skill_collaborators import router as skill_collaborators_router
 from .skill_versions import router as skill_versions_router
 from .skills import router as skills_router
 from .tokens import router as tokens_router
+from .threads import router as threads_router
 from .tools import router as tools_router
 from .traces import router as traces_router
 from .users import router as users_router
@@ -86,6 +87,7 @@ ROUTERS = [
     agents_router,
     mission_comments_router,
     mission_execution_router,
+    threads_router,
 ]
 
 
