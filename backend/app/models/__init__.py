@@ -6,6 +6,7 @@ from app.models.conversation import Conversation
 from app.models.message import Message
 
 from .agent import Agent, AgentRelease, AgentVersion
+from .thread import Thread, ThreadMessage
 from .access_control import (
     Permission,
     PermissionType,
@@ -122,4 +123,6 @@ __all__ = [
     "MissionComment",
     "CommentAuthorType",
     "CommentType",
+    "Thread",
+    "ThreadMessage",
 ]
