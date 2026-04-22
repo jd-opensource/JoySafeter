@@ -12,10 +12,25 @@ import type { Node, Edge } from 'reactflow'
 import type { AgentGraph } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
 import { apiGet, apiPost, apiPut, apiDelete } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
-import type {
-  GraphDeploymentVersion as DeploymentVersion,
-  GraphDeploymentStatus as DeploymentStatus,
-} from '@/services/graphDeploymentService'
+// TODO: Phase 5 cleanup - graphDeploymentService removed; replace with local type stubs
+// import type {
+//   GraphDeploymentVersion as DeploymentVersion,
+//   GraphDeploymentStatus as DeploymentStatus,
+// } from '@/services/graphDeploymentService'
+
+// Stub types replacing deleted graphDeploymentService types
+export interface DeploymentVersion {
+  version: number
+  name?: string
+  created_at: string
+  is_current?: boolean
+}
+
+export interface DeploymentStatus {
+  is_deployed: boolean
+  version?: number
+  deployed_at?: string
+}
 
 import { STALE_TIME, CACHE_TIME } from './constants'
 
@@ -23,8 +38,8 @@ import { STALE_TIME, CACHE_TIME } from './constants'
 // Types - Import unified type definitions from service layer
 // ============================================================================
 
-// Re-export types for other modules to use
-export type { AgentGraph, DeploymentVersion, DeploymentStatus }
+// Re-export types for other modules to use (DeploymentVersion/DeploymentStatus now defined locally above)
+export type { AgentGraph }
 
 const logger = createLogger('GraphsQueries')
 

@@ -15,7 +15,9 @@ import ReactFlow, {
 import 'reactflow/dist/style.css'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import type { GraphVersionState } from '@/services/graphDeploymentService'
+// TODO: Phase 5 cleanup - graphDeploymentService removed; GraphVersionState replaced with local stub
+// import type { GraphVersionState } from '@/services/graphDeploymentService'
+import type { GraphVersionState } from '../hooks/useDeploymentHistory'
 
 import { nodeRegistry } from '../services/nodeRegistry'
 

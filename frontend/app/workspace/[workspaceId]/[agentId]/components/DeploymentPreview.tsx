@@ -7,7 +7,9 @@ import { Button } from '@/components/ui/button'
 
 import { GraphPreview } from './GraphPreview'
 
-import type { GraphVersionState } from '@/services/graphDeploymentService'
+// TODO: Phase 5 cleanup - graphDeploymentService removed; GraphVersionState replaced with local stub
+// import type { GraphVersionState } from '@/services/graphDeploymentService'
+import type { GraphVersionState } from '../hooks/useDeploymentHistory'
 
 interface DeploymentPreviewProps {
   previewMode: 'current' | 'selected'

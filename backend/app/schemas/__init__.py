@@ -18,15 +18,6 @@ from .conversation import (
     SearchResponse,
     UserStatsResponse,
 )
-from .graph_deployment_version import (
-    GraphDeploymentVersionListResponse,
-    GraphDeploymentVersionResponse,
-    GraphDeploymentVersionResponseCamel,
-    GraphDeployRequest,
-    GraphDeployResponse,
-    GraphRenameVersionRequest,
-    GraphRevertResponse,
-)
 from .mcp import (
     ConnectionTestResult,
     McpServerCreate,
@@ -61,12 +52,12 @@ __all__ = [
     "ConnectionTestResult",
     "ToolInfo",
     "ToolResponse",
-    # Graph Deployment Version Schemas
-    "GraphDeploymentVersionResponse",
-    "GraphDeploymentVersionResponseCamel",
-    "GraphDeploymentVersionListResponse",
-    "GraphDeployRequest",
-    "GraphDeployResponse",
-    "GraphRevertResponse",
-    "GraphRenameVersionRequest",
+    # TODO: Phase 5 cleanup - Graph Deployment Version Schemas removed
+    # "GraphDeploymentVersionResponse",
+    # "GraphDeploymentVersionResponseCamel",
+    # "GraphDeploymentVersionListResponse",
+    # "GraphDeployRequest",
+    # "GraphDeployResponse",
+    # "GraphRevertResponse",
+    # "GraphRenameVersionRequest",
 ]

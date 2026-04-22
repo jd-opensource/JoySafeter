@@ -22,7 +22,6 @@ from .base import BaseModel, SoftDeleteMixin
 
 if TYPE_CHECKING:
     from .auth import AuthUser
-    from .graph_deployment_version import GraphDeploymentVersion
     from .workspace import Workspace, WorkspaceFolder
 
 
@@ -86,12 +85,13 @@ class AgentGraph(BaseModel, SoftDeleteMixin):
         back_populates="graph",
         cascade="all, delete-orphan",
     )
-    deployment_versions: Mapped[List["GraphDeploymentVersion"]] = relationship(
-        "GraphDeploymentVersion",
-        back_populates="graph",
-        cascade="all, delete-orphan",
-        order_by="GraphDeploymentVersion.version.desc()",
-    )
+    # TODO: Phase 5 cleanup - deployment_versions relationship removed (GraphDeploymentVersion deleted)
+    # deployment_versions: Mapped[List["GraphDeploymentVersion"]] = relationship(
+    #     "GraphDeploymentVersion",
+    #     back_populates="graph",
+    #     cascade="all, delete-orphan",
+    #     order_by="GraphDeploymentVersion.version.desc()",
+    # )
     __table_args__ = (
         Index("graphs_user_id_idx", "user_id"),
         Index("graphs_workspace_id_idx", "workspace_id"),

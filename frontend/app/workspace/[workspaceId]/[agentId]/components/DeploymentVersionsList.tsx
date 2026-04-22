@@ -22,10 +22,12 @@ import { Pagination } from '@/components/ui/pagination'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
-import type {
-  GraphDeploymentVersion,
-  GraphDeploymentStatus,
-} from '@/services/graphDeploymentService'
+// TODO: Phase 5 cleanup - graphDeploymentService removed; types replaced with local stubs
+// import type {
+//   GraphDeploymentVersion,
+//   GraphDeploymentStatus,
+// } from '@/services/graphDeploymentService'
+import type { GraphDeploymentVersion, GraphDeploymentStatus } from '../hooks/useDeploymentHistory'
 
 function formatDeploymentDate(dateString: string): string {
   const date = new Date(dateString)

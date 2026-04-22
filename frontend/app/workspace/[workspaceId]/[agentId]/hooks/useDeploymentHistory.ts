@@ -6,12 +6,63 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useToast } from '@/hooks/use-toast'
 import { useDeploymentStatus, useDeploymentVersions, graphKeys } from '@/hooks/queries/graphs'
 import { useTranslation } from '@/lib/i18n'
-import {
-  graphDeploymentService,
-  type GraphDeploymentVersion,
-  type GraphVersionState,
-} from '@/services/graphDeploymentService'
-import { useDeploymentStore } from '@/stores/deploymentStore'
+// TODO: Phase 5 cleanup - graphDeploymentService and deploymentStore removed
+// import {
+//   graphDeploymentService,
+//   type GraphDeploymentVersion,
+//   type GraphVersionState,
+// } from '@/services/graphDeploymentService'
+// import { useDeploymentStore } from '@/stores/deploymentStore'
+
+// Stub types replacing deleted graphDeploymentService exports
+export interface GraphDeploymentVersion {
+  version: number
+  name?: string
+  created_at: string
+  is_current?: boolean
+}
+
+export interface GraphDeploymentStatus {
+  is_deployed: boolean
+  version?: number
+  deployed_at?: string
+}
+
+export interface GraphVersionState {
+  nodes: Array<{
+    id: string
+    type: string
+    position: { x: number; y: number }
+    data: Record<string, unknown>
+  }>
+  edges: Array<{ id: string; source: string; target: string }>
+}
+
+// Stub for deleted graphDeploymentService
+const graphDeploymentService = {
+  // TODO: Phase 5 cleanup - implement or remove this stub
+  getVersionState: async (_graphId: string, _version: number): Promise<{ state: GraphVersionState }> => {
+    throw new Error('graphDeploymentService has been removed. TODO: Phase 5 cleanup')
+  },
+}
+
+// Stub for deleted deploymentStore actions
+const useDeploymentStore = () => ({
+  // TODO: Phase 5 cleanup - implement or remove these stubs
+  revertToVersion: async (_graphId: string, _version: number): Promise<void> => {
+    throw new Error('deploymentStore has been removed. TODO: Phase 5 cleanup')
+  },
+  renameVersion: async (_graphId: string, _version: number, _name: string): Promise<void> => {
+    throw new Error('deploymentStore has been removed. TODO: Phase 5 cleanup')
+  },
+  deleteVersion: async (_graphId: string, _version: number): Promise<void> => {
+    throw new Error('deploymentStore has been removed. TODO: Phase 5 cleanup')
+  },
+  undeploy: async (_graphId: string): Promise<void> => {
+    throw new Error('deploymentStore has been removed. TODO: Phase 5 cleanup')
+  },
+  isUndeploying: false,
+})
 
 import { agentService } from '../services/agentService'
 import { useBuilderStore } from '../stores/builderStore'

@@ -28,7 +28,6 @@ from .execution_trace import (
     TraceStatus,
 )
 from .graph import AgentGraph, GraphEdge, GraphNode, GraphNodeSecret
-from .graph_deployment_version import GraphDeploymentVersion
 from .graph_execution import ExecutionStatus, GraphExecution
 from .mcp import McpServer
 from .memory import Memory
@@ -88,7 +87,6 @@ __all__ = [
     "GraphNode",
     "GraphEdge",
     "GraphNodeSecret",
-    "GraphDeploymentVersion",
     "GraphExecution",
     "ExecutionStatus",
     "ModelProvider",
