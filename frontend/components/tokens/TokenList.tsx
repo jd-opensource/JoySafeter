@@ -17,7 +17,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { useCopyToClipboard } from '@/app/chat/shared/hooks/useCopyToClipboard'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import {
   usePlatformTokens,
   useRevokeToken,

@@ -346,8 +346,8 @@ const AgentBuilderContent = ({ workspaceIdProp }: AgentBuilderContentProps) => {
   // Deployment status is fetched via useDeploymentStatus hook, automatically sharing cache with other components
   useEffect(() => {
     if (deploymentStatus) {
-      if (deploymentStatus.isDeployed && deploymentStatus.deployedAt) {
-        setDeployedAt(deploymentStatus.deployedAt)
+      if (deploymentStatus.is_deployed && deploymentStatus.deployed_at) {
+        setDeployedAt(deploymentStatus.deployed_at)
       } else {
         setDeployedAt(null)
       }

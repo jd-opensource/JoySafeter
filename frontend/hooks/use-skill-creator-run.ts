@@ -7,9 +7,9 @@
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { findOrCreateGraphByTemplate } from '@/app/chat/services/utils/graphLookup'
-import { formatToolDisplay } from '@/app/chat/shared/ToolCallDisplay'
-import { generateId, type Message, type ToolCall } from '@/app/chat/types'
+import { findOrCreateGraphByTemplate } from '@/lib/utils/copilot/graphLookup'
+import { formatToolDisplay } from '@/components/shared/tool-call-display'
+import { generateId, type Message, type ToolCall } from '@/types/chat'
 import { apiGet, API_ENDPOINTS } from '@/lib/api-client'
 import { getChatWsClient } from '@/lib/ws/chat/chatWsClient'
 import type { IncomingChatAcceptedEvent } from '@/lib/ws/chat/types'

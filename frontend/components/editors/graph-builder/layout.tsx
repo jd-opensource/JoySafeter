@@ -1,4 +1,4 @@
-import { ErrorBoundary } from '@/app/workspace/[workspaceId]/[agentId]/error-boundary'
+import { ErrorBoundary } from './error-boundary'
 
 /**
  * Agent Detail Layout

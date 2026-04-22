@@ -9,7 +9,7 @@ import {
   FileCode,
   Loader2,
 } from 'lucide-react'
-import { ArtifactPanel } from '@/app/chat/components/ArtifactPanel'
+import { ArtifactPanel } from '@/components/shared/artifact-panel'
 import { Button } from '@/components/ui/button'
 
 import type { SkillPreviewData } from '../page'

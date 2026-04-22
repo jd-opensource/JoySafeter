@@ -7,7 +7,7 @@
 
 import { Node, Edge } from 'reactflow'
 
-import { nodeRegistry } from '@/app/workspace/[workspaceId]/[agentId]/services/nodeRegistry'
+import { nodeRegistry } from '@/components/editors/graph-builder/services/nodeRegistry'
 import type { GraphAction } from '@/types/copilot'
 
 export interface ProcessedGraph {

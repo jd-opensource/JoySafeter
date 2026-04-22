@@ -8,10 +8,15 @@ import { useDeploymentStatus, useDeploymentVersions, graphKeys } from '@/hooks/q
 import { useTranslation } from '@/lib/i18n'
 
 export interface GraphDeploymentVersion {
+  id?: string
   version: number
   name?: string
   created_at: string
+  createdAt?: string
   is_current?: boolean
+  isActive?: boolean
+  createdBy?: string
+  createdByName?: string
 }
 
 export interface GraphDeploymentStatus {

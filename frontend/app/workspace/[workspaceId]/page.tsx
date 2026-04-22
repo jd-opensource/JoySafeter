@@ -9,7 +9,7 @@ import { useGraphs, graphKeys } from '@/hooks/queries/graphs'
 import { useTranslation } from '@/lib/i18n'
 import { createLogger } from '@/lib/logs/console/logger'
 
-import { agentService } from './[agentId]/services/agentService'
+import { agentService } from '@/components/editors/graph-builder/services/agentService'
 
 const logger = createLogger('WorkspaceDetailPage')
 

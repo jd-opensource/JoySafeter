@@ -18,9 +18,10 @@ if TYPE_CHECKING:
 
 class TaskStatus(str, enum.Enum):
     BACKLOG = "backlog"
+    TODO = "todo"
     IN_PROGRESS = "in_progress"
+    IN_REVIEW = "in_review"
     DONE = "done"
-    NEEDS_REVIEW = "needs_review"
     CANCELLED = "cancelled"
 
 

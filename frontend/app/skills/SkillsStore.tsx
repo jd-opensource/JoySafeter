@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import React, { useState, useMemo, useEffect } from 'react'
 
-import CodeViewer from '@/app/chat/components/CodeViewer'
+import CodeViewer from '@/components/shared/code-viewer'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'

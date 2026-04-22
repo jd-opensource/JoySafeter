@@ -28,7 +28,7 @@ import {
   usePlatformTokens,
   type PlatformTokenCreateResponse,
 } from '@/hooks/queries/platformTokens'
-import { useCopyToClipboard } from '@/app/chat/shared/hooks/useCopyToClipboard'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { API_BASE } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 

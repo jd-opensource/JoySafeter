@@ -4,9 +4,9 @@ import { useCallback } from 'react'
 import {
   agentService,
   type AgentGraph,
-} from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
-import { useBuilderStore } from '@/app/workspace/[workspaceId]/[agentId]/stores/builderStore'
-import { CODE_STARTER_TEMPLATE } from '@/app/workspace/[workspaceId]/[agentId]/utils/codeTemplate'
+} from '@/components/editors/graph-builder/services/agentService'
+import { useBuilderStore } from '@/components/editors/graph-builder/stores/builderStore'
+import { CODE_STARTER_TEMPLATE } from '@/components/editors/graph-builder/utils/codeTemplate'
 import { useToast } from '@/hooks/use-toast'
 import { graphKeys } from '@/hooks/queries/graphs'
 import { useTranslation } from '@/lib/i18n'

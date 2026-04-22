@@ -4,8 +4,8 @@ import { ArrowRight, Square, Wand2, Bot, User } from 'lucide-react'
 import React, { useRef, useEffect, useState, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 
-import { ToolCallBadge } from '@/app/chat/shared/ToolCallDisplay'
-import type { Message } from '@/app/chat/types'
+import { ToolCallBadge } from '@/components/shared/tool-call-display'
+import type { Message } from '@/types/chat'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 

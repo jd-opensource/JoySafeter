@@ -1,4 +1,4 @@
-import { ErrorBoundary } from '@/app/workspace/[workspaceId]/[agentId]/error-boundary'
+import { ErrorBoundary } from '@/components/editors/graph-builder/error-boundary'
 
 /**
  * Agent Detail Layout

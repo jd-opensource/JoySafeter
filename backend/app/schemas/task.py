@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 # Task
 # ---------------------------------------------------------------------------
 
-TaskStatusLiteral = Literal["backlog", "in_progress", "done", "needs_review", "cancelled"]
+TaskStatusLiteral = Literal["backlog", "todo", "in_progress", "done", "in_review", "cancelled"]
 TaskPriorityLiteral = Literal["none", "low", "medium", "high", "urgent"]
 
 

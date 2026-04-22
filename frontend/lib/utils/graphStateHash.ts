@@ -7,7 +7,7 @@
 
 import type { Node, Edge } from 'reactflow'
 
-import type { StateField } from '@/app/workspace/[workspaceId]/[agentId]/types/graph'
+import type { StateField } from '@/components/editors/graph-builder/types/graph'
 
 /**
  * Compute a hash of the graph state for comparison

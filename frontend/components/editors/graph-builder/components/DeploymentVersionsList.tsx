@@ -90,27 +90,27 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
               <Rocket
                 size={14}
                 className={
-                  deploymentStatus.isDeployed
+                  deploymentStatus.is_deployed
                     ? 'text-[var(--status-success)]'
                     : 'text-[var(--text-muted)]'
                 }
               />
               <span className="font-medium">
-                {deploymentStatus.isDeployed ? t('workspace.deployed') : t('workspace.notDeployed')}
+                {deploymentStatus.is_deployed ? t('workspace.deployed') : t('workspace.notDeployed')}
               </span>
-              {deploymentStatus.deployment && (
+              {(deploymentStatus as any).deployment && (
                 <span className="text-xs text-[var(--text-tertiary)]">
-                  v{deploymentStatus.deployment.version}
+                  v{(deploymentStatus as any).deployment.version}
                 </span>
               )}
             </div>
             <div className="flex items-center gap-2">
-              {deploymentStatus.needsRedeployment && deploymentStatus.isDeployed && (
+              {(deploymentStatus as any).needsRedeployment && deploymentStatus.is_deployed && (
                 <span className="rounded bg-[var(--status-warning-bg)] px-2 py-0.5 text-xs text-[var(--status-warning)]">
                   {t('workspace.needsRedeployment')}
                 </span>
               )}
-              {deploymentStatus.isDeployed && (
+              {deploymentStatus.is_deployed && (
                 <Button
                   size="sm"
                   variant="ghost"
@@ -220,7 +220,7 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
                   <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
                     <div className="flex items-center gap-0.5">
                       <Clock size={10} />
-                      <span>{formatDeploymentDate(version.createdAt)}</span>
+                      <span>{formatDeploymentDate(version.createdAt || version.created_at)}</span>
                     </div>
                     {(version.createdByName || version.createdBy) && (
                       <div className="flex items-center gap-0.5">

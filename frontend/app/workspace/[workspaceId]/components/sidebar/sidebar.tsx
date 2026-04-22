@@ -4,7 +4,7 @@ import { FolderPlus, Plus } from 'lucide-react'
 import { useParams, useRouter } from 'next/navigation'
 import { useCallback, useRef, useState, useEffect, useMemo } from 'react'
 
-import type { AgentGraph } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
+import type { AgentGraph } from '@/components/editors/graph-builder/services/agentService'
 import {
   AgentList,
   WorkspaceHeader,

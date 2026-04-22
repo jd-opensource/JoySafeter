@@ -420,7 +420,7 @@ class ExecutionOrchestrator:
         if run.status == "succeeded":
             task.status = "done"
         elif run.status == "failed":
-            task.status = "needs_review"
+            task.status = "in_review"
         elif run.status == "cancelled":
             task.status = "backlog"
         elif run.status in ("queued", "running"):

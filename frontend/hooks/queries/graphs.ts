@@ -9,7 +9,7 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import type { Node, Edge } from 'reactflow'
 
-import type { AgentGraph } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
+import type { AgentGraph } from '@/components/editors/graph-builder/services/agentService'
 import { apiGet, apiPost, apiPut, apiDelete } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
 

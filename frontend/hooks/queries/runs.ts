@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { agentService } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
+import { agentService } from '@/components/editors/graph-builder/services/agentService'
 import {
   runService,
   type AgentListResponse,
