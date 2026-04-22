@@ -43,7 +43,7 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { useAgentProfile, useAgentProfiles } from '@/hooks/queries/agents'
+import { useAgent, useAgents } from '@/hooks/queries/agents'
 import { useExecutions, useCancelExecution } from '@/hooks/queries/executions'
 import {
   useAssignTask,
@@ -89,10 +89,10 @@ interface TaskDetailPanelProps {
 export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPanelProps) {
   const { t } = useTranslation()
   const { data: mission, isLoading } = useTask(taskId, workspaceId)
-  const { data: agent } = useAgentProfile(mission?.assignee_id ?? '', workspaceId, {
+  const { data: agent } = useAgent(mission?.assignee_id ?? '', workspaceId, {
     enabled: mission?.assignee_type === 'agent' && Boolean(mission?.assignee_id),
   })
-  const { data: agents = [] } = useAgentProfiles(workspaceId, { enabled: Boolean(workspaceId) })
+  const { data: agents = [] } = useAgents(workspaceId, { enabled: Boolean(workspaceId) })
   const { data: executions = [] } = useExecutions(workspaceId, { mission_id: taskId })
   const { data: transitions } = useTaskTransitions(workspaceId)
   const effectiveTransitions = transitions ?? DEFAULT_MANUAL_TRANSITIONS

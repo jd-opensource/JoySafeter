@@ -6,7 +6,7 @@ import { useMemo, useRef, useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useTaskComments, useCreateTaskComment } from '@/hooks/queries/taskComments'
-import { useAgentProfiles, useAgentNameMap } from '@/hooks/queries/agents'
+import { useAgents, useAgentNameMap } from '@/hooks/queries/agents'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/utils/runHelpers'
 import type { MissionComment } from '@/types/mission-comments'
@@ -56,7 +56,7 @@ export function CommentThread({ taskId, workspaceId }: CommentThreadProps) {
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mentionStart, setMentionStart] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
-  const { data: agents = [] } = useAgentProfiles(workspaceId, { enabled: Boolean(workspaceId) })
+  const { data: agents = [] } = useAgents(workspaceId, { enabled: Boolean(workspaceId) })
   const agentNameMap = useAgentNameMap(workspaceId)
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
