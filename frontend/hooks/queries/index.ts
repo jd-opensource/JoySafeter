@@ -1,7 +1,5 @@
 // Export all query hooks for convenient importing
 export * from './folders'
-// TODO: removed in greenfield rewrite - graphs query deleted
-// export * from './graphs'
 export * from './workspaces'
 export * from './workspace'
 export * from './models'
@@ -15,8 +13,14 @@ export * from './general-settings'
 export * from './useMemories'
 export * from './platformTokens'
 export * from './tasks'
-// TODO: removed in greenfield rewrite - agentProfiles deleted
-// export * from './agentProfiles'
 export * from './executions'
-export * from './agentRuns'
+export {
+  useAgentRuns,
+  useAgentRun,
+  useRunExecutions,
+  useCreateAgentRun,
+  useCancelAgentRun,
+  useRetryAgentRun,
+  agentRunKeys
+} from './agentRuns'
 export * from './constants'

@@ -15,12 +15,12 @@ import {
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import { PulsingDot } from '@/components/ui/pulsing-dot'
-import type { Mission, MissionStatus } from '@/types/missions'
+import type { Task, TaskStatus } from '@/types/missions'
 import {
-  MISSION_PRIORITY_LABELS,
-  MISSION_STATUS_LABELS,
-  MISSION_STATUS_ORDER,
-  MISSION_STATUS_STYLES,
+  TASK_PRIORITY_LABELS,
+  TASK_STATUS_LABELS,
+  TASK_STATUS_ORDER,
+  TASK_STATUS_STYLES,
 } from '@/types/missions'
 
 import { PriorityBadge } from './priority-badge'
@@ -28,18 +28,18 @@ import { PriorityBadge } from './priority-badge'
 type SortField = 'title' | 'status' | 'priority' | 'updated_at' | 'due_date'
 
 interface TaskListViewProps {
-  tasks: Mission[]
+  tasks: Task[]
   agentsMap: Record<string, string>
   onSelectTask?: (id: string) => void
 }
 
 const PRIORITY_ORDER: Record<string, number> = Object.fromEntries(
-  Object.keys(MISSION_PRIORITY_LABELS)
+  Object.keys(TASK_PRIORITY_LABELS)
     .reverse()
     .map((k, i) => [k, i]),
 )
 const STATUS_ORDER: Record<string, number> = Object.fromEntries(
-  MISSION_STATUS_ORDER.map((s, i) => [s, i]),
+  TASK_STATUS_ORDER.map((s, i) => [s, i]),
 )
 
 export function TaskListView({ tasks, agentsMap, onSelectTask }: TaskListViewProps) {
@@ -133,11 +133,11 @@ export function TaskListView({ tasks, agentsMap, onSelectTask }: TaskListViewPro
                     <span
                       className={cn(
                         'inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium',
-                        MISSION_STATUS_STYLES[m.status] ??
+                        TASK_STATUS_STYLES[m.status] ??
                           'bg-[var(--surface-3)] text-[var(--text-muted)]',
                       )}
                     >
-                      {MISSION_STATUS_LABELS[m.status]}
+                      {TASK_STATUS_LABELS[m.status]}
                     </span>
                     {m.current_execution_id && (
                       <Link

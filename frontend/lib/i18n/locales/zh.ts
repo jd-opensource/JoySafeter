@@ -98,7 +98,7 @@ const zh = {
       tabExecutions: '任务执行',
       executionEmpty: '暂无执行记录',
       executionEmptyDesc: '任务派发后的执行记录会出现在这里。',
-      linkedMission: '关联任务',
+      linkedTask: '关联任务',
       viewInMissions: '在任务看板中查看',
       viewInRunCenter: '前往运行监控查看',
       dispatchedToast: '任务已派发',
@@ -115,7 +115,7 @@ const zh = {
       filteredByTask: '按任务筛选',
       filteredByMission: '按任务筛选',
       clearFilter: '清除',
-      notLinkedToMission: '未关联任务，操作不可用',
+      notLinkedToTask: '未关联任务，操作不可用',
     },
     tasks: {
       stopRun: '停止运行',

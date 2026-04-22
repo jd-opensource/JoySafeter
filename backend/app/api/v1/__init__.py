@@ -16,7 +16,7 @@ from .executions import router as executions_router
 from .files import router as files_router
 from .mcp import router as mcp_router
 from .memory import router as memory_router
-from .task_comments import router as task_comments_router
+from .task_activities import router as task_activities_router
 from .tasks import router as tasks_router
 from .model_credentials import router as model_credentials_router
 from .model_providers import router as model_providers_router
@@ -76,7 +76,7 @@ ROUTERS = [
     tasks_router,
     executions_router,
     agents_router,
-    task_comments_router,
+    task_activities_router,
     threads_router,
 ]
 

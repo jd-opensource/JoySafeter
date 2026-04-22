@@ -24,22 +24,22 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { useCreateTask } from '@/hooks/queries/tasks'
-import type { MissionPriority } from '@/types/missions'
-import { MISSION_PRIORITY_LABELS } from '@/types/missions'
+import type { TaskPriority } from '@/types/missions'
+import { TASK_PRIORITY_LABELS } from '@/types/missions'
 
 interface TaskCreateDialogProps {
   workspaceId: string
   trigger: React.ReactNode
 }
 
-const PRIORITIES = Object.entries(MISSION_PRIORITY_LABELS) as [MissionPriority, string][]
+const PRIORITIES = Object.entries(TASK_PRIORITY_LABELS) as [TaskPriority, string][]
 
 export function TaskCreateDialog({ workspaceId, trigger }: TaskCreateDialogProps) {
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [objective, setObjective] = useState('')
-  const [priority, setPriority] = useState<MissionPriority>('none')
+  const [priority, setPriority] = useState<TaskPriority>('none')
   const [tagsInput, setTagsInput] = useState('')
   const [autoApprove, setAutoApprove] = useState(false)
 
@@ -126,7 +126,7 @@ export function TaskCreateDialog({ workspaceId, trigger }: TaskCreateDialogProps
 
             <div className="space-y-2">
               <Label htmlFor="task-priority">Priority</Label>
-              <Select value={priority} onValueChange={(v) => setPriority(v as MissionPriority)}>
+              <Select value={priority} onValueChange={(v) => setPriority(v as TaskPriority)}>
                 <SelectTrigger id="task-priority">
                   <SelectValue />
                 </SelectTrigger>

@@ -33,8 +33,6 @@ interface ExecutionTimelineProps {
   isLive?: boolean
   /** When set, write operations (message/approve) use task-scoped endpoints. */
   taskId?: string
-  /** @deprecated use taskId */
-  missionId?: string
 }
 
 export function ExecutionTimeline({
@@ -43,7 +41,6 @@ export function ExecutionTimeline({
   compact,
   isLive = true,
   taskId,
-  missionId,
 }: ExecutionTimelineProps) {
   const {
     data: execution,
@@ -128,7 +125,7 @@ export function ExecutionTimeline({
     return `${fmt(input)} in / ${fmt(output)} out`
   }, [execution?.result_summary])
 
-  const effectiveId = taskId ?? missionId
+  const effectiveId = taskId
 
   const handleSendMessage = async (message: string) => {
     if (!effectiveId) return

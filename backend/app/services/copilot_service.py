@@ -39,10 +39,6 @@ from app.core.copilot.tool_output_parser import parse_tool_output
 from app.core.copilot.tools import reset_node_registry
 from app.repositories.auth_user import AuthUserRepository
 
-# GraphService was removed in greenfield rewrite.
-# Copilot now operates directly on graph state without the service layer.
-GraphService = None  # type: ignore[assignment,misc]
-
 
 class CopilotService:
     """
@@ -531,55 +527,14 @@ class CopilotService:
         return ""
 
     async def _persist_graph_from_actions(self, graph_id: str, final_actions: List[Dict[str, Any]]) -> bool:
-        """Apply actions to graph state and persist in a dedicated transaction. Returns True if saved successfully."""
-        from app.core.database import async_session_factory
+        """Apply actions to graph state and persist.
 
-        async with async_session_factory() as new_db2:
-            try:
-                current_user = None
-                if self.user_id:
-                    user_repo = AuthUserRepository(new_db2)
-                    current_user = await user_repo.get_by(id=self.user_id)
-
-                graph_service = GraphService(new_db2)
-                graph_uuid = uuid_lib.UUID(graph_id)
-                current_state = await graph_service.load_graph_state(
-                    graph_id=graph_uuid,
-                    current_user=current_user,
-                )
-
-                current_nodes = current_state.get("nodes", [])
-                current_edges = current_state.get("edges", [])
-
-                updated_nodes, updated_edges = apply_actions_to_graph_state(
-                    current_nodes=current_nodes,
-                    current_edges=current_edges,
-                    actions=final_actions,
-                )
-
-                viewport = current_state.get("viewport")
-                variables = current_state.get("variables")
-
-                await graph_service.save_graph_state(
-                    graph_id=graph_uuid,
-                    nodes=updated_nodes,
-                    edges=updated_edges,
-                    viewport=viewport,
-                    variables=variables,
-                    current_user=current_user,
-                )
-
-                await new_db2.commit()
-                logger.info(
-                    f"[CopilotService] Async task saved graph state for graph_id={graph_id}, "
-                    f"nodes={len(updated_nodes)}, edges={len(updated_edges)}"
-                )
-                return True
-            except Exception as e:
-                if new_db2.in_transaction():
-                    await new_db2.rollback()
-                logger.error(
-                    f"[CopilotService] Failed to save graph state for graph_id={graph_id}: {e}",
-                    exc_info=True,
-                )
-                return False
+        GraphService has been removed. Graph state is now managed via
+        AgentVersion.definition_payload. This method logs a warning and
+        returns False until the new persistence path is wired.
+        """
+        logger.warning(
+            f"[CopilotService] _persist_graph_from_actions skipped: GraphService removed | "
+            f"graph_id={graph_id} actions={len(final_actions)}"
+        )
+        return False

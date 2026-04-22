@@ -1,13 +1,15 @@
 """
 Node tools resolution.
 
-Parses `GraphNode` tool configuration (persisted in DB) and resolves it into a
-LangChain-compatible tools list for `create_agent(..., tools=[...])`.
+Parses node tool configuration and resolves it into a LangChain-compatible
+tools list for ``create_agent(..., tools=[...])``.
 
 Frontend stores tools under:
 - node.data.config.tools = { builtin: string[], mcp: string[] }
-  where mcp entries are in format `${server_name}::${toolName}`.
-Backend also has a dedicated `GraphNode.tools` JSONB field; we support both.
+  where mcp entries are in format ``${server_name}::${toolName}``.
+
+Node objects are duck-typed: any object with ``id``, ``data``, and optional
+``tools`` attributes is accepted.
 """
 
 from __future__ import annotations
@@ -25,10 +27,6 @@ from app.core.constants import DEFAULT_USER_ID
 from app.core.tools.tool import EnhancedTool, ToolMetadata, ToolSourceType
 from app.utils.sandbox_paths import get_user_sandbox_host_dir
 
-# GraphNode is no longer imported from app.models.graph (removed in greenfield rewrite).
-# Functions in this module accept Any-typed node objects and access attributes dynamically.
-GraphNode = None  # type: ignore[assignment,misc]
-
 
 def _first_dict(*candidates: Any) -> Optional[dict]:
     for c in candidates:
@@ -37,9 +35,9 @@ def _first_dict(*candidates: Any) -> Optional[dict]:
     return None
 
 
-def extract_tools_config(node: GraphNode) -> Optional[dict]:
+def extract_tools_config(node: Any) -> Optional[dict]:
     """
-    Extract tools config dict from a GraphNode.
+    Extract tools config dict from a node data object.
 
     Preference order:
     1) node.data.config.tools (canonical)
@@ -385,21 +383,21 @@ def _normalize_user_id(user_id: Any | None) -> str:
 
 
 async def resolve_tools_for_node(
-    node: GraphNode, *, user_id: str | None = None, backend: Any = None
+    node: Any, *, user_id: str | None = None, backend: Any = None
 ) -> Optional[List[Any]]:
     """
     Resolve tools list for a node.
 
     Process flow:
     1. Extract tools config from node
-    2. Parse builtin tools → resolve to tool objects
-    3. Parse MCP tools → resolve server names → get tools
+    2. Parse builtin tools -> resolve to tool objects
+    3. Parse MCP tools -> resolve server names -> get tools
     4. Return combined tool list
 
     MCP server identification: server name (unique per user)
 
     Args:
-        node: GraphNode to resolve tools for
+        node: Node data object with id/data attributes
         user_id: User ID (normalized to string UUID format)
 
     Returns:

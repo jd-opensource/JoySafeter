@@ -17,7 +17,7 @@ import { useCallback, useMemo, useState } from 'react'
 
 import { AgentStatusIndicator } from '@/components/agents/agent-status'
 import { ExecutionTimeline } from '@/components/executions/execution-timeline'
-import { CommentThread } from '@/components/tasks/comment-thread'
+import { ActivityThread } from '@/components/tasks/activity-thread'
 import { PulsingDot } from '@/components/ui/pulsing-dot'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -57,14 +57,14 @@ import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import { toastSuccess, toastError, getErrorMessage } from '@/lib/utils/toast'
 import { ACTIVE_EXECUTION_STATUSES } from '@/types/executions'
-import type { MissionPriority, MissionStatus, UpdateMissionRequest } from '@/types/missions'
+import type { TaskPriority, TaskStatus, UpdateTaskRequest } from '@/types/missions'
 import {
   DEFAULT_MANUAL_TRANSITIONS,
-  MISSION_PRIORITY_LABELS,
-  MISSION_STATUS_LABELS,
-  MISSION_STATUS_ORDER,
-  MISSION_STATUS_STYLES,
-  TERMINAL_MISSION_STATUSES,
+  TASK_PRIORITY_LABELS,
+  TASK_STATUS_LABELS,
+  TASK_STATUS_ORDER,
+  TASK_STATUS_STYLES,
+  TERMINAL_TASK_STATUSES,
 } from '@/types/missions'
 
 import { PriorityBadge } from './priority-badge'
@@ -88,9 +88,9 @@ interface TaskDetailPanelProps {
 
 export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPanelProps) {
   const { t } = useTranslation()
-  const { data: mission, isLoading } = useTask(taskId, workspaceId)
-  const { data: agent } = useAgent(mission?.assignee_id ?? '', workspaceId, {
-    enabled: mission?.assignee_type === 'agent' && Boolean(mission?.assignee_id),
+  const { data: task, isLoading } = useTask(taskId, workspaceId)
+  const { data: agent } = useAgent(task?.assignee_id ?? '', workspaceId, {
+    enabled: task?.assignee_type === 'agent' && Boolean(task?.assignee_id),
   })
   const { data: agents = [] } = useAgents(workspaceId, { enabled: Boolean(workspaceId) })
   const { data: executions = [] } = useExecutions(workspaceId, { task_id: taskId })
@@ -116,19 +116,19 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
   const [timelineExpanded, setTimelineExpanded] = useState(false)
 
   const canDispatch = useMemo(() => {
-    if (!mission) return false
-    const hasAgent = mission.assignee_type === 'agent' && mission.assignee_id
-    const notRunning = !mission.current_execution_id
-    const validStatus: MissionStatus[] = ['todo', 'in_progress', 'in_review', 'backlog']
-    return hasAgent && notRunning && validStatus.includes(mission.status)
-  }, [mission])
+    if (!task) return false
+    const hasAgent = task.assignee_type === 'agent' && task.assignee_id
+    const notRunning = !task.current_execution_id
+    const validStatus: TaskStatus[] = ['todo', 'in_progress', 'in_review', 'backlog']
+    return hasAgent && notRunning && validStatus.includes(task.status)
+  }, [task])
 
   const currentExecution = useMemo(
     () =>
-      mission?.current_execution_id
-        ? executions.find((e) => e.id === mission.current_execution_id)
+      task?.current_execution_id
+        ? executions.find((e) => e.id === task.current_execution_id)
         : undefined,
-    [mission, executions],
+    [task, executions],
   )
 
   const canCancel = currentExecution
@@ -143,7 +143,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
   )
 
   const doUpdate = useCallback(
-    (updates: Partial<UpdateMissionRequest>) => {
+    (updates: Partial<UpdateTaskRequest>) => {
       updateTask.mutate({ taskId, workspaceId, ...updates }, { onError: onMutationError })
     },
     [taskId, workspaceId, updateTask, onMutationError],
@@ -151,21 +151,21 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
 
   const handleTitleSave = () => {
     const trimmed = editTitle.trim()
-    if (trimmed && trimmed !== mission?.title) {
+    if (trimmed && trimmed !== task?.title) {
       doUpdate({ title: trimmed })
     }
     setIsEditingTitle(false)
   }
 
   const handleDescSave = () => {
-    if (editDesc !== (mission?.description ?? '')) {
+    if (editDesc !== (task?.description ?? '')) {
       doUpdate({ description: editDesc || undefined })
     }
     setIsEditingDesc(false)
   }
 
   const handleObjSave = () => {
-    if (editObj !== (mission?.objective ?? '')) {
+    if (editObj !== (task?.objective ?? '')) {
       doUpdate({ objective: editObj || undefined })
     }
     setIsEditingObj(false)
@@ -173,8 +173,8 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
 
   const handleAddTag = () => {
     const tag = tagInput.trim()
-    if (!tag || !mission) return
-    const current = mission.tags ?? []
+    if (!tag || !task) return
+    const current = task.tags ?? []
     if (!current.includes(tag)) {
       doUpdate({ tags: [...current, tag] })
     }
@@ -182,8 +182,8 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
   }
 
   const handleRemoveTag = (tag: string) => {
-    if (!mission) return
-    doUpdate({ tags: (mission.tags ?? []).filter((v) => v !== tag) })
+    if (!task) return
+    doUpdate({ tags: (task.tags ?? []).filter((v) => v !== tag) })
   }
 
   const handleAssign = (agentId: string) => {
@@ -216,7 +216,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
         </button>
       </div>
 
-      {isLoading || !mission ? (
+      {isLoading || !task ? (
         <div className="flex flex-1 items-center justify-center">
           <Loader2 className="h-6 w-6 animate-spin text-[var(--text-muted)]" />
         </div>
@@ -235,11 +235,11 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
               <h2
                 className="cursor-pointer rounded px-1 text-lg font-semibold text-[var(--text-primary)] hover:bg-[var(--surface-3)]"
                 onClick={() => {
-                  setEditTitle(mission.title)
+                  setEditTitle(task.title)
                   setIsEditingTitle(true)
                 }}
               >
-                {mission.title}
+                {task.title}
               </h2>
             )}
 
@@ -247,14 +247,14 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
             <div className="flex flex-wrap items-center gap-2">
               {/* Priority Select */}
               <Select
-                value={mission.priority}
-                onValueChange={(v) => doUpdate({ priority: v as MissionPriority })}
+                value={task.priority}
+                onValueChange={(v) => doUpdate({ priority: v as TaskPriority })}
               >
                 <SelectTrigger className="h-auto w-auto border-0 bg-transparent p-0 shadow-none focus:ring-0">
-                  <PriorityBadge priority={mission.priority} />
+                  <PriorityBadge priority={task.priority} />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(MISSION_PRIORITY_LABELS).map(([value, label]) => (
+                  {Object.entries(TASK_PRIORITY_LABELS).map(([value, label]) => (
                     <SelectItem key={value} value={value}>
                       {label}
                     </SelectItem>
@@ -264,41 +264,41 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
 
               {/* Status Select */}
               <Select
-                value={mission.status}
+                value={task.status}
                 onValueChange={(v) => {
                   if (
-                    mission.current_execution_id &&
-                    (TERMINAL_MISSION_STATUSES as readonly string[]).includes(v)
+                    task.current_execution_id &&
+                    (TERMINAL_TASK_STATUSES as readonly string[]).includes(v)
                   )
                     return
-                  doUpdate({ status: v as MissionStatus })
+                  doUpdate({ status: v as TaskStatus })
                 }}
               >
                 <SelectTrigger className="h-auto w-auto border-0 bg-transparent p-0 shadow-none focus:ring-0 [&>span]:line-clamp-none">
                   <span
                     className={cn(
                       'inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium',
-                      MISSION_STATUS_STYLES[mission.status] ??
+                      TASK_STATUS_STYLES[task.status] ??
                         'bg-[var(--surface-3)] text-[var(--text-muted)]',
                     )}
                   >
-                    {MISSION_STATUS_LABELS[mission.status]}
+                    {TASK_STATUS_LABELS[task.status]}
                   </span>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem key={mission.status} value={mission.status}>
-                    {MISSION_STATUS_LABELS[mission.status]}
+                  <SelectItem key={task.status} value={task.status}>
+                    {TASK_STATUS_LABELS[task.status]}
                   </SelectItem>
-                  {(effectiveTransitions[mission.status] ?? []).map((s) => (
+                  {(effectiveTransitions[task.status] ?? []).map((s) => (
                     <SelectItem
                       key={s}
                       value={s}
                       disabled={
-                        Boolean(mission.current_execution_id) &&
-                        (TERMINAL_MISSION_STATUSES as readonly string[]).includes(s)
+                        Boolean(task.current_execution_id) &&
+                        (TERMINAL_TASK_STATUSES as readonly string[]).includes(s)
                       }
                     >
-                      {MISSION_STATUS_LABELS[s]}
+                      {TASK_STATUS_LABELS[s]}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -340,11 +340,11 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                   <p
                     className="cursor-pointer rounded px-1 text-sm leading-relaxed text-[var(--text-secondary)] hover:bg-[var(--surface-3)]"
                     onClick={() => {
-                      setEditObj(mission.objective ?? '')
+                      setEditObj(task.objective ?? '')
                       setIsEditingObj(true)
                     }}
                   >
-                    {mission.objective || (
+                    {task.objective || (
                       <span className="italic text-[var(--text-muted)]">
                         Click to add objective...
                       </span>
@@ -378,11 +378,11 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                   <p
                     className="cursor-pointer whitespace-pre-wrap rounded px-1 text-sm leading-relaxed text-[var(--text-secondary)] hover:bg-[var(--surface-3)]"
                     onClick={() => {
-                      setEditDesc(mission.description ?? '')
+                      setEditDesc(task.description ?? '')
                       setIsEditingDesc(true)
                     }}
                   >
-                    {mission.description || (
+                    {task.description || (
                       <span className="italic text-[var(--text-muted)]">
                         Click to add description...
                       </span>
@@ -400,7 +400,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                   {t('tasks.tags')}
                 </span>
                 <div className="flex flex-1 flex-wrap items-center gap-1.5">
-                  {(mission.tags ?? []).map((tag) => (
+                  {(task.tags ?? []).map((tag) => (
                     <Badge key={tag} variant="secondary" className="gap-1 pr-1">
                       {tag}
                       <button
@@ -438,12 +438,12 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                   <input
                     type="date"
                     value={
-                      mission.due_date ? new Date(mission.due_date).toISOString().split('T')[0] : ''
+                      task.due_date ? new Date(task.due_date).toISOString().split('T')[0] : ''
                     }
                     onChange={(e) => doUpdate({ due_date: e.target.value || null })}
                     className="h-7 rounded border border-[var(--border)] bg-transparent px-2 text-xs text-[var(--text-secondary)] outline-none focus:ring-1 focus:ring-[var(--brand-400)]"
                   />
-                  {mission.due_date && (
+                  {task.due_date && (
                     <button
                       type="button"
                       onClick={() => doUpdate({ due_date: null })}
@@ -462,7 +462,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                 <span className="text-xs font-medium text-[var(--text-muted)]">
                   {t('tasks.agent')}
                 </span>
-                {mission.assignee_type === 'agent' && agent ? (
+                {task.assignee_type === 'agent' && agent ? (
                   <div className="flex items-center gap-2">
                     <Bot className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
                     <span className="text-sm font-medium text-[var(--text-primary)]">
@@ -478,7 +478,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                       <PopoverContent className="w-60 p-0" align="end">
                         <AgentPickerContent
                           agents={agents}
-                          currentAgentId={mission.assignee_id}
+                          currentAgentId={task.assignee_id}
                           onSelect={handleAssign}
                           onUnassign={handleUnassign}
                         />
@@ -511,13 +511,13 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                 <div className="space-y-0.5">
                   <p className="text-xs font-medium text-[var(--text-primary)]">Auto Approve</p>
                   <p className="text-[10px] text-[var(--text-muted)]">
-                    {mission.auto_approve
+                    {task.auto_approve
                       ? 'Tool calls auto-approved, completes to Done'
                       : 'Tool calls need approval, completes to In Review'}
                   </p>
                 </div>
                 <Switch
-                  checked={mission.auto_approve}
+                  checked={task.auto_approve}
                   onCheckedChange={(checked) => doUpdate({ auto_approve: checked })}
                 />
               </div>
@@ -543,7 +543,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
               </Button>
             )}
 
-            {mission.current_execution_id && (
+            {task.current_execution_id && (
               <section>
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
                   {t('tasks.currentExecution')}
@@ -562,7 +562,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                           className="h-6 px-2 text-xs"
                           onClick={() =>
                             cancelExecution.mutate(
-                              { executionId: mission.current_execution_id!, workspaceId },
+                              { executionId: task.current_execution_id!, workspaceId },
                               { onError: onMutationError },
                             )
                           }
@@ -595,7 +595,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                   {timelineExpanded && (
                     <div className="border-t border-[var(--border)]">
                       <ExecutionTimeline
-                        executionId={mission.current_execution_id}
+                        executionId={task.current_execution_id}
                         workspaceId={workspaceId}
                         compact
                         taskId={taskId}
@@ -630,12 +630,12 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
               </section>
             )}
 
-            {/* Comments */}
+            {/* Activities */}
             <section>
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                {t('tasks.comments')}
+                {t('tasks.activities')}
               </h3>
-              <CommentThread taskId={taskId} workspaceId={workspaceId} />
+              <ActivityThread taskId={taskId} workspaceId={workspaceId} />
             </section>
 
             {/* Cancel Task */}
@@ -643,10 +643,10 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
                   <Clock className="h-3 w-3" />
-                  Created {formatDate(mission.created_at)}
+                  Created {formatDate(task.created_at)}
                 </div>
-                {!TERMINAL_MISSION_STATUSES.includes(mission.status) &&
-                  !mission.current_execution_id && (
+                {!TERMINAL_TASK_STATUSES.includes(task.status) &&
+                  !task.current_execution_id && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -658,10 +658,10 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                     </Button>
                   )}
               </div>
-              {mission.updated_at !== mission.created_at && (
+              {task.updated_at !== task.created_at && (
                 <div className="mt-1 flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
                   <Clock className="h-3 w-3" />
-                  Updated {formatDate(mission.updated_at)}
+                  Updated {formatDate(task.updated_at)}
                 </div>
               )}
             </section>

@@ -2,56 +2,56 @@
 
 import { apiGet, apiPost, apiPatch } from '@/lib/api-client'
 import type { ExecutionSnapshot, ExecutionEventsPage } from '@/types/executions'
-import type { Mission, CreateMissionRequest, UpdateMissionRequest } from '@/types/missions'
+import type { Task, CreateTaskRequest, UpdateTaskRequest } from '@/types/missions'
 
 export interface TaskListResponse {
-  items: Mission[]
+  items: Task[]
 }
 
 export const taskService = {
   list: async (
     workspaceId: string,
     params?: { status?: string; limit?: number },
-  ): Promise<Mission[]> => {
+  ): Promise<Task[]> => {
     const searchParams = new URLSearchParams({ workspace_id: workspaceId })
     if (params?.status) searchParams.set('status', params.status)
     if (params?.limit) searchParams.set('limit', String(params.limit))
-    const res = await apiGet<{ items: Mission[] }>(`tasks?${searchParams}`)
+    const res = await apiGet<{ items: Task[] }>(`tasks?${searchParams}`)
     return res?.items ?? []
   },
 
-  get: async (taskId: string, workspaceId: string): Promise<Mission> => {
-    return apiGet<Mission>(`tasks/${taskId}?workspace_id=${workspaceId}`)
+  get: async (taskId: string, workspaceId: string): Promise<Task> => {
+    return apiGet<Task>(`tasks/${taskId}?workspace_id=${workspaceId}`)
   },
 
-  create: async (data: CreateMissionRequest): Promise<Mission> => {
-    return apiPost<Mission>('tasks', data)
+  create: async (data: CreateTaskRequest): Promise<Task> => {
+    return apiPost<Task>('tasks', data)
   },
 
   update: async (
     taskId: string,
     workspaceId: string,
-    data: UpdateMissionRequest,
-  ): Promise<Mission> => {
-    return apiPatch<Mission>(`tasks/${taskId}?workspace_id=${workspaceId}`, data)
+    data: UpdateTaskRequest,
+  ): Promise<Task> => {
+    return apiPatch<Task>(`tasks/${taskId}?workspace_id=${workspaceId}`, data)
   },
 
   assign: async (
     taskId: string,
     workspaceId: string,
     agentProfileId: string,
-  ): Promise<Mission> => {
-    return apiPost<Mission>(`tasks/${taskId}/assign?workspace_id=${workspaceId}`, {
+  ): Promise<Task> => {
+    return apiPost<Task>(`tasks/${taskId}/assign?workspace_id=${workspaceId}`, {
       agent_profile_id: agentProfileId,
     })
   },
 
-  dispatch: async (taskId: string, workspaceId: string): Promise<Mission> => {
-    return apiPost<Mission>(`tasks/${taskId}/dispatch?workspace_id=${workspaceId}`, {})
+  dispatch: async (taskId: string, workspaceId: string): Promise<Task> => {
+    return apiPost<Task>(`tasks/${taskId}/dispatch?workspace_id=${workspaceId}`, {})
   },
 
-  cancel: async (taskId: string, workspaceId: string): Promise<Mission> => {
-    return apiPost<Mission>(`tasks/${taskId}/cancel?workspace_id=${workspaceId}`, {})
+  cancel: async (taskId: string, workspaceId: string): Promise<Task> => {
+    return apiPost<Task>(`tasks/${taskId}/cancel?workspace_id=${workspaceId}`, {})
   },
 
   getTransitions: async (workspaceId: string): Promise<Record<string, string[]>> => {

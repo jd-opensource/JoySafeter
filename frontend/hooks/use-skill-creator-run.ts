@@ -17,16 +17,9 @@ import { getRunWsClient } from '@/lib/ws/runs/runWsClient'
 import type { RunEventFrame, RunSnapshotFrame, RunStatusFrame } from '@/lib/ws/runs/types'
 import { generateUUID } from '@/lib/utils/uuid'
 import { toastError } from '@/lib/utils/toast'
-// TODO: Phase 5 cleanup - migrate to Thread API
-// import { conversationService, type ConversationMessage } from '@/services/conversationService'
 import { runService } from '@/services/runService'
-
-// TODO: Phase 5 cleanup - define ConversationMessage type locally until migration
-type ConversationMessage = {
-  role: string
-  content: string
-  meta_data?: any
-}
+import { threadService } from '@/services/threadService'
+import type { ThreadMessage } from '@/types/thread'
 
 import type { SkillPreviewData } from '@/app/skills/creator/page'
 
@@ -298,10 +291,10 @@ function mapProjectionMessages(projection: SkillCreatorRunProjection): Message[]
   })
 }
 
-function mapConversationMessageToUi(message: ConversationMessage): Message {
-  const metadata = message.metadata && typeof message.metadata === 'object' ? message.metadata : {}
-  const toolCalls = Array.isArray(metadata.tool_calls)
-    ? metadata.tool_calls.map((tool: Record<string, any>): ToolCall => {
+function mapThreadMessageToUi(message: ThreadMessage): Message {
+  const content = message.content && typeof message.content === 'object' ? message.content : {}
+  const toolCalls = Array.isArray(content.tool_calls)
+    ? content.tool_calls.map((tool: Record<string, any>): ToolCall => {
         const rawName = String(tool?.name || 'tool')
         const rawArgs = tool?.arguments && typeof tool.arguments === 'object' ? tool.arguments : {}
         const { label, detail } = formatToolDisplay(rawName, rawArgs)
@@ -327,7 +320,7 @@ function mapConversationMessageToUi(message: ConversationMessage): Message {
       message.role === 'user' || message.role === 'assistant' || message.role === 'system'
         ? message.role
         : 'assistant',
-    content: String(message.content || ''),
+    content: String(content.text || ''),
     timestamp: new Date(message.created_at).getTime() || Date.now(),
     tool_calls: toolCalls,
   }
@@ -562,30 +555,33 @@ export function useSkillCreatorRun(): UseSkillCreatorRunReturn {
     }
   }, [effectiveEditSkillId, graphReady, router, runParam])
 
-  // ---- load conversation history ----
   useEffect(() => {
     if (!threadId) {
       setHistoryMessages([])
       return
     }
 
-    // TODO: Phase 5 cleanup - migrate to Thread API
-    // let cancelled = false
-    // void conversationService
-    //   .getConversationHistory(threadId, { pageSize: 200 })
-    //   .then((items) => {
-    //     if (cancelled) return
-    //     setHistoryMessages(items.map(mapConversationMessageToUi))
-    //   })
-    //   .catch((error) => {
-    //     if (!cancelled) {
-    //       console.error('Failed to load skill creator conversation history:', error)
-    //     }
-    //   })
-    setHistoryMessages([])
+    let cancelled = false
+    void apiGet<{ workspaces: Array<{ id: string; type?: string }> }>(API_ENDPOINTS.workspaces)
+      .then((response) => {
+        const personal = (response.workspaces || []).find(
+          (workspace) => workspace.type === 'personal',
+        )
+        if (!personal || cancelled) return
+        return threadService.listMessages(threadId, personal.id)
+      })
+      .then((messages) => {
+        if (cancelled || !messages) return
+        setHistoryMessages(messages.map(mapThreadMessageToUi))
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.error('Failed to load skill creator thread history:', error)
+        }
+      })
 
     return () => {
-      // cancelled = true  // TODO: Phase 5 cleanup - re-enable when migrating to Thread API
+      cancelled = true
     }
   }, [threadId])
 

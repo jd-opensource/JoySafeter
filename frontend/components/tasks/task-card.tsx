@@ -7,11 +7,11 @@ import { forwardRef } from 'react'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import { PulsingDot } from '@/components/ui/pulsing-dot'
-import type { Mission, MissionPriority } from '@/types/missions'
+import type { Task, TaskPriority } from '@/types/missions'
 
 import { PriorityBadge } from './priority-badge'
 
-const PRIORITY_LEFT_BORDER: Record<MissionPriority, string> = {
+const PRIORITY_LEFT_BORDER: Record<TaskPriority, string> = {
   urgent: 'border-l-[var(--status-error)]',
   high: 'border-l-[var(--status-warning)]',
   medium: 'border-l-[var(--brand-400)]',
@@ -20,9 +20,9 @@ const PRIORITY_LEFT_BORDER: Record<MissionPriority, string> = {
 }
 
 interface TaskCardProps {
-  mission: Mission
+  task: Task
   agentName?: string
-  onSelectMission?: (id: string) => void
+  onSelectTask?: (id: string) => void
   isDragOverlay?: boolean
   style?: React.CSSProperties
 }
@@ -31,55 +31,55 @@ export const TaskCard = forwardRef<
   HTMLButtonElement,
   TaskCardProps & React.HTMLAttributes<HTMLButtonElement>
 >(function TaskCard(
-  { mission, agentName, onSelectMission, isDragOverlay, style, className, ...props },
+  { task, agentName, onSelectTask, isDragOverlay, style, className, ...props },
   ref,
 ) {
   const { t } = useTranslation()
-  const hasActiveExecution = Boolean(mission.current_execution_id)
-  const isAssignedToAgent = mission.assignee_type === 'agent'
+  const hasActiveExecution = Boolean(task.current_execution_id)
+  const isAssignedToAgent = task.assignee_type === 'agent'
 
-  const isOverdue = mission.due_date ? Date.parse(mission.due_date) < Date.now() : false
+  const isOverdue = task.due_date ? Date.parse(task.due_date) < Date.now() : false
 
   return (
     <button
       ref={ref}
       type="button"
-      onClick={() => onSelectMission?.(mission.id)}
+      onClick={() => onSelectTask?.(task.id)}
       style={style}
       className={cn(
         'w-full rounded-lg border border-l-[3px] border-[var(--border)] bg-[var(--surface-elevated)] p-3 text-left',
-        PRIORITY_LEFT_BORDER[mission.priority],
+        PRIORITY_LEFT_BORDER[task.priority],
         'transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-400)]',
         isDragOverlay && 'ring-[var(--brand-400)]/40 shadow-lg ring-2',
         className,
       )}
       {...props}
     >
-      <p className="line-clamp-2 text-sm font-medium text-[var(--text-primary)]">{mission.title}</p>
+      <p className="line-clamp-2 text-sm font-medium text-[var(--text-primary)]">{task.title}</p>
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <PriorityBadge priority={mission.priority} />
+        <PriorityBadge priority={task.priority} />
 
         <span className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)]">
           {isAssignedToAgent ? (
             <>
               <Bot className="h-3 w-3" />
               <span className="max-w-[80px] truncate">
-                {agentName || (mission.assignee_id ? 'Agent' : 'Unassigned')}
+                {agentName || (task.assignee_id ? 'Agent' : 'Unassigned')}
               </span>
             </>
           ) : (
             <>
               <User className="h-3 w-3" />
-              <span>{mission.assignee_id ? 'Assigned' : 'Unassigned'}</span>
+              <span>{task.assignee_id ? 'Assigned' : 'Unassigned'}</span>
             </>
           )}
         </span>
       </div>
 
-      {(mission.tags?.length || mission.due_date) && (
+      {(task.tags?.length || task.due_date) && (
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          {mission.tags?.slice(0, 2).map((tag) => (
+          {task.tags?.slice(0, 2).map((tag) => (
             <span
               key={tag}
               className="inline-block max-w-[80px] truncate rounded bg-[var(--surface-3)] px-1.5 py-0.5 text-[10px] text-[var(--text-secondary)]"
@@ -87,12 +87,12 @@ export const TaskCard = forwardRef<
               {tag}
             </span>
           ))}
-          {(mission.tags?.length ?? 0) > 2 && (
+          {(task.tags?.length ?? 0) > 2 && (
             <span className="text-[10px] text-[var(--text-muted)]">
-              +{(mission.tags?.length ?? 0) - 2}
+              +{(task.tags?.length ?? 0) - 2}
             </span>
           )}
-          {mission.due_date && (
+          {task.due_date && (
             <span
               className={cn(
                 'inline-flex items-center gap-0.5 text-[10px]',
@@ -100,7 +100,7 @@ export const TaskCard = forwardRef<
               )}
             >
               <Calendar className="h-2.5 w-2.5" />
-              {new Date(mission.due_date).toLocaleDateString()}
+              {new Date(task.due_date).toLocaleDateString()}
             </span>
           )}
         </div>
@@ -108,7 +108,7 @@ export const TaskCard = forwardRef<
 
       {hasActiveExecution && (
         <Link
-          href={`/runs?tab=executions&mission=${mission.id}`}
+          href={`/runs?tab=executions&task=${task.id}`}
           onClick={(e) => e.stopPropagation()}
           className="bg-[var(--surface-3)]/50 -mx-3 -mb-3 mt-2 flex items-center gap-1.5 rounded-b-lg border-t border-[var(--border)] px-3 py-1.5 text-xs text-[var(--status-success)] hover:bg-[var(--surface-3)]"
         >

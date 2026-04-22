@@ -30,7 +30,7 @@ from .execution_trace import (
 from .mcp import McpServer
 from .memory import Memory
 from .task import Task, TaskPriority, TaskStatus
-from .task_comment import CommentAuthorType, CommentType, TaskComment
+from .task_activity import ActivityAuthorType, ActivityType, TaskActivity
 from .model_credential import ModelCredential
 from .model_instance import ModelInstance
 from .model_provider import ModelProvider
@@ -105,9 +105,9 @@ __all__ = [
     "Execution",
     "ExecutionEvent",
     "Artifact",
-    "TaskComment",
-    "CommentAuthorType",
-    "CommentType",
+    "TaskActivity",
+    "ActivityAuthorType",
+    "ActivityType",
     "Thread",
     "ThreadMessage",
 ]

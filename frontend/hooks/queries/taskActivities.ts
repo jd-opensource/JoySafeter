@@ -1,29 +1,29 @@
 /**
- * Task Comments Queries
+ * Task Activities Queries
  */
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
-import { taskCommentService } from '@/services/taskCommentService'
-import type { CreateMissionCommentRequest } from '@/types/mission-comments'
+import { taskActivityService } from '@/services/taskActivityService'
+import type { CreateTaskActivityRequest } from '@/types/task-activities'
 
 import { taskKeys } from './tasks'
 import { STALE_TIME } from './constants'
 
 // ==================== Query Keys ====================
 
-export const taskCommentKeys = {
-  all: ['taskComments'] as const,
+export const taskActivityKeys = {
+  all: ['taskActivities'] as const,
   list: (taskId: string, workspaceId: string) =>
-    [...taskCommentKeys.all, 'list', taskId, workspaceId] as const,
+    [...taskActivityKeys.all, 'list', taskId, workspaceId] as const,
 }
 
 // ==================== Query Hooks ====================
 
-export function useTaskComments(taskId: string, workspaceId: string) {
+export function useTaskActivities(taskId: string, workspaceId: string) {
   return useInfiniteQuery({
-    queryKey: taskCommentKeys.list(taskId, workspaceId),
+    queryKey: taskActivityKeys.list(taskId, workspaceId),
     queryFn: async ({ pageParam }) => {
-      return taskCommentService.list(taskId, workspaceId, {
+      return taskActivityService.list(taskId, workspaceId, {
         cursor: pageParam ?? undefined,
         limit: 50,
       })
@@ -37,7 +37,7 @@ export function useTaskComments(taskId: string, workspaceId: string) {
 
 // ==================== Mutation Hooks ====================
 
-export function useCreateTaskComment() {
+export function useCreateTaskActivity() {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -45,12 +45,12 @@ export function useCreateTaskComment() {
       taskId,
       workspaceId,
       ...data
-    }: CreateMissionCommentRequest & { taskId: string; workspaceId: string }) => {
-      return taskCommentService.create(taskId, workspaceId, data)
+    }: CreateTaskActivityRequest & { taskId: string; workspaceId: string }) => {
+      return taskActivityService.create(taskId, workspaceId, data)
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: taskCommentKeys.list(variables.taskId, variables.workspaceId),
+        queryKey: taskActivityKeys.list(variables.taskId, variables.workspaceId),
       })
       queryClient.invalidateQueries({
         queryKey: taskKeys.detail(variables.taskId, variables.workspaceId),
@@ -59,24 +59,24 @@ export function useCreateTaskComment() {
   })
 }
 
-export function useDeleteTaskComment() {
+export function useDeleteTaskActivity() {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async ({
       taskId,
-      commentId,
+      activityId,
       workspaceId,
     }: {
       taskId: string
-      commentId: string
+      activityId: string
       workspaceId: string
     }) => {
-      return taskCommentService.delete(taskId, commentId, workspaceId)
+      return taskActivityService.delete(taskId, activityId, workspaceId)
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: taskCommentKeys.list(variables.taskId, variables.workspaceId),
+        queryKey: taskActivityKeys.list(variables.taskId, variables.workspaceId),
       })
     },
   })

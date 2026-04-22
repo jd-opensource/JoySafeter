@@ -14,18 +14,18 @@ import { useCallback, useMemo, useState } from 'react'
 
 import { useUpdateTask, useTaskTransitions } from '@/hooks/queries/tasks'
 import { toastError } from '@/lib/utils/toast'
-import type { Mission, MissionStatus } from '@/types/missions'
+import type { Task, TaskStatus } from '@/types/missions'
 import {
   DEFAULT_MANUAL_TRANSITIONS,
-  MISSION_STATUS_ORDER,
-  TERMINAL_MISSION_STATUSES,
+  TASK_STATUS_ORDER,
+  TERMINAL_TASK_STATUSES,
 } from '@/types/missions'
 
 import { TaskCard } from './task-card'
 import { TaskColumn } from './task-column'
 
 interface TaskBoardProps {
-  tasks: Mission[]
+  tasks: Task[]
   workspaceId: string
   agentsMap: Record<string, string>
   onSelectTask?: (id: string) => void
@@ -45,7 +45,7 @@ export function TaskBoard({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   const grouped = useMemo(() => {
-    const map: Record<MissionStatus, Mission[]> = {
+    const map: Record<TaskStatus, Task[]> = {
       backlog: [],
       todo: [],
       in_progress: [],
@@ -58,7 +58,7 @@ export function TaskBoard({
         map[m.status].push(m)
       }
     }
-    for (const key of Object.keys(map) as MissionStatus[]) {
+    for (const key of Object.keys(map) as TaskStatus[]) {
       map[key].sort((a, b) => a.position - b.position)
     }
     return map
@@ -84,17 +84,17 @@ export function TaskBoard({
 
       // Determine target column
       const overData = over.data.current
-      let targetStatus: MissionStatus
+      let targetStatus: TaskStatus
       if (overData?.type === 'column') {
-        targetStatus = overData.status as MissionStatus
-      } else if (overData?.type === 'mission') {
-        targetStatus = (overData.mission as Mission).status
+        targetStatus = overData.status as TaskStatus
+      } else if (overData?.type === 'task') {
+        targetStatus = (overData.task as Task).status
       } else {
         // over.id is `column-<status>` format
         const colPrefix = 'column-'
         const overId = over.id as string
         if (overId.startsWith(colPrefix)) {
-          targetStatus = overId.slice(colPrefix.length) as MissionStatus
+          targetStatus = overId.slice(colPrefix.length) as TaskStatus
         } else {
           // Dropped on a card — find its status
           const targetTask = tasks.find((m) => m.id === over.id)
@@ -107,7 +107,7 @@ export function TaskBoard({
       const targetColumn = grouped[targetStatus] || []
       let newPosition: number
 
-      if (overData?.type === 'mission' && over.id !== active.id) {
+      if (overData?.type === 'task' && over.id !== active.id) {
         // Dropped on a specific card
         const overIndex = targetColumn.findIndex((m) => m.id === over.id)
         if (overIndex <= 0) {
@@ -135,7 +135,7 @@ export function TaskBoard({
           toastError(`Cannot move from ${from} to ${targetStatus}`)
           return
         }
-        const toTerminal = (TERMINAL_MISSION_STATUSES as readonly string[]).includes(targetStatus)
+        const toTerminal = (TERMINAL_TASK_STATUSES as readonly string[]).includes(targetStatus)
         if (draggedTask.current_execution_id && toTerminal) {
           toastError('Cancel the running execution before moving to this status')
           return
@@ -152,7 +152,7 @@ export function TaskBoard({
         ...updates,
       })
     },
-    [tasks, grouped, workspaceId, updateTask],
+    [tasks, grouped, workspaceId, updateTask, effectiveTransitions],
   )
 
   return (
@@ -163,13 +163,13 @@ export function TaskBoard({
       onDragEnd={handleDragEnd}
     >
       <div className="flex h-full gap-3 p-4">
-        {MISSION_STATUS_ORDER.map((status) => (
+        {TASK_STATUS_ORDER.map((status) => (
           <TaskColumn
             key={status}
             status={status}
-            missions={grouped[status]}
+            tasks={grouped[status]}
             agentsMap={agentsMap}
-            onSelectMission={onSelectTask}
+            onSelectTask={onSelectTask}
           />
         ))}
       </div>
@@ -177,7 +177,7 @@ export function TaskBoard({
       <DragOverlay>
         {activeTask ? (
           <TaskCard
-            mission={activeTask}
+            task={activeTask}
             agentName={agentsMap[activeTask.assignee_id ?? '']}
             isDragOverlay
           />

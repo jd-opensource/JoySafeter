@@ -5,11 +5,11 @@ import { useMemo, useRef, useState, useEffect, useCallback } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useTaskComments, useCreateTaskComment } from '@/hooks/queries/taskComments'
+import { useTaskActivities, useCreateTaskActivity } from '@/hooks/queries/taskActivities'
 import { useAgents, useAgentNameMap } from '@/hooks/queries/agents'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/utils/runHelpers'
-import type { MissionComment } from '@/types/mission-comments'
+import type { TaskActivity } from '@/types/task-activities'
 
 const MENTION_RE = /\[@([^\]]*)\]\(mention:\/\/(agent|member)\/[^)]+\)/g
 
@@ -39,18 +39,18 @@ function renderContentWithMentions(content: string) {
   return parts.length > 0 ? parts : content
 }
 
-interface CommentThreadProps {
+interface ActivityThreadProps {
   taskId: string
   workspaceId: string
 }
 
-export function CommentThread({ taskId, workspaceId }: CommentThreadProps) {
-  const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useTaskComments(
+export function ActivityThread({ taskId, workspaceId }: ActivityThreadProps) {
+  const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useTaskActivities(
     taskId,
     workspaceId,
   )
 
-  const createComment = useCreateTaskComment()
+  const createActivity = useCreateTaskActivity()
   const [newContent, setNewContent] = useState('')
   const [replyTo, setReplyTo] = useState<string | null>(null)
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
@@ -62,30 +62,30 @@ export function CommentThread({ taskId, workspaceId }: CommentThreadProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const isAtBottomRef = useRef(true)
 
-  const allComments = useMemo(() => {
+  const allActivities = useMemo(() => {
     if (!data?.pages) return []
     return data.pages.flatMap((page) => page.items)
   }, [data])
 
-  // Group into threads: root comments + their replies
+  // Group into threads: root activities + their replies
   const threads = useMemo(() => {
-    const roots: MissionComment[] = []
-    const repliesByParent: Record<string, MissionComment[]> = {}
+    const roots: TaskActivity[] = []
+    const repliesByParent: Record<string, TaskActivity[]> = {}
 
-    for (const c of allComments) {
-      if (c.parent_comment_id) {
-        const parentId = c.parent_comment_id
+    for (const a of allActivities) {
+      if (a.parent_activity_id) {
+        const parentId = a.parent_activity_id
         if (!repliesByParent[parentId]) repliesByParent[parentId] = []
-        repliesByParent[parentId].push(c)
+        repliesByParent[parentId].push(a)
       } else {
-        roots.push(c)
+        roots.push(a)
       }
     }
     return roots.map((root) => ({
       root,
       replies: repliesByParent[root.id] || [],
     }))
-  }, [allComments])
+  }, [allActivities])
 
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current
@@ -97,19 +97,19 @@ export function CommentThread({ taskId, workspaceId }: CommentThreadProps) {
     if (isAtBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [allComments.length])
+  }, [allActivities.length])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const trimmed = newContent.trim()
     if (!trimmed) return
     setMentionQuery(null)
-    createComment.mutate(
+    createActivity.mutate(
       {
         taskId,
         workspaceId,
         content: trimmed,
-        parent_comment_id: replyTo ?? undefined,
+        parent_activity_id: replyTo ?? undefined,
       },
       {
         onSuccess: () => {
@@ -167,27 +167,27 @@ export function CommentThread({ taskId, workspaceId }: CommentThreadProps) {
           disabled={isFetchingNextPage}
           className="mb-2 text-xs text-[var(--brand-400)] hover:underline disabled:opacity-50"
         >
-          {isFetchingNextPage ? 'Loading...' : 'Load earlier comments'}
+          {isFetchingNextPage ? 'Loading...' : 'Load earlier activity'}
         </button>
       )}
 
       {/* Empty state */}
       {threads.length === 0 && (
-        <p className="py-4 text-center text-xs text-[var(--text-muted)]">No comments yet</p>
+        <p className="py-4 text-center text-xs text-[var(--text-muted)]">No activity yet</p>
       )}
 
-      {/* Comment threads */}
+      {/* Activity threads */}
       <div className="space-y-3">
         {threads.map(({ root, replies }) => (
           <div key={root.id}>
-            <CommentItem
-              comment={root}
+            <ActivityItem
+              activity={root}
               onReply={() => setReplyTo(root.id)}
               agentNameMap={agentNameMap}
             />
             {replies.map((reply) => (
               <div key={reply.id} className="ml-6 mt-1.5">
-                <CommentItem comment={reply} isReply agentNameMap={agentNameMap} />
+                <ActivityItem activity={reply} isReply agentNameMap={agentNameMap} />
               </div>
             ))}
           </div>
@@ -223,9 +223,6 @@ export function CommentThread({ taskId, workspaceId }: CommentThreadProps) {
               >
                 <Bot className="h-3.5 w-3.5 text-[var(--brand-400)]" />
                 <span className="text-[var(--text-primary)]">{agent.name}</span>
-                <span className="ml-auto text-[10px] text-[var(--text-muted)]">
-                  {agent.runtime_type}
-                </span>
               </button>
             ))}
           </div>
@@ -245,9 +242,9 @@ export function CommentThread({ taskId, workspaceId }: CommentThreadProps) {
           <Button
             type="submit"
             size="icon"
-            disabled={!newContent.trim() || createComment.isPending}
+            disabled={!newContent.trim() || createActivity.isPending}
           >
-            {createComment.isPending ? (
+            {createActivity.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Send className="h-4 w-4" />
@@ -259,21 +256,21 @@ export function CommentThread({ taskId, workspaceId }: CommentThreadProps) {
   )
 }
 
-// ---- Single comment item ----
+// ---- Single activity item ----
 
-function CommentItem({
-  comment,
+function ActivityItem({
+  activity,
   onReply,
   isReply,
   agentNameMap,
 }: {
-  comment: MissionComment
+  activity: TaskActivity
   onReply?: () => void
   isReply?: boolean
   agentNameMap?: Record<string, string>
 }) {
-  const isAgent = comment.author_type === 'agent'
-  const isSystem = comment.type === 'system'
+  const isAgent = activity.author_type === 'agent'
+  const isSystem = activity.type === 'system'
 
   return (
     <div
@@ -291,7 +288,7 @@ function CommentItem({
           <User className="h-3.5 w-3.5 text-[var(--text-muted)]" />
         )}
         <span className="text-xs font-medium text-[var(--text-secondary)]">
-          {isAgent ? (agentNameMap?.[comment.author_id] ?? 'Agent') : 'You'}
+          {isAgent ? (agentNameMap?.[activity.author_id] ?? 'Agent') : 'You'}
         </span>
         {isSystem && (
           <span className="flex items-center gap-0.5 text-xs text-[var(--status-error)]">
@@ -299,11 +296,11 @@ function CommentItem({
             System
           </span>
         )}
-        {comment.type === 'progress_update' && (
+        {activity.type === 'progress_update' && (
           <span className="text-xs text-[var(--status-success)]">Update</span>
         )}
         <span className="ml-auto text-[10px] text-[var(--text-muted)]">
-          {formatRelativeTime(comment.created_at)}
+          {formatRelativeTime(activity.created_at)}
         </span>
       </div>
       <p
@@ -312,7 +309,7 @@ function CommentItem({
           isSystem ? 'text-[var(--status-error)]' : 'text-[var(--text-primary)]',
         )}
       >
-        {renderContentWithMentions(comment.content)}
+        {renderContentWithMentions(activity.content)}
       </p>
       {onReply && !isReply && (
         <button

@@ -1,10 +1,10 @@
 """
 Graph node secrets: encrypt a2a_auth_headers and store by reference.
 
-- On save: if node has plain a2a_auth_headers, encrypt and store in graph_node_secrets,
-  replace in node.data.config with {"__secretRef": "<secret_id>"}.
-- On load for execution: resolve __secretRef to decrypted headers (in-memory only).
-- GET /state never returns decrypted headers; frontend sees __secretRef or redacted.
+The GraphNode / GraphNodeSecret ORM models have been removed.
+Node secrets are now stored inline in AgentVersion.definition_payload.
+The helper functions below operate on plain dicts (node data payloads)
+and are used by the graph builder at compile time.
 """
 
 import copy
@@ -12,15 +12,9 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.model.utils import decrypt_credentials, encrypt_credentials
-
-# GraphNode and GraphNodeSecret models were removed in greenfield rewrite.
-# Functions in this module accept Any-typed objects and access attributes dynamically.
-GraphNode = None  # type: ignore[assignment,misc]
-GraphNodeSecret = None  # type: ignore[assignment,misc]
 
 SECRET_KEY_SLUG = "a2a_auth_headers"
 REF_KEY = "__secretRef"
@@ -48,33 +42,30 @@ async def store_a2a_auth_headers(
     node_id: uuid.UUID,
     headers: Dict[str, str],
 ) -> uuid.UUID:
-    """Encrypt and store headers; return the secret row id (for __secretRef)."""
-    if not headers:
-        raise ValueError("headers must be non-empty")
-    encrypted = encrypt_credentials(headers)
-    row = GraphNodeSecret(
-        graph_id=graph_id,
-        node_id=node_id,
-        key_slug=SECRET_KEY_SLUG,
-        encrypted_value=encrypted,
+    """Encrypt and store headers.
+
+    The GraphNodeSecret table has been removed. Secrets are now stored
+    inline in AgentVersion.definition_payload. This function raises
+    RuntimeError to surface any call-sites that still rely on the old
+    storage path.
+    """
+    raise RuntimeError(
+        "store_a2a_auth_headers: GraphNodeSecret table removed. "
+        "Secrets should be stored in AgentVersion.definition_payload."
     )
-    db.add(row)
-    await db.flush()
-    return row.id
 
 
 async def resolve_a2a_auth_headers(db: AsyncSession, secret_id: uuid.UUID) -> Optional[Dict[str, str]]:
-    """Load and decrypt headers by secret id. Returns None if not found or invalid."""
-    result = await db.execute(select(GraphNodeSecret).where(GraphNodeSecret.id == secret_id))
-    row = result.scalar_one_or_none()
-    if not row or not row.encrypted_value:
-        return None
-    try:
-        decrypted = decrypt_credentials(row.encrypted_value)
-        return {str(k): str(v) for k, v in decrypted.items()} if isinstance(decrypted, dict) else None
-    except Exception as e:
-        logger.warning(f"[NodeSecrets] Failed to decrypt secret {secret_id}: {e}")
-        return None
+    """Load and decrypt headers by secret id.
+
+    The GraphNodeSecret table has been removed. Returns None so that
+    callers degrade gracefully.
+    """
+    logger.warning(
+        f"[NodeSecrets] resolve_a2a_auth_headers called with secret_id={secret_id} "
+        "but GraphNodeSecret table no longer exists"
+    )
+    return None
 
 
 def prepare_node_data_for_save(node_data: Dict[str, Any]) -> tuple[Dict[str, Any], Optional[Dict[str, str]]]:
@@ -94,10 +85,14 @@ def prepare_node_data_for_save(node_data: Dict[str, Any]) -> tuple[Dict[str, Any
     return data_copy, headers
 
 
-async def hydrate_nodes_a2a_secrets(db: AsyncSession, nodes: List[GraphNode]) -> None:
-    """Resolve __secretRef in each node's data.config.a2a_auth_headers in-place (for execution only)."""
+async def hydrate_nodes_a2a_secrets(db: AsyncSession, nodes: List[Any]) -> None:
+    """Resolve __secretRef in each node's data.config.a2a_auth_headers in-place (for execution only).
+
+    Accepts any object with a ``data`` dict attribute (previously GraphNode ORM instances,
+    now plain data-holder objects from AgentVersion.definition_payload).
+    """
     for node in nodes:
-        data = node.data or {}
+        data = getattr(node, "data", None) or {}
         config = data.get("config") or {}
         raw = config.get("a2a_auth_headers")
         if not isinstance(raw, dict) or REF_KEY not in raw:

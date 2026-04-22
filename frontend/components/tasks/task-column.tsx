@@ -6,12 +6,12 @@ import { CSS } from '@dnd-kit/utilities'
 
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
-import type { Mission, MissionStatus } from '@/types/missions'
-import { MISSION_STATUS_LABELS } from '@/types/missions'
+import type { Task, TaskStatus } from '@/types/missions'
+import { TASK_STATUS_LABELS } from '@/types/missions'
 
 import { TaskCard } from './task-card'
 
-const STATUS_COLUMN_STYLES: Record<MissionStatus, { bg: string; indicator: string }> = {
+const STATUS_COLUMN_STYLES: Record<TaskStatus, { bg: string; indicator: string }> = {
   backlog: { bg: 'bg-[var(--surface-1)]', indicator: 'bg-[var(--text-muted)]' },
   todo: { bg: 'bg-[var(--surface-1)]', indicator: 'bg-[var(--brand-400)]' },
   in_progress: { bg: 'bg-[var(--surface-1)]', indicator: 'bg-[var(--status-warning)]' },
@@ -21,15 +21,15 @@ const STATUS_COLUMN_STYLES: Record<MissionStatus, { bg: string; indicator: strin
 }
 
 interface SortableTaskCardProps {
-  mission: Mission
+  task: Task
   agentName?: string
-  onSelectMission?: (id: string) => void
+  onSelectTask?: (id: string) => void
 }
 
-function SortableTaskCard({ mission, agentName, onSelectMission }: SortableTaskCardProps) {
+function SortableTaskCard({ task, agentName, onSelectTask }: SortableTaskCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: mission.id,
-    data: { type: 'mission', mission },
+    id: task.id,
+    data: { type: 'task', task },
   })
 
   const style: React.CSSProperties = {
@@ -41,9 +41,9 @@ function SortableTaskCard({ mission, agentName, onSelectMission }: SortableTaskC
   return (
     <TaskCard
       ref={setNodeRef}
-      mission={mission}
+      task={task}
       agentName={agentName}
-      onSelectMission={onSelectMission}
+      onSelectTask={onSelectTask}
       style={style}
       {...attributes}
       {...listeners}
@@ -52,17 +52,17 @@ function SortableTaskCard({ mission, agentName, onSelectMission }: SortableTaskC
 }
 
 interface TaskColumnProps {
-  status: MissionStatus
-  missions: Mission[]
+  status: TaskStatus
+  tasks: Task[]
   agentsMap?: Record<string, string>
-  onSelectMission?: (id: string) => void
+  onSelectTask?: (id: string) => void
 }
 
 export function TaskColumn({
   status,
-  missions,
+  tasks,
   agentsMap,
-  onSelectMission,
+  onSelectTask,
 }: TaskColumnProps) {
   const { t } = useTranslation()
   const { setNodeRef, isOver } = useDroppable({
@@ -70,7 +70,7 @@ export function TaskColumn({
     data: { type: 'column', status },
   })
 
-  const missionIds = missions.map((m) => m.id)
+  const taskIds = tasks.map((m) => m.id)
   const colStyle = STATUS_COLUMN_STYLES[status]
 
   return (
@@ -84,25 +84,25 @@ export function TaskColumn({
       <div className="flex items-center gap-2 px-3 py-2.5">
         <span className={cn('h-2.5 w-2.5 rounded-full', colStyle.indicator)} />
         <span className="text-sm font-semibold text-[var(--text-primary)]">
-          {MISSION_STATUS_LABELS[status]}
+          {TASK_STATUS_LABELS[status]}
         </span>
         <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[var(--surface-5)] px-1.5 text-xs font-medium text-[var(--text-secondary)]">
-          {missions.length}
+          {tasks.length}
         </span>
       </div>
 
       <div ref={setNodeRef} className="flex-1 space-y-2 overflow-y-auto p-2">
-        <SortableContext items={missionIds} strategy={verticalListSortingStrategy}>
-          {missions.map((mission) => (
+        <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
+          {tasks.map((task) => (
             <SortableTaskCard
-              key={mission.id}
-              mission={mission}
-              agentName={agentsMap?.[mission.assignee_id ?? '']}
-              onSelectMission={onSelectMission}
+              key={task.id}
+              task={task}
+              agentName={agentsMap?.[task.assignee_id ?? '']}
+              onSelectTask={onSelectTask}
             />
           ))}
         </SortableContext>
-        {missions.length === 0 && (
+        {tasks.length === 0 && (
           <div className="flex flex-col items-center justify-center py-8 text-[var(--text-muted)]">
             <div className="mb-1.5 h-8 w-8 rounded-full border-2 border-dashed border-[var(--border)]" />
             <p className="text-xs">{t('tasks.noTasks')}</p>

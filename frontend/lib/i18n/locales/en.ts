@@ -98,7 +98,7 @@ const en = {
       tabExecutions: 'Task Executions',
       executionEmpty: 'No executions yet',
       executionEmptyDesc: 'Task-dispatched executions will appear here.',
-      linkedMission: 'Task',
+      linkedTask: 'Task',
       viewInMissions: 'View in Task Board',
       viewInRunCenter: 'View in Run Monitor',
       dispatchedToast: 'Task dispatched',
@@ -115,7 +115,7 @@ const en = {
       filteredByTask: 'Filtered by task',
       filteredByMission: 'Filtered by task',
       clearFilter: 'Clear',
-      notLinkedToMission: 'Not linked to a task — actions unavailable',
+      notLinkedToTask: 'Not linked to a task — actions unavailable',
     },
     tasks: {
       stopRun: 'Stop Run',

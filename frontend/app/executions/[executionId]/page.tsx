@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ExecutionTimeline } from '@/components/execution/ExecutionTimeline'
+import { ExecutionTimelineView } from '@/components/execution/ExecutionTimeline'
 import { ExecutionDetailPanel } from '@/components/execution/ExecutionDetailPanel'
 import { useExecution, useExecutionEvents } from '@/hooks/queries/agentRuns'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
@@ -135,7 +135,7 @@ export default function ExecutionDetailPage() {
                   {events.length === 0 ? (
                     <p className="text-sm text-[var(--text-muted)]">No events yet</p>
                   ) : (
-                    <ExecutionTimeline events={events} />
+                    <ExecutionTimelineView />
                   )}
                 </Card>
               </TabsContent>

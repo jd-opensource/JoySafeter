@@ -1,10 +1,10 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-import type { MissionPriority } from '@/types/missions'
-import { MISSION_PRIORITY_LABELS } from '@/types/missions'
+import type { TaskPriority } from '@/types/missions'
+import { TASK_PRIORITY_LABELS } from '@/types/missions'
 
-const PRIORITY_STYLES: Record<MissionPriority, string> = {
+const PRIORITY_STYLES: Record<TaskPriority, string> = {
   urgent:
     'bg-[var(--status-error-bg)] text-[var(--status-error)] border-[var(--status-error-border)]',
   high: 'bg-[var(--status-warning-bg)] text-[var(--status-warning)] border-[var(--status-warning-border)]',
@@ -15,7 +15,7 @@ const PRIORITY_STYLES: Record<MissionPriority, string> = {
 }
 
 interface PriorityBadgeProps {
-  priority: MissionPriority
+  priority: TaskPriority
   className?: string
 }
 
@@ -28,7 +28,7 @@ export function PriorityBadge({ priority, className }: PriorityBadgeProps) {
         className,
       )}
     >
-      {MISSION_PRIORITY_LABELS[priority]}
+      {TASK_PRIORITY_LABELS[priority]}
     </span>
   )
 }

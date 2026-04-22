@@ -12,13 +12,13 @@ export function useWorkspacePermission() {
 
   // For now, if user has a workspace, they're the owner
   // TODO: implement proper role checking from workspace membership
-  const role: WorkspaceRole = personalWorkspace ? 'owner' : 'viewer'
+  const role: WorkspaceRole = personalWorkspace ? ('owner' as const) : ('viewer' as const)
 
   return useMemo(() => ({
     role,
     canView: true,
     canOperate: role !== 'viewer',
-    canManage: role === 'admin' || role === 'owner',
+    canManage: (role as WorkspaceRole) === 'admin' || role === 'owner',
     canOwn: role === 'owner',
   }), [role])
 }

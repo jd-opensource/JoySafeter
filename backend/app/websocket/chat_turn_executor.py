@@ -161,24 +161,13 @@ class ChatTurnExecutor:
                                 else:
                                     initial_context[key] = value
 
-                graph_service = module.GraphService(db)
-                if payload.graph_id is None:
-                    built_graph = await graph_service.create_default_deep_agents_graph(
-                        user_id=handler.user_id,
-                        file_emitter=file_emitter,
-                    )
-                else:
-                    from app.repositories.user import UserRepository
-
-                    user_repo = UserRepository(db)
-                    current_user = await user_repo.get_by_id(handler.user_id)
-                    built_graph = await graph_service.create_graph_by_graph_id(
-                        graph_id=payload.graph_id,
-                        user_id=handler.user_id,
-                        current_user=current_user,
-                        file_emitter=file_emitter,
-                        thread_id=thread_id,
-                    )
+                # GraphService has been removed. Graph compilation is now
+                # handled via the Agent -> AgentVersion -> definition_payload
+                # pipeline. This code path requires migration to the new model.
+                raise RuntimeError(
+                    "GraphService has been removed. Chat graph compilation must "
+                    "be migrated to the Agent/AgentVersion pipeline."
+                )
 
             state = module.StreamState(thread_id)
             current_task = asyncio.current_task()
@@ -318,15 +307,8 @@ class ChatTurnExecutor:
                             agent_run_id=agent_run_id,
                             assistant_message_id=assistant_message_id,
                         )
-                        async with module.AsyncSessionLocal() as session:
-                            result_query = await session.execute(
-                                module.select(module.Conversation).where(module.Conversation.thread_id == thread_id)
-                            )
-                            if conv := result_query.scalar_one_or_none():
-                                if not conv.meta_data:
-                                    conv.meta_data = {}
-                                conv.meta_data["interrupted_graph_id"] = str(payload.graph_id)
-                                await session.commit()
+                        # Interrupt state is tracked by the LangGraph checkpointer;
+                        # no need to persist interrupted_graph_id separately.
                         state.interrupted = True
                         state.interrupt_node = next_node
                         state.interrupt_state = current_state
@@ -475,34 +457,22 @@ class ChatTurnExecutor:
         assistant_message_id = f"msg-assistant-{uuid_lib.uuid4()}"
 
         try:
+            # The graph_id must be provided in the resume command since the
+            # Conversation table (which previously stored interrupted_graph_id)
+            # has been dropped. The client already knows the graph_id from the
+            # interrupt event it received.
+            raw_graph_id = command.get("graph_id")
+            if raw_graph_id:
+                try:
+                    graph_id = uuid_lib.UUID(str(raw_graph_id))
+                except (ValueError, TypeError):
+                    graph_id = None
+
+            if graph_id is None:
+                await handler._send({"type": "ws_error", "request_id": request_id, "message": "graph_id is required in resume command"})
+                return
+
             async with module.AsyncSessionLocal() as db:
-                result = await db.execute(
-                    module.select(module.Conversation).where(
-                        module.Conversation.thread_id == thread_id,
-                        module.Conversation.user_id == handler.user_id,
-                    )
-                )
-                conversation = result.scalar_one_or_none()
-                if not conversation:
-                    await handler._send(
-                        {"type": "ws_error", "request_id": request_id, "message": "conversation not found"}
-                    )
-                    return
-
-                if (
-                    conversation.meta_data
-                    and isinstance(conversation.meta_data, dict)
-                    and "interrupted_graph_id" in conversation.meta_data
-                ):
-                    try:
-                        graph_id = uuid_lib.UUID(str(conversation.meta_data["interrupted_graph_id"]))
-                    except (ValueError, TypeError):
-                        graph_id = None
-
-                if graph_id is None:
-                    await handler._send({"type": "ws_error", "request_id": request_id, "message": "graph id not found"})
-                    return
-
                 config, _ = await module.get_user_config(handler.user_id, thread_id)
 
                 from langgraph.types import Command
@@ -520,11 +490,12 @@ class ChatTurnExecutor:
                 user_repo = UserRepository(db)
                 current_user = await user_repo.get_by_id(handler.user_id)
 
-                graph_service = module.GraphService(db)
-                built_graph = await graph_service.create_graph_by_graph_id(
-                    graph_id=graph_id,
-                    user_id=handler.user_id,
-                    current_user=current_user,
+                # GraphService has been removed. Graph compilation is now
+                # handled via the Agent -> AgentVersion -> definition_payload
+                # pipeline. This code path requires migration to the new model.
+                raise RuntimeError(
+                    "GraphService has been removed. Resume graph compilation must "
+                    "be migrated to the Agent/AgentVersion pipeline."
                 )
 
                 snap = await module.safe_get_state(

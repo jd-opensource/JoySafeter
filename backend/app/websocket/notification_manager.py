@@ -16,7 +16,7 @@ class NotificationType(str, Enum):
     INVITATION_ACCEPTED = "invitation_accepted"
     INVITATION_REJECTED = "invitation_rejected"
     INVITATION_CANCELLED = "invitation_cancelled"
-    TASK_COMMENT_ADDED = "task_comment_added"
+    TASK_ACTIVITY_ADDED = "task_activity_added"
     TASK_UPDATED = "task_updated"
     EXECUTION_STATUS_CHANGED = "execution_status_changed"
     PING = "ping"

@@ -344,10 +344,10 @@ class ExecutionLifecycleService(RunnerCallbacks):
 
             # Post comment via task comment service if available
             try:
-                from app.services.task_comment_service import TaskCommentService
+                from app.services.task_activity_service import TaskActivityService
 
-                svc = TaskCommentService(self.db)
-                await svc.post_execution_comment(
+                svc = TaskActivityService(self.db)
+                await svc.post_execution_activity(
                     execution=execution,
                     task_id=run.task_id,
                     result_status=status,
@@ -355,7 +355,7 @@ class ExecutionLifecycleService(RunnerCallbacks):
                     error_message=error_message[:2000] if error_message else "",
                 )
             except ImportError:
-                pass  # task_comment_service may not exist yet
+                pass  # task_activity_service may not exist yet
         except Exception as exc:
             logger.warning(f"Failed to post completion comment for {execution_id}: {exc}")
 

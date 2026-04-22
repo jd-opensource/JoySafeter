@@ -4,10 +4,6 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-# AgentGraph model was removed in greenfield rewrite.
-# Functions in this module accept Any-typed objects and access attributes dynamically.
-AgentGraph = None  # type: ignore[assignment,misc]
-
 _PLACEHOLDER_PATTERN = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _PROMPT_CONFIG_KEYS = ("systemPrompt", "system_prompt", "prompt")
 
@@ -37,7 +33,7 @@ def extract_runtime_template_variables(text: str | None) -> set[str]:
 
 
 def build_runtime_prompt_context(
-    graph: AgentGraph,
+    graph: Any,
     *,
     user_id: Any | None,
     thread_id: str | None,

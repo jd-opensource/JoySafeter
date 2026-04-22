@@ -9,12 +9,12 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 
 import { taskService } from '@/services/taskService'
 import type {
-  Mission,
-  CreateMissionRequest,
-  UpdateMissionRequest,
-  MissionStatus,
+  Task,
+  CreateTaskRequest,
+  UpdateTaskRequest,
+  TaskStatus,
 } from '@/types/missions'
-import { TERMINAL_MISSION_STATUSES, DEFAULT_MANUAL_TRANSITIONS } from '@/types/missions'
+import { TERMINAL_TASK_STATUSES, DEFAULT_MANUAL_TRANSITIONS } from '@/types/missions'
 
 import { STALE_TIME } from './constants'
 import { executionKeys } from './executions'
@@ -40,7 +40,7 @@ export function useTasks(
 ) {
   return useQuery({
     queryKey: taskKeys.list(workspaceId, filters),
-    queryFn: async (): Promise<Mission[]> => {
+    queryFn: async (): Promise<Task[]> => {
       const tasks = await taskService.list(workspaceId, filters)
       return tasks || []
     },
@@ -64,7 +64,7 @@ export function useTask(
     staleTime: STALE_TIME.SHORT,
     refetchInterval: (query) => {
       const status = query.state.data?.status
-      if (status && TERMINAL_MISSION_STATUSES.includes(status)) return false
+      if (status && TERMINAL_TASK_STATUSES.includes(status)) return false
       return 10_000
     },
   })
@@ -76,7 +76,7 @@ export function useCreateTask() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (data: CreateMissionRequest) => {
+    mutationFn: async (data: CreateTaskRequest) => {
       return taskService.create(data)
     },
     onSuccess: () => {
@@ -93,29 +93,29 @@ export function useUpdateTask() {
       taskId,
       workspaceId,
       ...updates
-    }: UpdateMissionRequest & { taskId: string; workspaceId: string }) => {
+    }: UpdateTaskRequest & { taskId: string; workspaceId: string }) => {
       return taskService.update(taskId, workspaceId, updates)
     },
     onMutate: async (variables) => {
       await queryClient.cancelQueries({ queryKey: taskKeys.all })
-      const previous = queryClient.getQueriesData<Mission[]>({ queryKey: taskKeys.all })
+      const previous = queryClient.getQueriesData<Task[]>({ queryKey: taskKeys.all })
 
       const { taskId: _id, workspaceId: _ws, ...updates } = variables
 
-      queryClient.setQueriesData<Mission[]>({ queryKey: taskKeys.all }, (old) => {
+      queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.all }, (old) => {
         if (!old || !Array.isArray(old)) return old
         return old.map((m) =>
-          m.id === variables.taskId ? ({ ...m, ...updates } as Mission) : m,
+          m.id === variables.taskId ? ({ ...m, ...updates } as Task) : m,
         )
       })
 
-      const previousDetail = queryClient.getQueryData<Mission>(
+      const previousDetail = queryClient.getQueryData<Task>(
         taskKeys.detail(variables.taskId, variables.workspaceId),
       )
       if (previousDetail) {
-        queryClient.setQueryData<Mission>(
+        queryClient.setQueryData<Task>(
           taskKeys.detail(variables.taskId, variables.workspaceId),
-          { ...previousDetail, ...updates } as Mission,
+          { ...previousDetail, ...updates } as Task,
         )
       }
 
@@ -199,9 +199,9 @@ export function useCancelTask() {
 export function useTaskTransitions(workspaceId: string) {
   return useQuery({
     queryKey: taskKeys.transitions(workspaceId),
-    queryFn: async (): Promise<Record<MissionStatus, MissionStatus[]>> => {
+    queryFn: async (): Promise<Record<TaskStatus, TaskStatus[]>> => {
       const res = await taskService.getTransitions(workspaceId)
-      return (res ?? DEFAULT_MANUAL_TRANSITIONS) as Record<MissionStatus, MissionStatus[]>
+      return (res ?? DEFAULT_MANUAL_TRANSITIONS) as Record<TaskStatus, TaskStatus[]>
     },
     enabled: Boolean(workspaceId),
     staleTime: Infinity,

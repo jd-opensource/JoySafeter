@@ -79,7 +79,7 @@ export const TASK_PRIORITY_LABELS: Record<TaskPriority, string> = {
   urgent: 'Urgent',
 }
 
-export const MISSION_STATUS_STYLES: Record<string, string> = {
+export const TASK_STATUS_STYLES: Record<string, string> = {
   backlog: 'bg-[var(--surface-3)] text-[var(--text-secondary)]',
   todo: 'bg-[var(--surface-3)] text-[var(--brand-400)]',
   in_progress: 'bg-[var(--status-warning-bg)] text-[var(--status-warning)]',

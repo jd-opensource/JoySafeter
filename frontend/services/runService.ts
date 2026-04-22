@@ -1,9 +1,5 @@
 'use client'
 
-// TODO: Phase 5 cleanup - runService removed; legacy LangGraph run system replaced by AgentRunService
-// This stub exists only to satisfy existing imports during migration. All functionality should
-// migrate to agentRunService.ts or be removed.
-
 import { API_ENDPOINTS, apiGet, apiPost } from '@/lib/api-client'
 
 export interface RunSummary {

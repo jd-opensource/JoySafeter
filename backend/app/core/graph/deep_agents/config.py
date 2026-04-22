@@ -1,18 +1,18 @@
 """Node configuration resolution — pure data extraction, no side effects.
 
-Reads raw GraphNode data and produces typed config dataclasses.
+Reads raw node data objects and produces typed config dataclasses.
 Does NOT resolve models, tools, skills, or middleware — those are
 handled by dedicated resolvers during the build phase.
+
+Node data objects are duck-typed: any object with ``id``, ``type``, and
+``data`` attributes is accepted (previously GraphNode ORM instances,
+now plain data holders from AgentVersion.definition_payload).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
-
-# GraphNode model was removed in greenfield rewrite.
-# Functions in this module accept Any-typed objects and access attributes dynamically.
-GraphNode = None  # type: ignore[assignment,misc]
 
 
 @dataclass
@@ -66,8 +66,8 @@ class NodeConfig:
         return self.label or self.name
 
 
-def resolve_node_config(node: GraphNode, node_name: str) -> NodeConfig:
-    """Extract typed config from a GraphNode. Pure function, no side effects."""
+def resolve_node_config(node: Any, node_name: str) -> NodeConfig:
+    """Extract typed config from a node data object. Pure function, no side effects."""
     data = node.data or {}
     config = data.get("config", {}) or {}
     node_type = data.get("type") or node.type or "agent"
@@ -110,7 +110,7 @@ def resolve_node_config(node: GraphNode, node_name: str) -> NodeConfig:
 
 
 def resolve_all_configs(
-    nodes: list[GraphNode],
+    nodes: list[Any],
     edges: list,
 ) -> tuple[Optional[NodeConfig], list[NodeConfig]]:
     """Resolve configs for all nodes. Returns (root_config, child_configs).

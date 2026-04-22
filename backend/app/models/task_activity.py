@@ -11,20 +11,20 @@ from sqlalchemy.orm import Mapped, mapped_column
 from .base import BaseModel
 
 
-class CommentAuthorType(str, enum.Enum):
+class ActivityAuthorType(str, enum.Enum):
     MEMBER = "member"
     AGENT = "agent"
 
 
-class CommentType(str, enum.Enum):
+class ActivityType(str, enum.Enum):
     COMMENT = "comment"
     STATUS_CHANGE = "status_change"
     PROGRESS_UPDATE = "progress_update"
     SYSTEM = "system"
 
 
-class TaskComment(BaseModel):
-    __tablename__ = "task_comments"
+class TaskActivity(BaseModel):
+    __tablename__ = "task_activities"
 
     task_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -36,26 +36,26 @@ class TaskComment(BaseModel):
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
     )
-    author_type: Mapped[CommentAuthorType] = mapped_column(
-        Enum(CommentAuthorType, values_callable=lambda e: [m.value for m in e], name="commentauthortype"),
+    author_type: Mapped[ActivityAuthorType] = mapped_column(
+        Enum(ActivityAuthorType, values_callable=lambda e: [m.value for m in e], name="activityauthortype"),
         nullable=False,
     )
     author_id: Mapped[str] = mapped_column(String(255), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    type: Mapped[CommentType] = mapped_column(
-        Enum(CommentType, values_callable=lambda e: [m.value for m in e], name="commenttype"),
+    type: Mapped[ActivityType] = mapped_column(
+        Enum(ActivityType, values_callable=lambda e: [m.value for m in e], name="activitytype"),
         nullable=False,
-        default=CommentType.COMMENT,
+        default=ActivityType.COMMENT,
     )
-    parent_comment_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    parent_activity_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("task_comments.id", ondelete="SET NULL"),
+        ForeignKey("task_activities.id", ondelete="SET NULL"),
         nullable=True,
     )
 
     __table_args__ = (
-        Index("task_comments_task_created_idx", "task_id", "created_at"),
-        Index("task_comments_workspace_idx", "workspace_id"),
-        Index("task_comments_author_idx", "author_type", "author_id"),
-        Index("task_comments_parent_idx", "parent_comment_id"),
+        Index("task_activities_task_created_idx", "task_id", "created_at"),
+        Index("task_activities_workspace_idx", "workspace_id"),
+        Index("task_activities_author_idx", "author_type", "author_id"),
+        Index("task_activities_parent_idx", "parent_activity_id"),
     )

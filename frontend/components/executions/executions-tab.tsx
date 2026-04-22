@@ -67,7 +67,7 @@ export function ExecutionsTab() {
   function clearTaskFilter() {
     const next = new URLSearchParams(searchParams.toString())
     next.delete('task')
-    next.delete('mission')
+    next.delete('mission') // ensure deprecated filter is also removed
     const qs = next.toString()
     router.replace(qs ? `/runs?${qs}` : '/runs')
   }
@@ -138,7 +138,7 @@ export function ExecutionsTab() {
                 <ExecutionRow
                   key={exec.id}
                   execution={exec}
-                  missionTitle={exec.task_id ? taskTitleMap[exec.task_id] : undefined}
+                  taskTitle={exec.task_id ? taskTitleMap[exec.task_id] : undefined}
                   agentName={
                     exec.agent_profile_id ? agentNameMap[exec.agent_profile_id] : undefined
                   }
@@ -160,7 +160,7 @@ export function ExecutionsTab() {
           <ExecutionTimeline
             executionId={selectedExecutionId}
             workspaceId={workspaceId}
-            missionId={selectedExecution?.task_id ?? undefined}
+            taskId={selectedExecution?.task_id ?? undefined}
           />
         </div>
       )}

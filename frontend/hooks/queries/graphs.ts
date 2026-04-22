@@ -12,11 +12,6 @@ import type { Node, Edge } from 'reactflow'
 import type { AgentGraph } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
 import { apiGet, apiPost, apiPut, apiDelete } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
-// TODO: Phase 5 cleanup - graphDeploymentService removed; replace with local type stubs
-// import type {
-//   GraphDeploymentVersion as DeploymentVersion,
-//   GraphDeploymentStatus as DeploymentStatus,
-// } from '@/services/graphDeploymentService'
 
 // Stub types replacing deleted graphDeploymentService types
 export interface DeploymentVersion {

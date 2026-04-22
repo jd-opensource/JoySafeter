@@ -19,7 +19,7 @@ import {
 
 interface ExecutionRowProps {
   execution: Execution
-  missionTitle?: string
+  taskTitle?: string
   agentName?: string
   onSelect: (executionId: string) => void
   onCancel: (executionId: string) => void
@@ -29,7 +29,7 @@ interface ExecutionRowProps {
 
 export function ExecutionRow({
   execution,
-  missionTitle,
+  taskTitle,
   agentName,
   onSelect,
   onCancel,
@@ -76,16 +76,16 @@ export function ExecutionRow({
             >
               {t(EXECUTION_STATUS_I18N[execution.status])}
             </Badge>
-            {missionTitle && execution.task_id && (
+            {taskTitle && execution.task_id && (
               <Link
                 href={`/tasks?task=${execution.task_id}`}
                 onClick={(e) => e.stopPropagation()}
                 className="truncate text-sm font-medium text-[var(--text-primary)] hover:underline"
               >
-                {missionTitle}
+                {taskTitle}
               </Link>
             )}
-            {!missionTitle && (
+            {!taskTitle && (
               <span className="truncate text-sm font-medium text-[var(--text-primary)]">
                 {execution.title || `Execution ${execution.id.slice(0, 8)}`}
               </span>
