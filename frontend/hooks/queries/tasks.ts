@@ -172,7 +172,7 @@ export function useDispatchTask() {
       queryClient.setQueryData(taskKeys.detail(variables.taskId, variables.workspaceId), data)
       queryClient.invalidateQueries({ queryKey: taskKeys.all })
       queryClient.invalidateQueries({
-        queryKey: executionKeys.list(variables.workspaceId, { mission_id: variables.taskId }),
+        queryKey: executionKeys.list(variables.workspaceId, { task_id: variables.taskId }),
       })
     },
   })
@@ -188,7 +188,7 @@ export function useCancelTask() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: taskKeys.all })
       queryClient.invalidateQueries({
-        queryKey: executionKeys.list(variables.workspaceId, { mission_id: variables.taskId }),
+        queryKey: executionKeys.list(variables.workspaceId, { task_id: variables.taskId }),
       })
     },
   })

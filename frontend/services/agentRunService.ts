@@ -7,12 +7,12 @@ export const agentRunService = {
   list: async (params: {
     workspace_id?: string
     release_id?: string
-    mission_id?: string
+    task_id?: string
   }): Promise<AgentRun[]> => {
     const searchParams = new URLSearchParams()
     if (params.workspace_id) searchParams.set('workspace_id', params.workspace_id)
     if (params.release_id) searchParams.set('release_id', params.release_id)
-    if (params.mission_id) searchParams.set('mission_id', params.mission_id)
+    if (params.task_id) searchParams.set('task_id', params.task_id)
     const res = await apiGet<AgentRun[]>(`runs?${searchParams}`)
     return res ?? []
   },

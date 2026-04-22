@@ -18,12 +18,12 @@ import { taskKeys } from './tasks'
 
 export const executionKeys = {
   all: ['executions'] as const,
-  list: (workspaceId: string, filters?: { mission_id?: string; status?: string; limit?: number }) =>
+  list: (workspaceId: string, filters?: { task_id?: string; status?: string; limit?: number }) =>
     [
       ...executionKeys.all,
       'list',
       workspaceId,
-      filters?.mission_id || '',
+      filters?.task_id || '',
       filters?.status || '',
       filters?.limit || 50,
     ] as const,
@@ -37,7 +37,7 @@ export const executionKeys = {
 
 export function useExecutions(
   workspaceId: string,
-  filters?: { mission_id?: string; status?: string; limit?: number },
+  filters?: { task_id?: string; status?: string; limit?: number },
   options?: { enabled?: boolean },
 ) {
   return useQuery({

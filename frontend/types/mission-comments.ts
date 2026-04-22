@@ -3,7 +3,7 @@ export type CommentType = 'comment' | 'status_change' | 'progress_update' | 'sys
 
 export interface MissionComment {
   id: string
-  mission_id: string
+  task_id: string
   workspace_id: string
   author_type: CommentAuthorType
   author_id: string

@@ -45,7 +45,7 @@ export function ExecutionsTab() {
   const { data: executions = [], isLoading } = useExecutions(
     workspaceId,
     {
-      mission_id: taskFilter,
+      task_id: taskFilter,
       status: statusFilter !== 'all' ? statusFilter : undefined,
       limit: 100,
     },
@@ -138,7 +138,7 @@ export function ExecutionsTab() {
                 <ExecutionRow
                   key={exec.id}
                   execution={exec}
-                  missionTitle={exec.mission_id ? taskTitleMap[exec.mission_id] : undefined}
+                  missionTitle={exec.task_id ? taskTitleMap[exec.task_id] : undefined}
                   agentName={
                     exec.agent_profile_id ? agentNameMap[exec.agent_profile_id] : undefined
                   }
@@ -160,7 +160,7 @@ export function ExecutionsTab() {
           <ExecutionTimeline
             executionId={selectedExecutionId}
             workspaceId={workspaceId}
-            missionId={selectedExecution?.mission_id ?? undefined}
+            missionId={selectedExecution?.task_id ?? undefined}
           />
         </div>
       )}

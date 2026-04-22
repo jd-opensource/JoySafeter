@@ -42,17 +42,7 @@ from app.core.agent.artifacts import ArtifactCollector
 from app.core.database import AsyncSessionLocal as AsyncSessionLocal
 from app.core.database import async_session_factory
 from app.core.settings import settings
-# TODO: Phase 5 cleanup - migrate to Thread model
-# from app.models import Conversation as Conversation
-# TODO: Phase 4/5 cleanup - AgentRunStatus removed; migrate to string literals
-# from app.models.agent_run import AgentRunStatus
-AgentRunStatus = type("AgentRunStatus", (), {"QUEUED": "queued", "RUNNING": "running", "INTERRUPT_WAIT": "interrupt_wait", "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "cancelled"})()
 from app.schemas.chat import ChatRequest
-# TODO: removed in greenfield rewrite
-# from app.services.graph_service import GraphService as GraphService
-GraphService = None  # type: ignore[assignment,misc]
-# TODO: Phase 5 cleanup - RunService removed; run persistence now handled by AgentRunService
-RunService = None  # type: ignore[assignment,misc]
 from app.utils.file_event_emitter import FileEventEmitter as FileEventEmitter
 from app.utils.safe_task import safe_create_task
 from app.utils.stream_event_handler import StreamEventHandler as StreamEventHandler
@@ -267,24 +257,24 @@ class ChatWsHandler:
         observation_id: uuid_lib.UUID | None = None,
         parent_observation_id: uuid_lib.UUID | None = None,
     ) -> None:
-        # TODO: Phase 5 cleanup - RunService removed; re-implement via AgentRunService/ExecutionService
+        """No-op: run event persistence is handled by the execution subscription layer."""
         pass
 
     async def _mark_run_status(
         self,
         *,
         run_id: uuid_lib.UUID,
-        status: AgentRunStatus,
+        status: str,
         runtime_owner_id: str | None = None,
         error_code: str | None = None,
         error_message: str | None = None,
         result_summary: dict[str, Any] | None = None,
     ) -> None:
-        # TODO: Phase 5 cleanup - RunService removed; re-implement via AgentRunService/ExecutionService
+        """No-op: run status is managed by the execution subscription layer."""
         pass
 
     async def _touch_run_heartbeat(self, *, run_id: uuid_lib.UUID) -> None:
-        # TODO: Phase 5 cleanup - RunService removed; re-implement via AgentRunService/ExecutionService
+        """No-op: heartbeat is managed by the execution subscription layer."""
         pass
 
     async def _run_persisted_run_heartbeat(self, run_id: uuid_lib.UUID) -> None:

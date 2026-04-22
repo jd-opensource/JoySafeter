@@ -3,8 +3,8 @@ export interface AgentRun {
   release_id: string
   workspace_id: string
   thread_id: string | null
-  mission_id: string | null
-  trigger_source: 'mission' | 'chat' | 'api' | 'scheduler'
+  task_id: string | null
+  trigger_source: 'task' | 'chat' | 'api' | 'scheduler'
   goal: string | null
   input_payload: Record<string, unknown> | null
   status: AgentRunStatus
@@ -55,8 +55,8 @@ export const RUN_STATUS_I18N: Record<AgentRunStatus, string> = {
 export interface CreateAgentRunRequest {
   release_id: string
   thread_id?: string
-  mission_id?: string
-  trigger_source: 'mission' | 'chat' | 'api' | 'scheduler'
+  task_id?: string
+  trigger_source: 'task' | 'chat' | 'api' | 'scheduler'
   goal?: string
   input_payload?: Record<string, unknown>
 }

@@ -6,10 +6,10 @@ import type { Execution, ExecutionEventsPage } from '@/types/executions'
 export const executionService = {
   list: async (
     workspaceId: string,
-    params?: { mission_id?: string; status?: string; limit?: number },
+    params?: { task_id?: string; status?: string; limit?: number },
   ): Promise<Execution[]> => {
     const searchParams = new URLSearchParams({ workspace_id: workspaceId })
-    if (params?.mission_id) searchParams.set('mission_id', params.mission_id)
+    if (params?.task_id) searchParams.set('task_id', params.task_id)
     if (params?.status) searchParams.set('status', params.status)
     if (params?.limit) searchParams.set('limit', String(params.limit))
     const res = await apiGet<{ items: Execution[] }>(`executions?${searchParams}`)

@@ -31,10 +31,10 @@ async def list_runs(
     current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
     workspace_id: uuid.UUID | None = Query(None),
     release_id: uuid.UUID | None = Query(None),
-    task_id: uuid.UUID | None = Query(None, alias="task_id"),
+    task_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[List[AgentRunResponse]]:
-    """List runs filtered by workspace_id, release_id, or mission_id."""
+    """List runs filtered by workspace_id, release_id, or task_id."""
     service = AgentRunService(db)
     runs = await service.list_runs(
         workspace_id=workspace_id,

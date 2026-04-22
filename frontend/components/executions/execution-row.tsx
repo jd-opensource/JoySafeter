@@ -76,9 +76,9 @@ export function ExecutionRow({
             >
               {t(EXECUTION_STATUS_I18N[execution.status])}
             </Badge>
-            {missionTitle && execution.mission_id && (
+            {missionTitle && execution.task_id && (
               <Link
-                href={`/tasks?task=${execution.mission_id}`}
+                href={`/tasks?task=${execution.task_id}`}
                 onClick={(e) => e.stopPropagation()}
                 className="truncate text-sm font-medium text-[var(--text-primary)] hover:underline"
               >

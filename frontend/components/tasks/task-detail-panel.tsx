@@ -93,7 +93,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
     enabled: mission?.assignee_type === 'agent' && Boolean(mission?.assignee_id),
   })
   const { data: agents = [] } = useAgents(workspaceId, { enabled: Boolean(workspaceId) })
-  const { data: executions = [] } = useExecutions(workspaceId, { mission_id: taskId })
+  const { data: executions = [] } = useExecutions(workspaceId, { task_id: taskId })
   const { data: transitions } = useTaskTransitions(workspaceId)
   const effectiveTransitions = transitions ?? DEFAULT_MANUAL_TRANSITIONS
 

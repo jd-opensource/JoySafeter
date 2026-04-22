@@ -5,7 +5,7 @@ export interface Execution {
   source: ExecutionSource
   status: ExecutionStatus
   title?: string | null
-  mission_id?: string | null
+  task_id?: string | null
   agent_profile_id?: string | null
   parent_execution_id?: string | null
   runtime_type: string
