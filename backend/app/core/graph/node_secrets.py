@@ -1,8 +1,11 @@
 """
-Graph node secrets: encrypt a2a_auth_headers and store by reference.
+Graph node secrets: encrypt a2a_auth_headers and store inline.
 
 The GraphNode / GraphNodeSecret ORM models have been removed.
-Node secrets are now stored inline in AgentVersion.definition_payload.
+Node secrets are now stored inline in AgentVersion.definition_payload
+under definition_payload["node_secrets"][str(node_id)] as an encrypted
+string.  No database table or UUID secret reference is involved.
+
 The helper functions below operate on plain dicts (node data payloads)
 and are used by the graph builder at compile time.
 """
@@ -12,7 +15,6 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.model.utils import decrypt_credentials, encrypt_credentials
 
@@ -36,42 +38,57 @@ def _normalize_headers(raw: Any) -> Optional[Dict[str, str]]:
     return None
 
 
-async def store_a2a_auth_headers(
-    db: AsyncSession,
-    graph_id: uuid.UUID,
-    node_id: uuid.UUID,
+def store_a2a_auth_headers(
+    payload_secrets: Dict[str, Any],
+    node_id: str | uuid.UUID,
     headers: Dict[str, str],
-) -> uuid.UUID:
-    """Encrypt and store headers.
+) -> None:
+    """Encrypt *headers* and store them inline in *payload_secrets*.
 
-    The GraphNodeSecret table has been removed. Secrets are now stored
-    inline in AgentVersion.definition_payload. This function raises
-    RuntimeError to surface any call-sites that still rely on the old
-    storage path.
+    ``payload_secrets`` is ``definition_payload["node_secrets"]`` — a plain
+    dict that lives inside AgentVersion.definition_payload.  The encrypted
+    string is keyed by ``str(node_id)``.
+
+    Example::
+
+        payload_secrets = definition_payload.setdefault("node_secrets", {})
+        store_a2a_auth_headers(payload_secrets, node_id, headers)
     """
-    raise RuntimeError(
-        "store_a2a_auth_headers: GraphNodeSecret table removed. "
-        "Secrets should be stored in AgentVersion.definition_payload."
-    )
+    if not headers:
+        return
+    encrypted = encrypt_credentials(headers)
+    payload_secrets[str(node_id)] = encrypted
+    logger.debug(f"[NodeSecrets] Stored encrypted a2a_auth_headers for node_id={node_id}")
 
 
-async def resolve_a2a_auth_headers(db: AsyncSession, secret_id: uuid.UUID) -> Optional[Dict[str, str]]:
-    """Load and decrypt headers by secret id.
+def resolve_a2a_auth_headers(
+    payload_secrets: Dict[str, Any],
+    node_id: str | uuid.UUID,
+) -> Optional[Dict[str, str]]:
+    """Decrypt and return a2a_auth_headers for *node_id* from *payload_secrets*.
 
-    The GraphNodeSecret table has been removed. Returns None so that
-    callers degrade gracefully.
+    ``payload_secrets`` is ``definition_payload.get("node_secrets", {})``.
+    Returns ``None`` when no secret is stored for the given node.
     """
-    logger.warning(
-        f"[NodeSecrets] resolve_a2a_auth_headers called with secret_id={secret_id} "
-        "but GraphNodeSecret table no longer exists"
-    )
-    return None
+    encrypted = payload_secrets.get(str(node_id))
+    if not encrypted:
+        return None
+    try:
+        result = decrypt_credentials(encrypted)
+        return {str(k): str(v) for k, v in result.items()} if isinstance(result, dict) else None
+    except Exception as exc:
+        logger.warning(f"[NodeSecrets] Failed to decrypt a2a_auth_headers for node_id={node_id}: {exc}")
+        return None
 
 
 def prepare_node_data_for_save(node_data: Dict[str, Any]) -> tuple[Dict[str, Any], Optional[Dict[str, str]]]:
     """
     If node has plain a2a_auth_headers, return (data_copy_without_plain_headers, headers_to_store).
-    Caller must: store the secret, then set data_copy["config"]["a2a_auth_headers"] = {"__secretRef": str(secret_id)}.
+
+    Caller must call ``store_a2a_auth_headers(payload_secrets, node_id, headers_to_store)``
+    after receiving the returned headers dict, then set::
+
+        data_copy["config"]["a2a_auth_headers"] = {"__secretRef": str(node_id)}
     """
     data_copy = copy.deepcopy(node_data)
     config = (data_copy.get("config") or {}) if isinstance(data_copy.get("config"), dict) else {}
@@ -85,31 +102,35 @@ def prepare_node_data_for_save(node_data: Dict[str, Any]) -> tuple[Dict[str, Any
     return data_copy, headers
 
 
-async def hydrate_nodes_a2a_secrets(db: AsyncSession, nodes: List[Any]) -> None:
-    """Resolve __secretRef in each node's data.config.a2a_auth_headers in-place (for execution only).
+def hydrate_nodes_a2a_secrets(payload_secrets: Dict[str, Any], nodes: List[Any]) -> None:
+    """Resolve ``__secretRef`` in each node's a2a_auth_headers in-place (for execution only).
 
-    Accepts any object with a ``data`` dict attribute (previously GraphNode ORM instances,
-    now plain data-holder objects from AgentVersion.definition_payload).
+    Accepts either plain dicts (from definition_payload["nodes"]) or any
+    object with a ``data`` dict attribute.
+
+    ``payload_secrets`` is ``definition_payload.get("node_secrets", {})``.
     """
     for node in nodes:
-        data = getattr(node, "data", None) or {}
+        # Support both plain dicts and data-holder objects.
+        if isinstance(node, dict):
+            node_id = node.get("id", "")
+            data = node.get("data") or {}
+        else:
+            node_id = getattr(node, "id", "")
+            data = getattr(node, "data", None) or {}
+
         config = data.get("config") or {}
         raw = config.get("a2a_auth_headers")
         if not isinstance(raw, dict) or REF_KEY not in raw:
             continue
-        ref = raw.get(REF_KEY)
-        if not ref:
-            continue
-        try:
-            secret_uuid = uuid.UUID(str(ref))
-        except (ValueError, TypeError):
-            continue
-        resolved = await resolve_a2a_auth_headers(db, secret_uuid)
-        if resolved is not None:
-            config["a2a_auth_headers"] = resolved
-            if "config" not in data:
-                data["config"] = config
-            node.data = data
+
+        resolved = resolve_a2a_auth_headers(payload_secrets, node_id)
+        config["a2a_auth_headers"] = resolved if resolved is not None else {}
+
+        # Write back — handle both dict nodes and object nodes.
+        if "config" not in data:
+            data["config"] = config
+        if isinstance(node, dict):
+            node["data"] = data
         else:
-            config["a2a_auth_headers"] = {}
             node.data = data
