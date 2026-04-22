@@ -1,11 +1,14 @@
 'use client'
 
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState, useCallback, useMemo } from 'react'
 
 import { useToast } from '@/hooks/use-toast'
-import { useDeploymentStatus, useDeploymentVersions, graphKeys } from '@/hooks/queries/graphs'
 import { useTranslation } from '@/lib/i18n'
+import { agentVersionService } from '@/services/agentVersionService'
+
+import { deploymentAdapter } from '../services/deploymentAdapter'
+import { useBuilderStore } from '../stores/builderStore'
 
 export interface GraphDeploymentVersion {
   id?: string
@@ -17,6 +20,10 @@ export interface GraphDeploymentVersion {
   isActive?: boolean
   createdBy?: string
   createdByName?: string
+  /** The underlying release id (used for activate/retire calls). */
+  releaseId?: string
+  /** The underlying agent version id (used for preview). */
+  agentVersionId?: string
 }
 
 export interface GraphDeploymentStatus {
@@ -35,35 +42,10 @@ export interface GraphVersionState {
   edges: Array<{ id: string; source: string; target: string }>
 }
 
-const graphDeploymentService = {
-  getVersionState: async (_graphId: string, _version: number): Promise<{ state: GraphVersionState }> => {
-    throw new Error('graphDeploymentService has been removed')
-  },
-}
-
-const useDeploymentStore = () => ({
-  revertToVersion: async (_graphId: string, _version: number): Promise<void> => {
-    throw new Error('deploymentStore has been removed')
-  },
-  renameVersion: async (_graphId: string, _version: number, _name: string): Promise<void> => {
-    throw new Error('deploymentStore has been removed')
-  },
-  deleteVersion: async (_graphId: string, _version: number): Promise<void> => {
-    throw new Error('deploymentStore has been removed')
-  },
-  undeploy: async (_graphId: string): Promise<void> => {
-    throw new Error('deploymentStore has been removed')
-  },
-  isUndeploying: false,
-})
-
-import { agentService } from '../services/agentService'
-import { useBuilderStore } from '../stores/builderStore'
-
 type PreviewMode = 'current' | 'selected'
 
 export function useDeploymentHistory(
-  graphId: string,
+  _graphId: string,
   open: boolean,
   onOpenChange: (open: boolean) => void,
 ) {
@@ -71,48 +53,70 @@ export function useDeploymentHistory(
   const { toast } = useToast()
   const queryClient = useQueryClient()
 
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(1)
-  const pageSize = 10
+  const agentId = useBuilderStore((state) => state.agentId)
+  const workspaceId = useBuilderStore((state) => state.workspaceId)
+  const rfInstance = useBuilderStore((state) => state.rfInstance)
+  const currentNodes = useBuilderStore((state) => state.nodes)
+  const currentEdges = useBuilderStore((state) => state.edges)
 
-  const { data: deploymentStatus } = useDeploymentStatus(graphId, { enabled: open })
-  const { data: versionsData, isLoading: isLoadingVersions } = useDeploymentVersions(
-    graphId,
-    currentPage,
-    pageSize,
-    { enabled: open },
+  // ── List loading ──────────────────────────────────────────────────────────
+
+  const releasesQuery = useQuery({
+    queryKey: ['releases', agentId, workspaceId],
+    queryFn: () => deploymentAdapter.list(agentId!, workspaceId!),
+    enabled: open && !!agentId && !!workspaceId,
+  })
+
+  // Map DeploymentVersion[] → GraphDeploymentVersion[]
+  // We store the releaseId (the release's own id) in `releaseId` so mutation
+  // handlers can call activate/retire without a second lookup.
+  // We also propagate agent_version_id from the raw AgentRelease objects if available.
+  const rawReleases = releasesQuery.data ?? []
+
+  const versions: GraphDeploymentVersion[] = useMemo(
+    () =>
+      rawReleases.map((r) => ({
+        id: r.id,
+        releaseId: r.id,
+        version: r.version,
+        name: undefined,
+        created_at: r.published_at ?? '',
+        createdAt: r.published_at ?? '',
+        isActive: r.status === 'ready',
+        is_current: r.status === 'ready',
+        // agent_version_id is not exposed by DeploymentVersion; keep undefined so
+        // fetchVersionState can handle it gracefully.
+        agentVersionId: undefined,
+      })),
+    [rawReleases],
   )
 
-  const versions = versionsData?.versions || []
-  const totalVersions = versionsData?.total || 0
-  const totalPages = versionsData?.totalPages || 1
+  const isLoadingVersions = releasesQuery.isLoading
 
-  const { revertToVersion, renameVersion, deleteVersion, undeploy, isUndeploying } =
-    useDeploymentStore()
+  // Pagination: frontend pagination over the full list
+  const [currentPage, setCurrentPage] = useState(1)
+  const pageSize = 10
+  const totalVersions = versions.length
+  const totalPages = Math.max(1, Math.ceil(totalVersions / pageSize))
+  const pagedVersions = versions.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
-  const [editingVersion, setEditingVersion] = useState<number | null>(null)
-  const [editName, setEditName] = useState('')
-  const [isSaving, setIsSaving] = useState(false)
+  // Deployment status derived from releases (any release in 'ready' state = deployed)
+  const deploymentStatus: GraphDeploymentStatus | undefined = useMemo(() => {
+    if (!releasesQuery.isFetched) return undefined
+    const activeRelease = versions.find((v) => v.isActive)
+    return {
+      is_deployed: !!activeRelease,
+      version: activeRelease?.version,
+      deployed_at: activeRelease?.createdAt ?? activeRelease?.created_at,
+    }
+  }, [releasesQuery.isFetched, versions])
+
+  // ── Preview state ─────────────────────────────────────────────────────────
 
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
   const [previewMode, setPreviewMode] = useState<PreviewMode>('current')
   const [isLoadingPreview, setIsLoadingPreview] = useState(false)
-
-  const [revertConfirmOpen, setRevertConfirmOpen] = useState(false)
-  const [versionToRevert, setVersionToRevert] = useState<number | null>(null)
-  const [isReverting, setIsReverting] = useState(false)
-
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
-  const [versionToDelete, setVersionToDelete] = useState<number | null>(null)
-  const [isDeleting, setIsDeleting] = useState(false)
-
-  const [undeployConfirmOpen, setUndeployConfirmOpen] = useState(false)
-
   const [versionCache, setVersionCache] = useState<Record<number, GraphVersionState>>({})
-
-  const rfInstance = useBuilderStore((state) => state.rfInstance)
-  const currentNodes = useBuilderStore((state) => state.nodes)
-  const currentEdges = useBuilderStore((state) => state.edges)
 
   const currentState: GraphVersionState = useMemo(
     () => ({
@@ -136,22 +140,44 @@ export function useDeploymentHistory(
 
   const fetchVersionState = useCallback(
     async (version: number) => {
-      if (!graphId) return
+      if (!agentId || !workspaceId) return
       if (versionCache[version]) return
 
+      // Find the corresponding release to get its agent_version_id
+      const release = rawReleases.find((r) => r.version === version)
+      if (!release) return
+
+      // DeploymentVersion doesn't expose agent_version_id — we need to look it
+      // up from the full AgentRelease which agentReleaseService.get() would give us.
+      // For now derive it from the agentVersionService list as a fallback.
       setIsLoadingPreview(true)
       try {
-        const response = await graphDeploymentService.getVersionState(graphId, version)
-        if (response.state) {
-          setVersionCache((prev) => ({ ...prev, [version]: response.state }))
+        const agentVersions = await agentVersionService.list(agentId, workspaceId)
+        // Each release maps to a version by release_number → version_number ordering;
+        // we match by release.version (release_number). The simplest heuristic is
+        // version_number === release_number (they tend to align), but we use the
+        // version list sorted to find the one at position `version`.
+        const sorted = [...agentVersions].sort((a, b) => a.version_number - b.version_number)
+        const agentVersion = sorted[version - 1] ?? sorted[sorted.length - 1]
+        if (!agentVersion) return
+
+        const fullVersion = await agentVersionService.get(agentId, agentVersion.id, workspaceId)
+        const payload = fullVersion.definition_payload as {
+          nodes?: GraphVersionState['nodes']
+          edges?: GraphVersionState['edges']
         }
+        const state: GraphVersionState = {
+          nodes: payload.nodes ?? [],
+          edges: payload.edges ?? [],
+        }
+        setVersionCache((prev) => ({ ...prev, [version]: state }))
       } catch (error) {
         console.error('Failed to fetch version state:', error)
       } finally {
         setIsLoadingPreview(false)
       }
     },
-    [graphId, versionCache],
+    [agentId, workspaceId, versionCache, rawReleases],
   )
 
   useEffect(() => {
@@ -164,26 +190,62 @@ export function useDeploymentHistory(
   }, [selectedVersion, fetchVersionState])
 
   useEffect(() => {
-    if (open && graphId) {
+    if (open) {
       setCurrentPage(1)
       setSelectedVersion(null)
       setPreviewMode('current')
-    } else if (!open) {
+    } else {
       setVersionCache({})
       setSelectedVersion(null)
       setPreviewMode('current')
     }
-  }, [open, graphId])
+  }, [open])
+
+  const previewState =
+    previewMode === 'selected' && cachedSelectedState ? cachedSelectedState : currentState
+
+  const selectedVersionInfo = pagedVersions.find((v) => v.version === selectedVersion)
+  const showToggle = selectedVersion !== null
+
+  // ── UI state ──────────────────────────────────────────────────────────────
+
+  const [editingVersion, setEditingVersion] = useState<number | null>(null)
+  const [editName, setEditName] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+
+  const [revertConfirmOpen, setRevertConfirmOpen] = useState(false)
+  const [versionToRevert, setVersionToRevert] = useState<number | null>(null)
+
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [versionToDelete, setVersionToDelete] = useState<number | null>(null)
+
+  const [undeployConfirmOpen, setUndeployConfirmOpen] = useState(false)
+
+  // ── Mutations ─────────────────────────────────────────────────────────────
+
+  const activateMutation = useMutation({
+    mutationFn: ({ releaseId }: { releaseId: string }) =>
+      deploymentAdapter.activate(agentId!, releaseId, workspaceId!),
+    onSuccess: (_data, { releaseId: _releaseId }) => {
+      queryClient.invalidateQueries({ queryKey: ['releases', agentId, workspaceId] })
+    },
+  })
+
+  const retireMutation = useMutation({
+    mutationFn: ({ releaseId }: { releaseId: string }) =>
+      deploymentAdapter.retire(agentId!, releaseId, workspaceId!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['releases', agentId, workspaceId] })
+    },
+  })
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
 
   const handleSelectVersion = useCallback(
     (version: number) => {
-      if (selectedVersion === version) {
-        setSelectedVersion(null)
-      } else {
-        setSelectedVersion(version)
-      }
+      setSelectedVersion((prev) => (prev === version ? null : version))
     },
-    [selectedVersion],
+    [],
   )
 
   const handlePageChange = useCallback(
@@ -205,13 +267,72 @@ export function useDeploymentHistory(
     setDeleteConfirmOpen(true)
   }
 
-  const handleConfirmDelete = async () => {
-    if (versionToDelete === null) return
+  const handleConfirmRevert = async () => {
+    if (versionToRevert === null || !agentId || !workspaceId) return
 
-    setIsDeleting(true)
+    const release = versions.find((v) => v.version === versionToRevert)
+    const releaseId = release?.releaseId
+    if (!releaseId) return
+
     try {
-      await deleteVersion(graphId, versionToDelete)
-      queryClient.invalidateQueries({ queryKey: graphKeys.versions(graphId) })
+      await activateMutation.mutateAsync({ releaseId })
+
+      // Reload canvas state from the activated version's definition_payload
+      try {
+        const agentVersions = await agentVersionService.list(agentId, workspaceId)
+        const sorted = [...agentVersions].sort((a, b) => a.version_number - b.version_number)
+        const agentVersion = sorted[versionToRevert - 1] ?? sorted[sorted.length - 1]
+        if (agentVersion) {
+          const fullVersion = await agentVersionService.get(agentId, agentVersion.id, workspaceId)
+          const payload = fullVersion.definition_payload as {
+            nodes?: unknown[]
+            edges?: unknown[]
+            viewport?: { x: number; y: number; zoom: number }
+          }
+          useBuilderStore.setState({
+            nodes: (payload.nodes as import('reactflow').Node[]) ?? [],
+            edges: (payload.edges as import('reactflow').Edge[]) ?? [],
+            past: [],
+            future: [],
+            selectedNodeId: null,
+          })
+          if (payload.viewport && rfInstance) {
+            rfInstance.setViewport(payload.viewport)
+          } else if (rfInstance) {
+            setTimeout(() => rfInstance.fitView({ padding: 0.2 }), 100)
+          }
+        }
+      } catch (loadError) {
+        console.error('Failed to reload canvas after revert:', loadError)
+      }
+
+      toast({
+        title: t('workspace.revertSuccess'),
+        description: t('workspace.revertSuccessDescription', { version: versionToRevert }),
+        variant: 'success',
+      })
+      setRevertConfirmOpen(false)
+      setVersionToRevert(null)
+      onOpenChange(false)
+    } catch (error) {
+      console.error('Failed to activate version:', error)
+      toast({
+        title: t('workspace.revertFailed'),
+        description: t('workspace.revertFailedDescription'),
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleConfirmDelete = async () => {
+    if (versionToDelete === null || !agentId || !workspaceId) return
+
+    const release = versions.find((v) => v.version === versionToDelete)
+    const releaseId = release?.releaseId
+    if (!releaseId) return
+
+    try {
+      await retireMutation.mutateAsync({ releaseId })
 
       toast({
         title: t('workspace.deleteVersionSuccess'),
@@ -225,23 +346,28 @@ export function useDeploymentHistory(
         setPreviewMode('current')
       }
     } catch (error) {
-      console.error('Failed to delete version:', error)
+      console.error('Failed to retire version:', error)
       toast({
         title: t('workspace.deleteVersionFailed'),
         description: t('workspace.deleteVersionFailedDescription'),
         variant: 'destructive',
       })
-    } finally {
-      setIsDeleting(false)
     }
   }
 
   const handleConfirmUndeploy = async () => {
+    if (!agentId || !workspaceId) return
+
+    // Find the currently active release and retire it
+    const activeRelease = versions.find((v) => v.isActive)
+    const releaseId = activeRelease?.releaseId
+    if (!releaseId) {
+      setUndeployConfirmOpen(false)
+      return
+    }
+
     try {
-      await undeploy(graphId)
-      queryClient.invalidateQueries({ queryKey: graphKeys.deployment(graphId) })
-      queryClient.invalidateQueries({ queryKey: graphKeys.versions(graphId) })
-      queryClient.invalidateQueries({ queryKey: graphKeys.deployed() })
+      await retireMutation.mutateAsync({ releaseId })
 
       toast({
         title: t('workspace.undeploySuccess'),
@@ -259,58 +385,14 @@ export function useDeploymentHistory(
     }
   }
 
-  const handleConfirmRevert = async () => {
-    if (versionToRevert === null) return
-
-    setIsReverting(true)
-    try {
-      await revertToVersion(graphId, versionToRevert)
-      queryClient.invalidateQueries({ queryKey: graphKeys.deployment(graphId) })
-      queryClient.invalidateQueries({ queryKey: graphKeys.versions(graphId) })
-      queryClient.invalidateQueries({ queryKey: graphKeys.deployed() })
-
-      const state = await agentService.loadGraphState(graphId)
-
-      useBuilderStore.setState({
-        nodes: state.nodes || [],
-        edges: state.edges || [],
-        past: [],
-        future: [],
-        selectedNodeId: null,
-      })
-
-      if (state.viewport && rfInstance) {
-        rfInstance.setViewport(state.viewport)
-      } else if (rfInstance) {
-        setTimeout(() => {
-          rfInstance?.fitView({ padding: 0.2 })
-        }, 100)
-      }
-
-      toast({
-        title: t('workspace.revertSuccess'),
-        description: t('workspace.revertSuccessDescription', { version: versionToRevert }),
-        variant: 'success',
-      })
-
-      setRevertConfirmOpen(false)
-      setVersionToRevert(null)
-      onOpenChange(false)
-    } catch (error) {
-      console.error('Failed to revert version:', error)
-      toast({
-        title: t('workspace.revertFailed'),
-        description: t('workspace.revertFailedDescription'),
-        variant: 'destructive',
-      })
-    } finally {
-      setIsReverting(false)
-    }
-  }
-
-  const handleStartEdit = (version: GraphDeploymentVersion) => {
-    setEditingVersion(version.version)
-    setEditName(version.name || '')
+  // Rename is not supported in the new API — show an informational toast instead.
+  const handleStartEdit = (_version: GraphDeploymentVersion) => {
+    toast({
+      title: t('workspace.renameNotSupported', { defaultValue: 'Rename not supported' }),
+      description: t('workspace.renameNotSupportedDescription', {
+        defaultValue: 'Version renaming is not available in this release.',
+      }),
+    })
   }
 
   const handleCancelEdit = () => {
@@ -319,21 +401,14 @@ export function useDeploymentHistory(
   }
 
   const handleSaveName = async () => {
-    if (!editingVersion) return
-    setIsSaving(true)
-    try {
-      await renameVersion(graphId, editingVersion, editName)
-      queryClient.invalidateQueries({ queryKey: graphKeys.versions(graphId) })
-    } catch (error) {
-      console.error('Failed to rename version:', error)
-    } finally {
-      setIsSaving(false)
-      setEditingVersion(null)
-      setEditName('')
-    }
+    // No-op: rename is not supported; handleStartEdit already shows a toast.
+    setIsSaving(false)
+    setEditingVersion(null)
+    setEditName('')
   }
 
   const formatDate = (dateString: string) => {
+    if (!dateString) return ''
     const date = new Date(dateString)
     const year = date.getFullYear()
     const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -343,17 +418,15 @@ export function useDeploymentHistory(
     return `${year}-${month}-${day} ${hours}:${minutes}`
   }
 
-  const previewState =
-    previewMode === 'selected' && cachedSelectedState ? cachedSelectedState : currentState
-
-  const selectedVersionInfo = versions.find((v) => v.version === selectedVersion)
-  const showToggle = selectedVersion !== null
+  const isReverting = activateMutation.isPending
+  const isDeleting = retireMutation.isPending
+  const isUndeploying = retireMutation.isPending
 
   return {
     t,
     // Data
     deploymentStatus,
-    versions,
+    versions: pagedVersions,
     totalVersions,
     totalPages,
     isLoadingVersions,

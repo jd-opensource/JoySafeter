@@ -4,7 +4,7 @@ import type { GraphState } from '../utils/saveManager'
 export const graphDataAdapter = {
   async load(agentId: string, versionId: string, workspaceId: string): Promise<GraphState> {
     const version = await agentVersionService.get(agentId, versionId, workspaceId)
-    return version.definition_payload as GraphState
+    return version.definition_payload as unknown as GraphState
   },
 
   async save(
