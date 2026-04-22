@@ -30,6 +30,7 @@ import { useDeploymentStatus, graphKeys } from '@/hooks/queries/graphs'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
+import { deploymentAdapter } from '../services/deploymentAdapter'
 import { useBuilderStore } from '../stores/builderStore'
 import { useExecutionStore } from '../stores/execution/executionStore'
 
@@ -99,19 +100,18 @@ export function BuilderToolbar({
   const handleDeploy = async () => {
     if (isDeploying || !agentId || nodesCount === 0) return
 
+    const { versionId } = useBuilderStore.getState()
+    if (!versionId) {
+      toast({ title: 'No version to deploy', variant: 'destructive' })
+      return
+    }
+
     setIsDeploying(true)
     try {
-      // For now, we'll use a simplified deployment approach
-      // In the full implementation, this would:
-      // 1. Get the current draft version ID from builderStore
-      // 2. Call deploymentAdapter.deploy(agentId, versionId, workspaceId)
-      // 3. Handle the response
-
-      // Refresh deployment status cache after successful deployment
+      await deploymentAdapter.deploy(agentId, versionId, workspaceId)
       queryClient.invalidateQueries({ queryKey: graphKeys.deployment(agentId) })
       queryClient.invalidateQueries({ queryKey: graphKeys.versions(agentId) })
       queryClient.invalidateQueries({ queryKey: graphKeys.deployed() })
-
       toast({
         title: t('workspace.deploySuccess'),
         description: t('workspace.deploySuccessDescription', { version: 'latest' }),
@@ -121,7 +121,7 @@ export function BuilderToolbar({
       console.error('Deploy failed:', error)
       toast({
         title: t('workspace.deployFailed'),
-        description: t('workspace.deployFailedDescription'),
+        description: error instanceof Error ? error.message : t('workspace.deployFailedDescription'),
         variant: 'destructive',
       })
     } finally {
