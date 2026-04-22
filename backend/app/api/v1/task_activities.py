@@ -90,9 +90,6 @@ async def create_activity(
                 task_id=task.id,
                 user_id=str(current_user.id),
             )
-                trigger_comment=activity,
-                user_id=str(current_user.id),
-            )
 
     # Push notification to task creator (if not the commenter)
     if task.creator_id != str(current_user.id):
