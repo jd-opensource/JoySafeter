@@ -527,14 +527,62 @@ class CopilotService:
         return ""
 
     async def _persist_graph_from_actions(self, graph_id: str, final_actions: List[Dict[str, Any]]) -> bool:
-        """Apply actions to graph state and persist.
+        """Apply actions to graph state and persist via AgentVersion.definition_payload.
 
-        GraphService has been removed. Graph state is now managed via
-        AgentVersion.definition_payload. This method logs a warning and
-        returns False until the new persistence path is wired.
+        Resolves the agent from graph_id (which is an agent_id in the copilot
+        context), reads the current draft version's definition_payload, applies
+        the copilot actions to nodes/edges, and writes the result back.
         """
-        logger.warning(
-            f"[CopilotService] _persist_graph_from_actions skipped: GraphService removed | "
-            f"graph_id={graph_id} actions={len(final_actions)}"
-        )
-        return False
+        from sqlalchemy import select
+
+        from app.models.agent import Agent, AgentVersion
+
+        if not self.db:
+            logger.warning("[CopilotService] _persist_graph_from_actions: no db session, skipping")
+            return False
+
+        try:
+            agent = (
+                await self.db.execute(select(Agent).where(Agent.id == uuid_lib.UUID(graph_id)))
+            ).scalar_one_or_none()
+
+            if not agent:
+                logger.warning(f"[CopilotService] _persist_graph_from_actions: agent not found graph_id={graph_id}")
+                return False
+
+            if not agent.current_draft_version_id:
+                logger.warning(
+                    f"[CopilotService] _persist_graph_from_actions: no draft version for agent={graph_id}"
+                )
+                return False
+
+            version = (
+                await self.db.execute(
+                    select(AgentVersion).where(AgentVersion.id == agent.current_draft_version_id)
+                )
+            ).scalar_one()
+
+            payload = dict(version.definition_payload or {})
+            current_nodes: List[Dict[str, Any]] = payload.get("nodes", [])
+            current_edges: List[Dict[str, Any]] = payload.get("edges", [])
+
+            updated_nodes, updated_edges = apply_actions_to_graph_state(
+                current_nodes, current_edges, final_actions
+            )
+
+            payload["nodes"] = updated_nodes
+            payload["edges"] = updated_edges
+            version.definition_payload = payload
+
+            await self.db.commit()
+            logger.info(
+                f"[CopilotService] _persist_graph_from_actions ok: "
+                f"agent={graph_id} actions={len(final_actions)} "
+                f"nodes={len(updated_nodes)} edges={len(updated_edges)}"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(f"[CopilotService] _persist_graph_from_actions failed: {e}", exc_info=True)
+            await self.db.rollback()
+            return False
