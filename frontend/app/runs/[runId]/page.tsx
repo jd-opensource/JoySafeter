@@ -10,6 +10,12 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { buildExecutionTree } from '@/components/editors/graph-builder/lib/tree-building'
+import { ExecutionTree } from '@/components/execution/ExecutionTree'
+import { ExecutionDetailPanel } from '@/components/execution/ExecutionDetailPanel'
+import { ExecutionDataProvider } from '@/components/execution/contexts/ExecutionDataContext'
+import { ExecutionSelectionProvider, useExecutionSelection } from '@/components/execution/contexts/ExecutionSelectionContext'
+import { ExecutionViewPreferencesProvider } from '@/components/execution/contexts/ExecutionViewPreferencesContext'
 import { useCancelRun } from '@/hooks/queries/runs'
 import { useTranslation } from '@/lib/i18n'
 import { ACTIVE_RUN_STATUSES, buildRunHref, formatRunStatus } from '@/lib/utils/runHelpers'
@@ -17,6 +23,7 @@ import { getRunWsClient } from '@/lib/ws/runs/runWsClient'
 import type { RunEventFrame, RunSnapshotFrame, RunStatusFrame } from '@/lib/ws/runs/types'
 import type { RunEvent, RunSnapshot, RunSummary } from '@/services/runService'
 import { runService } from '@/services/runService'
+import type { ExecutionStep } from '@/types'
 
 function formatDateTime(value?: string | null): string {
   if (!value) return '-'
@@ -276,6 +283,215 @@ function CopilotTurnOverview({
   )
 }
 
+// ============ Execution Tab Helpers ============
+
+/**
+ * Converts RunEvent[] (from the run events API) to ExecutionStep[] for the
+ * execution tree visualization. RunEvent.event_type + RunEvent.payload mirror
+ * the ChatStreamEvent format used in the graph builder.
+ */
+function runEventsToExecutionSteps(events: RunEvent[]): ExecutionStep[] {
+  const steps: ExecutionStep[] = []
+  // Stateful maps to pair start/end events
+  const toolMap = new Map<string, string>() // toolKey -> stepId
+  const nodeMap = new Map<string, string>() // nodeKey -> stepId
+  const modelMap = new Map<string, string>() // run_id -> stepId
+  let stepCounter = 0
+  const genId = (prefix: string) => `${prefix}-${++stepCounter}`
+
+  for (const evt of events) {
+    const type = evt.event_type
+    const data = evt.payload as Record<string, unknown>
+    const ts = evt.created_at ? new Date(evt.created_at).getTime() : Date.now()
+    const traceFields: Pick<ExecutionStep, 'traceId' | 'observationId' | 'parentObservationId'> = {
+      traceId: evt.trace_id ?? undefined,
+      observationId: evt.observation_id ?? undefined,
+      parentObservationId: evt.parent_observation_id ?? undefined,
+    }
+    const runId = data?.run_id as string | undefined
+    const nodeName = (data?.node_name as string | undefined) ?? undefined
+
+    if (type === 'node_start') {
+      const stepId = genId('node')
+      const nodeKey = runId ? `${nodeName}:${runId}` : (nodeName ?? 'unknown')
+      nodeMap.set(nodeKey, stepId)
+      steps.push({
+        id: stepId,
+        nodeId: nodeName ?? 'unknown',
+        nodeLabel: (data?.node_label as string | undefined) ?? nodeName ?? 'Unknown Node',
+        stepType: 'node_lifecycle',
+        title: (data?.node_label as string | undefined) ?? nodeName ?? 'Node',
+        status: 'running',
+        startTime: ts,
+        ...traceFields,
+      })
+    } else if (type === 'node_end') {
+      const nodeKey = runId ? `${nodeName}:${runId}` : (nodeName ?? 'unknown')
+      const stepId = nodeMap.get(nodeKey) ?? nodeMap.get(nodeName ?? '')
+      if (stepId) {
+        nodeMap.delete(nodeKey)
+        const existing = steps.find((s) => s.id === stepId)
+        if (existing) {
+          existing.status = (data?.status === 'error' ? 'error' : 'success') as ExecutionStep['status']
+          existing.endTime = ts
+          if (typeof data?.duration === 'number') existing.duration = data.duration
+        }
+      } else {
+        steps.push({
+          id: genId('node'),
+          nodeId: nodeName ?? 'unknown',
+          nodeLabel: (data?.node_label as string | undefined) ?? nodeName ?? 'Unknown Node',
+          stepType: 'node_lifecycle',
+          title: (data?.node_label as string | undefined) ?? nodeName ?? 'Node',
+          status: (data?.status === 'error' ? 'error' : 'success') as ExecutionStep['status'],
+          startTime: ts,
+          endTime: ts,
+          ...traceFields,
+        })
+      }
+    } else if (type === 'tool_start' || type === 'tool_use_start') {
+      const toolName = (data?.tool_name as string | undefined) ?? 'tool'
+      const toolKey = runId ? `${toolName}:${runId}` : toolName
+      const stepId = genId('tool')
+      toolMap.set(toolKey, stepId)
+      steps.push({
+        id: stepId,
+        nodeId: nodeName ?? 'tool',
+        nodeLabel: toolName,
+        stepType: 'tool_execution',
+        title: toolName,
+        status: 'running',
+        startTime: ts,
+        data: { request: data?.tool_input ?? data?.args },
+        ...traceFields,
+      })
+    } else if (type === 'tool_end' || type === 'tool_use_end' || type === 'tool_result') {
+      const toolName = (data?.tool_name as string | undefined) ?? 'tool'
+      const toolKey = runId ? `${toolName}:${runId}` : toolName
+      const stepId = toolMap.get(toolKey) ?? toolMap.get(toolName)
+      if (stepId) {
+        toolMap.delete(toolKey)
+        const existing = steps.find((s) => s.id === stepId)
+        if (existing) {
+          existing.status = (data?.status === 'error' ? 'error' : 'success') as ExecutionStep['status']
+          existing.endTime = ts
+          if (typeof data?.duration === 'number') existing.duration = data.duration
+          existing.data = { request: existing.data?.request, response: data?.tool_output ?? data?.result }
+        }
+      }
+    } else if (type === 'model_input') {
+      const stepId = genId('model_io')
+      if (runId) modelMap.set(runId, stepId)
+      const modelName = (data?.model_name as string | undefined) ?? 'unknown'
+      const provider = (data?.model_provider as string | undefined) ?? 'unknown'
+      steps.push({
+        id: stepId,
+        nodeId: nodeName ?? 'model',
+        nodeLabel: `${provider}/${modelName}`,
+        stepType: 'model_io',
+        title: `Model I/O (${provider}/${modelName})`,
+        status: 'running',
+        startTime: ts,
+        data: { messages: data?.messages, model_name: modelName, model_provider: provider },
+        ...traceFields,
+      })
+    } else if (type === 'model_output') {
+      const modelName = (data?.model_name as string | undefined) ?? 'unknown'
+      const provider = (data?.model_provider as string | undefined) ?? 'unknown'
+      const existingId = runId ? modelMap.get(runId) : undefined
+      if (existingId) {
+        modelMap.delete(runId!)
+        const existing = steps.find((s) => s.id === existingId)
+        if (existing) {
+          existing.status = 'success'
+          existing.endTime = ts
+          existing.data = { ...existing.data, output: data?.output }
+          existing.promptTokens = data?.prompt_tokens as number | undefined
+          existing.completionTokens = data?.completion_tokens as number | undefined
+          existing.totalTokens = data?.total_tokens as number | undefined
+        }
+      } else {
+        steps.push({
+          id: genId('model_output'),
+          nodeId: nodeName ?? 'model',
+          nodeLabel: `${provider}/${modelName}`,
+          stepType: 'model_io',
+          title: `Model Output (${provider}/${modelName})`,
+          status: 'success',
+          startTime: ts,
+          data: { output: data?.output, model_name: modelName, model_provider: provider },
+          ...traceFields,
+        })
+      }
+    } else if (type === 'content' || type === 'assistant_text') {
+      const delta = (data?.delta as string | undefined) ?? (data?.text as string | undefined) ?? ''
+      if (delta) {
+        steps.push({
+          id: genId('thought'),
+          nodeId: nodeName ?? 'agent',
+          nodeLabel: nodeName ?? 'Agent',
+          stepType: 'agent_thought',
+          title: `Reasoning (${nodeName ?? 'Agent'})`,
+          status: 'running',
+          startTime: ts,
+          content: delta,
+          ...traceFields,
+        })
+      }
+    } else if (type === 'error') {
+      const msg = (data?.message as string | undefined) ?? 'Unknown error'
+      steps.push({
+        id: genId('error'),
+        nodeId: nodeName ?? 'system',
+        nodeLabel: 'Error',
+        stepType: 'system_log',
+        title: 'Error',
+        status: 'error',
+        startTime: ts,
+        content: msg,
+        ...traceFields,
+      })
+    }
+  }
+  return steps
+}
+
+/**
+ * Inner component that reads collapsedIds from the selection context
+ * and feeds them into the data provider.
+ */
+function ExecutionTabInner({
+  steps,
+  isExecuting,
+}: {
+  steps: ExecutionStep[]
+  isExecuting: boolean
+}) {
+  const { collapsedIds } = useExecutionSelection()
+  const { roots: treeRoots, nodeMap } = useMemo(() => buildExecutionTree(steps), [steps])
+
+  return (
+    <ExecutionDataProvider
+      steps={steps}
+      treeRoots={treeRoots}
+      nodeMap={nodeMap}
+      isExecuting={isExecuting}
+      collapsedIds={collapsedIds}
+    >
+      <ExecutionViewPreferencesProvider>
+        <div className="flex h-[520px] max-h-[60vh] gap-0 overflow-hidden rounded-md border border-[var(--border)]">
+          <div className="w-2/5 min-w-0 border-r border-[var(--border)]">
+            <ExecutionTree />
+          </div>
+          <div className="flex-1 min-w-0">
+            <ExecutionDetailPanel />
+          </div>
+        </div>
+      </ExecutionViewPreferencesProvider>
+    </ExecutionDataProvider>
+  )
+}
+
 export default function RunDetailPage() {
   const params = useParams<{ runId: string }>()
   const runId = String(params?.runId || '')
@@ -422,6 +638,7 @@ export default function RunDetailPage() {
 
   const primaryHref = useMemo(() => (run ? buildPrimaryHref(run) : null), [run])
   const isActive = run ? ACTIVE_RUN_STATUSES.has(run.status) : false
+  const executionSteps = useMemo(() => runEventsToExecutionSteps(events), [events])
 
   return (
     <div className="flex h-full flex-col bg-[var(--bg)]">
@@ -540,6 +757,7 @@ export default function RunDetailPage() {
                 <TabsTrigger value="events">{t('runs.eventsTab')}</TabsTrigger>
                 <TabsTrigger value="snapshot">{t('runs.snapshotTab')}</TabsTrigger>
                 <TabsTrigger value="overview">{t('runs.overviewTab')}</TabsTrigger>
+                <TabsTrigger value="execution">Execution</TabsTrigger>
               </TabsList>
 
               <TabsContent value="events" className="mt-0">
@@ -657,6 +875,18 @@ export default function RunDetailPage() {
                       />
                     )}
                 </div>
+              </TabsContent>
+
+              <TabsContent value="execution" className="mt-0">
+                {executionSteps.length > 0 ? (
+                  <ExecutionSelectionProvider>
+                    <ExecutionTabInner steps={executionSteps} isExecuting={isActive} />
+                  </ExecutionSelectionProvider>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-6 text-sm text-[var(--text-muted)]">
+                    No execution data available
+                  </div>
+                )}
               </TabsContent>
             </Tabs>
           </div>
