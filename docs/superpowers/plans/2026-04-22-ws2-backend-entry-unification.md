@@ -160,7 +160,21 @@ async def copilot_stream(
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 ```
 
-Register in `app/api/v1/__init__.py`.
+Create `CopilotStreamRequest` schema in `backend/app/schemas/copilot.py`:
+
+```python
+from pydantic import BaseModel
+from typing import Optional
+
+class CopilotStreamRequest(BaseModel):
+    provider_name: str
+    model_name: str
+    graph_context: dict
+    conversation_history: list
+    mode: Optional[str] = None
+```
+
+Register router in `app/api/v1/__init__.py`.
 
 - [ ] **Step 4: Run existing copilot tests**
 
@@ -335,18 +349,31 @@ git commit -m "chore(backend): remove dead functions from chat.py utility module
 
 ---
 
-### Task 6: Fix `node_secrets.py` broken stubs
+### Task 6: Fix `node_secrets.py` broken stubs + verify `node_tools.py`
 
-**Actual path:** `backend/app/core/graph/node_secrets.py` (116 lines, in `core/graph/` NOT `core/agent/`)
+**Actual paths:**
+- `backend/app/core/graph/node_secrets.py` (116 lines, in `core/graph/`)
+- `backend/app/core/agent/node_tools.py` (470 lines, in `core/agent/`)
+
+**Note:** The spec (Step 2.4) incorrectly states both are in `core/agent/`. `node_secrets.py` is in `core/graph/`, `node_tools.py` is in `core/agent/`.
 
 The `store_a2a_auth_headers` function raises `RuntimeError`. The `resolve_a2a_auth_headers` returns `None`. The module docstring says secrets should now be stored inline in `definition_payload`.
 
+`node_tools.py` duck-types node objects (`node.data.config.tools`) — no ORM imports. Verify it works with `definition_payload` node objects.
+
 **Files:**
 - Modify: `backend/app/core/graph/node_secrets.py`
+- Verify: `backend/app/core/agent/node_tools.py`
 
 - [ ] **Step 1: Audit callers of broken functions**
 
 Run: `cd backend && grep -r "store_a2a_auth_headers\|resolve_a2a_auth_headers" --include="*.py" -l`
+
+- [ ] **Step 1b: Verify `node_tools.py` works with definition_payload objects**
+
+`node_tools.py` (`core/agent/node_tools.py`) duck-types node objects: `node.data.config.tools` (line 47). Verify that when nodes are passed from `definition_payload` (plain dicts), the attribute access still works. If `definition_payload` stores nodes as dicts, `node_tools.py` may need to use `node["data"]["config"]["tools"]` instead of attribute access. Check and fix if needed.
+
+Run: `cd backend && grep -n "node\.data" app/core/agent/node_tools.py | head -10`
 
 - [ ] **Step 2: Update callers to use `definition_payload` inline secrets**
 

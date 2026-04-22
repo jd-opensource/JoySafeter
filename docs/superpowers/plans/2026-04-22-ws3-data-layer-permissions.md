@@ -94,18 +94,19 @@ git commit -m "migrate(db): add todo and in_review values to taskstatus enum"
 
 ---
 
-### Task 2: Wire permission hooks into Graph Builder components
+### Task 2: Wire existing permission hooks into agent routes and Graph Builder
 
-The permission hooks exist but are only used inside the `/workspace` route's `WorkspacePermissionsProvider`. The new `/agents` routes need the same protection.
+The permission hooks ALREADY EXIST and are already consumed by some Graph Builder components (`BuilderCanvas`, `BuilderNode`, `PropertiesPanel`, `EdgePropertiesPanel`). This task wires them into the agent route layout and adds permission gates to `BuilderToolbar`.
+
+**Existing hooks (do NOT recreate):**
+- `frontend/hooks/use-workspace-permissions.ts` — `useWorkspacePermissions(workspaceId)`
+- `frontend/hooks/use-user-permissions.ts` — `useUserPermissions()` → `{ canRead, canEdit, canAdmin, isOwner }`
+- `frontend/app/workspace/[workspaceId]/providers/workspace-permissions-provider.tsx` — context provider
 
 **Files:**
 - Modify: `frontend/app/agents/[agentId]/edit/page.tsx` — wrap with permission check
-- Create: `frontend/app/agents/[agentId]/providers.tsx` (or add to existing layout)
+- Move: `frontend/app/workspace/[workspaceId]/providers/workspace-permissions-provider.tsx` → `frontend/providers/`
 - Modify: `frontend/components/editors/graph-builder/components/BuilderToolbar.tsx` — disable deploy/run for viewers
-
-**Reference:**
-- `useUserPermissions` returns: `{ canRead, canEdit, canAdmin, isOwner, role, isLoading }`
-- `useWorkspacePermissions(workspaceId)` fetches `GET /v1/workspaces/{id}/permissions`
 - These hooks exist at `frontend/hooks/use-workspace-permissions.ts` and `frontend/hooks/use-user-permissions.ts`
 
 - [ ] **Step 1: Add permission provider to agent layout**
