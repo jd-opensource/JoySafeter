@@ -38,6 +38,7 @@ import { useSidebarStore } from '@/stores/sidebar/store'
 import { computeGraphStateHash } from '@/lib/utils/graphStateHash'
 
 import { agentService } from '../services/agentService'
+import { graphDataAdapter } from '../services/graphDataAdapter'
 import { nodeRegistry } from '../services/nodeRegistry'
 import type { StateField } from '../types/graph'
 import { EdgeData, ValidationError } from '../types/graph'
@@ -207,6 +208,9 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     (): SaveManagerGraphState => ({
       graphId: get().graphId,
       graphName: get().graphName,
+      agentId: get().agentId,
+      versionId: get().versionId,
+      workspaceId: get().workspaceId,
       nodes: get().nodes,
       edges: get().edges,
       viewport: get().rfInstance?.getViewport(),
@@ -215,8 +219,9 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     }),
     {
       onSaveSuccess: (hash, savedGraphId) => {
-        const currentGraphId = get().graphId
-        if (savedGraphId && savedGraphId !== currentGraphId) return
+        const { graphId, agentId } = get()
+        // Guard against stale callbacks: reject if the ID doesn't match either path
+        if (savedGraphId && savedGraphId !== graphId && savedGraphId !== agentId) return
         set({
           lastSavedStateHash: hash,
           lastAutoSaveTime: Date.now(),
@@ -276,12 +281,36 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       })
 
       try {
-        const [graphState, graphs] = await Promise.all([
-          agentService.loadGraphState(graphId),
-          agentService.listGraphs(workspaceId),
-        ])
+        let graphState: {
+          nodes: Node[]
+          edges: Edge[]
+          viewport?: { x: number; y: number; zoom: number }
+          variables?: Record<string, unknown>
+        }
+        let graphMeta: { name?: string; isDeployed?: boolean } | undefined
 
-        const graphMeta = graphs.find((g) => g.id === graphId)
+        if (agentId && versionId && workspaceId) {
+          // New path: load via graphDataAdapter (agent versions API)
+          const loadedState = await graphDataAdapter.load(agentId, versionId, workspaceId)
+          graphState = {
+            nodes: loadedState.nodes ?? [],
+            edges: loadedState.edges ?? [],
+            viewport: loadedState.viewport,
+            variables: {
+              state_fields: loadedState.graphStateFields,
+              fallback_node_id: loadedState.fallbackNodeId ?? undefined,
+            },
+          }
+          // graphMeta stays undefined; name/deployment status come from elsewhere
+        } else {
+          // Legacy path: load via agentService + graph list (graphId-based routes)
+          const [legacyState, graphs] = await Promise.all([
+            agentService.loadGraphState(graphId),
+            agentService.listGraphs(workspaceId),
+          ])
+          graphState = legacyState
+          graphMeta = graphs.find((g) => g.id === graphId)
+        }
 
         // Parse state fields and fallback_node_id from variables
         const variables = (graphState.variables || {}) as BuilderVariables
@@ -732,9 +761,9 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     },
 
     triggerAutoSave: () => {
-      const { graphId } = get()
-
-      if (!graphId) return
+      const { graphId, agentId, versionId, workspaceId } = get()
+      const hasNewPath = !!(agentId && versionId && workspaceId)
+      if (!graphId && !hasNewPath) return
 
       saveManager.debouncedSave()
     },

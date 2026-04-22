@@ -12,12 +12,16 @@ import type { StateField } from '../types/graph'
 import { computeGraphStateHash } from '@/lib/utils/graphStateHash'
 
 import { agentService } from '../services/agentService'
+import { graphDataAdapter } from '../services/graphDataAdapter'
 
 export type SaveSource = 'manual' | 'auto' | 'debounce'
 
 export interface GraphState {
   graphId: string | null
   graphName: string | null
+  agentId?: string | null
+  versionId?: string | null
+  workspaceId?: string | null
   nodes: Node[]
   edges: Edge[]
   viewport?: { x: number; y: number; zoom: number }
@@ -43,7 +47,9 @@ export class SaveManager {
   async save(source: SaveSource): Promise<void> {
     const state = this.getState()
 
-    if (!state.graphId) return
+    // Must have either agentId+versionId+workspaceId (new path) or graphId (legacy path)
+    const hasNewPath = !!(state.agentId && state.versionId && state.workspaceId)
+    if (!hasNewPath && !state.graphId) return
 
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       this.callbacks.onSaveError('offline')
@@ -59,18 +65,29 @@ export class SaveManager {
         return true
       })
 
-      await agentService.saveGraphState({
-        graphId: state.graphId,
-        nodes: state.nodes,
-        edges: deduplicatedEdges,
-        viewport: state.viewport,
-        variables: {
-          state_fields: state.graphStateFields,
-          ...(state.fallbackNodeId != null && state.fallbackNodeId !== ''
-            ? { fallback_node_id: state.fallbackNodeId }
-            : {}),
-        },
-      })
+      if (hasNewPath) {
+        await graphDataAdapter.save(state.agentId!, state.versionId!, state.workspaceId!, {
+          nodes: state.nodes,
+          edges: deduplicatedEdges,
+          viewport: state.viewport,
+          graphStateFields: state.graphStateFields,
+          fallbackNodeId: state.fallbackNodeId,
+        })
+      } else {
+        // Legacy path: backward-compat for old workspace routes that only have graphId
+        await agentService.saveGraphState({
+          graphId: state.graphId!,
+          nodes: state.nodes,
+          edges: deduplicatedEdges,
+          viewport: state.viewport,
+          variables: {
+            state_fields: state.graphStateFields,
+            ...(state.fallbackNodeId != null && state.fallbackNodeId !== ''
+              ? { fallback_node_id: state.fallbackNodeId }
+              : {}),
+          },
+        })
+      }
 
       const savedHash = computeGraphStateHash(
         state.nodes,
@@ -79,7 +96,9 @@ export class SaveManager {
         state.fallbackNodeId,
       )
       this.saveRetryCount = 0
-      this.callbacks.onSaveSuccess(savedHash, state.graphId)
+      // Use agentId as the saved ID for new path, otherwise fall back to graphId
+      const savedId = state.agentId ?? state.graphId!
+      this.callbacks.onSaveSuccess(savedHash, savedId)
     } catch (error) {
       this.handleSaveError(error, source)
     }
@@ -109,7 +128,9 @@ export class SaveManager {
     if (this.saveRetryCount < this.maxRetries) {
       const delay = Math.pow(2, this.saveRetryCount) * 1000
       setTimeout(() => {
-        if (this.getState().graphId) this.save(source)
+        const s = this.getState()
+        const canRetry = (s.agentId && s.versionId && s.workspaceId) || s.graphId
+        if (canRetry) this.save(source)
       }, delay)
       this.saveRetryCount++
       this.callbacks.onSaveError(errorMessage)
