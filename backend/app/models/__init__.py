@@ -18,7 +18,7 @@ from .auth import AuthUser as User
 from .base import BaseModel, SoftDeleteMixin, TimestampMixin
 from .chat import Chat
 from .custom_tool import CustomTool
-from .execution import Execution, ExecutionEvent
+from .execution import Execution, ExecutionEvent, Artifact
 from .execution_trace import (
     ExecutionObservation,
     ExecutionTrace,
@@ -27,8 +27,9 @@ from .execution_trace import (
     ObservationType,
     TraceStatus,
 )
-from .graph import AgentGraph, GraphEdge, GraphNode, GraphNodeSecret
-from .graph_execution import ExecutionStatus, GraphExecution
+# TODO: removed in greenfield rewrite - graph models deleted
+# from .graph import AgentGraph, GraphEdge, GraphNode, GraphNodeSecret
+# from .graph_execution import ExecutionStatus, GraphExecution
 from .mcp import McpServer
 from .memory import Memory
 from .mission import Mission, MissionPriority, MissionStatus
@@ -79,12 +80,13 @@ __all__ = [
     "WorkspaceStoredFile",
     "CustomTool",
     "McpServer",
-    "AgentGraph",
-    "GraphNode",
-    "GraphEdge",
-    "GraphNodeSecret",
-    "GraphExecution",
-    "ExecutionStatus",
+    # TODO: removed in greenfield rewrite - graph models deleted
+    # "AgentGraph",
+    # "GraphNode",
+    # "GraphEdge",
+    # "GraphNodeSecret",
+    # "GraphExecution",
+    # "ExecutionStatus",
     "ModelProvider",
     "ModelCredential",
     "ModelInstance",
@@ -112,6 +114,7 @@ __all__ = [
     "AgentVersion",
     "Execution",
     "ExecutionEvent",
+    "Artifact",
     "MissionComment",
     "CommentAuthorType",
     "CommentType",

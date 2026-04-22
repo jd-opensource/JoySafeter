@@ -6,13 +6,16 @@ import uuid
 from typing import List
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import require_workspace_role
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
+from app.models.execution import Artifact
 from app.models.workspace import WorkspaceMemberRole
 from app.schemas import BaseResponse
+from app.schemas.artifact import ArtifactResponse
 from app.schemas.execution import ExecutionEventResponse, ExecutionResponse
 from app.services.execution_service_phase4 import ExecutionService
 
@@ -70,4 +73,23 @@ async def list_execution_events(
         code=200,
         msg="ok",
         data=[_event_to_response(e) for e in events],
+    )
+
+
+@router.get("/{execution_id}/artifacts", response_model=BaseResponse[List[ArtifactResponse]])
+async def list_artifacts(
+    execution_id: uuid.UUID,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
+    db: AsyncSession = Depends(get_db),
+) -> BaseResponse[List[ArtifactResponse]]:
+    """List all artifacts for an execution."""
+    result = await db.execute(
+        select(Artifact).where(Artifact.execution_id == execution_id).order_by(Artifact.created_at)
+    )
+    artifacts = list(result.scalars().all())
+    return BaseResponse(
+        success=True,
+        code=200,
+        msg="ok",
+        data=[ArtifactResponse.model_validate(a) for a in artifacts],
     )

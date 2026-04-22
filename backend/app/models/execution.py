@@ -33,6 +33,7 @@ class Execution(Base):
     run: Mapped["AgentRun"] = relationship("AgentRun", back_populates="executions", foreign_keys=[run_id])
     events: Mapped[List["ExecutionEvent"]] = relationship("ExecutionEvent", back_populates="execution")
     children: Mapped[List["Execution"]] = relationship("Execution", foreign_keys=[parent_execution_id])
+    artifacts: Mapped[List["Artifact"]] = relationship("Artifact", back_populates="execution")
 
 
 class ExecutionEvent(Base):
@@ -47,3 +48,14 @@ class ExecutionEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     execution: Mapped["Execution"] = relationship("Execution", back_populates="events")
+
+
+class Artifact(Base):
+    __tablename__ = "artifacts"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    execution_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("executions.id"), nullable=False)
+    kind: Mapped[str] = mapped_column(String(50), nullable=False)
+    uri: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    execution: Mapped["Execution"] = relationship("Execution", back_populates="artifacts")
