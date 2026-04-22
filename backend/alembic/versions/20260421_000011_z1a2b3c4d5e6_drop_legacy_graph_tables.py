@@ -1,7 +1,7 @@
 """drop legacy graph tables"""
 from alembic import op
 
-revision = "a1b2c3d4e5f6"
+revision = "z1a2b3c4d5e6"
 down_revision = "f6a7b8c9d0e1"
 
 

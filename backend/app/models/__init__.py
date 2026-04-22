@@ -32,8 +32,8 @@ from .execution_trace import (
 # from .graph_execution import ExecutionStatus, GraphExecution
 from .mcp import McpServer
 from .memory import Memory
-from .mission import Mission, MissionPriority, MissionStatus
-from .mission_comment import CommentAuthorType, CommentType, MissionComment
+from .task import Task, TaskPriority, TaskStatus
+from .task_comment import CommentAuthorType, CommentType, TaskComment
 from .model_credential import ModelCredential
 from .model_instance import ModelInstance
 from .model_provider import ModelProvider
@@ -106,16 +106,16 @@ __all__ = [
     "SkillVersion",
     "SkillVersionFile",
     "PlatformToken",
-    "Mission",
-    "MissionStatus",
-    "MissionPriority",
+    "Task",
+    "TaskStatus",
+    "TaskPriority",
     "Agent",
     "AgentRelease",
     "AgentVersion",
     "Execution",
     "ExecutionEvent",
     "Artifact",
-    "MissionComment",
+    "TaskComment",
     "CommentAuthorType",
     "CommentType",
     "Thread",

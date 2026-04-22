@@ -20,8 +20,8 @@ from .files import router as files_router
 # from .openapi_graph import router as openapi_graph_router
 from .mcp import router as mcp_router
 from .memory import router as memory_router
-from .mission_comments import router as mission_comments_router
-from .missions import router as missions_router
+from .task_comments import router as task_comments_router
+from .tasks import router as tasks_router
 from .model_credentials import router as model_credentials_router
 from .model_providers import router as model_providers_router
 from .model_usage import router as model_usage_router
@@ -83,10 +83,10 @@ ROUTERS = [
     # TODO: removed in greenfield rewrite
     # openapi_graph_router,
     version_router,
-    missions_router,
+    tasks_router,
     executions_router,
     agents_router,
-    mission_comments_router,
+    task_comments_router,
     threads_router,
 ]
 
