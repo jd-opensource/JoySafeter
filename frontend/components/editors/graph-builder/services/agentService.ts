@@ -128,50 +128,6 @@ export const agentService = {
     return response || []
   },
 
-  async saveGraph(params: {
-    name: string
-    nodes: Node[]
-    edges: Edge[]
-    viewport?: { x: number; y: number; zoom: number }
-    description?: string
-    color?: string
-    variables?: { context?: Record<string, unknown> }
-    workspaceId?: string | null
-  }): Promise<{ graphId: string }> {
-    let graphId = getCachedGraphId()
-
-    if (!graphId) {
-      const createResponse = await apiPost<{ id: string }>('graphs', {
-        name: params.name,
-        description: params.description || '',
-        color: params.color || '',
-        variables: params.variables || {},
-        workspaceId: params.workspaceId,
-      })
-      graphId = createResponse.id
-      setCachedGraphId(graphId)
-      setCachedGraphName(params.name)
-    }
-
-    const seenEdges = new Set<string>()
-    const deduplicatedEdges = params.edges.filter((edge) => {
-      const key = `${edge.source}-${edge.target}`
-      if (seenEdges.has(key)) {
-        return false
-      }
-      seenEdges.add(key)
-      return true
-    })
-
-    await apiPost(`graphs/${graphId}/state`, {
-      nodes: params.nodes,
-      edges: deduplicatedEdges,
-      viewport: params.viewport,
-    })
-
-    return { graphId }
-  },
-
   async saveGraphState(params: {
     graphId: string
     nodes: Node[]

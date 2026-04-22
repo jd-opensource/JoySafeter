@@ -286,46 +286,6 @@ export function useCopilotHistory(graphId?: string, options?: { enabled?: boolea
 // ============================================================================
 
 /**
- * Hook: Save graph state
- */
-export function useSaveGraphState() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: async (params: {
-      graphId: string
-      nodes: Node[]
-      edges: Edge[]
-      viewport?: { x: number; y: number; zoom: number }
-      variables?: { context?: Record<string, unknown> }
-    }) => {
-      if (!params.graphId || !isValidUUID(params.graphId)) {
-        logger.warn('useSaveGraphState called with invalid graphId, skip request', {
-          graphId: params.graphId,
-        })
-        return
-      }
-
-      await apiPost(`graphs/${params.graphId}/state`, {
-        nodes: params.nodes,
-        edges: params.edges,
-        viewport: params.viewport,
-        variables: params.variables,
-      })
-    },
-    onSuccess: (_, variables) => {
-      // Update state in cache
-      queryClient.setQueryData(graphKeys.state(variables.graphId), {
-        nodes: variables.nodes,
-        edges: variables.edges,
-        viewport: variables.viewport,
-        variables: variables.variables,
-      })
-    },
-  })
-}
-
-/**
  * Hook: Create new graph
  */
 export function useCreateGraph() {

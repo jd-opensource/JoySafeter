@@ -171,8 +171,7 @@ interface BuilderState {
   getOutgoingEdges: (nodeId: string) => Edge[]
 
   // Graph Persistence
-  loadGraph: (graphId?: string) => Promise<void>
-  saveGraph: (name: string) => Promise<void>
+  loadGraph: () => Promise<void>
   autoSave: () => Promise<void>
   triggerAutoSave: () => void
   startAutoSave: () => void
@@ -681,78 +680,17 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       return get().edges.filter((e) => e.source === nodeId)
     },
 
-    loadGraph: async (graphId?: string) => {
+    loadGraph: async () => {
       set({ isInitializing: true })
       try {
-        if (graphId) {
-          const state = await agentService.loadGraphState(graphId)
-          let { nodes, edges } = state
-          const { variables } = state
+        const { nodes, edges } = await agentService.getInitialGraph()
 
-          // Process edges to ensure correct type and style based on edge_type
-          const processedEdges = processEdgesForReactFlow(edges)
+        // Process edges to ensure correct type and style based on edge_type
+        const processedEdges = processEdgesForReactFlow(edges)
 
-          // Load state fields and fallback_node_id from variables
-          const loadedStateFields = migrateLegacyContextToStateFields(
-            (variables as BuilderVariables) || {},
-          )
-          const fallbackNodeId = (variables as BuilderVariables)?.fallback_node_id ?? null
-
-          set({
-            nodes,
-            edges: processedEdges,
-            graphStateFields: loadedStateFields,
-            fallbackNodeId: fallbackNodeId || null,
-            past: [],
-            future: [],
-            isInitializing: false,
-          })
-        } else {
-          let { nodes, edges } = await agentService.getInitialGraph()
-
-          // Process edges to ensure correct type and style based on edge_type
-          const processedEdges = processEdgesForReactFlow(edges)
-
-          set({ nodes, edges: processedEdges, past: [], future: [], isInitializing: false })
-        }
+        set({ nodes, edges: processedEdges, past: [], future: [], isInitializing: false })
       } catch {
         set({ nodes: [], edges: [], past: [], future: [], isInitializing: false })
-      }
-    },
-
-    saveGraph: async (name: string) => {
-      const { nodes, edges, rfInstance, workspaceId } = get()
-      if (!name) return
-      set({ isSaving: true })
-      try {
-        const viewport = rfInstance?.getViewport() || { x: 0, y: 0, zoom: 1 }
-        const variables = {}
-        const { graphId } = await agentService.saveGraph({
-          name,
-          nodes,
-          edges,
-          viewport,
-          workspaceId,
-          variables,
-        })
-        // Save state using SaveManager
-        await saveManager.save('manual')
-        const currentStateHash = computeGraphStateHash(
-          nodes,
-          edges,
-          get().graphStateFields,
-          get().fallbackNodeId,
-        )
-        set({
-          graphId,
-          graphName: name,
-          lastAutoSaveTime: Date.now(),
-          lastSavedStateHash: currentStateHash,
-          saveRetryCount: 0,
-          lastSaveError: null,
-        })
-      } finally {
-        set({ isSaving: false })
       }
     },
 
