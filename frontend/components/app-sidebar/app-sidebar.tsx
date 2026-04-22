@@ -39,23 +39,22 @@ const menuGroups: MenuGroup[] = [
   {
     // WORK — daily workflows
     items: [
-      { id: 'dashboard', labelKey: 'sidebar.dashboard', icon: LayoutDashboard, href: '/chat' },
+      { id: 'agents', labelKey: 'sidebar.agents', icon: Bot, href: '/agents' },
+      { id: 'runs', labelKey: 'sidebar.runCenter', icon: Activity, href: '/runs' },
       { id: 'missions', labelKey: 'sidebar.missions', icon: Target, href: '/missions' },
     ],
   },
   {
     // CONFIGURE — agents, skills, tools
     items: [
-      { id: 'agents', labelKey: 'sidebar.agents', icon: Bot, href: '/agents' },
       { id: 'agent', labelKey: 'sidebar.agentBuilder', icon: Blocks, href: '/workspace' },
       { id: 'skills', labelKey: 'sidebar.skillsHub', icon: ShieldCheck, href: '/skills' },
       { id: 'tools', labelKey: 'sidebar.toolsAndMcp', icon: Wrench, href: '/tools' },
     ],
   },
   {
-    // MONITOR — execution history, memory
+    // MONITOR — memory, openclaw
     items: [
-      { id: 'runs', labelKey: 'sidebar.runCenter', icon: Activity, href: '/runs' },
       { id: 'memory', labelKey: 'sidebar.memory', icon: Brain, href: '/memory' },
       { id: 'openclaw', labelKey: 'sidebar.openclaw', icon: Clapperboard, href: '/openclaw' },
     ],
