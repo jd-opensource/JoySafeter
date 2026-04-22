@@ -34,6 +34,9 @@ import {
 import type { ExecutionStore, ExecutionContext, GraphExecutionState, InterruptInfo } from './types'
 import { generateId } from './utils'
 import { workspaceChatWsService } from '../../services/workspaceChatWsService'
+import { executionAdapter } from '../../services/executionAdapter'
+import { agentService as globalAgentService } from '@/services/agentService'
+import { useBuilderStore } from '../builderStore'
 
 // ============ Batch Update Buffer ============
 // Used to merge high-frequency appendContent calls, reducing state update frequency
@@ -292,6 +295,9 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       const { contexts, currentGraphId } = get()
 
       const context = contexts.get(graphId)
+      if (context?.executionWs) {
+        try { context.executionWs.close() } catch { /* ignore */ }
+      }
       if (context?.abortController) {
         context.abortController.abort()
       }
@@ -356,6 +362,22 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       set({ contexts: newContexts })
     },
 
+    setRunId: (graphId: string, runId: string | null) => {
+      const { contexts } = get()
+      const context = getOrCreateContext(contexts, graphId)
+      const newContexts = new Map(contexts)
+      newContexts.set(graphId, { ...context, runId })
+      set({ contexts: newContexts })
+    },
+
+    setExecutionWs: (graphId: string, ws: WebSocket | null) => {
+      const { contexts } = get()
+      const context = getOrCreateContext(contexts, graphId)
+      const newContexts = new Map(contexts)
+      newContexts.set(graphId, { ...context, executionWs: ws })
+      set({ contexts: newContexts })
+    },
+
     // ============ Command Mode ============
 
     updateState: (stateUpdate: Partial<GraphState>) => {
@@ -385,10 +407,15 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       const store = get()
       if (!input.trim()) return
 
+      // --- Determine whether we can use the new executionAdapter path ---
+      const builderState = useBuilderStore.getState()
+      const agentId = builderState.agentId
+      const workspaceId = builderState.workspaceId
+      const useNewPath = !!(agentId && workspaceId)
+
       const graphId = store.currentGraphId || agentService.getCachedGraphId()
       if (!graphId) {
         console.error('No graph_id available for execution')
-        // Surface error in the execution panel so the user sees feedback
         store.togglePanel(true)
         store.addStep({
           id: generateId('error'),
@@ -405,6 +432,9 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
 
       // Cancel previous execution
       const existingContext = store.getContext(graphId)
+      if (existingContext.executionWs) {
+        try { existingContext.executionWs.close() } catch { /* ignore */ }
+      }
       if (existingContext.abortController) {
         existingContext.abortController.abort()
       }
@@ -413,6 +443,8 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       store.setAbortController(graphId, abortController)
       store.setRequestId(graphId, null)
       store.setThreadId(graphId, null)
+      store.setRunId(graphId, null)
+      store.setExecutionWs(graphId, null)
 
       store.clearInterrupts()
       store.updateGraphState(graphId, {
@@ -455,6 +487,129 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
 
       let wasStopped = false
 
+      // ================================================================
+      // New path: executionAdapter (agent-based runs API + WS)
+      // ================================================================
+      if (useNewPath) {
+        try {
+          // 1. Fetch the agent to get its active_release_id
+          const agent = await globalAgentService.get(agentId, workspaceId)
+          const releaseId = agent.active_release_id
+          if (!releaseId) {
+            throw new Error('Agent has no active release. Please publish the agent first.')
+          }
+
+          // 2. Start a run via the REST API
+          const run = await executionAdapter.startRun({
+            releaseId,
+            prompt: input,
+            workspaceId,
+          })
+          store.setRunId(graphId, run.id)
+
+          // 3. Subscribe to execution events via WebSocket
+          const ws = executionAdapter.subscribeToExecution(run.current_execution_id)
+          store.setExecutionWs(graphId, ws)
+
+          // 4. Process WS messages through the existing event pipeline
+          await new Promise<void>((resolve, reject) => {
+            // Abort listener — close ws when the AbortController fires
+            const onAbort = () => {
+              wasStopped = true
+              try { ws.close() } catch { /* ignore */ }
+            }
+            abortController.signal.addEventListener('abort', onAbort, { once: true })
+
+            ws.onmessage = (msgEvent) => {
+              try {
+                const frame = JSON.parse(msgEvent.data as string) as {
+                  type: string
+                  event_type?: string
+                  data?: Record<string, unknown>
+                  seq?: number
+                }
+
+                if (frame.type === 'snapshot') {
+                  // Full state snapshot — treat as state_update
+                  if (frame.data) {
+                    storeAdapter.updateState(frame.data as Record<string, unknown>)
+                  }
+                  return
+                }
+
+                if (frame.type === 'event' && frame.event_type) {
+                  // Map execution WS event to ChatStreamEvent envelope
+                  const chatEvt = {
+                    type: frame.event_type,
+                    data: frame.data ?? {},
+                    // Provide default envelope fields expected by ChatWsFrameBase
+                    node_name: (frame.data?.node_name as string) ?? '',
+                    run_id: run.id,
+                    timestamp: Date.now(),
+                    thread_id: '',
+                  } as ChatStreamEvent
+
+                  const eventResult = processEvent(chatEvt, ctx, storeAdapter)
+                  ctx.currentThoughtId = eventResult.currentThoughtId
+
+                  if (eventResult.shouldStop && eventResult.stopReason === 'stopped') {
+                    wasStopped = true
+                    get().updateStep(workflowId, { status: 'error', endTime: Date.now() })
+                  }
+                }
+              } catch (parseErr) {
+                console.warn('[executionStore] Failed to parse WS message:', parseErr)
+              }
+            }
+
+            ws.onerror = (err) => {
+              abortController.signal.removeEventListener('abort', onAbort)
+              reject(new Error('Execution WebSocket error'))
+            }
+
+            ws.onclose = () => {
+              abortController.signal.removeEventListener('abort', onAbort)
+              resolve()
+            }
+          })
+
+          // Mark workflow step as success (unless stopped/errored)
+          if (!wasStopped) {
+            const graphContext = store.getContext(graphId)
+            const workflowStep = graphContext.state.steps.find((s) => s.id === workflowId)
+            store.updateStep(workflowId, {
+              status: 'success',
+              endTime: Date.now(),
+              duration: Date.now() - (workflowStep?.startTime || Date.now()),
+            })
+          }
+        } catch (e: unknown) {
+          const error = e as { name?: string; message?: string }
+          store.updateStep(workflowId, { status: 'error', endTime: Date.now() })
+          if (error?.name !== 'AbortError') {
+            store.addStep({
+              id: generateId('error'),
+              nodeId: 'system',
+              nodeLabel: 'Error',
+              stepType: 'system_log',
+              title: 'Execution Error',
+              status: 'error',
+              startTime: Date.now(),
+              content: String(error?.message || e),
+            })
+          }
+        } finally {
+          store.updateGraphState(graphId, { isExecuting: false })
+          store.setAbortController(graphId, null)
+          store.setRunId(graphId, null)
+          store.setExecutionWs(graphId, null)
+        }
+        return
+      }
+
+      // ================================================================
+      // Legacy fallback: workspaceChatWsService (graphId-based)
+      // ================================================================
       try {
         const result = await workspaceChatWsService.sendChat({
           message: input,
@@ -514,12 +669,36 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
     },
 
     stopExecution: async () => {
-      const { currentGraphId, getContext, setAbortController, setThreadId, updateGraphState } =
-        get()
+      const {
+        currentGraphId,
+        getContext,
+        setAbortController,
+        setThreadId,
+        setRunId,
+        setExecutionWs,
+        updateGraphState,
+      } = get()
       if (!currentGraphId) return
 
       const context = getContext(currentGraphId)
 
+      // --- New path: cancel via executionAdapter ---
+      if (context.runId) {
+        try {
+          await executionAdapter.cancelRun(context.runId)
+        } catch (error) {
+          console.error('Failed to cancel run:', error)
+        }
+        setRunId(currentGraphId, null)
+      }
+
+      // Close execution WebSocket
+      if (context.executionWs) {
+        try { context.executionWs.close() } catch { /* ignore */ }
+        setExecutionWs(currentGraphId, null)
+      }
+
+      // --- Legacy path: stop via workspaceChatWsService ---
       if (context.threadId) {
         try {
           workspaceChatWsService.stopByThreadId(context.threadId)
