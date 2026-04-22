@@ -86,11 +86,11 @@ class TaskService:
     MANUAL_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
         TaskStatus.BACKLOG: {TaskStatus.IN_PROGRESS, TaskStatus.CANCELLED},
         TaskStatus.IN_PROGRESS: {
-            TaskStatus.NEEDS_REVIEW,
+            TaskStatus.IN_REVIEW,
             TaskStatus.DONE,
             TaskStatus.CANCELLED,
         },
-        TaskStatus.NEEDS_REVIEW: {
+        TaskStatus.IN_REVIEW: {
             TaskStatus.IN_PROGRESS,
             TaskStatus.DONE,
             TaskStatus.CANCELLED,
@@ -176,7 +176,7 @@ class TaskService:
         elif run.status == "succeeded":
             task.status = TaskStatus.DONE
         elif run.status == "failed":
-            task.status = TaskStatus.NEEDS_REVIEW
+            task.status = TaskStatus.IN_REVIEW
         elif run.status == "cancelled":
             task.status = TaskStatus.BACKLOG
 

@@ -9,14 +9,16 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.dependencies import require_workspace_role
+from app.common.dependencies import get_current_user, require_workspace_role
 from app.core.database import get_db
+from app.core.engine.orchestrator import ExecutionOrchestrator
 from app.models.auth import AuthUser as User
 from app.models.execution import Artifact
 from app.models.workspace import WorkspaceMemberRole
 from app.schemas import BaseResponse
 from app.schemas.artifact import ArtifactResponse
 from app.schemas.execution import ExecutionEventResponse, ExecutionResponse
+from app.schemas.task import InjectMessageRequest
 from app.services.execution_service_phase4 import ExecutionService
 
 router = APIRouter(prefix="/v1/executions", tags=["Executions"])
@@ -93,3 +95,16 @@ async def list_artifacts(
         msg="ok",
         data=[ArtifactResponse.model_validate(a) for a in artifacts],
     )
+
+
+@router.post("/{execution_id}/message", response_model=BaseResponse)
+async def inject_message(
+    execution_id: uuid.UUID,
+    body: InjectMessageRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> BaseResponse:
+    """Inject a message into a running execution."""
+    orchestrator = ExecutionOrchestrator(db)
+    await orchestrator.send_message(execution_id, body.message)
+    return BaseResponse(success=True, code=200, msg="ok", data={"status": "sent"})
