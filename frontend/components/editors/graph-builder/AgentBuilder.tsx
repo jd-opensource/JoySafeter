@@ -52,9 +52,11 @@ const isValidUUID = (str: string): boolean => {
 
 interface AgentBuilderContentProps {
   workspaceIdProp?: string
+  agentIdProp?: string
+  versionIdProp?: string
 }
 
-const AgentBuilderContent = ({ workspaceIdProp }: AgentBuilderContentProps) => {
+const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: AgentBuilderContentProps) => {
   const { t } = useTranslation()
   const params = useParams()
   const { data: workspaces = [] } = useWorkspaces()
@@ -62,7 +64,7 @@ const AgentBuilderContent = ({ workspaceIdProp }: AgentBuilderContentProps) => {
 
   // Use prop if provided, otherwise try URL param, otherwise fall back to personal workspace
   const workspaceId = workspaceIdProp || (params.workspaceId as string) || personalWorkspace?.id || ''
-  const rawAgentId = params.agentId as string | undefined
+  const rawAgentId = agentIdProp || (params.agentId as string | undefined)
   const agentId = rawAgentId && isValidUUID(rawAgentId) ? rawAgentId : null
 
   const {
@@ -115,6 +117,14 @@ const AgentBuilderContent = ({ workspaceIdProp }: AgentBuilderContentProps) => {
       setWorkspaceId(workspaceId)
     }
   }, [workspaceId, setWorkspaceId])
+
+  // Sync agentId + versionId props into the store so downstream consumers can read them
+  useEffect(() => {
+    useBuilderStore.setState({
+      agentId: agentId ?? null,
+      versionId: versionIdProp ?? null,
+    })
+  }, [agentId, versionIdProp])
 
   // Sync currentGraphId in executionStore when agentId changes
   // This ensures each graph has its own execution state
@@ -715,11 +725,13 @@ const AgentBuilderContent = ({ workspaceIdProp }: AgentBuilderContentProps) => {
 
 interface AgentBuilderProps {
   workspaceId?: string
+  agentId?: string
+  versionId?: string
 }
 
-const AgentBuilder = ({ workspaceId }: AgentBuilderProps = {}) => (
+const AgentBuilder = ({ workspaceId, agentId: agentIdProp, versionId }: AgentBuilderProps = {}) => (
   <ReactFlowProvider>
-    <AgentBuilderContent workspaceIdProp={workspaceId} />
+    <AgentBuilderContent workspaceIdProp={workspaceId} agentIdProp={agentIdProp} versionIdProp={versionId} />
   </ReactFlowProvider>
 )
 

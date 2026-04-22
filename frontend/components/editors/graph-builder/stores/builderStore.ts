@@ -126,6 +126,8 @@ interface BuilderState {
   lastAutoSaveTime: number | null
   deployedAt: string | null
   workspaceId: string | null
+  agentId: string | null
+  versionId: string | null
   graphId: string | null
   graphName: string | null
   lastSavedStateHash: string | null
@@ -144,7 +146,7 @@ interface BuilderState {
   setGraphName: (graphName: string | null) => void
 
   // Actions
-  initialize: (workspaceId: string, graphId: string, ref: ReactFlowInstance) => Promise<void>
+  initialize: (workspaceId: string, graphId: string, ref: ReactFlowInstance, agentId?: string | null, versionId?: string | null) => Promise<void>
   undo: () => void
   redo: () => void
   takeSnapshot: () => void
@@ -239,6 +241,8 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     isSaving: false,
     isInitializing: true,
     workspaceId: null,
+    agentId: null,
+    versionId: null,
     graphId: null,
     graphName: null,
     lastAutoSaveTime: null,
@@ -258,10 +262,12 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     },
 
     // Actions
-    initialize: async (workspaceId, graphId, rfInstance) => {
+    initialize: async (workspaceId, graphId, rfInstance, agentId, versionId) => {
       set({
         isInitializing: true,
         workspaceId,
+        agentId: agentId ?? null,
+        versionId: versionId ?? null,
         graphId,
         rfInstance,
         nodes: [],

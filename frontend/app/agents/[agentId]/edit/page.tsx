@@ -98,7 +98,13 @@ export default function AgentEditPage() {
 
   // Route to appropriate editor based on definition_kind
   if (definitionKind === 'graph') {
-    return <AgentBuilder workspaceId={workspaceId} />
+    return (
+      <AgentBuilder
+        workspaceId={workspaceId}
+        agentId={agentId}
+        versionId={draftVersionId!}
+      />
+    )
   }
 
   if (definitionKind === 'code') {
