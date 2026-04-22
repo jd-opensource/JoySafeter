@@ -9,7 +9,6 @@ from fastapi import APIRouter
 from .agents import router as agents_router
 from .artifacts import router as artifacts_router
 from .auth import router as auth_router
-from .conversations import router as conversations_router
 from .custom_tools import router as custom_tools_router
 from .environment import router as environment_router
 from .executions import router as executions_router
@@ -51,7 +50,6 @@ ROUTERS = [
     sandboxes_router,
     auth_router,
     artifacts_router,
-    conversations_router,
     files_router,
     memory_router,
     oauth_router,

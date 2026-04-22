@@ -7,7 +7,15 @@ import React, { useState, useMemo, useCallback } from 'react'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { toastSuccess, toastError, getErrorMessage } from '@/lib/utils/toast'
-import { conversationService, type Conversation } from '@/services/conversationService'
+// TODO: Phase 5 cleanup - migrate to Thread API
+// import { conversationService, type Conversation } from '@/services/conversationService'
+
+// TODO: Phase 5 cleanup - define Conversation type locally until migration
+type Conversation = {
+  thread_id: string
+  title: string
+  updated_at: string
+}
 
 import ConversationGroup from './ConversationGroup'
 
@@ -29,7 +37,8 @@ export default function ChatSidebar({
   const { t } = useTranslation()
   const { data: conversationsData, isLoading } = useQuery({
     queryKey: ['conversations'],
-    queryFn: () => conversationService.listConversations({ page: 1, pageSize: 100 }),
+    // TODO: Phase 5 cleanup - migrate to Thread API
+    queryFn: () => Promise.resolve([] as Conversation[]),
   })
 
   const conversations = useMemo(() => conversationsData || [], [conversationsData])
@@ -70,7 +79,8 @@ export default function ChatSidebar({
   const [isOlderExpanded, setIsOlderExpanded] = useState(false)
 
   const deleteConversationMutation = useMutation({
-    mutationFn: (threadId: string) => conversationService.deleteConversation(threadId),
+    // TODO: Phase 5 cleanup - migrate to Thread API
+    mutationFn: (_threadId: string) => Promise.resolve(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['conversations'] })
       toastSuccess(t('chat.deleteSuccess'))

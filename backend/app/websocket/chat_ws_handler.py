@@ -42,7 +42,8 @@ from app.core.agent.artifacts import ArtifactCollector
 from app.core.database import AsyncSessionLocal as AsyncSessionLocal
 from app.core.database import async_session_factory
 from app.core.settings import settings
-from app.models import Conversation as Conversation
+# TODO: Phase 5 cleanup - migrate to Thread model
+# from app.models import Conversation as Conversation
 from app.models.agent_run import AgentRunStatus
 from app.schemas.chat import ChatRequest
 from app.services.graph_service import GraphService as GraphService

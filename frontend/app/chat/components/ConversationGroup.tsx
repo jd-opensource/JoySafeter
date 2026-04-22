@@ -16,7 +16,15 @@ import {
 } from '@/components/ui/alert-dialog'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import type { Conversation } from '@/services/conversationService'
+// TODO: Phase 5 cleanup - migrate to Thread API
+// import type { Conversation } from '@/services/conversationService'
+
+// TODO: Phase 5 cleanup - define Conversation type locally until migration
+type Conversation = {
+  thread_id: string
+  title: string
+  updated_at: string
+}
 
 interface ConversationItemProps {
   conv: Conversation

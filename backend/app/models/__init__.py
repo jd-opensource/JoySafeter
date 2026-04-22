@@ -2,7 +2,6 @@
 Data models
 """
 
-from app.models.conversation import Conversation
 from app.models.message import Message
 
 from .agent import Agent, AgentRelease, AgentVersion
@@ -56,7 +55,6 @@ __all__ = [
     "AgentRunEvent",
     "AgentRunSnapshot",
     "AgentRunStatus",
-    "Conversation",
     "Message",
     "TimestampMixin",
     "SoftDeleteMixin",

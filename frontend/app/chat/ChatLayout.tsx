@@ -10,7 +10,8 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/componen
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useDeployedGraphs, useWorkspaces } from '@/hooks/queries'
 import { useTranslation } from '@/lib/i18n'
-import { conversationService } from '@/services/conversationService'
+// TODO: Phase 5 cleanup - migrate to Thread API
+// import { conversationService } from '@/services/conversationService'
 
 import { useChatState, useChatStream } from './ChatProvider'
 import ChatHome from './components/ChatHome'
@@ -121,10 +122,12 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
       dispatch({ type: 'SELECT_TOOL', tool: null })
 
       try {
-        const backendMessages = await conversationService.getConversationHistory(threadId, {
-          page: 1,
-          pageSize: 100,
-        })
+        // TODO: Phase 5 cleanup - migrate to Thread API
+        // const backendMessages = await conversationService.getConversationHistory(threadId, {
+        //   page: 1,
+        //   pageSize: 100,
+        // })
+        const backendMessages: any[] = []
 
         const formattedMessages: Message[] = backendMessages.map((msg) => {
           let toolCalls: ToolCall[] | undefined

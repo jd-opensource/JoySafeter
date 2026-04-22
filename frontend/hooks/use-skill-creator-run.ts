@@ -17,8 +17,16 @@ import { getRunWsClient } from '@/lib/ws/runs/runWsClient'
 import type { RunEventFrame, RunSnapshotFrame, RunStatusFrame } from '@/lib/ws/runs/types'
 import { generateUUID } from '@/lib/utils/uuid'
 import { toastError } from '@/lib/utils/toast'
-import { conversationService, type ConversationMessage } from '@/services/conversationService'
+// TODO: Phase 5 cleanup - migrate to Thread API
+// import { conversationService, type ConversationMessage } from '@/services/conversationService'
 import { runService } from '@/services/runService'
+
+// TODO: Phase 5 cleanup - define ConversationMessage type locally until migration
+type ConversationMessage = {
+  role: string
+  content: string
+  meta_data?: any
+}
 
 import type { SkillPreviewData } from '@/app/skills/creator/page'
 
@@ -561,21 +569,23 @@ export function useSkillCreatorRun(): UseSkillCreatorRunReturn {
       return
     }
 
-    let cancelled = false
-    void conversationService
-      .getConversationHistory(threadId, { pageSize: 200 })
-      .then((items) => {
-        if (cancelled) return
-        setHistoryMessages(items.map(mapConversationMessageToUi))
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          console.error('Failed to load skill creator conversation history:', error)
-        }
-      })
+    // TODO: Phase 5 cleanup - migrate to Thread API
+    // let cancelled = false
+    // void conversationService
+    //   .getConversationHistory(threadId, { pageSize: 200 })
+    //   .then((items) => {
+    //     if (cancelled) return
+    //     setHistoryMessages(items.map(mapConversationMessageToUi))
+    //   })
+    //   .catch((error) => {
+    //     if (!cancelled) {
+    //       console.error('Failed to load skill creator conversation history:', error)
+    //     }
+    //   })
+    setHistoryMessages([])
 
     return () => {
-      cancelled = true
+      // cancelled = true  // TODO: Phase 5 cleanup - re-enable when migrating to Thread API
     }
   }, [threadId])
 
