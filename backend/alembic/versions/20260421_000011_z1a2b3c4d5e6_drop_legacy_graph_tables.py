@@ -7,10 +7,7 @@ down_revision = "ff66aa77bb88"
 
 def upgrade():
     for table in ["graph_node_secrets", "graph_executions", "graph_edges", "graph_nodes", "graphs"]:
-        try:
-            op.drop_table(table)
-        except Exception:
-            pass
+        op.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
 
 
 def downgrade():

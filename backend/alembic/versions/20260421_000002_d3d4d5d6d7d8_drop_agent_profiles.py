@@ -16,9 +16,14 @@ depends_on = None
 def upgrade():
     # Drop the FK index on executions first, then the FK constraint,
     # before dropping the referenced table.
-    op.drop_index("executions_agent_profile_idx", table_name="executions")
-    op.drop_constraint(
-        "executions_agent_profile_id_fkey", "executions", type_="foreignkey"
+    # Use IF EXISTS at SQL level — Python try/except won't work because a
+    # failed statement aborts the entire PostgreSQL transaction.
+    op.execute("DROP INDEX IF EXISTS executions_agent_profile_idx")
+    op.execute(
+        "ALTER TABLE executions DROP CONSTRAINT IF EXISTS executions_agent_profile_id_fkey"
+    )
+    op.execute(
+        "ALTER TABLE executions DROP CONSTRAINT IF EXISTS fk_executions_agent_profile_id_agent_profiles"
     )
     op.drop_table("agent_profiles")
 

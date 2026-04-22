@@ -16,7 +16,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.drop_table("graph_deployment_version")
+    op.execute("DROP TABLE IF EXISTS graph_deployment_version CASCADE")
 
 
 def downgrade() -> None:
