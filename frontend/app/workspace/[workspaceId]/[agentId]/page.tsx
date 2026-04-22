@@ -1,19 +1,23 @@
 'use client'
 
-import { useParams } from 'next/navigation'
-
-import AgentBuilder from './AgentBuilder'
+import { useParams, redirect } from 'next/navigation'
+import { useEffect } from 'react'
 
 /**
- * Agent detail page
+ * Legacy agent detail page - redirects to new location
  *
- * Main page for viewing and editing agent configuration
- *
- * Route: /workspace/[workspaceId]/[agentId]
+ * Old route: /workspace/[workspaceId]/[agentId]
+ * New route: /agents/[agentId]/edit
  */
-export default function AgentPage() {
+export default function LegacyAgentPage() {
   const params = useParams()
   const agentId = params.agentId as string
 
-  return <AgentBuilder key={agentId} />
+  useEffect(() => {
+    if (agentId) {
+      redirect(`/agents/${agentId}/edit`)
+    }
+  }, [agentId])
+
+  return null
 }

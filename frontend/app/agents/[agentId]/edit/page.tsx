@@ -3,6 +3,7 @@
 import { Lock, Loader2, Save } from 'lucide-react'
 import { useParams } from 'next/navigation'
 import { useState, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -11,6 +12,12 @@ import { Textarea } from '@/components/ui/textarea'
 import { useAgent } from '@/hooks/queries/agents'
 import { useVersion, useUpdateVersion, useFreezeVersion } from '@/hooks/queries/agentVersions'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
+
+// Lazy load the heavy graph builder
+const AgentBuilder = dynamic(
+  () => import('@/components/editors/graph-builder/AgentBuilder'),
+  { ssr: false, loading: () => <div className="flex items-center gap-2 px-6 py-6 text-sm text-[var(--text-muted)]"><Loader2 className="h-4 w-4 animate-spin" />Loading graph editor...</div> }
+)
 
 export default function AgentEditPage() {
   const params = useParams()
@@ -87,7 +94,25 @@ export default function AgentEditPage() {
   if (!version) return null
 
   const isFrozen = version.status === 'frozen'
-  const isPrompt = version.definition_kind === 'prompt'
+  const definitionKind = version.definition_kind
+
+  // Route to appropriate editor based on definition_kind
+  if (definitionKind === 'graph') {
+    return <AgentBuilder workspaceId={workspaceId} />
+  }
+
+  if (definitionKind === 'code') {
+    return (
+      <Card className="mx-6 my-6 border-[var(--border)] bg-[var(--surface-1)] p-8 text-center">
+        <p className="text-sm text-[var(--text-muted)]">
+          Code editor coming in a future phase.
+        </p>
+      </Card>
+    )
+  }
+
+  // Prompt editor (default)
+  const isPrompt = definitionKind === 'prompt'
 
   return (
     <div className="space-y-6 px-6 py-6">
@@ -165,18 +190,6 @@ export default function AgentEditPage() {
             />
           </Card>
         </div>
-      ) : version.definition_kind === 'graph' ? (
-        <Card className="border-[var(--border)] bg-[var(--surface-1)] p-8 text-center">
-          <p className="text-sm text-[var(--text-muted)]">
-            Graph editor coming in a future phase.
-          </p>
-        </Card>
-      ) : version.definition_kind === 'code' ? (
-        <Card className="border-[var(--border)] bg-[var(--surface-1)] p-8 text-center">
-          <p className="text-sm text-[var(--text-muted)]">
-            Code editor coming in a future phase.
-          </p>
-        </Card>
       ) : (
         <Card className="border-[var(--border)] bg-[var(--surface-1)] p-8 text-center">
           <p className="text-sm text-[var(--text-muted)]">
