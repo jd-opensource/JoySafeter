@@ -24,8 +24,38 @@ MissionExecutionStatus = type("MissionExecutionStatus", (), {
     "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "cancelled"
 })()
 from app.repositories.execution import ExecutionRepository
-from app.services.execution_reducer import apply_execution_event, make_initial_projection
+# TODO: Phase 5 cleanup - execution_reducer removed; inline stubs below
 from app.utils.datetime import utc_now
+
+
+def apply_execution_event(
+    projection: dict[str, Any] | None,
+    *,
+    event_type: str,
+    payload: dict[str, Any],
+    status: str,
+) -> dict[str, Any]:
+    """Stub: execution_reducer deleted in Phase 5 cleanup."""
+    proj = dict(projection or {})
+    proj["status"] = status
+    return proj
+
+
+def make_initial_projection(payload: dict[str, Any], status: str) -> dict[str, Any]:
+    """Stub: execution_reducer deleted in Phase 5 cleanup."""
+    return {
+        "version": 1,
+        "status": status,
+        "source": payload.get("source"),
+        "mission_id": payload.get("mission_id"),
+        "agent_profile_id": payload.get("agent_profile_id"),
+        "container_id": None,
+        "session_id": None,
+        "messages": [],
+        "tool_calls": [],
+        "artifacts": [],
+        "meta": {},
+    }
 
 
 class ExecutionService:

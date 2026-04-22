@@ -49,7 +49,8 @@ from app.core.settings import settings
 AgentRunStatus = type("AgentRunStatus", (), {"QUEUED": "queued", "RUNNING": "running", "INTERRUPT_WAIT": "interrupt_wait", "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "cancelled"})()
 from app.schemas.chat import ChatRequest
 from app.services.graph_service import GraphService as GraphService
-from app.services.run_service import RunService
+# TODO: Phase 5 cleanup - RunService removed; run persistence now handled by AgentRunService
+RunService = None  # type: ignore[assignment,misc]
 from app.utils.file_event_emitter import FileEventEmitter as FileEventEmitter
 from app.utils.safe_task import safe_create_task
 from app.utils.stream_event_handler import StreamEventHandler as StreamEventHandler

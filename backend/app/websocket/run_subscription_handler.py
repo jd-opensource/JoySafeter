@@ -8,7 +8,8 @@ import uuid
 from fastapi import WebSocket, WebSocketDisconnect
 
 from app.core.database import AsyncSessionLocal
-from app.services.run_service import RunService
+# TODO: Phase 5 cleanup - RunService removed; run persistence now handled by AgentRunService
+RunService = None  # type: ignore[assignment,misc]
 from app.websocket.run_subscription_manager import run_subscription_manager
 
 

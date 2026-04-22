@@ -1,3 +1,6 @@
+// TODO: Phase 5 cleanup - legacy run query hooks removed; replaced by AgentRun model
+// This stub exists only to satisfy existing imports during migration.
+
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { agentService } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'

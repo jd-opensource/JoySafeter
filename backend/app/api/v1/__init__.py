@@ -19,7 +19,6 @@ from .graphs import router as graphs_router
 from .mcp import router as mcp_router
 from .memory import router as memory_router
 from .mission_comments import router as mission_comments_router
-from .mission_execution import router as mission_execution_router
 from .missions import router as missions_router
 from .model_credentials import router as model_credentials_router
 from .model_providers import router as model_providers_router
@@ -32,7 +31,6 @@ from .openclaw_devices import router as openclaw_devices_router
 from .openclaw_instances import router as openclaw_instances_router
 from .openclaw_proxy import router as openclaw_proxy_router
 from .organizations import router as organizations_router
-from .runs import router as runs_router
 from .sandboxes import router as sandboxes_router
 from .skill_collaborators import router as skill_collaborators_router
 from .skill_versions import router as skill_versions_router
@@ -55,7 +53,6 @@ ROUTERS = [
     memory_router,
     oauth_router,
     organizations_router,
-    runs_router,
     agent_runs_router,
     workspaces_router,
     workspace_folders_router,
@@ -86,7 +83,6 @@ ROUTERS = [
     executions_router,
     agents_router,
     mission_comments_router,
-    mission_execution_router,
     threads_router,
 ]
 

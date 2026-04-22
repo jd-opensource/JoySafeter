@@ -115,29 +115,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # Check Docker availability (non-blocking, just warn)
     await _check_docker_availability()
 
-    # Recover stale in-process durable runs that lost their executing runtime.
-    try:
-        from app.services.run_service import RunService
-
-        stale_before = datetime.now(timezone.utc) - timedelta(seconds=settings.run_heartbeat_timeout_seconds)
-        async with RedisClient.lock("init:durable_run_recovery", timeout=60, blocking_timeout=60):
-            async with AsyncSessionLocal() as db:
-                run_service = RunService(db)
-                recovered_runs = await run_service.recover_stale_incomplete_runs(
-                    runtime_owner_id=settings.run_runtime_instance_id,
-                    stale_before=stale_before,
-                )
-        if recovered_runs:
-            logger.warning(
-                f"   ⚠️  Recovered {len(recovered_runs)} stale durable runs for runtime owner "
-                f"{settings.run_runtime_instance_id}"
-            )
-        else:
-            logger.info(
-                f"   ✓ Durable run recovery sweep completed for runtime owner {settings.run_runtime_instance_id}"
-            )
-    except Exception as e:
-        logger.warning(f"   ⚠️  Durable run recovery sweep failed: {e}")
+    # TODO: Phase 5 cleanup - durable run recovery removed with RunService; AgentRun lifecycle
+    # is now managed by AgentRunService which does not require startup recovery.
 
     # Automatically sync providers and models to database on startup (if not present)
     try:
