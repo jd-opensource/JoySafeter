@@ -183,68 +183,12 @@ async def list_folder_graphs(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """List all graphs in a folder."""
-    from sqlalchemy import func, select
+    """List all graphs in a folder. TODO: removed in greenfield rewrite — graphs table dropped."""
+    from app.common.exceptions import NotFoundException
 
-    from app.models.graph import AgentGraph, GraphNode
-    from app.repositories.graph import GraphRepository
-
-    # verify folder exists and get workspace_id
     repo = WorkflowFolderRepository(db)
     folder = await repo.get(folder_id)
     if not folder:
-        from app.common.exceptions import NotFoundException
-
         raise NotFoundException("Folder not found")
 
-    # verify user permission (read access)
-    service = FolderService(db)
-    await service._ensure_permission(folder.workspace_id, current_user, "read")
-
-    # query all graphs in this folder
-    GraphRepository(db)
-    stmt = (
-        select(AgentGraph)
-        .where(AgentGraph.folder_id == folder_id, AgentGraph.user_id == current_user.id)
-        .order_by(AgentGraph.created_at.desc())
-    )
-
-    result = await db.execute(stmt)
-    graphs = list(result.scalars().all())
-
-    # batch-query node counts
-    graph_ids = [graph.id for graph in graphs]
-    node_counts = {}
-    if graph_ids:
-        count_query = (
-            select(GraphNode.graph_id, func.count(GraphNode.id).label("count"))
-            .where(GraphNode.graph_id.in_(graph_ids))
-            .group_by(GraphNode.graph_id)
-        )
-        count_result = await db.execute(count_query)
-        for row in count_result:
-            node_counts[row.graph_id] = row.count
-
-    # serialize graphs
-    data = []
-    for graph in graphs:
-        data.append(
-            {
-                "id": str(graph.id),
-                "userId": str(graph.user_id),
-                "workspaceId": str(graph.workspace_id) if graph.workspace_id else None,
-                "folderId": str(graph.folder_id) if graph.folder_id else None,
-                "parentId": str(graph.parent_id) if graph.parent_id else None,
-                "name": graph.name,
-                "description": graph.description,
-                "color": graph.color,
-                "isDeployed": graph.is_deployed,
-                "variables": graph.variables or {},
-                "createdAt": graph.created_at.isoformat() if graph.created_at else None,
-                "updatedAt": graph.updated_at.isoformat() if graph.updated_at else None,
-                "nodeCount": node_counts.get(graph.id, 0),
-            }
-        )
-
-    base = success_response(data={"graphs": data}, message="Fetched graphs")
-    return {**base, "graphs": data}
+    return {"graphs": []}

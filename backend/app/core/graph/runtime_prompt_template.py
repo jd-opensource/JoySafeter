@@ -4,7 +4,9 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-from app.models.graph import AgentGraph
+# TODO: removed in greenfield rewrite
+# from app.models.graph import AgentGraph
+AgentGraph = None  # type: ignore[assignment,misc]
 
 _PLACEHOLDER_PATTERN = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _PROMPT_CONFIG_KEYS = ("systemPrompt", "system_prompt", "prompt")

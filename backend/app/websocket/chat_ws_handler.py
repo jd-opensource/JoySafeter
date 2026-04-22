@@ -48,7 +48,9 @@ from app.core.settings import settings
 # from app.models.agent_run import AgentRunStatus
 AgentRunStatus = type("AgentRunStatus", (), {"QUEUED": "queued", "RUNNING": "running", "INTERRUPT_WAIT": "interrupt_wait", "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "cancelled"})()
 from app.schemas.chat import ChatRequest
-from app.services.graph_service import GraphService as GraphService
+# TODO: removed in greenfield rewrite
+# from app.services.graph_service import GraphService as GraphService
+GraphService = None  # type: ignore[assignment,misc]
 # TODO: Phase 5 cleanup - RunService removed; run persistence now handled by AgentRunService
 RunService = None  # type: ignore[assignment,misc]
 from app.utils.file_event_emitter import FileEventEmitter as FileEventEmitter

@@ -16,7 +16,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.model.utils import decrypt_credentials, encrypt_credentials
-from app.models.graph import GraphNode, GraphNodeSecret
+# TODO: removed in greenfield rewrite
+# from app.models.graph import GraphNode, GraphNodeSecret
+GraphNode = None  # type: ignore[assignment,misc]
+GraphNodeSecret = None  # type: ignore[assignment,misc]
 
 SECRET_KEY_SLUG = "a2a_auth_headers"
 REF_KEY = "__secretRef"

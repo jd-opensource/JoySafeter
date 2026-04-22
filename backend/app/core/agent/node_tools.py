@@ -23,7 +23,9 @@ from loguru import logger
 # Import default user ID constant
 from app.core.constants import DEFAULT_USER_ID
 from app.core.tools.tool import EnhancedTool, ToolMetadata, ToolSourceType
-from app.models.graph import GraphNode
+# TODO: removed in greenfield rewrite
+# from app.models.graph import GraphNode
+GraphNode = None  # type: ignore[assignment,misc]
 from app.utils.sandbox_paths import get_user_sandbox_host_dir
 
 

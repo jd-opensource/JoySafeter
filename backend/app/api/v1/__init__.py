@@ -14,8 +14,10 @@ from .custom_tools import router as custom_tools_router
 from .environment import router as environment_router
 from .executions import router as executions_router
 from .files import router as files_router
-from .graph_code import router as graph_code_router
-from .graphs import router as graphs_router
+# TODO: removed in greenfield rewrite
+# from .graph_code import router as graph_code_router
+# from .graphs import router as graphs_router
+# from .openapi_graph import router as openapi_graph_router
 from .mcp import router as mcp_router
 from .memory import router as memory_router
 from .mission_comments import router as mission_comments_router
@@ -25,7 +27,6 @@ from .model_providers import router as model_providers_router
 from .model_usage import router as model_usage_router
 from .models import router as models_router
 from .oauth import router as oauth_router
-from .openapi_graph import router as openapi_graph_router
 from .openclaw_chat import router as openclaw_chat_router
 from .openclaw_devices import router as openclaw_devices_router
 from .openclaw_instances import router as openclaw_instances_router
@@ -64,12 +65,14 @@ ROUTERS = [
     model_credentials_router,
     models_router,
     model_usage_router,
-    graph_code_router,
+    # TODO: removed in greenfield rewrite
+    # graph_code_router,
     skills_router,
     skill_versions_router,
     skill_collaborators_router,
     tokens_router,
-    graphs_router,
+    # TODO: removed in greenfield rewrite
+    # graphs_router,
     traces_router,
     users_router,
     environment_router,
@@ -77,7 +80,8 @@ ROUTERS = [
     openclaw_chat_router,
     openclaw_devices_router,
     openclaw_proxy_router,
-    openapi_graph_router,
+    # TODO: removed in greenfield rewrite
+    # openapi_graph_router,
     version_router,
     missions_router,
     executions_router,
