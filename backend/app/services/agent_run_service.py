@@ -83,6 +83,7 @@ class AgentRunService:
                 "release_id": data.release_id,
                 "workspace_id": workspace_id,
                 "thread_id": data.thread_id,
+                "task_id": data.task_id,
                 "mission_id": data.mission_id,
                 "trigger_source": data.trigger_source,
                 "goal": data.goal,
