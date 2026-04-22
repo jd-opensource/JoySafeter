@@ -1,11 +1,9 @@
 # backend/app/services/execution_lifecycle_service.py
 """
-ExecutionLifecycleService — the sole cross-domain coordinator
-between Mission and Execution.
+ExecutionLifecycleService — cross-domain coordinator between Task/AgentRun and Execution.
 
 All operations that touch BOTH domains go through this service.
-MissionService and ExecutionService remain single-domain and
-never import each other.
+TaskService and ExecutionService remain single-domain and never import each other.
 """
 
 from __future__ import annotations
@@ -15,43 +13,35 @@ import uuid
 from typing import Any, Optional
 
 from loguru import logger
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import BadRequestException, ConflictException, NotFoundException
+from app.common.exceptions import BadRequestException, NotFoundException
 from app.core.agent.cli_backends.base import CLIResult
 from app.core.agent.cli_backends.runner_callbacks import RunnerCallbacks
 from app.core.agent.cli_backends.session_registry import session_registry
-# TODO: Phase 4/5 cleanup - ExecutionSource, MissionExecutionStatus removed
-from app.models.execution import (
-    Execution as ExecModel,
-)
-# Temporary placeholders for Phase 4/5 cleanup
-TERMINAL_EXECUTION_STATUSES = frozenset({"completed", "failed", "cancelled"})
-ExecutionSource = type("ExecutionSource", (), {"MISSION": "mission", "CHAT": "chat", "GRAPH": "graph", "COORDINATOR": "coordinator", "API": "api"})()
-MissionExecutionStatus = type("MissionExecutionStatus", (), {
-    "QUEUED": "queued", "DISPATCHED": "dispatched", "RUNNING": "running",
-    "INTERRUPT_WAIT": "interrupt_wait", "APPROVAL_WAIT": "approval_wait",
-    "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "cancelled"
-})()
-from app.models.mission import AssigneeType, Mission, MissionStatus
+from app.models.agent import Agent, AgentRelease
+from app.models.agent_run import AgentRun
+from app.models.execution import Execution as ExecModel
+from app.models.task import Task
 from app.repositories.agent import AgentRepository
-from app.repositories.mission import MissionRepository
-from app.services.execution_service import ExecutionService
+from app.repositories.task import TaskRepository
+from app.services.execution_service import ExecutionService, TERMINAL_EXECUTION_STATUSES
 from app.utils.credentials import build_credentials
+from app.utils.datetime import utc_now
 from app.utils.safe_task import safe_create_task
 
 
-def build_execution_prompt(mission: Mission, trigger_comment=None) -> str:
-    """Build the prompt sent to the CLI agent for a mission."""
+def build_task_prompt(task: Task, trigger_comment: Any = None) -> str:
+    """Build the prompt sent to the CLI agent for a task."""
     parts: list[str] = []
-    parts.append(f"# Mission: {mission.title}")
-    if mission.description:
-        parts.append(f"\n## Description\n{mission.description}")
-    if mission.objective:
-        parts.append(f"\n## Objective\n{mission.objective}")
-    if mission.tags:
-        parts.append(f"\n## Tags\n{', '.join(str(t) for t in mission.tags)}")
+    parts.append(f"# Task: {task.title}")
+    if task.description:
+        parts.append(f"\n## Description\n{task.description}")
+    if task.goal:
+        parts.append(f"\n## Goal\n{task.goal}")
+    if task.tags:
+        parts.append(f"\n## Tags\n{', '.join(str(t) for t in task.tags)}")
     if trigger_comment:
         parts.append(
             f"\n## [NEW COMMENT]\n"
@@ -93,7 +83,7 @@ def _start_execution_runner(
 
 
 class ExecutionLifecycleService(RunnerCallbacks):
-    """Mediator: coordinates Mission <-> Execution interactions.
+    """Mediator: coordinates Task/AgentRun <-> Execution interactions.
 
     Implements RunnerCallbacks so it can be injected into ExecutionRunner.
     """
@@ -101,7 +91,7 @@ class ExecutionLifecycleService(RunnerCallbacks):
     def __init__(self, db: AsyncSession):
         self.db = db
         self.execution_service = ExecutionService(db)
-        self.mission_repo = MissionRepository(db)
+        self.task_repo = TaskRepository(db)
         self.agent_repo = AgentRepository(db)
 
     # ------------------------------------------------------------------
@@ -111,12 +101,12 @@ class ExecutionLifecycleService(RunnerCallbacks):
     async def on_execution_finalized(
         self,
         execution_id: uuid.UUID,
-        status: MissionExecutionStatus,
+        status: str,
         result: CLIResult,
     ) -> None:
         """Called by ExecutionRunner after terminal state reached."""
         await self._post_completion_comment(execution_id, status, result)
-        await self._finalize_mission(execution_id, status)
+        await self._finalize_task(execution_id, status)
 
     async def on_execution_failed(
         self,
@@ -126,61 +116,63 @@ class ExecutionLifecycleService(RunnerCallbacks):
         """Called by ExecutionRunner on unhandled exception."""
         await self._post_completion_comment(
             execution_id,
-            MissionExecutionStatus.FAILED,
+            "failed",
             error_message=error,
         )
-        await self._finalize_mission(execution_id, MissionExecutionStatus.FAILED)
+        await self._finalize_task(execution_id, "failed")
 
     # ------------------------------------------------------------------
-    # Finalize: update mission status after execution ends
+    # Finalize: update run + task status after execution ends
     # ------------------------------------------------------------------
 
-    async def _finalize_mission(
+    async def _finalize_task(
         self,
         execution_id: uuid.UUID,
-        status: MissionExecutionStatus,
+        status: str,
     ) -> None:
         try:
-            mission = (
-                await self.db.execute(
-                    select(Mission).where(Mission.current_execution_id == execution_id).with_for_update()
-                )
-            ).scalar_one_or_none()
-            if not mission:
+            result = await self.db.execute(
+                select(ExecModel).where(ExecModel.id == execution_id)
+            )
+            execution = result.scalar_one_or_none()
+            if not execution:
                 return
 
-            mission.current_execution_id = None
+            run_result = await self.db.execute(
+                select(AgentRun).where(AgentRun.id == execution.run_id).with_for_update()
+            )
+            run = run_result.scalar_one_or_none()
+            if not run:
+                return
 
-            if status == MissionExecutionStatus.COMPLETED:
-                if mission.status != MissionStatus.CANCELLED:
-                    mission.status = MissionStatus.DONE if mission.auto_approve else MissionStatus.IN_REVIEW
-            elif status == MissionExecutionStatus.FAILED:
-                if mission.status == MissionStatus.IN_PROGRESS:
-                    mission.status = MissionStatus.TODO
-            elif status == MissionExecutionStatus.CANCELLED:
-                if mission.status == MissionStatus.IN_PROGRESS:
-                    mission.status = MissionStatus.TODO
+            # Map execution status → run status
+            if status == "completed":
+                run.status = "succeeded"
+            elif status == "failed":
+                run.status = "failed"
+            elif status == "cancelled":
+                run.status = "cancelled"
+            run.ended_at = utc_now()
+
+            # Sync task status if task exists
+            if run.task_id:
+                from app.services.task_service import TaskService
+
+                task_result = await self.db.execute(
+                    select(Task).where(Task.id == run.task_id)
+                )
+                task = task_result.scalar_one_or_none()
+                if task:
+                    task_service = TaskService(self.db)
+                    await task_service.sync_status_from_run(run.task_id, task.workspace_id, run)
 
             await self.db.commit()
 
-            from app.websocket.notification_manager import (
-                NotificationType,
-                notification_manager,
-            )
-
-            await notification_manager.broadcast(
-                {
-                    "type": NotificationType.MISSION_UPDATED.value,
-                    "mission_id": str(mission.id),
-                    "status": mission.status.value,
-                }
-            )
-
             logger.info(
-                f"Finalized mission {mission.id}: execution {execution_id} -> mission status {mission.status.value}"
+                f"Finalized run {run.id}: execution {execution_id} -> run status {run.status}"
             )
         except Exception as exc:
-            logger.warning(f"Failed to finalize mission for execution {execution_id}: {exc}")
+            logger.warning(f"Failed to finalize task for execution {execution_id}: {exc}")
 
     # ------------------------------------------------------------------
     # Cancel: unified cancel path
@@ -201,7 +193,7 @@ class ExecutionLifecycleService(RunnerCallbacks):
         execution = await self.execution_service.mark_status(
             execution_id=execution_id,
             user_id=user_id,
-            status=MissionExecutionStatus.CANCELLED,
+            status="cancelled",
             error_code="cancelled",
             error_message="Cancelled by user",
         )
@@ -223,8 +215,8 @@ class ExecutionLifecycleService(RunnerCallbacks):
         # Force-remove the Docker container so it doesn't linger
         await self._destroy_execution_container(execution)
 
-        if execution and execution.mission_id:
-            await self._finalize_mission(execution_id, MissionExecutionStatus.CANCELLED)
+        if execution:
+            await self._finalize_task(execution_id, "cancelled")
 
         return execution
 
@@ -233,90 +225,97 @@ class ExecutionLifecycleService(RunnerCallbacks):
         from app.core.agent.cli_backends.container_pool import container_pool
         from app.core.agent.cli_backends.container_service import CLIContainerService
 
-        if execution.agent_profile_id:
+        # Try to find the release_id via run → release chain
+        release_id: Optional[uuid.UUID] = None
+        if execution.run_id:
             try:
-                destroyed = await container_pool.release_and_destroy_if_idle(execution.agent_profile_id)
+                run_result = await self.db.execute(
+                    select(AgentRun).where(AgentRun.id == execution.run_id)
+                )
+                run = run_result.scalar_one_or_none()
+                if run:
+                    release_id = run.release_id
+            except Exception:
+                pass
+
+        if release_id:
+            try:
+                destroyed = await container_pool.release_and_destroy_if_idle(release_id)
                 if destroyed:
                     logger.info(
-                        f"Destroyed container for agent {execution.agent_profile_id} (execution {execution.id})"
+                        f"Destroyed container for release {release_id} (execution {execution.id})"
                     )
                 else:
                     logger.info(
-                        f"Released container for agent {execution.agent_profile_id} "
+                        f"Released container for release {release_id} "
                         f"(execution {execution.id}, still in use by other executions)"
                     )
                 return
             except Exception as exc:
-                logger.warning(f"Failed to release/destroy container for agent {execution.agent_profile_id}: {exc}")
+                logger.warning(f"Failed to release/destroy container for release {release_id}: {exc}")
 
-        # No agent profile — remove by container_id directly
-        if execution.container_id:
+        # No release — remove by runtime_session_ref (container_id) directly
+        if execution.runtime_session_ref:
             try:
                 svc = CLIContainerService()
-                await svc.remove_container(execution.container_id, force=True)
-                logger.info(f"Removed container {execution.container_id[:12]} for execution {execution.id}")
+                await svc.remove_container(execution.runtime_session_ref, force=True)
+                logger.info(f"Removed container {execution.runtime_session_ref[:12]} for execution {execution.id}")
             except Exception as exc:
-                logger.warning(f"Failed to remove container {execution.container_id[:12]}: {exc}")
+                logger.warning(f"Failed to remove container for execution {execution.id}: {exc}")
 
-    async def cancel_mission(
+    async def cancel_task(
         self,
-        mission_id: uuid.UUID,
+        task_id: uuid.UUID,
         workspace_id: uuid.UUID,
-    ) -> Optional[Mission]:
-        mission = await self.mission_repo.get_for_update(mission_id, workspace_id)
-        if not mission:
+    ) -> Optional[Task]:
+        task = await self.task_repo.get_for_update(task_id, workspace_id)
+        if not task:
             return None
 
-        if mission.current_execution_id:
-            exec_id = mission.current_execution_id
-            try:
-                await self.execution_service.mark_status(
-                    execution_id=exec_id,
-                    status=MissionExecutionStatus.CANCELLED,
-                    error_code="cancelled",
-                    error_message="Mission cancelled by user",
-                )
-            except Exception as exc:
-                logger.warning(f"Failed to mark execution {exec_id} cancelled: {exc}")
-
-            session = session_registry.get(exec_id)
-            if session:
+        # Cancel the latest active run if any
+        if task.latest_run_id:
+            run_result = await self.db.execute(
+                select(AgentRun).where(AgentRun.id == task.latest_run_id).with_for_update()
+            )
+            run = run_result.scalar_one_or_none()
+            if run and run.current_execution_id and run.status not in ("succeeded", "failed", "cancelled"):
+                exec_id = run.current_execution_id
                 try:
-                    await session.cancel()
+                    await self.execution_service.mark_status(
+                        execution_id=exec_id,
+                        status="cancelled",
+                        error_code="cancelled",
+                        error_message="Task cancelled by user",
+                    )
                 except Exception as exc:
-                    logger.warning(f"Failed to cancel session {exec_id}: {exc}")
+                    logger.warning(f"Failed to mark execution {exec_id} cancelled: {exc}")
 
-            try:
-                from app.utils.task_manager import task_manager
+                session = session_registry.get(exec_id)
+                if session:
+                    try:
+                        await session.cancel()
+                    except Exception as exc:
+                        logger.warning(f"Failed to cancel session {exec_id}: {exc}")
 
-                await task_manager.cancel_task(str(exec_id))
-            except Exception as exc:
-                logger.warning(f"Failed to cancel task {exec_id}: {exc}")
+                try:
+                    from app.utils.task_manager import task_manager
+                    await task_manager.cancel_task(str(exec_id))
+                except Exception as exc:
+                    logger.warning(f"Failed to cancel task {exec_id}: {exc}")
 
-            # Force-remove the Docker container
-            execution = await self.execution_service.get_execution_internal(exec_id)
-            if execution:
-                await self._destroy_execution_container(execution)
+                execution = await self.execution_service.get_execution_internal(exec_id)
+                if execution:
+                    await self._destroy_execution_container(execution)
 
-        mission.status = MissionStatus.CANCELLED
-        mission.current_execution_id = None
+                run.status = "cancelled"
+                run.ended_at = utc_now()
+
+        from app.models.task import TaskStatus
+        task.status = TaskStatus.CANCELLED
         await self.db.commit()
-        await self.db.refresh(mission)
+        await self.db.refresh(task)
 
-        from app.websocket.notification_manager import (
-            NotificationType,
-            notification_manager,
-        )
-
-        await notification_manager.broadcast(
-            {
-                "type": NotificationType.MISSION_UPDATED.value,
-                "mission_id": str(mission.id),
-                "status": mission.status.value,
-            }
-        )
-
-        return mission
+        return task
 
     # ------------------------------------------------------------------
     # Auto-comment on execution completion
@@ -325,238 +324,236 @@ class ExecutionLifecycleService(RunnerCallbacks):
     async def _post_completion_comment(
         self,
         execution_id: uuid.UUID,
-        status: MissionExecutionStatus,
+        status: str,
         result: Optional[CLIResult] = None,
         error_message: str = "",
     ) -> None:
+        """Post a comment on the task after execution completes (if task has comments)."""
         try:
             execution = await self.execution_service.get_execution_internal(execution_id)
-            if not execution or not execution.mission_id:
+            if not execution:
                 return
-            from app.services.mission_comment_service import MissionCommentService
 
-            svc = MissionCommentService(self.db)
-            await svc.post_execution_comment(
-                execution=execution,
-                result_status=status,
-                result_output=(result.output[:2000] if result and result.output else ""),
-                error_message=error_message[:2000] if error_message else "",
+            # Resolve task via run
+            run_result = await self.db.execute(
+                select(AgentRun).where(AgentRun.id == execution.run_id)
             )
+            run = run_result.scalar_one_or_none()
+            if not run or not run.task_id:
+                return
+
+            # Post comment via task comment service if available
+            try:
+                from app.services.task_comment_service import TaskCommentService
+
+                svc = TaskCommentService(self.db)
+                await svc.post_execution_comment(
+                    execution=execution,
+                    task_id=run.task_id,
+                    result_status=status,
+                    result_output=(result.output[:2000] if result and result.output else ""),
+                    error_message=error_message[:2000] if error_message else "",
+                )
+            except ImportError:
+                pass  # task_comment_service may not exist yet
         except Exception as exc:
             logger.warning(f"Failed to post completion comment for {execution_id}: {exc}")
 
     # ------------------------------------------------------------------
-    # Dispatch: create execution + start runner
+    # Dispatch: create run + execution + start runner
     # ------------------------------------------------------------------
 
-    async def dispatch_mission(
+    async def dispatch_task(
         self,
         *,
-        mission_id: uuid.UUID,
+        task_id: uuid.UUID,
         workspace_id: uuid.UUID,
         user_id: str,
-        runtime_config: Optional[dict[str, Any]] = None,
-    ) -> tuple[Mission, Any]:
-        mission = await self.mission_repo.get_for_update(mission_id, workspace_id)
-        if not mission:
-            raise NotFoundException(f"Mission not found: {mission_id}")
+    ) -> tuple[Task, AgentRun]:
+        task = await self.task_repo.get_for_update(task_id, workspace_id)
+        if not task:
+            raise NotFoundException(f"Task not found: {task_id}")
 
-        if mission.status not in {
-            MissionStatus.TODO,
-            MissionStatus.BACKLOG,
-            MissionStatus.IN_PROGRESS,
-            MissionStatus.IN_REVIEW,
-        }:
-            raise BadRequestException(f"Mission {mission_id} cannot be dispatched from status {mission.status.value}")
+        if not task.agent_id:
+            raise BadRequestException(f"Task {task_id} has no assigned agent")
 
-        if mission.status == MissionStatus.IN_PROGRESS and mission.current_execution_id:
-            current_exec = (
-                await self.db.execute(select(ExecModel).where(ExecModel.id == mission.current_execution_id))
-            ).scalar_one_or_none()
-            if current_exec and current_exec.status not in TERMINAL_EXECUTION_STATUSES:
-                raise ConflictException(f"Mission {mission_id} already has an active execution")
-            mission.current_execution_id = None
-
-        if not mission.assignee_id or mission.assignee_type != AssigneeType.AGENT:
-            raise BadRequestException(f"Mission {mission_id} has no agent assignee")
-
-        agent = await self.agent_repo.get_by_id_and_workspace(mission.assignee_id, workspace_id)
+        # Load agent and its active release
+        agent_result = await self.db.execute(
+            select(Agent).where(Agent.id == task.agent_id)
+        )
+        agent = agent_result.scalar_one_or_none()
         if not agent:
-            raise NotFoundException(f"Agent profile not found: {mission.assignee_id}")
+            raise NotFoundException(f"Agent not found: {task.agent_id}")
+        if not agent.active_release_id:
+            raise BadRequestException(f"Agent {agent.id} has no active release")
 
-        active_count_result = await self.db.execute(
-            select(func.count())
-            .select_from(ExecModel)
-            .where(
-                ExecModel.agent_profile_id == agent.id,
-                ExecModel.status.in_(
-                    [
-                        MissionExecutionStatus.QUEUED,
-                        MissionExecutionStatus.DISPATCHED,
-                        MissionExecutionStatus.RUNNING,
-                        MissionExecutionStatus.APPROVAL_WAIT,
-                    ]
-                ),
-            )
+        release_result = await self.db.execute(
+            select(AgentRelease).where(AgentRelease.id == agent.active_release_id)
         )
-        active_count = active_count_result.scalar() or 0
-        if active_count >= agent.max_concurrent_tasks:
-            raise ConflictException(
-                f"Agent {agent.name} already has {active_count}/{agent.max_concurrent_tasks} active executions"
-            )
+        release = release_result.scalar_one_or_none()
+        if not release:
+            raise NotFoundException(f"AgentRelease not found: {agent.active_release_id}")
 
-        credentials = build_credentials(agent.custom_env)
-        prompt = build_execution_prompt(mission)
+        # Build credentials from release runtime_binding
+        custom_env = release.runtime_binding.get("custom_env", {})
+        credentials = build_credentials(custom_env)
+        prompt = build_task_prompt(task)
 
-        execution = await self.execution_service.create_execution(
-            workspace_id=workspace_id,
-            user_id=user_id,
-            source=ExecutionSource.MISSION,
-            runtime_type=agent.runtime_type,
-            title=mission.title,
-            mission_id=mission_id,
-            agent_profile_id=mission.assignee_id,
-            runtime_config=runtime_config or agent.runtime_config,
+        # Create run + execution via AgentRunService
+        from app.schemas.agent_run import CreateAgentRunRequest
+        from app.services.agent_run_service import AgentRunService
+
+        run_service = AgentRunService(self.db)
+        run_data = CreateAgentRunRequest(
+            release_id=agent.active_release_id,
+            task_id=task_id,
+            trigger_source="task",
+            goal=task.goal or task.title,
         )
+        run = await run_service.create_run(user_id, run_data)
 
-        mission.status = MissionStatus.IN_PROGRESS
-        mission.current_execution_id = execution.id
+        # Update task status to in_progress
+        from app.models.task import TaskStatus
+        task.status = TaskStatus.IN_PROGRESS
+        task.latest_run_id = run.id
         await self.db.commit()
-        await self.db.refresh(mission)
+        await self.db.refresh(task)
 
-        logger.info(f"Dispatched mission {mission_id} -> execution {execution.id}")
+        logger.info(f"Dispatched task {task_id} -> run {run.id} -> execution {run.current_execution_id}")
 
-        _start_execution_runner(execution.id, prompt, credentials)
-        return mission, execution
+        _start_execution_runner(run.current_execution_id, prompt, credentials)
+        return task, run
 
-    async def dispatch_all_ready_missions(self, *, limit: int = 20) -> int:
-        dispatchable = await self.mission_repo.list_dispatchable(limit=limit)
+    async def dispatch_all_ready_tasks(self, *, limit: int = 20) -> int:
+        """Dispatch all BACKLOG tasks that have an agent assigned."""
+        dispatchable = await self.task_repo.list_dispatchable(limit=limit)
         dispatched = 0
-        for mission in dispatchable:
+        for task in dispatchable:
             try:
-                await self.dispatch_mission(
-                    mission_id=mission.id,
-                    workspace_id=mission.workspace_id,
-                    user_id=mission.creator_id,
+                await self.dispatch_task(
+                    task_id=task.id,
+                    workspace_id=task.workspace_id,
+                    user_id=task.creator_id,
                 )
                 dispatched += 1
             except Exception as exc:
-                logger.warning(f"Failed to auto-dispatch mission {mission.id}: {exc}")
+                logger.warning(f"Failed to auto-dispatch task {task.id}: {exc}")
         return dispatched
 
     async def dispatch_for_comment(
         self,
         *,
-        mission: Mission,
+        task: Task,
         trigger_comment: Any,
         user_id: str,
     ) -> Optional[uuid.UUID]:
-        assert mission.assignee_id is not None
-        agent = await self.agent_repo.get_by_id_and_workspace(mission.assignee_id, mission.workspace_id)
-        if not agent:
-            logger.warning(f"Agent {mission.assignee_id} not found, skipping enqueue")
+        """Dispatch a task execution triggered by a comment."""
+        if not task.agent_id:
+            logger.warning(f"Task {task.id} has no agent, skipping comment dispatch")
             return None
 
-        execution_id = await self._create_comment_execution(
-            mission=mission,
-            agent=agent,
-            trigger_comment=trigger_comment,
-            user_id=user_id,
+        # Load agent and release
+        agent_result = await self.db.execute(
+            select(Agent).where(Agent.id == task.agent_id)
         )
-        if not execution_id:
+        agent = agent_result.scalar_one_or_none()
+        if not agent or not agent.active_release_id:
+            logger.warning(f"Agent {task.agent_id} not found or has no active release, skipping dispatch")
             return None
 
-        mission_for_update = await self.mission_repo.get_for_update(mission.id, mission.workspace_id)
-        if mission_for_update:
-            mission_for_update.current_execution_id = execution_id
-            if mission_for_update.status != MissionStatus.IN_PROGRESS:
-                mission_for_update.status = MissionStatus.IN_PROGRESS
-            await self.db.commit()
+        release_result = await self.db.execute(
+            select(AgentRelease).where(AgentRelease.id == agent.active_release_id)
+        )
+        release = release_result.scalar_one_or_none()
+        if not release:
+            return None
 
-        return execution_id
+        # Create run + execution
+        from app.schemas.agent_run import CreateAgentRunRequest
+        from app.services.agent_run_service import AgentRunService
+
+        run_service = AgentRunService(self.db)
+        run_data = CreateAgentRunRequest(
+            release_id=agent.active_release_id,
+            task_id=task.id,
+            trigger_source="comment",
+            goal=task.goal or task.title,
+        )
+        run = await run_service.create_run(user_id, run_data)
+
+        # Update task
+        from app.models.task import TaskStatus
+        if task.status != TaskStatus.IN_PROGRESS:
+            task.status = TaskStatus.IN_PROGRESS
+        task.latest_run_id = run.id
+        await self.db.commit()
+
+        # Build prompt and credentials
+        custom_env = release.runtime_binding.get("custom_env", {})
+        credentials = build_credentials(custom_env)
+        prompt = build_task_prompt(task, trigger_comment=trigger_comment)
+
+        _start_execution_runner(run.current_execution_id, prompt, credentials)
+        return run.current_execution_id
 
     async def dispatch_for_mention(
         self,
         *,
-        mission: Mission,
+        task: Task,
         trigger_comment: Any,
         user_id: str,
     ) -> None:
+        """Dispatch executions for all agents mentioned in a comment (excluding the assigned agent)."""
         from app.utils.mentions import agent_mentions
 
         mentions = agent_mentions(trigger_comment.content)
         if not mentions:
             return
-        if mission.status in {MissionStatus.DONE, MissionStatus.CANCELLED, MissionStatus.BACKLOG}:
+
+        from app.models.task import TaskStatus
+        if task.status in {TaskStatus.DONE, TaskStatus.CANCELLED, TaskStatus.BACKLOG}:
             return
 
         seen: set[uuid.UUID] = set()
         for mention in mentions:
-            if mention.id == mission.assignee_id or mention.id in seen:
+            if mention.id == task.agent_id or mention.id in seen:
                 continue
             seen.add(mention.id)
-            agent = await self.agent_repo.get_by_id_and_workspace(mention.id, mission.workspace_id)
-            if not agent:
+
+            # Load mentioned agent
+            agent_result = await self.db.execute(
+                select(Agent).where(Agent.id == mention.id)
+            )
+            agent = agent_result.scalar_one_or_none()
+            if not agent or not agent.active_release_id:
                 continue
-            await self._create_comment_execution(
-                mission=mission,
-                agent=agent,
-                trigger_comment=trigger_comment,
-                user_id=user_id,
+
+            release_result = await self.db.execute(
+                select(AgentRelease).where(AgentRelease.id == agent.active_release_id)
             )
+            release = release_result.scalar_one_or_none()
+            if not release:
+                continue
 
-    async def _create_comment_execution(
-        self,
-        *,
-        mission: Mission,
-        agent: Any,
-        trigger_comment: Any,
-        user_id: str,
-    ) -> Optional[uuid.UUID]:
-        from sqlalchemy.exc import IntegrityError
+            # Create run for mentioned agent
+            from app.schemas.agent_run import CreateAgentRunRequest
+            from app.services.agent_run_service import AgentRunService
 
-        credentials = build_credentials(agent.custom_env)
-
-        active_count_result = await self.db.execute(
-            select(func.count())
-            .select_from(ExecModel)
-            .where(
-                ExecModel.agent_profile_id == agent.id,
-                ExecModel.status.in_(
-                    [
-                        MissionExecutionStatus.QUEUED,
-                        MissionExecutionStatus.DISPATCHED,
-                        MissionExecutionStatus.RUNNING,
-                        MissionExecutionStatus.APPROVAL_WAIT,
-                    ]
-                ),
+            run_service = AgentRunService(self.db)
+            run_data = CreateAgentRunRequest(
+                release_id=agent.active_release_id,
+                task_id=task.id,
+                trigger_source="mention",
+                goal=task.goal or task.title,
             )
-        )
-        active_count = active_count_result.scalar() or 0
-        if active_count >= agent.max_concurrent_tasks:
-            logger.info(
-                f"Agent {agent.name} at concurrency limit ({active_count}/{agent.max_concurrent_tasks}), "
-                f"skipping comment-triggered dispatch for mission {mission.id}"
-            )
-            return None
+            try:
+                run = await run_service.create_run(user_id, run_data)
 
-        try:
-            execution = await self.execution_service.create_execution(
-                workspace_id=mission.workspace_id,
-                user_id=user_id,
-                source=ExecutionSource.MISSION,
-                runtime_type=agent.runtime_type,
-                title=mission.title,
-                mission_id=mission.id,
-                agent_profile_id=agent.id,
-                runtime_config=agent.runtime_config,
-                trigger_comment_id=trigger_comment.id,
-            )
-        except IntegrityError:
-            await self.db.rollback()
-            logger.info(f"Dedup: skipped enqueue for agent {agent.id} on mission {mission.id}")
-            return None
+                # Build prompt and credentials
+                custom_env = release.runtime_binding.get("custom_env", {})
+                credentials = build_credentials(custom_env)
+                prompt = build_task_prompt(task, trigger_comment=trigger_comment)
 
-        prompt = build_execution_prompt(mission, trigger_comment=trigger_comment)
-        _start_execution_runner(execution.id, prompt, credentials)
-        return execution.id
+                _start_execution_runner(run.current_execution_id, prompt, credentials)
+            except Exception as exc:
+                logger.warning(f"Failed to dispatch mention for agent {agent.id} on task {task.id}: {exc}")

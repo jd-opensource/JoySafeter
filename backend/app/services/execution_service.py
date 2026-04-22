@@ -7,218 +7,108 @@ from __future__ import annotations
 import uuid
 from typing import Any, Optional
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# TODO: Phase 4/5 cleanup - ExecutionSnapshot, ExecutionSource, MissionExecutionStatus removed
 from app.models.execution import (
     Execution,
     ExecutionEvent,
 )
-# Temporary placeholders for Phase 4/5 cleanup
-TERMINAL_EXECUTION_STATUSES = frozenset({"completed", "failed", "cancelled"})
-ExecutionSnapshot = None
-ExecutionSource = type("ExecutionSource", (), {"MISSION": "mission", "CHAT": "chat", "GRAPH": "graph", "COORDINATOR": "coordinator", "API": "api"})()
-MissionExecutionStatus = type("MissionExecutionStatus", (), {
-    "QUEUED": "queued", "DISPATCHED": "dispatched", "RUNNING": "running",
-    "INTERRUPT_WAIT": "interrupt_wait", "APPROVAL_WAIT": "approval_wait",
-    "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "cancelled"
-})()
-from app.repositories.execution import ExecutionRepository
-# TODO: Phase 5 cleanup - execution_reducer removed; inline stubs below
+from app.repositories.execution import ExecutionRepository, ExecutionEventRepository
 from app.utils.datetime import utc_now
 
-
-def apply_execution_event(
-    projection: dict[str, Any] | None,
-    *,
-    event_type: str,
-    payload: dict[str, Any],
-    status: str,
-) -> dict[str, Any]:
-    """Stub: execution_reducer deleted in Phase 5 cleanup."""
-    proj = dict(projection or {})
-    proj["status"] = status
-    return proj
-
-
-def make_initial_projection(payload: dict[str, Any], status: str) -> dict[str, Any]:
-    """Stub: execution_reducer deleted in Phase 5 cleanup."""
-    return {
-        "version": 1,
-        "status": status,
-        "source": payload.get("source"),
-        "mission_id": payload.get("mission_id"),
-        "agent_profile_id": payload.get("agent_profile_id"),
-        "container_id": None,
-        "session_id": None,
-        "messages": [],
-        "tool_calls": [],
-        "artifacts": [],
-        "meta": {},
-    }
+TERMINAL_EXECUTION_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
 
 class ExecutionService:
-    """Orchestrates execution lifecycle, event sourcing, and snapshot management."""
+    """Manages execution lifecycle and event appending."""
 
     def __init__(self, db: AsyncSession):
         self.db = db
         self.repo = ExecutionRepository(db)
-
-    async def create_execution(
-        self,
-        *,
-        workspace_id: uuid.UUID,
-        user_id: str,
-        source: ExecutionSource,
-        runtime_type: str,
-        title: Optional[str] = None,
-        mission_id: Optional[uuid.UUID] = None,
-        agent_profile_id: Optional[uuid.UUID] = None,
-        parent_execution_id: Optional[uuid.UUID] = None,
-        runtime_config: Optional[dict[str, Any]] = None,
-        trigger_comment_id: Optional[uuid.UUID] = None,
-    ) -> Execution:
-        execution = Execution(
-            workspace_id=workspace_id,
-            user_id=user_id,
-            source=source,
-            status=MissionExecutionStatus.QUEUED,
-            title=title,
-            mission_id=mission_id,
-            agent_profile_id=agent_profile_id,
-            parent_execution_id=parent_execution_id,
-            runtime_type=runtime_type,
-            runtime_config=runtime_config,
-            trigger_comment_id=trigger_comment_id,
-            last_heartbeat_at=utc_now(),
-        )
-        self.db.add(execution)
-        await self.db.flush()
-
-        snapshot = ExecutionSnapshot(
-            execution_id=execution.id,
-            last_seq=0,
-            status=execution.status.value,
-            projection=make_initial_projection(
-                {
-                    "source": source.value,
-                    "mission_id": str(mission_id) if mission_id else None,
-                    "agent_profile_id": str(agent_profile_id) if agent_profile_id else None,
-                },
-                execution.status.value,
-            ),
-        )
-        self.db.add(snapshot)
-        await self.db.commit()
-        await self.db.refresh(execution)
-        return execution
-
-    async def get_execution(self, execution_id: uuid.UUID, user_id: str) -> Optional[Execution]:
-        return await self.repo.get_by_id_and_user(execution_id, user_id)
+        self.event_repo = ExecutionEventRepository(db)
 
     async def get_execution_internal(self, execution_id: uuid.UUID) -> Optional[Execution]:
         """Internal use — no user-scope check, no FOR UPDATE lock."""
-        from sqlalchemy import select
-
-        from app.models.execution import Execution as ExecModel
-
-        result = await self.db.execute(select(ExecModel).where(ExecModel.id == execution_id))
+        result = await self.db.execute(select(Execution).where(Execution.id == execution_id))
         return result.scalar_one_or_none()
 
-    async def get_snapshot(self, execution_id: uuid.UUID, user_id: str) -> Optional[ExecutionSnapshot]:
-        execution = await self.get_execution(execution_id, user_id)
-        if not execution:
-            return None
-        return await self.repo.get_snapshot(execution_id)
+    async def get_execution(self, execution_id: uuid.UUID, user_id: str) -> Optional[Execution]:
+        """Get execution by ID (user_id kept for API compatibility; no row-level auth here)."""
+        return await self.get_execution_internal(execution_id)
 
     async def list_events_after(
         self, execution_id: uuid.UUID, user_id: str, after_seq: int = 0, limit: int = 500
     ) -> list[ExecutionEvent]:
-        execution = await self.get_execution(execution_id, user_id)
+        execution = await self.get_execution_internal(execution_id)
         if not execution:
             return []
-        return list(await self.repo.list_events_after(execution_id, after_seq=after_seq, limit=limit))
-
-    async def list_executions(
-        self,
-        *,
-        workspace_id: uuid.UUID,
-        user_id: Optional[str] = None,
-        status: Optional[str] = None,
-        source: Optional[str] = None,
-        mission_id: Optional[uuid.UUID] = None,
-        limit: int = 50,
-    ) -> list[Execution]:
-        return list(
-            await self.repo.list_by_workspace(
-                workspace_id=workspace_id,
-                user_id=user_id,
-                status=status,
-                source=source,
-                mission_id=mission_id,
-                limit=limit,
+        result = await self.db.execute(
+            select(ExecutionEvent)
+            .where(
+                ExecutionEvent.execution_id == execution_id,
+                ExecutionEvent.sequence_no > after_seq,
             )
+            .order_by(ExecutionEvent.sequence_no.asc())
+            .limit(limit)
         )
-
-    async def list_children(self, parent_execution_id: uuid.UUID) -> list[Execution]:
-        return list(await self.repo.list_children(parent_execution_id))
+        return list(result.scalars().all())
 
     async def mark_status(
         self,
         *,
         execution_id: uuid.UUID,
         user_id: Optional[str] = None,
-        status: MissionExecutionStatus,
+        status: str,
         container_id: Optional[str] = None,
         session_id: Optional[str] = None,
         error_code: Optional[str] = None,
         error_message: Optional[str] = None,
         result_summary: Optional[dict[str, Any]] = None,
     ) -> Optional[Execution]:
-        execution = await self.repo.get_for_update(execution_id, user_id=user_id)
+        result = await self.db.execute(
+            select(Execution).where(Execution.id == execution_id).with_for_update()
+        )
+        execution = result.scalar_one_or_none()
         if not execution:
             return None
 
         now = utc_now()
         execution.status = status
-        execution.error_code = error_code
-        execution.error_message = error_message
-        execution.last_heartbeat_at = now
-
+        if error_code is not None:
+            execution.error_code = error_code
+        if error_message is not None:
+            execution.error_message = error_message
         if container_id is not None:
-            execution.container_id = container_id
+            execution.runtime_session_ref = container_id
         if session_id is not None:
-            execution.session_id = session_id
+            execution.runtime_session_ref = session_id
         if result_summary is not None:
-            execution.result_summary = result_summary
+            execution.metrics = result_summary
 
-        if status == MissionExecutionStatus.RUNNING and not execution.started_at:
+        if status == "running" and not execution.started_at:
             execution.started_at = now
         if status in TERMINAL_EXECUTION_STATUSES:
-            execution.finished_at = now
-
-        snapshot = await self.repo.get_snapshot(execution_id)
-        if snapshot:
-            snapshot.status = status.value
-            projection = dict(snapshot.projection or {})
-            projection["status"] = status.value
-            if error_message:
-                meta = dict(projection.get("meta") or {})
-                meta["error"] = error_message
-                projection["meta"] = meta
-            snapshot.projection = projection
+            execution.ended_at = now
 
         await self.db.commit()
 
         from app.websocket.execution_subscription_manager import execution_subscription_manager
-
         await execution_subscription_manager.broadcast_event(
             str(execution_id),
-            {"type": "execution_status", "execution_id": str(execution_id), "status": status.value},
+            {"type": "execution_status", "execution_id": str(execution_id), "status": status},
         )
 
         return execution
+
+    async def _next_sequence_no(self, execution_id: uuid.UUID) -> int:
+        """Get the next sequence number for an execution's events."""
+        result = await self.db.execute(
+            select(func.coalesce(func.max(ExecutionEvent.sequence_no), 0)).where(
+                ExecutionEvent.execution_id == execution_id
+            )
+        )
+        return (result.scalar() or 0) + 1
 
     async def append_event(
         self,
@@ -226,64 +116,36 @@ class ExecutionService:
         execution_id: uuid.UUID,
         event_type: str,
         payload: dict[str, Any],
-        trace_id: Optional[uuid.UUID] = None,
-        observation_id: Optional[uuid.UUID] = None,
-        parent_observation_id: Optional[uuid.UUID] = None,
         commit: bool = True,
     ) -> ExecutionEvent:
-        execution = await self.repo.get_for_update(execution_id)
-        if not execution:
-            raise ValueError(f"Execution not found: {execution_id}")
-
-        next_seq = int(execution.last_seq) + 1
+        seq = await self._next_sequence_no(execution_id)
         event = ExecutionEvent(
-            execution_id=execution.id,
-            seq=next_seq,
+            execution_id=execution_id,
+            sequence_no=seq,
             event_type=event_type,
             payload=payload,
-            trace_id=trace_id,
-            observation_id=observation_id,
-            parent_observation_id=parent_observation_id,
         )
         self.db.add(event)
-        execution.last_seq = next_seq
-        execution.last_heartbeat_at = utc_now()
 
-        snapshot = await self.repo.get_snapshot(execution.id)
-        if snapshot is None:
-            snapshot = ExecutionSnapshot(
-                execution_id=execution.id,
-                last_seq=0,
-                status=execution.status.value,
-                projection={},
-            )
-            self.db.add(snapshot)
-
-        snapshot.projection = apply_execution_event(
-            snapshot.projection,
-            event_type=event_type,
-            payload=payload,
-            status=execution.status.value,
-        )
-        snapshot.last_seq = next_seq
-        snapshot.status = execution.status.value
-
-        await self.db.flush()
         if commit:
             await self.db.commit()
+            await self.db.refresh(event)
             from app.websocket.execution_subscription_manager import execution_subscription_manager
-
             await execution_subscription_manager.broadcast_event(
                 str(execution_id),
                 {
                     "type": "event",
                     "execution_id": str(execution_id),
-                    "seq": event.seq,
+                    "seq": seq,
                     "event_type": event_type,
                     "data": payload,
                     "created_at": str(event.created_at),
                 },
             )
+        else:
+            await self.db.flush()
+            await self.db.refresh(event)
+
         return event
 
     async def batch_append_events(
@@ -292,35 +154,27 @@ class ExecutionService:
         execution_id: uuid.UUID,
         events: list[dict[str, Any]],
     ) -> list[ExecutionEvent]:
-        """Append multiple events in a single commit.
-
-        Each entry in *events* must contain 'event_type' and 'payload' keys,
-        and may optionally include 'trace_id', 'observation_id', and
-        'parent_observation_id'.
-        """
+        """Append multiple events in a single commit."""
         results: list[ExecutionEvent] = []
         for evt in events:
             result = await self.append_event(
                 execution_id=execution_id,
                 event_type=evt["event_type"],
                 payload=evt["payload"],
-                trace_id=evt.get("trace_id"),
-                observation_id=evt.get("observation_id"),
-                parent_observation_id=evt.get("parent_observation_id"),
                 commit=False,
             )
             results.append(result)
+
         await self.db.commit()
 
         from app.websocket.execution_subscription_manager import execution_subscription_manager
-
         for saved_event in results:
             await execution_subscription_manager.broadcast_event(
                 str(execution_id),
                 {
                     "type": "event",
                     "execution_id": str(execution_id),
-                    "seq": saved_event.seq,
+                    "seq": saved_event.sequence_no,
                     "event_type": saved_event.event_type,
                     "data": saved_event.payload,
                     "created_at": str(saved_event.created_at),
@@ -328,14 +182,3 @@ class ExecutionService:
             )
 
         return results
-
-    async def touch_heartbeat(self, *, execution_id: uuid.UUID) -> Optional[Execution]:
-        execution = await self.repo.get_for_update(execution_id)
-        if not execution:
-            return None
-        active = {MissionExecutionStatus.QUEUED, MissionExecutionStatus.DISPATCHED, MissionExecutionStatus.RUNNING}
-        if execution.status not in active:
-            return execution
-        execution.last_heartbeat_at = utc_now()
-        await self.db.commit()
-        return execution

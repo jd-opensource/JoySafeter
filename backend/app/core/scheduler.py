@@ -1,5 +1,5 @@
 """
-Background scheduler loops for mission auto-dispatch and stale execution reaping.
+Background scheduler loops for task auto-dispatch and stale execution reaping.
 
 Registered in app lifespan (main.py). Each function is an infinite async loop
 following the same pattern as _container_reaper.
@@ -14,13 +14,6 @@ from loguru import logger
 
 from app.core.agent.cli_backends.session_registry import session_registry
 from app.core.database import AsyncSessionLocal
-# TODO: Phase 4/5 cleanup - MissionExecutionStatus removed; migrate to string literals
-# from app.models.execution import MissionExecutionStatus
-MissionExecutionStatus = type("MissionExecutionStatus", (), {
-    "QUEUED": "queued", "DISPATCHED": "dispatched", "RUNNING": "running",
-    "INTERRUPT_WAIT": "interrupt_wait", "APPROVAL_WAIT": "approval_wait",
-    "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "cancelled"
-})()
 from app.repositories.execution import ExecutionRepository
 from app.services.execution_lifecycle_service import ExecutionLifecycleService
 from app.services.execution_service import ExecutionService
@@ -29,34 +22,34 @@ from app.utils.datetime import utc_now
 _DISPATCH_INTERVAL = 30
 _REAPER_INTERVAL = 30
 
-_STALE_THRESHOLDS: list[tuple[tuple[MissionExecutionStatus, ...], timedelta]] = [
+_STALE_THRESHOLDS: list[tuple[tuple[str, ...], timedelta]] = [
     (
-        (MissionExecutionStatus.QUEUED, MissionExecutionStatus.DISPATCHED),
+        ("queued", "dispatched"),
         timedelta(minutes=5),
     ),
     (
-        (MissionExecutionStatus.RUNNING,),
+        ("running",),
         timedelta(minutes=10),
     ),
     (
-        (MissionExecutionStatus.APPROVAL_WAIT,),
+        ("approval_wait",),
         timedelta(minutes=60),
     ),
 ]
 
 
 async def mission_dispatcher_loop() -> None:
-    """Every 30s, find TODO missions with agent assignees and dispatch them."""
+    """Every 30s, find BACKLOG tasks with agent assignees and dispatch them."""
     while True:
         await asyncio.sleep(_DISPATCH_INTERVAL)
         try:
             async with AsyncSessionLocal() as db:
                 lifecycle = ExecutionLifecycleService(db)
-                count = await lifecycle.dispatch_all_ready_missions()
+                count = await lifecycle.dispatch_all_ready_tasks()
                 if count:
-                    logger.info(f"Scheduler: auto-dispatched {count} missions")
+                    logger.info(f"Scheduler: auto-dispatched {count} tasks")
         except Exception as exc:
-            logger.warning(f"Mission dispatcher error: {exc}")
+            logger.warning(f"Task dispatcher error: {exc}")
 
 
 async def execution_reaper_loop() -> None:
@@ -106,18 +99,17 @@ async def _reap_stale_executions() -> int:
 
                     await exec_svc.mark_status(
                         execution_id=execution.id,
-                        status=MissionExecutionStatus.FAILED,
+                        status="failed",
                         error_code="stale_reaped",
                         error_message=f"No heartbeat for {int(threshold.total_seconds() // 60)}+ minutes",
                     )
 
-                    if execution.mission_id:
-                        await lifecycle._finalize_mission(execution.id, MissionExecutionStatus.FAILED)
+                    await lifecycle._finalize_task(execution.id, "failed")
 
                     total += 1
                     logger.info(
                         f"Reaped stale execution {execution.id} "
-                        f"(status={execution.status.value}, age={now - (execution.last_heartbeat_at or execution.updated_at)})"
+                        f"(status={execution.status}, age={now - (execution.started_at or execution.created_at)})"
                     )
                 except Exception as exc:
                     logger.warning(f"Failed to reap execution {execution.id}: {exc}")
