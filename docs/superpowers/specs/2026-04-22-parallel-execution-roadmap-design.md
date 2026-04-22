@@ -1,8 +1,9 @@
 # Parallel Execution Roadmap: Graph Builder + Execution Engine + Product Form
 
 **Date**: 2026-04-22
-**Status**: Approved
+**Status**: Approved (spec review v2)
 **Strategy**: Strategy A — 按层并行, 3 条独立线同时推进, 随做随清
+**Architecture Principles**: 分层设计, 单一职责, 接口隔离, 良好扩展性
 
 ## Context
 
@@ -34,7 +35,7 @@ Three design documents define the full-stack migration:
 |---|---|
 | Execution strategy | All 3 lines in parallel, single developer + multi-Agent |
 | Legacy cleanup | 随做随清 (clean up immediately after each replacement) |
-| TaskStatus enum | Keep current 6 values: `backlog, todo, in_progress, in_review, done, cancelled` |
+| TaskStatus enum | Keep current 6 values: `backlog, todo, in_progress, in_review, done, cancelled` (diverges from product-form-design's original 5-value spec; this is the authoritative decision) |
 
 ---
 
@@ -79,7 +80,9 @@ Update `saveManager.ts` and `builderStore.loadGraph()` to call `graphDataAdapter
 
 New file: `frontend/components/editors/graph-builder/services/executionAdapter.ts`
 
-Bridge `RunInputModal` to `POST /v1/runs` + execution WS:
+Bridge `RunInputModal` to `POST /v1/runs` + execution WS.
+
+**Note**: The WS endpoint is `/ws/executions` (no path parameter). Clients subscribe by sending a JSON frame `{"type": "subscribe", "execution_id": "..."}` after connecting. The `POST /v1/executions/{id}/message` endpoint does not yet exist — Workstream 2 Step 2.1 must add it to `executions.py` (delegates to `Orchestrator.send_message()`).
 
 ```typescript
 export const executionAdapter = {
@@ -103,6 +106,7 @@ export const executionAdapter = {
     await fetch(`/api/v1/runs/${runId}/cancel`, { method: 'POST' })
   },
 
+  // Requires: Workstream 2 adds POST /v1/executions/{id}/message endpoint
   async injectMessage(executionId: string, message: string): Promise<void> {
     await fetch(`/api/v1/executions/${executionId}/message`, {
       method: 'POST',
@@ -123,14 +127,15 @@ Current L97-128 is a stub (comment says "simplified deployment approach"). Repla
 3. Invalidate query cache (already present)
 4. Show toast on success/failure (already present)
 
-### Step 1.4 — Fix `useDeploymentHistory.ts`
+### Step 1.4 — Rewrite `useDeploymentHistory.ts`
 
-Current operations all `throw new Error('has been removed')`. Replace:
+This is a **full rewrite** (not a simple swap) — the current hook (~400 lines) has version preview/cache, rename, pagination, and state management deeply coupled to the old `graphDeploymentService` and `useDeploymentStore` stubs.
 
-- List loading → `deploymentAdapter.list(agentId, workspaceId)`
-- Revert → `deploymentAdapter.activate(agentId, releaseId, workspaceId)`
-- Delete/Undeploy → `deploymentAdapter.retire(agentId, releaseId, workspaceId)`
-- Remove stubbed `graphDeploymentService` and `deploymentStore` references
+Rewrite with clean separation:
+- **Data fetching**: `useQuery` wrapping `deploymentAdapter.list(agentId, workspaceId)`
+- **Actions**: individual mutation hooks calling `deploymentAdapter.activate/retire`
+- **State**: remove local state management, rely on React Query cache invalidation
+- Remove stubbed `graphDeploymentService` and `deploymentStore` references entirely
 
 ### Step 1.5 — Agent edit page integration
 
@@ -154,7 +159,7 @@ if (agent.definition_kind === 'graph') {
 
 **Goal**: All execution flows go through `ExecutionOrchestrator`. Delete old WS handlers and fix Graph Engine internals.
 
-**Scope**: `backend/app/api/v1/`, `backend/app/websocket/`, `backend/app/services/`, `backend/app/core/graph/`
+**Scope**: `backend/app/api/v1/`, `backend/app/websocket/`, `backend/app/services/`, `backend/app/core/agent/`
 
 ### Step 2.1 — Simplify `chat.py` API
 
@@ -166,6 +171,16 @@ async def send_message(thread_id: UUID, body: SendMessageRequest, user=Depends(g
     orchestrator = ExecutionOrchestrator(db)
     run = await orchestrator.dispatch_chat(thread_id, body.message, user.id)
     return {"run_id": str(run.id), "execution_id": str(run.current_execution_id)}
+```
+
+Also add the missing `injectMessage` endpoint to `executions.py` (needed by Workstream 1's `executionAdapter`):
+
+```python
+@router.post("/{execution_id}/message", response_model=BaseResponse)
+async def inject_message(execution_id: UUID, body: InjectMessageRequest, user=Depends(get_current_user), db=Depends(get_db)):
+    orchestrator = ExecutionOrchestrator(db)
+    await orchestrator.send_message(execution_id, body.message)
+    return {"status": "ok"}
 ```
 
 ### Step 2.2 — Simplify `session_service.py`
@@ -188,6 +203,8 @@ Files to delete (execution_subscription_handler.py is the replacement, already r
 Remove their route registrations from `main.py`.
 
 ### Step 2.4 — Fix `node_secrets.py` + `node_tools.py`
+
+**Actual paths**: `backend/app/core/agent/node_secrets.py` + `backend/app/core/agent/node_tools.py` (not `core/graph/`).
 
 Current: read from old `graphs` table (`graph.nodes[node_id].config`).
 New: read from `AgentVersion.definition_payload["nodes"][node_id]["config"]`.
@@ -251,7 +268,7 @@ Read current user's role from workspace membership API. Consumed by `BuilderTool
 
 `/runs/[runId]/page.tsx`:
 1. Query `AgentRun` by `runId` → get `current_execution_id`
-2. Connect to `/ws/executions/{executionId}` for live events
+2. Connect to `/ws/executions` and send subscribe frame with `execution_id` for live events
 3. Render `ExecutionTimeline` + `ExecutionDetailPanel` (already exported from `components/execution/`)
 
 ### Step 3.4 — Task page auto-sync display
@@ -271,6 +288,8 @@ Read current user's role from workspace membership API. Consumed by `BuilderTool
 
 Verify no remaining imports reference these paths before deletion.
 
+**Dependency note**: Files in `frontend/app/workspace/` (sidebar.tsx, use-agent-mutations.ts, layout.tsx, page.tsx) were modified on this branch and committed. Workstream 3 Step 3.5 must run AFTER Workstream 1 Step 1.5 (Agent edit page integration) confirms all workspace functionality is accessible via the new `/agents/` routes. Verify before deleting.
+
 ---
 
 ## File Conflict Analysis
@@ -279,11 +298,14 @@ The three workstreams touch non-overlapping file sets:
 
 | Workstream | Files touched |
 |---|---|
-| **1 (Frontend Adapter)** | `frontend/components/editors/graph-builder/**`, `frontend/app/agents/**/edit/` |
-| **2 (Backend Entry)** | `backend/app/api/v1/chat.py`, `backend/app/services/session_service.py`, `backend/app/websocket/chat_*`, `backend/app/core/graph/node_*` |
+| **1 (Frontend Adapter)** | `frontend/components/editors/graph-builder/**` (incl. `saveManager.ts`, `builderStore.ts`), `frontend/app/agents/**/edit/` |
+| **2 (Backend Entry)** | `backend/app/api/v1/chat.py`, `backend/app/api/v1/executions.py`, `backend/app/services/session_service.py`, `backend/app/websocket/chat_*`, `backend/app/core/agent/node_*`, `backend/app/services/copilot_service.py` |
 | **3 (Data + Permissions)** | `backend/alembic/`, `frontend/hooks/useWorkspacePermission.ts`, `frontend/app/runs/`, `frontend/app/tasks/`, `frontend/app/workspace/` (delete) |
 
-**Single intersection**: Workstream 1's `executionAdapter` connects to the WS endpoint maintained by Workstream 2. The endpoint (`/ws/executions/{id}`) is already live and API-stable — no blocking dependency.
+**Intersections**:
+1. Workstream 1's `executionAdapter` connects to `/ws/executions` — already live and API-stable, no blocking dependency.
+2. Workstream 1's `executionAdapter.injectMessage()` requires Workstream 2 Step 2.1 to add `POST /v1/executions/{id}/message` — soft dependency (adapter can be created first, endpoint tested later).
+3. Workstream 3 Step 3.5 (delete `/workspace`) depends on Workstream 1 Step 1.5 (Agent edit page) confirming all functionality migrated.
 
 ## Integration Verification
 
