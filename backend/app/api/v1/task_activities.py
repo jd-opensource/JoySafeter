@@ -73,20 +73,23 @@ async def create_activity(
         parent_activity_id=request.parent_activity_id,
     )
 
-    # Trigger executions via lifecycle service
+    # Trigger executions via orchestrator
     if should_dispatch or mentioned_agent_ids:
-        from app.services.execution_lifecycle_service import ExecutionLifecycleService
+        from app.core.engine.orchestrator import ExecutionOrchestrator
 
-        lifecycle = ExecutionLifecycleService(db)
+        orchestrator = ExecutionOrchestrator(db)
         if should_dispatch:
-            await lifecycle.dispatch_for_comment(
-                task=task,
-                trigger_comment=activity,
+            await orchestrator.dispatch_task(
+                task_id=task.id,
                 user_id=str(current_user.id),
+                prompt_override=activity.content,
             )
         if mentioned_agent_ids:
-            await lifecycle.dispatch_for_mention(
-                task=task,
+            # For mentioned agents, dispatch the same task
+            await orchestrator.dispatch_task(
+                task_id=task.id,
+                user_id=str(current_user.id),
+            )
                 trigger_comment=activity,
                 user_id=str(current_user.id),
             )

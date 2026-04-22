@@ -196,12 +196,24 @@ async def cancel_task(
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[TaskSummary]:
-    from app.services.execution_lifecycle_service import ExecutionLifecycleService
+    from app.core.engine.orchestrator import ExecutionOrchestrator
 
-    lifecycle = ExecutionLifecycleService(db)
-    task = await lifecycle.cancel_task(task_id=task_id, workspace_id=workspace_id)
+    # Find the latest run for this task and cancel it
+    service = TaskService(db)
+    task = await service.get_task(task_id, workspace_id)
     if not task:
         return BaseResponse(success=False, code=404, msg="Task not found", data=None)
+
+    if task.latest_run_id:
+        orchestrator = ExecutionOrchestrator(db)
+        try:
+            await orchestrator.cancel_run(task.latest_run_id)
+        except Exception:
+            pass  # Run may already be terminal
+
+    task.status = "cancelled"
+    await db.commit()
+    await db.refresh(task)
     return BaseResponse(success=True, code=200, msg="Task cancelled", data=_to_summary(task))
 
 
