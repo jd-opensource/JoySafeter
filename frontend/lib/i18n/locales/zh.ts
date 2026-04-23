@@ -1382,6 +1382,15 @@ const zh = {
     },
     dashboard: {
       title: 'Dashboard',
+      welcome: '欢迎回来, {{name}}',
+      needsAttention: '需要关注',
+      recentTasks: '最近任务',
+      activeAgents: '活跃 Agents',
+      allClear: '一切正常',
+      idle: '空闲',
+      viewAll: '查看全部',
+      awaitingApproval: '等待审批',
+      failedCount: '失败',
       onboarding: {
         title: '欢迎使用 JoySafeter',
         subtitle: '创建你的第一个 Agent，开始自动化工作流',

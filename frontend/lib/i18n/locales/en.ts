@@ -1421,6 +1421,15 @@ const en = {
     },
     dashboard: {
       title: 'Dashboard',
+      welcome: 'Welcome back, {{name}}',
+      needsAttention: 'Needs Attention',
+      recentTasks: 'Recent Tasks',
+      activeAgents: 'Active Agents',
+      allClear: 'All clear',
+      idle: 'idle',
+      viewAll: 'View all',
+      awaitingApproval: 'Awaiting Approval',
+      failedCount: 'Failed',
       onboarding: {
         title: 'Welcome to JoySafeter',
         subtitle: 'Create your first Agent to start automating workflows',
