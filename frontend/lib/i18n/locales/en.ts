@@ -1429,6 +1429,17 @@ const en = {
       noMemoriesFilteredDescription: 'Try adjusting your search or filter criteria',
       moreOptions: 'More options',
     },
+    dashboard: {
+      title: 'Dashboard',
+      onboarding: {
+        title: 'Welcome to JoySafeter',
+        subtitle: 'Create your first Agent to start automating workflows',
+        createAgent: 'Create Agent',
+        step1: 'Create Agent',
+        step2: 'Assign Task',
+        step3: 'View Results',
+      },
+    },
     openclaw: {
       manageInstancesAndDevices: 'Manage Instances & Devices',
       instance: 'OpenClaw Instance',

@@ -12,7 +12,7 @@ export default function Page() {
   useEffect(() => {
     if (!session.isPending) {
       if (session.data?.user) {
-        router.replace('/agents')
+        router.replace('/dashboard')
       } else {
         router.replace('/signin')
       }

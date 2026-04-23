@@ -1390,6 +1390,17 @@ const zh = {
       noMemoriesFilteredDescription: '请尝试调整搜索条件或筛选标准',
       moreOptions: '更多选项',
     },
+    dashboard: {
+      title: 'Dashboard',
+      onboarding: {
+        title: '欢迎使用 JoySafeter',
+        subtitle: '创建你的第一个 Agent，开始自动化工作流',
+        createAgent: '创建 Agent',
+        step1: '创建 Agent',
+        step2: '派任务',
+        step3: '看结果',
+      },
+    },
     openclaw: {
       manageInstancesAndDevices: '管理实例与设备',
       instance: 'OpenClaw 实例',
