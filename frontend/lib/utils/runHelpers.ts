@@ -13,7 +13,7 @@ type TFn = (key: string, fallback?: any) => string
 // Constants
 // ---------------------------------------------------------------------------
 
-export const ACTIVE_RUN_STATUSES = new Set(['queued', 'running', 'interrupt_wait'])
+export const ACTIVE_RUN_STATUSES = new Set(['pending', 'running', 'interrupt_wait'])
 
 // ---------------------------------------------------------------------------
 // Formatters
@@ -21,7 +21,7 @@ export const ACTIVE_RUN_STATUSES = new Set(['queued', 'running', 'interrupt_wait
 
 export function formatRunStatus(status: string, t: TFn): string {
   const map: Record<string, string> = {
-    queued: t('runs.statusQueued', 'Queued'),
+    pending: t('runs.statusPending', 'Pending'),
     running: t('runs.statusRunning', 'Running'),
     interrupt_wait: t('runs.statusInterruptWait', 'Waiting Input'),
     succeeded: t('runs.statusSucceeded', 'Succeeded'),

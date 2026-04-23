@@ -17,14 +17,14 @@ export interface AgentRun {
 }
 
 export type AgentRunStatus =
-  | 'queued'
+  | 'pending'
   | 'running'
   | 'succeeded'
   | 'failed'
   | 'cancelled'
 
 export const ACTIVE_RUN_STATUSES: readonly AgentRunStatus[] = [
-  'queued',
+  'pending',
   'running',
 ] as const
 
@@ -35,7 +35,7 @@ export const TERMINAL_RUN_STATUSES: readonly AgentRunStatus[] = [
 ] as const
 
 export const RUN_STATUS_STYLES: Record<AgentRunStatus, string> = {
-  queued: 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-secondary)]',
+  pending: 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-secondary)]',
   running:
     'border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] text-[var(--skill-brand-700)]',
   succeeded:
@@ -45,7 +45,7 @@ export const RUN_STATUS_STYLES: Record<AgentRunStatus, string> = {
 }
 
 export const RUN_STATUS_I18N: Record<AgentRunStatus, string> = {
-  queued: 'runs.statusQueued',
+  pending: 'runs.statusPending',
   running: 'runs.statusRunning',
   succeeded: 'runs.statusSucceeded',
   failed: 'runs.statusFailed',

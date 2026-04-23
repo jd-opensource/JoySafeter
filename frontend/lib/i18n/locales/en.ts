@@ -48,6 +48,7 @@ const en = {
       filterActive: 'Active',
       filterFinished: 'Finished',
       statusQueued: 'Queued',
+      statusPending: 'Pending',
       statusRunning: 'Running',
       statusInterruptWait: 'Waiting Input',
       statusCompleted: 'Completed',

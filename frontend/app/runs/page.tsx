@@ -28,7 +28,7 @@ import type { RunSummary } from '@/services/runService'
 
 const RUN_STATUS_OPTIONS = [
   'all',
-  'queued',
+  'pending',
   'running',
   'interrupt_wait',
   'succeeded',

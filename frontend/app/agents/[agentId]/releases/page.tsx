@@ -17,7 +17,7 @@ const STATUS_CONFIG: Record<
   AgentRelease['status'],
   { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive'; icon: React.ElementType }
 > = {
-  building: { label: 'Building', variant: 'outline', icon: Clock },
+  pending: { label: 'Pending', variant: 'outline', icon: Clock },
   ready: { label: 'Ready', variant: 'secondary', icon: CheckCircle2 },
   failed: { label: 'Failed', variant: 'destructive', icon: AlertTriangle },
   retired: { label: 'Retired', variant: 'outline', icon: XCircle },
@@ -85,7 +85,7 @@ export default function AgentReleasesPage() {
         const StatusIcon = statusCfg.icon
         const isActive = release.id === agent?.active_release_id
         const canActivate = release.status === 'ready' && !isActive
-        const canRetire = release.status === 'ready' || release.status === 'building'
+        const canRetire = release.status === 'ready' || release.status === 'pending'
 
         return (
           <Card

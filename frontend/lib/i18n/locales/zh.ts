@@ -48,6 +48,7 @@ const zh = {
       filterActive: '进行中',
       filterFinished: '已结束',
       statusQueued: '排队中',
+      statusPending: '等待中',
       statusRunning: '运行中',
       statusInterruptWait: '等待输入',
       statusCompleted: '已完成',
