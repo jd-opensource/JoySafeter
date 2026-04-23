@@ -2,10 +2,10 @@
 
 import {
   Bot,
-  CheckSquare,
+  LayoutDashboard,
+  ListChecks,
   Sparkles,
   Wrench,
-  Brain,
   Settings,
 } from 'lucide-react'
 import Link from 'next/link'
@@ -33,15 +33,19 @@ interface MenuGroup {
 const menuGroups: MenuGroup[] = [
   {
     items: [
-      { id: 'agents', labelKey: 'sidebar.myAgents', icon: Bot, href: '/agents' },
-      { id: 'tasks', labelKey: 'sidebar.taskCenter', icon: CheckSquare, href: '/tasks' },
+      { id: 'dashboard', labelKey: 'sidebar.dashboard', icon: LayoutDashboard, href: '/dashboard' },
+    ],
+  },
+  {
+    items: [
+      { id: 'agents', labelKey: 'sidebar.agents', icon: Bot, href: '/agents' },
+      { id: 'tasks', labelKey: 'sidebar.tasks', icon: ListChecks, href: '/tasks' },
     ],
   },
   {
     items: [
       { id: 'skills', labelKey: 'sidebar.skillsHub', icon: Sparkles, href: '/skills' },
       { id: 'tools', labelKey: 'sidebar.toolsAndMcp', icon: Wrench, href: '/tools' },
-      { id: 'memory', labelKey: 'sidebar.memory', icon: Brain, href: '/memory' },
     ],
   },
   {

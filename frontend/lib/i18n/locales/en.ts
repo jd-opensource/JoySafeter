@@ -18,11 +18,10 @@ const en = {
       operationFailed: 'Operation failed',
     },
     sidebar: {
-      dashboard: 'AgentSpark',
+      dashboard: 'Dashboard',
       chatCanvas: 'Chat',
       agentBuilder: 'Workbench',
       knowledge: 'Knowledge',
-      memory: 'Memory',
       discover: 'Agent Store',
       skillsHub: 'Skills',
       runCenter: 'Run Monitor',
@@ -37,8 +36,6 @@ const en = {
       tasks: 'Tasks',
       agents: 'Agents',
       version: 'Version',
-      myAgents: 'My Agents',
-      taskCenter: 'Task Center',
       settings: 'Settings',
     },
     runs: {
