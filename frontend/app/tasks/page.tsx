@@ -1,6 +1,7 @@
 'use client'
 
-import { Kanban, List, Loader2, Plus, Target } from 'lucide-react'
+import { ArrowRight, Kanban, List, Loader2, Plus, Target } from 'lucide-react'
+import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useCallback, useMemo, useState } from 'react'
 
@@ -14,11 +15,13 @@ import { Button } from '@/components/ui/button'
 import { useAgentNameMap, useAgents } from '@/hooks/queries/agents'
 import { useTasks } from '@/hooks/queries/tasks'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
 type ViewMode = 'board' | 'list'
 
 export default function TasksPage() {
+  const { t } = useTranslation()
   const [viewMode, setViewMode] = useState<ViewMode>('board')
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -92,7 +95,7 @@ export default function TasksPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Target className="h-5 w-5 text-[var(--skill-brand-600)]" />
-            <h1 className="text-lg font-semibold text-[var(--text-primary)]">任务中心</h1>
+            <h1 className="text-lg font-semibold text-[var(--text-primary)]">{t('tasks.title')}</h1>
           </div>
 
           <div className="flex items-center gap-2">
@@ -102,7 +105,7 @@ export default function TasksPage() {
               onChange={(e) => setAgentFilter(e.target.value || null)}
               className="h-8 rounded-md border border-[var(--border)] bg-[var(--surface-1)] px-2 text-xs text-[var(--text-secondary)]"
             >
-              <option value="">所有助手</option>
+              <option value="">{t('tasks.allAgents')}</option>
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>{a.name}</option>
               ))}
@@ -122,7 +125,7 @@ export default function TasksPage() {
                 aria-label="Board view"
               >
                 <Kanban className="h-3.5 w-3.5" />
-                看板
+                {t('tasks.boardView')}
               </button>
               <button
                 type="button"
@@ -136,7 +139,7 @@ export default function TasksPage() {
                 aria-label="List view"
               >
                 <List className="h-3.5 w-3.5" />
-                列表
+                {t('tasks.listView')}
               </button>
             </div>
 
@@ -146,7 +149,7 @@ export default function TasksPage() {
                 trigger={
                   <Button size="sm">
                     <Plus className="mr-1 h-4 w-4" />
-                    新建任务
+                    {t('tasks.newTask')}
                   </Button>
                 }
               />
@@ -156,12 +159,12 @@ export default function TasksPage() {
 
         {filterAgentName && (
           <div className="mt-2 flex items-center gap-2 text-xs text-[var(--text-muted)]">
-            <span>筛选：{filterAgentName}</span>
+            <span>{t('tasks.filterBy', { name: filterAgentName })}</span>
             <button
               onClick={() => setAgentFilter(null)}
               className="text-[var(--brand-500)] hover:underline"
             >
-              清除
+              {t('tasks.clearFilter')}
             </button>
           </div>
         )}
@@ -172,6 +175,18 @@ export default function TasksPage() {
         {isLoading ? (
           <div className="flex h-full items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-[var(--text-muted)]" />
+          </div>
+        ) : allTasks.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-4">
+            <Target className="h-10 w-10 text-[var(--text-muted)]" />
+            <h2 className="text-lg font-semibold text-[var(--text-primary)]">{t('tasks.emptyTitle')}</h2>
+            <p className="text-sm text-[var(--text-muted)]">{t('tasks.emptyDescription')}</p>
+            <Link
+              href="/agents"
+              className="inline-flex items-center gap-1 text-sm font-medium text-[var(--brand-500)] hover:underline"
+            >
+              {t('tasks.emptyAction')} <ArrowRight className="h-4 w-4" />
+            </Link>
           </div>
         ) : (
           <>
