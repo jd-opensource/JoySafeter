@@ -56,33 +56,43 @@ def upgrade() -> None:
     # ------------------------------------------------------------------
     # 2. Migrate status columns varchar → enum  (using USING cast)
     # ------------------------------------------------------------------
-    op.execute(
-        "ALTER TABLE agents "
-        "ALTER COLUMN status TYPE agent_status USING status::agent_status"
-    )
-    op.execute(
-        "ALTER TABLE agent_versions "
-        "ALTER COLUMN status TYPE agent_version_status USING status::agent_version_status"
-    )
-    op.execute(
-        "ALTER TABLE agent_releases "
-        "ALTER COLUMN status TYPE agent_release_status USING status::agent_release_status"
-    )
-    op.execute(
-        "ALTER TABLE agent_runs "
-        "ALTER COLUMN status TYPE agent_run_status USING status::agent_run_status"
-    )
+    # agents
+    op.execute("ALTER TABLE agents ALTER COLUMN status DROP DEFAULT")
+    op.execute("ALTER TABLE agents ALTER COLUMN status TYPE agent_status USING status::agent_status")
+    op.execute("ALTER TABLE agents ALTER COLUMN status SET DEFAULT 'draft'::agent_status")
+
+    # agent_versions
+    op.execute("ALTER TABLE agent_versions ALTER COLUMN status DROP DEFAULT")
+    op.execute("ALTER TABLE agent_versions ALTER COLUMN status TYPE agent_version_status USING status::agent_version_status")
+    op.execute("ALTER TABLE agent_versions ALTER COLUMN status SET DEFAULT 'draft'::agent_version_status")
+
+    # agent_releases
+    op.execute("ALTER TABLE agent_releases ALTER COLUMN status DROP DEFAULT")
+    op.execute("ALTER TABLE agent_releases ALTER COLUMN status TYPE agent_release_status USING status::agent_release_status")
+    op.execute("ALTER TABLE agent_releases ALTER COLUMN status SET DEFAULT 'building'::agent_release_status")
+
+    # agent_runs
+    op.execute("ALTER TABLE agent_runs ALTER COLUMN status DROP DEFAULT")
+    op.execute("ALTER TABLE agent_runs ALTER COLUMN status TYPE agent_run_status USING status::agent_run_status")
+    op.execute("ALTER TABLE agent_runs ALTER COLUMN status SET DEFAULT 'queued'::agent_run_status")
+
+    # executions
+    op.execute("ALTER TABLE executions ALTER COLUMN status DROP DEFAULT")
     op.execute(
         "ALTER TABLE executions "
-        "ALTER COLUMN status TYPE execution_status USING status::execution_status"
+        "ALTER COLUMN status TYPE execution_status "
+        "USING (CASE "
+        "  WHEN status IN ('queued', 'dispatched') THEN 'pending' "
+        "  WHEN status = 'completed' THEN 'succeeded' "
+        "  ELSE status "
+        "END)::execution_status"
     )
+    op.execute("ALTER TABLE executions ALTER COLUMN status SET DEFAULT 'pending'::execution_status")
 
-    # ------------------------------------------------------------------
     # 3. Fix agents.created_by: drop old FK (no ondelete) → re-add CASCADE
-    #    PostgreSQL auto-names the FK "agents_created_by_fkey" when no
-    #    explicit name was provided in create_table().
+    #    The actual name in DB is "fk_agents_created_by_user".
     # ------------------------------------------------------------------
-    op.drop_constraint("agents_created_by_fkey", "agents", type_="foreignkey")
+    op.drop_constraint("fk_agents_created_by_user", "agents", type_="foreignkey")
     op.create_foreign_key(
         "fk_agents_created_by",
         "agents",
@@ -93,9 +103,9 @@ def upgrade() -> None:
     )
 
     # ------------------------------------------------------------------
-    # 4. Fix agent_versions.created_by (same issue, auto-named)
+    # 4. Fix agent_versions.created_by (same issue, actual: "fk_agent_versions_created_by_user")
     # ------------------------------------------------------------------
-    op.drop_constraint("agent_versions_created_by_fkey", "agent_versions", type_="foreignkey")
+    op.drop_constraint("fk_agent_versions_created_by_user", "agent_versions", type_="foreignkey")
     op.create_foreign_key(
         "fk_agent_versions_created_by",
         "agent_versions",
@@ -160,26 +170,30 @@ def downgrade() -> None:
     )
 
     # Revert status columns enum → varchar
-    op.execute(
-        "ALTER TABLE executions "
-        "ALTER COLUMN status TYPE varchar(20) USING status::text"
-    )
-    op.execute(
-        "ALTER TABLE agent_runs "
-        "ALTER COLUMN status TYPE varchar(20) USING status::text"
-    )
-    op.execute(
-        "ALTER TABLE agent_releases "
-        "ALTER COLUMN status TYPE varchar(20) USING status::text"
-    )
-    op.execute(
-        "ALTER TABLE agent_versions "
-        "ALTER COLUMN status TYPE varchar(20) USING status::text"
-    )
-    op.execute(
-        "ALTER TABLE agents "
-        "ALTER COLUMN status TYPE varchar(20) USING status::text"
-    )
+    # executions
+    op.execute("ALTER TABLE executions ALTER COLUMN status DROP DEFAULT")
+    op.execute("ALTER TABLE executions ALTER COLUMN status TYPE varchar(20) USING status::text")
+    op.execute("ALTER TABLE executions ALTER COLUMN status SET DEFAULT 'queued'")
+
+    # agent_runs
+    op.execute("ALTER TABLE agent_runs ALTER COLUMN status DROP DEFAULT")
+    op.execute("ALTER TABLE agent_runs ALTER COLUMN status TYPE varchar(20) USING status::text")
+    op.execute("ALTER TABLE agent_runs ALTER COLUMN status SET DEFAULT 'queued'")
+
+    # agent_releases
+    op.execute("ALTER TABLE agent_releases ALTER COLUMN status DROP DEFAULT")
+    op.execute("ALTER TABLE agent_releases ALTER COLUMN status TYPE varchar(20) USING status::text")
+    op.execute("ALTER TABLE agent_releases ALTER COLUMN status SET DEFAULT 'building'")
+
+    # agent_versions
+    op.execute("ALTER TABLE agent_versions ALTER COLUMN status DROP DEFAULT")
+    op.execute("ALTER TABLE agent_versions ALTER COLUMN status TYPE varchar(20) USING status::text")
+    op.execute("ALTER TABLE agent_versions ALTER COLUMN status SET DEFAULT 'draft'")
+
+    # agents
+    op.execute("ALTER TABLE agents ALTER COLUMN status DROP DEFAULT")
+    op.execute("ALTER TABLE agents ALTER COLUMN status TYPE varchar(20) USING status::text")
+    op.execute("ALTER TABLE agents ALTER COLUMN status SET DEFAULT 'draft'")
 
     # Drop enum types
     _drop_enum("execution_status")
