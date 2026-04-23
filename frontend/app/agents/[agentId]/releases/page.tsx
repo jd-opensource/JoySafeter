@@ -9,7 +9,7 @@ export default function AgentReleasesRedirect() {
   const agentId = params.agentId as string
 
   useEffect(() => {
-    router.replace(`/agents/${agentId}/build?tab=publish`)
+    router.replace(`/agents/${agentId}?tab=settings`)
   }, [agentId, router])
 
   return null

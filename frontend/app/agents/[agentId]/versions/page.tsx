@@ -9,7 +9,7 @@ export default function AgentVersionsRedirect() {
   const agentId = params.agentId as string
 
   useEffect(() => {
-    router.replace(`/agents/${agentId}/build?tab=drafts`)
+    router.replace(`/agents/${agentId}?tab=settings`)
   }, [agentId, router])
 
   return null

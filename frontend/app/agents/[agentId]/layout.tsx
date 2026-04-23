@@ -2,24 +2,24 @@
 
 import { ArrowLeft, Bot, Loader2 } from 'lucide-react'
 import Link from 'next/link'
-import { useParams, usePathname } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
 
 import { AgentStatusIndicator } from '@/components/agents/agent-status'
 import { Button } from '@/components/ui/button'
 import { useAgent } from '@/hooks/queries/agents'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { WorkspacePermissionsProvider } from '@/providers/workspace-permissions-provider'
 
-const NAV_ITEMS = [
-  { label: '概览', labelEn: 'Overview', href: '' },
-  { label: '构建', labelEn: 'Build', href: '/build' },
-  { label: '运行记录', labelEn: 'Runs', href: '/runs' },
-]
+type TabKey = 'overview' | 'chat' | 'settings'
+
+const TAB_KEYS: TabKey[] = ['overview', 'chat', 'settings']
 
 export default function AgentDetailLayout({ children }: { children: React.ReactNode }) {
+  const { t } = useTranslation()
   const params = useParams()
-  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const agentId = params.agentId as string
 
   const { data: workspaces = [] } = useWorkspaces()
@@ -28,13 +28,14 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
 
   const { data: agent, isLoading } = useAgent(agentId, workspaceId)
 
+  const currentTab = (searchParams.get('tab') as TabKey) || 'overview'
   const basePath = `/agents/${agentId}`
 
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-[var(--text-muted)]">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        Loading...
+        {t('common.loading')}
       </div>
     )
   }
@@ -58,7 +59,7 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
           {/* Breadcrumb */}
           <div className="mb-3 flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
             <Link href="/agents" className="hover:text-[var(--text-secondary)]">
-              我的助手
+              {t('sidebar.agents')}
             </Link>
             <span>/</span>
             <span className="text-[var(--text-secondary)]">{agent.name}</span>
@@ -81,15 +82,13 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
 
           {/* Tab navigation */}
           <nav className="mt-4 flex gap-1">
-            {NAV_ITEMS.map((item) => {
-              const href = `${basePath}${item.href}`
-              const isActive = item.href === ''
-                ? pathname === basePath || pathname === `${basePath}/`
-                : pathname?.startsWith(href)
+            {TAB_KEYS.map((tab) => {
+              const href = tab === 'overview' ? basePath : `${basePath}?tab=${tab}`
+              const isActive = currentTab === tab
 
               return (
                 <Link
-                  key={item.href}
+                  key={tab}
                   href={href}
                   className={cn(
                     'rounded-md px-4 py-2 text-sm font-medium transition-colors',
@@ -98,7 +97,7 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
                       : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]',
                   )}
                 >
-                  {item.label}
+                  {t(`agents.detail.tabs.${tab}`)}
                 </Link>
               )
             })}
