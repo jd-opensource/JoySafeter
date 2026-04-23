@@ -11,13 +11,14 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import NotFoundException
+from app.core.state_machines.definitions import EXECUTION_TERMINAL
 from app.models.execution import (
     Execution,
     ExecutionEvent,
 )
 from app.repositories.execution import ExecutionRepository, ExecutionEventRepository
 
-TERMINAL_EXECUTION_STATUSES = frozenset({"completed", "failed", "cancelled"})
+TERMINAL_EXECUTION_STATUSES = EXECUTION_TERMINAL
 
 
 class ExecutionService:

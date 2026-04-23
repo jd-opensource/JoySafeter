@@ -34,6 +34,7 @@ from app.core.agent.cli_backends.injectors import (
 from app.core.agent.cli_backends.registry import runtime_registry
 from app.core.agent.cli_backends.runner_callbacks import RunnerCallbacks
 from app.core.agent.cli_backends.session_registry import session_registry
+from app.core.state_machines.transitions import transition_execution
 from app.models.agent import AgentRelease
 from app.models.agent_run import AgentRun
 from app.models.execution import Execution
@@ -244,9 +245,7 @@ class ExecutionRunner:
         error_message: Optional[str] = None,
         result_summary: Optional[dict[str, Any]] = None,
     ) -> None:
-        """Update execution status directly on the model."""
-        from app.utils.datetime import utc_now
-
+        """Update execution status via the state machine transition."""
         result = await self.db.execute(
             select(Execution).where(Execution.id == execution_id).with_for_update()
         )
@@ -254,8 +253,8 @@ class ExecutionRunner:
         if not execution:
             return
 
-        now = utc_now()
-        execution.status = status
+        await transition_execution(execution, status, self.db)
+
         if error_code is not None:
             execution.error_code = error_code
         if error_message is not None:
@@ -266,11 +265,6 @@ class ExecutionRunner:
             execution.runtime_session_ref = session_id
         if result_summary is not None:
             execution.metrics = result_summary
-
-        if status == "running" and not execution.started_at:
-            execution.started_at = now
-        if status in ("succeeded", "failed", "cancelled"):
-            execution.ended_at = now
 
         await self.db.commit()
 

@@ -99,7 +99,7 @@ def apply_copilot_event(
 
     if event_type == "done":
         if next_p["status"] != "failed":
-            next_p["status"] = "completed"
+            next_p["status"] = "succeeded"
         return next_p
 
     return next_p
