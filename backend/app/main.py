@@ -210,14 +210,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     try:
         from app.core.scheduler import (
             execution_reaper_loop,
-            mission_dispatcher_loop,
+            task_dispatcher_loop,
             recover_stale_on_startup,
         )
 
         await recover_stale_on_startup()
-        _dispatcher_task = asyncio.create_task(mission_dispatcher_loop(), name="mission-dispatcher")
+        _dispatcher_task = asyncio.create_task(task_dispatcher_loop(), name="task-dispatcher")
         _exec_reaper_task = asyncio.create_task(execution_reaper_loop(), name="execution-reaper")
-        logger.info("   ✓ Mission dispatcher and execution reaper started (interval=30s)")
+        logger.info("   ✓ Task dispatcher and execution reaper started (interval=30s)")
     except Exception as e:
         logger.warning(f"   ⚠️  Scheduler startup failed: {e}")
 

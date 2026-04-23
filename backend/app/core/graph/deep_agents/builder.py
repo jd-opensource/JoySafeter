@@ -29,15 +29,39 @@ from app.core.graph.deep_agents.skills_loader import (
 )
 from app.core.graph.deep_agents.tool_resolver import resolve_tools
 from app.core.graph.runtime_prompt_template import build_runtime_prompt_context, render_runtime_template
-from app.models.graph import AgentGraph, GraphEdge, GraphNode
+
+# app.models.graph was removed; use Protocol stubs for type-checking only.
+# At runtime, duck-typed shim objects (from graph_engine.py) satisfy these contracts.
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Protocol
+
+    class GraphLike(Protocol):
+        id: Any
+        workspace_id: Any
+        variables: Any
+
+    class NodeLike(Protocol):
+        id: Any
+        type: str
+        data: dict
+
+    class EdgeLike(Protocol):
+        source_node_id: Any
+        target_node_id: Any
+
+    AgentGraph = GraphLike  # type: ignore[assignment]
+    GraphNode = NodeLike  # type: ignore[assignment]
+    GraphEdge = EdgeLike  # type: ignore[assignment]
 
 LOG_PREFIX = "[DeepAgentsBuilder]"
 
 
 async def build_deep_agents_graph(
-    graph: AgentGraph,
-    nodes: List[GraphNode],
-    edges: List[GraphEdge],
+    graph: Any,
+    nodes: List[Any],
+    edges: List[Any],
     user_id: Optional[Any] = None,
     model_service: Optional[Any] = None,
     thread_id: Optional[str] = None,

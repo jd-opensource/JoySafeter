@@ -38,7 +38,7 @@ _STALE_THRESHOLDS: list[tuple[tuple[str, ...], timedelta]] = [
 ]
 
 
-async def mission_dispatcher_loop() -> None:
+async def task_dispatcher_loop() -> None:
     """Every 30s, find BACKLOG tasks with agent assignees and dispatch them."""
     while True:
         await asyncio.sleep(_DISPATCH_INTERVAL)

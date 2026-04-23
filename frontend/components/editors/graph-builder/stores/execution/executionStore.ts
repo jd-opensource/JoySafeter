@@ -33,7 +33,6 @@ import {
 } from './ExecutionManager'
 import type { ExecutionStore, ExecutionContext, GraphExecutionState, InterruptInfo } from './types'
 import { generateId } from './utils'
-import { workspaceChatWsService } from '../../services/workspaceChatWsService'
 import { executionAdapter } from '../../services/executionAdapter'
 import { agentService as globalAgentService } from '@/services/agentService'
 import { useBuilderStore } from '../builderStore'
@@ -407,11 +406,13 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       const store = get()
       if (!input.trim()) return
 
-      // --- Determine whether we can use the new executionAdapter path ---
       const builderState = useBuilderStore.getState()
       const agentId = builderState.agentId
       const workspaceId = builderState.workspaceId
-      const useNewPath = !!(agentId && workspaceId)
+
+      if (!agentId || !workspaceId) {
+        throw new Error('agentId and workspaceId are required to start execution. Legacy workspace route is no longer supported.')
+      }
 
       const graphId = store.currentGraphId || agentService.getCachedGraphId()
       if (!graphId) {
@@ -490,8 +491,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       // ================================================================
       // New path: executionAdapter (agent-based runs API + WS)
       // ================================================================
-      if (useNewPath) {
-        try {
+      try {
           // 1. Fetch the agent to get its active_release_id
           const agent = await globalAgentService.get(agentId, workspaceId)
           const releaseId = agent.active_release_id
@@ -573,71 +573,8 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
             }
           })
 
-          // Mark workflow step as success (unless stopped/errored)
-          if (!wasStopped) {
-            const graphContext = store.getContext(graphId)
-            const workflowStep = graphContext.state.steps.find((s) => s.id === workflowId)
-            store.updateStep(workflowId, {
-              status: 'success',
-              endTime: Date.now(),
-              duration: Date.now() - (workflowStep?.startTime || Date.now()),
-            })
-          }
-        } catch (e: unknown) {
-          const error = e as { name?: string; message?: string }
-          store.updateStep(workflowId, { status: 'error', endTime: Date.now() })
-          if (error?.name !== 'AbortError') {
-            store.addStep({
-              id: generateId('error'),
-              nodeId: 'system',
-              nodeLabel: 'Error',
-              stepType: 'system_log',
-              title: 'Execution Error',
-              status: 'error',
-              startTime: Date.now(),
-              content: String(error?.message || e),
-            })
-          }
-        } finally {
-          store.updateGraphState(graphId, { isExecuting: false })
-          store.setAbortController(graphId, null)
-          store.setRunId(graphId, null)
-          store.setExecutionWs(graphId, null)
-        }
-        return
-      }
-
-      // ================================================================
-      // Legacy fallback: workspaceChatWsService (graphId-based)
-      // ================================================================
-      try {
-        const result = await workspaceChatWsService.sendChat({
-          message: input,
-          threadId: null,
-          graphId,
-          metadata: {},
-          onEvent: (evt: ChatStreamEvent) => {
-            const s = get()
-
-            // Use shared event processor
-            const eventResult = processEvent(evt, ctx, storeAdapter)
-
-            // Update currentThoughtId in context
-            ctx.currentThoughtId = eventResult.currentThoughtId
-
-            // Special handling for stopped event to update workflow step
-            if (eventResult.shouldStop && eventResult.stopReason === 'stopped') {
-              wasStopped = true
-              s.updateStep(workflowId, { status: 'error', endTime: Date.now() })
-            }
-          },
-        })
-
-        if (result.threadId) store.setThreadId(graphId, result.threadId)
-        store.setRequestId(graphId, result.requestId)
-
-        // Only mark success when not stopped/errored
-        if (!wasStopped && result.terminal !== 'error') {
+        // Mark workflow step as success (unless stopped/errored)
+        if (!wasStopped) {
           const graphContext = store.getContext(graphId)
           const workflowStep = graphContext.state.steps.find((s) => s.id === workflowId)
           store.updateStep(workflowId, {
@@ -664,7 +601,8 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       } finally {
         store.updateGraphState(graphId, { isExecuting: false })
         store.setAbortController(graphId, null)
-        store.setRequestId(graphId, null)
+        store.setRunId(graphId, null)
+        store.setExecutionWs(graphId, null)
       }
     },
 
@@ -673,7 +611,6 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         currentGraphId,
         getContext,
         setAbortController,
-        setThreadId,
         setRunId,
         setExecutionWs,
         updateGraphState,
@@ -682,7 +619,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
 
       const context = getContext(currentGraphId)
 
-      // --- New path: cancel via executionAdapter ---
+      // Cancel via executionAdapter
       if (context.runId) {
         try {
           await executionAdapter.cancelRun(context.runId)
@@ -698,22 +635,11 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         setExecutionWs(currentGraphId, null)
       }
 
-      // --- Legacy path: stop via workspaceChatWsService ---
-      if (context.threadId) {
-        try {
-          workspaceChatWsService.stopByThreadId(context.threadId)
-        } catch (error) {
-          console.error('Failed to stop execution:', error)
-        }
-        setThreadId(currentGraphId, null)
-      }
-
       if (context.abortController) {
         context.abortController.abort()
         setAbortController(currentGraphId, null)
       }
 
-      get().setRequestId(currentGraphId, null)
       updateGraphState(currentGraphId, { isExecuting: false, activeNodeId: null })
     },
   }
