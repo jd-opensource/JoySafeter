@@ -92,3 +92,24 @@ class AgentVersionService:
         assert updated is not None
         logger.info(f"Froze version {version_id}")
         return updated
+
+    async def unfreeze_version(self, version_id: uuid.UUID) -> AgentVersion:
+        """Revert a frozen version back to draft status.
+
+        Used for rollback when a freeze succeeds but the subsequent publish
+        operation fails, to avoid leaving the version in an uneditable frozen
+        state with no associated release.
+        """
+        version = await self.version_repo.get(version_id)
+        if not version:
+            raise NotFoundException(f"AgentVersion {version_id} not found")
+
+        if version.status != "frozen":
+            raise BadRequestException(
+                f"Cannot unfreeze version with status '{version.status}'; only 'frozen' versions can be reverted to draft"
+            )
+
+        updated = await self.version_repo.update(version_id, {"status": "draft"})
+        assert updated is not None
+        logger.info(f"Unfroze version {version_id} (reverted to draft)")
+        return updated

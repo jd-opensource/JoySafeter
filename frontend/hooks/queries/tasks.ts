@@ -154,13 +154,13 @@ export function useAssignTask() {
     mutationFn: async ({
       taskId,
       workspaceId,
-      agentProfileId,
+      agentId,
     }: {
       taskId: string
       workspaceId: string
-      agentProfileId: string
+      agentId: string
     }) => {
-      return taskService.assign(taskId, workspaceId, agentProfileId)
+      return taskService.assign(taskId, workspaceId, agentId)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: taskKeys.all })

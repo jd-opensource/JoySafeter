@@ -222,6 +222,25 @@ async def freeze_version(
     return BaseResponse(success=True, code=200, msg="Version frozen", data=_version_to_response(version))
 
 
+@router.post("/{agent_id}/versions/{version_id}/unfreeze", response_model=BaseResponse[AgentVersionResponse])
+async def unfreeze_version(
+    agent_id: uuid.UUID,
+    version_id: uuid.UUID,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.member),
+    workspace_id: uuid.UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+) -> BaseResponse[AgentVersionResponse]:
+    """Revert a frozen version back to draft.
+
+    This endpoint exists to allow rollback when a freeze succeeds but the
+    subsequent publish operation fails, preventing the version from being
+    stuck in an uneditable frozen state.
+    """
+    service = AgentVersionService(db)
+    version = await service.unfreeze_version(version_id)
+    return BaseResponse(success=True, code=200, msg="Version reverted to draft", data=_version_to_response(version))
+
+
 # ---------------------------------------------------------------------------
 # AgentRelease sub-routes
 # ---------------------------------------------------------------------------

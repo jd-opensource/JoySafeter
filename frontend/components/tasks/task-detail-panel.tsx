@@ -191,7 +191,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
 
   const handleAssign = (agentId: string) => {
     assignTask.mutate(
-      { taskId, workspaceId, agentProfileId: agentId },
+      { taskId, workspaceId, agentId: agentId },
       { onError: onMutationError },
     )
     setAgentPickerOpen(false)

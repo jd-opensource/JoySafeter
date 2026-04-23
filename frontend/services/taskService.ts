@@ -40,10 +40,10 @@ export const taskService = {
   assign: async (
     taskId: string,
     workspaceId: string,
-    agentProfileId: string,
+    agentId: string,
   ): Promise<Task> => {
     return apiPost<Task>(`tasks/${taskId}/assign?workspace_id=${workspaceId}`, {
-      agent_profile_id: agentProfileId,
+      agent_id: agentId,
     })
   },
 

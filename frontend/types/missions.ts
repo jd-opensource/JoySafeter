@@ -57,7 +57,7 @@ export interface UpdateTaskRequest {
 }
 
 export interface AssignTaskRequest {
-  agent_profile_id: string
+  agent_id: string
 }
 
 export const TASK_STATUS_ORDER: TaskStatus[] = [

@@ -58,4 +58,15 @@ export const agentVersionService = {
       {},
     )
   },
+
+  unfreeze: async (
+    agentId: string,
+    versionId: string,
+    workspaceId: string,
+  ): Promise<AgentVersion> => {
+    return apiPost<AgentVersion>(
+      `agents/${agentId}/versions/${versionId}/unfreeze?workspace_id=${workspaceId}`,
+      {},
+    )
+  },
 }
