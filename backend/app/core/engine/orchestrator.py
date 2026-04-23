@@ -18,6 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.exceptions import BadRequestException, NotFoundException
 from app.core.engine.protocol import ExecutionContext
 from app.core.engine.registry import engine_registry
+from app.core.state_machines.engine import InvalidTransition
+from app.core.state_machines.transitions import (
+    transition_run, transition_execution, transition_task, sync_task_from_run,
+)
 from app.models.agent import Agent, AgentRelease, AgentVersion
 from app.models.agent_run import AgentRun
 from app.models.execution import Execution, ExecutionEvent
@@ -78,7 +82,7 @@ class ExecutionOrchestrator:
         )
 
         # Update task status
-        task.status = "in_progress"
+        await transition_task(task, "in_progress", self.db)
         task.latest_run_id = run.id
         await self.db.commit()
 
@@ -154,15 +158,13 @@ class ExecutionOrchestrator:
                 release = await self._get_release(run.release_id)
                 engine = engine_registry.get(release.runtime_kind)
                 await engine.cancel(execution.id)
-                execution.status = "cancelled"
-                execution.ended_at = utc_now()
+                await transition_execution(execution, "cancelled", self.db)
 
-        run.status = "cancelled"
-        run.ended_at = utc_now()
+        await transition_run(run, "cancelled", self.db)
         await self.db.commit()
         await self.db.refresh(run)
 
-        await self._sync_task_status(run)
+        await sync_task_from_run(run, self.db)
         return run
 
     async def retry_run(self, run_id: uuid.UUID, user_id: str) -> AgentRun:
@@ -191,7 +193,7 @@ class ExecutionOrchestrator:
         await self.db.flush()
 
         run.current_execution_id = execution.id
-        run.status = "running"
+        await transition_run(run, "running", self.db)
         run.ended_at = None
         await self.db.commit()
 
@@ -238,7 +240,7 @@ class ExecutionOrchestrator:
         release = await self._get_release(release_id)
         version = await self._get_version(release.agent_version_id)
 
-        # Create Run
+        # Create Run (initial state: pending, then transition to running)
         run = AgentRun(
             release_id=release_id,
             workspace_id=workspace_id,
@@ -247,12 +249,13 @@ class ExecutionOrchestrator:
             trigger_source=trigger_source,
             goal=prompt[:500] if prompt else None,
             input_payload=input_payload,
-            status="running",
+            status="pending",
             created_by=user_id,
             started_at=utc_now(),
         )
         self.db.add(run)
         await self.db.flush()
+        await transition_run(run, "running", self.db)
 
         # Create initial Execution
         execution = Execution(
@@ -279,10 +282,8 @@ class ExecutionOrchestrator:
             )
         except Exception as exc:
             logger.error(f"[Orchestrator] _fire_engine failed: {exc}")
-            run.status = "failed"
-            run.ended_at = utc_now()
-            execution.status = "failed"
-            execution.ended_at = utc_now()
+            await transition_run(run, "failed", self.db, str(exc)[:2000])
+            await transition_execution(execution, "failed", self.db)
             await self.db.commit()
             await self.db.refresh(run)
 
@@ -389,9 +390,10 @@ class ExecutionOrchestrator:
             execution = (await ctx.db.execute(
                 select(Execution).where(Execution.id == ctx.execution_id)
             )).scalar_one()
-            execution.status = status
-            if status == "running" and not execution.started_at:
-                execution.started_at = utc_now()
+            try:
+                await transition_execution(execution, status, ctx.db)
+            except InvalidTransition:
+                logger.warning(f"Skipping transition: execution {execution.id} already in {execution.status}")
             await ctx.db.commit()
 
         async def _complete(status: str, result_summary: str | None = None) -> None:
@@ -399,21 +401,25 @@ class ExecutionOrchestrator:
             execution = (await ctx.db.execute(
                 select(Execution).where(Execution.id == ctx.execution_id)
             )).scalar_one()
-            execution.status = status
-            execution.ended_at = utc_now()
+            try:
+                await transition_execution(execution, status, ctx.db)
+            except InvalidTransition:
+                logger.warning(f"Skipping transition: execution {execution.id} already in {execution.status}")
             await ctx.db.commit()
 
             # Update Run
             run = (await ctx.db.execute(
                 select(AgentRun).where(AgentRun.id == ctx.run_id)
             )).scalar_one()
-            run.status = status
-            run.result_summary = result_summary
-            run.ended_at = utc_now()
+            try:
+                await transition_run(run, status, ctx.db, result_summary)
+            except InvalidTransition:
+                logger.warning(f"Skipping transition: run {run.id} already in {run.status}")
             await ctx.db.commit()
 
             # Sync Task status
-            await self._sync_task_status(run, db=ctx.db)
+            await sync_task_from_run(run, ctx.db)
+            await ctx.db.commit()
 
             # Broadcast
             from app.websocket.execution_subscription_manager import execution_subscription_manager
@@ -434,29 +440,6 @@ class ExecutionOrchestrator:
     # ------------------------------------------------------------------
     # Internal: helpers
     # ------------------------------------------------------------------
-
-    async def _sync_task_status(self, run: AgentRun, db: AsyncSession | None = None) -> None:
-        """Sync Task status from Run status."""
-        if not run.task_id:
-            return
-        session = db or self.db
-        task = (await session.execute(
-            select(Task).where(Task.id == run.task_id)
-        )).scalar_one_or_none()
-        if not task:
-            return
-
-        if run.status == "succeeded":
-            task.status = "done"
-        elif run.status == "failed":
-            task.status = "in_review"
-        elif run.status == "cancelled":
-            task.status = "backlog"
-        elif run.status in ("queued", "running"):
-            task.status = "in_progress"
-
-        task.latest_run_id = run.id
-        await session.commit()
 
     async def _get_task(self, task_id: uuid.UUID) -> Task:
         result = (await self.db.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
