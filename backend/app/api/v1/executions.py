@@ -19,7 +19,7 @@ from app.schemas import BaseResponse
 from app.schemas.artifact import ArtifactResponse
 from app.schemas.execution import ExecutionEventResponse, ExecutionResponse
 from app.schemas.task import InjectMessageRequest
-from app.services.execution_service_phase4 import ExecutionService
+from app.services.execution_service import ExecutionService
 
 router = APIRouter(prefix="/v1/executions", tags=["Executions"])
 

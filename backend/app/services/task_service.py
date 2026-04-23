@@ -166,22 +166,14 @@ class TaskService:
         return task
 
     async def sync_status_from_run(self, task_id: uuid.UUID, workspace_id: uuid.UUID, run: Any) -> Optional[Task]:
-        """Auto-update task status based on run status."""
-        task = await self.repo.get_for_update(task_id, workspace_id)
-        if not task:
-            return None
+        """Delegate to the orchestrator's authoritative sync path.
 
-        if run.status in ("queued", "running"):
-            task.status = TaskStatus.IN_PROGRESS
-        elif run.status == "succeeded":
-            task.status = TaskStatus.DONE
-        elif run.status == "failed":
-            task.status = TaskStatus.IN_REVIEW
-        elif run.status == "cancelled":
-            task.status = TaskStatus.BACKLOG
+        The canonical status mapping lives in ExecutionOrchestrator._sync_task_status.
+        This method is retained for backwards-compat but simply calls that logic
+        so there is a single source of truth.
+        """
+        from app.core.engine.orchestrator import ExecutionOrchestrator
 
-        task.latest_run_id = run.id
-        await self.db.commit()
-        await self.db.refresh(task)
-        logger.info(f"Synced task {task_id} status to {task.status.value} from run {run.id}")
-        return task
+        orchestrator = ExecutionOrchestrator(self.db)
+        await orchestrator._sync_task_status(run)
+        return await self.repo.get_by_id_and_workspace(task_id, workspace_id)

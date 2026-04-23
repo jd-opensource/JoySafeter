@@ -205,14 +205,17 @@ async def cancel_task(
         return BaseResponse(success=False, code=404, msg="Task not found", data=None)
 
     if task.latest_run_id:
+        # Cancel the run through the orchestrator, which will auto-sync task status
         orchestrator = ExecutionOrchestrator(db)
         try:
             await orchestrator.cancel_run(task.latest_run_id)
         except Exception:
-            pass  # Run may already be terminal
+            pass  # Run may already be in a terminal state
+    else:
+        # No active run — safe to set status directly
+        task.status = "cancelled"
+        await db.commit()
 
-    task.status = "cancelled"
-    await db.commit()
     await db.refresh(task)
     return BaseResponse(success=True, code=200, msg="Task cancelled", data=_to_summary(task))
 
