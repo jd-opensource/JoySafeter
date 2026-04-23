@@ -351,13 +351,13 @@ class ExecutionOrchestrator:
             await ctx.db.commit()
 
             # Broadcast via WebSocket
-            from app.websocket.notification_manager import notification_manager
-            await notification_manager.broadcast({
-                "type": "execution_event",
+            from app.websocket.execution_subscription_manager import execution_subscription_manager
+            await execution_subscription_manager.broadcast_event(str(ctx.execution_id), {
+                "type": "event",
                 "execution_id": str(ctx.execution_id),
-                "run_id": str(ctx.run_id),
+                "seq": event.sequence_no,
                 "event_type": event_type,
-                "payload": payload,
+                "data": payload,
             })
 
         async def _status(status: str) -> None:
@@ -388,11 +388,11 @@ class ExecutionOrchestrator:
             await ctx.db.commit()
 
             # Sync Task status
-            await self._sync_task_status(run)
+            await self._sync_task_status(run, db=ctx.db)
 
             # Broadcast
-            from app.websocket.notification_manager import notification_manager
-            await notification_manager.broadcast({
+            from app.websocket.execution_subscription_manager import execution_subscription_manager
+            await execution_subscription_manager.broadcast_event(str(ctx.execution_id), {
                 "type": "execution_completed",
                 "execution_id": str(ctx.execution_id),
                 "run_id": str(ctx.run_id),
@@ -407,11 +407,12 @@ class ExecutionOrchestrator:
     # Internal: helpers
     # ------------------------------------------------------------------
 
-    async def _sync_task_status(self, run: AgentRun) -> None:
+    async def _sync_task_status(self, run: AgentRun, db: AsyncSession | None = None) -> None:
         """Sync Task status from Run status."""
         if not run.task_id:
             return
-        task = (await self.db.execute(
+        session = db or self.db
+        task = (await session.execute(
             select(Task).where(Task.id == run.task_id)
         )).scalar_one_or_none()
         if not task:
@@ -427,7 +428,7 @@ class ExecutionOrchestrator:
             task.status = "in_progress"
 
         task.latest_run_id = run.id
-        await self.db.commit()
+        await session.commit()
 
     async def _get_task(self, task_id: uuid.UUID) -> Task:
         result = (await self.db.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()

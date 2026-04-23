@@ -8,7 +8,7 @@ import uuid
 from fastapi import WebSocket, WebSocketDisconnect
 
 from app.core.database import AsyncSessionLocal
-from app.services.execution_service import ExecutionService
+from app.services.execution_service_phase4 import ExecutionService
 from app.websocket.execution_subscription_manager import execution_subscription_manager
 
 
