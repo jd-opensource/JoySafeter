@@ -102,7 +102,7 @@ async def _reap_stale_executions() -> int:
     async with AsyncSessionLocal() as db:
         exec_repo = ExecutionRepository(db)
         exec_svc = ExecutionService(db)
-        lifecycle = ExecutionLifecycleService(db)
+        orchestrator = ExecutionOrchestrator(db)
 
         for statuses, threshold in _STALE_THRESHOLDS:
             stale = await exec_repo.list_recoverable_stale(
@@ -122,7 +122,10 @@ async def _reap_stale_executions() -> int:
                         error_message=f"No heartbeat for {int(threshold.total_seconds() // 60)}+ minutes",
                     )
 
-                    await lifecycle._finalize_task(execution.id, "failed")
+                    run = await orchestrator._get_run(execution.run_id)
+                    run.status = "failed"
+                    await db.commit()
+                    await orchestrator._sync_task_status(run)
 
                     total += 1
                     logger.info(
