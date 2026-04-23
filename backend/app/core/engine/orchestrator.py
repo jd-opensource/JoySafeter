@@ -42,6 +42,9 @@ class ExecutionOrchestrator:
     # Public dispatch methods (Layer 1 calls these)
     # ------------------------------------------------------------------
 
+    # Statuses from which a task may be dispatched (besides in_progress for re-fire).
+    DISPATCHABLE_STATUSES = {"backlog", "todo", "in_review"}
+
     async def dispatch_task(
         self,
         task_id: uuid.UUID,
@@ -52,6 +55,11 @@ class ExecutionOrchestrator:
         task = await self._get_task(task_id)
         if task.status == "in_progress" and task.latest_run_id:
             raise BadRequestException("Task already has an active run. Cancel it first.")
+        if task.status not in self.DISPATCHABLE_STATUSES and task.status != "in_progress":
+            raise BadRequestException(
+                f"Cannot dispatch task in '{task.status}' status. "
+                "Move the task back to backlog first."
+            )
         if not task.agent_id:
             raise BadRequestException("Task has no assigned agent")
 
@@ -415,6 +423,9 @@ class ExecutionOrchestrator:
                 "run_id": str(ctx.run_id),
                 "status": status,
             })
+
+            # Clean up subscription entry so completed executions don't leak memory
+            execution_subscription_manager.remove_execution(str(ctx.execution_id))
 
         ctx._emit_fn = _emit
         ctx._status_fn = _status

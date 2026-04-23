@@ -158,7 +158,10 @@ class TaskService:
             raise NotFoundException(f"Task not found: {task_id}")
 
         task.agent_id = agent_id
-        if task.status == TaskStatus.BACKLOG:
+        # Only auto-transition to IN_PROGRESS from dispatchable states.
+        # Tasks in DONE or CANCELLED must be moved back to BACKLOG explicitly
+        # before they can be reassigned and re-dispatched.
+        if task.status in (TaskStatus.BACKLOG, TaskStatus.TODO):
             task.status = TaskStatus.IN_PROGRESS
         await self.db.commit()
         await self.db.refresh(task)
