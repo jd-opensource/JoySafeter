@@ -17,17 +17,20 @@ from app.repositories.agent import AgentRepository, AgentVersionRepository
 from app.schemas.agent import CreateAgentRequest, UpdateAgentRequest
 
 
+from .base import BaseService
+
+
 def _generate_slug(name: str) -> str:
     slug = re.sub(r"[^a-zA-Z0-9\s-]", "", name.lower())
     slug = re.sub(r"[\s]+", "-", slug).strip("-")
     return slug or "agent"
 
 
-class AgentService:
+class AgentService(BaseService):
     """Manages the Agent entity and its initial version."""
 
     def __init__(self, db: AsyncSession):
-        self.db = db
+        super().__init__(db)
         self.agent_repo = AgentRepository(db)
         self.version_repo = AgentVersionRepository(db)
 
@@ -83,6 +86,7 @@ class AgentService:
         # Link the draft version
         await self.agent_repo.update(agent.id, {"current_draft_version_id": version.id})
 
+        await self.commit()
         logger.info(f"Created agent {agent.id} ({data.name}) with initial version {version.id}")
         return agent
 
@@ -101,6 +105,7 @@ class AgentService:
 
         updated = await self.agent_repo.update(agent_id, update_data)
         assert updated is not None
+        await self.commit()
         return updated
 
     async def archive_agent(self, agent_id: uuid.UUID) -> Agent:
@@ -110,5 +115,6 @@ class AgentService:
 
         updated = await self.agent_repo.update(agent_id, {"status": "archived"})
         assert updated is not None
+        await self.commit()
         logger.info(f"Archived agent {agent_id}")
         return updated

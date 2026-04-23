@@ -2,9 +2,9 @@
 
 import { Bot, Pencil } from 'lucide-react'
 
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { useTranslation } from '@/lib/i18n'
 import type { Agent } from '@/types/agent'
 
 import { AgentStatusIndicator } from './agent-status'
@@ -16,6 +16,8 @@ interface AgentCardProps {
 }
 
 export function AgentCard({ agent, onClick, onEdit }: AgentCardProps) {
+  const { t } = useTranslation()
+
   return (
     <Card
       className="flex cursor-pointer flex-col border-[var(--border)] bg-[var(--surface-1)] p-5 transition-shadow hover:shadow-md"
@@ -39,7 +41,7 @@ export function AgentCard({ agent, onClick, onEdit }: AgentCardProps) {
 
       {/* Description */}
       <p className="mb-4 line-clamp-2 min-h-[2.5rem] text-sm text-[var(--text-muted)]">
-        {agent.description || '暂无描述'}
+        {agent.description || t('agents.noDescription')}
       </p>
 
       {/* Actions */}
@@ -54,7 +56,7 @@ export function AgentCard({ agent, onClick, onEdit }: AgentCardProps) {
           }}
         >
           <Pencil className="h-3.5 w-3.5" />
-          编辑
+          {t('agents.edit')}
         </Button>
       </div>
     </Card>

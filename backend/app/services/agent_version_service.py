@@ -17,11 +17,14 @@ from app.repositories.agent import AgentRepository, AgentVersionRepository
 from app.schemas.agent_version import CreateAgentVersionRequest, UpdateAgentVersionRequest
 
 
-class AgentVersionService:
+from .base import BaseService
+
+
+class AgentVersionService(BaseService):
     """Manages AgentVersion entities."""
 
     def __init__(self, db: AsyncSession):
-        self.db = db
+        super().__init__(db)
         self.version_repo = AgentVersionRepository(db)
         self.agent_repo = AgentRepository(db)
 
@@ -61,6 +64,7 @@ class AgentVersionService:
         # Update agent's current_draft_version_id
         await self.agent_repo.update(agent_id, {"current_draft_version_id": version.id})
 
+        await self.commit()
         logger.info(f"Created version {version.id} (v{next_num}) for agent {agent_id}")
         return version
 
@@ -82,6 +86,7 @@ class AgentVersionService:
 
         updated = await self.version_repo.update(version_id, update_data)
         assert updated is not None
+        await self.commit()
         return updated
 
     async def freeze_version(self, version_id: uuid.UUID) -> AgentVersion:
@@ -92,6 +97,7 @@ class AgentVersionService:
         VERSION_SM.validate(version.status, "frozen")
         updated = await self.version_repo.update(version_id, {"status": "frozen"})
         assert updated is not None
+        await self.commit()
         logger.info(f"Froze version {version_id}")
         return updated
 
@@ -114,5 +120,6 @@ class AgentVersionService:
         VERSION_SM.validate(version.status, "draft")
         updated = await self.version_repo.update(version_id, {"status": "draft"})
         assert updated is not None
+        await self.commit()
         logger.info(f"Unfroze version {version_id} (reverted to draft)")
         return updated

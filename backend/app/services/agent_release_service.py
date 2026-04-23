@@ -19,11 +19,14 @@ from app.schemas.agent_release import CreateAgentReleaseRequest
 from app.utils.datetime import utc_now
 
 
-class AgentReleaseService:
+from .base import BaseService
+
+
+class AgentReleaseService(BaseService):
     """Manages AgentRelease entities."""
 
     def __init__(self, db: AsyncSession):
-        self.db = db
+        super().__init__(db)
         self.release_repo = AgentReleaseRepository(db)
         self.version_repo = AgentVersionRepository(db)
         self.agent_repo = AgentRepository(db)
@@ -69,6 +72,7 @@ class AgentReleaseService:
             }
         )
 
+        await self.commit()
         logger.info(
             f"Published release {release.id} (r{next_num}) for agent {agent_id}"
         )
@@ -94,6 +98,7 @@ class AgentReleaseService:
             update_data["status"] = "active"
 
         await self.agent_repo.update(agent_id, update_data)
+        await self.commit()
         logger.info(f"Activated release {release_id} for agent {agent_id}")
         return release
 
@@ -115,5 +120,6 @@ class AgentReleaseService:
         if agent and agent.active_release_id == release_id:
             await self.agent_repo.update(agent_id, {"active_release_id": None})
 
+        await self.commit()
         logger.info(f"Retired release {release_id} for agent {agent_id}")
         return updated
