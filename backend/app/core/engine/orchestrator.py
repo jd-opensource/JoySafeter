@@ -50,6 +50,8 @@ class ExecutionOrchestrator:
     ) -> AgentRun:
         """Dispatch a Task → creates Run + Execution, fires engine."""
         task = await self._get_task(task_id)
+        if task.status == "in_progress" and task.latest_run_id:
+            raise BadRequestException("Task already has an active run. Cancel it first.")
         if not task.agent_id:
             raise BadRequestException("Task has no assigned agent")
 
@@ -144,6 +146,8 @@ class ExecutionOrchestrator:
                 release = await self._get_release(run.release_id)
                 engine = engine_registry.get(release.runtime_kind)
                 await engine.cancel(execution.id)
+                execution.status = "cancelled"
+                execution.ended_at = utc_now()
 
         run.status = "cancelled"
         run.ended_at = utc_now()
@@ -257,13 +261,22 @@ class ExecutionOrchestrator:
         await self.db.refresh(run)
 
         # Fire engine in background
-        await self._fire_engine(
-            execution=execution,
-            release=release,
-            version=version,
-            workspace_id=workspace_id,
-            prompt=prompt,
-        )
+        try:
+            await self._fire_engine(
+                execution=execution,
+                release=release,
+                version=version,
+                workspace_id=workspace_id,
+                prompt=prompt,
+            )
+        except Exception as exc:
+            logger.error(f"[Orchestrator] _fire_engine failed: {exc}")
+            run.status = "failed"
+            run.ended_at = utc_now()
+            execution.status = "failed"
+            execution.ended_at = utc_now()
+            await self.db.commit()
+            await self.db.refresh(run)
 
         return run
 
@@ -328,6 +341,10 @@ class ExecutionOrchestrator:
                     )
             except Exception as exc:
                 logger.error(f"[Orchestrator] Engine failed for execution {execution.id}: {exc}")
+                try:
+                    await ctx._complete_fn("failed", f"Engine error: {str(exc)[:2000]}")
+                except Exception as cleanup_exc:
+                    logger.error(f"[Orchestrator] Failed to mark execution as failed: {cleanup_exc}")
 
         safe_create_task(_run_engine(), name=f"engine-{execution.id}")
 
