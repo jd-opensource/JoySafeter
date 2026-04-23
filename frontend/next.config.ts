@@ -8,6 +8,16 @@ const nextConfig: NextConfig = {
         destination: '/agents',
         permanent: true,
       },
+      {
+        source: '/runs',
+        destination: '/dashboard',
+        permanent: true,
+      },
+      {
+        source: '/memory',
+        destination: '/settings',
+        permanent: true,
+      },
     ]
   },
   devIndicators: false,
