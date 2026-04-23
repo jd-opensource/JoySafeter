@@ -79,12 +79,11 @@ async def sync_task_from_run(
     target = RUN_TO_TASK_SYNC.get(run.status)
     if target and task.status != target:
         try:
-            TASK_SM.validate(task.status, target)
+            await transition_task(task, target, db)
         except InvalidTransition:
             # Edge case: task was manually moved to a state where auto-sync
             # is not valid (e.g., user set it to "done" before run finished).
             # Don't override the manual decision.
             return
-        task.status = target
         task.latest_run_id = run.id
         await db.flush()

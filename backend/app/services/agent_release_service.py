@@ -11,7 +11,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import BadRequestException, NotFoundException
-from app.core.state_machines import RELEASE_SM
+from app.core.state_machines import AGENT_SM, RELEASE_SM
 from app.models.agent import AgentRelease
 from app.repositories.agent import AgentRepository, AgentVersionRepository
 from app.repositories.agent_release import AgentReleaseRepository
@@ -89,7 +89,8 @@ class AgentReleaseService:
             raise NotFoundException(f"Agent {agent_id} not found")
 
         update_data: dict = {"active_release_id": release_id}
-        if agent.status == "draft":
+        if agent.status != "active":
+            AGENT_SM.validate(agent.status, "active")
             update_data["status"] = "active"
 
         await self.agent_repo.update(agent_id, update_data)
