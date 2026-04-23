@@ -5,6 +5,7 @@ Repository for Execution and ExecutionEvent.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import List, Optional
 
 from sqlalchemy import func, select
@@ -36,6 +37,30 @@ class ExecutionRepository(BaseRepository[Execution]):
         )
         result = await self.db.execute(query)
         return result.scalar() or 0
+
+    async def list_recoverable_stale(
+        self,
+        statuses: tuple[str, ...],
+        stale_before: datetime,
+    ) -> List[Execution]:
+        """Query executions eligible for stale-reaping.
+
+        Args:
+            statuses: execution status values to match (e.g. ``("pending", "dispatched")``).
+            stale_before: cutoff datetime; executions whose ``started_at``
+                (or ``created_at`` if never started) is older than this are stale.
+
+        Returns:
+            List of stale Execution records, oldest first.
+        """
+        cutoff = func.coalesce(Execution.started_at, Execution.created_at)
+        query = (
+            select(Execution)
+            .where(Execution.status.in_(statuses), cutoff < stale_before)
+            .order_by(Execution.created_at.asc())
+        )
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
 
 
 class ExecutionEventRepository(BaseRepository[ExecutionEvent]):

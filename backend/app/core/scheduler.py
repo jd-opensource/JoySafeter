@@ -12,12 +12,9 @@ from datetime import timedelta
 
 from loguru import logger
 
-from app.core.agent.cli_backends.session_registry import session_registry
 from app.core.database import AsyncSessionLocal
 from app.core.engine.orchestrator import ExecutionOrchestrator
-from app.repositories.execution import ExecutionRepository
 from app.services.execution_service import ExecutionService
-from app.utils.datetime import utc_now
 
 _DISPATCH_INTERVAL = 30
 _REAPER_INTERVAL = 30
@@ -95,45 +92,12 @@ async def recover_stale_on_startup() -> None:
 
 
 async def _reap_stale_executions() -> int:
-    """Shared logic for reaper loop and startup recovery."""
-    now = utc_now()
-    total = 0
+    """Shared logic for reaper loop and startup recovery.
 
+    Delegates all business logic to ExecutionService.reap_stale_executions
+    so the scheduler only decides *when* to run and *what thresholds* to use.
+    """
     async with AsyncSessionLocal() as db:
-        exec_repo = ExecutionRepository(db)
-        exec_svc = ExecutionService(db)
-        orchestrator = ExecutionOrchestrator(db)
+        svc = ExecutionService(db)
+        return await svc.reap_stale_executions(_STALE_THRESHOLDS)
 
-        for statuses, threshold in _STALE_THRESHOLDS:
-            stale = await exec_repo.list_recoverable_stale(
-                statuses=statuses,
-                stale_before=now - threshold,
-            )
-            for execution in stale:
-                try:
-                    session = session_registry.get(execution.id)
-                    if session:
-                        await session.cancel()
-
-                    await exec_svc.mark_status(
-                        execution_id=execution.id,
-                        status="failed",
-                        error_code="stale_reaped",
-                        error_message=f"No heartbeat for {int(threshold.total_seconds() // 60)}+ minutes",
-                    )
-
-                    run = await orchestrator._get_run(execution.run_id)
-                    from app.core.state_machines.transitions import transition_run, sync_task_from_run
-                    await transition_run(run, "failed", db, "Reaped: stale execution")
-                    await db.commit()
-                    await sync_task_from_run(run, db)
-
-                    total += 1
-                    logger.info(
-                        f"Reaped stale execution {execution.id} "
-                        f"(status={execution.status}, age={now - (execution.started_at or execution.created_at)})"
-                    )
-                except Exception as exc:
-                    logger.warning(f"Failed to reap execution {execution.id}: {exc}")
-
-    return total

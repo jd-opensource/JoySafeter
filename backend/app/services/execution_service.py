@@ -5,8 +5,10 @@ Service layer for CLI agent executions.
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from typing import Any, List, Optional
 
+from loguru import logger
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +19,7 @@ from app.models.execution import (
     ExecutionEvent,
 )
 from app.repositories.execution import ExecutionRepository, ExecutionEventRepository
+from app.utils.datetime import utc_now
 
 TERMINAL_EXECUTION_STATUSES = EXECUTION_TERMINAL
 
@@ -260,3 +263,73 @@ class ExecutionService:
         await self.db.commit()
         await self.db.refresh(execution)
         return execution
+
+    async def reap_stale_executions(
+        self,
+        thresholds: list[tuple[tuple[str, ...], timedelta]],
+    ) -> int:
+        """Discover and reap stale executions.
+
+        For each (statuses, threshold) pair:
+          1. Query stale executions           → Repository
+          2. Cancel active runtime session    → session_registry
+          3. Mark execution as failed         → self.mark_status
+          4. Mark parent run as failed        → transition_run
+          5. Sync task status                 → sync_task_from_run
+
+        Args:
+            thresholds: list of ``((status, ...), timedelta)`` pairs defining
+                which execution statuses to scan and how old they must be.
+
+        Returns:
+            Total number of reaped executions.
+        """
+        from app.core.agent.cli_backends.session_registry import session_registry
+        from app.core.state_machines.transitions import transition_run, sync_task_from_run
+        from app.models.agent_run import AgentRun
+
+        now = utc_now()
+        total = 0
+
+        for statuses, threshold in thresholds:
+            stale = await self.repo.list_recoverable_stale(
+                statuses=statuses,
+                stale_before=now - threshold,
+            )
+            for execution in stale:
+                try:
+                    # 1. Cancel active session if any
+                    session = session_registry.get(execution.id)
+                    if session:
+                        await session.cancel()
+
+                    # 2. Mark execution failed
+                    await self.mark_status(
+                        execution_id=execution.id,
+                        status="failed",
+                        error_code="stale_reaped",
+                        error_message=(
+                            f"No heartbeat for {int(threshold.total_seconds() // 60)}+ minutes"
+                        ),
+                    )
+
+                    # 3. Transition parent run to failed
+                    run = (await self.db.execute(
+                        select(AgentRun).where(AgentRun.id == execution.run_id)
+                    )).scalar_one_or_none()
+                    if run and run.status not in ("succeeded", "failed", "cancelled"):
+                        await transition_run(run, "failed", self.db, "Reaped: stale execution")
+                        await self.db.commit()
+                        # 4. Sync task status from run
+                        await sync_task_from_run(run, self.db)
+
+                    total += 1
+                    logger.info(
+                        f"Reaped stale execution {execution.id} "
+                        f"(status={execution.status}, "
+                        f"age={now - (execution.started_at or execution.created_at)})"
+                    )
+                except Exception as exc:
+                    logger.warning(f"Failed to reap execution {execution.id}: {exc}")
+
+        return total
