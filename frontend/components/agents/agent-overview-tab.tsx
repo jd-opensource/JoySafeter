@@ -65,14 +65,14 @@ export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
     ...recentRuns.map((run) => ({
       kind: 'run' as const,
       id: run.id,
-      label: run.goal || t('runs.untitled'),
+      label: run.goal || t('execution.untitled'),
       status: run.status,
       time: run.started_at || run.created_at || '',
     })),
     ...recentThreads.map((thread) => ({
       kind: 'thread' as const,
       id: thread.id,
-      label: thread.title || t('runs.untitled'),
+      label: thread.title || t('execution.untitled'),
       status: thread.status,
       time: thread.created_at,
     })),

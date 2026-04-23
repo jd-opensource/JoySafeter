@@ -105,7 +105,7 @@ export function ExecutionRow({
             {execution.started_at && (
               <span className="flex items-center gap-1">
                 <Clock3 className="h-3.5 w-3.5" />
-                {t('runs.startedAt')} {formatRelativeTime(execution.started_at, t)}
+                {t('execution.startedAt')} {formatRelativeTime(execution.started_at, t)}
               </span>
             )}
             {duration && (
@@ -140,7 +140,7 @@ export function ExecutionRow({
               ) : (
                 <Square className="h-3.5 w-3.5" />
               )}
-              {t('runs.cancel')}
+              {t('execution.cancel')}
             </Button>
           )}
         </div>

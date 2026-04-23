@@ -55,13 +55,13 @@ export const EXECUTION_STATUS_STYLES: Record<ExecutionStatus, string> = {
 }
 
 export const EXECUTION_STATUS_I18N: Record<ExecutionStatus, string> = {
-  pending: 'runs.statusPending',
-  dispatched: 'runs.statusDispatched',
-  running: 'runs.statusRunning',
-  approval_wait: 'runs.statusApprovalWait',
-  succeeded: 'runs.statusSucceeded',
-  failed: 'runs.statusFailed',
-  cancelled: 'runs.statusCancelled',
+  pending: 'execution.statusPending',
+  dispatched: 'execution.statusDispatched',
+  running: 'execution.statusRunning',
+  approval_wait: 'execution.statusApprovalWait',
+  succeeded: 'execution.statusSucceeded',
+  failed: 'execution.statusFailed',
+  cancelled: 'execution.statusCancelled',
 }
 
 export interface ExecutionEvent {

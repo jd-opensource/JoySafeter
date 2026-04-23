@@ -45,11 +45,11 @@ export const RUN_STATUS_STYLES: Record<AgentRunStatus, string> = {
 }
 
 export const RUN_STATUS_I18N: Record<AgentRunStatus, string> = {
-  pending: 'runs.statusPending',
-  running: 'runs.statusRunning',
-  succeeded: 'runs.statusSucceeded',
-  failed: 'runs.statusFailed',
-  cancelled: 'runs.statusCancelled',
+  pending: 'execution.statusPending',
+  running: 'execution.statusRunning',
+  succeeded: 'execution.statusSucceeded',
+  failed: 'execution.statusFailed',
+  cancelled: 'execution.statusCancelled',
 }
 
 export interface CreateAgentRunRequest {

@@ -59,7 +59,7 @@ function RunRow({
               <Bot className="h-4 w-4" />
             </div>
             <span className="truncate text-sm font-semibold text-[var(--text-primary)]">
-              {run.title || t('runs.untitled')}
+              {run.title || t('execution.untitled')}
             </span>
             <Badge
               variant="outline"
@@ -83,7 +83,7 @@ function RunRow({
           <div className="flex flex-wrap items-center gap-4 text-xs text-[var(--text-muted)]">
             <span className="flex items-center gap-1">
               <Clock3 className="h-3.5 w-3.5" />
-              {t('runs.startedAt')} {formatRelativeTime(run.started_at, t)}
+              {t('execution.startedAt')} {formatRelativeTime(run.started_at, t)}
             </span>
             <span className="flex items-center gap-1">
               <Sparkles className="h-3.5 w-3.5" />
@@ -92,7 +92,7 @@ function RunRow({
             {run.last_heartbeat_at && (
               <span className="flex items-center gap-1">
                 <Activity className="h-3.5 w-3.5" />
-                {t('runs.lastHeartbeat')} {formatRelativeTime(run.last_heartbeat_at, t)}
+                {t('execution.lastHeartbeat')} {formatRelativeTime(run.last_heartbeat_at, t)}
               </span>
             )}
             {run.error_message && (
@@ -103,11 +103,11 @@ function RunRow({
 
         <div className="flex items-center gap-2">
           <Button asChild variant="outline" size="sm">
-            <Link href={`/runs/${encodeURIComponent(run.run_id)}`}>{t('runs.details')}</Link>
+            <Link href={`/runs/${encodeURIComponent(run.run_id)}`}>{t('execution.details')}</Link>
           </Button>
           {resumable && (
             <Button asChild variant="outline" size="sm">
-              <Link href={href}>{t('runs.open')}</Link>
+              <Link href={href}>{t('execution.open')}</Link>
             </Button>
           )}
           {isActive && (
@@ -123,7 +123,7 @@ function RunRow({
               ) : (
                 <Square className="h-3.5 w-3.5" />
               )}
-              {t('runs.cancel')}
+              {t('execution.cancel')}
             </Button>
           )}
         </div>
@@ -237,7 +237,7 @@ function AgentRunsTab() {
           size="sm"
           onClick={() => updateFilter('agent', 'all')}
         >
-          {t('runs.filterAllAgents')}
+          {t('execution.filterAllAgents')}
         </Button>
         {(agentData?.items || []).map((agent) => (
           <Button
@@ -259,7 +259,7 @@ function AgentRunsTab() {
             size="sm"
             onClick={() => updateFilter('status', status)}
           >
-            {status === 'all' ? t('runs.filterAll') : formatRunStatus(status, t)}
+            {status === 'all' ? t('execution.filterAll') : formatRunStatus(status, t)}
           </Button>
         ))}
       </div>
@@ -268,7 +268,7 @@ function AgentRunsTab() {
         {isLoading ? (
           <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
             <Loader2 className="h-4 w-4 animate-spin" />
-            {t('runs.loading')}
+            {t('execution.loading')}
           </div>
         ) : liveRuns.length === 0 ? (
           <Card className="border-dashed border-[var(--border)] bg-[var(--surface-1)] p-8 text-center">
@@ -276,9 +276,9 @@ function AgentRunsTab() {
               <Activity className="h-5 w-5" />
             </div>
             <h2 className="mt-4 text-sm font-semibold text-[var(--text-primary)]">
-              {t('runs.emptyTitle')}
+              {t('execution.emptyTitle')}
             </h2>
-            <p className="mt-1 text-sm text-[var(--text-muted)]">{t('runs.emptyDescription')}</p>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">{t('execution.emptyDescription')}</p>
           </Card>
         ) : (
           <div className="space-y-3">
@@ -347,13 +347,13 @@ export default function RunsPage() {
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <Activity className="h-5 w-5 text-[var(--skill-brand-600)]" />
-            <h1 className="text-lg font-semibold text-[var(--text-primary)]">{t('runs.title')}</h1>
+            <h1 className="text-lg font-semibold text-[var(--text-primary)]">{t('execution.title')}</h1>
           </div>
 
           <Tabs value={activeTab} onValueChange={setTab}>
             <TabsList>
-              <TabsTrigger value="runs">{t('runs.tabAgentRuns')}</TabsTrigger>
-              <TabsTrigger value="executions">{t('runs.tabExecutions')}</TabsTrigger>
+              <TabsTrigger value="runs">{t('execution.tabAgentRuns')}</TabsTrigger>
+              <TabsTrigger value="executions">{t('execution.tabExecutions')}</TabsTrigger>
             </TabsList>
           </Tabs>
 
@@ -364,7 +364,7 @@ export default function RunsPage() {
                 <Input
                   value={searchInput}
                   onChange={(event) => setSearchInput(event.target.value)}
-                  placeholder={t('runs.searchPlaceholder')}
+                  placeholder={t('execution.searchPlaceholder')}
                   className="pl-9"
                 />
               </div>

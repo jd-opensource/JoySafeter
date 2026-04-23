@@ -537,7 +537,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                   dispatchTask.mutate(
                     { taskId, workspaceId },
                     {
-                      onSuccess: () => toastSuccess(t('runs.dispatchedToast')),
+                      onSuccess: () => toastSuccess(t('execution.dispatchedToast')),
                       onError: onMutationError,
                     },
                   )
@@ -545,7 +545,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                 disabled={dispatchTask.isPending}
               >
                 <Play className="h-3.5 w-3.5" />
-                {dispatchTask.isPending ? t('runs.dispatching') : t('runs.dispatch')}
+                {dispatchTask.isPending ? t('execution.dispatching') : t('execution.dispatch')}
               </Button>
             )}
 
@@ -622,15 +622,15 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
             {pastExecutionCount > 0 && (
               <section>
                 <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                  {t('runs.pastExecutions')}
+                  {t('execution.pastExecutions')}
                 </h3>
                 <p className="text-xs text-[var(--text-muted)]">
-                  {t('runs.pastExecutionsCount', { count: pastExecutionCount })} —{' '}
+                  {t('execution.pastExecutionsCount', { count: pastExecutionCount })} —{' '}
                   <Link
                     href={`/runs?tab=executions&task=${taskId}`}
                     className="text-[var(--brand-400)] hover:underline"
                   >
-                    {t('runs.pastExecutionsLink')}
+                    {t('execution.pastExecutionsLink')}
                   </Link>
                 </p>
               </section>

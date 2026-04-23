@@ -21,12 +21,12 @@ export const ACTIVE_RUN_STATUSES = new Set(['pending', 'running'])
 
 export function formatRunStatus(status: string, t: TFn): string {
   const map: Record<string, string> = {
-    pending: t('runs.statusPending', 'Pending'),
-    running: t('runs.statusRunning', 'Running'),
-    interrupt_wait: t('runs.statusInterruptWait', 'Waiting Input'),
-    succeeded: t('runs.statusSucceeded', 'Succeeded'),
-    failed: t('runs.statusFailed', 'Failed'),
-    cancelled: t('runs.statusCancelled', 'Cancelled'),
+    pending: t('execution.statusPending', 'Pending'),
+    running: t('execution.statusRunning', 'Running'),
+    interrupt_wait: t('execution.statusInterruptWait', 'Waiting Input'),
+    succeeded: t('execution.statusSucceeded', 'Succeeded'),
+    failed: t('execution.statusFailed', 'Failed'),
+    cancelled: t('execution.statusCancelled', 'Cancelled'),
   }
   return map[status] || status
 }
@@ -39,10 +39,10 @@ export function formatRelativeTime(value: string, t?: TFn): string {
   const diffDays = Math.floor(diffMs / 86400000)
   const tr: TFn = t || ((_, f) => f || '')
 
-  if (diffMinutes < 1) return tr('runs.justNow', 'just now')
-  if (diffMinutes < 60) return `${diffMinutes}${tr('runs.minutesSuffix', 'm ago')}`
-  if (diffHours < 24) return `${diffHours}${tr('runs.hoursSuffix', 'h ago')}`
-  if (diffDays < 30) return `${diffDays}${tr('runs.daysSuffix', 'd ago')}`
+  if (diffMinutes < 1) return tr('execution.justNow', 'just now')
+  if (diffMinutes < 60) return `${diffMinutes}${tr('execution.minutesSuffix', 'm ago')}`
+  if (diffHours < 24) return `${diffHours}${tr('execution.hoursSuffix', 'h ago')}`
+  if (diffDays < 30) return `${diffDays}${tr('execution.daysSuffix', 'd ago')}`
   return date.toLocaleDateString()
 }
 

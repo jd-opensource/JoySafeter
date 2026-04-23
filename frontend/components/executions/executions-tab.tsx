@@ -92,14 +92,14 @@ export function ExecutionsTab() {
               size="sm"
               onClick={() => setStatusFilter(status)}
             >
-              {t(status === 'all' ? 'runs.filterAll' : EXECUTION_STATUS_I18N[status])}
+              {t(status === 'all' ? 'execution.filterAll' : EXECUTION_STATUS_I18N[status])}
             </Button>
           ))}
         </div>
 
         {taskFilter && (
           <div className="flex items-center gap-2 border-b border-[var(--border)] px-6 py-2">
-            <span className="text-xs text-[var(--text-muted)]">{t('runs.filteredByTask')}:</span>
+            <span className="text-xs text-[var(--text-muted)]">{t('execution.filteredByTask')}:</span>
             <Badge variant="secondary" className="gap-1 pr-1">
               {taskTitleMap[taskFilter] || taskFilter.slice(0, 8)}
               <button
@@ -117,7 +117,7 @@ export function ExecutionsTab() {
           {isLoading ? (
             <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
               <Loader2 className="h-4 w-4 animate-spin" />
-              {t('runs.loading')}
+              {t('execution.loading')}
             </div>
           ) : executions.length === 0 ? (
             <Card className="border-dashed border-[var(--border)] bg-[var(--surface-1)] p-8 text-center">
@@ -125,10 +125,10 @@ export function ExecutionsTab() {
                 <Activity className="h-5 w-5" />
               </div>
               <h2 className="mt-4 text-sm font-semibold text-[var(--text-primary)]">
-                {t('runs.executionEmpty')}
+                {t('execution.executionEmpty')}
               </h2>
               <p className="mt-1 text-sm text-[var(--text-muted)]">
-                {t('runs.executionEmptyDesc')}
+                {t('execution.executionEmptyDesc')}
               </p>
             </Card>
           ) : (

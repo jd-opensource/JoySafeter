@@ -151,7 +151,7 @@ export function AgentChatTab({ agentId, threadId }: AgentChatTabProps) {
             {/* Thread header */}
             <div className="border-b border-[var(--border)] bg-[var(--surface-elevated)] px-6 py-3">
               <h2 className="text-sm font-medium text-[var(--text-primary)]">
-                {thread?.title || t('runs.untitled')}
+                {thread?.title || t('execution.untitled')}
               </h2>
             </div>
 

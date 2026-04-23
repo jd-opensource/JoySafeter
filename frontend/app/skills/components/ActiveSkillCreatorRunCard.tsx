@@ -115,7 +115,7 @@ export function ActiveSkillCreatorRunCard() {
             <div className="min-w-0">
               <div className="mb-1 flex flex-wrap items-center gap-2">
                 <span className="text-sm font-semibold text-[var(--text-primary)]">
-                  {t('runs.skillCreatorInProgress', 'Skill Creator in progress')}
+                  {t('execution.skillCreatorInProgress', 'Skill Creator in progress')}
                 </span>
                 <Badge
                   variant="outline"
@@ -125,11 +125,11 @@ export function ActiveSkillCreatorRunCard() {
                 </Badge>
               </div>
               <p className="truncate text-sm text-[var(--text-secondary)]">
-                {liveRun.title || t('runs.untitledSkillCreatorRun', 'Untitled Skill Creator run')}
+                {liveRun.title || t('execution.untitledSkillCreatorRun', 'Untitled Skill Creator run')}
               </p>
               <p className="mt-1 flex items-center gap-1 text-xs text-[var(--text-muted)]">
                 <Sparkles className="h-3.5 w-3.5" />
-                {t('runs.startedAt', 'Started')}{' '}
+                {t('execution.startedAt', 'Started')}{' '}
                 {liveRun.started_at ? formatRelativeTime(liveRun.started_at, t) : ''}
               </p>
             </div>
@@ -137,7 +137,7 @@ export function ActiveSkillCreatorRunCard() {
 
           <Button asChild className="gap-1.5 self-start md:self-center">
             <Link href={href}>
-              {t('runs.resume', 'Resume')}
+              {t('execution.resume', 'Resume')}
               <ArrowUpRight className="h-4 w-4" />
             </Link>
           </Button>
