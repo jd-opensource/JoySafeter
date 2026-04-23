@@ -7,7 +7,7 @@ Execution dispatch logic lives in ExecutionLifecycleService.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Optional  # Any retained for **kwargs typing
+from typing import Any, Optional
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.exceptions import BadRequestException, NotFoundException
 from app.core.state_machines import TASK_SM
 from app.core.state_machines.engine import InvalidTransition
+from app.core.state_machines.transitions import transition_task
 from app.models.task import Task, TaskPriority, TaskStatus
 from app.repositories.task import TaskRepository
 
@@ -109,7 +110,7 @@ class TaskService:
 
             if new_status != task.status:
                 try:
-                    TASK_SM.validate(task.status, new_status)
+                    await transition_task(task, new_status, self.db)
                 except InvalidTransition:
                     raise BadRequestException(f"Cannot transition from '{task.status}' to '{new_status}'")
 
@@ -118,7 +119,6 @@ class TaskService:
             "description",
             "goal",
             "priority",
-            "status",
             "agent_id",
             "parent_task_id",
             "due_date",

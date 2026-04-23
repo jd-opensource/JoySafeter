@@ -240,7 +240,7 @@ class ExecutionOrchestrator:
         release = await self._get_release(release_id)
         version = await self._get_version(release.agent_version_id)
 
-        # Create Run (initial state: pending, then transition to running)
+        # Create Run directly in running state
         run = AgentRun(
             release_id=release_id,
             workspace_id=workspace_id,
@@ -249,13 +249,12 @@ class ExecutionOrchestrator:
             trigger_source=trigger_source,
             goal=prompt[:500] if prompt else None,
             input_payload=input_payload,
-            status="pending",
+            status="running",
             created_by=user_id,
             started_at=utc_now(),
         )
         self.db.add(run)
         await self.db.flush()
-        await transition_run(run, "running", self.db)
 
         # Create initial Execution
         execution = Execution(
@@ -405,7 +404,6 @@ class ExecutionOrchestrator:
                 await transition_execution(execution, status, ctx.db)
             except InvalidTransition:
                 logger.warning(f"Skipping transition: execution {execution.id} already in {execution.status}")
-            await ctx.db.commit()
 
             # Update Run
             run = (await ctx.db.execute(
@@ -415,7 +413,6 @@ class ExecutionOrchestrator:
                 await transition_run(run, status, ctx.db, result_summary)
             except InvalidTransition:
                 logger.warning(f"Skipping transition: run {run.id} already in {run.status}")
-            await ctx.db.commit()
 
             # Sync Task status
             await sync_task_from_run(run, ctx.db)

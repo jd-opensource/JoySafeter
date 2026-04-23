@@ -61,6 +61,9 @@ export interface CreateAgentRunRequest {
   input_payload?: Record<string, unknown>
 }
 
+export type { ExecutionStatus } from '@/types/executions'
+export { ACTIVE_EXECUTION_STATUSES, TERMINAL_EXECUTION_STATUSES } from '@/types/executions'
+
 export interface Execution {
   id: string
   run_id: string
@@ -68,7 +71,7 @@ export interface Execution {
   attempt_index: number
   executor_kind: string
   runtime_session_ref: string | null
-  status: ExecutionStatus
+  status: import('@/types/executions').ExecutionStatus
   error_code: string | null
   error_message: string | null
   metrics: Record<string, unknown> | null
@@ -76,24 +79,6 @@ export interface Execution {
   ended_at: string | null
   created_at: string
 }
-
-export type ExecutionStatus =
-  | 'pending'
-  | 'running'
-  | 'succeeded'
-  | 'failed'
-  | 'cancelled'
-
-export const ACTIVE_EXECUTION_STATUSES: readonly ExecutionStatus[] = [
-  'pending',
-  'running',
-] as const
-
-export const TERMINAL_EXECUTION_STATUSES: readonly ExecutionStatus[] = [
-  'succeeded',
-  'failed',
-  'cancelled',
-] as const
 
 export interface ExecutionEvent {
   id: string

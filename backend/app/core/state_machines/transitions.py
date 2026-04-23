@@ -7,7 +7,6 @@ All status changes in the codebase should route through here.
 
 from __future__ import annotations
 
-import uuid
 from typing import Optional
 
 from sqlalchemy import select
@@ -78,6 +77,7 @@ async def sync_task_from_run(
         return
     target = RUN_TO_TASK_SYNC.get(run.status)
     if target and task.status != target:
+        task.latest_run_id = run.id
         try:
             await transition_task(task, target, db)
         except InvalidTransition:
@@ -85,5 +85,3 @@ async def sync_task_from_run(
             # is not valid (e.g., user set it to "done" before run finished).
             # Don't override the manual decision.
             return
-        task.latest_run_id = run.id
-        await db.flush()

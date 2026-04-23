@@ -13,7 +13,7 @@ type TFn = (key: string, fallback?: any) => string
 // Constants
 // ---------------------------------------------------------------------------
 
-export const ACTIVE_RUN_STATUSES = new Set(['pending', 'running', 'interrupt_wait'])
+export const ACTIVE_RUN_STATUSES = new Set(['pending', 'running'])
 
 // ---------------------------------------------------------------------------
 // Formatters

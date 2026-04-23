@@ -231,7 +231,7 @@ class TaskActivityService:
         if not agent_id:
             return None
 
-        if result_status == "completed":
+        if result_status == "succeeded":
             if hasattr(execution, 'started_at') and execution.started_at:
                 already = await self.repo.has_agent_posted_since(task_id, agent_id, execution.started_at)
                 if already:

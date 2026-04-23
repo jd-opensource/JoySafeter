@@ -15,7 +15,7 @@ from app.utils.safe_task import safe_create_task
 
 # Execution source and status string literals
 EXECUTION_SOURCE_COORDINATOR = "coordinator"
-EXECUTION_STATUS_COMPLETED = "completed"
+EXECUTION_STATUS_COMPLETED = "succeeded"
 EXECUTION_STATUS_FAILED = "failed"
 
 
@@ -168,7 +168,7 @@ async def get_agent_result(execution_id: str, *, user_id: str) -> dict:
             output = ""
             if execution.result_summary:
                 output = execution.result_summary.get("output", "")
-            return {"status": "completed", "output": output}
+            return {"status": "succeeded", "output": output}
         elif status == EXECUTION_STATUS_FAILED:
             return {"status": "failed", "output": execution.error_message or "Unknown error"}
         else:
