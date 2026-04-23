@@ -442,6 +442,12 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         return
       }
 
+      // If already executing, cancel the existing backend run before starting a new one
+      const currentGraphState = store.getContext(graphId).state
+      if (currentGraphState.isExecuting) {
+        await get().stopExecution()
+      }
+
       // Cancel previous execution
       const existingContext = store.getContext(graphId)
       if (existingContext.executionWs) {
@@ -665,7 +671,18 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         try {
           await executionAdapter.cancelRun(context.runId)
         } catch (error) {
-          console.error('Failed to cancel run:', error)
+          console.error('Failed to cancel run on backend:', error)
+          // Surface the failure so the user knows the backend run may still be active
+          get().addStep({
+            id: generateId('cancel-error'),
+            nodeId: 'system',
+            nodeLabel: 'System',
+            stepType: 'system_log',
+            title: 'Cancel Failed',
+            status: 'error',
+            startTime: Date.now(),
+            content: 'Failed to cancel execution on server. It may still be running.',
+          })
         }
         setRunId(currentGraphId, null)
       }

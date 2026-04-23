@@ -412,8 +412,9 @@ class OrganizationService(BaseService[Organization]):
         return data
 
     def _build_member_usage(self, member: Member) -> Dict:
-        # Stub: usage stats not yet implemented
+        # TODO: implement real usage stats per member
         return {
-            "messages": 0,
-            "storage_bytes": 0,
+            "messages": None,
+            "storage_bytes": None,
+            "_note": "Usage stats not yet implemented",
         }

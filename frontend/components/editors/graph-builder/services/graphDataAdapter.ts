@@ -1,10 +1,25 @@
 import { agentVersionService } from '@/services/agentVersionService'
 import type { GraphState } from '../utils/saveManager'
 
+function toGraphState(payload: Record<string, unknown>): GraphState {
+  return {
+    graphId: (payload.graphId as string) ?? null,
+    graphName: (payload.graphName as string) ?? null,
+    nodes: (payload.nodes as any[]) ?? [],
+    edges: (payload.edges as any[]) ?? [],
+    viewport: (payload.viewport as { x: number; y: number; zoom: number }) ?? { x: 0, y: 0, zoom: 1 },
+    graphStateFields: (payload.graphStateFields as any[]) ?? [],
+    fallbackNodeId: (payload.fallbackNodeId as string) ?? null,
+    agentId: null,
+    versionId: null,
+    workspaceId: null,
+  }
+}
+
 export const graphDataAdapter = {
   async load(agentId: string, versionId: string, workspaceId: string): Promise<GraphState> {
     const version = await agentVersionService.get(agentId, versionId, workspaceId)
-    return version.definition_payload as unknown as GraphState
+    return toGraphState(version.definition_payload)
   },
 
   async save(
