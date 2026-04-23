@@ -1,11 +1,11 @@
 'use client'
 
 import { Bot, CheckCircle2, Play } from 'lucide-react'
-import Link from 'next/link'
 
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { PulsingDot } from '@/components/ui/pulsing-dot'
+import { useTranslation } from '@/lib/i18n'
 import type { Task } from '@/types/tasks'
 
 interface TaskActivitySummaryProps {
@@ -21,6 +21,8 @@ export function TaskActivitySummary({
   agentsMap,
   onSelectTask,
 }: TaskActivitySummaryProps) {
+  const { t } = useTranslation()
+
   if (inProgressTasks.length === 0 && recentlyDoneTasks.length === 0) return null
 
   return (
@@ -29,13 +31,13 @@ export function TaskActivitySummary({
       <Card className="border-[var(--border)] bg-[var(--surface-1)] p-5">
         <div className="mb-3 flex items-center gap-2">
           <Play className="h-3.5 w-3.5 text-[var(--brand-500)]" />
-          <h3 className="text-sm font-semibold text-[var(--text-primary)]">进行中</h3>
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t('tasks.inProgress')}</h3>
           {inProgressTasks.length > 0 && (
             <Badge variant="outline" className="text-xs">{inProgressTasks.length}</Badge>
           )}
         </div>
         {inProgressTasks.length === 0 ? (
-          <p className="text-xs text-[var(--text-muted)]">暂无正在执行的任务</p>
+          <p className="text-xs text-[var(--text-muted)]">{t('tasks.noInProgress')}</p>
         ) : (
           <div className="space-y-2">
             {inProgressTasks.slice(0, 5).map((task) => {
@@ -74,10 +76,10 @@ export function TaskActivitySummary({
       <Card className="border-[var(--border)] bg-[var(--surface-1)] p-5">
         <div className="mb-3 flex items-center gap-2">
           <CheckCircle2 className="h-3.5 w-3.5 text-[var(--status-success)]" />
-          <h3 className="text-sm font-semibold text-[var(--text-primary)]">最近完成</h3>
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t('tasks.recentlyDone')}</h3>
         </div>
         {recentlyDoneTasks.length === 0 ? (
-          <p className="text-xs text-[var(--text-muted)]">暂无最近完成的任务</p>
+          <p className="text-xs text-[var(--text-muted)]">{t('tasks.noRecentlyDone')}</p>
         ) : (
           <div className="space-y-2">
             {recentlyDoneTasks.slice(0, 5).map((task) => {
@@ -102,7 +104,7 @@ export function TaskActivitySummary({
                   </div>
                   {task.updated_at && (
                     <span className="flex-shrink-0 text-xs text-[var(--text-muted)]">
-                      {formatRelativeTime(task.updated_at)}
+                      {formatRelativeTime(task.updated_at, t)}
                     </span>
                   )}
                 </button>
@@ -125,13 +127,13 @@ function formatElapsed(dateStr: string): string {
   return `${hours}h${String(minutes % 60).padStart(2, '0')}m`
 }
 
-function formatRelativeTime(dateStr: string): string {
+function formatRelativeTime(dateStr: string, t: (key: string) => string): string {
   const diff = Date.now() - new Date(dateStr).getTime()
   const minutes = Math.floor(diff / 60000)
-  if (minutes < 1) return '刚刚'
-  if (minutes < 60) return `${minutes}分钟前`
+  if (minutes < 1) return t('execution.justNow')
+  if (minutes < 60) return `${minutes}${t('execution.minutesSuffix')}`
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}小时前`
+  if (hours < 24) return `${hours}${t('execution.hoursSuffix')}`
   const days = Math.floor(hours / 24)
-  return `${days}天前`
+  return `${days}${t('execution.daysSuffix')}`
 }

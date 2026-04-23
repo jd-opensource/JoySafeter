@@ -4,6 +4,7 @@ import { MessageSquare } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
+import { useTranslation } from '@/lib/i18n'
 import type { Thread } from '@/types/thread'
 
 interface ThreadListProps {
@@ -12,11 +13,13 @@ interface ThreadListProps {
 }
 
 export function ThreadList({ threads, onSelect }: ThreadListProps) {
+  const { t } = useTranslation()
+
   if (threads.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <MessageSquare className="mb-3 h-12 w-12 text-[var(--text-muted)]" />
-        <p className="text-sm text-[var(--text-muted)]">还没有对话</p>
+        <p className="text-sm text-[var(--text-muted)]">{t('chat.noChats')}</p>
       </div>
     )
   }
@@ -33,10 +36,10 @@ export function ThreadList({ threads, onSelect }: ThreadListProps) {
             <div className="flex items-center gap-3">
               <MessageSquare className="h-4 w-4 text-[var(--text-muted)]" />
               <span className="text-sm font-medium text-[var(--text-primary)]">
-                {thread.title || '未命名对话'}
+                {thread.title || t('chat.untitled')}
               </span>
               <Badge variant={thread.status === 'active' ? 'default' : 'secondary'}>
-                {thread.status === 'active' ? '进行中' : thread.status === 'archived' ? '已归档' : thread.status}
+                {t(`chat.status.${thread.status}`)}
               </Badge>
             </div>
             <span className="text-xs text-[var(--text-muted)]">

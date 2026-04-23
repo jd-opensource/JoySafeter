@@ -143,6 +143,10 @@ const zh = {
       lastRun: '最近一次运行',
       viewRunHistory: '查看运行历史',
       activities: '活动记录',
+      inProgress: '进行中',
+      noInProgress: '暂无正在执行的任务',
+      recentlyDone: '最近完成',
+      noRecentlyDone: '暂无最近完成的任务',
     },
     agents: {
       title: '我的助手',
@@ -180,6 +184,11 @@ const zh = {
       hybrid: {
         label: '混合模式',
         description: '组合多种定义方式（即将推出）',
+      },
+      status: {
+        draft: '草稿',
+        active: '已发布',
+        archived: '已归档',
       },
     },
     user: {
@@ -1219,6 +1228,12 @@ const zh = {
       emptyState: '暂无协作者',
     },
     chat: {
+      noChats: '还没有对话',
+      untitled: '未命名对话',
+      status: {
+        active: '进行中',
+        archived: '已归档',
+      },
       // Structured model error codes (from backend error_code)
       'error.MODEL_NOT_FOUND':
         'Agent「{{graph}}」的节点「{{node}}」中，模型 "{{model}}" 未注册或已被删除，请前往「设置 → 模型供应商」检查配置。',

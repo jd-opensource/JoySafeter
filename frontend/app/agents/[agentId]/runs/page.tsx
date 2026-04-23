@@ -9,22 +9,8 @@ import { Card } from '@/components/ui/card'
 import { useAgentRuns } from '@/hooks/queries/agentRuns'
 import { useReleases } from '@/hooks/queries/agentReleases'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
+import { useTranslation } from '@/lib/i18n'
 import { RUN_STATUS_STYLES } from '@/types/agent-run'
-
-const RUN_STATUS_LABELS: Record<string, string> = {
-  pending: '待执行',
-  running: '执行中',
-  succeeded: '已完成',
-  failed: '失败',
-  cancelled: '已取消',
-}
-
-const TRIGGER_LABELS: Record<string, string> = {
-  task: '任务',
-  chat: '对话',
-  api: 'API',
-  scheduler: '定时',
-}
 
 function formatDateTime(value?: string | null): string {
   if (!value) return '-'
@@ -43,6 +29,7 @@ function formatDuration(startedAt?: string | null, endedAt?: string | null): str
 export default function AgentRunsPage() {
   const params = useParams()
   const agentId = params.agentId as string
+  const { t } = useTranslation()
 
   const { data: workspaces = [], isLoading: isWorkspacesLoading } = useWorkspaces()
   const personalWorkspace = workspaces.find((ws) => ws.type === 'personal')
@@ -69,7 +56,7 @@ export default function AgentRunsPage() {
       <div className="border-b border-[var(--border)] bg-[var(--surface-elevated)] px-8 py-5">
         <div className="flex items-center gap-2">
           <Activity className="h-5 w-5 text-[var(--skill-brand-600)]" />
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">运行记录</h2>
+          <h2 className="text-lg font-semibold text-[var(--text-primary)]">{t('execution.title')}</h2>
         </div>
       </div>
 
@@ -77,12 +64,12 @@ export default function AgentRunsPage() {
         {isLoading ? (
           <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading runs...
+            {t('execution.loading')}
           </div>
         ) : runs.length === 0 ? (
           <Card className="border-dashed border-[var(--border)] bg-[var(--surface-1)] p-8 text-center">
             <Activity className="mx-auto mb-3 h-8 w-8 text-[var(--text-muted)]" />
-            <p className="text-sm text-[var(--text-muted)]">暂无运行记录</p>
+            <p className="text-sm text-[var(--text-muted)]">{t('execution.emptyTitle')}</p>
           </Card>
         ) : (
           <div className="space-y-2">
@@ -96,7 +83,7 @@ export default function AgentRunsPage() {
                           variant="outline"
                           className={RUN_STATUS_STYLES[run.status]}
                         >
-                          {run.status}
+                          {t(`execution.status${run.status.charAt(0).toUpperCase() + run.status.slice(1)}`)}
                         </Badge>
                         <Badge variant="outline" className="text-xs">
                           {run.trigger_source}

@@ -144,6 +144,10 @@ const en = {
       lastRun: 'Last Run',
       viewRunHistory: 'View run history',
       activities: 'Activities',
+      inProgress: 'In Progress',
+      noInProgress: 'No tasks in progress',
+      recentlyDone: 'Recently Done',
+      noRecentlyDone: 'No recently completed tasks',
     },
     agents: {
       title: 'My Agents',
@@ -181,6 +185,11 @@ const en = {
       hybrid: {
         label: 'Hybrid Mode',
         description: 'Combine multiple definition methods (Coming Soon)',
+      },
+      status: {
+        draft: 'Draft',
+        active: 'Published',
+        archived: 'Archived',
       },
     },
     user: {
@@ -1243,6 +1252,12 @@ const en = {
       emptyState: 'No collaborators yet',
     },
     chat: {
+      noChats: 'No chats yet',
+      untitled: 'Untitled chat',
+      status: {
+        active: 'Active',
+        archived: 'Archived',
+      },
       // Structured model error codes (from backend error_code)
       'error.MODEL_NOT_FOUND':
         'Model "{{model}}" in node "{{node}}" of agent "{{graph}}" is not registered or has been removed. Please check Settings → Model Providers.',

@@ -1,13 +1,20 @@
 'use client'
 
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
 type AgentStatus = 'draft' | 'active' | 'archived'
 
-const statusConfig: Record<AgentStatus, { color: string; label: string }> = {
-  draft: { color: 'bg-[var(--status-warning)]', label: '草稿' },
-  active: { color: 'bg-[var(--status-success)]', label: '已发布' },
-  archived: { color: 'bg-[var(--surface-muted)]', label: '已归档' },
+const statusColors: Record<AgentStatus, string> = {
+  draft: 'bg-[var(--status-warning)]',
+  active: 'bg-[var(--status-success)]',
+  archived: 'bg-[var(--surface-muted)]',
+}
+
+const statusI18nKeys: Record<AgentStatus, string> = {
+  draft: 'agents.status.draft',
+  active: 'agents.status.active',
+  archived: 'agents.status.archived',
 }
 
 interface AgentStatusIndicatorProps {
@@ -16,7 +23,7 @@ interface AgentStatusIndicatorProps {
 }
 
 export function AgentStatusIndicator({ status, className }: AgentStatusIndicatorProps) {
-  const config = statusConfig[status]
+  const { t } = useTranslation()
 
   return (
     <span
@@ -25,8 +32,8 @@ export function AgentStatusIndicator({ status, className }: AgentStatusIndicator
         className,
       )}
     >
-      <span className={cn('inline-flex h-2 w-2 rounded-full', config.color)} />
-      {config.label}
+      <span className={cn('inline-flex h-2 w-2 rounded-full', statusColors[status])} />
+      {t(statusI18nKeys[status])}
     </span>
   )
 }
