@@ -38,4 +38,8 @@ export const executionAdapter = {
   async cancelRun(runId: string): Promise<void> {
     await apiPost(`runs/${runId}/cancel`, {})
   },
+
+  async injectMessage(executionId: string, message: string): Promise<void> {
+    await apiPost(`executions/${executionId}/message`, { message })
+  },
 }

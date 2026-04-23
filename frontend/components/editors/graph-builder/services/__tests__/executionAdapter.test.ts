@@ -63,6 +63,12 @@ describe('executionAdapter', () => {
     expect(mocks.apiPost).toHaveBeenCalledWith('runs/run1/cancel', {})
   })
 
+  it('injectMessage posts to executions/{id}/message', async () => {
+    vi.mocked(mocks.apiPost).mockResolvedValue({})
+    await executionAdapter.injectMessage('exec1', 'continue')
+    expect(mocks.apiPost).toHaveBeenCalledWith('executions/exec1/message', { message: 'continue' })
+  })
+
   it('startRun propagates errors thrown by apiPost', async () => {
     mocks.apiPost.mockRejectedValueOnce(new Error('API error: 400'))
     const promise = executionAdapter.startRun({ releaseId: 'rel1', prompt: 'test', workspaceId: 'w1' })
