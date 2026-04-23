@@ -24,7 +24,7 @@ _REAPER_INTERVAL = 30
 
 _STALE_THRESHOLDS: list[tuple[tuple[str, ...], timedelta]] = [
     (
-        ("queued", "dispatched"),
+        ("pending", "dispatched"),
         timedelta(minutes=5),
     ),
     (

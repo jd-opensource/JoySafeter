@@ -14,7 +14,7 @@ def _deepcopy_projection(projection: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "version": 1,
         "run_type": "skill_creator",
-        "status": "queued",
+        "status": "pending",
         "graph_id": None,
         "thread_id": None,
         "edit_skill_id": None,

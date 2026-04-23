@@ -25,9 +25,9 @@ class AgentRun(Base):
     goal: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     input_payload: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     status: Mapped[str] = mapped_column(
-        Enum("queued", "running", "succeeded", "failed", "cancelled", name="agent_run_status"),
+        Enum("pending", "running", "succeeded", "failed", "cancelled", name="agent_run_status"),
         nullable=False,
-        default="queued",
+        default="pending",
     )
     current_execution_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("executions.id"), nullable=True)
     result_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

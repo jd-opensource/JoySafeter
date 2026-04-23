@@ -87,7 +87,7 @@ class AgentRunService:
                 "trigger_source": data.trigger_source,
                 "goal": data.goal,
                 "input_payload": data.input_payload,
-                "status": "queued",
+                "status": "pending",
                 "created_by": user_id,
             }
         )
@@ -161,7 +161,7 @@ class AgentRunService:
         updated = await self.run_repo.update(
             run_id,
             {
-                "status": "queued",
+                "status": "pending",
                 "current_execution_id": execution.id,
                 "ended_at": None,
             },

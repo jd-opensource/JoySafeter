@@ -113,7 +113,7 @@ class AgentRelease(Base):
     agent_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_versions.id"), nullable=False)
     release_number: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(
-        Enum("building", "ready", "failed", "retired", name="agent_release_status"),
+        Enum("pending", "ready", "failed", "retired", name="agent_release_status"),
         nullable=False,
         default="ready",
     )

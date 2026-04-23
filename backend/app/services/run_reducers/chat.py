@@ -18,7 +18,7 @@ def _deepcopy_projection(projection: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "version": 1,
         "run_type": "chat_turn",
-        "status": "queued",
+        "status": "pending",
         "graph_id": None,
         "thread_id": None,
         "user_message": None,

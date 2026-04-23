@@ -14,7 +14,7 @@ from typing import Any
 _INITIAL: dict[str, Any] = {
     "version": 1,
     "run_type": "copilot_turn",
-    "status": "queued",
+    "status": "pending",
     "stage": None,
     "content": "",
     "thought_steps": [],
