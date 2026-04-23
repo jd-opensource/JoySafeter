@@ -1,4 +1,4 @@
-import { apiPost } from '@/lib/api-client'
+import { apiGet, apiPost } from '@/lib/api-client'
 
 export interface StartRunParams {
   releaseId: string
@@ -41,5 +41,10 @@ export const executionAdapter = {
 
   async injectMessage(executionId: string, message: string): Promise<void> {
     await apiPost(`executions/${executionId}/message`, { message })
+  },
+
+  async getExecutionId(runId: string): Promise<string> {
+    const run = await apiGet<RunResult>(`runs/${runId}`)
+    return run.current_execution_id
   },
 }
