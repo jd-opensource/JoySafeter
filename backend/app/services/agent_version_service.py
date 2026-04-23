@@ -11,6 +11,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import BadRequestException, NotFoundException
+from app.core.state_machines import VERSION_SM
 from app.models.agent import AgentVersion
 from app.repositories.agent import AgentRepository, AgentVersionRepository
 from app.schemas.agent_version import CreateAgentVersionRequest, UpdateAgentVersionRequest
@@ -88,6 +89,7 @@ class AgentVersionService:
         if not version:
             raise NotFoundException(f"AgentVersion {version_id} not found")
 
+        VERSION_SM.validate(version.status, "frozen")
         updated = await self.version_repo.update(version_id, {"status": "frozen"})
         assert updated is not None
         logger.info(f"Froze version {version_id}")
@@ -109,6 +111,7 @@ class AgentVersionService:
                 f"Cannot unfreeze version with status '{version.status}'; only 'frozen' versions can be reverted to draft"
             )
 
+        VERSION_SM.validate(version.status, "draft")
         updated = await self.version_repo.update(version_id, {"status": "draft"})
         assert updated is not None
         logger.info(f"Unfroze version {version_id} (reverted to draft)")

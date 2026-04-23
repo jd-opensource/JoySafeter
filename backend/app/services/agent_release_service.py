@@ -11,6 +11,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import BadRequestException, NotFoundException
+from app.core.state_machines import RELEASE_SM
 from app.models.agent import AgentRelease
 from app.repositories.agent import AgentRepository, AgentVersionRepository
 from app.repositories.agent_release import AgentReleaseRepository
@@ -102,6 +103,7 @@ class AgentReleaseService:
         if not release:
             raise NotFoundException(f"AgentRelease {release_id} not found")
 
+        RELEASE_SM.validate(release.status, "retired")
         updated = await self.release_repo.update(
             release_id, {"status": "retired", "retired_at": utc_now()}
         )

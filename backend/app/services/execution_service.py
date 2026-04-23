@@ -16,7 +16,6 @@ from app.models.execution import (
     ExecutionEvent,
 )
 from app.repositories.execution import ExecutionRepository, ExecutionEventRepository
-from app.utils.datetime import utc_now
 
 TERMINAL_EXECUTION_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
@@ -74,6 +73,8 @@ class ExecutionService:
         error_message: Optional[str] = None,
         result_summary: Optional[dict[str, Any]] = None,
     ) -> Optional[Execution]:
+        from app.core.state_machines.transitions import transition_execution
+
         result = await self.db.execute(
             select(Execution).where(Execution.id == execution_id).with_for_update()
         )
@@ -81,8 +82,8 @@ class ExecutionService:
         if not execution:
             return None
 
-        now = utc_now()
-        execution.status = status
+        await transition_execution(execution, status, self.db)
+
         if error_code is not None:
             execution.error_code = error_code
         if error_message is not None:
@@ -93,11 +94,6 @@ class ExecutionService:
             execution.runtime_session_ref = session_id
         if result_summary is not None:
             execution.metrics = result_summary
-
-        if status == "running" and not execution.started_at:
-            execution.started_at = now
-        if status in TERMINAL_EXECUTION_STATUSES:
-            execution.ended_at = now
 
         await self.db.commit()
 

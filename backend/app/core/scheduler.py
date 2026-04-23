@@ -123,7 +123,8 @@ async def _reap_stale_executions() -> int:
                     )
 
                     run = await orchestrator._get_run(execution.run_id)
-                    run.status = "failed"
+                    from app.core.state_machines.transitions import transition_run
+                    await transition_run(run, "failed", db, "Reaped: stale execution")
                     await db.commit()
                     await orchestrator._sync_task_status(run)
 

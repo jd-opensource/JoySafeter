@@ -212,8 +212,9 @@ async def cancel_task(
         except Exception:
             pass  # Run may already be in a terminal state
     else:
-        # No active run — safe to set status directly
-        task.status = "cancelled"
+        # No active run — safe to transition status directly via state machine
+        from app.core.state_machines.transitions import transition_task
+        await transition_task(task, "cancelled", db)
         await db.commit()
 
     await db.refresh(task)
