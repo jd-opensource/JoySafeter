@@ -6,7 +6,6 @@ import pytest
 
 from app.core.agent.cli_backends.base import CLIResult
 from app.core.agent.cli_backends.runner_callbacks import RunnerCallbacks
-from app.models.execution import MissionExecutionStatus
 
 
 class FakeCallbacks:
@@ -33,7 +32,7 @@ async def test_on_execution_finalized_records_call():
     cb = FakeCallbacks()
     eid = uuid.uuid4()
     result = CLIResult(status="completed", output="done", error=None, session_id="s1")
-    await cb.on_execution_finalized(eid, MissionExecutionStatus.COMPLETED, result)
+    await cb.on_execution_finalized(eid, "completed", result)
     assert len(cb.finalized) == 1
     assert cb.finalized[0][0] == eid
 

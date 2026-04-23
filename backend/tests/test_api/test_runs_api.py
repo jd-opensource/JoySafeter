@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 
 from app.api.v1.runs import router
 from app.core.database import get_db
-from app.models.agent_run import AgentRunStatus
 from app.models.auth import AuthUser as User
 
 
@@ -42,7 +41,7 @@ def make_run(*, agent_name: str = "skill_creator", run_type: str = "generic_agen
     now = datetime.now(UTC)
     run = MagicMock()
     run.id = uuid.uuid4()
-    run.status = AgentRunStatus.RUNNING
+    run.status = "running"
     run.run_type = run_type
     run.agent_name = agent_name
     run.source = "run_center"
