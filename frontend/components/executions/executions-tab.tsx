@@ -21,11 +21,11 @@ import { ExecutionTimeline } from './execution-timeline'
 
 const STATUS_OPTIONS: Array<ExecutionStatus | 'all'> = [
   'all',
-  'queued',
+  'pending',
   'dispatched',
   'running',
   'approval_wait',
-  'completed',
+  'succeeded',
   'failed',
   'cancelled',
 ]

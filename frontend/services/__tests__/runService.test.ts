@@ -55,7 +55,7 @@ describe('runService', () => {
   })
 
   it('calls the generic create-run endpoint', async () => {
-    mocks.apiPost.mockResolvedValue({ run_id: 'run-1', thread_id: 'thread-1', status: 'queued' })
+    mocks.apiPost.mockResolvedValue({ run_id: 'run-1', thread_id: 'thread-1', status: 'pending' })
 
     await runService.createRun({
       agent_name: 'skill_creator',

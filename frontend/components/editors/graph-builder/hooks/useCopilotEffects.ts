@@ -87,7 +87,7 @@ export function useCopilotEffects({
         const projection = snapshot.projection as Record<string, unknown> | undefined
         const status = snapshot.status as string
 
-        if (status === 'running' || status === 'queued') {
+        if (status === 'running' || status === 'pending') {
           // Run still active -- show last known state from snapshot
           if (projection) {
             const content = projection.content as string | undefined
@@ -113,7 +113,7 @@ export function useCopilotEffects({
               },
               onStatus: (frame: RunStatusFrame) => {
                 if (!refs.isMountedRef.current) return
-                if (frame.status === 'completed' || frame.status === 'failed') {
+                if (frame.status === 'succeeded' || frame.status === 'failed') {
                   getRunWsClient().unsubscribe(currentRunId)
                   activeSubscriptionRef.current = null
                   // Re-fetch final snapshot to get complete projection
@@ -122,7 +122,7 @@ export function useCopilotEffects({
                     .then((finalSnapshot) => {
                       if (!refs.isMountedRef.current || !finalSnapshot) return
                       const fp = finalSnapshot.projection as Record<string, unknown> | undefined
-                      if (frame.status === 'completed' && fp) {
+                      if (frame.status === 'succeeded' && fp) {
                         const resultMessage = (fp.result_message as string) ?? ''
                         const resultActions = fp.result_actions as
                           | Array<Record<string, unknown>>
@@ -154,7 +154,7 @@ export function useCopilotEffects({
             .catch((err) => {
               logger.warn('Failed to subscribe to run events:', err)
             })
-        } else if (status === 'completed') {
+        } else if (status === 'succeeded') {
           if (projection) {
             const resultMessage = (projection.result_message as string) ?? ''
             const resultActions = projection.result_actions as

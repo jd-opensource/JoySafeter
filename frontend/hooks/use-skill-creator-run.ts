@@ -250,7 +250,7 @@ function normalizePreviewData(value: Record<string, any> | string | null): Skill
 }
 
 function mapProjectionMessages(projection: SkillCreatorRunProjection): Message[] {
-  const isStreamingRun = projection.status === 'queued' || projection.status === 'running'
+  const isStreamingRun = projection.status === 'pending' || projection.status === 'running'
   return projection.messages.map((message) => {
     const role =
       message.role === 'user' || message.role === 'assistant' || message.role === 'system'

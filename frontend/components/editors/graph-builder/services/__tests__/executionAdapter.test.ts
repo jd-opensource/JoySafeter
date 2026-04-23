@@ -20,7 +20,7 @@ describe('executionAdapter', () => {
   beforeEach(() => mocks.apiPost.mockReset())
 
   it('startRun posts to runs and returns run data', async () => {
-    mocks.apiPost.mockResolvedValue({ id: 'run1', current_execution_id: 'exec1', status: 'queued' })
+    mocks.apiPost.mockResolvedValue({ id: 'run1', current_execution_id: 'exec1', status: 'pending' })
     const result = await executionAdapter.startRun({
       releaseId: 'rel1',
       prompt: 'test input',
@@ -40,7 +40,7 @@ describe('executionAdapter', () => {
   })
 
   it('startRun forwards optional threadId and taskId', async () => {
-    mocks.apiPost.mockResolvedValue({ id: 'run2', current_execution_id: 'exec2', status: 'queued' })
+    mocks.apiPost.mockResolvedValue({ id: 'run2', current_execution_id: 'exec2', status: 'pending' })
     await executionAdapter.startRun({
       releaseId: 'rel1',
       prompt: 'test',

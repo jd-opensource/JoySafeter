@@ -15,12 +15,11 @@ import { ExecutionEventItem } from './execution-event'
 import { MessageInput } from './message-input'
 
 const STATUS_CONFIG: Record<string, { icon: React.ElementType; label: string; color: string }> = {
-  queued: { icon: Pause, label: 'Queued', color: 'text-[var(--text-muted)]' },
+  pending: { icon: Pause, label: 'Pending', color: 'text-[var(--text-muted)]' },
   dispatched: { icon: Play, label: 'Dispatched', color: 'text-[var(--brand-400)]' },
   running: { icon: Loader2, label: 'Running', color: 'text-[var(--status-success)]' },
-  interrupt_wait: { icon: Pause, label: 'Waiting', color: 'text-[var(--status-warning)]' },
   approval_wait: { icon: Pause, label: 'Approval Wait', color: 'text-[var(--status-warning)]' },
-  completed: { icon: CheckCircle, label: 'Completed', color: 'text-[var(--status-success)]' },
+  succeeded: { icon: CheckCircle, label: 'Succeeded', color: 'text-[var(--status-success)]' },
   failed: { icon: XCircle, label: 'Failed', color: 'text-[var(--status-error)]' },
   cancelled: { icon: XCircle, label: 'Cancelled', color: 'text-[var(--text-muted)]' },
 }
@@ -75,7 +74,7 @@ export function ExecutionTimeline({
     return eventsPage?.events ?? wsEvents
   }, [wsFailed, wsEvents, eventsPage])
 
-  const currentStatus = wsStatus ?? execution?.status ?? 'queued'
+  const currentStatus = wsStatus ?? execution?.status ?? 'pending'
 
   const pendingApprovalEventId = useMemo(() => {
     if (currentStatus !== 'approval_wait') return null
@@ -96,7 +95,7 @@ export function ExecutionTimeline({
     }
   }, [events.length])
 
-  const statusConfig = STATUS_CONFIG[currentStatus] ?? STATUS_CONFIG.queued
+  const statusConfig = STATUS_CONFIG[currentStatus] ?? STATUS_CONFIG.pending
   const StatusIcon = statusConfig.icon
 
   const duration = useMemo(() => {
