@@ -7,6 +7,7 @@ Compiles AgentVersion.definition_payload (nodes/edges) into a DeepAgents graph a
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any
 
@@ -97,6 +98,9 @@ class GraphEngine:
 
         logger.info(f"[GraphEngine] Starting execution {execution_id} with {len(raw_nodes)} nodes")
 
+        cancel_event = asyncio.Event()
+        self._running[execution_id] = cancel_event
+
         await context.update_status("running")
         await context.emit("execution_started", {
             "engine": "graph",
@@ -156,6 +160,10 @@ class GraphEngine:
                 {"messages": [{"role": "user", "content": prompt}]},
                 {"configurable": {"thread_id": thread_id or str(execution_id)}},
             ):
+                if cancel_event.is_set():
+                    await context.complete("cancelled", "Execution cancelled by user")
+                    return
+
                 # deepagents yields dicts keyed by node name; extract text chunks
                 for node_output in chunk.values():
                     messages = node_output.get("messages", []) if isinstance(node_output, dict) else []
@@ -182,12 +190,14 @@ class GraphEngine:
         except Exception as exc:
             logger.error(f"[GraphEngine] Execution {execution_id} failed: {exc}")
             await context.complete("failed", str(exc)[:2000])
+        finally:
+            self._running.pop(execution_id, None)
 
     async def cancel(self, execution_id: uuid.UUID) -> None:
         """Cancel a running graph execution."""
-        task = self._running.get(execution_id)
-        if task:
-            task.cancel()
+        event = self._running.get(execution_id)
+        if event:
+            event.set()
             logger.info(f"[GraphEngine] Cancelled execution {execution_id}")
 
     async def send_message(self, execution_id: uuid.UUID, message: str) -> None:
