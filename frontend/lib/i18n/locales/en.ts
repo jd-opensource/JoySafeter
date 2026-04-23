@@ -51,6 +51,7 @@ const en = {
       statusRunning: 'Running',
       statusInterruptWait: 'Waiting Input',
       statusCompleted: 'Completed',
+      statusSucceeded: 'Succeeded',
       statusFailed: 'Failed',
       statusCancelled: 'Cancelled',
       startedAt: 'Started',

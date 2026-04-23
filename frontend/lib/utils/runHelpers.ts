@@ -24,7 +24,7 @@ export function formatRunStatus(status: string, t: TFn): string {
     queued: t('runs.statusQueued', 'Queued'),
     running: t('runs.statusRunning', 'Running'),
     interrupt_wait: t('runs.statusInterruptWait', 'Waiting Input'),
-    completed: t('runs.statusCompleted', 'Completed'),
+    succeeded: t('runs.statusSucceeded', 'Succeeded'),
     failed: t('runs.statusFailed', 'Failed'),
     cancelled: t('runs.statusCancelled', 'Cancelled'),
   }

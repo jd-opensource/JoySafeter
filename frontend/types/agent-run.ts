@@ -19,7 +19,7 @@ export interface AgentRun {
 export type AgentRunStatus =
   | 'queued'
   | 'running'
-  | 'completed'
+  | 'succeeded'
   | 'failed'
   | 'cancelled'
 
@@ -29,7 +29,7 @@ export const ACTIVE_RUN_STATUSES: readonly AgentRunStatus[] = [
 ] as const
 
 export const TERMINAL_RUN_STATUSES: readonly AgentRunStatus[] = [
-  'completed',
+  'succeeded',
   'failed',
   'cancelled',
 ] as const
@@ -38,7 +38,7 @@ export const RUN_STATUS_STYLES: Record<AgentRunStatus, string> = {
   queued: 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-secondary)]',
   running:
     'border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] text-[var(--skill-brand-700)]',
-  completed:
+  succeeded:
     'border-[var(--status-success-bg)] bg-[var(--status-success-bg)] text-[var(--status-success)]',
   failed: 'border-[var(--status-error)] bg-[var(--surface-2)] text-[var(--status-error)]',
   cancelled: 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-muted)]',
@@ -47,7 +47,7 @@ export const RUN_STATUS_STYLES: Record<AgentRunStatus, string> = {
 export const RUN_STATUS_I18N: Record<AgentRunStatus, string> = {
   queued: 'runs.statusQueued',
   running: 'runs.statusRunning',
-  completed: 'runs.statusCompleted',
+  succeeded: 'runs.statusSucceeded',
   failed: 'runs.statusFailed',
   cancelled: 'runs.statusCancelled',
 }
@@ -80,7 +80,7 @@ export interface Execution {
 export type ExecutionStatus =
   | 'pending'
   | 'running'
-  | 'completed'
+  | 'succeeded'
   | 'failed'
   | 'cancelled'
 
@@ -90,7 +90,7 @@ export const ACTIVE_EXECUTION_STATUSES: readonly ExecutionStatus[] = [
 ] as const
 
 export const TERMINAL_EXECUTION_STATUSES: readonly ExecutionStatus[] = [
-  'completed',
+  'succeeded',
   'failed',
   'cancelled',
 ] as const

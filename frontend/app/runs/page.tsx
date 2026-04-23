@@ -31,7 +31,7 @@ const RUN_STATUS_OPTIONS = [
   'queued',
   'running',
   'interrupt_wait',
-  'completed',
+  'succeeded',
   'failed',
   'cancelled',
 ] as const

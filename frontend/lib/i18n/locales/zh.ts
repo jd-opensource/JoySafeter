@@ -51,6 +51,7 @@ const zh = {
       statusRunning: '运行中',
       statusInterruptWait: '等待输入',
       statusCompleted: '已完成',
+      statusSucceeded: '已成功',
       statusFailed: '失败',
       statusCancelled: '已取消',
       startedAt: '开始于',
