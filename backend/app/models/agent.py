@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,7 +34,9 @@ class Agent(BaseModel):
     slug: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     avatar: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
+    status: Mapped[str] = mapped_column(
+        Enum("draft", "active", "archived", name="agent_status"), nullable=False, default="draft"
+    )
     current_draft_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("agent_versions.id"), nullable=True
     )
@@ -42,7 +44,7 @@ class Agent(BaseModel):
         UUID(as_uuid=True), ForeignKey("agent_releases.id"), nullable=True
     )
     created_by: Mapped[str] = mapped_column(
-        String(255), ForeignKey("user.id", ondelete="SET NULL"), nullable=False
+        String(255), ForeignKey("user.id", ondelete="CASCADE"), nullable=False
     )
 
     # Relationships
@@ -76,14 +78,16 @@ class AgentVersion(Base):
         UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
     )
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
+    status: Mapped[str] = mapped_column(
+        Enum("draft", "frozen", name="agent_version_status"), nullable=False, default="draft"
+    )
     source_kind: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
     definition_kind: Mapped[str] = mapped_column(String(20), nullable=False)
     definition_payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     capability_manifest: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     changelog: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_by: Mapped[str] = mapped_column(
-        String(255), ForeignKey("user.id", ondelete="SET NULL"), nullable=False
+        String(255), ForeignKey("user.id", ondelete="CASCADE"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False
@@ -108,7 +112,11 @@ class AgentRelease(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     agent_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_versions.id"), nullable=False)
     release_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="building")
+    status: Mapped[str] = mapped_column(
+        Enum("building", "ready", "failed", "retired", name="agent_release_status"),
+        nullable=False,
+        default="ready",
+    )
     runtime_kind: Mapped[str] = mapped_column(String(20), nullable=False)
     builder_kind: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     executable_ref: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)

@@ -2,7 +2,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
@@ -24,7 +24,11 @@ class AgentRun(Base):
     trigger_source: Mapped[str] = mapped_column(String(20), nullable=False)
     goal: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     input_payload: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+    status: Mapped[str] = mapped_column(
+        Enum("queued", "running", "succeeded", "failed", "cancelled", name="agent_run_status"),
+        nullable=False,
+        default="queued",
+    )
     current_execution_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("executions.id"), nullable=True)
     result_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

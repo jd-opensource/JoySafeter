@@ -2,7 +2,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
@@ -22,7 +22,11 @@ class Execution(Base):
     attempt_index: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     executor_kind: Mapped[str] = mapped_column(String(20), nullable=False)
     runtime_session_ref: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    status: Mapped[str] = mapped_column(
+        Enum("pending", "running", "succeeded", "failed", "cancelled", name="execution_status"),
+        nullable=False,
+        default="pending",
+    )
     error_code: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     metrics: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
