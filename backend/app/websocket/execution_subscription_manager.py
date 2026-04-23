@@ -41,6 +41,17 @@ class ExecutionSubscriptionManager:
         for exec_id in exec_ids:
             self.remove_subscription(websocket, exec_id)
 
+    def remove_execution(self, execution_id: str) -> None:
+        """Remove all subscriptions for a completed execution, freeing memory."""
+        connections = list(self._exec_connections.get(execution_id, set()))
+        for websocket in connections:
+            execs = self._connection_execs.get(websocket)
+            if execs:
+                execs.discard(execution_id)
+                if not execs:
+                    self._connection_execs.pop(websocket, None)
+        self._exec_connections.pop(execution_id, None)
+
     async def broadcast_event(self, execution_id: str, message: dict[str, Any]) -> int:
         connections = list(self._exec_connections.get(execution_id, set()))
         success_count = 0

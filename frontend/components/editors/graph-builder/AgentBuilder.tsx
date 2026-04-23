@@ -132,6 +132,16 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
     setCurrentGraphId(agentId || null)
   }, [agentId, setCurrentGraphId])
 
+  // Cleanup execution state and WebSocket when the component unmounts
+  useEffect(() => {
+    return () => {
+      const { currentGraphId } = useExecutionStore.getState()
+      if (currentGraphId) {
+        useExecutionStore.getState().clearGraphState(currentGraphId)
+      }
+    }
+  }, [])
+
   const graphId = useBuilderStore((state) => state.graphId)
   const graphName = useBuilderStore((state) => state.graphName)
 
