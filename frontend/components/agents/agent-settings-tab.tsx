@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronDown, ChevronRight, Loader2, Pencil, Rocket, Save } from 'lucide-react'
+import { ChevronDown, ChevronRight, Loader2, Lock, LockOpen, Pencil, Plus, Rocket, Save } from 'lucide-react'
 import { useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
@@ -9,10 +9,13 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useAgent, useUpdateAgent } from '@/hooks/queries/agents'
-import { useVersions, useVersion } from '@/hooks/queries/agentVersions'
-import { useReleases, usePublishRelease, useActivateRelease, useRetireRelease } from '@/hooks/queries/agentReleases'
+import { useVersions, useVersion, useFreezeVersion, useUnfreezeVersion } from '@/hooks/queries/agentVersions'
+import { useReleases, useActivateRelease, useRetireRelease } from '@/hooks/queries/agentReleases'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useTranslation } from '@/lib/i18n'
+
+import { ReleaseManager } from './release-manager'
+import { VersionFormDialog } from './version-form-dialog'
 
 interface AgentSettingsTabProps {
   agentId: string
@@ -38,24 +41,28 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
     enabled: Boolean(workspaceId),
   })
 
-  const publishRelease = usePublishRelease()
+  const freezeVersion = useFreezeVersion()
+  const unfreezeVersion = useUnfreezeVersion()
   const activateRelease = useActivateRelease()
   const retireRelease = useRetireRelease()
 
-  // Basic info editing state
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [avatar, setAvatar] = useState('')
 
-  // Collapsible sections
   const [versionsOpen, setVersionsOpen] = useState(false)
   const [releasesOpen, setReleasesOpen] = useState(false)
+
+  const [versionDialogOpen, setVersionDialogOpen] = useState(false)
+  const [releaseDialogOpen, setReleaseDialogOpen] = useState(false)
 
   if (!agent) return null
 
   const startEditing = () => {
     setName(agent.name)
     setDescription(agent.description || '')
+    setAvatar(agent.avatar || '')
     setEditing(true)
   }
 
@@ -66,6 +73,7 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
         workspaceId,
         name: name.trim() || agent.name,
         description: description.trim() || undefined,
+        avatar: avatar.trim() || undefined,
       })
       setEditing(false)
     } catch {
@@ -119,6 +127,16 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
                 rows={3}
               />
             </div>
+            <div>
+              <label className="mb-1 block text-xs text-[var(--text-muted)]">
+                {t('agents.avatar')}
+              </label>
+              <Input
+                value={avatar}
+                onChange={(e) => setAvatar(e.target.value)}
+                placeholder={t('agents.avatarPlaceholder')}
+              />
+            </div>
             <div className="flex gap-2">
               <Button size="sm" onClick={handleSave} disabled={updateAgent.isPending}>
                 {updateAgent.isPending ? (
@@ -139,6 +157,11 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
             <div className="text-sm text-[var(--text-muted)]">
               {agent.description || t('agents.detail.noActivity')}
             </div>
+            {agent.avatar && (
+              <div className="text-xs text-[var(--text-muted)]">
+                {t('agents.avatar')}: {agent.avatar}
+              </div>
+            )}
           </div>
         )}
       </Card>
@@ -155,7 +178,9 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
             </Badge>
             <span>v{draftVersion.version_number}</span>
             <Badge variant="secondary">
-              {draftVersion.status === 'frozen' ? t('workspace.deployed') : t('workspace.currentDraft')}
+              {draftVersion.status === 'frozen'
+                ? t('agents.detail.versionStatus.frozen')
+                : t('agents.detail.versionStatus.draft')}
             </Badge>
           </div>
         ) : (
@@ -174,11 +199,24 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
           <h2 className="text-sm font-semibold text-[var(--text-primary)]">
             {t('agents.detail.versionManagement')}
           </h2>
-          {versionsOpen ? (
-            <ChevronDown className="h-4 w-4 text-[var(--text-muted)]" />
-          ) : (
-            <ChevronRight className="h-4 w-4 text-[var(--text-muted)]" />
-          )}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation()
+                setVersionDialogOpen(true)
+              }}
+            >
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              {t('agents.detail.createVersion')}
+            </Button>
+            {versionsOpen ? (
+              <ChevronDown className="h-4 w-4 text-[var(--text-muted)]" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-[var(--text-muted)]" />
+            )}
+          </div>
         </button>
         {versionsOpen && (
           <div className="border-t border-[var(--border)] px-5 py-4">
@@ -206,12 +244,57 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
                         {DEFINITION_KIND_LABELS[v.definition_kind] || v.definition_kind}
                       </Badge>
                       <Badge variant={v.status === 'frozen' ? 'default' : 'secondary'}>
-                        {v.status === 'frozen' ? t('workspace.deployed') : t('workspace.currentDraft')}
+                        {v.status === 'frozen'
+                          ? t('agents.detail.versionStatus.frozen')
+                          : t('agents.detail.versionStatus.draft')}
                       </Badge>
+                      {v.changelog && (
+                        <span className="text-xs text-[var(--text-muted)]">{v.changelog}</span>
+                      )}
                     </div>
-                    <span className="text-xs text-[var(--text-muted)]">
-                      {new Date(v.created_at).toLocaleDateString()}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {v.status === 'draft' && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            freezeVersion.mutate({
+                              agentId,
+                              versionId: v.id,
+                              workspaceId,
+                            })
+                          }
+                          disabled={freezeVersion.isPending}
+                        >
+                          <Lock className="mr-1.5 h-3 w-3" />
+                          {freezeVersion.isPending
+                            ? t('agents.detail.freezingVersion')
+                            : t('agents.detail.freezeVersion')}
+                        </Button>
+                      )}
+                      {v.status === 'frozen' && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            unfreezeVersion.mutate({
+                              agentId,
+                              versionId: v.id,
+                              workspaceId,
+                            })
+                          }
+                          disabled={unfreezeVersion.isPending}
+                        >
+                          <LockOpen className="mr-1.5 h-3 w-3" />
+                          {unfreezeVersion.isPending
+                            ? t('agents.detail.unfreezingVersion')
+                            : t('agents.detail.unfreezeVersion')}
+                        </Button>
+                      )}
+                      <span className="text-xs text-[var(--text-muted)]">
+                        {new Date(v.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -229,11 +312,24 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
           <h2 className="text-sm font-semibold text-[var(--text-primary)]">
             {t('agents.detail.releaseManagement')}
           </h2>
-          {releasesOpen ? (
-            <ChevronDown className="h-4 w-4 text-[var(--text-muted)]" />
-          ) : (
-            <ChevronRight className="h-4 w-4 text-[var(--text-muted)]" />
-          )}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation()
+                setReleaseDialogOpen(true)
+              }}
+            >
+              <Rocket className="mr-1.5 h-3.5 w-3.5" />
+              {t('agents.detail.publishRelease')}
+            </Button>
+            {releasesOpen ? (
+              <ChevronDown className="h-4 w-4 text-[var(--text-muted)]" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-[var(--text-muted)]" />
+            )}
+          </div>
         </button>
         {releasesOpen && (
           <div className="border-t border-[var(--border)] px-5 py-4">
@@ -261,10 +357,10 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
                       <Badge
                         variant={rel.status === 'ready' ? 'default' : 'secondary'}
                       >
-                        {rel.status}
+                        {t(`agents.detail.releaseStatus.${rel.status}`)}
                       </Badge>
                       <Badge variant="outline" className="text-xs">
-                        {rel.runtime_kind}
+                        {t(`agents.detail.runtimeKindOptions.${rel.runtime_kind}`)}
                       </Badge>
                       {agent.active_release_id === rel.id && (
                         <Badge variant="default" className="bg-[var(--status-success)] text-white">
@@ -318,6 +414,20 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
           </div>
         )}
       </Card>
+
+      {/* Dialogs */}
+      <VersionFormDialog
+        open={versionDialogOpen}
+        onOpenChange={setVersionDialogOpen}
+        agentId={agentId}
+        workspaceId={workspaceId}
+      />
+      <ReleaseManager
+        open={releaseDialogOpen}
+        onOpenChange={setReleaseDialogOpen}
+        agentId={agentId}
+        workspaceId={workspaceId}
+      />
     </div>
   )
 }
