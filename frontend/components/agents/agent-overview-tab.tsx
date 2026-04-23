@@ -3,6 +3,7 @@
 import { MessageSquare, Plus, Activity } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useMemo } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -13,18 +14,8 @@ import { useReleases } from '@/hooks/queries/agentReleases'
 import { useThreads } from '@/hooks/queries/threads'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useTranslation } from '@/lib/i18n'
+import { formatRelativeTime } from '@/lib/utils/runHelpers'
 import { RUN_STATUS_STYLES } from '@/types/agent-run'
-
-function formatRelativeTime(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const minutes = Math.floor(diff / 60000)
-  if (minutes < 1) return 'just now'
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
-}
 
 interface AgentOverviewTabProps {
   agentId: string
@@ -54,32 +45,35 @@ export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
   const { data: threads = [] } = useThreads(agentId, workspaceId)
   const recentThreads = threads.slice(0, 5)
 
-  if (!agent) return null
-
   // Merge runs and threads into a single recent activity list, sorted by time
-  type ActivityItem =
-    | { kind: 'run'; id: string; label: string; status: string; time: string }
-    | { kind: 'thread'; id: string; label: string; status: string; time: string }
+  const activities = useMemo(() => {
+    type ActivityItem =
+      | { kind: 'run'; id: string; label: string; status: string; time: string }
+      | { kind: 'thread'; id: string; label: string; status: string; time: string }
 
-  const activities: ActivityItem[] = [
-    ...recentRuns.map((run) => ({
-      kind: 'run' as const,
-      id: run.id,
-      label: run.goal || t('execution.untitled'),
-      status: run.status,
-      time: run.started_at || run.created_at || '',
-    })),
-    ...recentThreads.map((thread) => ({
-      kind: 'thread' as const,
-      id: thread.id,
-      label: thread.title || t('execution.untitled'),
-      status: thread.status,
-      time: thread.created_at,
-    })),
-  ]
-    .filter((a) => a.time)
-    .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
-    .slice(0, 8)
+    const items: ActivityItem[] = [
+      ...recentRuns.map((run) => ({
+        kind: 'run' as const,
+        id: run.id,
+        label: run.goal || t('execution.untitled'),
+        status: run.status,
+        time: run.started_at || run.created_at || '',
+      })),
+      ...recentThreads.map((thread) => ({
+        kind: 'thread' as const,
+        id: thread.id,
+        label: thread.title || t('execution.untitled'),
+        status: thread.status,
+        time: thread.created_at,
+      })),
+    ]
+    return items
+      .filter((a) => a.time)
+      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+      .slice(0, 8)
+  }, [recentRuns, recentThreads, t])
+
+  if (!agent) return null
 
   return (
     <div className="space-y-8 px-8 py-6">
@@ -147,7 +141,7 @@ export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
                     )}
                   </div>
                   <span className="flex-shrink-0 text-xs text-[var(--text-muted)]">
-                    {formatRelativeTime(item.time)}
+                    {formatRelativeTime(item.time, t)}
                   </span>
                 </Link>
               )

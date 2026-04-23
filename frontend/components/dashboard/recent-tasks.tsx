@@ -2,40 +2,34 @@
 
 import { ChevronRight, Clock } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { useMemo } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { useAgentNameMap } from '@/hooks/queries/agents'
-import { useTasks } from '@/hooks/queries/tasks'
 import { useTranslation } from '@/lib/i18n'
+import { formatRelativeTime } from '@/lib/utils/runHelpers'
 import type { Task } from '@/types/tasks'
 import { TASK_STATUS_LABELS, TASK_STATUS_STYLES } from '@/types/tasks'
 
 interface RecentTasksProps {
   workspaceId: string
+  tasks: Task[]
 }
 
-function formatRelativeTime(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const minutes = Math.floor(diff / 60000)
-  if (minutes < 1) return 'just now'
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
-}
-
-export function RecentTasks({ workspaceId }: RecentTasksProps) {
+export function RecentTasks({ workspaceId, tasks }: RecentTasksProps) {
   const { t } = useTranslation()
   const router = useRouter()
 
-  const { data: tasks = [] } = useTasks(workspaceId, { limit: 10 })
   const agentsMap = useAgentNameMap(workspaceId)
 
-  const recentTasks = [...tasks]
-    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
-    .slice(0, 10)
+  const recentTasks = useMemo(
+    () =>
+      tasks
+        .toSorted((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+        .slice(0, 10),
+    [tasks],
+  )
 
   return (
     <Card className="border-[var(--border)] bg-[var(--surface-elevated)] p-5">
@@ -86,7 +80,7 @@ export function RecentTasks({ workspaceId }: RecentTasksProps) {
                   {TASK_STATUS_LABELS[task.status] || task.status}
                 </Badge>
                 <span className="shrink-0 text-xs text-[var(--text-tertiary)]">
-                  {formatRelativeTime(task.updated_at)}
+                  {formatRelativeTime(task.updated_at, t)}
                 </span>
               </button>
             )

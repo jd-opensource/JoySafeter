@@ -5,6 +5,7 @@ import { DashboardEmptyState } from '@/components/dashboard/empty-state'
 import { NeedsAttention } from '@/components/dashboard/needs-attention'
 import { RecentTasks } from '@/components/dashboard/recent-tasks'
 import { useAgents } from '@/hooks/queries/agents'
+import { useTasks } from '@/hooks/queries/tasks'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useTranslation } from '@/lib/i18n'
 
@@ -14,9 +15,10 @@ export default function DashboardPage() {
   const personalWorkspace = workspaces.find((ws) => ws.type === 'personal')
   const workspaceId = personalWorkspace?.id || ''
 
-  const { data: agents = [], isLoading } = useAgents(workspaceId)
+  const { data: agents = [], isLoading: agentsLoading } = useAgents(workspaceId)
+  const { data: tasks = [], isLoading: tasksLoading } = useTasks(workspaceId)
 
-  if (isLoading) return null
+  if (agentsLoading || tasksLoading) return null
 
   if (agents.length === 0) return <DashboardEmptyState />
 
@@ -32,16 +34,16 @@ export default function DashboardPage() {
         {/* Top: NeedsAttention (1/3) + RecentTasks (2/3) */}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div className="lg:col-span-1">
-            <NeedsAttention workspaceId={workspaceId} />
+            <NeedsAttention workspaceId={workspaceId} tasks={tasks} />
           </div>
           <div className="lg:col-span-2">
-            <RecentTasks workspaceId={workspaceId} />
+            <RecentTasks workspaceId={workspaceId} tasks={tasks} />
           </div>
         </div>
 
         {/* Bottom: ActiveAgents full-width */}
         <div className="mt-4">
-          <ActiveAgents workspaceId={workspaceId} />
+          <ActiveAgents workspaceId={workspaceId} agents={agents} tasks={tasks} />
         </div>
       </div>
     </div>

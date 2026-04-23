@@ -2,32 +2,33 @@
 
 import { Bot, ChevronRight } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { useMemo } from 'react'
 
 import { Card } from '@/components/ui/card'
-import { useAgents } from '@/hooks/queries/agents'
-import { useTasks } from '@/hooks/queries/tasks'
 import { useTranslation } from '@/lib/i18n'
 import type { Agent } from '@/types/agent'
 import type { Task } from '@/types/tasks'
 
 interface ActiveAgentsProps {
   workspaceId: string
+  agents: Agent[]
+  tasks: Task[]
 }
 
-export function ActiveAgents({ workspaceId }: ActiveAgentsProps) {
+export function ActiveAgents({ workspaceId, agents, tasks }: ActiveAgentsProps) {
   const { t } = useTranslation()
   const router = useRouter()
 
-  const { data: agents = [] } = useAgents(workspaceId)
-  const { data: tasks = [] } = useTasks(workspaceId)
-
-  const activeTaskCounts: Record<string, number> = {}
-  tasks.forEach((task: Task) => {
-    const agentId = task.agent_id ?? task.assignee_id
-    if (agentId && task.status === 'in_progress') {
-      activeTaskCounts[agentId] = (activeTaskCounts[agentId] || 0) + 1
-    }
-  })
+  const activeTaskCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    tasks.forEach((task: Task) => {
+      const agentId = task.agent_id ?? task.assignee_id
+      if (agentId && task.status === 'in_progress') {
+        counts[agentId] = (counts[agentId] || 0) + 1
+      }
+    })
+    return counts
+  }, [tasks])
 
   return (
     <Card className="border-[var(--border)] bg-[var(--surface-elevated)] p-5">

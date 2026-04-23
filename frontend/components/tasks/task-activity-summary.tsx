@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { PulsingDot } from '@/components/ui/pulsing-dot'
 import { useTranslation } from '@/lib/i18n'
+import { formatRelativeTime } from '@/lib/utils/runHelpers'
 import type { Task } from '@/types/tasks'
 
 interface TaskActivitySummaryProps {
@@ -127,13 +128,3 @@ function formatElapsed(dateStr: string): string {
   return `${hours}h${String(minutes % 60).padStart(2, '0')}m`
 }
 
-function formatRelativeTime(dateStr: string, t: (key: string) => string): string {
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const minutes = Math.floor(diff / 60000)
-  if (minutes < 1) return t('execution.justNow')
-  if (minutes < 60) return `${minutes}${t('execution.minutesSuffix')}`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}${t('execution.hoursSuffix')}`
-  const days = Math.floor(hours / 24)
-  return `${days}${t('execution.daysSuffix')}`
-}

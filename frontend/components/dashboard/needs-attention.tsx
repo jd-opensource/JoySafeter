@@ -5,20 +5,19 @@ import { useRouter } from 'next/navigation'
 
 import { Card } from '@/components/ui/card'
 import { useAgentRuns } from '@/hooks/queries/agentRuns'
-import { useTasks } from '@/hooks/queries/tasks'
 import { useTranslation } from '@/lib/i18n'
 import type { Task } from '@/types/tasks'
 import type { AgentRun } from '@/types/agent-run'
 
 interface NeedsAttentionProps {
   workspaceId: string
+  tasks: Task[]
 }
 
-export function NeedsAttention({ workspaceId }: NeedsAttentionProps) {
+export function NeedsAttention({ workspaceId, tasks }: NeedsAttentionProps) {
   const { t } = useTranslation()
   const router = useRouter()
 
-  const { data: tasks = [] } = useTasks(workspaceId)
   const { data: runs = [] } = useAgentRuns(
     { workspace_id: workspaceId },
     { enabled: Boolean(workspaceId) },
