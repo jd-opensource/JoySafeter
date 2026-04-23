@@ -64,34 +64,31 @@ export default function ThreadDetailPage() {
     return (
       <div className="flex h-full items-center justify-center text-sm text-[var(--text-muted)]">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        Loading conversation...
+        加载中...
       </div>
     )
   }
 
   return (
     <div className="flex h-full flex-col">
-      {/* Thread Title */}
-      <div className="border-b border-[var(--border)] bg-[var(--surface-elevated)] px-6 py-3">
+      <div className="border-b border-[var(--border)] bg-[var(--surface-elevated)] px-8 py-3">
         <h2 className="text-sm font-medium text-[var(--text-primary)]">
-          {thread?.title || 'Untitled Thread'}
+          {thread?.title || '未命名对话'}
         </h2>
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-6 py-4">
+      <div className="flex-1 overflow-y-auto px-8 py-4">
         <ConversationView messages={messages} />
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
-      <div className="border-t border-[var(--border)] bg-[var(--surface-elevated)] px-6 py-4">
+      <div className="border-t border-[var(--border)] bg-[var(--surface-elevated)] px-8 py-4">
         <div className="flex gap-2">
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Type a message..."
+            placeholder="输入消息..."
             disabled={sendMutation.isPending}
             className="flex-1"
           />

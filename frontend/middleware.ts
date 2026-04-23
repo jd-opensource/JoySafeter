@@ -15,9 +15,13 @@ const EMBEDDABLE_PATHS = ['']
 
 // Allowed redirect paths (prevent open redirect attacks)
 const ALLOWED_REDIRECT_PATHS = [
-  '/chat',
-  '/workspace',
-  '/dashboard',
+  '/agents',
+  '/tasks',
+  '/skills',
+  '/tools',
+  '/memory',
+  '/settings',
+  '/runs',
   '/signin',
   '/signup',
   '/verify',

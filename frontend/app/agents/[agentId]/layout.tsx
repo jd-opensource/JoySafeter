@@ -12,13 +12,9 @@ import { cn } from '@/lib/utils'
 import { WorkspacePermissionsProvider } from '@/providers/workspace-permissions-provider'
 
 const NAV_ITEMS = [
-  { label: 'Overview', href: '' },
-  { label: 'Edit', href: '/edit' },
-  { label: 'Versions', href: '/versions' },
-  { label: 'Releases', href: '/releases' },
-  { label: 'Tasks', href: '/tasks' },
-  { label: 'Threads', href: '/threads' },
-  { label: 'Runs', href: '/runs' },
+  { label: '概览', labelEn: 'Overview', href: '' },
+  { label: '构建', labelEn: 'Build', href: '/build' },
+  { label: '运行记录', labelEn: 'Runs', href: '/runs' },
 ]
 
 export default function AgentDetailLayout({ children }: { children: React.ReactNode }) {
@@ -38,7 +34,7 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
     return (
       <div className="flex h-full items-center justify-center text-sm text-[var(--text-muted)]">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        Loading agent...
+        Loading...
       </div>
     )
   }
@@ -58,9 +54,18 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
     <WorkspacePermissionsProvider workspaceId={workspaceId}>
       <div className="flex h-full flex-col bg-[var(--bg)]">
         {/* Header */}
-        <div className="border-b border-[var(--border)] bg-[var(--surface-elevated)] px-6 py-4">
+        <div className="border-b border-[var(--border)] bg-[var(--surface-elevated)] px-8 py-5">
+          {/* Breadcrumb */}
+          <div className="mb-3 flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
+            <Link href="/agents" className="hover:text-[var(--text-secondary)]">
+              我的助手
+            </Link>
+            <span>/</span>
+            <span className="text-[var(--text-secondary)]">{agent.name}</span>
+          </div>
+
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" asChild>
+            <Button variant="ghost" size="sm" asChild className="h-8 w-8 p-0">
               <Link href="/agents">
                 <ArrowLeft className="h-4 w-4" />
               </Link>
@@ -70,25 +75,24 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
               <h1 className="truncate text-lg font-semibold text-[var(--text-primary)]">
                 {agent.name}
               </h1>
-              <p className="text-xs text-[var(--text-muted)]">{agent.slug}</p>
             </div>
             <AgentStatusIndicator status={agent.status} className="ml-2" />
           </div>
 
-          {/* Sub-navigation */}
-          <nav className="mt-3 flex gap-1">
+          {/* Tab navigation */}
+          <nav className="mt-4 flex gap-1">
             {NAV_ITEMS.map((item) => {
               const href = `${basePath}${item.href}`
               const isActive = item.href === ''
-                ? pathname === basePath
-                : pathname.startsWith(href)
+                ? pathname === basePath || pathname === `${basePath}/`
+                : pathname?.startsWith(href)
 
               return (
                 <Link
                   key={item.href}
                   href={href}
                   className={cn(
-                    'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                    'rounded-md px-4 py-2 text-sm font-medium transition-colors',
                     isActive
                       ? 'bg-[var(--surface-3)] text-[var(--text-primary)]'
                       : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]',

@@ -6,7 +6,7 @@
  * CSS-based layout dimensions
  */
 :root {
-  --sidebar-width: 140px;
+  --sidebar-width: 160px;
   --sidebar-width-collapsed: 64px;
 }
 

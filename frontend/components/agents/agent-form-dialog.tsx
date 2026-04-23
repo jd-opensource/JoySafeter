@@ -34,14 +34,12 @@ interface AgentFormDialogProps {
   isPending?: boolean
 }
 
-const DEFINITION_KIND_LABELS: Record<DefinitionKind, string> = {
-  prompt: 'Prompt',
-  graph: 'Graph',
-  code: 'Code',
-  hybrid: 'Hybrid',
-}
-
-const DEFINITION_KIND_OPTIONS: DefinitionKind[] = ['prompt', 'graph', 'code', 'hybrid']
+const DEFINITION_KIND_OPTIONS: { value: DefinitionKind; label: string; description: string }[] = [
+  { value: 'prompt', label: '提示词配置', description: '通过系统提示词和指令定义助手行为' },
+  { value: 'graph', label: '可视化编排', description: '通过拖拽节点构建工作流' },
+  { value: 'code', label: '代码定义', description: '通过代码定义助手逻辑（即将推出）' },
+  { value: 'hybrid', label: '混合模式', description: '组合多种定义方式（即将推出）' },
+]
 
 export function AgentFormDialog({
   open,
@@ -89,42 +87,39 @@ export function AgentFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Edit Agent' : 'New Agent'}</DialogTitle>
+          <DialogTitle>{isEdit ? '编辑助手' : '新建助手'}</DialogTitle>
           <DialogDescription>
             {isEdit
-              ? 'Update the agent details.'
-              : 'Create a new AI agent for your workspace.'}
+              ? '修改助手的基本信息。'
+              : '创建一个新的 AI 助手。'}
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Name */}
           <div className="space-y-2">
-            <Label htmlFor="agent-name">Name *</Label>
+            <Label htmlFor="agent-name">名称 *</Label>
             <Input
               id="agent-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Security Auditor"
+              placeholder="例如：数据分析助手"
               required
             />
           </div>
 
-          {/* Description */}
           <div className="space-y-2">
-            <Label htmlFor="agent-description">Description</Label>
+            <Label htmlFor="agent-description">描述</Label>
             <Textarea
               id="agent-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="What does this agent do?"
+              placeholder="这个助手负责做什么？"
               rows={2}
             />
           </div>
 
-          {/* Avatar URL */}
           <div className="space-y-2">
-            <Label htmlFor="agent-avatar">Avatar URL</Label>
+            <Label htmlFor="agent-avatar">头像 URL</Label>
             <Input
               id="agent-avatar"
               value={avatar}
@@ -133,10 +128,9 @@ export function AgentFormDialog({
             />
           </div>
 
-          {/* Definition Kind (only for create) */}
           {!isEdit && (
             <div className="space-y-2">
-              <Label htmlFor="agent-definition-kind">Definition Kind</Label>
+              <Label htmlFor="agent-definition-kind">构建方式</Label>
               <Select
                 value={definitionKind}
                 onValueChange={(v) => setDefinitionKind(v as DefinitionKind)}
@@ -145,9 +139,12 @@ export function AgentFormDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {DEFINITION_KIND_OPTIONS.map((dk) => (
-                    <SelectItem key={dk} value={dk}>
-                      {DEFINITION_KIND_LABELS[dk]}
+                  {DEFINITION_KIND_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      <div>
+                        <span>{opt.label}</span>
+                        <span className="ml-2 text-xs text-[var(--text-muted)]">{opt.description}</span>
+                      </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -157,10 +154,10 @@ export function AgentFormDialog({
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
+              取消
             </Button>
             <Button type="submit" disabled={!name.trim() || isPending}>
-              {isPending ? (isEdit ? 'Saving...' : 'Creating...') : isEdit ? 'Save' : 'Create'}
+              {isPending ? (isEdit ? '保存中...' : '创建中...') : isEdit ? '保存' : '创建'}
             </Button>
           </DialogFooter>
         </form>

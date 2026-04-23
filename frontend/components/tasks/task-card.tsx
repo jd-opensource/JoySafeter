@@ -69,14 +69,22 @@ export const TaskCard = forwardRef<
           {isAssignedToAgent ? (
             <>
               <Bot className="h-3 w-3" />
-              <span className="max-w-[80px] truncate">
-                {agentName || (effectiveAgentId ? 'Agent' : 'Unassigned')}
-              </span>
+              {effectiveAgentId ? (
+                <Link
+                  href={`/agents/${effectiveAgentId}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="max-w-[80px] truncate text-[var(--brand-500)] hover:underline"
+                >
+                  {agentName || 'Agent'}
+                </Link>
+              ) : (
+                <span>未分配</span>
+              )}
             </>
           ) : (
             <>
               <User className="h-3 w-3" />
-              <span>{effectiveAgentId ? 'Assigned' : 'Unassigned'}</span>
+              <span>{effectiveAgentId ? 'Assigned' : '未分配'}</span>
             </>
           )}
         </span>

@@ -11,6 +11,21 @@ import { useReleases } from '@/hooks/queries/agentReleases'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { RUN_STATUS_STYLES } from '@/types/agent-run'
 
+const RUN_STATUS_LABELS: Record<string, string> = {
+  pending: '等待中',
+  running: '运行中',
+  succeeded: '已成功',
+  failed: '失败',
+  cancelled: '已取消',
+}
+
+const TRIGGER_LABELS: Record<string, string> = {
+  task: '任务',
+  chat: '对话',
+  api: 'API',
+  scheduler: '定时',
+}
+
 function formatDateTime(value?: string | null): string {
   if (!value) return '-'
   return new Date(value).toLocaleString()
@@ -51,14 +66,14 @@ export default function AgentRunsPage() {
 
   return (
     <div className="flex h-full flex-col bg-[var(--bg)]">
-      <div className="border-b border-[var(--border)] bg-[var(--surface-elevated)] px-6 py-4">
+      <div className="border-b border-[var(--border)] bg-[var(--surface-elevated)] px-8 py-5">
         <div className="flex items-center gap-2">
           <Activity className="h-5 w-5 text-[var(--skill-brand-600)]" />
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">Run History</h2>
+          <h2 className="text-lg font-semibold text-[var(--text-primary)]">运行记录</h2>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-6 py-6">
+      <div className="flex-1 overflow-y-auto px-8 py-6">
         {isLoading ? (
           <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -67,12 +82,12 @@ export default function AgentRunsPage() {
         ) : runs.length === 0 ? (
           <Card className="border-dashed border-[var(--border)] bg-[var(--surface-1)] p-8 text-center">
             <Activity className="mx-auto mb-3 h-8 w-8 text-[var(--text-muted)]" />
-            <p className="text-sm text-[var(--text-muted)]">No runs yet for this agent.</p>
+            <p className="text-sm text-[var(--text-muted)]">暂无运行记录</p>
           </Card>
         ) : (
           <div className="space-y-2">
             {runs.map((run) => (
-              <Link key={run.id} href={`/runs`} className="block">
+              <Link key={run.id} href={`/agents/${agentId}/runs/${run.id}`} className="block">
                 <Card className="border-[var(--border)] bg-[var(--surface-1)] p-4 transition-colors hover:bg-[var(--surface-2)]">
                   <div className="flex items-center justify-between gap-4">
                     <div className="min-w-0 flex-1">

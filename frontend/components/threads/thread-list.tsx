@@ -16,7 +16,7 @@ export function ThreadList({ threads, onSelect }: ThreadListProps) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <MessageSquare className="mb-3 h-12 w-12 text-[var(--text-muted)]" />
-        <p className="text-sm text-[var(--text-muted)]">No threads yet.</p>
+        <p className="text-sm text-[var(--text-muted)]">还没有对话</p>
       </div>
     )
   }
@@ -33,10 +33,10 @@ export function ThreadList({ threads, onSelect }: ThreadListProps) {
             <div className="flex items-center gap-3">
               <MessageSquare className="h-4 w-4 text-[var(--text-muted)]" />
               <span className="text-sm font-medium text-[var(--text-primary)]">
-                {thread.title || 'Untitled'}
+                {thread.title || '未命名对话'}
               </span>
               <Badge variant={thread.status === 'active' ? 'default' : 'secondary'}>
-                {thread.status}
+                {thread.status === 'active' ? '进行中' : thread.status === 'archived' ? '已归档' : thread.status}
               </Badge>
             </div>
             <span className="text-xs text-[var(--text-muted)]">

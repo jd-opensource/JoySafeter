@@ -468,14 +468,17 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                 {(task.assignee_type === 'agent' || Boolean(task.agent_id)) && agent ? (
                   <div className="flex items-center gap-2">
                     <Bot className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
-                    <span className="text-sm font-medium text-[var(--text-primary)]">
+                    <Link
+                      href={`/agents/${task.agent_id ?? task.assignee_id}`}
+                      className="text-sm font-medium text-[var(--brand-500)] hover:underline"
+                    >
                       {agent.name}
-                    </span>
+                    </Link>
                     <AgentStatusIndicator status={agent.status} />
                     <Popover open={agentPickerOpen} onOpenChange={setAgentPickerOpen}>
                       <PopoverTrigger asChild>
                         <Button variant="ghost" size="sm" className="h-6 px-2 text-xs">
-                          Change
+                          更换
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-60 p-0" align="end">
@@ -497,7 +500,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                         className="h-6 gap-1 px-2 text-xs text-[var(--text-muted)]"
                       >
                         <Bot className="h-3 w-3" />
-                        Assign...
+                        分配助手...
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-60 p-0" align="end">
@@ -512,11 +515,11 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
               {/* Auto Approve */}
               <div className="flex items-center justify-between px-3 py-2.5">
                 <div className="space-y-0.5">
-                  <p className="text-xs font-medium text-[var(--text-primary)]">Auto Approve</p>
+                  <p className="text-xs font-medium text-[var(--text-primary)]">自动审批</p>
                   <p className="text-[10px] text-[var(--text-muted)]">
                     {task.auto_approve
-                      ? 'Tool calls auto-approved, completes to Done'
-                      : 'Tool calls need approval, completes to In Review'}
+                      ? '自动批准工具调用，完成后标记为已完成'
+                      : '工具调用需要人工审批，完成后标记为需检查'}
                   </p>
                 </div>
                 <Switch
@@ -556,7 +559,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                     <div className="flex items-center gap-2">
                       <PulsingDot className="text-[var(--status-success)]" />
                       <Badge variant="outline" className="text-xs">
-                        {currentExecution?.status ?? 'running'}
+                        {currentExecution?.status ?? '运行中'}
                       </Badge>
                       {canCancel && (
                         <Button
@@ -719,9 +722,9 @@ function AgentPickerContent({
 }) {
   return (
     <Command>
-      <CommandInput placeholder="Search agents..." />
+      <CommandInput placeholder="搜索助手..." />
       <CommandList>
-        <CommandEmpty>No agents found.</CommandEmpty>
+        <CommandEmpty>未找到助手</CommandEmpty>
         <CommandGroup>
           {agents.map((a) => (
             <CommandItem key={a.id} value={a.name} onSelect={() => onSelect(a.id)}>
@@ -737,7 +740,7 @@ function AgentPickerContent({
           <CommandGroup>
             <CommandItem onSelect={onUnassign} className="text-[var(--status-error)]">
               <X className="mr-2 h-3.5 w-3.5" />
-              Unassign
+              取消分配
             </CommandItem>
           </CommandGroup>
         )}

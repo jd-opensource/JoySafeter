@@ -13,7 +13,7 @@ export function ConversationView({ messages }: ConversationViewProps) {
   if (messages.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-[var(--text-muted)]">No messages yet. Start the conversation!</p>
+        <p className="text-sm text-[var(--text-muted)]">还没有消息，开始对话吧。</p>
       </div>
     )
   }

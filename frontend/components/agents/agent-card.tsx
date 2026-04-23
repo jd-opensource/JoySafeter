@@ -39,7 +39,7 @@ export function AgentCard({ agent, onClick, onEdit }: AgentCardProps) {
 
       {/* Description */}
       <p className="mb-4 line-clamp-2 min-h-[2.5rem] text-sm text-[var(--text-muted)]">
-        {agent.description || 'No description'}
+        {agent.description || '暂无描述'}
       </p>
 
       {/* Actions */}
@@ -54,7 +54,7 @@ export function AgentCard({ agent, onClick, onEdit }: AgentCardProps) {
           }}
         >
           <Pencil className="h-3.5 w-3.5" />
-          Edit
+          编辑
         </Button>
       </div>
     </Card>

@@ -70,20 +70,20 @@ export const TASK_STATUS_ORDER: TaskStatus[] = [
 export const TERMINAL_TASK_STATUSES: readonly TaskStatus[] = ['done', 'cancelled'] as const
 
 export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
-  backlog: 'Backlog',
-  todo: 'To Do',
-  in_progress: 'In Progress',
-  in_review: 'In Review',
-  done: 'Done',
-  cancelled: 'Cancelled',
+  backlog: '待处理',
+  todo: '待执行',
+  in_progress: '进行中',
+  in_review: '需检查',
+  done: '已完成',
+  cancelled: '已取消',
 }
 
 export const TASK_PRIORITY_LABELS: Record<TaskPriority, string> = {
-  none: 'None',
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  urgent: 'Urgent',
+  none: '无',
+  low: '低',
+  medium: '中',
+  high: '高',
+  urgent: '紧急',
 }
 
 export const TASK_STATUS_STYLES: Record<string, string> = {

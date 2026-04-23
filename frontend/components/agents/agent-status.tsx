@@ -5,9 +5,9 @@ import { cn } from '@/lib/utils'
 type AgentStatus = 'draft' | 'active' | 'archived'
 
 const statusConfig: Record<AgentStatus, { color: string; label: string }> = {
-  draft: { color: 'bg-[var(--status-warning)]', label: 'Draft' },
-  active: { color: 'bg-[var(--status-success)]', label: 'Active' },
-  archived: { color: 'bg-[var(--surface-muted)]', label: 'Archived' },
+  draft: { color: 'bg-[var(--status-warning)]', label: '草稿' },
+  active: { color: 'bg-[var(--status-success)]', label: '已发布' },
+  archived: { color: 'bg-[var(--surface-muted)]', label: '已归档' },
 }
 
 interface AgentStatusIndicatorProps {

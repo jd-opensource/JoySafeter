@@ -63,11 +63,11 @@ export default function AgentsPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Bot className="h-5 w-5 text-[var(--skill-brand-600)]" />
-            <h1 className="text-lg font-semibold text-[var(--text-primary)]">AI Agents</h1>
+            <h1 className="text-lg font-semibold text-[var(--text-primary)]">我的助手</h1>
           </div>
           <Button size="sm" className="gap-1.5" onClick={handleCreate}>
             <Plus className="h-4 w-4" />
-            New Agent
+            新建助手
           </Button>
         </div>
       </div>
@@ -84,13 +84,13 @@ export default function AgentsPage() {
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--surface-3)] text-[var(--text-muted)]">
               <Bot className="h-5 w-5" />
             </div>
-            <h2 className="mt-4 text-sm font-semibold text-[var(--text-primary)]">No agents yet</h2>
+            <h2 className="mt-4 text-sm font-semibold text-[var(--text-primary)]">还没有助手</h2>
             <p className="mt-1 text-sm text-[var(--text-muted)]">
-              Create your first AI agent to get started.
+              创建你的第一个 AI 助手，开始自动化工作。
             </p>
             <Button size="sm" className="mt-4 gap-1.5" onClick={handleCreate}>
               <Plus className="h-4 w-4" />
-              New Agent
+              新建助手
             </Button>
           </Card>
         ) : (

@@ -7,43 +7,24 @@ import { AppSidebar } from '@/components/app-sidebar'
 import { isPublicRoute } from '@/lib/core/constants/routes'
 import { useSidebarStore } from '@/stores/sidebar/store'
 
-/**
- * AppShell Component - Global application layout
- *
- * Layout strategy:
- * 1. Authentication pages (/signin, /signup, etc.)
- *    - Do not display any sidebar
- *
- * 2. All application pages (/workspace, /chat, /memory, /discover)
- *    - Display AppSidebar (global navigation) on the far left
- *    - If the page has a Workspace Sidebar, it will be displayed side by side to the right of AppSidebar
- *    - Both sidebars can be managed and interacted with independently
- */
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const setIsAppSidebarCollapsed = useSidebarStore((state) => state.setIsAppSidebarCollapsed)
 
-  // Automatically determine whether to collapse based on pathname: collapse when path starts with /workspace or /openclaw
-  const isAppSidebarCollapsed = !!(
-    pathname?.startsWith('/workspace') || pathname?.startsWith('/openclaw')
-  )
-
   useEffect(() => {
-    // Sync state to store so other components can access it
-    setIsAppSidebarCollapsed(isAppSidebarCollapsed)
-  }, [isAppSidebarCollapsed, setIsAppSidebarCollapsed])
+    setIsAppSidebarCollapsed(false)
+  }, [setIsAppSidebarCollapsed])
+
   if (isPublicRoute(pathname)) {
     return <>{children}</>
   }
   return (
     <div className="flex h-screen bg-[var(--bg)]">
       <div
-        style={{
-          width: isAppSidebarCollapsed ? 'var(--sidebar-width-collapsed)' : 'var(--sidebar-width)',
-        }}
+        style={{ width: 'var(--sidebar-width)' }}
         className="flex-shrink-0 overflow-hidden transition-all duration-300 ease-in-out"
       >
-        <AppSidebar isCollapsed={isAppSidebarCollapsed} />
+        <AppSidebar />
       </div>
       <main className="flex-1 overflow-auto">{children}</main>
     </div>

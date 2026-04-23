@@ -35,17 +35,23 @@ export default function AgentThreadsPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 px-6 py-6 text-sm text-[var(--text-muted)]">
+      <div className="flex items-center gap-2 px-8 py-6 text-sm text-[var(--text-muted)]">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Loading threads...
+        加载中...
       </div>
     )
   }
 
+  const THREAD_STATUS_LABELS: Record<string, string> = {
+    active: '进行中',
+    closed: '已结束',
+    archived: '已归档',
+  }
+
   return (
-    <div className="space-y-4 px-6 py-6">
+    <div className="space-y-4 px-8 py-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-[var(--text-primary)]">Threads</h2>
+        <h2 className="text-lg font-semibold text-[var(--text-primary)]">对话</h2>
         <Button
           onClick={handleCreateThread}
           disabled={createMutation.isPending}
@@ -56,16 +62,16 @@ export default function AgentThreadsPage() {
           ) : (
             <Plus className="h-4 w-4" />
           )}
-          New Thread
+          新建对话
         </Button>
       </div>
 
       {threads.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <MessageSquare className="mb-3 h-12 w-12 text-[var(--text-muted)]" />
-          <p className="text-sm text-[var(--text-muted)]">No threads yet.</p>
+          <p className="text-sm text-[var(--text-muted)]">还没有对话</p>
           <p className="mt-1 text-xs text-[var(--text-muted)]">
-            Create a thread to start a conversation.
+            创建一个对话，开始与助手交流。
           </p>
         </div>
       ) : (
@@ -80,10 +86,10 @@ export default function AgentThreadsPage() {
                 <div className="flex items-center gap-3">
                   <MessageSquare className="h-4 w-4 text-[var(--text-muted)]" />
                   <span className="text-sm font-medium text-[var(--text-primary)]">
-                    {thread.title || 'Untitled'}
+                    {thread.title || '未命名对话'}
                   </span>
                   <Badge variant={thread.status === 'active' ? 'default' : 'secondary'}>
-                    {thread.status}
+                    {THREAD_STATUS_LABELS[thread.status] || thread.status}
                   </Badge>
                 </div>
                 <span className="text-xs text-[var(--text-muted)]">
