@@ -300,6 +300,9 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       if (context?.abortController) {
         context.abortController.abort()
       }
+      if (context?.timeoutId !== null && context?.timeoutId !== undefined) {
+        clearTimeout(context.timeoutId)
+      }
 
       manager.removeFromAccess(graphId)
 
@@ -374,6 +377,14 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       const context = getOrCreateContext(contexts, graphId)
       const newContexts = new Map(contexts)
       newContexts.set(graphId, { ...context, executionWs: ws })
+      set({ contexts: newContexts })
+    },
+
+    setTimeoutId: (graphId: string, timeoutId: ReturnType<typeof setTimeout> | null) => {
+      const { contexts } = get()
+      const context = getOrCreateContext(contexts, graphId)
+      const newContexts = new Map(contexts)
+      newContexts.set(graphId, { ...context, timeoutId })
       set({ contexts: newContexts })
     },
 
@@ -491,6 +502,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       // ================================================================
       // New path: executionAdapter (agent-based runs API + WS)
       // ================================================================
+      const EXECUTION_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
       try {
           // 1. Fetch the agent to get its active_release_id
           const agent = await globalAgentService.get(agentId, workspaceId)
@@ -511,7 +523,30 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
           const ws = executionAdapter.subscribeToExecution(run.current_execution_id)
           store.setExecutionWs(graphId, ws)
 
-          // 4. Process WS messages through the existing event pipeline
+          // 4. Set execution timeout — force-stop if the execution stalls
+          const timeoutId = setTimeout(() => {
+            const context = getOrCreateContext(get().contexts, graphId)
+            if (context.runId) {
+              executionAdapter.cancelRun(context.runId).catch(() => {})
+            }
+            if (context.executionWs) {
+              try { context.executionWs.close() } catch { /* ignore */ }
+            }
+            store.addStep({
+              id: generateId('timeout'),
+              nodeId: 'system',
+              nodeLabel: 'System',
+              stepType: 'system_log',
+              title: 'Execution Timeout',
+              status: 'error',
+              startTime: Date.now(),
+              content: 'Execution timed out after 10 minutes',
+            })
+            store.updateGraphState(graphId, { isExecuting: false })
+          }, EXECUTION_TIMEOUT_MS)
+          store.setTimeoutId(graphId, timeoutId)
+
+          // 5. Process WS messages through the existing event pipeline
           await new Promise<void>((resolve, reject) => {
             // Abort listener — close ws when the AbortController fires
             const onAbort = () => {
@@ -599,10 +634,16 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
           })
         }
       } finally {
+        // Clear the execution timeout on any completion path
+        const finalContext = store.getContext(graphId)
+        if (finalContext.timeoutId !== null) {
+          clearTimeout(finalContext.timeoutId)
+        }
         store.updateGraphState(graphId, { isExecuting: false })
         store.setAbortController(graphId, null)
         store.setRunId(graphId, null)
         store.setExecutionWs(graphId, null)
+        store.setTimeoutId(graphId, null)
       }
     },
 

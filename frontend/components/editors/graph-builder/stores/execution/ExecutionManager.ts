@@ -39,6 +39,7 @@ export function createExecutionContext(graphId: string): ExecutionContext {
     requestId: null,
     runId: null,
     executionWs: null,
+    timeoutId: null,
     state: createEmptyGraphState(),
   }
 }

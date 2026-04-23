@@ -61,6 +61,8 @@ export interface ExecutionContext {
   runId: string | null
   /** WebSocket returned by executionAdapter.subscribeToExecution — closed on stop */
   executionWs: WebSocket | null
+  /** Timeout handle — cleared on normal completion, fires to force-stop stalled executions */
+  timeoutId: ReturnType<typeof setTimeout> | null
   state: GraphExecutionState
 }
 
@@ -120,6 +122,7 @@ export interface ExecutionStoreActions {
   setRequestId: (graphId: string, requestId: string | null) => void
   setRunId: (graphId: string, runId: string | null) => void
   setExecutionWs: (graphId: string, ws: WebSocket | null) => void
+  setTimeoutId: (graphId: string, timeoutId: ReturnType<typeof setTimeout> | null) => void
 
   // Command Mode visualization
   updateState: (state: Partial<GraphState>) => void

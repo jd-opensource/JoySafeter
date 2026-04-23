@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -106,5 +106,10 @@ async def inject_message(
 ) -> BaseResponse:
     """Inject a message into a running execution."""
     orchestrator = ExecutionOrchestrator(db)
-    await orchestrator.send_message(execution_id, body.message)
+    try:
+        await orchestrator.send_message(execution_id, body.message)
+    except NotImplementedError as exc:
+        raise HTTPException(status_code=501, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return BaseResponse(success=True, code=200, msg="ok", data={"status": "sent"})

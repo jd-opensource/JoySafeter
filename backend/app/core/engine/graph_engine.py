@@ -202,4 +202,6 @@ class GraphEngine:
 
     async def send_message(self, execution_id: uuid.UUID, message: str) -> None:
         """Graph executions don't support message injection (yet)."""
-        logger.warning(f"[GraphEngine] send_message not supported for {execution_id}")
+        if execution_id not in self._running:
+            raise RuntimeError(f"No running graph execution for {execution_id}")
+        raise NotImplementedError("Message injection is not yet supported for graph executions")
