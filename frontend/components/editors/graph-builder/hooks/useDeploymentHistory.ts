@@ -209,10 +209,6 @@ export function useDeploymentHistory(
 
   // ── UI state ──────────────────────────────────────────────────────────────
 
-  const [editingVersion, setEditingVersion] = useState<number | null>(null)
-  const [editName, setEditName] = useState('')
-  const [isSaving, setIsSaving] = useState(false)
-
   const [revertConfirmOpen, setRevertConfirmOpen] = useState(false)
   const [versionToRevert, setVersionToRevert] = useState<number | null>(null)
 
@@ -396,15 +392,11 @@ export function useDeploymentHistory(
   }
 
   const handleCancelEdit = () => {
-    setEditingVersion(null)
-    setEditName('')
+    // no-op: rename UI is removed
   }
 
   const handleSaveName = async () => {
     // No-op: rename is not supported; handleStartEdit already shows a toast.
-    setIsSaving(false)
-    setEditingVersion(null)
-    setEditName('')
   }
 
   const formatDate = (dateString: string) => {
@@ -439,10 +431,6 @@ export function useDeploymentHistory(
     isLoadingPreview,
     previewState,
     // Version list
-    editingVersion,
-    editName,
-    setEditName,
-    isSaving,
     isUndeploying,
     currentPage,
     // Handlers

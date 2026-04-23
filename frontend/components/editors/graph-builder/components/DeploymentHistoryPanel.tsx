@@ -47,10 +47,6 @@ export function DeploymentHistoryPanel({
     showToggle,
     isLoadingPreview,
     previewState,
-    editingVersion,
-    editName,
-    setEditName,
-    isSaving,
     isUndeploying,
     currentPage,
     handleSelectVersion,
@@ -127,9 +123,6 @@ export function DeploymentHistoryPanel({
                 versions={versions}
                 isLoadingVersions={isLoadingVersions}
                 selectedVersion={selectedVersion}
-                editingVersion={editingVersion}
-                editName={editName}
-                isSaving={isSaving}
                 deploymentStatus={deploymentStatus}
                 isUndeploying={isUndeploying}
                 totalPages={totalPages}
@@ -138,9 +131,6 @@ export function DeploymentHistoryPanel({
                 onSelectVersion={handleSelectVersion}
                 onRevertClick={handleRevertClick}
                 onStartEdit={handleStartEdit}
-                onCancelEdit={handleCancelEdit}
-                onSaveName={handleSaveName}
-                onEditNameChange={setEditName}
                 onDeleteClick={handleDeleteClick}
                 onUndeployClick={handleUndeployClick}
                 onPageChange={handlePageChange}

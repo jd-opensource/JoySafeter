@@ -137,9 +137,6 @@ export function BuilderToolbar({
       return t('workspace.deploying')
     }
     if (deploymentStatus?.is_deployed) {
-      if ((deploymentStatus as any).needsRedeployment) {
-        return t('workspace.needsRedeployment')
-      }
       return t('workspace.activeDeployment')
     }
     return t('workspace.deployAgent')
@@ -150,16 +147,12 @@ export function BuilderToolbar({
       return t('workspace.deploying', { defaultValue: 'Publishing' })
     }
     if (deploymentStatus?.is_deployed) {
-      if ((deploymentStatus as any).needsRedeployment) {
-        return t('workspace.publishUpdate', { defaultValue: 'Publish Update' })
-      }
       return t('workspace.activeDeploymentShort', { defaultValue: 'Published' })
     }
     return t('workspace.publish', { defaultValue: 'Publish' })
   }
 
   const isDeployed = deploymentStatus?.is_deployed || false
-  const needsRedeployment = (deploymentStatus as any)?.needsRedeployment || false
 
   return (
     <>
@@ -239,9 +232,7 @@ export function BuilderToolbar({
                         className={cn(
                           'h-7 gap-1.5 rounded-r-none px-3 text-base font-medium transition-all',
                           isDeployed
-                            ? needsRedeployment
-                              ? 'border border-primary border-r-white/20 bg-primary text-primary-foreground hover:bg-primary/90'
-                              : 'border border-[var(--status-success-border)] border-r-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success-strong)] hover:bg-[var(--status-success-bg)]'
+                            ? 'border border-[var(--status-success-border)] border-r-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success-strong)] hover:bg-[var(--status-success-bg)]'
                             : 'border border-[var(--border)] border-r-black/10 bg-[var(--surface-2)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)]',
                         )}
                         style={{ borderRightWidth: '1px' }}
@@ -265,9 +256,7 @@ export function BuilderToolbar({
                     className={cn(
                       'h-7 rounded-l-none px-1 transition-all',
                       isDeployed
-                        ? needsRedeployment
-                          ? 'border border-l-0 border-primary bg-primary text-primary-foreground hover:bg-primary/90'
-                          : 'border border-l-0 border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success-strong)] hover:bg-[var(--status-success-bg)]'
+                        ? 'border border-l-0 border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success-strong)] hover:bg-[var(--status-success-bg)]'
                         : 'border border-l-0 border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)]',
                     )}
                     aria-label={t('workspace.deployOptions', { defaultValue: 'Deploy options' })}

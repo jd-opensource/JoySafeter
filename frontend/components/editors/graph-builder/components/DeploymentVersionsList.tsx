@@ -5,8 +5,6 @@ import {
   History,
   RotateCcw,
   Edit2,
-  Check,
-  X,
   Loader2,
   Clock,
   User,
@@ -17,7 +15,6 @@ import {
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Pagination } from '@/components/ui/pagination'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -38,9 +35,6 @@ interface DeploymentVersionsListProps {
   versions: GraphDeploymentVersion[]
   isLoadingVersions: boolean
   selectedVersion: number | null
-  editingVersion: number | null
-  editName: string
-  isSaving: boolean
   deploymentStatus: GraphDeploymentStatus | undefined
   isUndeploying: boolean
   totalPages: number
@@ -49,9 +43,6 @@ interface DeploymentVersionsListProps {
   onSelectVersion: (version: number) => void
   onRevertClick: (version: number) => void
   onStartEdit: (version: GraphDeploymentVersion) => void
-  onCancelEdit: () => void
-  onSaveName: () => void
-  onEditNameChange: (name: string) => void
   onDeleteClick: (version: number) => void
   onUndeployClick: () => void
   onPageChange: (page: number) => void
@@ -61,9 +52,6 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
   versions,
   isLoadingVersions,
   selectedVersion,
-  editingVersion,
-  editName,
-  isSaving,
   deploymentStatus,
   isUndeploying,
   totalPages,
@@ -72,9 +60,6 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
   onSelectVersion,
   onRevertClick,
   onStartEdit,
-  onCancelEdit,
-  onSaveName,
-  onEditNameChange,
   onDeleteClick,
   onUndeployClick,
   onPageChange,
@@ -98,18 +83,8 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
               <span className="font-medium">
                 {deploymentStatus.is_deployed ? t('workspace.deployed') : t('workspace.notDeployed')}
               </span>
-              {(deploymentStatus as any).deployment && (
-                <span className="text-xs text-[var(--text-tertiary)]">
-                  v{(deploymentStatus as any).deployment.version}
-                </span>
-              )}
             </div>
             <div className="flex items-center gap-2">
-              {(deploymentStatus as any).needsRedeployment && deploymentStatus.is_deployed && (
-                <span className="rounded bg-[var(--status-warning-bg)] px-2 py-0.5 text-xs text-[var(--status-warning)]">
-                  {t('workspace.needsRedeployment')}
-                </span>
-              )}
               {deploymentStatus.is_deployed && (
                 <Button
                   size="sm"
@@ -170,50 +145,11 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
                     )}
                   </div>
 
-                  {/* Name editing */}
-                  {editingVersion === version.version ? (
-                    <div
-                      className="mb-1 flex items-center gap-1"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <Input
-                        value={editName}
-                        onChange={(e) => onEditNameChange(e.target.value)}
-                        placeholder={t('workspace.versionName')}
-                        className="h-6 text-xs"
-                        autoFocus
-                      />
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-6 w-6 p-0"
-                        onClick={onSaveName}
-                        disabled={isSaving}
-                        aria-label={t('workspace.saveName', { defaultValue: 'Save name' })}
-                      >
-                        {isSaving ? (
-                          <Loader2 size={12} className="animate-spin" />
-                        ) : (
-                          <Check size={12} />
-                        )}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-6 w-6 p-0"
-                        onClick={onCancelEdit}
-                        disabled={isSaving}
-                        aria-label={t('workspace.cancelEdit', { defaultValue: 'Cancel edit' })}
-                      >
-                        <X size={12} />
-                      </Button>
-                    </div>
-                  ) : (
-                    version.name && (
-                      <p className="mb-0.5 truncate text-xs text-[var(--text-secondary)]">
-                        {version.name}
-                      </p>
-                    )
+                  {/* Name */}
+                  {version.name && (
+                    <p className="mb-0.5 truncate text-xs text-[var(--text-secondary)]">
+                      {version.name}
+                    </p>
                   )}
 
                   {/* Time and username */}

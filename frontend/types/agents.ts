@@ -1,21 +1,3 @@
-export interface AgentProfile {
-  id: string
-  workspace_id: string
-  name: string
-  avatar?: string | null
-  description?: string | null
-  runtime_type: RuntimeType
-  status: AgentStatus
-  max_concurrent_tasks: number
-  skill_ids?: string[] | null
-  instructions?: string | null
-  custom_env?: Record<string, string> | null
-  runtime_config?: Record<string, unknown> | null
-  visibility: 'workspace' | 'private'
-  created_at: string
-  updated_at: string
-}
-
 export type RuntimeType = 'claude_code' | 'codex' | 'openclaw' | 'langgraph'
 export type AgentStatus = 'idle' | 'working' | 'blocked' | 'error' | 'offline'
 
