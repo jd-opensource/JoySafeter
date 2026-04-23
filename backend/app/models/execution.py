@@ -23,7 +23,7 @@ class Execution(Base):
     executor_kind: Mapped[str] = mapped_column(String(20), nullable=False)
     runtime_session_ref: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(
-        Enum("pending", "running", "succeeded", "failed", "cancelled", name="execution_status"),
+        Enum("pending", "dispatched", "running", "approval_wait", "succeeded", "failed", "cancelled", name="execution_status"),
         nullable=False,
         default="pending",
     )

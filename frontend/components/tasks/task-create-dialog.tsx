@@ -38,7 +38,7 @@ export function TaskCreateDialog({ workspaceId, trigger }: TaskCreateDialogProps
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [objective, setObjective] = useState('')
+  const [goal, setGoal] = useState('')
   const [priority, setPriority] = useState<TaskPriority>('none')
   const [tagsInput, setTagsInput] = useState('')
   const [autoApprove, setAutoApprove] = useState(false)
@@ -48,7 +48,7 @@ export function TaskCreateDialog({ workspaceId, trigger }: TaskCreateDialogProps
   function reset() {
     setTitle('')
     setDescription('')
-    setObjective('')
+    setGoal('')
     setPriority('none')
     setTagsInput('')
     setAutoApprove(false)
@@ -68,7 +68,7 @@ export function TaskCreateDialog({ workspaceId, trigger }: TaskCreateDialogProps
         workspace_id: workspaceId,
         title: title.trim(),
         description: description.trim() || undefined,
-        objective: objective.trim() || undefined,
+        goal: goal.trim() || undefined,
         priority,
         tags: tags.length > 0 ? tags : undefined,
         auto_approve: autoApprove,
@@ -118,8 +118,8 @@ export function TaskCreateDialog({ workspaceId, trigger }: TaskCreateDialogProps
               <Textarea
                 id="task-objective"
                 placeholder="Success criteria for this task..."
-                value={objective}
-                onChange={(e) => setObjective(e.target.value)}
+                value={goal}
+                onChange={(e) => setGoal(e.target.value)}
                 rows={2}
               />
             </div>

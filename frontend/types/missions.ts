@@ -3,8 +3,6 @@ export interface Task {
   workspace_id: string
   title: string
   description?: string | null
-  objective?: string | null
-  /** Backend field: matches TaskSummary.goal */
   goal?: string | null
   status: TaskStatus
   priority: TaskPriority
@@ -35,7 +33,7 @@ export interface CreateTaskRequest {
   workspace_id: string
   title: string
   description?: string
-  objective?: string
+  goal?: string
   priority?: TaskPriority
   parent_task_id?: string
   tags?: string[]
@@ -45,7 +43,7 @@ export interface CreateTaskRequest {
 export interface UpdateTaskRequest {
   title?: string
   description?: string
-  objective?: string
+  goal?: string
   status?: TaskStatus
   priority?: TaskPriority
   position?: number

@@ -168,8 +168,8 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
   }
 
   const handleObjSave = () => {
-    if (editObj !== (task?.objective ?? '')) {
-      doUpdate({ objective: editObj || undefined })
+    if (editObj !== (task?.goal ?? '')) {
+      doUpdate({ goal: editObj || undefined })
     }
     setIsEditingObj(false)
   }
@@ -343,11 +343,11 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                   <p
                     className="cursor-pointer rounded px-1 text-sm leading-relaxed text-[var(--text-secondary)] hover:bg-[var(--surface-3)]"
                     onClick={() => {
-                      setEditObj(task.objective ?? '')
+                      setEditObj(task.goal ?? '')
                       setIsEditingObj(true)
                     }}
                   >
-                    {task.objective || (
+                    {task.goal || (
                       <span className="italic text-[var(--text-muted)]">
                         Click to add objective...
                       </span>
