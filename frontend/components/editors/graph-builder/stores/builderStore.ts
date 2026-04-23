@@ -182,8 +182,6 @@ interface BuilderState {
 
   // Execution Actions
   addLog: (nodeId: string, message: string, status?: 'info' | 'success' | 'error') => void
-  startExecution: (input: string) => Promise<void>
-  stopExecution: () => void
 
   // AI Integration
   applyAIChanges: (changes: { nodes?: Node[]; edges?: Edge[] }) => void
@@ -380,66 +378,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         status,
       }
       set((state) => ({ executionLogs: [...state.executionLogs, newLog] }))
-    },
-
-    startExecution: async (input: string) => {
-      const { nodes, edges } = get()
-      if (nodes.length === 0) return
-
-      set({ isExecuting: true, executionLogs: [], activeExecutionNodeId: null })
-      get().addLog(
-        'system',
-        i18n
-          .t('execution.agentStarted', {
-            defaultValue: 'Agent started, input: {{input}}',
-            input,
-          })
-          .replace('{{input}}', input),
-        'info',
-      )
-
-      let currentNode: Node | null = nodes[0]
-      const visited = new Set()
-
-      while (currentNode && get().isExecuting) {
-        set({ activeExecutionNodeId: currentNode.id })
-        get().addLog(currentNode.id, i18n.t('workspace.processingLogic'), 'info')
-
-        await new Promise((r) => setTimeout(r, 2000))
-
-        get().addLog(currentNode.id, i18n.t('workspace.stepCompleted'), 'success')
-        visited.add(currentNode.id)
-
-        const outEdge = edges.find((e) => e.source === currentNode!.id)
-        if (outEdge && !visited.has(outEdge.target)) {
-          currentNode = nodes.find((n) => n.id === outEdge.target) || null
-          if (currentNode) {
-            get().addLog(
-              'system',
-              i18n.t('workspace.transitioningTo', {
-                label: (currentNode.data as { label?: string })?.label,
-              }),
-              'info',
-            )
-          }
-        } else {
-          currentNode = null
-        }
-      }
-
-      if (get().isExecuting) {
-        get().addLog(
-          'system',
-          i18n.t('execution.agentCompleted', { defaultValue: 'Agent completed successfully.' }),
-          'success',
-        )
-        set({ isExecuting: false, activeExecutionNodeId: null })
-      }
-    },
-
-    stopExecution: () => {
-      set({ isExecuting: false, activeExecutionNodeId: null })
-      get().addLog('system', i18n.t('workspace.executionStopped'), 'error')
     },
 
     // ========== History Actions ==========
@@ -805,16 +743,18 @@ useBuilderStore.subscribe((state, prevState) => {
     state.graphStateFields === prevState.graphStateFields &&
     state.fallbackNodeId === prevState.fallbackNodeId &&
     state.lastSavedStateHash === prevState.lastSavedStateHash &&
-    state.graphId === prevState.graphId
+    state.graphId === prevState.graphId &&
+    state.agentId === prevState.agentId
   )
     return
 
-  const { graphId, nodes, edges, graphStateFields, fallbackNodeId, lastSavedStateHash } = state
+  const { graphId, agentId, nodes, edges, graphStateFields, fallbackNodeId, lastSavedStateHash } = state
+  const hasIdentifier = graphId !== null || agentId !== null
   let hasPendingChanges: boolean
-  if (!graphId && nodes.length === 0 && edges.length === 0) {
+  if (!hasIdentifier && nodes.length === 0 && edges.length === 0) {
     hasPendingChanges = false
   } else if (lastSavedStateHash === null) {
-    hasPendingChanges = graphId !== null
+    hasPendingChanges = hasIdentifier
   } else {
     const currentHash = computeGraphStateHash(nodes, edges, graphStateFields, fallbackNodeId)
     hasPendingChanges = currentHash !== lastSavedStateHash
