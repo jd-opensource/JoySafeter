@@ -12,9 +12,9 @@ import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { RUN_STATUS_STYLES } from '@/types/agent-run'
 
 const RUN_STATUS_LABELS: Record<string, string> = {
-  pending: '等待中',
-  running: '运行中',
-  succeeded: '已成功',
+  pending: '待执行',
+  running: '执行中',
+  succeeded: '已完成',
   failed: '失败',
   cancelled: '已取消',
 }
