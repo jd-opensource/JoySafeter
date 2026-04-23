@@ -26,14 +26,15 @@ import { Textarea } from '@/components/ui/textarea'
 import { useAgents } from '@/hooks/queries/agents'
 import { useCreateTask, useAssignTask } from '@/hooks/queries/tasks'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
+import { useTranslation } from '@/lib/i18n'
 import type { TaskPriority } from '@/types/tasks'
 
-const PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
-  { value: 'none', label: '无' },
-  { value: 'low', label: '低' },
-  { value: 'medium', label: '中' },
-  { value: 'high', label: '高' },
-  { value: 'urgent', label: '紧急' },
+const PRIORITY_KEYS: { value: TaskPriority; key: string }[] = [
+  { value: 'none', key: 'tasks.priorityNone' },
+  { value: 'low', key: 'tasks.priorityLow' },
+  { value: 'medium', key: 'tasks.priorityMedium' },
+  { value: 'high', key: 'tasks.priorityHigh' },
+  { value: 'urgent', key: 'tasks.priorityUrgent' },
 ]
 
 interface TaskCreateDialogProps {
@@ -43,6 +44,7 @@ interface TaskCreateDialogProps {
 }
 
 export function TaskCreateDialog({ workspaceId, defaultAgentId, trigger }: TaskCreateDialogProps) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -113,16 +115,16 @@ export function TaskCreateDialog({ workspaceId, defaultAgentId, trigger }: TaskC
       <DialogContent>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>新建任务</DialogTitle>
-            <DialogDescription>创建一个新任务，分配给助手执行。</DialogDescription>
+            <DialogTitle>{t('tasks.createTitle')}</DialogTitle>
+            <DialogDescription>{t('tasks.createDescription')}</DialogDescription>
           </DialogHeader>
 
           <div className="mt-4 space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="task-title">任务标题</Label>
+              <Label htmlFor="task-title">{t('tasks.taskTitleLabel')}</Label>
               <Input
                 id="task-title"
-                placeholder="例如：分析本季度销售数据"
+                placeholder={t('tasks.taskTitlePlaceholder')}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 required
@@ -130,13 +132,13 @@ export function TaskCreateDialog({ workspaceId, defaultAgentId, trigger }: TaskC
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="task-agent">分配助手</Label>
+              <Label htmlFor="task-agent">{t('tasks.assignAgentLabel')}</Label>
               <Select value={agentId} onValueChange={setAgentId}>
                 <SelectTrigger id="task-agent">
-                  <SelectValue placeholder="选择一个助手（可选）" />
+                  <SelectValue placeholder={t('tasks.assignAgentPlaceholder')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">不分配</SelectItem>
+                  <SelectItem value="">{t('tasks.noAssignment')}</SelectItem>
                   {agents.map((agent) => (
                     <SelectItem key={agent.id} value={agent.id}>
                       {agent.name}
@@ -147,10 +149,10 @@ export function TaskCreateDialog({ workspaceId, defaultAgentId, trigger }: TaskC
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="task-goal">目标</Label>
+              <Label htmlFor="task-goal">{t('tasks.goalLabel')}</Label>
               <Textarea
                 id="task-goal"
-                placeholder="任务的成功标准..."
+                placeholder={t('tasks.goalPlaceholder')}
                 value={goal}
                 onChange={(e) => setGoal(e.target.value)}
                 rows={2}
@@ -158,10 +160,10 @@ export function TaskCreateDialog({ workspaceId, defaultAgentId, trigger }: TaskC
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="task-description">详细描述</Label>
+              <Label htmlFor="task-description">{t('tasks.descriptionLabel')}</Label>
               <Textarea
                 id="task-description"
-                placeholder="补充说明（可选）"
+                placeholder={t('tasks.descriptionPlaceholder')}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={3}
@@ -170,15 +172,15 @@ export function TaskCreateDialog({ workspaceId, defaultAgentId, trigger }: TaskC
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="task-priority">优先级</Label>
+                <Label htmlFor="task-priority">{t('tasks.priorityLabel')}</Label>
                 <Select value={priority} onValueChange={(v) => setPriority(v as TaskPriority)}>
                   <SelectTrigger id="task-priority">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {PRIORITY_OPTIONS.map((opt) => (
+                    {PRIORITY_KEYS.map((opt) => (
                       <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
+                        {t(opt.key)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -186,10 +188,10 @@ export function TaskCreateDialog({ workspaceId, defaultAgentId, trigger }: TaskC
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="task-tags">标签</Label>
+                <Label htmlFor="task-tags">{t('tasks.tagsLabel')}</Label>
                 <Input
                   id="task-tags"
-                  placeholder="用逗号分隔"
+                  placeholder={t('tasks.tagsPlaceholder')}
                   value={tagsInput}
                   onChange={(e) => setTagsInput(e.target.value)}
                 />
@@ -198,9 +200,9 @@ export function TaskCreateDialog({ workspaceId, defaultAgentId, trigger }: TaskC
 
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
-                <Label htmlFor="task-auto-approve">自动审批</Label>
+                <Label htmlFor="task-auto-approve">{t('tasks.autoApproveLabel')}</Label>
                 <p className="text-xs text-[var(--text-muted)]">
-                  跳过人工审核，自动批准工具调用
+                  {t('tasks.autoApproveHint')}
                 </p>
               </div>
               <Switch
@@ -213,10 +215,10 @@ export function TaskCreateDialog({ workspaceId, defaultAgentId, trigger }: TaskC
 
           <DialogFooter className="mt-6">
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-              取消
+              {t('common.cancel')}
             </Button>
             <Button type="submit" disabled={!title.trim() || isPending}>
-              {isPending ? '创建中...' : '创建任务'}
+              {isPending ? t('tasks.creating') : t('tasks.createTask')}
             </Button>
           </DialogFooter>
         </form>

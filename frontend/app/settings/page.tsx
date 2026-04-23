@@ -5,21 +5,23 @@ import Link from 'next/link'
 
 import { Card } from '@/components/ui/card'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
+import { useTranslation } from '@/lib/i18n'
 
 export default function SettingsPage() {
+  const { t } = useTranslation()
   const { data: workspaces = [] } = useWorkspaces()
   const workspaceId = workspaces[0]?.id ?? ''
 
   const items = [
     {
-      title: '模型配置',
-      description: '管理模型供应商、凭据和配置',
+      title: t('settings.modelConfig'),
+      description: t('settings.modelConfigDesc'),
       icon: Cpu,
       href: '/settings/models',
     },
     {
-      title: '成员管理',
-      description: '管理工作空间成员和权限',
+      title: t('settings.membersManagementTitle'),
+      description: t('settings.membersManagementDesc'),
       icon: Users,
       href: workspaceId ? `/settings/members/${workspaceId}` : '#',
     },
@@ -30,7 +32,7 @@ export default function SettingsPage() {
       <div className="border-b border-[var(--border)] bg-[var(--surface-elevated)] px-8 py-5">
         <div className="flex items-center gap-2">
           <Settings className="h-5 w-5 text-[var(--skill-brand-600)]" />
-          <h1 className="text-lg font-semibold text-[var(--text-primary)]">设置</h1>
+          <h1 className="text-lg font-semibold text-[var(--text-primary)]">{t('settings.title')}</h1>
         </div>
       </div>
 

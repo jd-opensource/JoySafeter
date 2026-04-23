@@ -478,7 +478,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                     <Popover open={agentPickerOpen} onOpenChange={setAgentPickerOpen}>
                       <PopoverTrigger asChild>
                         <Button variant="ghost" size="sm" className="h-6 px-2 text-xs">
-                          更换
+                          {t('tasks.changeAgent')}
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-60 p-0" align="end">
@@ -500,7 +500,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                         className="h-6 gap-1 px-2 text-xs text-[var(--text-muted)]"
                       >
                         <Bot className="h-3 w-3" />
-                        分配助手...
+                        {t('tasks.assignAgent')}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-60 p-0" align="end">
@@ -515,11 +515,11 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
               {/* Auto Approve */}
               <div className="flex items-center justify-between px-3 py-2.5">
                 <div className="space-y-0.5">
-                  <p className="text-xs font-medium text-[var(--text-primary)]">自动审批</p>
+                  <p className="text-xs font-medium text-[var(--text-primary)]">{t('tasks.autoApprove')}</p>
                   <p className="text-[10px] text-[var(--text-muted)]">
                     {task.auto_approve
-                      ? '自动批准工具调用，完成后标记为已完成'
-                      : '工具调用需要人工审批，完成后标记为需检查'}
+                      ? t('tasks.autoApproveOnDesc')
+                      : t('tasks.autoApproveOffDesc')}
                   </p>
                 </div>
                 <Switch
@@ -559,7 +559,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                     <div className="flex items-center gap-2">
                       <PulsingDot className="text-[var(--status-success)]" />
                       <Badge variant="outline" className="text-xs">
-                        {currentExecution?.status ?? '运行中'}
+                        {currentExecution?.status ?? t('tasks.running')}
                       </Badge>
                       {canCancel && (
                         <Button
@@ -720,11 +720,12 @@ function AgentPickerContent({
   onSelect: (agentId: string) => void
   onUnassign?: () => void
 }) {
+  const { t } = useTranslation()
   return (
     <Command>
-      <CommandInput placeholder="搜索助手..." />
+      <CommandInput placeholder={t('tasks.searchAgents')} />
       <CommandList>
-        <CommandEmpty>未找到助手</CommandEmpty>
+        <CommandEmpty>{t('tasks.noAgentsFound')}</CommandEmpty>
         <CommandGroup>
           {agents.map((a) => (
             <CommandItem key={a.id} value={a.name} onSelect={() => onSelect(a.id)}>
@@ -740,7 +741,7 @@ function AgentPickerContent({
           <CommandGroup>
             <CommandItem onSelect={onUnassign} className="text-[var(--status-error)]">
               <X className="mr-2 h-3.5 w-3.5" />
-              取消分配
+              {t('tasks.unassignAgent')}
             </CommandItem>
           </CommandGroup>
         )}

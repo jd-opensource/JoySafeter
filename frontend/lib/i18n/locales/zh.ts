@@ -292,6 +292,10 @@ const zh = {
     settings: {
       title: '设置',
       description: '管理您的账户设置、工作空间配置和 MCP 服务器',
+      modelConfig: '模型配置',
+      modelConfigDesc: '管理模型供应商、凭据和配置',
+      membersManagementTitle: '成员管理',
+      membersManagementDesc: '管理工作空间成员和权限',
       account: '账户',
       workspace: '工作空间',
       profile: '个人资料',
@@ -1321,6 +1325,7 @@ const zh = {
     },
     chat: {
       noChats: '还没有对话',
+      noMessages: '还没有消息，开始对话吧。',
       untitled: '未命名对话',
       status: {
         active: '进行中',

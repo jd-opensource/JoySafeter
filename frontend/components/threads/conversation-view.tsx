@@ -4,16 +4,19 @@ import { Bot, User, Wrench, Info } from 'lucide-react'
 
 import type { ThreadMessage } from '@/types/thread'
 import { cn } from '@/lib/utils'
+import { useTranslation } from '@/lib/i18n'
 
 interface ConversationViewProps {
   messages: ThreadMessage[]
 }
 
 export function ConversationView({ messages }: ConversationViewProps) {
+  const { t } = useTranslation()
+
   if (messages.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-[var(--text-muted)]">还没有消息，开始对话吧。</p>
+        <p className="text-sm text-[var(--text-muted)]">{t('chat.noMessages')}</p>
       </div>
     )
   }

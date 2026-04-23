@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { useTranslation } from '@/lib/i18n'
 import type { Task } from '@/types/tasks'
 
 interface TaskAttentionPanelProps {
@@ -16,6 +17,8 @@ interface TaskAttentionPanelProps {
 }
 
 export function TaskAttentionPanel({ tasks, agentsMap, onSelectTask, onRetry }: TaskAttentionPanelProps) {
+  const { t } = useTranslation()
+
   if (tasks.length === 0) return null
 
   return (
@@ -23,7 +26,7 @@ export function TaskAttentionPanel({ tasks, agentsMap, onSelectTask, onRetry }: 
       <div className="mb-3 flex items-center gap-2">
         <AlertTriangle className="h-4 w-4 text-[var(--status-warning)]" />
         <h2 className="text-sm font-semibold text-[var(--text-primary)]">
-          需要关注
+          {t('tasks.needsAttention')}
         </h2>
         <Badge variant="outline" className="text-xs">{tasks.length}</Badge>
       </div>
@@ -62,8 +65,8 @@ export function TaskAttentionPanel({ tasks, agentsMap, onSelectTask, onRetry }: 
                     </span>
                   </div>
                   <p className="mt-0.5 text-xs text-[var(--text-muted)]">
-                    {isFailed ? '执行失败' : '等待审核'}
-                    {task.updated_at && ` · ${formatRelativeTime(task.updated_at)}`}
+                    {isFailed ? t('tasks.executionFailed') : t('tasks.awaitingReview')}
+                    {task.updated_at && ` · ${formatRelativeTime(task.updated_at, t)}`}
                   </p>
                 </div>
               </div>
@@ -76,7 +79,7 @@ export function TaskAttentionPanel({ tasks, agentsMap, onSelectTask, onRetry }: 
                   onClick={() => onSelectTask?.(task.id)}
                 >
                   <ExternalLink className="mr-1 h-3 w-3" />
-                  详情
+                  {t('tasks.details')}
                 </Button>
                 {isFailed && onRetry && (
                   <Button
@@ -86,7 +89,7 @@ export function TaskAttentionPanel({ tasks, agentsMap, onSelectTask, onRetry }: 
                     onClick={() => onRetry(task.id)}
                   >
                     <RefreshCw className="mr-1 h-3 w-3" />
-                    重试
+                    {t('tasks.retry')}
                   </Button>
                 )}
               </div>
@@ -98,13 +101,13 @@ export function TaskAttentionPanel({ tasks, agentsMap, onSelectTask, onRetry }: 
   )
 }
 
-function formatRelativeTime(dateStr: string): string {
+function formatRelativeTime(dateStr: string, t: (key: string) => string): string {
   const diff = Date.now() - new Date(dateStr).getTime()
   const minutes = Math.floor(diff / 60000)
-  if (minutes < 1) return '刚刚'
-  if (minutes < 60) return `${minutes}分钟前`
+  if (minutes < 1) return t('execution.justNow')
+  if (minutes < 60) return `${minutes}${t('execution.minutesSuffix')}`
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}小时前`
+  if (hours < 24) return `${hours}${t('execution.hoursSuffix')}`
   const days = Math.floor(hours / 24)
-  return `${days}天前`
+  return `${days}${t('execution.daysSuffix')}`
 }

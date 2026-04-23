@@ -78,13 +78,13 @@ export const TaskCard = forwardRef<
                   {agentName || 'Agent'}
                 </Link>
               ) : (
-                <span>未分配</span>
+                <span>{t('tasks.unassigned')}</span>
               )}
             </>
           ) : (
             <>
               <User className="h-3 w-3" />
-              <span>{effectiveAgentId ? 'Assigned' : '未分配'}</span>
+              <span>{effectiveAgentId ? 'Assigned' : t('tasks.unassigned')}</span>
             </>
           )}
         </span>
