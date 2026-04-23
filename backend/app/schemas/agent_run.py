@@ -10,7 +10,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel
 
-TriggerSourceLiteral = Literal["task", "mission", "chat", "api", "scheduler", "comment", "mention"]
+TriggerSourceLiteral = Literal["task", "chat", "api", "scheduler", "comment", "mention"]
 
 
 class CreateAgentRunRequest(BaseModel):

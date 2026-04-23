@@ -40,7 +40,7 @@ class AgentRunService:
     ) -> List[AgentRun]:
         """List runs filtered by parameters."""
         if task_id:
-            return await self.run_repo.list_by_mission(task_id)
+            return await self.run_repo.list_by_task(task_id)
         elif release_id:
             return await self.run_repo.list_by_release(release_id)
         elif workspace_id:

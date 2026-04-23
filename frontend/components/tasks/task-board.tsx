@@ -14,12 +14,12 @@ import { useCallback, useMemo, useState } from 'react'
 
 import { useUpdateTask, useTaskTransitions } from '@/hooks/queries/tasks'
 import { toastError } from '@/lib/utils/toast'
-import type { Task, TaskStatus } from '@/types/missions'
+import type { Task, TaskStatus } from '@/types/tasks'
 import {
   DEFAULT_MANUAL_TRANSITIONS,
   TASK_STATUS_ORDER,
   TERMINAL_TASK_STATUSES,
-} from '@/types/missions'
+} from '@/types/tasks'
 
 import { TaskCard } from './task-card'
 import { TaskColumn } from './task-column'

@@ -13,8 +13,8 @@ import type {
   CreateTaskRequest,
   UpdateTaskRequest,
   TaskStatus,
-} from '@/types/missions'
-import { TERMINAL_TASK_STATUSES, DEFAULT_MANUAL_TRANSITIONS } from '@/types/missions'
+} from '@/types/tasks'
+import { TERMINAL_TASK_STATUSES, DEFAULT_MANUAL_TRANSITIONS } from '@/types/tasks'
 
 import { STALE_TIME } from './constants'
 import { executionKeys } from './executions'

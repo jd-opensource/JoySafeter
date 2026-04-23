@@ -6,8 +6,8 @@ import { CSS } from '@dnd-kit/utilities'
 
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
-import type { Task, TaskStatus } from '@/types/missions'
-import { TASK_STATUS_LABELS } from '@/types/missions'
+import type { Task, TaskStatus } from '@/types/tasks'
+import { TASK_STATUS_LABELS } from '@/types/tasks'
 
 import { TaskCard } from './task-card'
 

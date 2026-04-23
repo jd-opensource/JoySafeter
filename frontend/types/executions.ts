@@ -27,7 +27,7 @@ export type ExecutionStatus =
   | 'succeeded'
   | 'failed'
   | 'cancelled'
-export type ExecutionSource = 'mission' | 'chat' | 'graph' | 'coordinator' | 'api'
+export type ExecutionSource = 'task' | 'chat' | 'graph' | 'coordinator' | 'api'
 
 export const ACTIVE_EXECUTION_STATUSES: readonly ExecutionStatus[] = [
   'pending',

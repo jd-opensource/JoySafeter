@@ -96,7 +96,7 @@ def test_runner_accepts_none_callbacks():
 
 
 def test_runner_accepts_callbacks():
-    """Mission executions pass a callbacks implementation."""
+    """Task executions pass a callbacks implementation."""
     from unittest.mock import MagicMock
 
     db = MagicMock()

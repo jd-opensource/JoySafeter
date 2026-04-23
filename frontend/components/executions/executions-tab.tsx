@@ -34,7 +34,7 @@ export function ExecutionsTab() {
   const { t } = useTranslation()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const taskFilter = searchParams.get('task') || searchParams.get('mission') || undefined
+  const taskFilter = searchParams.get('task') || undefined
 
   const { data: workspaces = [] } = useWorkspaces()
   const workspaceId = workspaces[0]?.id ?? ''
@@ -67,7 +67,6 @@ export function ExecutionsTab() {
   function clearTaskFilter() {
     const next = new URLSearchParams(searchParams.toString())
     next.delete('task')
-    next.delete('mission') // ensure deprecated filter is also removed
     const qs = next.toString()
     router.replace(qs ? `/runs?${qs}` : '/runs')
   }

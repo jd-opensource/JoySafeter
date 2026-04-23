@@ -57,7 +57,7 @@ import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import { toastSuccess, toastError, getErrorMessage } from '@/lib/utils/toast'
 import { ACTIVE_EXECUTION_STATUSES } from '@/types/executions'
-import type { TaskPriority, TaskStatus, UpdateTaskRequest } from '@/types/missions'
+import type { TaskPriority, TaskStatus, UpdateTaskRequest } from '@/types/tasks'
 import {
   DEFAULT_MANUAL_TRANSITIONS,
   TASK_PRIORITY_LABELS,
@@ -65,7 +65,7 @@ import {
   TASK_STATUS_ORDER,
   TASK_STATUS_STYLES,
   TERMINAL_TASK_STATUSES,
-} from '@/types/missions'
+} from '@/types/tasks'
 
 import { PriorityBadge } from './priority-badge'
 

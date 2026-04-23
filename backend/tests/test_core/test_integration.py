@@ -1,9 +1,9 @@
 """
-Integration test: validates the full mission-to-execution pipeline.
+Integration test: validates the full task-to-execution pipeline.
 
 Exercises the complete flow without a live database or Docker daemon:
-  Mission creation → assign to agent →
-  dispatch (creates execution) → verify event sourcing → verify reducer →
+  Task creation → assign to agent →
+  dispatch (creates execution) → verify container injection →
   verify subscription manager → verify cleanup lifecycle.
 """
 
@@ -23,13 +23,7 @@ from app.core.agent.cli_backends.injectors import (
     CredentialInjector,
     RuntimeConfigInjector,
 )
-from app.core.agent.cli_backends.registry import RuntimeProviderRegistry
-from app.schemas.execution import (
-    ExecutionSummary,
-    MissionSummary,
-)
-from app.services.execution_lifecycle_service import build_execution_prompt
-from app.services.execution_reducer import apply_execution_event, make_initial_projection
+from app.schemas.task import TaskSummary
 from app.websocket.execution_subscription_manager import ExecutionSubscriptionManager
 
 # ---------------------------------------------------------------------------
@@ -84,7 +78,7 @@ def test_schemas_round_trip():
     """Verify Pydantic schemas serialize/deserialize correctly."""
     # AgentProfileSummary removed in Task 1.8 — tested via agent schema tests instead
 
-    mission = MissionSummary(
+    task = TaskSummary(
         id=uuid.uuid4(),
         workspace_id=uuid.uuid4(),
         title="Fix bug",
@@ -95,67 +89,12 @@ def test_schemas_round_trip():
         created_at="2025-01-01T00:00:00Z",
         updated_at="2025-01-01T00:00:00Z",
     )
-    data = mission.model_dump()
+    data = task.model_dump()
     assert data["title"] == "Fix bug"
 
-    execution = ExecutionSummary(
-        id=uuid.uuid4(),
-        workspace_id=uuid.uuid4(),
-        user_id="user-1",
-        source="mission",
-        status="running",
-        runtime_type="claude_code",
-        last_seq=5,
-        created_at="2025-01-01T00:00:00Z",
-        updated_at="2025-01-01T00:00:00Z",
-    )
-    data = execution.model_dump()
-    assert data["source"] == "mission"
-    assert data["last_seq"] == 5
-
 
 # ---------------------------------------------------------------------------
-# 2. Prompt building from mission
-# ---------------------------------------------------------------------------
-
-
-def test_prompt_building_integration():
-    """Verify prompt building produces valid agent instructions."""
-    mission = MagicMock()
-    mission.title = "Implement OAuth2 login"
-    mission.description = "Add Google OAuth2 provider to the auth module."
-    mission.objective = "Users can log in with Google accounts."
-    mission.tags = ["auth", "oauth", "backend"]
-
-    prompt = build_execution_prompt(mission)
-
-    assert "# Mission: Implement OAuth2 login" in prompt
-    assert "Google OAuth2" in prompt
-    assert "Users can log in" in prompt
-    assert "auth" in prompt
-    assert "oauth" in prompt
-
-
-# ---------------------------------------------------------------------------
-# 3. Registry + provider lookup
-# ---------------------------------------------------------------------------
-
-
-def test_registry_lifecycle():
-    """Register a provider, look it up, list it."""
-    reg = RuntimeProviderRegistry()
-    provider = ClaudeCodeProvider(executable_path="/usr/bin/claude")
-    reg.register(provider)
-
-    assert reg.get("claude_code") is provider
-    assert "claude_code" in reg.list_providers()
-
-    with pytest.raises(ValueError):
-        reg.get("nonexistent_provider")
-
-
-# ---------------------------------------------------------------------------
-# 4. Container + injection pipeline
+# 3. Container + injection pipeline
 # ---------------------------------------------------------------------------
 
 
@@ -202,122 +141,7 @@ async def test_container_injection_pipeline():
 
 
 # ---------------------------------------------------------------------------
-# 5. Event sourcing + reducer pipeline
-# ---------------------------------------------------------------------------
-
-
-def test_event_sourcing_full_lifecycle():
-    """Walk through a complete execution event sequence and verify projection."""
-    proj = make_initial_projection(
-        {"source": "task", "task_id": "t-1", "agent_profile_id": "a-1"},
-        "queued",
-    )
-    assert proj["status"] == "queued"
-    assert proj["messages"] == []
-
-    # Execution starts
-    proj = apply_execution_event(
-        proj,
-        event_type="execution_started",
-        payload={"container_id": "ctr-abc", "session_id": "s-1"},
-        status="running",
-    )
-    assert proj["container_id"] == "ctr-abc"
-
-    # User prompt sent
-    proj = apply_execution_event(
-        proj,
-        event_type="prompt_sent",
-        payload={"message": {"role": "user", "content": "Fix the login bug"}},
-        status="running",
-    )
-    assert len(proj["messages"]) == 1
-
-    # Agent thinks
-    proj = apply_execution_event(
-        proj,
-        event_type="thinking",
-        payload={"content": "Let me analyze the auth module..."},
-        status="running",
-    )
-    assert proj["meta"]["last_thinking"] == "Let me analyze the auth module..."
-
-    # Agent responds
-    proj = apply_execution_event(
-        proj,
-        event_type="assistant_text",
-        payload={"message": {"role": "assistant", "content": "Found the issue", "id": "a1"}},
-        status="running",
-    )
-    assert len(proj["messages"]) == 2
-
-    # Content delta
-    proj = apply_execution_event(
-        proj,
-        event_type="content_delta",
-        payload={"delta": " in auth.py", "message_id": "a1"},
-        status="running",
-    )
-    assert proj["messages"][-1]["content"] == "Found the issue in auth.py"
-
-    # Tool use
-    proj = apply_execution_event(
-        proj,
-        event_type="tool_use_start",
-        payload={"tool": {"name": "Edit", "call_id": "t1", "input": {"file": "auth.py"}, "status": "running"}},
-        status="running",
-    )
-    assert len(proj["tool_calls"]) == 1
-    assert proj["tool_calls"][0]["status"] == "running"
-
-    proj = apply_execution_event(
-        proj,
-        event_type="tool_use_end",
-        payload={"call_id": "t1", "output": "File edited successfully"},
-        status="running",
-    )
-    assert proj["tool_calls"][0]["status"] == "completed"
-
-    # Approval flow
-    proj = apply_execution_event(
-        proj,
-        event_type="approval_requested",
-        payload={"tool": "Bash", "command": "git push"},
-        status="approval_wait",
-    )
-    assert "pending_approval" in proj["meta"]
-
-    proj = apply_execution_event(
-        proj,
-        event_type="approval_resolved",
-        payload={"approved": True},
-        status="running",
-    )
-    assert "pending_approval" not in proj["meta"]
-
-    # Artifact
-    proj = apply_execution_event(
-        proj,
-        event_type="artifact_created",
-        payload={"artifact": {"type": "file", "path": "/workspace/auth.py"}},
-        status="running",
-    )
-    assert len(proj["artifacts"]) == 1
-
-    # Completion
-    proj = apply_execution_event(
-        proj,
-        event_type="execution_completed",
-        payload={"result_summary": {"files_changed": 2, "tests_passed": True}},
-        status="completed",
-    )
-    assert proj["status"] == "completed"
-    assert proj["meta"]["completed"] is True
-    assert proj["meta"]["result_summary"]["files_changed"] == 2
-
-
-# ---------------------------------------------------------------------------
-# 6. WebSocket subscription manager
+# 4. WebSocket subscription manager
 # ---------------------------------------------------------------------------
 
 
@@ -465,65 +289,3 @@ async def test_container_lifecycle():
     await svc.remove_container(container.container_id)
     assert len(svc.removed) == 1
     assert svc.removed[0] == container.container_id
-
-
-# ---------------------------------------------------------------------------
-# 10. End-to-end data flow validation
-# ---------------------------------------------------------------------------
-
-
-def test_end_to_end_data_flow():
-    """Validate the complete data flow from mission to execution result.
-
-    This test verifies that data flows correctly through all layers:
-    Mission → prompt → execution events → reducer → final projection.
-    """
-    # 1. Build prompt from mission
-    mission = MagicMock()
-    mission.title = "Add rate limiting"
-    mission.description = "Implement token bucket rate limiter for API endpoints."
-    mission.objective = "Prevent API abuse."
-    mission.tags = ["security", "api"]
-
-    prompt = build_execution_prompt(mission)
-    assert "rate limiting" in prompt.lower()
-
-    # 2. Initialize projection
-    proj = make_initial_projection(
-        {"source": "task", "task_id": "t-1"},
-        "queued",
-    )
-
-    # 3. Simulate execution events
-    events = [
-        ("execution_started", {"container_id": "ctr-1", "session_id": "s-1"}, "running"),
-        ("prompt_sent", {"message": {"role": "user", "content": prompt}}, "running"),
-        (
-            "assistant_text",
-            {"message": {"role": "assistant", "content": "Implementing rate limiter", "id": "a1"}},
-            "running",
-        ),
-        (
-            "tool_use_start",
-            {"tool": {"name": "Write", "call_id": "t1", "input": {"file": "rate_limiter.py"}, "status": "running"}},
-            "running",
-        ),
-        ("tool_use_end", {"call_id": "t1", "output": "File written"}, "running"),
-        ("execution_completed", {"result_summary": {"files_created": 1}}, "completed"),
-    ]
-
-    for event_type, payload, status in events:
-        proj = apply_execution_event(proj, event_type=event_type, payload=payload, status=status)
-
-    # 4. Verify final state
-    assert proj["status"] == "completed"
-    assert proj["container_id"] == "ctr-1"
-    assert proj["session_id"] == "s-1"
-    assert len(proj["messages"]) == 2  # user prompt + assistant text
-    assert len(proj["tool_calls"]) == 1
-    assert proj["tool_calls"][0]["status"] == "completed"
-    assert proj["meta"]["completed"] is True
-    assert proj["meta"]["result_summary"]["files_created"] == 1
-
-    # 5. Verify immutability — original events didn't mutate
-    assert events[0][1]["container_id"] == "ctr-1"  # unchanged

@@ -7,8 +7,8 @@ import { forwardRef } from 'react'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import { PulsingDot } from '@/components/ui/pulsing-dot'
-import type { Task, TaskPriority } from '@/types/missions'
-import { TASK_STATUS_STYLES } from '@/types/missions'
+import type { Task, TaskPriority } from '@/types/tasks'
+import { TASK_STATUS_STYLES } from '@/types/tasks'
 
 import { PriorityBadge } from './priority-badge'
 

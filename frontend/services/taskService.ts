@@ -2,7 +2,7 @@
 
 import { apiGet, apiPost, apiPatch } from '@/lib/api-client'
 import type { ExecutionSnapshot, ExecutionEventsPage } from '@/types/executions'
-import type { Task, CreateTaskRequest, UpdateTaskRequest } from '@/types/missions'
+import type { Task, CreateTaskRequest, UpdateTaskRequest } from '@/types/tasks'
 
 export interface TaskListResponse {
   items: Task[]

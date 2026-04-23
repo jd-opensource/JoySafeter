@@ -26,7 +26,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useAgents } from '@/hooks/queries/agents'
 import { useCreateTask, useAssignTask } from '@/hooks/queries/tasks'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
-import type { TaskPriority } from '@/types/missions'
+import type { TaskPriority } from '@/types/tasks'
 
 const PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
   { value: 'none', label: '无' },

@@ -88,7 +88,7 @@ class RuntimeConfigInjector:
         sections: list[str] = []
         sections.append("# Agent Configuration")
         sections.append("")
-        sections.append("You are an autonomous coding agent executing a mission.")
+        sections.append("You are an autonomous coding agent executing a task.")
         sections.append("Complete the task thoroughly and commit your work when done.")
 
         if instructions:

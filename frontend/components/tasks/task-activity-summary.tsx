@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { PulsingDot } from '@/components/ui/pulsing-dot'
-import type { Task } from '@/types/missions'
+import type { Task } from '@/types/tasks'
 
 interface TaskActivitySummaryProps {
   inProgressTasks: Task[]

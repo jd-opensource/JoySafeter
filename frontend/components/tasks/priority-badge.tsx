@@ -1,8 +1,8 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-import type { TaskPriority } from '@/types/missions'
-import { TASK_PRIORITY_LABELS } from '@/types/missions'
+import type { TaskPriority } from '@/types/tasks'
+import { TASK_PRIORITY_LABELS } from '@/types/tasks'
 
 const PRIORITY_STYLES: Record<TaskPriority, string> = {
   urgent:

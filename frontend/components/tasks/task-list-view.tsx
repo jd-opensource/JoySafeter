@@ -15,13 +15,13 @@ import {
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import { PulsingDot } from '@/components/ui/pulsing-dot'
-import type { Task, TaskStatus } from '@/types/missions'
+import type { Task, TaskStatus } from '@/types/tasks'
 import {
   TASK_PRIORITY_LABELS,
   TASK_STATUS_LABELS,
   TASK_STATUS_ORDER,
   TASK_STATUS_STYLES,
-} from '@/types/missions'
+} from '@/types/tasks'
 
 import { PriorityBadge } from './priority-badge'
 
