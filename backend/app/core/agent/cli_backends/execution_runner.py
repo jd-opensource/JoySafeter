@@ -269,7 +269,7 @@ class ExecutionRunner:
 
         if status == "running" and not execution.started_at:
             execution.started_at = now
-        if status in ("completed", "failed", "cancelled"):
+        if status in ("succeeded", "failed", "cancelled"):
             execution.ended_at = now
 
         await self.db.commit()
@@ -378,11 +378,11 @@ class ExecutionRunner:
         result: CLIResult,
         release: AgentRelease,
     ) -> None:
-        status = "completed" if result.status == "completed" else "failed"
+        status = "succeeded" if result.status == "completed" else "failed"
 
         await self.execution_service.append_event(
             execution_id=execution_id,
-            event_type="execution_completed" if status == "completed" else "error",
+            event_type="execution_completed" if status == "succeeded" else "error",
             payload={
                 "result_summary": {"output_length": len(result.output)},
                 "message": result.error or "",
