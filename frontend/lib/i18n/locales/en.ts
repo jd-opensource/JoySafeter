@@ -190,6 +190,8 @@ const en = {
       title: 'My Agents',
       newAgent: 'New Agent',
       editAgent: 'Edit Agent',
+      newAgentDescription: 'Create a new agent to handle specific tasks.',
+      editAgentDescription: 'Update the basic information of your agent.',
       name: 'Name',
       namePlaceholder: 'e.g. Data Analysis Assistant',
       description: 'Description',
