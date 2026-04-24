@@ -1,6 +1,6 @@
 'use client'
 
-import { LucideIcon, User, Brain, Box, Key } from 'lucide-react'
+import { LucideIcon, User } from 'lucide-react'
 import { useState } from 'react'
 
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -8,10 +8,7 @@ import { useSession } from '@/lib/auth/auth-client'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
-import { ModelsPage } from './models-page'
 import { ProfilePage } from './profile-page'
-import { SandboxesPage } from './sandboxes-page'
-import { TokensPage } from './tokens-page'
 
 interface SettingsDialogProps {
   open: boolean
@@ -53,15 +50,15 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[700px] max-h-[85vh] max-w-5xl flex-row gap-0 overflow-hidden border-0 bg-[var(--surface-elevated)] p-0 shadow-2xl">
-        <DialogTitle className="sr-only">{t('settings.title')}</DialogTitle>
+      <DialogContent className="flex h-[600px] max-h-[85vh] max-w-4xl flex-row gap-0 overflow-hidden border-0 bg-[var(--surface-elevated)] p-0 shadow-2xl">
+        <DialogTitle className="sr-only">{t('user.settings')}</DialogTitle>
         <DialogDescription className="sr-only">{t('settings.description')}</DialogDescription>
 
         {/* Sidebar Navigation */}
         <div className="flex w-60 flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface-1)] p-4 backdrop-blur-sm">
           <div className="mb-6 px-2">
             <h2 className="text-lg font-bold tracking-tight text-[var(--text-primary)]">
-              {t('settings.title')}
+              {t('user.settings')}
             </h2>
           </div>
 
@@ -75,51 +72,12 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               isActive={activeTab === 'profile'}
               onClick={() => setActiveTab('profile')}
             />
-
-            <div className="mb-2 mt-6 px-3 text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
-              {t('settings.workspace')}
-            </div>
-            <MenuItem
-              icon={Brain}
-              label={t('settings.models')}
-              isActive={activeTab === 'models'}
-              onClick={() => setActiveTab('models')}
-            />
-
-            <MenuItem
-              icon={Box}
-              label={t('settings.sandboxes.title')}
-              isActive={activeTab === 'sandboxes'}
-              onClick={() => setActiveTab('sandboxes')}
-            />
-
-            <MenuItem
-              icon={Key}
-              label={t('settings.tokens.title')}
-              isActive={activeTab === 'tokens'}
-              onClick={() => setActiveTab('tokens')}
-            />
           </div>
         </div>
 
         {/* Main Content Area */}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--surface-elevated)]">
-          {activeTab === 'models' && (
-            <div className="flex-1 overflow-hidden p-6">
-              <ModelsPage />
-            </div>
-          )}
           {activeTab === 'profile' && <ProfilePage />}
-          {activeTab === 'sandboxes' && (
-            <div className="flex-1 overflow-hidden p-6">
-              <SandboxesPage />
-            </div>
-          )}
-          {activeTab === 'tokens' && (
-            <div className="flex-1 overflow-hidden p-6">
-              <TokensPage />
-            </div>
-          )}
         </div>
       </DialogContent>
     </Dialog>

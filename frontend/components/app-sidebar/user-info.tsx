@@ -117,7 +117,7 @@ export function UserInfo({ isCollapsed: _isCollapsed = false, showContent = true
                 className="flex items-center gap-2 text-base"
               >
                 <Settings className="h-3.5 w-3.5" />
-                <span>{t('user.settings')}</span>
+                <span>{t('settings.profile')}</span>
               </DropdownMenuItem>
 
               <DropdownMenuSeparator />
