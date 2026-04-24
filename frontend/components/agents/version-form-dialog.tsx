@@ -90,7 +90,7 @@ export function VersionFormDialog({
               <SelectContent>
                 <SelectItem value="prompt">{t('agents.prompt.label')}</SelectItem>
                 <SelectItem value="graph">{t('agents.graph.label')}</SelectItem>
-                <SelectItem value="code" disabled>{t('agents.code.label')}</SelectItem>
+                <SelectItem value="code">{t('agents.code.label')}</SelectItem>
                 <SelectItem value="hybrid" disabled>{t('agents.hybrid.label')}</SelectItem>
               </SelectContent>
             </Select>

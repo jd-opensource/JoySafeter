@@ -34,8 +34,8 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
     enabled: Boolean(draftVersionId),
   })
 
-  const isGraphAgent = draftVersion?.definition_kind === 'graph'
-  const tabKeys: TabKey[] = isGraphAgent
+  const hasBuilder = draftVersion?.definition_kind === 'graph' || draftVersion?.definition_kind === 'code'
+  const tabKeys: TabKey[] = hasBuilder
     ? ['overview', 'builder', 'chat', 'settings']
     : ['overview', 'chat', 'settings']
 

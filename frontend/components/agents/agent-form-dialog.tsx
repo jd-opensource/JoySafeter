@@ -57,7 +57,6 @@ const DEFINITION_KIND_OPTIONS: DefinitionKindOption[] = [
     value: 'code',
     labelKey: 'agents.code.label',
     descriptionKey: 'agents.code.description',
-    disabled: true,
   },
   {
     value: 'hybrid',

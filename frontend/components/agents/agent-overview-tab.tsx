@@ -31,7 +31,7 @@ export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
   const { data: draftVersion } = useVersion(agentId, draftVersionId, workspaceId, {
     enabled: Boolean(draftVersionId),
   })
-  const isGraphAgent = draftVersion?.definition_kind === 'graph'
+  const isGraphAgent = draftVersion?.definition_kind === 'graph' || draftVersion?.definition_kind === 'code'
 
   const { data: releases = [] } = useReleases(agentId, workspaceId, {
     enabled: Boolean(workspaceId),

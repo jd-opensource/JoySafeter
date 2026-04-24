@@ -1,5 +1,6 @@
 import { agentReleaseService } from '@/services/agentReleaseService'
 import type { AgentRelease } from '@/types/agent-release'
+import type { RuntimeKind } from '@/types/agent-release'
 import { agentVersionService } from '@/services/agentVersionService'
 
 export interface DeploymentVersion {
@@ -11,12 +12,12 @@ export interface DeploymentVersion {
 }
 
 export const deploymentAdapter = {
-  async deploy(agentId: string, versionId: string, workspaceId: string): Promise<DeploymentVersion> {
+  async deploy(agentId: string, versionId: string, workspaceId: string, runtimeKind?: RuntimeKind): Promise<DeploymentVersion> {
     await agentVersionService.freeze(agentId, versionId, workspaceId)
     try {
       const release = await agentReleaseService.publish(agentId, workspaceId, {
         agent_version_id: versionId,
-        runtime_kind: 'graph',
+        runtime_kind: runtimeKind || 'graph',
       })
       return mapRelease(release)
     } catch (publishError) {
