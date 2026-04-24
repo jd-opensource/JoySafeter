@@ -10,12 +10,10 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { useToast } from '@/hooks/use-toast'
-import { useAgent } from '@/hooks/queries/agents'
 import { versionKeys } from '@/hooks/queries/agentVersions'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -37,7 +35,6 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
   const { t } = useTranslation()
   const { toast } = useToast()
   const queryClient = useQueryClient()
-  const editorRef = useRef(null)
 
   const isDirty = useCodeEditorStore((s) => s.isDirty)
   const isSaving = useCodeEditorStore((s) => s.isSaving)
@@ -45,17 +42,11 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
   const graphName = useCodeEditorStore((s) => s.graphName)
   const setGraphName = useCodeEditorStore((s) => s.setGraphName)
 
-  const { data: agent } = useAgent(graphId, workspaceId)
   const deployedAt = useBuilderStore((s) => s.deployedAt)
   const setDeployedAt = useBuilderStore((s) => s.setDeployedAt)
 
-  const {
-    isExecuting,
-    stopExecution,
-    startExecution,
-    showPanel: showExecutionPanel,
-    togglePanel: toggleExecutionPanel,
-  } = useExecutionStore()
+  const isExecuting = useExecutionStore((s) => s.isExecuting)
+  const showExecutionPanel = useExecutionStore((s) => s.showPanel)
 
   const [isRunModalOpen, setIsRunModalOpen] = useState(false)
   const [runInput, setRunInput] = useState('')
@@ -63,7 +54,7 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
 
   const handleRunClick = () => {
     if (isExecuting) {
-      stopExecution()
+      useExecutionStore.getState().stopExecution()
       return
     }
     setIsRunModalOpen(true)
@@ -72,7 +63,7 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
   const handleStartExecution = () => {
     if (!runInput.trim()) return
     setIsRunModalOpen(false)
-    startExecution(runInput)
+    useExecutionStore.getState().startExecution(runInput)
     setRunInput('')
   }
 
@@ -105,9 +96,7 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-[var(--bg)] text-[var(--text-primary)]">
-      {/* Toolbar */}
       <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface-1)] px-4 py-2">
-        {/* Left: name + save */}
         <div className="flex items-center gap-3">
           <input
             className="min-w-0 max-w-xs border-none bg-transparent text-sm font-medium text-[var(--text-primary)] outline-none"
@@ -125,13 +114,11 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
           </button>
         </div>
 
-        {/* Right: toggle panel + deploy + run */}
         <div className="flex items-center gap-2">
-          {/* Toggle execution panel */}
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => toggleExecutionPanel(!showExecutionPanel)}
+            onClick={() => useExecutionStore.getState().togglePanel(!showExecutionPanel)}
             className="h-7 w-7 rounded-md hover:bg-[var(--surface-2)]"
           >
             {showExecutionPanel ? (
@@ -141,7 +128,6 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
             )}
           </Button>
 
-          {/* Deploy */}
           <Button
             size="sm"
             onClick={handleDeploy}
@@ -161,7 +147,6 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
                 : t('workspace.publish', { defaultValue: 'Publish' })}
           </Button>
 
-          {/* Run / Stop */}
           <Button
             size="sm"
             onClick={handleRunClick}
@@ -187,12 +172,10 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
         </div>
       </div>
 
-      {/* Editor area */}
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        <CodeEditor ref={editorRef} />
+        <CodeEditor />
       </div>
 
-      {/* Run Input Modal */}
       <RunInputModal
         isOpen={isRunModalOpen}
         input={runInput}
@@ -201,7 +184,6 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
         onClose={() => setIsRunModalOpen(false)}
       />
 
-      {/* Execution Panel - Bottom Dock (same as graph builder) */}
       {showExecutionPanel && <ExecutionPanel />}
     </div>
   )

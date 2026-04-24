@@ -15,6 +15,7 @@ import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useTranslation } from '@/lib/i18n'
 import { formatRelativeTime } from '@/lib/utils/dateHelpers'
 import { RUN_STATUS_STYLES } from '@/types/agent-run'
+import { hasBuilderSupport } from '@/types/agent'
 
 interface AgentOverviewTabProps {
   agentId: string
@@ -31,7 +32,7 @@ export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
   const { data: draftVersion } = useVersion(agentId, draftVersionId, workspaceId, {
     enabled: Boolean(draftVersionId),
   })
-  const isGraphAgent = draftVersion?.definition_kind === 'graph' || draftVersion?.definition_kind === 'code'
+  const isGraphAgent = hasBuilderSupport(draftVersion?.definition_kind)
 
   const { data: releases = [] } = useReleases(agentId, workspaceId, {
     enabled: Boolean(workspaceId),

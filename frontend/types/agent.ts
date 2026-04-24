@@ -1,3 +1,11 @@
+export type DefinitionKind = 'prompt' | 'graph' | 'code' | 'hybrid'
+
+export const BUILDER_DEFINITION_KINDS: readonly DefinitionKind[] = ['graph', 'code'] as const
+
+export function hasBuilderSupport(kind?: string): boolean {
+  return BUILDER_DEFINITION_KINDS.includes(kind as DefinitionKind)
+}
+
 export interface Agent {
   id: string
   workspace_id: string

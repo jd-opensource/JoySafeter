@@ -9,6 +9,7 @@ import { AgentStatusIndicator } from '@/components/agents/agent-status'
 import { Button } from '@/components/ui/button'
 import { useAgent } from '@/hooks/queries/agents'
 import { useVersion } from '@/hooks/queries/agentVersions'
+import { hasBuilderSupport } from '@/types/agent'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -34,7 +35,7 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
     enabled: Boolean(draftVersionId),
   })
 
-  const hasBuilder = draftVersion?.definition_kind === 'graph' || draftVersion?.definition_kind === 'code'
+  const hasBuilder = hasBuilderSupport(draftVersion?.definition_kind)
   const tabKeys: TabKey[] = hasBuilder
     ? ['overview', 'builder', 'chat', 'settings']
     : ['overview', 'chat', 'settings']
