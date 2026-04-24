@@ -174,6 +174,7 @@ export interface VersionGraphState {
   edges: Edge[]
   viewport?: { x: number; y: number; zoom: number }
   variables?: Record<string, unknown>
+  definitionKind?: string
 }
 
 function toVersionGraphState(payload: Record<string, unknown>): VersionGraphState {
@@ -218,7 +219,10 @@ export function useVersionGraphState(
     queryKey: versionKeys.graphState(agentId || '', versionId || '', workspaceId || ''),
     queryFn: async (): Promise<VersionGraphState> => {
       const version = await agentVersionService.get(agentId!, versionId!, workspaceId!)
-      return toVersionGraphState(version.definition_payload)
+      return {
+        ...toVersionGraphState(version.definition_payload),
+        definitionKind: version.definition_kind,
+      }
     },
     enabled:
       Boolean(agentId) &&

@@ -233,9 +233,8 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
     const state = graphStateData
 
     // Code mode: hydrate code editor store instead of canvas
-    const loadedVars = (state.variables ?? {}) as BuilderVariables
-    const graphMode = loadedVars.graph_mode
-    if (graphMode === 'code' && agentId) {
+    if (state.definitionKind === 'code' && agentId) {
+      const loadedVars = (state.variables ?? {}) as BuilderVariables
       const agentName = agentData?.name
       useCodeEditorStore
         .getState()
@@ -466,8 +465,7 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
   }
 
   // Code mode: render CodeEditorPage instead of canvas
-  const graphMode = (graphStateData?.variables as BuilderVariables | undefined)?.graph_mode
-  if (graphMode === 'code' && agentId && !isInitializing) {
+  if (graphStateData?.definitionKind === 'code' && agentId && !isInitializing) {
     return <CodeEditorPage graphId={agentId} workspaceId={workspaceId} />
   }
 

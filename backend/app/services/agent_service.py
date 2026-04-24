@@ -49,12 +49,12 @@ class AgentService(BaseService):
         user_id: str,
         data: CreateAgentRequest,
     ) -> Agent:
-        slug = _generate_slug(data.name)
-
-        # Check uniqueness within workspace
-        existing = await self.agent_repo.get_by_workspace_and_slug(workspace_id, slug)
-        if existing:
-            raise ConflictException(f"Agent with slug '{slug}' already exists in this workspace")
+        base_slug = _generate_slug(data.name)
+        slug = base_slug
+        suffix = 1
+        while await self.agent_repo.get_by_workspace_and_slug(workspace_id, slug):
+            suffix += 1
+            slug = f"{base_slug}-{suffix}"
 
         # Create the Agent
         agent = await self.agent_repo.create(
