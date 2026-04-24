@@ -14,12 +14,13 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 
 import type { StageType } from '@/hooks/copilot/useCopilotStreaming'
-import { graphKeys } from '@/hooks/queries/graphs'
+import { versionKeys } from '@/hooks/queries/agentVersions'
 import { useTranslation } from '@/lib/i18n'
 import type { ChatStreamEvent } from '@/services/chatBackend'
 import type { GraphAction } from '@/types/copilot'
 
 import { hasCurrentMessage } from '../utils/copilotUtils'
+import { useBuilderStore } from '../stores/builderStore'
 
 import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotState'
 
@@ -143,9 +144,10 @@ export function useCopilotWebSocketHandler({
         if (!refs.isMountedRef.current) return
         refs.isCreatingSessionRef.current = false
         if (graphId) {
-          // Invalidate to allow AgentBuilder/useGraphState to refetch authoritative backend state
-          queryClient.invalidateQueries({ queryKey: graphKeys.state(graphId) })
-          queryClient.invalidateQueries({ queryKey: graphKeys.copilotHistory(graphId) })
+          const { versionId, workspaceId } = useBuilderStore.getState()
+          if (versionId && workspaceId) {
+            queryClient.invalidateQueries({ queryKey: versionKeys.graphState(graphId, versionId, workspaceId) })
+          }
         }
         actions.clearStreaming()
         actions.clearSession()

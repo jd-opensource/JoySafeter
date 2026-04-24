@@ -14,7 +14,7 @@ import {
   Terminal,
 } from 'lucide-react'
 import { useParams } from 'next/navigation'
-import React, { useRef, useState, useEffect } from 'react'
+import React, { useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useToast } from '@/hooks/use-toast'
-import { useDeploymentStatus, graphKeys } from '@/hooks/queries/graphs'
+import { versionKeys } from '@/hooks/queries/agentVersions'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
@@ -64,26 +64,13 @@ export function BuilderToolbar({
     togglePanel: toggleExecutionPanel,
   } = useExecutionStore()
 
-  // Use React Query hook to get deployment status (automatic caching and deduplication)
-  const { data: deploymentStatus } = useDeploymentStatus(agentId)
-
-  const { setDeployedAt } = useBuilderStore()
+  const deployedAt = useBuilderStore((s) => s.deployedAt)
+  const setDeployedAt = useBuilderStore((s) => s.setDeployedAt)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [showDeploymentHistory, setShowDeploymentHistory] = useState(false)
   const [showApiAccess, setShowApiAccess] = useState(false)
   const [isDeploying, setIsDeploying] = useState(false)
-
-  // Sync deployment status with builderStore
-  useEffect(() => {
-    if (deploymentStatus) {
-      if (deploymentStatus.is_deployed && deploymentStatus.deployed_at) {
-        setDeployedAt(deploymentStatus.deployed_at)
-      } else {
-        setDeployedAt(null)
-      }
-    }
-  }, [deploymentStatus, setDeployedAt])
 
   const handleImportClick = () => {
     fileInputRef.current?.click()
@@ -108,10 +95,9 @@ export function BuilderToolbar({
 
     setIsDeploying(true)
     try {
-      await deploymentAdapter.deploy(agentId, versionId, workspaceId)
-      queryClient.invalidateQueries({ queryKey: graphKeys.deployment(agentId) })
-      queryClient.invalidateQueries({ queryKey: graphKeys.versions(agentId) })
-      queryClient.invalidateQueries({ queryKey: graphKeys.deployed() })
+      const deployment = await deploymentAdapter.deploy(agentId, versionId, workspaceId)
+      queryClient.invalidateQueries({ queryKey: versionKeys.all(agentId, workspaceId) })
+      setDeployedAt(deployment.published_at || new Date().toISOString())
       toast({
         title: t('workspace.deploySuccess'),
         description: t('workspace.deploySuccessDescription', { version: 'latest' }),
@@ -129,6 +115,8 @@ export function BuilderToolbar({
     }
   }
 
+  const isDeployed = Boolean(deployedAt)
+
   const getDeployTooltip = () => {
     if (nodesCount === 0) {
       return t('workspace.cannotDeployEmpty')
@@ -136,7 +124,7 @@ export function BuilderToolbar({
     if (isDeploying) {
       return t('workspace.deploying')
     }
-    if (deploymentStatus?.is_deployed) {
+    if (isDeployed) {
       return t('workspace.activeDeployment')
     }
     return t('workspace.deployAgent')
@@ -146,13 +134,11 @@ export function BuilderToolbar({
     if (isDeploying) {
       return t('workspace.deploying', { defaultValue: 'Publishing' })
     }
-    if (deploymentStatus?.is_deployed) {
+    if (isDeployed) {
       return t('workspace.activeDeploymentShort', { defaultValue: 'Published' })
     }
     return t('workspace.publish', { defaultValue: 'Publish' })
   }
-
-  const isDeployed = deploymentStatus?.is_deployed || false
 
   return (
     <>

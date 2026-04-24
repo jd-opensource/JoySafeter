@@ -5,11 +5,8 @@
  * Uses Run Center (runService.createRun) + shared chat WS (getChatWsClient) for execution.
  */
 
-import { useQueryClient } from '@tanstack/react-query'
-import { useParams } from 'next/navigation'
 import { useCallback, useRef } from 'react'
 
-import { graphKeys } from '@/hooks/queries/graphs'
 import { useTranslation } from '@/lib/i18n'
 import { generateUUID } from '@/lib/utils/uuid'
 import { getChatWsClient } from '@/lib/ws/chat/chatWsClient'
@@ -46,9 +43,6 @@ export function useCopilotActions({
   onCopilotEvent,
 }: UseCopilotActionsOptions) {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
-  const params = useParams()
-  const currentGraphId = params.agentId as string | undefined
   const { getGraphContext } = useBuilderStore()
   const activeRequestIdRef = useRef<string | null>(null)
 
@@ -213,21 +207,6 @@ export function useCopilotActions({
   const handleReset = useCallback(async () => {
     actions.clearSession()
 
-    const idToClear = graphId ?? currentGraphId
-    let serverCleared = true
-    if (idToClear) {
-      serverCleared = await copilotService.clearHistory(idToClear)
-      if (!refs.isMountedRef.current) return
-      if (serverCleared && idToClear) {
-        queryClient.invalidateQueries({ queryKey: graphKeys.copilotHistory(idToClear) })
-      }
-    }
-
-    if (!serverCleared) {
-      console.warn('[Copilot] Clear history failed on server, keeping local list')
-      return
-    }
-
     if (!refs.isMountedRef.current) return
     actions.clearMessages()
     actions.setInput('')
@@ -236,7 +215,7 @@ export function useCopilotActions({
     actions.clearExpandedItems()
     // eslint-disable-next-line react-hooks/immutability
     refs.hasProcessedUrlInputRef.current = false
-  }, [actions, refs, graphId, currentGraphId, queryClient])
+  }, [actions, refs])
 
   const handleAIDecision = useCallback(() => {
     if (!state.loading) {

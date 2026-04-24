@@ -1,6 +1,5 @@
 'use client'
 
-import { useQueryClient } from '@tanstack/react-query'
 import { Loader2, AlertTriangle, FilePlus } from 'lucide-react'
 import { useParams } from 'next/navigation'
 import React, { useEffect, useState } from 'react'
@@ -16,7 +15,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { useGraphs, useDeploymentStatus, useGraphState, graphKeys } from '@/hooks/queries/graphs'
 import { useVersionGraphState } from '@/hooks/queries/agentVersions'
 import { useAgent } from '@/hooks/queries/agents'
 import { useToast } from '@/hooks/use-toast'
@@ -28,12 +26,12 @@ import { BuilderCanvas } from './components/BuilderCanvas'
 import { BuilderSidebarTabs } from './components/BuilderSidebarTabs'
 import { BuilderToolbar } from './components/BuilderToolbar'
 import { ExecutionPanelNew as ExecutionPanel } from './components/execution/ExecutionPanelNew'
-import { LoadModal } from './components/LoadModal'
 import { RunInputModal } from './components/RunInputModal'
 import { CodeEditorPage } from './CodeEditorPage'
 import { useCodeEditorStore } from './stores/codeEditorStore'
 import { ErrorBoundary } from './error-boundary'
-import { agentService, AgentGraph } from './services/agentService'
+import { agentService } from './services/agentService'
+import { graphDataAdapter } from './services/graphDataAdapter'
 import { useBuilderStore } from './stores/builderStore'
 import { useExecutionStore } from './stores/execution/executionStore'
 import type { StateField } from './types/graph'
@@ -81,45 +79,24 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
     setGraphName,
     startAutoSave,
     stopAutoSave,
-    setDeployedAt,
   } = useBuilderStore()
 
   const { showPanel: showExecutionPanel, startExecution, setCurrentGraphId } = useExecutionStore()
 
-  const queryClient = useQueryClient()
-
-  // Determine loading path: new (version-based) vs legacy (graph-based)
-  const useNewPath = Boolean(versionIdProp && agentId && workspaceId)
-
-  // New path: load agent metadata + graph state from version definition_payload
-  const { data: agentData } = useAgent(agentId ?? '', workspaceId, { enabled: useNewPath })
-  const { data: versionGraphState, isSuccess: isVersionStateLoaded } = useVersionGraphState(
+  const { data: agentData } = useAgent(agentId ?? '', workspaceId, { enabled: Boolean(agentId && workspaceId) })
+  const { data: graphStateData, isSuccess: isGraphStateLoaded } = useVersionGraphState(
     agentId ?? undefined,
     versionIdProp,
     workspaceId || undefined,
-    { refetchOnMount: 'always', enabled: useNewPath },
+    { refetchOnMount: 'always', enabled: Boolean(versionIdProp && agentId && workspaceId) },
   )
-
-  // Legacy path: load from /graphs endpoints
-  const { data: graphsData } = useGraphs(useNewPath ? undefined : workspaceId)
-  const { data: deploymentStatus } = useDeploymentStatus(agentId ?? undefined, { enabled: !useNewPath })
-  const { data: legacyGraphState, isSuccess: isLegacyStateLoaded } = useGraphState(
-    agentId ?? undefined,
-    { refetchOnMount: 'always', enabled: !useNewPath },
-  )
-
-  // Unified state: pick whichever path is active
-  const graphStateData = useNewPath ? versionGraphState : legacyGraphState
-  const isGraphStateLoaded = useNewPath ? isVersionStateLoaded : isLegacyStateLoaded
 
   const { toast } = useToast()
-  const [showLoadModal, setShowLoadModal] = useState(false)
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
   const [showNewConfirm, setShowNewConfirm] = useState(false)
   const [pendingGraph, setPendingGraph] = useState<
-    AgentGraph | { type: 'import'; file: File } | null
+    { type: 'import'; file: File } | null
   >(null)
-  const [isLoadingGraph, setIsLoadingGraph] = useState(false)
   const [isRunModalOpen, setIsRunModalOpen] = useState(false)
   const [runInput, setRunInput] = useState('')
 
@@ -184,25 +161,20 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      const { hasPendingChanges, nodes, edges, rfInstance, graphId } = useBuilderStore.getState()
+      const { hasPendingChanges, nodes, edges, rfInstance, graphId, versionId, workspaceId } = useBuilderStore.getState()
 
       if (!graphId || graphId !== agentId || !isValidUUID(graphId)) {
         return
       }
 
-      if (hasPendingChanges) {
+      if (hasPendingChanges && versionId && workspaceId) {
         try {
           const viewport = rfInstance?.getViewport() || { x: 0, y: 0, zoom: 1 }
-          const payload = JSON.stringify({
+          graphDataAdapter.sendBeaconSave(graphId, versionId, workspaceId, {
             nodes,
             edges,
             viewport,
           })
-
-          const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || ''
-          const url = `${apiBaseUrl}/v1/graphs/${graphId}/state`
-          const blob = new Blob([payload], { type: 'application/json' })
-          navigator.sendBeacon(url, blob)
         } catch {
           // Silent fail for sendBeacon
         }
@@ -225,7 +197,6 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
   const viewportTimersRef = React.useRef<NodeJS.Timeout[]>([])
 
   // Load graph when agentId changes and graph state is loaded from React Query
-  // Key optimization: Use React Query cached data instead of directly calling agentService.loadGraphState
   useEffect(() => {
     // Wait for necessary data to load
     if (!agentId) {
@@ -265,10 +236,10 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
     const loadedVars = (state.variables ?? {}) as BuilderVariables
     const graphMode = loadedVars.graph_mode
     if (graphMode === 'code' && agentId) {
-      const agentName = useNewPath ? agentData?.name : graphsData?.find((g) => g.id === agentId)?.name
+      const agentName = agentData?.name
       useCodeEditorStore
         .getState()
-        .hydrate(agentId, loadedVars.code_content ?? '', agentName ?? '')
+        .hydrate(agentId, loadedVars.code_content ?? '', agentName ?? '', versionIdProp ?? null, workspaceId || null)
       loadedGraphIdRef.current = agentId
       useBuilderStore.setState({ isInitializing: false })
       return
@@ -280,8 +251,8 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
       setGraphId(agentId)
     }
 
-    // Sync metadata from agent (new path) or graph list (legacy path)
-    if (useNewPath && agentData) {
+
+    if (agentData) {
       if (agentData.name) {
         agentService.setCachedGraphName(agentData.name)
         setGraphName(agentData.name)
@@ -289,18 +260,6 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
       if (agentData.updated_at) {
         const updatedAtTime = new Date(agentData.updated_at).getTime()
         useBuilderStore.setState({ lastAutoSaveTime: updatedAtTime })
-      }
-    } else {
-      const currentGraph = graphsData?.find((g) => g.id === agentId)
-      if (currentGraph) {
-        if (currentGraph.name) {
-          agentService.setCachedGraphName(currentGraph.name)
-          setGraphName(currentGraph.name)
-        }
-        if (currentGraph.updatedAt) {
-          const updatedAtTime = new Date(currentGraph.updatedAt).getTime()
-          useBuilderStore.setState({ lastAutoSaveTime: updatedAtTime })
-        }
       }
     }
 
@@ -383,132 +342,8 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
       })
       viewportTimersRef.current = []
     }
-  }, [agentId, isGraphStateLoaded, graphStateData, graphsData, agentData, useNewPath, loadGraph, setGraphId, setGraphName])
+  }, [agentId, isGraphStateLoaded, graphStateData, agentData, loadGraph, setGraphId, setGraphName])
 
-  // Sync deployment status from React Query to builderStore
-  // Deployment status is fetched via useDeploymentStatus hook, automatically sharing cache with other components
-  useEffect(() => {
-    if (deploymentStatus) {
-      if (deploymentStatus.is_deployed && deploymentStatus.deployed_at) {
-        setDeployedAt(deploymentStatus.deployed_at)
-      } else {
-        setDeployedAt(null)
-      }
-    }
-  }, [deploymentStatus, setDeployedAt])
-
-  const applyLoadedGraph = async (graph: AgentGraph) => {
-    setIsLoadingGraph(true)
-    try {
-      agentService.setCachedGraphId(graph.id)
-      setGraphId(graph.id)
-      // Sync executionStore currentGraphId when loading a different graph
-      setCurrentGraphId(graph.id)
-      if (graph.name) {
-        agentService.setCachedGraphName(graph.name)
-        setGraphName(graph.name)
-      } else {
-        // Set default name if graph.name is not available
-        const defaultName = '(not set)'
-        agentService.setCachedGraphName(defaultName)
-        setGraphName(defaultName)
-      }
-
-      // Use React Query to fetch state, invalidate cache first to ensure latest data
-      await queryClient.invalidateQueries({ queryKey: graphKeys.state(graph.id) })
-      const stateResult = await queryClient.fetchQuery({
-        queryKey: graphKeys.state(graph.id),
-        queryFn: async () => {
-          const response = await agentService.loadGraphState(graph.id)
-          return response
-        },
-      })
-      const state = stateResult || { nodes: [], edges: [] }
-
-      if (graph.updatedAt) {
-        const updatedAtTime = new Date(graph.updatedAt).getTime()
-        useBuilderStore.setState({ lastAutoSaveTime: updatedAtTime })
-      }
-
-      // Parse stateFields and fallbackNodeId from loaded state for consistent hash computation
-      const applyVariables = (state.variables || {}) as BuilderVariables
-      const applyStateFields = (() => {
-        const sf = applyVariables.state_fields || []
-        if (sf.length > 0) return sf
-        const ctx = applyVariables.context || {}
-        if (Object.keys(ctx).length === 0) return []
-        return Object.entries(ctx).map(([key, v]) => ({
-          name: key,
-          type: (v?.type === 'number'
-            ? 'int'
-            : v?.type === 'boolean'
-              ? 'bool'
-              : v?.type || 'string') as StateField['type'],
-          description: v?.description || '',
-          defaultValue: v?.value,
-        }))
-      })()
-      const applyFallbackNodeId = applyVariables.fallback_node_id ?? null
-
-      // Calculate hash of initial state (all 4 params, consistent with SaveManager)
-      const initialHash = computeGraphStateHash(
-        state.nodes || [],
-        state.edges || [],
-        applyStateFields,
-        applyFallbackNodeId,
-      )
-
-      useBuilderStore.setState({
-        nodes: state.nodes || [],
-        edges: state.edges || [],
-        graphStateFields: applyStateFields,
-        fallbackNodeId: applyFallbackNodeId,
-        past: [],
-        future: [],
-        selectedNodeId: null,
-        lastSavedStateHash: initialHash,
-        saveRetryCount: 0,
-        lastSaveError: null,
-      })
-
-      if (state.viewport && rfInstance) {
-        rfInstance.setViewport(state.viewport)
-      } else {
-        setTimeout(() => {
-          rfInstance?.fitView({ padding: 0.2 })
-        }, 100)
-      }
-
-      // Reset loadedGraphIdRef to allow reloading
-      loadedGraphIdRef.current = graph.id
-
-      toast({
-        title: t('workspace.graphLoaded'),
-        description: t('workspace.graphLoadedSuccess', { name: graph.name }),
-      })
-    } catch (error) {
-      console.error('Failed to load graph state:', error)
-      toast({
-        variant: 'destructive',
-        title: t('common.error'),
-        description: t('workspace.graphLoadFailed'),
-      })
-    } finally {
-      setIsLoadingGraph(false)
-    }
-  }
-
-  const handleLoadAttempt = (graph: AgentGraph) => {
-    setShowLoadModal(false)
-
-    // Check if the current canvas is empty
-    if (nodes.length > 0) {
-      setPendingGraph(graph)
-      setShowOverwriteConfirm(true)
-    } else {
-      applyLoadedGraph(graph)
-    }
-  }
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -555,30 +390,23 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
       return
     }
 
-    // Handle import case
-    if ('type' in pendingGraph && pendingGraph.type === 'import' && pendingGraph.file) {
-      try {
-        await importGraph(pendingGraph.file)
-        toast({
-          title: t('workspace.graphImported'),
-          description: t('workspace.graphImportedSuccess', { name: pendingGraph.file.name }),
-        })
+    try {
+      await importGraph(pendingGraph.file)
+      toast({
+        title: t('workspace.graphImported'),
+        description: t('workspace.graphImportedSuccess', { name: pendingGraph.file.name }),
+      })
 
-        // Fit view after import
-        setTimeout(() => {
-          rfInstance?.fitView({ padding: 0.2 })
-        }, 100)
-      } catch (error: unknown) {
-        console.error('Failed to import graph:', error)
-        toast({
-          variant: 'destructive',
-          title: t('workspace.importFailed'),
-          description: error instanceof Error ? error.message : t('workspace.importFailedMessage'),
-        })
-      }
-    } else {
-      // Handle load case (existing logic)
-      await applyLoadedGraph(pendingGraph as AgentGraph)
+      setTimeout(() => {
+        rfInstance?.fitView({ padding: 0.2 })
+      }, 100)
+    } catch (error: unknown) {
+      console.error('Failed to import graph:', error)
+      toast({
+        variant: 'destructive',
+        title: t('workspace.importFailed'),
+        description: error instanceof Error ? error.message : t('workspace.importFailedMessage'),
+      })
     }
 
     setPendingGraph(null)
@@ -586,13 +414,8 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
   }
 
   const handleCancelOverwrite = () => {
-    const wasImport = pendingGraph && 'type' in pendingGraph && pendingGraph.type === 'import'
     setPendingGraph(null)
     setShowOverwriteConfirm(false)
-    // Only reopen load modal if it was a load operation, not an import
-    if (!wasImport) {
-      setShowLoadModal(true)
-    }
   }
 
   const createNewGraph = () => {
@@ -650,9 +473,6 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-[var(--bg)] text-[var(--text-primary)]">
-      {showLoadModal && (
-        <LoadModal onClose={() => setShowLoadModal(false)} onLoad={handleLoadAttempt} />
-      )}
 
       <AlertDialog open={showOverwriteConfirm} onOpenChange={setShowOverwriteConfirm}>
         <AlertDialogContent>
@@ -662,11 +482,7 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
               <AlertDialogTitle>{t('workspace.overwriteCanvas')}</AlertDialogTitle>
             </div>
             <AlertDialogDescription>
-              {pendingGraph && 'type' in pendingGraph && pendingGraph.type === 'import'
-                ? t('workspace.importOverwriteWarning')
-                : t('workspace.loadOverwriteWarning', {
-                    name: pendingGraph && 'name' in pendingGraph ? pendingGraph.name : '',
-                  })}
+              {t('workspace.importOverwriteWarning')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -677,9 +493,7 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
               onClick={handleConfirmOverwrite}
               className="bg-primary hover:bg-primary/90"
             >
-              {pendingGraph && 'type' in pendingGraph && pendingGraph.type === 'import'
-                ? t('workspace.import')
-                : t('workspace.overwriteAndLoad')}
+              {t('workspace.import')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -706,11 +520,11 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
         </AlertDialogContent>
       </AlertDialog>
 
-      {(isInitializing || isLoadingGraph) && (
+      {isInitializing && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[var(--bg)] backdrop-blur-sm">
           <Loader2 size={40} className="mb-3 animate-spin text-[var(--brand-500)]" />
           <p className="font-medium text-[var(--text-muted)]">
-            {isLoadingGraph ? t('workspace.loadingGraph') : t('workspace.loadingWorkspace')}
+            {t('workspace.loadingWorkspace')}
           </p>
         </div>
       )}

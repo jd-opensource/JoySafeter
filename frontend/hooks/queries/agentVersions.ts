@@ -25,6 +25,8 @@ export const versionKeys = {
     [...versionKeys.all(agentId, workspaceId), 'list'] as const,
   detail: (agentId: string, versionId: string, workspaceId: string) =>
     [...versionKeys.all(agentId, workspaceId), 'detail', versionId] as const,
+  graphState: (agentId: string, versionId: string, workspaceId: string) =>
+    [...versionKeys.detail(agentId, versionId, workspaceId), 'graphState'] as const,
 }
 
 // ==================== Query Hooks ====================
@@ -213,7 +215,7 @@ export function useVersionGraphState(
   },
 ) {
   return useQuery({
-    queryKey: [...versionKeys.detail(agentId || '', versionId || '', workspaceId || ''), 'graphState'],
+    queryKey: versionKeys.graphState(agentId || '', versionId || '', workspaceId || ''),
     queryFn: async (): Promise<VersionGraphState> => {
       const version = await agentVersionService.get(agentId!, versionId!, workspaceId!)
       return toVersionGraphState(version.definition_payload)

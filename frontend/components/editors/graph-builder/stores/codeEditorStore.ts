@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { apiPost } from '@/lib/api-client'
+import { agentVersionService } from '@/services/agentVersionService'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -13,12 +13,14 @@ interface CodeEditorState {
 
   graphId: string | null
   graphName: string | null
+  versionId: string | null
+  workspaceId: string | null
 
   setCode: (code: string) => void
   setGraphId: (id: string) => void
   setGraphName: (name: string) => void
   save: () => Promise<void>
-  hydrate: (graphId: string, code: string, name: string) => void
+  hydrate: (graphId: string, code: string, name: string, versionId: string | null, workspaceId: string | null) => void
   reset: () => void
 }
 
@@ -33,6 +35,8 @@ export const useCodeEditorStore = create<CodeEditorState>((set, get) => ({
   isDirty: false,
   graphId: null,
   graphName: null,
+  versionId: null,
+  workspaceId: null,
 
   setCode: (code) => set({ code, isDirty: code !== get().savedCode }),
 
@@ -40,18 +44,23 @@ export const useCodeEditorStore = create<CodeEditorState>((set, get) => ({
   setGraphName: (name) => set({ graphName: name }),
 
   save: async () => {
-    const { graphId, code, graphName } = get()
-    if (!graphId) return
+    const { graphId, versionId, workspaceId, code, graphName } = get()
+    if (!graphId || !versionId || !workspaceId) return
     set({ isSaving: true })
     try {
-      await apiPost(`graphs/${graphId}/code/save`, { code, name: graphName })
+      await agentVersionService.update(graphId, versionId, workspaceId, {
+        definition_payload: {
+          graph_mode: 'code',
+          code_content: code,
+        },
+      })
       set({ savedCode: code, isDirty: false })
     } finally {
       set({ isSaving: false })
     }
   },
 
-  hydrate: (graphId, code, name) =>
+  hydrate: (graphId, code, name, versionId, workspaceId) =>
     set({
       graphId,
       code,
@@ -59,6 +68,8 @@ export const useCodeEditorStore = create<CodeEditorState>((set, get) => ({
       isDirty: false,
       graphName: name,
       isSaving: false,
+      versionId: versionId ?? null,
+      workspaceId: workspaceId ?? null,
     }),
 
   reset: () =>
@@ -69,5 +80,7 @@ export const useCodeEditorStore = create<CodeEditorState>((set, get) => ({
       isDirty: false,
       graphId: null,
       graphName: null,
+      versionId: null,
+      workspaceId: null,
     }),
 }))

@@ -3,12 +3,10 @@
 /**
  * Copilot Service
  *
- * Encapsulates Copilot-related API calls, including:
- * - Clear Copilot history
+ * Encapsulates Copilot-related helpers, including:
  * - Convert conversation history format
  */
 
-import { apiDelete } from '@/lib/api-client'
 import type {
   GraphAction,
   CopilotResponse,
@@ -58,19 +56,6 @@ function convertConversationHistory(
 // ==================== Service ====================
 
 export const copilotService = {
-  /**
-   * Clear Copilot history
-   */
-  async clearHistory(graphId: string): Promise<boolean> {
-    try {
-      await apiDelete(`graphs/${graphId}/copilot/history`)
-      return true
-    } catch (error) {
-      console.error('Failed to clear copilot history:', error)
-      return false
-    }
-  },
-
   /**
    * Convert conversation history format (helper method)
    */

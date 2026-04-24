@@ -4,7 +4,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 
-import { useCopilotHistory } from '@/hooks/queries/graphs'
 import type { GraphAction } from '@/types/copilot'
 
 export interface CopilotMessage {
@@ -19,36 +18,17 @@ export function useCopilotMessages(graphId?: string) {
   const currentMessageIndexRef = useRef<number | null>(null)
   const prevGraphIdRef = useRef<string | null>(null)
 
-  const {
-    data: historyData,
-    isLoading: loadingHistory,
-    isSuccess: isHistoryLoaded,
-  } = useCopilotHistory(graphId)
-
-  // Load history when graphId changes
+  // Reset messages when graphId changes
   useEffect(() => {
     if (!graphId) return
 
-    // Detect graphId changes and reset messages
     if (prevGraphIdRef.current && prevGraphIdRef.current !== graphId) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setMessages([])
       currentMessageIndexRef.current = null
     }
     prevGraphIdRef.current = graphId
-
-    // Load history messages when data is available
-    if (isHistoryLoaded && historyData?.messages && historyData.messages.length > 0) {
-      const loadedMessages: CopilotMessage[] = historyData.messages.map((msg) => ({
-        role: msg.role === 'user' ? 'user' : 'model',
-        text: msg.content,
-        actions: (msg.actions as GraphAction[]) || undefined,
-        thoughtSteps: msg.thought_steps || undefined,
-      }))
-
-      setMessages(loadedMessages)
-    }
-  }, [graphId, isHistoryLoaded, historyData])
+  }, [graphId])
 
   const addMessage = useCallback((message: CopilotMessage) => {
     setMessages((prev) => [...prev, message])
@@ -122,7 +102,7 @@ export function useCopilotMessages(graphId?: string) {
 
   return {
     messages,
-    loadingHistory,
+    loadingHistory: false,
     currentMessageIndexRef,
     addMessage,
     addThoughtStep,

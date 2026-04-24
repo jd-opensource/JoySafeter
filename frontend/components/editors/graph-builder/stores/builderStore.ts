@@ -37,7 +37,6 @@ import { generateUUID } from '@/lib/utils/uuid'
 import { useSidebarStore } from '@/stores/sidebar/store'
 import { computeGraphStateHash } from '@/lib/utils/graphStateHash'
 
-import { agentService } from '../services/agentService'
 import { graphDataAdapter } from '../services/graphDataAdapter'
 import { nodeRegistry } from '../services/nodeRegistry'
 import type { StateField } from '../types/graph'
@@ -284,10 +283,9 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
           viewport?: { x: number; y: number; zoom: number }
           variables?: Record<string, unknown>
         }
-        let graphMeta: { name?: string; isDeployed?: boolean } | undefined
 
         if (agentId && versionId && workspaceId) {
-          // New path: load via graphDataAdapter (agent versions API)
+          // Load via graphDataAdapter (agent versions API)
           const loadedState = await graphDataAdapter.load(agentId, versionId, workspaceId)
           graphState = {
             nodes: loadedState.nodes ?? [],
@@ -298,15 +296,9 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
               fallback_node_id: loadedState.fallbackNodeId ?? undefined,
             },
           }
-          // graphMeta stays undefined; name/deployment status come from elsewhere
         } else {
-          // Legacy path: load via agentService + graph list (graphId-based routes)
-          const [legacyState, graphs] = await Promise.all([
-            agentService.loadGraphState(graphId),
-            agentService.listGraphs(workspaceId),
-          ])
-          graphState = legacyState
-          graphMeta = graphs.find((g) => g.id === graphId)
+          // No valid agent/version context — start with empty state
+          graphState = { nodes: [], edges: [] }
         }
 
         // Parse state fields and fallback_node_id from variables
@@ -317,8 +309,8 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         set({
           nodes: graphState.nodes || [],
           edges: graphState.edges || [],
-          graphName: graphMeta?.name || 'Untitled Graph',
-          deployedAt: graphMeta?.isDeployed ? new Date().toISOString() : null,
+          graphName: 'Untitled Graph',
+          deployedAt: null,
           graphStateFields: stateFields,
           fallbackNodeId: fallbackNodeId || null,
           lastSavedStateHash: computeGraphStateHash(
@@ -621,7 +613,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     loadGraph: async () => {
       set({ isInitializing: true })
       try {
-        const { nodes, edges } = await agentService.getInitialGraph()
+        const { nodes, edges } = { nodes: [] as Node[], edges: [] as Edge[] }
 
         // Process edges to ensure correct type and style based on edge_type
         const processedEdges = processEdgesForReactFlow(edges)

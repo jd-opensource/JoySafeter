@@ -1,4 +1,5 @@
 import { agentVersionService } from '@/services/agentVersionService'
+import { API_BASE } from '@/lib/api-client'
 import type { GraphState } from '../utils/saveManager'
 
 function toGraphState(payload: Record<string, unknown>): GraphState {
@@ -31,6 +32,22 @@ export const graphDataAdapter = {
     await agentVersionService.update(agentId, versionId, workspaceId, {
       definition_payload: graphState,
     })
+  },
+
+  sendBeaconSave(
+    agentId: string,
+    versionId: string,
+    workspaceId: string,
+    graphState: { nodes: unknown[]; edges: unknown[]; viewport?: unknown },
+  ): void {
+    const url = `${API_BASE}/agents/${agentId}/versions/${versionId}?workspace_id=${workspaceId}`
+    const body = JSON.stringify({ definition_payload: graphState })
+    fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: true,
+    }).catch(() => {})
   },
 
   async createDraft(
