@@ -41,9 +41,9 @@ export const useSidebarStore = create<SidebarState>()(
       },
       setIsCollapsed: (isCollapsed) => {
         set({ isCollapsed })
-        // Set width to 0 when collapsed (floating UI doesn't need sidebar space)
+        // Set width to 64px when collapsed (icon-only mode)
         if (isCollapsed && typeof window !== 'undefined') {
-          document.documentElement.style.setProperty('--sidebar-width', '0px')
+          document.documentElement.style.setProperty('--sidebar-width', '64px')
         } else if (!isCollapsed && typeof window !== 'undefined') {
           // Restore to stored width when expanding
           const currentWidth = get().sidebarWidth
@@ -65,8 +65,8 @@ export const useSidebarStore = create<SidebarState>()(
           if (!state.isCollapsed && state.sidebarWidth < MIN_SIDEBAR_WIDTH) {
             state.sidebarWidth = MIN_SIDEBAR_WIDTH
           }
-          // Use 0 width if collapsed (floating UI), otherwise use stored width
-          const width = state.isCollapsed ? 0 : state.sidebarWidth
+          // Use 64px width if collapsed (icon-only), otherwise use stored width
+          const width = state.isCollapsed ? 64 : state.sidebarWidth
           document.documentElement.style.setProperty('--sidebar-width', `${width}px`)
         }
       },

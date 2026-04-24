@@ -12,6 +12,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { useSidebarStore } from '@/stores/sidebar/store'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
@@ -58,12 +59,13 @@ const menuGroups: MenuGroup[] = [
 export function AppSidebar() {
   const pathname = usePathname()
   const { t } = useTranslation()
+  const isCollapsed = useSidebarStore((state) => state.isCollapsed)
 
   return (
     <TooltipProvider>
       <aside className="flex h-screen w-full flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface-elevated)]">
         <div className="flex h-full flex-col">
-          <AppLogo />
+          <AppLogo isCollapsed={isCollapsed} />
 
           <nav className="flex-1 px-2 py-2">
             {menuGroups.map((group, groupIdx) => (
@@ -82,7 +84,8 @@ export function AppSidebar() {
                             <Link
                               href={item.href}
                               className={cn(
-                                'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors',
+                                'flex items-center rounded-lg px-3 py-2 text-sm transition-colors',
+                                isCollapsed ? 'justify-center' : 'gap-2.5',
                                 isActive
                                   ? 'bg-[var(--surface-5)] font-medium text-[var(--text-primary)]'
                                   : 'font-normal text-[var(--text-tertiary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]',
@@ -92,10 +95,10 @@ export function AppSidebar() {
                                 className="h-4 w-4 flex-shrink-0"
                                 strokeWidth={isActive ? 2 : 1.75}
                               />
-                              <span className="truncate">{label}</span>
+                              {!isCollapsed && <span className="truncate">{label}</span>}
                             </Link>
                           </TooltipTrigger>
-                          <TooltipContent side="right">{label}</TooltipContent>
+                          <TooltipContent side="right" className={cn(!isCollapsed && "hidden")}>{label}</TooltipContent>
                         </Tooltip>
                       </li>
                     )
@@ -105,8 +108,8 @@ export function AppSidebar() {
             ))}
           </nav>
 
-          <UserInfo isCollapsed={false} showContent={true} />
-          <VersionBadge isCollapsed={false} />
+          <UserInfo isCollapsed={isCollapsed} showContent={!isCollapsed} />
+          <VersionBadge isCollapsed={isCollapsed} />
         </div>
       </aside>
     </TooltipProvider>
