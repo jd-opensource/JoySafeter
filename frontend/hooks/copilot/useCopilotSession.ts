@@ -1,44 +1,60 @@
-/**
- * useCopilotSession - Hook for managing Copilot run state
- *
- * Tracks the current run_id (formerly session_id) via Run Center.
- */
-
 import { useState, useEffect, useRef, useCallback } from 'react'
 
+interface SessionData {
+  runId: string
+  executionId: string | null
+}
+
+function readSession(graphId: string): SessionData | null {
+  const raw = localStorage.getItem(`copilot_run_${graphId}`)
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (typeof parsed === 'object' && parsed.runId) return parsed as SessionData
+  } catch {
+    if (typeof raw === 'string' && raw.length > 0) {
+      return { runId: raw, executionId: null }
+    }
+  }
+  return null
+}
+
 export function useCopilotSession(graphId?: string) {
-  const [currentRunId, setCurrentRunId] = useState<string | null>(null)
+  const [session, setSessionState] = useState<SessionData | null>(null)
   const hasProcessedUrlInputRef = useRef(false)
 
-  // Read initial run_id from localStorage on mount
   useEffect(() => {
     if (!graphId) return
-    const storedRunId = localStorage.getItem(`copilot_run_${graphId}`)
-    if (storedRunId) {
+    const stored = readSession(graphId)
+    if (stored) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setCurrentRunId(storedRunId)
+      setSessionState(stored)
     }
   }, [graphId])
 
   const setSession = useCallback(
-    (runId: string) => {
-      setCurrentRunId(runId)
+    (runId: string, executionId: string | null = null) => {
+      setSessionState({ runId, executionId })
       if (graphId) {
-        localStorage.setItem(`copilot_run_${graphId}`, runId)
+        localStorage.setItem(
+          `copilot_run_${graphId}`,
+          JSON.stringify({ runId, executionId }),
+        )
       }
     },
     [graphId],
   )
 
   const clearSession = useCallback(() => {
-    setCurrentRunId(null)
+    setSessionState(null)
     if (graphId) {
       localStorage.removeItem(`copilot_run_${graphId}`)
     }
   }, [graphId])
 
   return {
-    currentRunId,
+    currentRunId: session?.runId ?? null,
+    currentExecutionId: session?.executionId ?? null,
     hasProcessedUrlInputRef,
     setSession,
     clearSession,

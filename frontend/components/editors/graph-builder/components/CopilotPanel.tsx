@@ -1,22 +1,11 @@
 'use client'
 
-/**
- * CopilotPanel - Main Copilot component
- *
- * Architecture:
- * - useCopilotState: Unified state management
- * - useCopilotWebSocketHandler: WebSocket event handling
- * - useCopilotActions: Business logic (send, stop, reset)
- * - useCopilotEffects: Side effects (session recovery, auto-scroll, URL params)
- *
- * This component is now focused solely on UI rendering and composition.
- */
-
 import { Loader2 } from 'lucide-react'
 import { useParams } from 'next/navigation'
 import { useCallback, useState } from 'react'
 
 import { CopilotErrorBoundary } from '@/components/copilot/CopilotErrorBoundary'
+import { useCopilotExecutionBridge } from '@/hooks/copilot/useCopilotExecutionBridge'
 import { useModelSelector } from '@/hooks/use-model-selector'
 import { useTranslation } from '@/lib/i18n'
 
@@ -50,10 +39,8 @@ export function CopilotPanel() {
     modelLabel,
   } = useModelSelector()
 
-  // Unified state management
   const { state, actions, refs } = useCopilotState(graphId)
 
-  // WebSocket event handlers
   const webSocketCallbacks = useCopilotWebSocketHandler({
     state,
     actions,
@@ -61,39 +48,45 @@ export function CopilotPanel() {
     graphId,
   })
 
-  // Business logic handlers
+  // Bridges execution WS events → copilot UI callbacks (closes the event loop)
+  useCopilotExecutionBridge({
+    executionId: state.currentExecutionId,
+    callbacks: {
+      onStatus: webSocketCallbacks.onStatus,
+      onContent: webSocketCallbacks.onContent,
+      onThoughtStep: webSocketCallbacks.onThoughtStep,
+      onToolCall: webSocketCallbacks.onToolCall,
+      onToolResult: webSocketCallbacks.onToolResult,
+      onResult: webSocketCallbacks.onResult,
+      onError: webSocketCallbacks.onError,
+      onDone: webSocketCallbacks.onDone,
+    },
+  })
+
   const { handleSend, handleSendWithInput, handleStop, handleReset, handleAIDecision } =
     useCopilotActions({
       state,
       actions,
       refs,
-      graphId,
       copilotMode,
       selectedProviderName,
       selectedModelName,
-      onCopilotEvent: webSocketCallbacks.handleCopilotEvent,
     })
 
-  // Side effects (session recovery, auto-scroll, URL params, etc.)
   useCopilotEffects({
     state,
     actions,
     refs,
-    graphId,
     handleSendWithInput,
-    handleCopilotEvent: webSocketCallbacks.handleCopilotEvent,
   })
 
-  // Stage config
   const stageConfig = getStageConfig(t)
 
-  // Copy streaming content handler
   const handleCopyStreaming = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(state.streamingContent)
       if (!refs.isMountedRef.current) return
 
-      // Clear previous timeout if exists
       if (refs.copyTimeoutRef.current) {
         clearTimeout(refs.copyTimeoutRef.current)
         // eslint-disable-next-line react-hooks/immutability

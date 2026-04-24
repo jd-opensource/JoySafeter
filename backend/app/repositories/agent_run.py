@@ -10,6 +10,7 @@ from typing import List, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.agent import AgentRelease, AgentVersion
 from app.models.agent_run import AgentRun
 
 from .base import BaseRepository
@@ -49,5 +50,26 @@ class AgentRunRepository(BaseRepository[AgentRun]):
             .where(AgentRun.task_id == task_id)
             .order_by(AgentRun.created_at.desc())
         )
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def find_by_agent_and_trigger(
+        self,
+        agent_id: uuid.UUID,
+        trigger_source: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> List[AgentRun]:
+        """Find runs for a specific agent, optionally filtered by trigger_source and status."""
+        query = (
+            select(AgentRun)
+            .join(AgentRelease, AgentRun.release_id == AgentRelease.id)
+            .join(AgentVersion, AgentRelease.agent_version_id == AgentVersion.id)
+            .where(AgentVersion.agent_id == agent_id)
+        )
+        if trigger_source:
+            query = query.where(AgentRun.trigger_source == trigger_source)
+        if status:
+            query = query.where(AgentRun.status == status)
+        query = query.order_by(AgentRun.created_at.desc()).limit(10)
         result = await self.db.execute(query)
         return list(result.scalars().all())

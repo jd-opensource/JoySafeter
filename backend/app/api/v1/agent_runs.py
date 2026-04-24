@@ -32,14 +32,20 @@ async def list_runs(
     workspace_id: uuid.UUID | None = Query(None),
     release_id: uuid.UUID | None = Query(None),
     task_id: uuid.UUID | None = Query(None),
+    agent_id: uuid.UUID | None = Query(None),
+    trigger_source: str | None = Query(None),
+    status: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[List[AgentRunResponse]]:
-    """List runs filtered by workspace_id, release_id, or task_id."""
+    """List runs filtered by workspace_id, release_id, task_id, or agent_id."""
     service = AgentRunService(db)
     runs = await service.list_runs(
         workspace_id=workspace_id,
         release_id=release_id,
         task_id=task_id,
+        agent_id=agent_id,
+        trigger_source=trigger_source,
+        status=status,
     )
     return BaseResponse(
         success=True,

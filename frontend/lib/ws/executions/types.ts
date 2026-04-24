@@ -28,6 +28,19 @@ export interface ExecutionStatusFrame {
   status: string
 }
 
+export interface ExecutionCompletedFrame {
+  type: 'execution_completed'
+  execution_id: string
+  run_id: string
+  status: string
+}
+
+export interface ExecutionReplayDoneFrame {
+  type: 'replay_done'
+  execution_id: string
+  last_seq: number
+}
+
 export interface ExecutionWsErrorFrame {
   type: 'ws_error'
   message: string
@@ -37,6 +50,8 @@ export type IncomingExecutionWsFrame =
   | ExecutionSnapshotFrame
   | ExecutionEventFrame
   | ExecutionStatusFrame
+  | ExecutionCompletedFrame
+  | ExecutionReplayDoneFrame
   | ExecutionWsErrorFrame
 
 export interface ExecutionSubscriptionCallbacks {

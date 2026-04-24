@@ -8,11 +8,17 @@ export const agentRunService = {
     workspace_id?: string
     release_id?: string
     task_id?: string
+    agent_id?: string
+    trigger_source?: string
+    status?: string
   }): Promise<AgentRun[]> => {
     const searchParams = new URLSearchParams()
     if (params.workspace_id) searchParams.set('workspace_id', params.workspace_id)
     if (params.release_id) searchParams.set('release_id', params.release_id)
     if (params.task_id) searchParams.set('task_id', params.task_id)
+    if (params.agent_id) searchParams.set('agent_id', params.agent_id)
+    if (params.trigger_source) searchParams.set('trigger_source', params.trigger_source)
+    if (params.status) searchParams.set('status', params.status)
     const res = await apiGet<AgentRun[]>(`runs?${searchParams}`)
     return res ?? []
   },
@@ -45,5 +51,9 @@ export const agentRunService = {
   listExecutionEvents: async (executionId: string): Promise<ExecutionEvent[]> => {
     const res = await apiGet<ExecutionEventsPage>(`executions/${executionId}/events`)
     return res?.events ?? []
+  },
+
+  sendMessage: async (executionId: string, message: string): Promise<void> => {
+    await apiPost(`executions/${executionId}/message`, { message })
   },
 }

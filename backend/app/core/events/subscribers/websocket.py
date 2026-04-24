@@ -41,6 +41,6 @@ class WebSocketSubscriber:
                 "execution_id": eid,
                 "seq": envelope.seq,
                 "event_type": envelope.event_type,
-                "data": envelope.payload,
+                "payload": envelope.payload,
                 "created_at": envelope.created_at.isoformat() if envelope.created_at else None,
             })

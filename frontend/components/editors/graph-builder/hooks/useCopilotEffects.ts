@@ -1,21 +1,11 @@
-/**
- * useCopilotEffects - Side effects hook for Copilot
- *
- * Handles UI side effects: page title, auto-scroll, URL parameter cleanup.
- * Run restoration is handled by useCopilotSession (init) and this hook (fetch via Run Center).
- */
-
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useEffect, useRef } from 'react'
 
 import { useToast } from '@/hooks/use-toast'
 import { createLogger } from '@/lib/logs/console/logger'
-import type { RunEventFrame, RunStatusFrame } from '@/lib/ws/runs/types'
-import { getRunWsClient } from '@/lib/ws/runs/runWsClient'
-import type { ChatStreamEvent } from '@/services/chatBackend'
-import { runService } from '@/services/runService'
+import { agentRunService } from '@/services/agentRunService'
 
-import { hasCurrentMessage } from '../utils/copilotUtils'
+import { useBuilderStore } from '../stores/builderStore'
 
 import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotState'
 
@@ -25,16 +15,7 @@ interface UseCopilotEffectsOptions {
   state: CopilotState
   actions: CopilotActions
   refs: CopilotRefs
-  graphId?: string
   handleSendWithInput: (input: string) => Promise<void>
-  handleCopilotEvent: (evt: ChatStreamEvent) => void
-}
-
-/** Map a persisted RunEventFrame back to the ChatStreamEvent shape that handleCopilotEvent expects. */
-function runEventToChatEvent(frame: RunEventFrame): ChatStreamEvent {
-  // _mirror_run_stream_event stores "content" as "content_delta"; reverse it
-  const type = frame.event_type === 'content_delta' ? 'content' : frame.event_type
-  return { type, data: frame.data } as ChatStreamEvent
 }
 
 export function useCopilotEffects({
@@ -42,25 +23,12 @@ export function useCopilotEffects({
   actions,
   refs,
   handleSendWithInput,
-  handleCopilotEvent,
 }: UseCopilotEffectsOptions) {
   const searchParams = useSearchParams()
   const router = useRouter()
   const { toast } = useToast()
   const lastRestoredSessionIdRef = useRef<string | null>(null)
-  const activeSubscriptionRef = useRef<string | null>(null)
 
-  // Cleanup run subscription on unmount
-  useEffect(() => {
-    return () => {
-      if (activeSubscriptionRef.current) {
-        getRunWsClient().unsubscribe(activeSubscriptionRef.current)
-        activeSubscriptionRef.current = null
-      }
-    }
-  }, [])
-
-  // Session recovery: restore state from run snapshot when runId is restored
   useEffect(() => {
     const currentRunId = state.currentRunId
     if (
@@ -71,120 +39,79 @@ export function useCopilotEffects({
       return
 
     const restoreSession = async () => {
-      logger.debug('Restoring from run snapshot:', currentRunId)
+      logger.debug('Restoring from run:', currentRunId)
       lastRestoredSessionIdRef.current = currentRunId
 
       try {
         actions.setLoading(true)
-        const snapshot = await runService.getRunSnapshot(currentRunId)
+        const run = await agentRunService.get(currentRunId)
         if (!refs.isMountedRef.current) return
 
-        if (!snapshot) {
-          actions.clearSession()
-          return
-        }
-
-        const projection = snapshot.projection as Record<string, unknown> | undefined
-        const status = snapshot.status as string
-
-        if (status === 'running' || status === 'pending') {
-          // Run still active -- show last known state from snapshot
-          if (projection) {
-            const content = projection.content as string | undefined
-            if (content) {
-              actions.setStreamingContent(content)
-            }
-            const stage = projection.stage as string | undefined
-            actions.setCurrentStage({
-              stage: (stage || 'processing') as any,
-              message: 'Processing...',
-            })
-            if (!hasCurrentMessage(state.messages, false)) actions.setThinkingMessage()
+        if (run.status === 'running' || run.status === 'pending') {
+          // Set executionId — the bridge (useCopilotExecutionBridge) automatically
+          // subscribes via /ws/executions, receives snapshot + replay + live events
+          if (run.current_execution_id) {
+            actions.setSession(currentRunId, run.current_execution_id)
           }
-
-          // Subscribe to /ws/runs for live event replay from where snapshot left off
-          const afterSeq = snapshot.last_seq ?? 0
-          activeSubscriptionRef.current = currentRunId
-          getRunWsClient()
-            .subscribe(currentRunId, afterSeq, {
-              onEvent: (frame: RunEventFrame) => {
-                if (!refs.isMountedRef.current) return
-                handleCopilotEvent(runEventToChatEvent(frame))
-              },
-              onStatus: (frame: RunStatusFrame) => {
-                if (!refs.isMountedRef.current) return
-                if (frame.status === 'succeeded' || frame.status === 'failed') {
-                  getRunWsClient().unsubscribe(currentRunId)
-                  activeSubscriptionRef.current = null
-                  // Re-fetch final snapshot to get complete projection
-                  runService
-                    .getRunSnapshot(currentRunId)
-                    .then((finalSnapshot) => {
-                      if (!refs.isMountedRef.current || !finalSnapshot) return
-                      const fp = finalSnapshot.projection as Record<string, unknown> | undefined
-                      if (frame.status === 'succeeded' && fp) {
-                        const resultMessage = (fp.result_message as string) ?? ''
-                        const resultActions = fp.result_actions as
-                          | Array<Record<string, unknown>>
-                          | undefined
-                        actions.clearStreaming()
-                        actions.finalizeCurrentMessage(resultMessage, resultActions as any)
-                        if (resultActions && resultActions.length > 0) {
-                          actions.executeActions(resultActions as any)
-                        }
-                      } else if (frame.status === 'failed') {
-                        actions.clearStreaming()
-                        actions.finalizeCurrentMessage(
-                          (fp?.error as string) || frame.error_message || 'Copilot task failed',
-                        )
-                      }
-                      actions.clearSession()
-                      actions.setLoading(false)
-                    })
-                    .catch(() => {
-                      actions.clearSession()
-                      actions.setLoading(false)
-                    })
-                }
-              },
-              onError: (message: string) => {
-                logger.warn('Run subscription error:', message)
-              },
-            })
-            .catch((err) => {
-              logger.warn('Failed to subscribe to run events:', err)
-            })
-        } else if (status === 'succeeded') {
-          if (projection) {
-            const resultMessage = (projection.result_message as string) ?? ''
-            const resultActions = projection.result_actions as
-              | Array<Record<string, unknown>>
-              | undefined
-            if (resultMessage || (resultActions && resultActions.length > 0)) {
-              actions.finalizeCurrentMessage(resultMessage, resultActions as any)
-            }
-          }
+          actions.setCurrentStage({ stage: 'processing', message: 'Reconnecting...' })
+        } else if (run.status === 'succeeded') {
           actions.clearSession()
-          actions.clearStreaming()
-        } else if (status === 'failed') {
+          actions.setLoading(false)
+        } else if (run.status === 'failed') {
           toast({
             title: 'Copilot task failed',
-            description:
-              (projection?.error as string) || 'An error occurred during execution. Please retry.',
+            description: run.result_summary || 'An error occurred during execution. Please retry.',
             variant: 'destructive',
           })
           actions.clearSession()
+          actions.setLoading(false)
+        } else {
+          actions.clearSession()
+          actions.setLoading(false)
         }
       } catch (error) {
-        logger.warn('Failed to restore from run snapshot:', error)
-      } finally {
-        if (refs.isMountedRef.current) actions.setLoading(false)
+        logger.warn('Failed to restore session:', error)
+        if (refs.isMountedRef.current) {
+          actions.clearSession()
+          actions.setLoading(false)
+        }
       }
     }
 
     restoreSession()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.currentRunId, actions, refs, handleCopilotEvent])
+  }, [state.currentRunId, actions, refs])
+
+  // Reconnect to active run on mount when localStorage is empty.
+  // Delayed so useCopilotSession's localStorage read settles first — otherwise
+  // this effect and the restore effect race on an empty state.
+  useEffect(() => {
+    if (state.currentRunId || refs.isCreatingSessionRef.current) return
+
+    const agentId = useBuilderStore.getState().agentId
+    if (!agentId) return
+
+    const timer = setTimeout(() => {
+      if (lastRestoredSessionIdRef.current || !refs.isMountedRef.current) return
+
+      agentRunService
+        .list({ agent_id: agentId, trigger_source: 'copilot', status: 'running' })
+        .then((runs) => {
+          if (!refs.isMountedRef.current || runs.length === 0) return
+          if (lastRestoredSessionIdRef.current) return
+          const activeRun = runs[0]
+          if (activeRun.current_execution_id) {
+            actions.setSession(activeRun.id, activeRun.current_execution_id)
+          }
+        })
+        .catch((err) => {
+          logger.debug('Failed to check for active copilot run:', err)
+        })
+    }, 50)
+
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Update page title to show loading status
   useEffect(() => {

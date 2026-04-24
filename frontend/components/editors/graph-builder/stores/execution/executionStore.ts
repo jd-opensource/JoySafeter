@@ -566,25 +566,22 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
                 const frame = JSON.parse(msgEvent.data as string) as {
                   type: string
                   event_type?: string
-                  data?: Record<string, unknown>
+                  payload?: Record<string, unknown>
                   seq?: number
                 }
 
                 if (frame.type === 'snapshot') {
-                  // Full state snapshot — treat as state_update
-                  if (frame.data) {
-                    storeAdapter.updateState(frame.data as Record<string, unknown>)
+                  if (frame.payload) {
+                    storeAdapter.updateState(frame.payload as Record<string, unknown>)
                   }
                   return
                 }
 
                 if (frame.type === 'event' && frame.event_type) {
-                  // Map execution WS event to ChatStreamEvent envelope
                   const chatEvt = {
                     type: frame.event_type,
-                    data: frame.data ?? {},
-                    // Provide default envelope fields expected by ChatWsFrameBase
-                    node_name: (frame.data?.node_name as string) ?? '',
+                    data: frame.payload ?? {},
+                    node_name: (frame.payload?.node_name as string) ?? '',
                     run_id: run.id,
                     timestamp: Date.now(),
                     thread_id: '',

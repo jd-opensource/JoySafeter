@@ -37,16 +37,25 @@ class AgentRunService:
         workspace_id: Optional[uuid.UUID] = None,
         release_id: Optional[uuid.UUID] = None,
         task_id: Optional[uuid.UUID] = None,
+        agent_id: Optional[uuid.UUID] = None,
+        trigger_source: Optional[str] = None,
+        status: Optional[str] = None,
     ) -> List[AgentRun]:
         """List runs filtered by parameters."""
-        if task_id:
+        if agent_id:
+            return await self.run_repo.find_by_agent_and_trigger(
+                agent_id=agent_id,
+                trigger_source=trigger_source,
+                status=status,
+            )
+        elif task_id:
             return await self.run_repo.list_by_task(task_id)
         elif release_id:
             return await self.run_repo.list_by_release(release_id)
         elif workspace_id:
             return await self.run_repo.list_by_workspace(workspace_id)
         else:
-            raise BadRequestException("Must provide workspace_id, release_id, or task_id")
+            raise BadRequestException("Must provide workspace_id, release_id, task_id, or agent_id")
 
     async def get_run(self, run_id: uuid.UUID) -> AgentRun:
         """Get a run by ID."""

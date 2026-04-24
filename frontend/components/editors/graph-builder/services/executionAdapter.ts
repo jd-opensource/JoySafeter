@@ -1,4 +1,5 @@
-import { apiGet, apiPost } from '@/lib/api-client'
+import { apiPost } from '@/lib/api-client'
+import { agentRunService } from '@/services/agentRunService'
 
 export interface StartRunParams {
   releaseId: string
@@ -36,15 +37,15 @@ export const executionAdapter = {
   },
 
   async cancelRun(runId: string): Promise<void> {
-    await apiPost(`runs/${runId}/cancel`, {})
+    await agentRunService.cancel(runId)
   },
 
   async injectMessage(executionId: string, message: string): Promise<void> {
-    await apiPost(`executions/${executionId}/message`, { message })
+    await agentRunService.sendMessage(executionId, message)
   },
 
   async getExecutionId(runId: string): Promise<string> {
-    const run = await apiGet<RunResult>(`runs/${runId}`)
-    return run.current_execution_id
+    const run = await agentRunService.get(runId)
+    return run.current_execution_id!
   },
 }

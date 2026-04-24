@@ -1,19 +1,8 @@
-/**
- * useCopilotActions - Business logic hook for Copilot actions
- *
- * Handles all user interactions: send, stop, reset, AI decision, etc.
- * Uses Run Center (runService.createRun) + shared chat WS (getChatWsClient) for execution.
- */
-
-import { useCallback, useRef } from 'react'
+import { useCallback } from 'react'
 
 import { useTranslation } from '@/lib/i18n'
-import { generateUUID } from '@/lib/utils/uuid'
-import { getChatWsClient } from '@/lib/ws/chat/chatWsClient'
-import type { CopilotExtension } from '@/lib/ws/chat/types'
-import type { ChatStreamEvent } from '@/services/chatBackend'
+import { agentRunService } from '@/services/agentRunService'
 import { copilotService } from '@/services/copilotService'
-import { runService } from '@/services/runService'
 
 import { useBuilderStore } from '../stores/builderStore'
 
@@ -25,26 +14,21 @@ interface UseCopilotActionsOptions {
   state: CopilotState
   actions: CopilotActions
   refs: CopilotRefs
-  graphId?: string
   copilotMode?: CopilotMode
   selectedProviderName?: string
   selectedModelName?: string
-  onCopilotEvent?: (evt: ChatStreamEvent) => void
 }
 
 export function useCopilotActions({
   state,
   actions,
   refs,
-  graphId,
   copilotMode = 'deepagents',
   selectedProviderName,
   selectedModelName,
-  onCopilotEvent,
 }: UseCopilotActionsOptions) {
   const { t } = useTranslation()
   const { getGraphContext } = useBuilderStore()
-  const activeRequestIdRef = useRef<string | null>(null)
 
   const handleSendWithInput = useCallback(
     async (userText: string) => {
@@ -57,17 +41,31 @@ export function useCopilotActions({
       actions.setLoading(true)
       actions.clearStreaming()
 
-      // Mark that we're creating a new session
+      // Follow-up to active execution
+      if (state.currentExecutionId) {
+        try {
+          await agentRunService.sendMessage(state.currentExecutionId, userText)
+        } catch (e) {
+          console.error('[CopilotPanel] Failed to send follow-up:', e)
+          if (refs.isMountedRef.current) {
+            actions.setLoading(false)
+            actions.finalizeCurrentMessage(t('workspace.systemError'))
+          }
+        }
+        return
+      }
+
       // eslint-disable-next-line react-hooks/immutability
       refs.isCreatingSessionRef.current = true
       actions.clearSession()
 
-      // Get serialized context from store
       const graphContext = getGraphContext()
-      const storeGraphId = useBuilderStore.getState().graphId
+      const storeState = useBuilderStore.getState()
+      const storeGraphId = storeState.graphId
+      const storeAgentId = storeState.agentId
 
-      if (!storeGraphId) {
-        console.error('[CopilotPanel] No graphId in store')
+      if (!storeGraphId || !storeAgentId) {
+        console.error('[CopilotPanel] No graphId or agentId in store')
         if (refs.isMountedRef.current) {
           actions.setLoading(false)
         }
@@ -75,73 +73,33 @@ export function useCopilotActions({
       }
 
       try {
-        // Convert conversation history to OpenAI format
-        const historyMessages = copilotService.convertConversationHistory(state.messages)
-
-        // 1. Create run via Run Center
-        let runId: string | null = null
-        try {
-          const runResponse = await runService.createRun({
-            agent_name: 'copilot',
-            graph_id: graphId || storeGraphId,
-            message: userText,
-          })
-          runId = runResponse.run_id
-        } catch (err) {
-          console.warn('[Copilot] Failed to create run, proceeding without persistence', err)
-        }
-
-        // Check if component is still mounted
-        if (!refs.isMountedRef.current) return
-
-        // Save run_id
-        if (runId) {
-          actions.setSession(runId)
-        }
-
-        // Show initial loading state
         actions.setCurrentStage({ stage: 'thinking', message: 'Connecting...' })
         actions.setThinkingMessage()
 
-        // 2. Send via shared chat WS
-        const extension: CopilotExtension = {
-          kind: 'copilot',
-          runId,
+        const { run_id, execution_id } = await copilotService.dispatchRun({
+          agentId: storeAgentId,
+          prompt: userText,
           graphContext,
-          conversationHistory: historyMessages as unknown as Array<Record<string, unknown>>,
-          mode: copilotMode || 'deepagents',
-        }
-
-        const requestId = generateUUID()
-        activeRequestIdRef.current = requestId
-
-        const result = await getChatWsClient().sendChat({
-          requestId,
-          input: {
-            message: userText,
-            provider_name: selectedProviderName,
-            model_name: selectedModelName,
-          },
-          graphId: graphId || storeGraphId,
-          extension,
-          onEvent: (evt) => onCopilotEvent?.(evt),
+          conversationHistory: state.messages,
+          mode: copilotMode,
+          providerName: selectedProviderName,
+          modelName: selectedModelName,
         })
 
-        if (result.terminal === 'error' && refs.isMountedRef.current) {
-          actions.setLoading(false)
-          actions.clearStreaming()
-          refs.isCreatingSessionRef.current = false
-          actions.clearSession()
-        }
+        if (!refs.isMountedRef.current) return
+
+        // Bridge auto-subscribes to /ws/executions when executionId is set
+        actions.setSession(run_id, execution_id)
+        // eslint-disable-next-line react-hooks/immutability
+        refs.isCreatingSessionRef.current = false
       } catch (e: unknown) {
-        console.error('[CopilotPanel] Failed to send copilot message:', e)
+        console.error('[CopilotPanel] Failed to dispatch copilot run:', e)
 
         if (!refs.isMountedRef.current) return
 
         actions.setLoading(false)
         actions.clearStreaming()
 
-        // Provide user-friendly error messages
         let errorMessage = t('workspace.couldNotProcessRequest')
 
         if (e && typeof e === 'object') {
@@ -160,22 +118,19 @@ export function useCopilotActions({
         actions.finalizeCurrentMessage(`${t('workspace.systemError')}: ${errorMessage}`)
         refs.isCreatingSessionRef.current = false
         actions.clearSession()
-      } finally {
-        activeRequestIdRef.current = null
       }
     },
     [
       state.loading,
       state.messages,
+      state.currentExecutionId,
       actions,
       refs,
-      graphId,
       copilotMode,
       selectedProviderName,
       selectedModelName,
       getGraphContext,
       t,
-      onCopilotEvent,
     ],
   )
 
@@ -184,12 +139,13 @@ export function useCopilotActions({
     await handleSendWithInput(state.input.trim())
   }, [state.input, state.loading, handleSendWithInput])
 
-  const handleStop = useCallback(() => {
-    // Send chat.stop frame to cancel the backend stream
-    const requestId = activeRequestIdRef.current
-    if (requestId) {
-      getChatWsClient().stopByRequestId(requestId)
-      activeRequestIdRef.current = null
+  const handleStop = useCallback(async () => {
+    if (state.currentRunId) {
+      try {
+        await agentRunService.cancel(state.currentRunId)
+      } catch (e) {
+        console.warn('[Copilot] Failed to cancel run:', e)
+      }
     }
 
     actions.clearSession()
@@ -202,7 +158,7 @@ export function useCopilotActions({
     refs.isCreatingSessionRef.current = false
     actions.removeCurrentMessage()
     actions.addMessage({ role: 'model', text: t('workspace.requestCancelled') })
-  }, [actions, refs, t])
+  }, [state.currentRunId, actions, refs, t])
 
   const handleReset = useCallback(async () => {
     actions.clearSession()
