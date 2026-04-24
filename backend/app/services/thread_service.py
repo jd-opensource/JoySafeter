@@ -56,6 +56,8 @@ class ThreadService:
                 "created_by": user_id,
             }
         )
+        await self.db.commit()
+        await self.db.refresh(thread)
         logger.info(f"Created thread {thread.id} for agent {data.agent_id}")
         return thread
 
@@ -74,6 +76,8 @@ class ThreadService:
 
         updated = await self.thread_repo.update(thread_id, update_data)
         assert updated is not None
+        await self.db.commit()
+        await self.db.refresh(updated)
         return updated
 
     async def archive_thread(self, thread_id: uuid.UUID) -> Thread:
@@ -83,6 +87,8 @@ class ThreadService:
 
         updated = await self.thread_repo.update(thread_id, {"status": "archived"})
         assert updated is not None
+        await self.db.commit()
+        await self.db.refresh(updated)
         logger.info(f"Archived thread {thread_id}")
         return updated
 
@@ -111,5 +117,7 @@ class ThreadService:
                 "content": data.content,
             }
         )
+        await self.db.commit()
+        await self.db.refresh(message)
         logger.info(f"Created message {message.id} in thread {thread_id}")
         return message
