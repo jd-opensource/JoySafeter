@@ -16,7 +16,7 @@ import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import type { ExecutionEvent, ExecutionEventType } from '@/types/executions'
+import type { ExecutionEvent, ExecutionEventType } from '@/types/agent-run'
 
 const TEXT_CFG = { icon: FileText, label: 'Text', style: '' } as const
 const TOOL_CFG = { icon: Wrench, label: 'Tool', style: '' } as const

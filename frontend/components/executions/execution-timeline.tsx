@@ -4,10 +4,11 @@ import { AlertCircle, CheckCircle, Loader2, Pause, Play, RefreshCw, XCircle } fr
 import { useEffect, useMemo, useRef } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { useExecution, useExecutionEvents } from '@/hooks/queries/executions'
+import { useExecution, useExecutionEvents } from '@/hooks/queries/agentRuns'
 import { useExecutionStream } from '@/hooks/use-execution-stream'
 import { cn } from '@/lib/utils'
-import { ACTIVE_EXECUTION_STATUSES } from '@/types/executions'
+import { formatDuration } from '@/lib/utils/dateHelpers'
+import { ACTIVE_EXECUTION_STATUSES } from '@/types/agent-run'
 
 import { taskService } from '@/services/taskService'
 
@@ -46,7 +47,7 @@ export function ExecutionTimeline({
     isLoading: isExecLoading,
     error: execError,
     refetch: refetchExec,
-  } = useExecution(executionId, workspaceId)
+  } = useExecution(executionId)
   const isActive = execution ? ACTIVE_EXECUTION_STATUSES.includes(execution.status) : false
   const shouldStream = isLive && isActive && Boolean(executionId)
 
@@ -60,19 +61,19 @@ export function ExecutionTimeline({
 
   // Polling fallback — only enabled when WS fails and execution is live
   const {
-    data: eventsPage,
+    data: polledEvents,
     isLoading: isEventsLoading,
     error: eventsError,
     refetch: refetchEvents,
-  } = useExecutionEvents(executionId, workspaceId, undefined, {
+  } = useExecutionEvents(executionId, {
     enabled: Boolean(executionId) && (shouldStream ? wsFailed : true),
   })
 
   // Use WS events when connected, fall back to polling data
   const events = useMemo(() => {
     if (!wsFailed && wsEvents.length > 0) return wsEvents
-    return eventsPage?.events ?? wsEvents
-  }, [wsFailed, wsEvents, eventsPage])
+    return polledEvents ?? wsEvents
+  }, [wsFailed, wsEvents, polledEvents])
 
   const currentStatus = wsStatus ?? execution?.status ?? 'pending'
 
@@ -98,15 +99,10 @@ export function ExecutionTimeline({
   const statusConfig = STATUS_CONFIG[currentStatus] ?? STATUS_CONFIG.pending
   const StatusIcon = statusConfig.icon
 
-  const duration = useMemo(() => {
-    if (!execution?.started_at) return null
-    const start = new Date(execution.started_at).getTime()
-    const end = execution.finished_at ? new Date(execution.finished_at).getTime() : Date.now()
-    const secs = Math.floor((end - start) / 1000)
-    const m = Math.floor(secs / 60)
-    const s = secs % 60
-    return `${m}m ${s.toString().padStart(2, '0')}s`
-  }, [execution?.started_at, execution?.finished_at])
+  const duration = useMemo(
+    () => formatDuration(execution?.started_at, execution?.ended_at),
+    [execution?.started_at, execution?.ended_at],
+  )
 
   const toolCount = useMemo(
     () =>
@@ -115,14 +111,14 @@ export function ExecutionTimeline({
   )
 
   const tokenDisplay = useMemo(() => {
-    const summary = execution?.result_summary as Record<string, number> | undefined
+    const summary = execution?.metrics as Record<string, number> | undefined
     if (!summary) return null
     const input = summary.input_tokens ?? 0
     const output = summary.output_tokens ?? 0
     if (!input && !output) return null
     const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
     return `${fmt(input)} in / ${fmt(output)} out`
-  }, [execution?.result_summary])
+  }, [execution?.metrics])
 
   const effectiveId = taskId
 

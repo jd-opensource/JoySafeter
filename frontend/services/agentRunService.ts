@@ -1,7 +1,7 @@
 'use client'
 
 import { apiGet, apiPost } from '@/lib/api-client'
-import type { AgentRun, CreateAgentRunRequest, Execution, ExecutionEvent } from '@/types/agent-run'
+import type { AgentRun, CreateAgentRunRequest, Execution, ExecutionEvent, ExecutionEventsPage } from '@/types/agent-run'
 
 export const agentRunService = {
   list: async (params: {
@@ -43,7 +43,7 @@ export const agentRunService = {
   },
 
   listExecutionEvents: async (executionId: string): Promise<ExecutionEvent[]> => {
-    const res = await apiGet<ExecutionEvent[]>(`executions/${executionId}/events`)
-    return res ?? []
+    const res = await apiGet<ExecutionEventsPage>(`executions/${executionId}/events`)
+    return res?.events ?? []
   },
 }

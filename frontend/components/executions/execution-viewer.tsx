@@ -14,11 +14,12 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { useExecution, useExecutionEvents } from '@/hooks/queries/executions'
+import { useExecution, useExecutionEvents } from '@/hooks/queries/agentRuns'
 import { useExecutionStream } from '@/hooks/use-execution-stream'
 import { cn } from '@/lib/utils'
-import { ACTIVE_EXECUTION_STATUSES } from '@/types/executions'
-import type { ExecutionEvent } from '@/types/executions'
+import { formatDuration } from '@/lib/utils/dateHelpers'
+import { ACTIVE_EXECUTION_STATUSES } from '@/types/agent-run'
+import type { ExecutionEvent } from '@/types/agent-run'
 
 import { ExecutionEventItem } from './execution-event'
 import { MessageInput } from './message-input'
@@ -59,7 +60,7 @@ export function ExecutionViewer({
     isLoading: isExecLoading,
     error: execError,
     refetch: refetchExec,
-  } = useExecution(executionId, workspaceId)
+  } = useExecution(executionId)
 
   const shouldStream = isLive && ACTIVE_EXECUTION_STATUSES.includes(
     (execution?.status ?? 'pending') as never,
@@ -75,11 +76,11 @@ export function ExecutionViewer({
     isLoading: isEventsLoading,
     error: eventsError,
     refetch: refetchEvents,
-  } = useExecutionEvents(executionId, workspaceId, 0, {
+  } = useExecutionEvents(executionId, {
     enabled: (!shouldStream || wsFailed) && Boolean(executionId),
   })
 
-  const events: ExecutionEvent[] = shouldStream && !wsFailed ? wsEvents : (polledEventsPage?.events ?? [])
+  const events: ExecutionEvent[] = shouldStream && !wsFailed ? wsEvents : (polledEventsPage ?? [])
   const currentStatus = (shouldStream && !wsFailed ? wsStatus : null) ?? execution?.status ?? 'pending'
   const isActive = ACTIVE_EXECUTION_STATUSES.includes(currentStatus as never)
 
@@ -115,13 +116,10 @@ export function ExecutionViewer({
   const statusConfig = STATUS_CONFIG[currentStatus] ?? STATUS_CONFIG.pending
   const StatusIcon = statusConfig.icon
 
-  const duration = useMemo(() => {
-    if (!execution?.started_at) return null
-    const start = new Date(execution.started_at).getTime()
-    const end = execution.finished_at ? new Date(execution.finished_at).getTime() : Date.now()
-    const secs = Math.floor((end - start) / 1000)
-    return `${Math.floor(secs / 60)}m ${(secs % 60).toString().padStart(2, '0')}s`
-  }, [execution?.started_at, execution?.finished_at])
+  const duration = useMemo(
+    () => formatDuration(execution?.started_at, execution?.ended_at),
+    [execution?.started_at, execution?.ended_at],
+  )
 
   const toolCount = useMemo(
     () => events.filter((e) => e.event_type === 'tool_use_start').length,
@@ -129,14 +127,14 @@ export function ExecutionViewer({
   )
 
   const tokenDisplay = useMemo(() => {
-    const summary = execution?.result_summary as Record<string, number> | undefined
+    const summary = execution?.metrics as Record<string, number> | undefined
     if (!summary) return null
     const input = summary.input_tokens ?? 0
     const output = summary.output_tokens ?? 0
     if (!input && !output) return null
     const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
     return `${fmt(input)} in / ${fmt(output)} out`
-  }, [execution?.result_summary])
+  }, [execution?.metrics])
 
   const handleApproveOrReject = (eventId: string, approved: boolean) => {
     onApprove?.(eventId, approved)

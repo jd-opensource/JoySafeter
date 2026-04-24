@@ -7,24 +7,22 @@ import { useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { useExecutions, useCancelExecution } from '@/hooks/queries/executions'
+import { useAgentRuns, useCancelAgentRun } from '@/hooks/queries/agentRuns'
 import { useTasks } from '@/hooks/queries/tasks'
-import { useAgentNameMap } from '@/hooks/queries/agents'
+import { useReleaseAgentNameMap } from '@/hooks/queries/agents'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import type { ExecutionStatus } from '@/types/executions'
-import { EXECUTION_STATUS_I18N } from '@/types/executions'
+import type { AgentRunStatus } from '@/types/agent-run'
+import { RUN_STATUS_I18N } from '@/types/agent-run'
 
 import { ExecutionRow } from './execution-row'
 import { ExecutionTimeline } from './execution-timeline'
 
-const STATUS_OPTIONS: Array<ExecutionStatus | 'all'> = [
+const STATUS_OPTIONS: Array<AgentRunStatus | 'all'> = [
   'all',
   'pending',
-  'dispatched',
   'running',
-  'approval_wait',
   'succeeded',
   'failed',
   'cancelled',
@@ -39,15 +37,13 @@ export function ExecutionsTab() {
   const { data: workspaces = [] } = useWorkspaces()
   const workspaceId = workspaces[0]?.id ?? ''
 
-  const [statusFilter, setStatusFilter] = useState<ExecutionStatus | 'all'>('all')
-  const [selectedExecutionId, setSelectedExecutionId] = useState<string | null>(null)
+  const [statusFilter, setStatusFilter] = useState<AgentRunStatus | 'all'>('all')
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
 
-  const { data: executions = [], isLoading } = useExecutions(
-    workspaceId,
+  const { data: runs = [], isLoading } = useAgentRuns(
     {
+      workspace_id: workspaceId || undefined,
       task_id: taskFilter,
-      status: statusFilter !== 'all' ? statusFilter : undefined,
-      limit: 100,
     },
     { enabled: Boolean(workspaceId) },
   )
@@ -55,14 +51,19 @@ export function ExecutionsTab() {
   const { data: tasks = [] } = useTasks(workspaceId, undefined, {
     enabled: Boolean(workspaceId),
   })
-  const agentNameMap = useAgentNameMap(workspaceId)
+  const agentNameMap = useReleaseAgentNameMap(workspaceId)
 
   const taskTitleMap = useMemo(
     () => Object.fromEntries(tasks.map((m) => [m.id, m.title])),
     [tasks],
   )
 
-  const cancelMutation = useCancelExecution()
+  const cancelMutation = useCancelAgentRun()
+
+  const filteredRuns = useMemo(
+    () => (statusFilter === 'all' ? runs : runs.filter((r) => r.status === statusFilter)),
+    [runs, statusFilter],
+  )
 
   function clearTaskFilter() {
     const next = new URLSearchParams(searchParams.toString())
@@ -71,9 +72,9 @@ export function ExecutionsTab() {
     router.replace(qs ? `/runs?${qs}` : '/runs')
   }
 
-  const selectedExecution = useMemo(
-    () => executions.find((e) => e.id === selectedExecutionId),
-    [executions, selectedExecutionId],
+  const selectedRun = useMemo(
+    () => runs.find((r) => r.id === selectedRunId),
+    [runs, selectedRunId],
   )
 
   return (
@@ -81,7 +82,7 @@ export function ExecutionsTab() {
       <div
         className={cn(
           'flex flex-1 flex-col overflow-hidden',
-          selectedExecutionId && 'border-r border-[var(--border)]',
+          selectedRunId && 'border-r border-[var(--border)]',
         )}
       >
         <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] px-6 py-3">
@@ -92,7 +93,7 @@ export function ExecutionsTab() {
               size="sm"
               onClick={() => setStatusFilter(status)}
             >
-              {t(status === 'all' ? 'execution.filterAll' : EXECUTION_STATUS_I18N[status])}
+              {t(status === 'all' ? 'execution.filterAll' : RUN_STATUS_I18N[status])}
             </Button>
           ))}
         </div>
@@ -119,7 +120,7 @@ export function ExecutionsTab() {
               <Loader2 className="h-4 w-4 animate-spin" />
               {t('execution.loading')}
             </div>
-          ) : executions.length === 0 ? (
+          ) : filteredRuns.length === 0 ? (
             <Card className="border-dashed border-[var(--border)] bg-[var(--surface-1)] p-8 text-center">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--surface-3)] text-[var(--text-muted)]">
                 <Activity className="h-5 w-5" />
@@ -133,20 +134,18 @@ export function ExecutionsTab() {
             </Card>
           ) : (
             <div className="space-y-3">
-              {executions.map((exec) => (
+              {filteredRuns.map((run) => (
                 <ExecutionRow
-                  key={exec.id}
-                  execution={exec}
-                  taskTitle={exec.task_id ? taskTitleMap[exec.task_id] : undefined}
-                  agentName={
-                    exec.agent_profile_id ? agentNameMap[exec.agent_profile_id] : undefined
-                  }
-                  onSelect={setSelectedExecutionId}
-                  onCancel={(id) => cancelMutation.mutate({ executionId: id, workspaceId })}
+                  key={run.id}
+                  run={run}
+                  taskTitle={run.task_id ? taskTitleMap[run.task_id] : undefined}
+                  agentName={agentNameMap[run.release_id]}
+                  onSelect={setSelectedRunId}
+                  onCancel={(id) => cancelMutation.mutate(id)}
                   isCancelling={
-                    cancelMutation.isPending && cancelMutation.variables?.executionId === exec.id
+                    cancelMutation.isPending && cancelMutation.variables === run.id
                   }
-                  isSelected={exec.id === selectedExecutionId}
+                  isSelected={run.id === selectedRunId}
                 />
               ))}
             </div>
@@ -154,12 +153,12 @@ export function ExecutionsTab() {
         </div>
       </div>
 
-      {selectedExecutionId && workspaceId && (
+      {selectedRunId && workspaceId && selectedRun?.current_execution_id && (
         <div className="w-[480px] flex-shrink-0 overflow-hidden">
           <ExecutionTimeline
-            executionId={selectedExecutionId}
+            executionId={selectedRun.current_execution_id}
             workspaceId={workspaceId}
-            taskId={selectedExecution?.task_id ?? undefined}
+            taskId={selectedRun.task_id ?? undefined}
           />
         </div>
       )}

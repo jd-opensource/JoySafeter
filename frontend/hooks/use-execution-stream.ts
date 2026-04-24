@@ -8,7 +8,7 @@ import type {
   ExecutionSnapshotFrame,
   ExecutionStatusFrame,
 } from '@/lib/ws/executions/types'
-import type { ExecutionEvent } from '@/types/executions'
+import type { ExecutionEvent } from '@/types/agent-run'
 
 interface UseExecutionStreamOptions {
   executionId: string

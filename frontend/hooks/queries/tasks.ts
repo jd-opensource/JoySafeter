@@ -17,7 +17,7 @@ import type {
 import { TERMINAL_TASK_STATUSES, DEFAULT_MANUAL_TRANSITIONS } from '@/types/tasks'
 
 import { STALE_TIME } from './constants'
-import { executionKeys } from './executions'
+import { agentRunKeys } from './agentRuns'
 
 // ==================== Query Keys ====================
 
@@ -179,7 +179,7 @@ export function useDispatchTask() {
       queryClient.setQueryData(taskKeys.detail(variables.taskId, variables.workspaceId), data)
       queryClient.invalidateQueries({ queryKey: taskKeys.all })
       queryClient.invalidateQueries({
-        queryKey: executionKeys.list(variables.workspaceId, { task_id: variables.taskId }),
+        queryKey: agentRunKeys.list({ workspace_id: variables.workspaceId, task_id: variables.taskId }),
       })
     },
   })
@@ -195,7 +195,7 @@ export function useCancelTask() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: taskKeys.all })
       queryClient.invalidateQueries({
-        queryKey: executionKeys.list(variables.workspaceId, { task_id: variables.taskId }),
+        queryKey: agentRunKeys.list({ workspace_id: variables.workspaceId, task_id: variables.taskId }),
       })
     },
   })

@@ -1,6 +1,6 @@
 'use client'
 
-import { Bot, Clock3, Loader2, Square, Zap } from 'lucide-react'
+import { Bot, Clock3, Loader2, Square } from 'lucide-react'
 import Link from 'next/link'
 import { useMemo } from 'react'
 
@@ -9,55 +9,36 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import { formatRelativeTime } from '@/lib/utils/dateHelpers'
-import type { Execution } from '@/types/executions'
-import {
-  ACTIVE_EXECUTION_STATUSES,
-  EXECUTION_STATUS_STYLES,
-  EXECUTION_STATUS_I18N,
-} from '@/types/executions'
+import { formatDuration, formatRelativeTime } from '@/lib/utils/dateHelpers'
+import type { AgentRun } from '@/types/agent-run'
+import { ACTIVE_RUN_STATUSES, RUN_STATUS_STYLES, RUN_STATUS_I18N } from '@/types/agent-run'
 
-interface ExecutionRowProps {
-  execution: Execution
+interface RunRowProps {
+  run: AgentRun
   taskTitle?: string
   agentName?: string
-  onSelect: (executionId: string) => void
-  onCancel: (executionId: string) => void
+  onSelect: (runId: string) => void
+  onCancel: (runId: string) => void
   isCancelling: boolean
   isSelected: boolean
 }
 
 export function ExecutionRow({
-  execution,
+  run,
   taskTitle,
   agentName,
   onSelect,
   onCancel,
   isCancelling,
   isSelected,
-}: ExecutionRowProps) {
+}: RunRowProps) {
   const { t } = useTranslation()
-  const isActive = ACTIVE_EXECUTION_STATUSES.includes(execution.status)
+  const isActive = ACTIVE_RUN_STATUSES.includes(run.status)
 
-  const duration = useMemo(() => {
-    if (!execution.started_at) return null
-    const start = new Date(execution.started_at).getTime()
-    const end = execution.finished_at ? new Date(execution.finished_at).getTime() : Date.now()
-    const secs = Math.floor((end - start) / 1000)
-    const m = Math.floor(secs / 60)
-    const s = secs % 60
-    return `${m}m ${s.toString().padStart(2, '0')}s`
-  }, [execution.started_at, execution.finished_at])
-
-  const tokenDisplay = useMemo(() => {
-    const summary = execution.result_summary as Record<string, number> | undefined
-    if (!summary) return null
-    const input = summary.input_tokens ?? 0
-    const output = summary.output_tokens ?? 0
-    if (!input && !output) return null
-    const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
-    return `${fmt(input)} in / ${fmt(output)} out`
-  }, [execution.result_summary])
+  const duration = useMemo(
+    () => formatDuration(run.started_at, run.ended_at),
+    [run.started_at, run.ended_at],
+  )
 
   return (
     <Card
@@ -65,20 +46,20 @@ export function ExecutionRow({
         'cursor-pointer border-[var(--border)] bg-[var(--surface-1)] p-4 transition-colors hover:bg-[var(--surface-2)]',
         isSelected && 'ring-2 ring-[var(--brand-400)]',
       )}
-      onClick={() => onSelect(execution.id)}
+      onClick={() => onSelect(run.id)}
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <Badge
               variant="outline"
-              className={cn('text-xs', EXECUTION_STATUS_STYLES[execution.status])}
+              className={cn('text-xs', RUN_STATUS_STYLES[run.status])}
             >
-              {t(EXECUTION_STATUS_I18N[execution.status])}
+              {t(RUN_STATUS_I18N[run.status])}
             </Badge>
-            {taskTitle && execution.task_id && (
+            {taskTitle && run.task_id && (
               <Link
-                href={`/tasks?task=${execution.task_id}`}
+                href={`/tasks?task=${run.task_id}`}
                 onClick={(e) => e.stopPropagation()}
                 className="truncate text-sm font-medium text-[var(--text-primary)] hover:underline"
               >
@@ -87,7 +68,7 @@ export function ExecutionRow({
             )}
             {!taskTitle && (
               <span className="truncate text-sm font-medium text-[var(--text-primary)]">
-                {execution.title || `Execution ${execution.id.slice(0, 8)}`}
+                {run.goal || `Run ${run.id.slice(0, 8)}`}
               </span>
             )}
             {agentName && (
@@ -102,22 +83,16 @@ export function ExecutionRow({
           </div>
 
           <div className="flex flex-wrap items-center gap-4 text-xs text-[var(--text-muted)]">
-            {execution.started_at && (
+            {run.started_at && (
               <span className="flex items-center gap-1">
                 <Clock3 className="h-3.5 w-3.5" />
-                {t('execution.startedAt')} {formatRelativeTime(execution.started_at, t)}
+                {t('execution.startedAt')} {formatRelativeTime(run.started_at, t)}
               </span>
             )}
             {duration && (
               <span className="flex items-center gap-1">
                 <Clock3 className="h-3.5 w-3.5" />
                 {duration}
-              </span>
-            )}
-            {tokenDisplay && (
-              <span className="flex items-center gap-1">
-                <Zap className="h-3.5 w-3.5" />
-                {tokenDisplay}
               </span>
             )}
           </div>
@@ -130,7 +105,7 @@ export function ExecutionRow({
               size="sm"
               onClick={(e) => {
                 e.stopPropagation()
-                onCancel(execution.id)
+                onCancel(run.id)
               }}
               disabled={isCancelling}
               className="gap-1.5"

@@ -6,11 +6,14 @@ import asyncio
 import uuid
 
 from loguru import logger
+from sqlalchemy import select
 
 from app.core.agent.cli_backends.base import CLIResult
 from app.core.agent.cli_backends.execution_runner import ExecutionRunner
 from app.core.database import async_session_factory
+from app.models.execution import Execution
 from app.services.execution_service import ExecutionService
+from app.utils.datetime import utc_now
 from app.utils.safe_task import safe_create_task
 
 # Execution source and status string literals
@@ -51,17 +54,35 @@ async def spawn_agent(
     ws_id = uuid.UUID(workspace_id)
     parent_id = uuid.UUID(parent_execution_id)
 
-    # Create child execution
     async with async_session_factory() as db:
+        from app.models.agent_run import AgentRun
+
+        parent_release = (await db.execute(
+            select(AgentRun.release_id).join(
+                Execution, AgentRun.id == Execution.run_id
+            ).where(Execution.id == parent_id)
+        )).scalar_one_or_none()
+
+        run = AgentRun(
+            release_id=parent_release,
+            workspace_id=ws_id,
+            trigger_source=EXECUTION_SOURCE_COORDINATOR,
+            goal=f"[Sub] {agent_name}: {prompt[:80]}",
+            status="running",
+            created_by=user_id,
+            started_at=utc_now(),
+        )
+        db.add(run)
+        await db.flush()
+
         svc = ExecutionService(db)
         execution = await svc.create_execution(
-            user_id=user_id,
-            workspace_id=ws_id,
-            source=EXECUTION_SOURCE_COORDINATOR,
+            run_id=run.id,
             runtime_type=runtime_type,
-            title=f"[Sub] {agent_name}: {prompt[:80]}",
             parent_execution_id=parent_id,
         )
+        run.current_execution_id = execution.id
+        await db.commit()
         exec_id = execution.id
 
     logger.info(f"Coordinator spawned {agent_name} ({runtime_type}) -> execution {exec_id}")
@@ -166,8 +187,8 @@ async def get_agent_result(execution_id: str, *, user_id: str) -> dict:
 
         if status == EXECUTION_STATUS_COMPLETED:
             output = ""
-            if execution.result_summary:
-                output = execution.result_summary.get("output", "")
+            if execution.metrics:
+                output = execution.metrics.get("output", "")
             return {"status": "succeeded", "output": output}
         elif status == EXECUTION_STATUS_FAILED:
             return {"status": "failed", "output": execution.error_message or "Unknown error"}

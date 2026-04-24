@@ -1,4 +1,4 @@
-import type { ExecutionEvent, ExecutionEventType } from '@/types/executions'
+import type { ExecutionEvent, ExecutionEventType } from '@/types/agent-run'
 
 export interface ExecutionConnectionState {
   isConnected: boolean

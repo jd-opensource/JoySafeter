@@ -44,7 +44,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { useAgent, useAgents } from '@/hooks/queries/agents'
-import { useExecutions, useCancelExecution } from '@/hooks/queries/executions'
+import { useAgentRuns, useCancelAgentRun } from '@/hooks/queries/agentRuns'
 import {
   useAssignTask,
   useCancelTask,
@@ -56,7 +56,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import { toastSuccess, toastError, getErrorMessage } from '@/lib/utils/toast'
-import { ACTIVE_EXECUTION_STATUSES } from '@/types/executions'
+import { ACTIVE_RUN_STATUSES } from '@/types/agent-run'
 import type { TaskPriority, TaskStatus, UpdateTaskRequest } from '@/types/tasks'
 import {
   DEFAULT_MANUAL_TRANSITIONS,
@@ -95,14 +95,17 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
       Boolean(task?.agent_id ?? task?.assignee_id),
   })
   const { data: agents = [] } = useAgents(workspaceId, { enabled: Boolean(workspaceId) })
-  const { data: executions = [] } = useExecutions(workspaceId, { task_id: taskId })
+  const { data: runs = [] } = useAgentRuns(
+    { workspace_id: workspaceId, task_id: taskId },
+    { enabled: Boolean(workspaceId) },
+  )
   const { data: transitions } = useTaskTransitions(workspaceId)
   const effectiveTransitions = transitions ?? DEFAULT_MANUAL_TRANSITIONS
 
   const assignTask = useAssignTask()
   const dispatchTask = useDispatchTask()
   const cancelTask = useCancelTask()
-  const cancelExecution = useCancelExecution()
+  const cancelRun = useCancelAgentRun()
   const updateTask = useUpdateTask()
 
   // Editing states
@@ -126,19 +129,19 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
     return hasAgent && notRunning && validStatus.includes(task.status)
   }, [task])
 
-  const currentExecution = useMemo(
+  const currentRun = useMemo(
     () =>
-      task?.current_execution_id
-        ? executions.find((e) => e.id === task.current_execution_id)
+      task?.latest_run_id
+        ? runs.find((r) => r.id === task.latest_run_id)
         : undefined,
-    [task, executions],
+    [task, runs],
   )
 
-  const canCancel = currentExecution
-    ? ACTIVE_EXECUTION_STATUSES.includes(currentExecution.status)
+  const canCancel = currentRun
+    ? ACTIVE_RUN_STATUSES.includes(currentRun.status)
     : false
 
-  const pastExecutionCount = executions.length - (currentExecution ? 1 : 0)
+  const pastRunCount = runs.length - (currentRun ? 1 : 0)
 
   const onMutationError = useCallback(
     (err: unknown) => toastError(getErrorMessage(err, t('common.operationFailed'))),
@@ -559,23 +562,23 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                     <div className="flex items-center gap-2">
                       <PulsingDot className="text-[var(--status-success)]" />
                       <Badge variant="outline" className="text-xs">
-                        {currentExecution?.status ?? t('tasks.running')}
+                        {currentRun?.status ?? t('tasks.running')}
                       </Badge>
-                      {canCancel && (
+                      {canCancel && currentRun && (
                         <Button
                           variant="destructive"
                           size="sm"
                           className="h-6 px-2 text-xs"
                           onClick={() =>
-                            cancelExecution.mutate(
-                              { executionId: task.current_execution_id!, workspaceId },
+                            cancelRun.mutate(
+                              currentRun.id,
                               { onError: onMutationError },
                             )
                           }
-                          disabled={cancelExecution.isPending}
+                          disabled={cancelRun.isPending}
                         >
                           <Square className="mr-1 h-3 w-3" />
-                          {cancelExecution.isPending
+                          {cancelRun.isPending
                             ? t('tasks.stoppingRun')
                             : t('tasks.stopRun')}
                         </Button>
@@ -619,13 +622,13 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
               </section>
             )}
 
-            {pastExecutionCount > 0 && (
+            {pastRunCount > 0 && (
               <section>
                 <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
                   {t('execution.pastExecutions')}
                 </h3>
                 <p className="text-xs text-[var(--text-muted)]">
-                  {t('execution.pastExecutionsCount', { count: pastExecutionCount })} —{' '}
+                  {t('execution.pastExecutionsCount', { count: pastRunCount })} —{' '}
                   <Link
                     href={`/runs?tab=executions&task=${taskId}`}
                     className="text-[var(--brand-400)] hover:underline"
@@ -637,7 +640,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
             )}
 
             {/* Latest run link — shown when there's a linked run but no active execution */}
-            {task.latest_run_id && !task.current_execution_id && pastExecutionCount === 0 && (
+            {task.latest_run_id && !task.current_execution_id && pastRunCount === 0 && (
               <section>
                 <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
                   {t('tasks.lastRun')}

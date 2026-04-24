@@ -1,7 +1,7 @@
 'use client'
 
 import { apiGet, apiPost, apiPatch } from '@/lib/api-client'
-import type { ExecutionSnapshot, ExecutionEventsPage } from '@/types/executions'
+import type { ExecutionSnapshot, ExecutionEventsPage } from '@/types/agent-run'
 import type { Task, CreateTaskRequest, UpdateTaskRequest } from '@/types/tasks'
 
 export interface TaskListResponse {

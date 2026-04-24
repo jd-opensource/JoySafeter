@@ -106,14 +106,19 @@ class ExecutionService:
         ctx = self._event_ctx
         if ctx is None:
             # Fallback for callers without event context (e.g. reaper)
-            execution = (await self.db.execute(
-                select(Execution).where(Execution.id == execution_id)
-            )).scalar_one_or_none()
-            if not execution:
+            from app.models.agent_run import AgentRun
+            result = await self.db.execute(
+                select(Execution, AgentRun.workspace_id)
+                .join(AgentRun, Execution.run_id == AgentRun.id)
+                .where(Execution.id == execution_id)
+            )
+            row = result.one_or_none()
+            if not row:
                 return None
+            execution, ws_id = row
             ctx = EventContext(
                 run_id=execution.run_id,
-                workspace_id=execution.workspace_id,
+                workspace_id=ws_id,
             )
         else:
             execution = None
@@ -257,31 +262,19 @@ class ExecutionService:
     async def create_execution(
         self,
         *,
-        user_id: str,
-        workspace_id: uuid.UUID,
-        source: str = "api",
+        run_id: uuid.UUID,
         runtime_type: str = "claude_code",
-        title: Optional[str] = None,
         parent_execution_id: Optional[uuid.UUID] = None,
     ) -> Execution:
-        """Create a bare Execution record (used by coordinator sub-agent spawning).
-
-        This creates an Execution that is not yet attached to an AgentRun.  The
-        caller (coordinator_tools) is responsible for driving the runner directly.
-        """
+        """Create an Execution record attached to an existing AgentRun."""
+        max_attempt = await ExecutionRepository(self.db).get_max_attempt(run_id)
         execution = Execution(
-            attempt_index=1,
+            run_id=run_id,
+            attempt_index=max_attempt + 1,
             executor_kind=runtime_type,
             status="pending",
+            parent_execution_id=parent_execution_id,
         )
-        # Store optional metadata in the metrics JSON column if available
-        meta: dict[str, Any] = {"source": source}
-        if title:
-            meta["title"] = title
-        if parent_execution_id:
-            meta["parent_execution_id"] = str(parent_execution_id)
-        execution.metrics = meta
-
         self.db.add(execution)
         await self.db.commit()
         await self.db.refresh(execution)

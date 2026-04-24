@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 
 import { useChatMessage, threadKeys } from '@/hooks/queries/threads'
 import { useExecutionStream } from '@/hooks/use-execution-stream'
-import { TERMINAL_EXECUTION_STATUSES } from '@/types/executions'
+import { TERMINAL_EXECUTION_STATUSES } from '@/types/agent-run'
 import type { ThreadMessage } from '@/types/thread'
 
 interface UseAgentChatOptions {

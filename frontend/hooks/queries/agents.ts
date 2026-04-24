@@ -57,6 +57,19 @@ export function useAgentNameMap(workspaceId: string) {
   )
 }
 
+export function useReleaseAgentNameMap(workspaceId: string) {
+  const { data: agents = [] } = useAgents(workspaceId)
+  return useMemo(
+    () =>
+      Object.fromEntries(
+        agents
+          .filter((a) => a.active_release_id)
+          .map((a) => [a.active_release_id!, a.name]),
+      ) as Record<string, string>,
+    [agents],
+  )
+}
+
 // ==================== Mutation Hooks ====================
 
 export function useCreateAgent() {
