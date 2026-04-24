@@ -1,9 +1,11 @@
+export type RuntimeKind = 'graph' | 'sandbox' | 'code' | 'copilot' | 'hosted' | 'external'
+
 export interface AgentRelease {
   id: string
   agent_version_id: string
   release_number: number
   status: 'ready' | 'failed' | 'retired'
-  runtime_kind: 'graph' | 'sandbox' | 'hosted' | 'external'
+  runtime_kind: RuntimeKind
   builder_kind: string | null
   executable_ref: Record<string, unknown> | null
   runtime_binding: Record<string, unknown>
@@ -14,7 +16,7 @@ export interface AgentRelease {
 
 export interface CreateAgentReleaseRequest {
   agent_version_id: string
-  runtime_kind: 'graph' | 'sandbox' | 'hosted' | 'external'
+  runtime_kind: RuntimeKind
   builder_kind?: string
   runtime_binding?: Record<string, unknown>
 }

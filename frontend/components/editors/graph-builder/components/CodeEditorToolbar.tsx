@@ -1,13 +1,22 @@
 'use client'
 
-import { Loader2, Play, Save } from 'lucide-react'
-import { useState } from 'react'
+import { Loader2, Play, Save, Square } from 'lucide-react'
+import { useCallback, useState } from 'react'
 import { useCodeEditorStore } from '../stores/codeEditorStore'
 import { useTranslation } from '@/lib/i18n'
+import { useAgent } from '@/hooks/queries/agents'
+import { agentRunService } from '@/services/agentRunService'
+import { useExecutionStream } from '@/hooks/use-execution-stream'
+import { TERMINAL_EXECUTION_STATUSES } from '@/types/agent-run'
 
 interface Props {
   graphId: string
   workspaceId: string
+}
+
+interface ActiveRun {
+  runId: string
+  executionId: string
 }
 
 export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
@@ -19,14 +28,56 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
   const setGraphName = useCodeEditorStore((s) => s.setGraphName)
 
   const [runError, setRunError] = useState<string | null>(null)
+  const [activeRun, setActiveRun] = useState<ActiveRun | null>(null)
 
-  const handleRun = async () => {
+  const { data: agent } = useAgent(graphId, workspaceId)
+
+  const { status: wsStatus } = useExecutionStream({
+    executionId: activeRun?.executionId || '',
+    enabled: Boolean(activeRun),
+  })
+
+  const isExecuting = Boolean(
+    activeRun &&
+    wsStatus &&
+    !TERMINAL_EXECUTION_STATUSES.includes(wsStatus as never),
+  )
+
+  const handleRun = useCallback(async () => {
+    setRunError(null)
+
     if (isDirty) {
       await save()
     }
-    // TODO: 走 POST /v1/runs — 需后端注册 CodeEngine 处理 definition_kind="code"
-    setRunError('Code run is not yet supported — waiting for backend CodeEngine registration')
-  }
+
+    if (!agent?.active_release_id) {
+      setRunError(t('workspace.codeRunNoRelease'))
+      return
+    }
+
+    try {
+      const run = await agentRunService.create({
+        release_id: agent.active_release_id,
+        trigger_source: 'api',
+        goal: 'Code mode run',
+      })
+      if (run.current_execution_id) {
+        setActiveRun({ runId: run.id, executionId: run.current_execution_id })
+      }
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : String(err))
+    }
+  }, [isDirty, save, agent, t])
+
+  const handleCancel = useCallback(async () => {
+    if (!activeRun) return
+    try {
+      await agentRunService.cancel(activeRun.runId)
+    } catch {
+      // Best-effort cancel
+    }
+    setActiveRun(null)
+  }, [activeRun])
 
   return (
     <div className="flex shrink-0 flex-col">
@@ -48,13 +99,23 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
             {isSaving ? t('workspace.savingEllipsis') : t('workspace.save')}
           </button>
 
-          <button
-            className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs text-white transition-colors hover:bg-primary/90"
-            onClick={handleRun}
-          >
-            <Play size={13} />
-            {t('workspace.runButton')}
-          </button>
+          {isExecuting ? (
+            <button
+              className="flex items-center gap-1.5 rounded-md bg-[var(--status-error)] px-3 py-1.5 text-xs text-white transition-colors hover:bg-[var(--status-error)]/90"
+              onClick={handleCancel}
+            >
+              <Square size={13} />
+              {t('workspace.stopButton')}
+            </button>
+          ) : (
+            <button
+              className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs text-white transition-colors hover:bg-primary/90"
+              onClick={handleRun}
+            >
+              <Play size={13} />
+              {t('workspace.runButton')}
+            </button>
+          )}
         </div>
       </div>
 

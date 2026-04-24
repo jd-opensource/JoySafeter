@@ -83,7 +83,7 @@ class CopilotService:
         resolver = ModelResolver(model_service, user_id=self.user_id)
         return await resolver.resolve(model_name=self.model_name, provider_name=self.provider_name)
 
-    async def _get_copilot_stream(
+    async def get_copilot_stream(
         self,
         prompt: str,
         graph_context: Dict[str, Any],
@@ -335,11 +335,11 @@ class CopilotService:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Generate graph actions with streaming (SSE events).
-        Consumes the unified _get_copilot_stream and yields events; handles top-level errors with code.
+        Consumes the unified get_copilot_stream and yields events; handles top-level errors with code.
         """
         logger.info(f"[CopilotService] generate_actions_stream start user_id={self.user_id}")
         try:
-            async for event in self._get_copilot_stream(
+            async for event in self.get_copilot_stream(
                 prompt=prompt,
                 graph_context=graph_context,
                 conversation_history=conversation_history,

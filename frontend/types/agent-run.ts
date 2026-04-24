@@ -4,7 +4,7 @@ export interface AgentRun {
   workspace_id: string
   thread_id: string | null
   task_id: string | null
-  trigger_source: 'task' | 'chat' | 'api' | 'scheduler'
+  trigger_source: 'task' | 'chat' | 'api' | 'scheduler' | 'copilot'
   goal: string | null
   input_payload: Record<string, unknown> | null
   status: AgentRunStatus
@@ -56,7 +56,7 @@ export interface CreateAgentRunRequest {
   release_id: string
   thread_id?: string
   task_id?: string
-  trigger_source: 'task' | 'chat' | 'api' | 'scheduler'
+  trigger_source: 'task' | 'chat' | 'api' | 'scheduler' | 'copilot'
   goal?: string
   input_payload?: Record<string, unknown>
 }
@@ -119,6 +119,12 @@ export type ExecutionEventType =
   | 'execution_started'
   | 'execution_completed'
   | 'execution_status_change'
+  | 'copilot_status'
+  | 'copilot_content'
+  | 'copilot_thought_step'
+  | 'copilot_tool_call'
+  | 'copilot_tool_result'
+  | 'copilot_result'
 
 export interface Execution {
   id: string

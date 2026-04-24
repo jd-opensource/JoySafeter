@@ -16,6 +16,9 @@ class EngineRegistry:
     def register(self, runtime_kind: str, engine: ExecutionEngine) -> None:
         self._engines[runtime_kind] = engine
 
+    def has(self, runtime_kind: str) -> bool:
+        return runtime_kind in self._engines
+
     def get(self, runtime_kind: str) -> ExecutionEngine:
         engine = self._engines.get(runtime_kind)
         if not engine:

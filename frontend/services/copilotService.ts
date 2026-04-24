@@ -13,6 +13,7 @@ import type {
   ConversationMessage,
   StreamGraphActionsCallbacks,
 } from '@/types/copilot'
+import { apiPost } from '@/lib/api-client'
 
 // Re-export types
 export type { GraphAction, CopilotResponse, ConversationMessage, StreamGraphActionsCallbacks }
@@ -60,4 +61,28 @@ export const copilotService = {
    * Convert conversation history format (helper method)
    */
   convertConversationHistory,
+
+  /**
+   * Dispatch copilot through execution engine for persistent history.
+   * Returns { run_id, execution_id } — subscribe to execution WS for events.
+   */
+  async dispatchRun(params: {
+    agentId: string
+    prompt: string
+    graphContext: Record<string, unknown>
+    conversationHistory: Array<{ role: 'user' | 'model'; text: string; actions?: GraphAction[] }>
+    mode?: string
+    providerName?: string
+    modelName?: string
+  }): Promise<{ run_id: string; execution_id: string }> {
+    return apiPost<{ run_id: string; execution_id: string }>('copilot/run', {
+      agent_id: params.agentId,
+      prompt: params.prompt,
+      graph_context: params.graphContext,
+      conversation_history: convertConversationHistory(params.conversationHistory),
+      mode: params.mode || 'deepagents',
+      provider_name: params.providerName,
+      model_name: params.modelName,
+    })
+  },
 }

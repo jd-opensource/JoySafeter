@@ -10,7 +10,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel
 
-RuntimeKindLiteral = Literal["graph", "sandbox", "hosted", "external"]
+RuntimeKindLiteral = Literal["graph", "sandbox", "code", "copilot", "hosted", "external"]
 
 
 # ---------------------------------------------------------------------------

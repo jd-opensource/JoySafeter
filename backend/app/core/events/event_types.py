@@ -25,3 +25,11 @@ class ExecutionEventType(StrEnum):
     EXECUTION_STARTED = "execution_started"
     EXECUTION_COMPLETED = "execution_completed"
     EXECUTION_STATUS_CHANGE = "execution_status_change"
+
+    # Copilot events (mapped from CopilotService stream events by CopilotEngine)
+    COPILOT_STATUS = "copilot_status"
+    COPILOT_CONTENT = "copilot_content"
+    COPILOT_THOUGHT_STEP = "copilot_thought_step"
+    COPILOT_TOOL_CALL = "copilot_tool_call"
+    COPILOT_TOOL_RESULT = "copilot_tool_result"
+    COPILOT_RESULT = "copilot_result"

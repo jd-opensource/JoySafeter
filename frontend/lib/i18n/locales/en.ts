@@ -776,6 +776,8 @@ const en = {
       savingEllipsis: 'Saving...',
       runningEllipsis: 'Running...',
       runButton: 'Run',
+      stopButton: 'Stop',
+      codeRunNoRelease: 'No active release found. Publish a release first to run code.',
       error: 'Error',
       result: 'Result',
       close: 'Close',

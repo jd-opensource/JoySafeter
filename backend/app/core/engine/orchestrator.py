@@ -8,7 +8,7 @@ Creates AgentRun + Execution, resolves the engine, builds context, fires.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from loguru import logger
 from sqlalchemy import select
@@ -20,7 +20,7 @@ from app.core.engine.registry import engine_registry
 from app.core.events import ExecutionEventEnvelope, execution_event_bus
 from app.core.events.event_types import ExecutionEventType
 from app.core.state_machines.transitions import (
-    transition_run, transition_task,
+    sync_task_from_run, transition_run, transition_task,
 )
 from app.models.agent import Agent, AgentRelease, AgentVersion
 from app.models.agent_run import AgentRun
@@ -140,6 +140,63 @@ class ExecutionOrchestrator:
             input_payload=input_payload,
         )
 
+    async def dispatch_copilot(
+        self,
+        agent_id: uuid.UUID,
+        prompt: str,
+        user_id: str,
+        graph_context: dict,
+        conversation_history: list | None = None,
+        mode: str = "deepagents",
+        provider_name: str | None = None,
+        model_name: str | None = None,
+    ) -> AgentRun:
+        """Dispatch a copilot interaction through the execution engine.
+
+        Creates an AgentRun + Execution for the copilot session so that
+        copilot events are persisted as ExecutionEvents and broadcast
+        via WebSocket.
+        """
+        agent = await self._get_agent(agent_id)
+        if not agent.active_release_id:
+            raise BadRequestException(
+                f"Agent '{agent.name}' has no active release. "
+                "Publish a release first to use persistent copilot history."
+            )
+
+        copilot_payload = {
+            "graph_context": graph_context,
+            "conversation_history": conversation_history,
+            "mode": mode,
+            "provider_name": provider_name,
+            "model_name": model_name,
+            "user_id": user_id,
+            "graph_id": str(agent_id),
+        }
+
+        return await self._create_and_fire(
+            release_id=agent.active_release_id,
+            workspace_id=agent.workspace_id,
+            prompt=prompt,
+            trigger_source="copilot",
+            user_id=user_id,
+            input_payload=copilot_payload,
+            engine_kind_override="copilot",
+            definition_kind_override="copilot",
+            definition_payload_override=copilot_payload,
+            executor_kind_override="copilot",
+        )
+
+    def _resolve_engine(self, execution: Execution, release: AgentRelease):
+        """Resolve the correct engine for an execution.
+
+        Uses executor_kind if it maps to a registered engine (e.g., "copilot"),
+        otherwise falls back to release.runtime_kind.
+        """
+        if execution.executor_kind and engine_registry.has(execution.executor_kind):
+            return engine_registry.get(execution.executor_kind)
+        return engine_registry.get(release.runtime_kind)
+
     # ------------------------------------------------------------------
     # Cancel / Retry / Message
     # ------------------------------------------------------------------
@@ -156,7 +213,7 @@ class ExecutionOrchestrator:
             )).scalar_one_or_none()
             if execution:
                 release = await self._get_release(run.release_id)
-                engine = engine_registry.get(release.runtime_kind)
+                engine = self._resolve_engine(execution, release)
                 await engine.cancel(execution.id)
                 cancel_envelope = ExecutionEventEnvelope(
                     execution_id=execution.id,
@@ -227,7 +284,7 @@ class ExecutionOrchestrator:
 
         run = await self._get_run(execution.run_id)
         release = await self._get_release(run.release_id)
-        engine = engine_registry.get(release.runtime_kind)
+        engine = self._resolve_engine(execution, release)
         await engine.send_message(execution_id, message)
 
     # ------------------------------------------------------------------
@@ -244,6 +301,11 @@ class ExecutionOrchestrator:
         thread_id: uuid.UUID | None = None,
         task_id: uuid.UUID | None = None,
         input_payload: dict | None = None,
+        *,
+        engine_kind_override: str | None = None,
+        definition_kind_override: str | None = None,
+        definition_payload_override: dict | None = None,
+        executor_kind_override: str | None = None,
     ) -> AgentRun:
         release = await self._get_release(release_id)
         version = await self._get_version(release.agent_version_id)
@@ -268,7 +330,7 @@ class ExecutionOrchestrator:
         execution = Execution(
             run_id=run.id,
             attempt_index=1,
-            executor_kind=release.runtime_binding.get("runtime_type", "claude_code"),
+            executor_kind=executor_kind_override or release.runtime_binding.get("runtime_type", "claude_code"),
             status="pending",
         )
         self.db.add(execution)
@@ -286,6 +348,9 @@ class ExecutionOrchestrator:
                 version=version,
                 workspace_id=workspace_id,
                 prompt=prompt,
+                engine_kind_override=engine_kind_override,
+                definition_kind_override=definition_kind_override,
+                definition_payload_override=definition_payload_override,
             )
         except Exception as exc:
             logger.error(f"[Orchestrator] _fire_engine failed: {exc}")
@@ -311,6 +376,10 @@ class ExecutionOrchestrator:
         version: AgentVersion,
         workspace_id: uuid.UUID,
         prompt: str,
+        *,
+        engine_kind_override: str | None = None,
+        definition_kind_override: str | None = None,
+        definition_payload_override: dict | None = None,
     ) -> None:
         """Build context and fire engine in a background task."""
         credentials = await build_credentials(self.db, workspace_id)
@@ -344,7 +413,9 @@ class ExecutionOrchestrator:
         )
         self._wire_context(context, **_run_meta)
 
-        engine = engine_registry.get(release.runtime_kind)
+        engine = engine_registry.get(engine_kind_override or release.runtime_kind)
+        _def_kind = definition_kind_override or version.definition_kind
+        _def_payload = definition_payload_override or version.definition_payload
 
         async def _run_engine():
             from app.core.database import AsyncSessionLocal
@@ -364,8 +435,8 @@ class ExecutionOrchestrator:
                     await engine.start(
                         ctx,
                         release_runtime_binding=release.runtime_binding,
-                        definition_kind=version.definition_kind,
-                        definition_payload=version.definition_payload,
+                        definition_kind=_def_kind,
+                        definition_payload=_def_payload,
                         prompt=prompt,
                     )
             except Exception as exc:

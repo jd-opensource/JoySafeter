@@ -766,6 +766,8 @@ const zh = {
       savingEllipsis: '保存中...',
       runningEllipsis: '运行中...',
       runButton: '运行',
+      stopButton: '停止',
+      codeRunNoRelease: '未找到活跃版本。请先发布版本后再运行代码。',
       error: '错误',
       result: '结果',
       close: '关闭',
