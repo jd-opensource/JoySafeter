@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { PulsingDot } from '@/components/ui/pulsing-dot'
 import { useTranslation } from '@/lib/i18n'
-import { formatRelativeTime } from '@/lib/utils/runHelpers'
+import { formatRelativeTime } from '@/lib/utils/dateHelpers'
 import type { Task } from '@/types/tasks'
 
 interface TaskActivitySummaryProps {

@@ -24,7 +24,7 @@ class ExecutionEventEnvelope:
     execution_id: uuid.UUID
     run_id: uuid.UUID
     workspace_id: uuid.UUID
-    event_type: str
+    event_type: str  # should be an ExecutionEventType value
     payload: dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=utc_now)
     seq: int = 0
@@ -37,3 +37,10 @@ class ExecutionEventEnvelope:
     # Completion-only fields
     terminal_status: Optional[str] = None
     result_summary: Optional[str] = None
+
+    # Status-change fields (used by execution_status_change events)
+    target_status: Optional[str] = None
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
+    container_id: Optional[str] = None
+    metrics: Optional[dict[str, Any]] = None

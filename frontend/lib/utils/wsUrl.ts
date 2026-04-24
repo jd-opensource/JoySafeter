@@ -38,11 +38,6 @@ export async function getWsChatUrl(): Promise<string> {
   return getWsTokenUrl('/ws/chat')
 }
 
-/** Fetch a short-lived WS token from the backend and return a ready-to-use run WS URL. */
-export async function getWsRunsUrl(): Promise<string> {
-  return getWsTokenUrl('/ws/runs')
-}
-
 /** Fetch a short-lived WS token from the backend and return a ready-to-use notification WS URL. */
 export async function getWsNotificationUrl(): Promise<string> {
   return getWsTokenUrl('/ws/notifications')

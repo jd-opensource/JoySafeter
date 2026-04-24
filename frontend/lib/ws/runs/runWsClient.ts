@@ -1,6 +1,6 @@
 'use client'
 
-import { getWsRunsUrl } from '@/lib/utils/wsUrl'
+import { getWsBaseUrl } from '@/lib/utils/wsUrl'
 
 import { BaseWsClient } from '../base'
 import type {
@@ -30,7 +30,7 @@ class SharedRunWsClient extends BaseWsClient<RunConnectionState> implements RunW
   }
 
   protected async getWsUrl(): Promise<string> {
-    return getWsRunsUrl()
+    return `${getWsBaseUrl()}/ws/runs`
   }
 
   protected handleMessage(frame: IncomingRunWsFrame): void {

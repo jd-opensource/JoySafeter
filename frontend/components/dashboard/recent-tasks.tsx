@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { useAgentNameMap } from '@/hooks/queries/agents'
 import { useTranslation } from '@/lib/i18n'
-import { formatRelativeTime } from '@/lib/utils/runHelpers'
+import { formatRelativeTime } from '@/lib/utils/dateHelpers'
 import type { Task } from '@/types/tasks'
 import { TASK_STATUS_LABELS, TASK_STATUS_STYLES } from '@/types/tasks'
 

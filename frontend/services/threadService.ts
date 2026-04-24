@@ -8,7 +8,6 @@ import type {
   ChatResponse,
   CreateThreadRequest,
   UpdateThreadRequest,
-  CreateMessageRequest,
 } from '@/types/thread'
 
 export const threadService = {
@@ -45,7 +44,7 @@ export const threadService = {
     await apiDelete(`threads/${threadId}?workspace_id=${workspaceId}`)
   },
 
-  // Messages
+  // Messages (read-only — writes go through /chat → event bus → projection)
   listMessages: async (
     threadId: string,
     workspaceId: string,
@@ -54,17 +53,6 @@ export const threadService = {
       `threads/${threadId}/messages?workspace_id=${workspaceId}`,
     )
     return res ?? []
-  },
-
-  createMessage: async (
-    threadId: string,
-    workspaceId: string,
-    data: CreateMessageRequest,
-  ): Promise<ThreadMessage> => {
-    return apiPost<ThreadMessage>(
-      `threads/${threadId}/messages?workspace_id=${workspaceId}`,
-      data,
-    )
   },
 
   chat: async (

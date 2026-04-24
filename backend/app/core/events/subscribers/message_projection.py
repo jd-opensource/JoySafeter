@@ -18,9 +18,10 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events.envelope import ExecutionEventEnvelope
+from app.core.events.event_types import ExecutionEventType
 from app.core.events.subscriber import SubscriberPhase
 
-PROJECTED_EVENT_TYPES = {"user_message", "execution_completed"}
+PROJECTED_EVENT_TYPES = {ExecutionEventType.USER_MESSAGE, ExecutionEventType.EXECUTION_COMPLETED}
 
 
 class MessageProjectionSubscriber:
@@ -41,7 +42,7 @@ class MessageProjectionSubscriber:
         from app.models.thread import ThreadMessage
 
         async with AsyncSessionLocal() as session:
-            if envelope.event_type == "user_message":
+            if envelope.event_type == ExecutionEventType.USER_MESSAGE:
                 msg = ThreadMessage(
                     thread_id=envelope.thread_id,
                     role="user",
@@ -55,7 +56,7 @@ class MessageProjectionSubscriber:
                     f"[MessageProjection] Projected user_message to thread {envelope.thread_id}"
                 )
 
-            elif envelope.event_type == "execution_completed":
+            elif envelope.event_type == ExecutionEventType.EXECUTION_COMPLETED:
                 status = envelope.terminal_status or "unknown"
 
                 if status == "succeeded" and envelope.result_summary:

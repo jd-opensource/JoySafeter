@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import { formatRelativeTime } from '@/lib/utils/runHelpers'
+import { formatRelativeTime } from '@/lib/utils/dateHelpers'
 import type { Execution } from '@/types/executions'
 import {
   ACTIVE_EXECUTION_STATUSES,

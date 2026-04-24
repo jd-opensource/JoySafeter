@@ -13,7 +13,7 @@ import { useVersion } from '@/hooks/queries/agentVersions'
 import { useThreads } from '@/hooks/queries/threads'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useTranslation } from '@/lib/i18n'
-import { formatRelativeTime } from '@/lib/utils/runHelpers'
+import { formatRelativeTime } from '@/lib/utils/dateHelpers'
 import { RUN_STATUS_STYLES } from '@/types/agent-run'
 
 interface AgentOverviewTabProps {

@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { useTaskActivities, useCreateTaskActivity } from '@/hooks/queries/taskActivities'
 import { useAgents, useAgentNameMap } from '@/hooks/queries/agents'
 import { cn } from '@/lib/utils'
-import { formatRelativeTime } from '@/lib/utils/runHelpers'
+import { formatRelativeTime } from '@/lib/utils/dateHelpers'
 import type { TaskActivity } from '@/types/task-activities'
 
 const MENTION_RE = /\[@([^\]]*)\]\(mention:\/\/(agent|member)\/[^)]+\)/g

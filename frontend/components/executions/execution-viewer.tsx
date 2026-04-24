@@ -87,7 +87,7 @@ export function ExecutionViewer({
   const artifacts = useMemo(() => {
     if (!showArtifacts) return []
     return events
-      .filter((e) => e.event_type === 'artifact' || e.event_type === 'artifact_created')
+      .filter((e) => e.event_type === 'artifact_created')
       .map((e) => ({
         type: 'file' as const,
         title: (e.payload as Record<string, string>)?.uri || (e.payload as Record<string, string>)?.name || 'artifact',
@@ -100,7 +100,7 @@ export function ExecutionViewer({
     if (currentStatus !== 'approval_wait') return null
     for (let i = events.length - 1; i >= 0; i--) {
       const et = events[i].event_type
-      if (et === 'approval_request' || et === 'approval_requested') return events[i].id
+      if (et === 'approval_requested') return events[i].id
     }
     return null
   }, [currentStatus, events])
@@ -124,7 +124,7 @@ export function ExecutionViewer({
   }, [execution?.started_at, execution?.finished_at])
 
   const toolCount = useMemo(
-    () => events.filter((e) => e.event_type === 'tool_use' || e.event_type === 'tool_use_start').length,
+    () => events.filter((e) => e.event_type === 'tool_use_start').length,
     [events],
   )
 

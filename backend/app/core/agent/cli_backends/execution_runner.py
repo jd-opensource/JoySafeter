@@ -34,6 +34,7 @@ from app.core.agent.cli_backends.injectors import (
 from app.core.agent.cli_backends.registry import runtime_registry
 from app.core.agent.cli_backends.runner_callbacks import RunnerCallbacks
 from app.core.agent.cli_backends.session_registry import session_registry
+from app.core.events.event_types import ExecutionEventType
 from app.models.agent import AgentRelease
 from app.models.agent_run import AgentRun
 from app.models.execution import Execution
@@ -154,7 +155,7 @@ class ExecutionRunner:
             # 4. Record execution_started event
             await self.execution_service.append_event(
                 execution_id=execution_id,
-                event_type="execution_started",
+                event_type=ExecutionEventType.EXECUTION_STARTED,
                 payload={
                     "container_id": container.container_id,
                     "executor_kind": execution.executor_kind,
@@ -327,7 +328,7 @@ class ExecutionRunner:
                         await self._session.inject_message(build_control_response(request_id, "allow"))
                         await self.execution_service.append_event(
                             execution_id=execution_id,
-                            event_type="approval_resolved",
+                            event_type=ExecutionEventType.APPROVAL_RESOLVED,
                             payload={"decision": "auto_approved", "request_id": request_id},
                         )
                     else:
@@ -346,7 +347,7 @@ class ExecutionRunner:
 
         await self.execution_service.append_event(
             execution_id=execution_id,
-            event_type="execution_completed" if status == "succeeded" else "error",
+            event_type=ExecutionEventType.EXECUTION_COMPLETED if status == "succeeded" else ExecutionEventType.ERROR,
             payload={
                 "result_summary": {"output_length": len(result.output)},
                 "message": result.error or "",
@@ -375,7 +376,7 @@ class ExecutionRunner:
         try:
             await self.execution_service.append_event(
                 execution_id=execution_id,
-                event_type="error",
+                event_type=ExecutionEventType.ERROR,
                 payload={"message": error},
             )
             await self.execution_service.mark_status(execution_id=execution_id, status="failed", error_message=error[:2000])
@@ -397,13 +398,13 @@ class ExecutionRunner:
     @staticmethod
     def _msg_to_event_type(msg: CLIMessage) -> str:
         mapping = {
-            "text": "assistant_text",
-            "thinking": "thinking",
-            "tool_use": "tool_use_start",
-            "tool_result": "tool_use_end",
-            "error": "error",
-            "artifact": "artifact_created",
-            "approval_request": "approval_requested",
+            "text": ExecutionEventType.ASSISTANT_TEXT,
+            "thinking": ExecutionEventType.THINKING,
+            "tool_use": ExecutionEventType.TOOL_USE_START,
+            "tool_result": ExecutionEventType.TOOL_USE_END,
+            "error": ExecutionEventType.ERROR,
+            "artifact": ExecutionEventType.ARTIFACT_CREATED,
+            "approval_request": ExecutionEventType.APPROVAL_REQUESTED,
         }
         return mapping.get(msg.type, msg.type)
 

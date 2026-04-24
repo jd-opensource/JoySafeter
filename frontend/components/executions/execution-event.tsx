@@ -31,24 +31,19 @@ const ARTIFACT_CFG = { icon: Paperclip, label: 'Artifact', style: '' } as const
 const EVENT_CONFIG: Partial<
   Record<ExecutionEventType, { icon: React.ElementType; label: string; style: string }>
 > = {
-  text: TEXT_CFG,
   assistant_text: TEXT_CFG,
   thinking: { icon: MessageSquare, label: 'Thinking', style: 'bg-[var(--surface-3)] italic' },
-  tool_use: TOOL_CFG,
   tool_use_start: TOOL_CFG,
-  tool_result: RESULT_CFG,
   tool_use_end: RESULT_CFG,
   error: {
     icon: XCircle,
     label: 'Error',
     style: 'border-l-2 border-l-[var(--status-error)] text-[var(--status-error)]',
   },
-  approval_request: APPROVAL_CFG,
   approval_requested: APPROVAL_CFG,
   user_message: { icon: MessageSquare, label: 'User', style: 'bg-[var(--surface-3)]' },
-  artifact: ARTIFACT_CFG,
   artifact_created: ARTIFACT_CFG,
-  status: { icon: Info, label: 'Status', style: '' },
+  execution_status_change: { icon: Info, label: 'Status', style: '' },
   execution_started: { icon: Info, label: 'Started', style: '' },
   execution_completed: { icon: Info, label: 'Completed', style: '' },
   approval_resolved: { icon: CheckCircle, label: 'Resolved', style: '' },
@@ -82,7 +77,6 @@ export function ExecutionEventItem({
 
   const renderContent = () => {
     switch (event.event_type) {
-      case 'text':
       case 'assistant_text':
         return (
           <p className="whitespace-pre-wrap text-sm text-[var(--text-primary)]">
@@ -113,7 +107,6 @@ export function ExecutionEventItem({
           </div>
         )
 
-      case 'tool_use':
       case 'tool_use_start': {
         const tool = (payload.tool as Record<string, unknown>) ?? {}
         const toolName = String(tool.name ?? payload.tool_name ?? payload.name ?? 'tool')
@@ -142,7 +135,6 @@ export function ExecutionEventItem({
         )
       }
 
-      case 'tool_result':
       case 'tool_use_end':
         return (
           <div>
@@ -175,7 +167,6 @@ export function ExecutionEventItem({
           </p>
         )
 
-      case 'approval_request':
       case 'approval_requested': {
         const toolName = String(payload.tool_name ?? '')
         const toolInput = payload.input ?? {}
@@ -246,7 +237,6 @@ export function ExecutionEventItem({
           </p>
         )
 
-      case 'artifact':
       case 'artifact_created':
         return (
           <p className="text-sm text-[var(--text-secondary)]">
@@ -255,7 +245,7 @@ export function ExecutionEventItem({
           </p>
         )
 
-      case 'status':
+      case 'execution_status_change':
       case 'execution_started':
       case 'execution_completed':
         return (

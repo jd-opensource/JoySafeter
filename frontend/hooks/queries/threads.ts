@@ -7,7 +7,6 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 
 import { threadService } from '@/services/threadService'
 import type {
-  CreateMessageRequest,
   CreateThreadRequest,
   UpdateThreadRequest,
 } from '@/types/thread'
@@ -115,30 +114,6 @@ export function useArchiveThread() {
     }) => threadService.archive(threadId, workspaceId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: threadKeys.all })
-    },
-  })
-}
-
-export function useCreateMessage() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: ({
-      threadId,
-      workspaceId,
-      ...data
-    }: CreateMessageRequest & { threadId: string; workspaceId: string }) =>
-      threadService.createMessage(threadId, workspaceId, data),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: threadKeys.detail(variables.threadId, variables.workspaceId),
-      })
-      queryClient.invalidateQueries({
-        queryKey: threadKeys.messages(
-          variables.threadId,
-          variables.workspaceId,
-        ),
-      })
     },
   })
 }

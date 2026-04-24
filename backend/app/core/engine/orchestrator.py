@@ -18,9 +18,9 @@ from app.common.exceptions import BadRequestException, NotFoundException
 from app.core.engine.protocol import ExecutionContext
 from app.core.engine.registry import engine_registry
 from app.core.events import ExecutionEventEnvelope, execution_event_bus
-from app.core.state_machines.engine import InvalidTransition
+from app.core.events.event_types import ExecutionEventType
 from app.core.state_machines.transitions import (
-    transition_run, transition_execution, transition_task,
+    transition_run, transition_task,
 )
 from app.models.agent import Agent, AgentRelease, AgentVersion
 from app.models.agent_run import AgentRun
@@ -158,7 +158,15 @@ class ExecutionOrchestrator:
                 release = await self._get_release(run.release_id)
                 engine = engine_registry.get(release.runtime_kind)
                 await engine.cancel(execution.id)
-                await transition_execution(execution, "cancelled", self.db)
+                cancel_envelope = ExecutionEventEnvelope(
+                    execution_id=execution.id,
+                    run_id=run.id,
+                    workspace_id=run.workspace_id,
+                    event_type=ExecutionEventType.EXECUTION_STATUS_CHANGE,
+                    payload={"status": "cancelled"},
+                    target_status="cancelled",
+                )
+                await execution_event_bus.publish(cancel_envelope, self.db)
 
         await transition_run(run, "cancelled", self.db)
         await self.db.commit()
@@ -282,8 +290,16 @@ class ExecutionOrchestrator:
         except Exception as exc:
             logger.error(f"[Orchestrator] _fire_engine failed: {exc}")
             await transition_run(run, "failed", self.db, str(exc)[:2000])
-            await transition_execution(execution, "failed", self.db)
-            await self.db.commit()
+            fail_envelope = ExecutionEventEnvelope(
+                execution_id=execution.id,
+                run_id=run.id,
+                workspace_id=workspace_id,
+                event_type=ExecutionEventType.EXECUTION_STATUS_CHANGE,
+                payload={"status": "failed"},
+                target_status="failed",
+                error_message=str(exc)[:2000],
+            )
+            await execution_event_bus.publish(fail_envelope, self.db)
             await self.db.refresh(run)
 
         return run
@@ -389,21 +405,25 @@ class ExecutionOrchestrator:
             await execution_event_bus.publish(envelope, ctx.db)
 
         async def _status(status: str) -> None:
-            execution = (await ctx.db.execute(
-                select(Execution).where(Execution.id == ctx.execution_id)
-            )).scalar_one()
-            try:
-                await transition_execution(execution, status, ctx.db)
-            except InvalidTransition:
-                logger.warning(f"Skipping transition: execution {execution.id} already in {execution.status}")
-            await ctx.db.commit()
+            envelope = ExecutionEventEnvelope(
+                execution_id=ctx.execution_id,
+                run_id=ctx.run_id,
+                workspace_id=ctx.workspace_id,
+                event_type=ExecutionEventType.EXECUTION_STATUS_CHANGE,
+                payload={"status": status},
+                trigger_source=trigger_source,
+                thread_id=thread_id,
+                task_id=task_id,
+                target_status=status,
+            )
+            await execution_event_bus.publish(envelope, ctx.db)
 
         async def _complete(status: str, result_summary: str | None = None) -> None:
             envelope = ExecutionEventEnvelope(
                 execution_id=ctx.execution_id,
                 run_id=ctx.run_id,
                 workspace_id=ctx.workspace_id,
-                event_type="execution_completed",
+                event_type=ExecutionEventType.EXECUTION_COMPLETED,
                 payload={"status": status},
                 trigger_source=trigger_source,
                 thread_id=thread_id,

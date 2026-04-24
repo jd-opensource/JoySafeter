@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.exceptions import NotFoundException
 from app.models.thread import Thread, ThreadMessage
 from app.repositories.thread import ThreadMessageRepository, ThreadRepository
-from app.schemas.thread import CreateMessageRequest, CreateThreadRequest, UpdateThreadRequest
+from app.schemas.thread import CreateThreadRequest, UpdateThreadRequest
 
 
 class ThreadService:
@@ -100,24 +100,3 @@ class ThreadService:
         if not thread:
             raise NotFoundException(f"Thread {thread_id} not found")
         return await self.message_repo.list_by_thread(thread_id)
-
-    async def create_message(
-        self,
-        thread_id: uuid.UUID,
-        data: CreateMessageRequest,
-    ) -> ThreadMessage:
-        thread = await self.thread_repo.get(thread_id)
-        if not thread:
-            raise NotFoundException(f"Thread {thread_id} not found")
-
-        message = await self.message_repo.create(
-            {
-                "thread_id": thread_id,
-                "role": data.role,
-                "content": data.content,
-            }
-        )
-        await self.db.commit()
-        await self.db.refresh(message)
-        logger.info(f"Created message {message.id} in thread {thread_id}")
-        return message

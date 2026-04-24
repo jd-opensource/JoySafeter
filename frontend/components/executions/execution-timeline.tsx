@@ -80,7 +80,7 @@ export function ExecutionTimeline({
     if (currentStatus !== 'approval_wait') return null
     for (let i = events.length - 1; i >= 0; i--) {
       const et = events[i].event_type
-      if (et === 'approval_request' || et === 'approval_requested') return events[i].id
+      if (et === 'approval_requested') return events[i].id
     }
     return null
   }, [currentStatus, events])
@@ -110,7 +110,7 @@ export function ExecutionTimeline({
 
   const toolCount = useMemo(
     () =>
-      events.filter((e) => e.event_type === 'tool_use' || e.event_type === 'tool_use_start').length,
+      events.filter((e) => e.event_type === 'tool_use_start').length,
     [events],
   )
 

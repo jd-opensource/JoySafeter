@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import NotFoundException
 from app.core.events import ExecutionEventEnvelope, execution_event_bus
+from app.core.events.event_types import ExecutionEventType
 from app.core.state_machines.definitions import EXECUTION_TERMINAL
 from app.models.execution import (
     Execution,
@@ -98,52 +99,45 @@ class ExecutionService:
         error_message: Optional[str] = None,
         result_summary: Optional[dict[str, Any]] = None,
     ) -> Optional[Execution]:
-        from app.core.state_machines.transitions import transition_execution
+        """Publish a status-change event through the bus.
 
-        result = await self.db.execute(
-            select(Execution).where(Execution.id == execution_id).with_for_update()
-        )
-        execution = result.scalar_one_or_none()
+        StateTransitionSubscriber handles the actual DB transition and
+        metadata writes in Phase 1 of the bus pipeline.
+        """
+        execution = (await self.db.execute(
+            select(Execution).where(Execution.id == execution_id)
+        )).scalar_one_or_none()
         if not execution:
             return None
 
-        await transition_execution(execution, status, self.db)
-
-        if error_code is not None:
-            execution.error_code = error_code
-        if error_message is not None:
-            execution.error_message = error_message
-        if container_id is not None:
-            execution.runtime_session_ref = container_id
-        if session_id is not None:
-            execution.runtime_session_ref = session_id
-        if result_summary is not None:
-            execution.metrics = result_summary
-
-        await self.db.commit()
-
-        # Status changes go through the bus if event context is available
-        if self._event_ctx:
-            envelope = ExecutionEventEnvelope(
-                execution_id=execution_id,
-                run_id=self._event_ctx.run_id,
-                workspace_id=self._event_ctx.workspace_id,
-                event_type="execution_status",
-                payload={"status": status},
-                created_at=utc_now(),
-                trigger_source=self._event_ctx.trigger_source,
-                thread_id=self._event_ctx.thread_id,
-                task_id=self._event_ctx.task_id,
-            )
-            await execution_event_bus.publish(envelope, self.db)
-        else:
-            # Fallback for callers without event context (e.g. scheduler reaper)
-            from app.websocket.execution_subscription_manager import execution_subscription_manager
-            await execution_subscription_manager.broadcast_event(
-                str(execution_id),
-                {"type": "execution_status", "execution_id": str(execution_id), "status": status},
+        # Build event context — prefer injected context, fall back to execution row
+        ctx = self._event_ctx
+        if ctx is None:
+            ctx = EventContext(
+                run_id=execution.run_id,
+                workspace_id=execution.workspace_id,
             )
 
+        envelope = ExecutionEventEnvelope(
+            execution_id=execution_id,
+            run_id=ctx.run_id,
+            workspace_id=ctx.workspace_id,
+            event_type=ExecutionEventType.EXECUTION_STATUS_CHANGE,
+            payload={"status": status},
+            created_at=utc_now(),
+            trigger_source=ctx.trigger_source,
+            thread_id=ctx.thread_id,
+            task_id=ctx.task_id,
+            target_status=status,
+            error_code=error_code,
+            error_message=error_message,
+            container_id=container_id or session_id,
+            metrics=result_summary,
+        )
+        await execution_event_bus.publish(envelope, self.db)
+
+        # Refresh to return the updated row
+        await self.db.refresh(execution)
         return execution
 
     async def append_event(

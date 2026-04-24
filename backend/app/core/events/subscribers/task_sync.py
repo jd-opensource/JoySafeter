@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events.envelope import ExecutionEventEnvelope
+from app.core.events.event_types import ExecutionEventType
 from app.core.events.subscriber import SubscriberPhase
 
 
@@ -26,7 +27,7 @@ class TaskSyncSubscriber:
         envelope: ExecutionEventEnvelope,
         db: Optional[AsyncSession] = None,
     ) -> None:
-        if envelope.event_type != "execution_completed":
+        if envelope.event_type != ExecutionEventType.EXECUTION_COMPLETED:
             return
         if not envelope.task_id:
             return

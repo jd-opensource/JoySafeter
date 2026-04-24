@@ -74,23 +74,18 @@ export interface ExecutionEvent {
 }
 
 export type ExecutionEventType =
-  | 'text'
   | 'assistant_text'
   | 'thinking'
-  | 'tool_use'
   | 'tool_use_start'
-  | 'tool_result'
   | 'tool_use_end'
   | 'error'
-  | 'artifact'
   | 'artifact_created'
-  | 'approval_request'
   | 'approval_requested'
   | 'approval_resolved'
   | 'user_message'
-  | 'status'
   | 'execution_started'
   | 'execution_completed'
+  | 'execution_status_change'
 
 export interface ExecutionSnapshot {
   execution_id: string

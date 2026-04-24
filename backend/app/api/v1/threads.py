@@ -22,7 +22,6 @@ from app.schemas.artifact import ArtifactResponse
 from app.schemas.thread import (
     ChatRequest,
     ChatResponse,
-    CreateMessageRequest,
     CreateThreadRequest,
     MessageResponse,
     ThreadDetailResponse,
@@ -133,22 +132,6 @@ async def list_messages(
     )
 
 
-@router.post("/{thread_id}/messages", response_model=BaseResponse[MessageResponse])
-async def create_message(
-    thread_id: uuid.UUID,
-    request: CreateMessageRequest,
-    current_user: CurrentUser,
-    workspace_id: uuid.UUID = Query(...),
-    db: AsyncSession = Depends(get_db),
-) -> BaseResponse[MessageResponse]:
-    has_access = await check_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.member)
-    if not has_access:
-        raise ForbiddenException("No access to workspace")
-
-    service = ThreadService(db)
-    message = await service.create_message(thread_id, request)
-    return BaseResponse(success=True, code=200, msg="Message created", data=MessageResponse.model_validate(message))
-
 
 # ---------------------------------------------------------------------------
 # Chat: send message + dispatch agent run (single call)
@@ -196,13 +179,14 @@ async def chat(
     # 2. Emit user_message as the first event in this execution.
     #    MessageProjectionSubscriber will project it into ThreadMessage.
     from app.core.events import ExecutionEventEnvelope, execution_event_bus
+    from app.core.events.event_types import ExecutionEventType
     from app.utils.datetime import utc_now
 
     user_msg_envelope = ExecutionEventEnvelope(
         execution_id=run.current_execution_id,
         run_id=run.id,
         workspace_id=workspace_id,
-        event_type="user_message",
+        event_type=ExecutionEventType.USER_MESSAGE,
         payload={"text": request.message},
         created_at=utc_now(),
         trigger_source="chat",
