@@ -1,11 +1,12 @@
 'use client'
 
 import { Loader2, MessageSquare, Plus, Send } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { ConversationView } from '@/components/threads/conversation-view'
 import { ThreadList } from '@/components/threads/thread-list'
+import { ExecutionViewer } from '@/components/executions/execution-viewer'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -13,8 +14,8 @@ import {
   useThread,
   useThreadMessages,
   useCreateThread,
-  useCreateMessage,
 } from '@/hooks/queries/threads'
+import { useAgentChat } from '@/hooks/use-agent-chat'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useTranslation } from '@/lib/i18n'
 
@@ -34,7 +35,6 @@ export function AgentChatTab({ agentId, threadId }: AgentChatTabProps) {
   const { data: threads = [], isLoading: threadsLoading } = useThreads(agentId, workspaceId)
   const createThreadMutation = useCreateThread()
 
-  // Thread detail
   const { data: thread, isLoading: threadLoading } = useThread(threadId || '', workspaceId, {
     enabled: Boolean(threadId),
   })
@@ -43,7 +43,14 @@ export function AgentChatTab({ agentId, threadId }: AgentChatTabProps) {
     workspaceId,
     { enabled: Boolean(threadId) },
   )
-  const sendMutation = useCreateMessage()
+
+  const {
+    sendMessage,
+    executionId,
+    isExecuting,
+    isSending,
+    viewExecution,
+  } = useAgentChat({ threadId: threadId || '', workspaceId })
 
   const [input, setInput] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -68,31 +75,29 @@ export function AgentChatTab({ agentId, threadId }: AgentChatTabProps) {
     router.push(`/agents/${agentId}?tab=chat&thread=${tid}`)
   }
 
-  const handleSend = async () => {
-    if (!input.trim() || !threadId) return
+  const handleSend = useCallback(async () => {
+    if (!input.trim() || isSending || isExecuting) return
+    const msg = input.trim()
+    setInput('')
     try {
-      await sendMutation.mutateAsync({
-        threadId,
-        workspaceId,
-        role: 'user',
-        content: { text: input },
-      })
-      setInput('')
-    } catch (error) {
-      console.error('Failed to send message:', error)
+      await sendMessage(msg)
+    } catch {
+      setInput(msg)
     }
-  }
+  }, [input, isSending, isExecuting, sendMessage])
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
     }
   }
 
+  const showExecutionPanel = Boolean(executionId)
+
   return (
     <div className="flex h-full">
-      {/* Left panel: thread list */}
+      {/* Left: Thread list */}
       <div className="flex w-72 flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface-elevated)]">
         <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
           <h3 className="text-sm font-semibold text-[var(--text-primary)]">
@@ -124,14 +129,12 @@ export function AgentChatTab({ agentId, threadId }: AgentChatTabProps) {
         </div>
       </div>
 
-      {/* Right panel: conversation or empty state */}
+      {/* Center: Conversation + Input */}
       <div className="flex flex-1 flex-col">
         {!threadId ? (
           <div className="flex h-full flex-col items-center justify-center gap-3">
             <MessageSquare className="h-12 w-12 text-[var(--text-muted)]" />
-            <p className="text-sm text-[var(--text-muted)]">
-              {t('agents.detail.startChat')}
-            </p>
+            <p className="text-sm text-[var(--text-muted)]">{t('agents.detail.startChat')}</p>
             <Button onClick={handleCreateThread} disabled={createThreadMutation.isPending}>
               {createThreadMutation.isPending ? (
                 <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
@@ -157,7 +160,11 @@ export function AgentChatTab({ agentId, threadId }: AgentChatTabProps) {
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto px-6 py-4">
-              <ConversationView messages={messages} />
+              <ConversationView
+                messages={messages}
+                activeExecutionId={isExecuting ? executionId : null}
+                onExecutionClick={viewExecution}
+              />
               <div ref={messagesEndRef} />
             </div>
 
@@ -167,17 +174,17 @@ export function AgentChatTab({ agentId, threadId }: AgentChatTabProps) {
                 <Input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  onKeyPress={handleKeyPress}
+                  onKeyDown={handleKeyDown}
                   placeholder={t('chat.describeHelpNeeded')}
-                  disabled={sendMutation.isPending}
+                  disabled={isSending || isExecuting}
                   className="flex-1"
                 />
                 <Button
                   onClick={handleSend}
-                  disabled={!input.trim() || sendMutation.isPending}
+                  disabled={!input.trim() || isSending || isExecuting}
                   className="gap-2"
                 >
-                  {sendMutation.isPending ? (
+                  {isSending ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <Send className="h-4 w-4" />
@@ -188,6 +195,18 @@ export function AgentChatTab({ agentId, threadId }: AgentChatTabProps) {
           </>
         )}
       </div>
+
+      {/* Right: Execution Viewer (collapsible) */}
+      {showExecutionPanel && (
+        <div className="flex w-[400px] flex-shrink-0 flex-col border-l border-[var(--border)]">
+          <ExecutionViewer
+            executionId={executionId!}
+            workspaceId={workspaceId}
+            isLive={isExecuting}
+            showArtifacts
+          />
+        </div>
+      )}
     </div>
   )
 }

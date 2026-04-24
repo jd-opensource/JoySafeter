@@ -37,3 +37,8 @@ export interface CreateMessageRequest {
   role: 'user' | 'assistant' | 'system' | 'tool'
   content: Record<string, unknown>
 }
+
+export interface ChatResponse {
+  run_id: string
+  execution_id: string
+}

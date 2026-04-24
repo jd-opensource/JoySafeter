@@ -5,6 +5,7 @@ import type {
   Thread,
   ThreadDetail,
   ThreadMessage,
+  ChatResponse,
   CreateThreadRequest,
   UpdateThreadRequest,
   CreateMessageRequest,
@@ -63,6 +64,17 @@ export const threadService = {
     return apiPost<ThreadMessage>(
       `threads/${threadId}/messages?workspace_id=${workspaceId}`,
       data,
+    )
+  },
+
+  chat: async (
+    threadId: string,
+    workspaceId: string,
+    message: string,
+  ): Promise<ChatResponse> => {
+    return apiPost<ChatResponse>(
+      `threads/${threadId}/chat?workspace_id=${workspaceId}`,
+      { message },
     )
   },
 }

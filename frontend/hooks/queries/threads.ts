@@ -142,3 +142,27 @@ export function useCreateMessage() {
     },
   })
 }
+
+export function useChatMessage() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      threadId,
+      workspaceId,
+      message,
+    }: {
+      threadId: string
+      workspaceId: string
+      message: string
+    }) => threadService.chat(threadId, workspaceId, message),
+    onSuccess: (_data, variables) => {
+      // Don't invalidate messages here — MessageProjectionSubscriber
+      // will write the user message asynchronously. We invalidate
+      // when the execution completes (in useAgentChat).
+      queryClient.invalidateQueries({
+        queryKey: threadKeys.messages(variables.threadId, variables.workspaceId),
+      })
+    },
+  })
+}
