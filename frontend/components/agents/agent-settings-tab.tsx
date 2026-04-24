@@ -192,9 +192,9 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
 
       {/* Section 3: Version Management (collapsible) */}
       <Card className="border-[var(--border)] bg-[var(--surface-1)]">
-        <button
+        <div
           onClick={() => setVersionsOpen(!versionsOpen)}
-          className="flex w-full items-center justify-between p-5 text-left"
+          className="flex w-full cursor-pointer items-center justify-between p-5 text-left"
         >
           <h2 className="text-sm font-semibold text-[var(--text-primary)]">
             {t('agents.detail.versionManagement')}
@@ -217,7 +217,7 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
               <ChevronRight className="h-4 w-4 text-[var(--text-muted)]" />
             )}
           </div>
-        </button>
+        </div>
         {versionsOpen && (
           <div className="border-t border-[var(--border)] px-5 py-4">
             {versionsLoading ? (
@@ -305,9 +305,9 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
 
       {/* Section 4: Release Management (collapsible) */}
       <Card className="border-[var(--border)] bg-[var(--surface-1)]">
-        <button
+        <div
           onClick={() => setReleasesOpen(!releasesOpen)}
-          className="flex w-full items-center justify-between p-5 text-left"
+          className="flex w-full cursor-pointer items-center justify-between p-5 text-left"
         >
           <h2 className="text-sm font-semibold text-[var(--text-primary)]">
             {t('agents.detail.releaseManagement')}
@@ -330,7 +330,7 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
               <ChevronRight className="h-4 w-4 text-[var(--text-muted)]" />
             )}
           </div>
-        </button>
+        </div>
         {releasesOpen && (
           <div className="border-t border-[var(--border)] px-5 py-4">
             {releasesLoading ? (
