@@ -279,7 +279,6 @@ const zh = {
           frozen: '已冻结',
         },
         releaseStatus: {
-          pending: '待处理',
           ready: '就绪',
           failed: '失败',
           retired: '已下线',

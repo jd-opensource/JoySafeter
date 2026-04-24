@@ -2,7 +2,7 @@ export interface AgentRelease {
   id: string
   agent_version_id: string
   release_number: number
-  status: 'pending' | 'ready' | 'failed' | 'retired'
+  status: 'ready' | 'failed' | 'retired'
   runtime_kind: 'graph' | 'sandbox' | 'hosted' | 'external'
   builder_kind: string | null
   executable_ref: Record<string, unknown> | null

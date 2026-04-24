@@ -34,7 +34,6 @@ VERSION_TERMINAL: set[str] = set()
 # AgentRelease
 # ---------------------------------------------------------------------------
 RELEASE_STATES: dict[str, set[str]] = {
-    "pending": {"ready", "failed"},
     "ready":   {"retired"},
     "failed":  {"retired"},
     "retired": set(),

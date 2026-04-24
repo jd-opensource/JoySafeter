@@ -280,7 +280,6 @@ const en = {
           frozen: 'Frozen',
         },
         releaseStatus: {
-          pending: 'Pending',
           ready: 'Ready',
           failed: 'Failed',
           retired: 'Retired',
