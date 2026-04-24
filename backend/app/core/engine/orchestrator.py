@@ -391,47 +391,42 @@ class ExecutionOrchestrator:
         run object), avoiding an extra DB query.
         """
 
-        async def _emit(event_type: str, payload: dict) -> None:
-            envelope = ExecutionEventEnvelope(
+        def _envelope(**overrides: Any) -> ExecutionEventEnvelope:
+            return ExecutionEventEnvelope(
                 execution_id=ctx.execution_id,
                 run_id=ctx.run_id,
                 workspace_id=ctx.workspace_id,
-                event_type=event_type,
-                payload=payload,
                 trigger_source=trigger_source,
                 thread_id=thread_id,
                 task_id=task_id,
+                **overrides,
             )
-            await execution_event_bus.publish(envelope, ctx.db)
+
+        async def _emit(event_type: str, payload: dict) -> None:
+            await execution_event_bus.publish(
+                _envelope(event_type=event_type, payload=payload), ctx.db,
+            )
 
         async def _status(status: str) -> None:
-            envelope = ExecutionEventEnvelope(
-                execution_id=ctx.execution_id,
-                run_id=ctx.run_id,
-                workspace_id=ctx.workspace_id,
-                event_type=ExecutionEventType.EXECUTION_STATUS_CHANGE,
-                payload={"status": status},
-                trigger_source=trigger_source,
-                thread_id=thread_id,
-                task_id=task_id,
-                target_status=status,
+            await execution_event_bus.publish(
+                _envelope(
+                    event_type=ExecutionEventType.EXECUTION_STATUS_CHANGE,
+                    payload={"status": status},
+                    target_status=status,
+                ),
+                ctx.db,
             )
-            await execution_event_bus.publish(envelope, ctx.db)
 
         async def _complete(status: str, result_summary: str | None = None) -> None:
-            envelope = ExecutionEventEnvelope(
-                execution_id=ctx.execution_id,
-                run_id=ctx.run_id,
-                workspace_id=ctx.workspace_id,
-                event_type=ExecutionEventType.EXECUTION_COMPLETED,
-                payload={"status": status},
-                trigger_source=trigger_source,
-                thread_id=thread_id,
-                task_id=task_id,
-                terminal_status=status,
-                result_summary=result_summary,
+            await execution_event_bus.publish(
+                _envelope(
+                    event_type=ExecutionEventType.EXECUTION_COMPLETED,
+                    payload={"status": status},
+                    terminal_status=status,
+                    result_summary=result_summary,
+                ),
+                ctx.db,
             )
-            await execution_event_bus.publish(envelope, ctx.db)
 
         ctx._emit_fn = _emit
         ctx._status_fn = _status

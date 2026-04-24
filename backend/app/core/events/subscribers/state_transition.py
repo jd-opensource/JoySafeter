@@ -54,7 +54,7 @@ class StateTransitionSubscriber:
             raise RuntimeError("execution_status_change envelope missing target_status")
 
         execution = (await db.execute(
-            select(Execution).where(Execution.id == envelope.execution_id).with_for_update()
+            select(Execution).where(Execution.id == envelope.execution_id)
         )).scalar_one()
 
         try:

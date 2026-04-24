@@ -91,7 +91,6 @@ class ExecutionService:
         self,
         *,
         execution_id: uuid.UUID,
-        user_id: Optional[str] = None,
         status: str,
         container_id: Optional[str] = None,
         session_id: Optional[str] = None,
@@ -104,19 +103,20 @@ class ExecutionService:
         StateTransitionSubscriber handles the actual DB transition and
         metadata writes in Phase 1 of the bus pipeline.
         """
-        execution = (await self.db.execute(
-            select(Execution).where(Execution.id == execution_id)
-        )).scalar_one_or_none()
-        if not execution:
-            return None
-
-        # Build event context — prefer injected context, fall back to execution row
         ctx = self._event_ctx
         if ctx is None:
+            # Fallback for callers without event context (e.g. reaper)
+            execution = (await self.db.execute(
+                select(Execution).where(Execution.id == execution_id)
+            )).scalar_one_or_none()
+            if not execution:
+                return None
             ctx = EventContext(
                 run_id=execution.run_id,
                 workspace_id=execution.workspace_id,
             )
+        else:
+            execution = None
 
         envelope = ExecutionEventEnvelope(
             execution_id=execution_id,
@@ -124,7 +124,6 @@ class ExecutionService:
             workspace_id=ctx.workspace_id,
             event_type=ExecutionEventType.EXECUTION_STATUS_CHANGE,
             payload={"status": status},
-            created_at=utc_now(),
             trigger_source=ctx.trigger_source,
             thread_id=ctx.thread_id,
             task_id=ctx.task_id,
@@ -136,8 +135,13 @@ class ExecutionService:
         )
         await execution_event_bus.publish(envelope, self.db)
 
-        # Refresh to return the updated row
-        await self.db.refresh(execution)
+        # Return the updated row
+        if execution is None:
+            execution = (await self.db.execute(
+                select(Execution).where(Execution.id == execution_id)
+            )).scalar_one_or_none()
+        else:
+            await self.db.refresh(execution)
         return execution
 
     async def append_event(
@@ -158,7 +162,6 @@ class ExecutionService:
             workspace_id=self._event_ctx.workspace_id,
             event_type=event_type,
             payload=payload,
-            created_at=utc_now(),
             trigger_source=self._event_ctx.trigger_source,
             thread_id=self._event_ctx.thread_id,
             task_id=self._event_ctx.task_id,

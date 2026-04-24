@@ -14,20 +14,15 @@ from app.utils.datetime import utc_now
 
 @dataclass
 class ExecutionEventEnvelope:
-    """Event envelope flowing through the event bus.
-
-    Phase 1 subscribers (PersistenceSubscriber) fill in ``seq`` after
-    persisting the event row.  All other fields are set by the publisher.
-    ``seq`` is safe to mutate because Phase 2 runs only after Phase 1 commits.
-    """
+    """Canonical event envelope flowing through the event bus."""
 
     execution_id: uuid.UUID
     run_id: uuid.UUID
     workspace_id: uuid.UUID
-    event_type: str  # should be an ExecutionEventType value
+    event_type: str
     payload: dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=utc_now)
-    seq: int = 0
+    seq: int = 0  # filled by PersistenceSubscriber in Phase 1
 
     # Run metadata — subscribers use these for routing decisions
     trigger_source: Optional[str] = None
