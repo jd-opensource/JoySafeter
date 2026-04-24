@@ -227,13 +227,13 @@ export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
           
           <div className="mt-4 flex flex-col gap-1 border-t border-[var(--border)] pt-4 text-xs">
             <div className="flex justify-between">
-              <span className="text-[var(--text-muted)]">Created At</span>
+              <span className="text-[var(--text-muted)]">{t('agents.detail.createdAt')}</span>
               <span className="font-medium text-[var(--text-secondary)]">
                 {new Date(agent.created_at).toLocaleDateString()}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-[var(--text-muted)]">Last Updated</span>
+              <span className="text-[var(--text-muted)]">{t('agents.detail.updatedAt')}</span>
               <span className="font-medium text-[var(--text-secondary)]">
                 {new Date(agent.updated_at).toLocaleDateString()}
               </span>
