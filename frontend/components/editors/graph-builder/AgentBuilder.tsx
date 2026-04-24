@@ -17,6 +17,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { useGraphs, useDeploymentStatus, useGraphState, graphKeys } from '@/hooks/queries/graphs'
+import { useVersionGraphState } from '@/hooks/queries/agentVersions'
+import { useAgent } from '@/hooks/queries/agents'
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
 import { computeGraphStateHash } from '@/lib/utils/graphStateHash'
@@ -86,19 +88,29 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
 
   const queryClient = useQueryClient()
 
-  // Use React Query hooks to fetch data (automatic caching and deduplication)
-  // These hooks automatically share cache with other components like sidebar
-  const { data: graphsData } = useGraphs(workspaceId)
-  const { data: deploymentStatus } = useDeploymentStatus(agentId ?? undefined)
+  // Determine loading path: new (version-based) vs legacy (graph-based)
+  const useNewPath = Boolean(versionIdProp && agentId && workspaceId)
 
-  // Use React Query to fetch graph state uniformly, avoiding duplicate requests
-  // refetchOnMount: 'always' ensures latest data is fetched when switching graphs
-  const { data: graphStateData, isSuccess: isGraphStateLoaded } = useGraphState(
+  // New path: load agent metadata + graph state from version definition_payload
+  const { data: agentData } = useAgent(agentId ?? '', workspaceId, { enabled: useNewPath })
+  const { data: versionGraphState, isSuccess: isVersionStateLoaded } = useVersionGraphState(
     agentId ?? undefined,
-    {
-      refetchOnMount: 'always',
-    },
+    versionIdProp,
+    workspaceId || undefined,
+    { refetchOnMount: 'always', enabled: useNewPath },
   )
+
+  // Legacy path: load from /graphs endpoints
+  const { data: graphsData } = useGraphs(useNewPath ? undefined : workspaceId)
+  const { data: deploymentStatus } = useDeploymentStatus(agentId ?? undefined, { enabled: !useNewPath })
+  const { data: legacyGraphState, isSuccess: isLegacyStateLoaded } = useGraphState(
+    agentId ?? undefined,
+    { refetchOnMount: 'always', enabled: !useNewPath },
+  )
+
+  // Unified state: pick whichever path is active
+  const graphStateData = useNewPath ? versionGraphState : legacyGraphState
+  const isGraphStateLoaded = useNewPath ? isVersionStateLoaded : isLegacyStateLoaded
 
   const { toast } = useToast()
   const [showLoadModal, setShowLoadModal] = useState(false)
@@ -253,10 +265,10 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
     const loadedVars = (state.variables ?? {}) as BuilderVariables
     const graphMode = loadedVars.graph_mode
     if (graphMode === 'code' && agentId) {
-      const currentGraph = graphsData?.find((g) => g.id === agentId)
+      const agentName = useNewPath ? agentData?.name : graphsData?.find((g) => g.id === agentId)?.name
       useCodeEditorStore
         .getState()
-        .hydrate(agentId, loadedVars.code_content ?? '', currentGraph?.name ?? '')
+        .hydrate(agentId, loadedVars.code_content ?? '', agentName ?? '')
       loadedGraphIdRef.current = agentId
       useBuilderStore.setState({ isInitializing: false })
       return
@@ -268,16 +280,27 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
       setGraphId(agentId)
     }
 
-    // Sync other metadata...
-    const currentGraph = graphsData?.find((g) => g.id === agentId)
-    if (currentGraph) {
-      if (currentGraph.name) {
-        agentService.setCachedGraphName(currentGraph.name)
-        setGraphName(currentGraph.name)
+    // Sync metadata from agent (new path) or graph list (legacy path)
+    if (useNewPath && agentData) {
+      if (agentData.name) {
+        agentService.setCachedGraphName(agentData.name)
+        setGraphName(agentData.name)
       }
-      if (currentGraph.updatedAt) {
-        const updatedAtTime = new Date(currentGraph.updatedAt).getTime()
+      if (agentData.updated_at) {
+        const updatedAtTime = new Date(agentData.updated_at).getTime()
         useBuilderStore.setState({ lastAutoSaveTime: updatedAtTime })
+      }
+    } else {
+      const currentGraph = graphsData?.find((g) => g.id === agentId)
+      if (currentGraph) {
+        if (currentGraph.name) {
+          agentService.setCachedGraphName(currentGraph.name)
+          setGraphName(currentGraph.name)
+        }
+        if (currentGraph.updatedAt) {
+          const updatedAtTime = new Date(currentGraph.updatedAt).getTime()
+          useBuilderStore.setState({ lastAutoSaveTime: updatedAtTime })
+        }
       }
     }
 
@@ -360,7 +383,7 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
       })
       viewportTimersRef.current = []
     }
-  }, [agentId, isGraphStateLoaded, graphStateData, graphsData, loadGraph, setGraphId, setGraphName])
+  }, [agentId, isGraphStateLoaded, graphStateData, graphsData, agentData, useNewPath, loadGraph, setGraphId, setGraphName])
 
   // Sync deployment status from React Query to builderStore
   // Deployment status is fetched via useDeploymentStatus hook, automatically sharing cache with other components
@@ -699,8 +722,8 @@ const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: Ag
         </ErrorBoundary>
       </div>
 
-      {/* RIGHT: Panel - Fixed Position (combines Toolbar and Sidebar) */}
-      <aside className="fixed inset-y-0 right-0 z-20 flex w-[320px] flex-col overflow-hidden border-l border-[var(--border-muted)] bg-[var(--surface-2)]">
+      {/* RIGHT: Panel - Absolute Position within the relative container (combines Toolbar and Sidebar) */}
+      <aside className="absolute inset-y-0 right-0 z-20 flex w-[320px] flex-col overflow-hidden border-l border-[var(--border-muted)] bg-[var(--surface-2)]">
         {/* Header with Toolbar */}
         <div className="flex-shrink-0 border-b border-[var(--border)]">
           <BuilderToolbar

@@ -1,6 +1,6 @@
 'use client'
 
-import { ArrowLeft, Bot, Loader2 } from 'lucide-react'
+import { ArrowLeft, Bot, Loader2, Plus, MessageSquare } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useSearchParams } from 'next/navigation'
 import { useEffect } from 'react'
@@ -65,60 +65,37 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
   return (
     <WorkspacePermissionsProvider workspaceId={workspaceId}>
       <div className="flex h-full flex-col bg-[var(--bg)]">
-        {/* Header */}
-        <div 
-          className={cn(
-            "border-b border-[var(--border)] bg-[var(--surface-elevated)] transition-all",
-            currentTab === 'builder' ? "flex items-center justify-between px-4 py-2" : "px-8 py-5"
-          )}
-        >
-          <div className={cn("flex flex-col", currentTab === 'builder' ? "flex-row items-center gap-3" : "")}>
-            {/* Breadcrumb */}
-            {currentTab !== 'builder' && (
-              <div className="mb-3 flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
-                <Link href="/agents" className="hover:text-[var(--text-secondary)]">
-                  {t('sidebar.agents')}
-                </Link>
-                <span>/</span>
-                <span className="text-[var(--text-secondary)]">{agent.name}</span>
-              </div>
-            )}
-
-            <div className="flex items-center gap-3">
-              <Button variant="ghost" size="sm" asChild className="h-8 w-8 p-0">
-                <Link href="/agents">
-                  <ArrowLeft className="h-4 w-4" />
-                </Link>
-              </Button>
-              {currentTab !== 'builder' && <Bot className="h-5 w-5 text-[var(--skill-brand-600)]" />}
-              <div className="min-w-0">
-                <h1 className={cn(
-                  "truncate font-semibold text-[var(--text-primary)]",
-                  currentTab === 'builder' ? "text-sm" : "text-lg"
-                )}>
-                  {agent.name}
-                </h1>
-              </div>
-              {currentTab !== 'builder' && <AgentStatusIndicator status={agent.status} className="ml-2" />}
-            </div>
+        {/* Header - Ultra Compact Single Line */}
+        <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-elevated)] px-4 py-2 transition-all">
+          
+          {/* Left: Identity (flex-1 to allow middle centering if needed, but min-w-0 for truncation) */}
+          <div className="flex flex-1 items-center gap-3 min-w-0 pr-4">
+            <Button variant="ghost" size="sm" asChild className="-ml-2 h-8 w-8 p-0 text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+              <Link href="/agents">
+                <ArrowLeft className="h-4 w-4" />
+              </Link>
+            </Button>
+            <Bot className="h-4 w-4 shrink-0 text-[var(--skill-brand-600)]" />
+            <h1 className="truncate text-sm font-semibold text-[var(--text-primary)]">
+              {agent.name}
+            </h1>
+            <AgentStatusIndicator status={agent.status} className="shrink-0 scale-75 origin-left" />
           </div>
 
-          {/* Tab navigation */}
-          <nav className={cn("flex gap-1", currentTab === 'builder' ? "" : "mt-4")}>
+          {/* Middle: Tab Navigation */}
+          <nav className="flex shrink-0 items-center gap-1 bg-[var(--surface-2)] p-0.5 rounded-lg border border-[var(--border)]">
             {tabKeys.map((tab) => {
               const href = tab === 'overview' ? basePath : `${basePath}?tab=${tab}`
               const isActive = currentTab === tab
-
               return (
                 <Link
                   key={tab}
                   href={href}
                   className={cn(
-                    'rounded-md px-4 py-2 text-sm font-medium transition-colors',
+                    'rounded-md px-3 py-1 text-xs font-medium transition-all',
                     isActive
-                      ? 'bg-[var(--surface-3)] text-[var(--text-primary)]'
+                      ? 'bg-[var(--surface-elevated)] text-[var(--text-primary)] shadow-sm'
                       : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]',
-                    currentTab === 'builder' && 'px-3 py-1.5'
                   )}
                 >
                   {t(`agents.detail.tabs.${tab}`)}
@@ -126,6 +103,26 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
               )
             })}
           </nav>
+
+          {/* Right: Actions */}
+          <div className="flex flex-1 items-center justify-end gap-2 pl-4">
+            {currentTab !== 'builder' && (
+              <>
+                <Button variant="ghost" size="sm" asChild className="h-7 px-2 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+                  <Link href={`/agents/${agentId}?tab=chat`}>
+                    <MessageSquare className="mr-1.5 h-3 w-3" />
+                    {t('agents.detail.startChat')}
+                  </Link>
+                </Button>
+                <Button size="sm" asChild className="h-7 px-3 text-xs">
+                  <Link href={`/tasks?agent=${agentId}`}>
+                    <Plus className="mr-1.5 h-3 w-3" />
+                    {t('agents.detail.assignTask')}
+                  </Link>
+                </Button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Content */}
