@@ -84,7 +84,8 @@ class ExecutionSubscriptionHandler:
                         "type": "snapshot",
                         "execution_id": str(execution_id),
                         "last_seq": snapshot_last_seq,
-                        "data": snapshot.projection,
+                        "status": snapshot.projection.get("status"),
+                        "events": [],
                     }
                 )
             )
@@ -95,15 +96,16 @@ class ExecutionSubscriptionHandler:
             events = await service.list_events_after(execution_id, user_id, after_seq=catchup_after_seq, limit=1000)
             replay_last_seq = snapshot_last_seq
             for event in events:
-                replay_last_seq = max(replay_last_seq, int(event.seq))
+                seq = int(getattr(event, "sequence_no", getattr(event, "seq")))
+                replay_last_seq = max(replay_last_seq, seq)
                 await websocket.send_text(
                     json.dumps(
                         {
                             "type": "event",
                             "execution_id": str(execution_id),
-                            "seq": event.seq,
+                            "seq": seq,
                             "event_type": event.event_type,
-                            "data": event.payload,
+                            "payload": event.payload,
                             "created_at": event.created_at.isoformat() if event.created_at else None,
                         }
                     )

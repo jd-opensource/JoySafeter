@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import patch
 
 import pytest
 
+from app.websocket.execution_subscription_handler import ExecutionSubscriptionHandler
 from app.websocket.execution_subscription_manager import ExecutionSubscriptionManager
 
 
@@ -111,3 +116,88 @@ def test_disconnect_unsubscribed():
     ws = _make_ws()
     # Should not raise
     mgr.disconnect(ws)
+
+
+@pytest.mark.asyncio
+async def test_handler_subscribe_sends_snapshot_with_status_and_events_contract():
+    execution_id = uuid.uuid4()
+    ws = _make_ws()
+
+    class Snapshot:
+        last_seq = 3
+        projection = {"status": "running", "started_at": "2026-04-24T12:00:00+00:00"}
+
+    service = AsyncMock()
+    service.get_execution.return_value = object()
+    service.get_snapshot.return_value = Snapshot()
+    service.list_events_after.return_value = []
+
+    @asynccontextmanager
+    async def fake_session_ctx():
+        yield object()
+
+    handler = ExecutionSubscriptionHandler()
+    with patch("app.websocket.execution_subscription_handler.AsyncSessionLocal", fake_session_ctx), patch(
+        "app.websocket.execution_subscription_handler.ExecutionService",
+        return_value=service,
+    ):
+        await handler._handle_frame(
+            ws,
+            "user-123",
+            json.dumps({"type": "subscribe", "execution_id": str(execution_id), "after_seq": 0}),
+        )
+
+    snapshot_frame = json.loads(ws.send_text.await_args_list[0].args[0])
+    assert snapshot_frame == {
+        "type": "snapshot",
+        "execution_id": str(execution_id),
+        "last_seq": 3,
+        "status": "running",
+        "events": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_handler_subscribe_replays_events_with_payload_field_and_sequence_no():
+    execution_id = uuid.uuid4()
+    ws = _make_ws()
+
+    class Snapshot:
+        last_seq = 0
+        projection = {"status": "running"}
+
+    event = MagicMock()
+    event.sequence_no = 4
+    event.event_type = "assistant_text"
+    event.payload = {"content": "hello"}
+    event.created_at = datetime(2026, 4, 24, 12, 0, tzinfo=UTC)
+
+    service = AsyncMock()
+    service.get_execution.return_value = object()
+    service.get_snapshot.return_value = Snapshot()
+    service.list_events_after.return_value = [event]
+
+    @asynccontextmanager
+    async def fake_session_ctx():
+        yield object()
+
+    handler = ExecutionSubscriptionHandler()
+    with patch("app.websocket.execution_subscription_handler.AsyncSessionLocal", fake_session_ctx), patch(
+        "app.websocket.execution_subscription_handler.ExecutionService",
+        return_value=service,
+    ):
+        await handler._handle_frame(
+            ws,
+            "user-123",
+            json.dumps({"type": "subscribe", "execution_id": str(execution_id), "after_seq": 0}),
+        )
+
+    event_frame = json.loads(ws.send_text.await_args_list[1].args[0])
+    assert event_frame == {
+        "type": "event",
+        "execution_id": str(execution_id),
+        "seq": 4,
+        "event_type": "assistant_text",
+        "payload": {"content": "hello"},
+        "created_at": "2026-04-24T12:00:00+00:00",
+    }

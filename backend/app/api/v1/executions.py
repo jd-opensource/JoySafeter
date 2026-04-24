@@ -17,7 +17,12 @@ from app.models.execution import Artifact
 from app.models.workspace import WorkspaceMemberRole
 from app.schemas import BaseResponse
 from app.schemas.artifact import ArtifactResponse
-from app.schemas.execution import ExecutionEventResponse, ExecutionResponse
+from app.schemas.execution import (
+    ExecutionEventItemResponse,
+    ExecutionEventsPageResponse,
+    ExecutionEventResponse,
+    ExecutionResponse,
+)
 from app.schemas.task import InjectMessageRequest
 from app.services.execution_service import ExecutionService
 
@@ -61,20 +66,41 @@ async def get_execution(
     return BaseResponse(success=True, code=200, msg="ok", data=_to_response(execution))
 
 
-@router.get("/{execution_id}/events", response_model=BaseResponse[List[ExecutionEventResponse]])
+@router.get("/{execution_id}/events", response_model=BaseResponse[ExecutionEventsPageResponse])
 async def list_execution_events(
     execution_id: uuid.UUID,
+    after_seq: int = Query(0, ge=0),
     current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
     db: AsyncSession = Depends(get_db),
-) -> BaseResponse[List[ExecutionEventResponse]]:
-    """List all events for an execution."""
+) -> BaseResponse[ExecutionEventsPageResponse]:
+    """List execution events after a sequence number."""
     service = ExecutionService(db)
-    events = await service.list_events(execution_id)
+    events = await service.list_events_after(
+        execution_id,
+        str(current_user.id),
+        after_seq=after_seq,
+        limit=500,
+    )
+    items = [
+        ExecutionEventItemResponse(
+            id=event.id,
+            execution_id=event.execution_id,
+            seq=event.sequence_no,
+            event_type=event.event_type,
+            payload=event.payload,
+            created_at=event.created_at,
+        )
+        for event in events
+    ]
     return BaseResponse(
         success=True,
         code=200,
         msg="ok",
-        data=[_event_to_response(e) for e in events],
+        data=ExecutionEventsPageResponse(
+            execution_id=execution_id,
+            events=items,
+            next_after_seq=max((item.seq for item in items), default=after_seq),
+        ),
     )
 
 

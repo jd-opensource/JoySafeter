@@ -233,6 +233,7 @@ const zh = {
         tabs: {
           overview: '概览',
           chat: '对话',
+          builder: '可视化编排',
           settings: '设置',
         },
         assignTask: '派任务',

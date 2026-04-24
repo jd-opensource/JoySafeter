@@ -44,6 +44,21 @@ class ExecutionEventResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ExecutionEventItemResponse(BaseModel):
+    id: uuid.UUID
+    execution_id: uuid.UUID
+    seq: int
+    event_type: str
+    payload: dict
+    created_at: datetime
+
+
+class ExecutionEventsPageResponse(BaseModel):
+    execution_id: uuid.UUID
+    events: list[ExecutionEventItemResponse]
+    next_after_seq: int
+
+
 # ---------------------------------------------------------------------------
 # Intervention / Approval
 # ---------------------------------------------------------------------------

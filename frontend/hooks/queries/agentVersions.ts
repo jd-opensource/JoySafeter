@@ -4,6 +4,7 @@
  * React Query hooks for AgentVersion, nested under Agent.
  */
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { Node, Edge } from 'reactflow'
 
 import { agentVersionService } from '@/services/agentVersionService'
 import type {
@@ -12,7 +13,7 @@ import type {
   UpdateAgentVersionRequest,
 } from '@/types/agent'
 
-import { STALE_TIME } from './constants'
+import { STALE_TIME, CACHE_TIME } from './constants'
 import { agentKeys } from './agents'
 
 // ==================== Query Keys ====================
@@ -161,5 +162,70 @@ export function useUnfreezeVersion() {
         queryKey: agentKeys.detail(variables.agentId, variables.workspaceId),
       })
     },
+  })
+}
+
+// ==================== Graph State from Version ====================
+
+export interface VersionGraphState {
+  nodes: Node[]
+  edges: Edge[]
+  viewport?: { x: number; y: number; zoom: number }
+  variables?: Record<string, unknown>
+}
+
+function toVersionGraphState(payload: Record<string, unknown>): VersionGraphState {
+  const edges = (payload.edges as Edge[]) ?? []
+  const seenEdges = new Set<string>()
+  const deduplicatedEdges = edges.filter((edge) => {
+    const key = `${edge.source}-${edge.target}`
+    if (seenEdges.has(key)) return false
+    seenEdges.add(key)
+    return true
+  })
+
+  return {
+    nodes: (payload.nodes as Node[]) ?? [],
+    edges: deduplicatedEdges,
+    viewport: (payload.viewport as { x: number; y: number; zoom: number }) ?? undefined,
+    variables: {
+      state_fields: payload.graphStateFields ?? payload.state_fields,
+      fallback_node_id: payload.fallbackNodeId ?? payload.fallback_node_id,
+      graph_mode: payload.graph_mode,
+      code_content: payload.code_content,
+      context: payload.context,
+    },
+  }
+}
+
+/**
+ * Load graph state from agent version definition_payload.
+ * New-architecture equivalent of useGraphState — returns the same shape
+ * (nodes, edges, viewport, variables) so AgentBuilder can consume it directly.
+ */
+export function useVersionGraphState(
+  agentId?: string,
+  versionId?: string,
+  workspaceId?: string,
+  options?: {
+    enabled?: boolean
+    refetchOnMount?: boolean | 'always'
+  },
+) {
+  return useQuery({
+    queryKey: [...versionKeys.detail(agentId || '', versionId || '', workspaceId || ''), 'graphState'],
+    queryFn: async (): Promise<VersionGraphState> => {
+      const version = await agentVersionService.get(agentId!, versionId!, workspaceId!)
+      return toVersionGraphState(version.definition_payload)
+    },
+    enabled:
+      Boolean(agentId) &&
+      Boolean(versionId) &&
+      Boolean(workspaceId) &&
+      options?.enabled !== false,
+    staleTime: STALE_TIME.SHORT,
+    gcTime: CACHE_TIME.STANDARD,
+    refetchOnMount: options?.refetchOnMount ?? false,
+    refetchOnWindowFocus: false,
   })
 }

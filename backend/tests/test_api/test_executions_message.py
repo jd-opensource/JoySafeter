@@ -1,4 +1,4 @@
-"""Tests for POST /v1/executions/{id}/message endpoint."""
+"""Contract tests for executions API endpoints."""
 
 from __future__ import annotations
 
@@ -68,3 +68,63 @@ def test_inject_message_empty_body_returns_422(mock_orchestrator_cls, client: Te
 
     assert response.status_code == 422
     mock_orchestrator_cls.return_value.send_message.assert_not_called()
+
+
+@patch("app.api.v1.executions.ExecutionService")
+def test_list_execution_events_returns_page_contract(mock_service_cls, client: TestClient) -> None:
+    execution_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    mock_service = mock_service_cls.return_value
+
+    event_1 = MagicMock()
+    event_1.id = uuid.uuid4()
+    event_1.execution_id = execution_id
+    event_1.sequence_no = 2
+    event_1.event_type = "assistant_text"
+    event_1.payload = {"content": "hello"}
+    event_1.created_at = "2026-04-24T12:00:00Z"
+
+    event_2 = MagicMock()
+    event_2.id = uuid.uuid4()
+    event_2.execution_id = execution_id
+    event_2.sequence_no = 3
+    event_2.event_type = "tool_use_start"
+    event_2.payload = {"tool": {"name": "Bash"}}
+    event_2.created_at = "2026-04-24T12:00:01Z"
+
+    mock_service.list_events_after = AsyncMock(return_value=[event_1, event_2])
+
+    response = client.get(
+        f"/v1/executions/{execution_id}/events?workspace_id={workspace_id}&after_seq=1"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"] == {
+        "execution_id": str(execution_id),
+        "events": [
+            {
+                "id": str(event_1.id),
+                "execution_id": str(execution_id),
+                "seq": 2,
+                "event_type": "assistant_text",
+                "payload": {"content": "hello"},
+                "created_at": "2026-04-24T12:00:00Z",
+            },
+            {
+                "id": str(event_2.id),
+                "execution_id": str(execution_id),
+                "seq": 3,
+                "event_type": "tool_use_start",
+                "payload": {"tool": {"name": "Bash"}},
+                "created_at": "2026-04-24T12:00:01Z",
+            },
+        ],
+        "next_after_seq": 3,
+    }
+    mock_service.list_events_after.assert_awaited_once_with(
+        execution_id,
+        "user-123",
+        after_seq=1,
+        limit=500,
+    )

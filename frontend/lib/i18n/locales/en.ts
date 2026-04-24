@@ -234,6 +234,7 @@ const en = {
         tabs: {
           overview: 'Overview',
           chat: 'Chat',
+          builder: 'Builder',
           settings: 'Settings',
         },
         assignTask: 'Assign Task',
