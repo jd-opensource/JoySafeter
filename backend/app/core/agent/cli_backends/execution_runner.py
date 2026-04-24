@@ -34,7 +34,6 @@ from app.core.agent.cli_backends.injectors import (
 from app.core.agent.cli_backends.registry import runtime_registry
 from app.core.agent.cli_backends.runner_callbacks import RunnerCallbacks
 from app.core.agent.cli_backends.session_registry import session_registry
-from app.core.state_machines.transitions import transition_execution
 from app.models.agent import AgentRelease
 from app.models.agent_run import AgentRun
 from app.models.execution import Execution
@@ -79,6 +78,16 @@ class ExecutionRunner:
         release = await self._get_release(run)
         pooled = False  # whether the container came from the pool
 
+        # Inject run metadata so execution_service routes events through the bus
+        from app.services.execution_service import EventContext
+        self.execution_service.set_event_context(EventContext(
+            run_id=run.id,
+            workspace_id=run.workspace_id,
+            trigger_source=run.trigger_source,
+            thread_id=run.thread_id,
+            task_id=run.task_id,
+        ))
+
         logger.info(
             f"[exec:{execution_id}] Starting execution "
             f"(release={release.id}, "
@@ -87,7 +96,7 @@ class ExecutionRunner:
 
         try:
             # 1. Mark as dispatched
-            await self._mark_status(execution_id, "dispatched")
+            await self.execution_service.mark_status(execution_id=execution_id, status="dispatched")
 
             # 2. Get or create container
             prior_session_id: Optional[str] = None
@@ -132,7 +141,7 @@ class ExecutionRunner:
                     f"{container.container_id[:12]} with session {prior_session_id}"
                 )
 
-            await self._mark_status(execution_id, "running", container_id=container.container_id)
+            await self.execution_service.mark_status(execution_id=execution_id, status="running", container_id=container.container_id)
 
             # 3. Inject skills and config (idempotent — safe to re-run on reuse)
             await self._inject(
@@ -235,45 +244,6 @@ class ExecutionRunner:
         val = result.scalar_one_or_none()
         return val if val is not None else True
 
-    async def _mark_status(
-        self,
-        execution_id: uuid.UUID,
-        status: str,
-        container_id: Optional[str] = None,
-        session_id: Optional[str] = None,
-        error_code: Optional[str] = None,
-        error_message: Optional[str] = None,
-        result_summary: Optional[dict[str, Any]] = None,
-    ) -> None:
-        """Update execution status via the state machine transition."""
-        result = await self.db.execute(
-            select(Execution).where(Execution.id == execution_id).with_for_update()
-        )
-        execution = result.scalar_one_or_none()
-        if not execution:
-            return
-
-        await transition_execution(execution, status, self.db)
-
-        if error_code is not None:
-            execution.error_code = error_code
-        if error_message is not None:
-            execution.error_message = error_message
-        if container_id is not None:
-            execution.runtime_session_ref = container_id
-        if session_id is not None:
-            execution.runtime_session_ref = session_id
-        if result_summary is not None:
-            execution.metrics = result_summary
-
-        await self.db.commit()
-
-        from app.websocket.execution_subscription_manager import execution_subscription_manager
-        await execution_subscription_manager.broadcast_event(
-            str(execution_id),
-            {"type": "execution_status", "execution_id": str(execution_id), "status": status},
-        )
-
     async def _inject(
         self,
         *,
@@ -361,7 +331,7 @@ class ExecutionRunner:
                             payload={"decision": "auto_approved", "request_id": request_id},
                         )
                     else:
-                        await self._mark_status(execution_id, "approval_wait")
+                        await self.execution_service.mark_status(execution_id=execution_id, status="approval_wait")
                     break
         except Exception as exc:
             logger.warning(f"Failed to flush {len(pending)} events for {execution_id}: {exc}")
@@ -383,9 +353,9 @@ class ExecutionRunner:
             },
         )
 
-        await self._mark_status(
-            execution_id,
-            status,
+        await self.execution_service.mark_status(
+            execution_id=execution_id,
+            status=status,
             session_id=result.session_id,
             error_message=result.error if result.error else None,
             result_summary=result.usage,
@@ -408,7 +378,7 @@ class ExecutionRunner:
                 event_type="error",
                 payload={"message": error},
             )
-            await self._mark_status(execution_id, "failed", error_message=error[:2000])
+            await self.execution_service.mark_status(execution_id=execution_id, status="failed", error_message=error[:2000])
         except Exception as exc:
             logger.error(f"Failed to mark execution {execution_id} as failed: {exc}")
 

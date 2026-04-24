@@ -8,7 +8,6 @@ Creates AgentRun + Execution, resolves the engine, builds context, fires.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Optional
 
 from loguru import logger
@@ -18,13 +17,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.exceptions import BadRequestException, NotFoundException
 from app.core.engine.protocol import ExecutionContext
 from app.core.engine.registry import engine_registry
+from app.core.events import ExecutionEventEnvelope, execution_event_bus
 from app.core.state_machines.engine import InvalidTransition
 from app.core.state_machines.transitions import (
-    transition_run, transition_execution, transition_task, sync_task_from_run,
+    transition_run, transition_execution, transition_task,
 )
 from app.models.agent import Agent, AgentRelease, AgentVersion
 from app.models.agent_run import AgentRun
-from app.models.execution import Execution, ExecutionEvent
+from app.models.execution import Execution
 from app.models.task import Task
 from app.models.thread import Thread
 from app.utils.credentials import build_credentials
@@ -320,8 +320,13 @@ class ExecutionOrchestrator:
             auto_approve=auto_approve,
         )
 
-        # Wire context callbacks
-        self._wire_context(context)
+        # Wire context callbacks (pass run metadata to avoid extra DB query)
+        _run_meta = dict(
+            trigger_source=run.trigger_source,
+            thread_id=run.thread_id,
+            task_id=run.task_id,
+        )
+        self._wire_context(context, **_run_meta)
 
         engine = engine_registry.get(release.runtime_kind)
 
@@ -338,7 +343,7 @@ class ExecutionOrchestrator:
                         credentials=credentials,
                         auto_approve=auto_approve,
                     )
-                    self._wire_context(ctx)
+                    self._wire_context(ctx, **_run_meta)
 
                     await engine.start(
                         ctx,
@@ -356,34 +361,32 @@ class ExecutionOrchestrator:
 
         safe_create_task(_run_engine(), name=f"engine-{execution.id}")
 
-    def _wire_context(self, ctx: ExecutionContext) -> None:
-        """Attach emit/status/complete callbacks to context."""
+    def _wire_context(
+        self,
+        ctx: ExecutionContext,
+        *,
+        trigger_source: str | None = None,
+        thread_id: uuid.UUID | None = None,
+        task_id: uuid.UUID | None = None,
+    ) -> None:
+        """Attach emit/status/complete callbacks to context.
+
+        Run metadata is passed in directly by the caller (who already has the
+        run object), avoiding an extra DB query.
+        """
 
         async def _emit(event_type: str, payload: dict) -> None:
-            from sqlalchemy import func, select as sa_select
-            max_seq = (await ctx.db.execute(
-                sa_select(func.coalesce(func.max(ExecutionEvent.sequence_no), 0))
-                .where(ExecutionEvent.execution_id == ctx.execution_id)
-            )).scalar()
-
-            event = ExecutionEvent(
+            envelope = ExecutionEventEnvelope(
                 execution_id=ctx.execution_id,
-                sequence_no=max_seq + 1,
+                run_id=ctx.run_id,
+                workspace_id=ctx.workspace_id,
                 event_type=event_type,
                 payload=payload,
+                trigger_source=trigger_source,
+                thread_id=thread_id,
+                task_id=task_id,
             )
-            ctx.db.add(event)
-            await ctx.db.commit()
-
-            # Broadcast via WebSocket
-            from app.websocket.execution_subscription_manager import execution_subscription_manager
-            await execution_subscription_manager.broadcast_event(str(ctx.execution_id), {
-                "type": "event",
-                "execution_id": str(ctx.execution_id),
-                "seq": event.sequence_no,
-                "event_type": event_type,
-                "data": payload,
-            })
+            await execution_event_bus.publish(envelope, ctx.db)
 
         async def _status(status: str) -> None:
             execution = (await ctx.db.execute(
@@ -396,39 +399,19 @@ class ExecutionOrchestrator:
             await ctx.db.commit()
 
         async def _complete(status: str, result_summary: str | None = None) -> None:
-            # Update Execution
-            execution = (await ctx.db.execute(
-                select(Execution).where(Execution.id == ctx.execution_id)
-            )).scalar_one()
-            try:
-                await transition_execution(execution, status, ctx.db)
-            except InvalidTransition:
-                logger.warning(f"Skipping transition: execution {execution.id} already in {execution.status}")
-
-            # Update Run
-            run = (await ctx.db.execute(
-                select(AgentRun).where(AgentRun.id == ctx.run_id)
-            )).scalar_one()
-            try:
-                await transition_run(run, status, ctx.db, result_summary)
-            except InvalidTransition:
-                logger.warning(f"Skipping transition: run {run.id} already in {run.status}")
-
-            # Sync Task status
-            await sync_task_from_run(run, ctx.db)
-            await ctx.db.commit()
-
-            # Broadcast
-            from app.websocket.execution_subscription_manager import execution_subscription_manager
-            await execution_subscription_manager.broadcast_event(str(ctx.execution_id), {
-                "type": "execution_completed",
-                "execution_id": str(ctx.execution_id),
-                "run_id": str(ctx.run_id),
-                "status": status,
-            })
-
-            # Clean up subscription entry so completed executions don't leak memory
-            execution_subscription_manager.remove_execution(str(ctx.execution_id))
+            envelope = ExecutionEventEnvelope(
+                execution_id=ctx.execution_id,
+                run_id=ctx.run_id,
+                workspace_id=ctx.workspace_id,
+                event_type="execution_completed",
+                payload={"status": status},
+                trigger_source=trigger_source,
+                thread_id=thread_id,
+                task_id=task_id,
+                terminal_status=status,
+                result_summary=result_summary,
+            )
+            await execution_event_bus.publish(envelope, ctx.db)
 
         ctx._emit_fn = _emit
         ctx._status_fn = _status

@@ -5,6 +5,7 @@ Service layer for CLI agent executions.
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, List, Optional
 
@@ -13,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import NotFoundException
+from app.core.events import ExecutionEventEnvelope, execution_event_bus
 from app.core.state_machines.definitions import EXECUTION_TERMINAL
 from app.models.execution import (
     Execution,
@@ -24,6 +26,20 @@ from app.utils.datetime import utc_now
 TERMINAL_EXECUTION_STATUSES = EXECUTION_TERMINAL
 
 
+@dataclass
+class EventContext:
+    """Run-level metadata injected by the caller (e.g. ExecutionRunner).
+
+    Allows append_event to construct a complete ExecutionEventEnvelope
+    without querying the DB for run metadata on every event.
+    """
+    run_id: uuid.UUID
+    workspace_id: uuid.UUID
+    trigger_source: Optional[str] = None
+    thread_id: Optional[uuid.UUID] = None
+    task_id: Optional[uuid.UUID] = None
+
+
 class ExecutionService:
     """Manages execution lifecycle and event appending."""
 
@@ -31,6 +47,11 @@ class ExecutionService:
         self.db = db
         self.repo = ExecutionRepository(db)
         self.event_repo = ExecutionEventRepository(db)
+        self._event_ctx: Optional[EventContext] = None
+
+    def set_event_context(self, ctx: EventContext) -> None:
+        """Inject run-level metadata so append_event can build full envelopes."""
+        self._event_ctx = ctx
 
     async def get_execution_internal(self, execution_id: uuid.UUID) -> Optional[Execution]:
         """Internal use — no user-scope check, no FOR UPDATE lock."""
@@ -101,22 +122,29 @@ class ExecutionService:
 
         await self.db.commit()
 
-        from app.websocket.execution_subscription_manager import execution_subscription_manager
-        await execution_subscription_manager.broadcast_event(
-            str(execution_id),
-            {"type": "execution_status", "execution_id": str(execution_id), "status": status},
-        )
+        # Status changes go through the bus if event context is available
+        if self._event_ctx:
+            envelope = ExecutionEventEnvelope(
+                execution_id=execution_id,
+                run_id=self._event_ctx.run_id,
+                workspace_id=self._event_ctx.workspace_id,
+                event_type="execution_status",
+                payload={"status": status},
+                created_at=utc_now(),
+                trigger_source=self._event_ctx.trigger_source,
+                thread_id=self._event_ctx.thread_id,
+                task_id=self._event_ctx.task_id,
+            )
+            await execution_event_bus.publish(envelope, self.db)
+        else:
+            # Fallback for callers without event context (e.g. scheduler reaper)
+            from app.websocket.execution_subscription_manager import execution_subscription_manager
+            await execution_subscription_manager.broadcast_event(
+                str(execution_id),
+                {"type": "execution_status", "execution_id": str(execution_id), "status": status},
+            )
 
         return execution
-
-    async def _next_sequence_no(self, execution_id: uuid.UUID) -> int:
-        """Get the next sequence number for an execution's events."""
-        result = await self.db.execute(
-            select(func.coalesce(func.max(ExecutionEvent.sequence_no), 0)).where(
-                ExecutionEvent.execution_id == execution_id
-            )
-        )
-        return (result.scalar() or 0) + 1
 
     async def append_event(
         self,
@@ -124,37 +152,31 @@ class ExecutionService:
         execution_id: uuid.UUID,
         event_type: str,
         payload: dict[str, Any],
-        commit: bool = True,
     ) -> ExecutionEvent:
-        seq = await self._next_sequence_no(execution_id)
-        event = ExecutionEvent(
+        if self._event_ctx is None:
+            raise RuntimeError(
+                "EventContext not set. Call set_event_context() before appending events."
+            )
+
+        envelope = ExecutionEventEnvelope(
             execution_id=execution_id,
-            sequence_no=seq,
+            run_id=self._event_ctx.run_id,
+            workspace_id=self._event_ctx.workspace_id,
+            event_type=event_type,
+            payload=payload,
+            created_at=utc_now(),
+            trigger_source=self._event_ctx.trigger_source,
+            thread_id=self._event_ctx.thread_id,
+            task_id=self._event_ctx.task_id,
+        )
+        await execution_event_bus.publish(envelope, self.db)
+
+        return ExecutionEvent(
+            execution_id=execution_id,
+            sequence_no=envelope.seq,
             event_type=event_type,
             payload=payload,
         )
-        self.db.add(event)
-
-        if commit:
-            await self.db.commit()
-            await self.db.refresh(event)
-            from app.websocket.execution_subscription_manager import execution_subscription_manager
-            await execution_subscription_manager.broadcast_event(
-                str(execution_id),
-                {
-                    "type": "event",
-                    "execution_id": str(execution_id),
-                    "seq": seq,
-                    "event_type": event_type,
-                    "data": payload,
-                    "created_at": str(event.created_at),
-                },
-            )
-        else:
-            await self.db.flush()
-            await self.db.refresh(event)
-
-        return event
 
     async def batch_append_events(
         self,
@@ -162,32 +184,36 @@ class ExecutionService:
         execution_id: uuid.UUID,
         events: list[dict[str, Any]],
     ) -> list[ExecutionEvent]:
-        """Append multiple events in a single commit."""
-        results: list[ExecutionEvent] = []
-        for evt in events:
-            result = await self.append_event(
+        """Append multiple events in a single transaction via the event bus."""
+        if self._event_ctx is None:
+            raise RuntimeError(
+                "EventContext not set. Call set_event_context() before appending events."
+            )
+
+        envelopes = [
+            ExecutionEventEnvelope(
                 execution_id=execution_id,
+                run_id=self._event_ctx.run_id,
+                workspace_id=self._event_ctx.workspace_id,
                 event_type=evt["event_type"],
                 payload=evt["payload"],
-                commit=False,
+                trigger_source=self._event_ctx.trigger_source,
+                thread_id=self._event_ctx.thread_id,
+                task_id=self._event_ctx.task_id,
             )
-            results.append(result)
+            for evt in events
+        ]
+        await execution_event_bus.publish_batch(envelopes, self.db)
 
-        await self.db.commit()
-
-        from app.websocket.execution_subscription_manager import execution_subscription_manager
-        for saved_event in results:
-            await execution_subscription_manager.broadcast_event(
-                str(execution_id),
-                {
-                    "type": "event",
-                    "execution_id": str(execution_id),
-                    "seq": saved_event.sequence_no,
-                    "event_type": saved_event.event_type,
-                    "data": saved_event.payload,
-                    "created_at": str(saved_event.created_at),
-                },
+        return [
+            ExecutionEvent(
+                execution_id=execution_id,
+                sequence_no=env.seq,
+                event_type=env.event_type,
+                payload=env.payload,
             )
+            for env in envelopes
+        ]
 
         return results
 

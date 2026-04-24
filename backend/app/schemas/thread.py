@@ -37,6 +37,10 @@ class CreateMessageRequest(BaseModel):
     content: Dict[str, Any]
 
 
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+
+
 # ---------------------------------------------------------------------------
 # Response schemas
 # ---------------------------------------------------------------------------
@@ -81,3 +85,8 @@ class ThreadDetailResponse(ThreadResponse):
     messages: List[MessageResponse] = []
 
     model_config = {"from_attributes": True}
+
+
+class ChatResponse(BaseModel):
+    run_id: uuid.UUID
+    execution_id: uuid.UUID

@@ -184,6 +184,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     except Exception as e:
         logger.warning(f"   ⚠️  CLI runtime provider initialization failed: {e}")
 
+    # Register execution event bus subscribers
+    try:
+        from app.core.events.bus import execution_event_bus
+        from app.core.events.subscribers.persistence import PersistenceSubscriber
+        from app.core.events.subscribers.state_transition import StateTransitionSubscriber
+        from app.core.events.subscribers.websocket import WebSocketSubscriber
+        from app.core.events.subscribers.message_projection import MessageProjectionSubscriber
+        from app.core.events.subscribers.task_sync import TaskSyncSubscriber
+
+        execution_event_bus.register(PersistenceSubscriber())
+        execution_event_bus.register(StateTransitionSubscriber())
+        execution_event_bus.register(WebSocketSubscriber())
+        execution_event_bus.register(MessageProjectionSubscriber())
+        execution_event_bus.register(TaskSyncSubscriber())
+        logger.info("   ✓ Execution event bus subscribers registered")
+    except Exception as e:
+        logger.error(f"   ⚠️  Event bus subscriber registration failed: {e}")
+
     # Start container pool reaper (idle containers cleaned up every 5 min)
     _reaper_task: Optional[asyncio.Task] = None
     try:
