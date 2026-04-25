@@ -222,6 +222,11 @@ const zh = {
           inspector: '属性面板',
           edgeInspector: '连线属性',
         },
+        addNode: {
+          button: '添加',
+          search: '搜索节点...',
+          empty: '未找到节点',
+        },
         stages: {
           brief: '需求',
           canvas: '编排',

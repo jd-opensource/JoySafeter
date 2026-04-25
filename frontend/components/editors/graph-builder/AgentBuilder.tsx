@@ -82,6 +82,7 @@ const AgentBuilderContent = ({
     loadGraph,
     exportGraph,
     importGraph,
+    addNode,
     setWorkspaceId,
     setGraphId,
     setGraphName,
@@ -499,6 +500,15 @@ const AgentBuilderContent = ({
     setRunInput('')
   }
 
+  const handleToolbarAddNode = (node: { type: string; label: string }) => {
+    const viewport = useBuilderStore.getState().rfInstance?.getViewport()
+    const position = {
+      x: viewport ? -viewport.x / viewport.zoom + 120 : 120,
+      y: viewport ? -viewport.y / viewport.zoom + 120 : 120,
+    }
+    addNode(node.type, position, node.label)
+  }
+
   // Code mode: render CodeEditorPage instead of canvas
   if (graphStateData?.definitionKind === 'code' && agentId && !isInitializing) {
     return <CodeEditorPage graphId={agentId} workspaceId={workspaceId} />
@@ -579,6 +589,7 @@ const AgentBuilderContent = ({
             onRunClick={handleRunClick}
             agentId={agentId || ''}
             nodesCount={nodes.length}
+            onAddNode={studioMode ? handleToolbarAddNode : undefined}
           />
         </div>
 

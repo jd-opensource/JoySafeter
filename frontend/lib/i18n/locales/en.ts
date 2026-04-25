@@ -223,6 +223,11 @@ const en = {
           inspector: 'Inspector',
           edgeInspector: 'Edge Inspector',
         },
+        addNode: {
+          button: 'Add',
+          search: 'Search nodes...',
+          empty: 'No nodes found',
+        },
         stages: {
           brief: 'Brief',
           canvas: 'Canvas',

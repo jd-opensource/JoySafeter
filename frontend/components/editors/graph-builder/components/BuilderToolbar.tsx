@@ -2,6 +2,7 @@
 
 import { useQueryClient } from '@tanstack/react-query'
 import {
+  Plus,
   Upload,
   Download,
   Play,
@@ -23,6 +24,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useToast } from '@/hooks/use-toast'
 import { versionKeys } from '@/hooks/queries/agentVersions'
@@ -35,6 +37,7 @@ import { useBuilderStore } from '../stores/builderStore'
 import { useExecutionStore } from '../stores/execution/executionStore'
 
 import { ApiAccessDialog } from './ApiAccessDialog'
+import { AddNodePalette } from './AddNodePalette'
 import { DeploymentHistoryPanel } from './DeploymentHistoryPanel'
 
 interface BuilderToolbarProps {
@@ -43,6 +46,7 @@ interface BuilderToolbarProps {
   onRunClick: () => void
   agentId?: string
   nodesCount?: number
+  onAddNode?: (node: { type: string; label: string }) => void
 }
 
 export function BuilderToolbar({
@@ -51,6 +55,7 @@ export function BuilderToolbar({
   onRunClick,
   agentId,
   nodesCount = 0,
+  onAddNode,
 }: BuilderToolbarProps) {
   const { workspaceId } = useCurrentWorkspace()
   const { t } = useTranslation()
@@ -204,6 +209,20 @@ export function BuilderToolbar({
 
           {/* Right: Action Buttons */}
           <div className="flex items-center gap-2">
+            {onAddNode && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button size="sm" variant="outline" className="h-7 gap-1.5 px-2.5">
+                    <Plus size={13} />
+                    <span>{t('agents.studio.addNode.button', { defaultValue: 'Add' })}</span>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-auto p-0">
+                  <AddNodePalette onSelect={onAddNode} />
+                </PopoverContent>
+              </Popover>
+            )}
+
             {/* Deploy Dropdown */}
             <DropdownMenu>
               <div className="group flex rounded-md shadow-sm transition-all hover:shadow">

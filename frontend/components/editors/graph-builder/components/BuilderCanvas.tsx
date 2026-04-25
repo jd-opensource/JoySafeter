@@ -15,6 +15,7 @@ import { EDGE_COLORS } from '../utils/edgeStyles'
 import { nodeTypes, edgeTypes } from '../utils/reactFlowConfig'
 
 import { EdgePropertiesPanel } from './EdgePropertiesPanel'
+import { CanvasContextMenu } from './CanvasContextMenu'
 import { GraphStatusBar } from './GraphStatusBar'
 import PropertiesPanel from './PropertiesPanel'
 
@@ -154,6 +155,12 @@ export function BuilderCanvas({ inspectorMode = 'floating' }: BuilderCanvasProps
   const isSidebarCollapsed = useSidebarStore((state) => state.isCollapsed)
 
   const [isDragOver, setIsDragOver] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{
+    open: boolean
+    screenX: number
+    screenY: number
+    flowPosition: { x: number; y: number }
+  }>({ open: false, screenX: 0, screenY: 0, flowPosition: { x: 0, y: 0 } })
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId)
@@ -320,6 +327,16 @@ export function BuilderCanvas({ inspectorMode = 'floating' }: BuilderCanvasProps
 
   const onDragLeave = useCallback(() => setIsDragOver(false), [])
 
+  const getFlowPositionFromEvent = useCallback((clientX: number, clientY: number) => {
+    const bounds = reactFlowWrapper.current?.getBoundingClientRect()
+    const instance = useBuilderStore.getState().rfInstance
+    if (!bounds || !instance) return { x: 0, y: 0 }
+    return instance.screenToFlowPosition({
+      x: clientX - bounds.left,
+      y: clientY - bounds.top,
+    })
+  }, [])
+
   const onDrop = useCallback(
     async (event: React.DragEvent) => {
       event.preventDefault()
@@ -372,6 +389,16 @@ export function BuilderCanvas({ inspectorMode = 'floating' }: BuilderCanvasProps
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        if (!userPermissions.canEdit) return
+        setContextMenu({
+          open: true,
+          screenX: event.clientX,
+          screenY: event.clientY,
+          flowPosition: getFlowPositionFromEvent(event.clientX, event.clientY),
+        })
+      }}
     >
       <div
         className={`pointer-events-none absolute inset-4 z-50 flex items-center justify-center rounded-xl border-2 border-dashed transition-all duration-200 ${isDragOver ? 'scale-100 border-[var(--brand-500)] bg-[var(--brand-500)] opacity-100 backdrop-blur-[1px]' : 'scale-95 border-transparent opacity-0'}`}
@@ -495,6 +522,14 @@ export function BuilderCanvas({ inspectorMode = 'floating' }: BuilderCanvasProps
           onClose={() => selectEdge(null)}
         />
       )}
+
+      <CanvasContextMenu
+        open={contextMenu.open}
+        x={contextMenu.screenX}
+        y={contextMenu.screenY}
+        onClose={() => setContextMenu((current) => ({ ...current, open: false }))}
+        onAddNode={(node) => addNode(node.type, contextMenu.flowPosition, node.label)}
+      />
     </div>
   )
 }
