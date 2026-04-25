@@ -2,7 +2,14 @@
 
 > 日期: 2026-04-26
 > 状态: 待审核
-> 修订: v2 — 修复 spec review 反馈
+> 修订: v3 — 重构原则：从目标架构出发，不牵强兼容旧代码
+
+## 重构原则
+
+**这是重构，不是打补丁。** 从用户易用性和架构自洽的角度重新设计：
+- 旧代码中可复用的逻辑（如 React Flow 画布、执行引擎、Release 适配器）直接复用
+- 旧代码中不合理的结构（如组件签名、路由分叉、布局方式）果断重写，不做兼容性 hack
+- 所有组件统一到新的 `StageProps` 接口，旧组件的 props 签名不保留
 
 ## 问题
 
@@ -81,12 +88,13 @@ const SURFACE_MAP: Record<BuilderSurfaceKind, BuilderSurface> = {
 
 const DEFINITION_TO_SURFACE: Record<string, BuilderSurfaceKind> = {
   graph:  'visual',
+  hybrid: 'visual',
   code:   'code',
   prompt: 'prompt',
 }
 
 export function resolveBuilderSurface(definitionKind: string | null | undefined): BuilderSurface {
-  const surfaceKind = DEFINITION_TO_SURFACE[definitionKind ?? ''] ?? 'prompt'
+  const surfaceKind = DEFINITION_TO_SURFACE[definitionKind ?? ''] ?? 'visual'
   return SURFACE_MAP[surfaceKind]
 }
 ```
@@ -150,27 +158,29 @@ export default function AgentDetailPage() {
 - 生命周期阶段普遍用顶部 tab/stepper 或按钮
 - 测试面板几乎都是"随时可用"的滑出 panel
 
-### 新布局
+### 完整页面结构（layout + shell）
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  [Agent名称]   ① 目标  ② 构建  ③ 测试  ④ 发布  ⑤ 使用  │  ← 顶部 stepper
-├─────────────────────────────────────────────────────────┤
-│                                                         │
-│              全宽工作区（按阶段切换内容）                   │
-│                                                         │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│  ← [Agent名称] [状态]              [Chat] [Settings]         │  ← layout.tsx header
+├──────────────────────────────────────────────────────────────┤
+│  ① 目标  ─── ② 构建  ─── ③ 测试  ─── ④ 发布  ─── ⑤ 使用   │  ← AgentBuildShell stepper
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│                    全宽工作区                                  │
+│                                                              │
+│  目标阶段：居中卡片 max-w-720                                 │
+│  构建阶段：全宽三栏（左面板 + 画布/编辑器 + 右面板）           │
+│  测试阶段：左右分栏（输入 / 结果）                             │
+│  发布阶段：居中卡片 max-w-960                                 │
+│  使用阶段：居中卡片 max-w-960                                 │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-各阶段布局：
-
-| 阶段 | 布局 |
-|---|---|
-| 目标 | 居中卡片，max-width 720px |
-| 构建 | 全宽，三栏（可选左面板 + 画布/编辑器 + 右面板） |
-| 测试 | 左右分栏（输入 / 结果） |
-| 发布 | 居中卡片，max-width 960px |
-| 使用 | 居中卡片，max-width 960px |
+- layout.tsx 提供第一行：Agent 身份 + Chat/Settings 入口
+- AgentBuildShell 提供第二行：5 阶段 stepper
+- 第三行：全宽工作区，由 StageRenderer 按阶段切换内容
 
 ### Stepper 交互
 
@@ -189,16 +199,23 @@ export default function AgentDetailPage() {
 ## AgentBuildShell 重写
 
 ```typescript
-function AgentBuildShell({ agent, version }) {
+function AgentBuildShell({ agent, version }: { agent: Agent; version: AgentVersion | null }) {
   const surface = useBuilderSurface()
-  const [activeStageId, setActiveStageId] = useState(() =>
+  const { workspaceId } = useCurrentWorkspace()
+  const [activeStageId, setActiveStageId] = useState<BuildStageId>(() =>
     resolveDefaultStage(agent, version)
   )
+
+  const stageProps: StageProps = {
+    agent,
+    version,
+    workspaceId,
+    navigateToStage: setActiveStageId,
+  }
 
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center border-b px-4 py-2">
-        <AgentIdentity agent={agent} />
         <BuildStepper
           stages={BUILD_STAGES}
           activeStage={activeStageId}
@@ -207,25 +224,23 @@ function AgentBuildShell({ agent, version }) {
         <StatusBadges agent={agent} />
       </header>
       <main className="min-h-0 flex-1">
-        <StageRenderer
-          stageId={activeStageId}
-          surface={surface}
-          agent={agent}
-          version={version}
-          navigateToStage={setActiveStageId}
-        />
+        <StageRenderer stageId={activeStageId} surface={surface} stageProps={stageProps} />
       </main>
     </div>
   )
 }
 ```
 
+> **注意：** `workspaceId` 由 Shell 内部通过 `useCurrentWorkspace()` 获取，不需要从 page.tsx 传入。Agent 名称和返回按钮由 layout.tsx header 提供，Shell 不重复渲染。
+
 ### StageRenderer
 
 ```typescript
-function StageRenderer({ stageId, surface, agent, version, workspaceId, navigateToStage }) {
-  const stageProps: StageProps = { agent, version, workspaceId, navigateToStage }
-
+function StageRenderer({ stageId, surface, stageProps }: {
+  stageId: BuildStageId
+  surface: BuilderSurface
+  stageProps: StageProps
+}) {
   switch (stageId) {
     case 'brief':    return <surface.BriefStage {...stageProps} />
     case 'build':    return <surface.BuildStage {...stageProps} />
@@ -236,7 +251,9 @@ function StageRenderer({ stageId, surface, agent, version, workspaceId, navigate
 }
 ```
 
-> **Stage ID 变更：** 旧代码中 `'canvas'` 重命名为 `'build'`。需要在 `resolveDefaultStage` 中兼容旧 URL：`?stage=canvas` 映射到 `'build'`。
+> **通用阶段重写：** `AgentReleaseStage` 和 `AgentUsageStage` 的 props 签名重写为 `StageProps`。旧签名中的 `runtimeKind` 由组件内部从 `version?.definition_kind` 派生，`canPublishDraft` 由组件内部从 `version?.definition_payload` 判断。不保留旧的 props 接口。
+
+> **Stage ID 变更：** 旧代码中 `'canvas'` 重命名为 `'build'`。这是重构，不做旧 URL 兼容 — `?stage=canvas` 不再有效。
 
 ## 进入 Agent 的默认阶段路由
 
