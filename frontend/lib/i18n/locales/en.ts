@@ -218,6 +218,11 @@ const en = {
         title: 'Agent Studio',
         visualAgent: 'Visual Agent',
         stageOverview: 'Current stage: {{activeStage}}. Default stage: {{defaultStage}}',
+        rightPanel: {
+          copilot: 'Copilot Builder',
+          inspector: 'Inspector',
+          edgeInspector: 'Edge Inspector',
+        },
         stages: {
           brief: 'Brief',
           canvas: 'Canvas',

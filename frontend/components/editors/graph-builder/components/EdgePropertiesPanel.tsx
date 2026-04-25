@@ -30,6 +30,7 @@ interface EdgePropertiesPanelProps {
   onUpdate: (id: string, data: Partial<EdgeData>) => void
   onDelete?: (id: string) => void
   onClose: () => void
+  embedded?: boolean
 }
 
 export function EdgePropertiesPanel({
@@ -39,6 +40,7 @@ export function EdgePropertiesPanel({
   onUpdate,
   onDelete,
   onClose,
+  embedded = false,
 }: EdgePropertiesPanelProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
@@ -68,7 +70,13 @@ export function EdgePropertiesPanel({
 
   return (
     <>
-      <div className="absolute right-4 top-16 z-50 w-72 rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] shadow-xl">
+      <div
+        className={
+          embedded
+            ? 'flex h-full flex-col overflow-hidden bg-[var(--surface-1)]'
+            : 'absolute right-4 top-16 z-50 w-72 rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] shadow-xl'
+        }
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
           <div className="flex items-center gap-2">

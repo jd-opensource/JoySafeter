@@ -25,6 +25,7 @@ import { useCurrentWorkspace } from '@/providers/workspace-provider'
 import { BuilderCanvas } from './components/BuilderCanvas'
 import { BuilderSidebarTabs } from './components/BuilderSidebarTabs'
 import { BuilderToolbar } from './components/BuilderToolbar'
+import { StudioRightPanel } from './components/StudioRightPanel'
 import { ExecutionPanelNew as ExecutionPanel } from '@/components/execution/ExecutionPanelNew'
 import { RunInputModal } from './components/RunInputModal'
 import { CodeEditorPage } from './CodeEditorPage'
@@ -63,6 +64,7 @@ const AgentBuilderContent = ({
   workspaceIdProp,
   agentIdProp,
   versionIdProp,
+  studioMode = false,
 }: AgentBuilderContentProps) => {
   const { t } = useTranslation()
   const params = useParams()
@@ -563,7 +565,7 @@ const AgentBuilderContent = ({
       {/* Main Content Area - Canvas takes full space, panels overlay on top */}
       <div className="relative min-h-0 flex-1">
         <ErrorBoundary>
-          <BuilderCanvas key={agentId || 'empty'} />
+          <BuilderCanvas key={agentId || 'empty'} inspectorMode={studioMode ? 'external' : 'floating'} />
         </ErrorBoundary>
       </div>
 
@@ -582,7 +584,7 @@ const AgentBuilderContent = ({
 
         {/* Sidebar Content with Tabs (Copilot and Toolbox) */}
         <div className="min-h-0 flex-1 overflow-hidden">
-          <BuilderSidebarTabs />
+          {studioMode ? <StudioRightPanel /> : <BuilderSidebarTabs />}
         </div>
       </aside>
 

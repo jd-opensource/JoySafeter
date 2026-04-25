@@ -1,5 +1,6 @@
 'use client'
 
+// Legacy non-Studio sidebar. Studio mode uses StudioRightPanel so Copilot and Components are no longer equal tabs.
 import { Sparkles, Wrench } from 'lucide-react'
 
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'

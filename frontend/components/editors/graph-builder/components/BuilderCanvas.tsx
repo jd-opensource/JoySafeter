@@ -117,7 +117,11 @@ function CustomControls({
   )
 }
 
-export function BuilderCanvas() {
+interface BuilderCanvasProps {
+  inspectorMode?: 'floating' | 'external'
+}
+
+export function BuilderCanvas({ inspectorMode = 'floating' }: BuilderCanvasProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
   const userPermissions = useUserPermissionsContext()
@@ -435,7 +439,7 @@ export function BuilderCanvas() {
         />
       </ReactFlow>
 
-      {selectedNode && (
+      {inspectorMode === 'floating' && selectedNode && (
         <PropertiesPanel
           node={selectedNode}
           nodes={nodes}
@@ -458,7 +462,7 @@ export function BuilderCanvas() {
         />
       )}
 
-      {selectedEdgeId && (
+      {inspectorMode === 'floating' && selectedEdgeId && (
         <EdgePropertiesPanel
           edge={edges.find((e) => e.id === selectedEdgeId)!}
           nodes={nodes}

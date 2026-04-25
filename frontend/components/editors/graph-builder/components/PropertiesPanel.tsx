@@ -28,6 +28,7 @@ interface PropertiesPanelProps {
   edges: Edge[]
   onUpdate: (id: string, data: { label: string; config?: Record<string, unknown> }) => void
   onClose: () => void
+  embedded?: boolean
 }
 
 // ============================================================================
@@ -110,6 +111,7 @@ export default function PropertiesPanel({
   edges,
   onUpdate,
   onClose,
+  embedded = false,
 }: PropertiesPanelProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
@@ -211,7 +213,14 @@ export default function PropertiesPanel({
   const descriptionField = def?.schema.find((s) => s.key === 'description')
 
   return (
-    <div className="absolute bottom-[60px] right-[336px] top-[56px] z-50 flex w-[400px] flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-1)] shadow-2xl duration-300 animate-in fade-in slide-in-from-right-10">
+    <div
+      className={cn(
+        'flex flex-col overflow-hidden bg-[var(--surface-1)]',
+        embedded
+          ? 'h-full'
+          : 'absolute bottom-[60px] right-[336px] top-[56px] z-50 w-[400px] rounded-2xl border border-[var(--border)] shadow-2xl duration-300 animate-in fade-in slide-in-from-right-10',
+      )}
+    >
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface-1)] px-4 py-3.5">
         <div className="flex items-center gap-3 overflow-hidden text-[var(--text-primary)]">

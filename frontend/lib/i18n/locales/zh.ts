@@ -217,6 +217,11 @@ const zh = {
         title: 'Agent Studio',
         visualAgent: 'Visual Agent',
         stageOverview: '当前阶段：{{activeStage}}。默认阶段：{{defaultStage}}',
+        rightPanel: {
+          copilot: 'Copilot 构建助手',
+          inspector: '属性面板',
+          edgeInspector: '连线属性',
+        },
         stages: {
           brief: '需求',
           canvas: '编排',
