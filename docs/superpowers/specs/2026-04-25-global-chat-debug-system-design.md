@@ -47,7 +47,7 @@ The chat UI is a **view layer over execution events** — the same data source t
 | `MessageProjectionSubscriber` in `app/core/events/subscribers/message_projection.py` | Maintains the deleted projection |
 | `MessageProjectionSubscriber` registration in `app/main.py` | Dead reference |
 | `GET /v1/threads/{thread_id}/messages` handler | Returns deleted model |
-| `MessageResponse`, `CreateMessageRequest` in `app/schemas/thread.py` | Schemas for deleted model |
+| `MessageResponse`, `CreateMessageRequest`, `ThreadDetailResponse` in `app/schemas/thread.py` | Schemas for deleted model (`ThreadDetailResponse` embeds `MessageResponse`) |
 | `list_messages` in `app/services/thread_service.py` | Service method for deleted model |
 | Frontend: `ThreadMessage` interface in `types/thread.ts` | Frontend type for deleted model |
 
@@ -64,17 +64,27 @@ class ChatAttachment(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=10000)
+    # Raised from 4000 to 10000: debug scenarios include pasted logs, stack traces, config blocks
     attachments: list[ChatAttachment] = Field(default_factory=list, max_length=10)
 ```
 
-`dispatch_chat` writes attachments into the `USER_MESSAGE` event payload:
+Attachment payload is written into the `USER_MESSAGE` event **in the router** (`app/api/v1/threads.py`, chat endpoint, lines 185-195 — where `ExecutionEventEnvelope` is constructed), NOT in `dispatch_chat` (which only creates AgentRun + Execution):
 
 ```python
-# In ExecutionOrchestrator.dispatch_chat():
-event_payload = {"text": message}
-if attachments:
-    event_payload["attachments"] = [a.model_dump() for a in attachments]
-# This payload goes into execution_events.payload via the event bus
+# In threads.py chat endpoint (after dispatch_chat returns):
+payload = {"text": request.message}
+if request.attachments:
+    payload["attachments"] = [a.model_dump() for a in request.attachments]
+
+user_msg_envelope = ExecutionEventEnvelope(
+    execution_id=run.current_execution_id,
+    run_id=run.id,
+    workspace_id=workspace_id,
+    event_type=ExecutionEventType.USER_MESSAGE,
+    payload=payload,
+    ...
+)
+await execution_event_bus.publish(user_msg_envelope, db)
 ```
 
 `ChatResponse` unchanged:
@@ -83,6 +93,10 @@ class ChatResponse(BaseModel):
     run_id: uuid.UUID
     execution_id: uuid.UUID
 ```
+
+### 4.2.1 Also delete: `ThreadDetailResponse`
+
+`ThreadDetailResponse` in `app/schemas/thread.py` embeds `messages: List[MessageResponse]`. Since `MessageResponse` is deleted, `ThreadDetailResponse` must also be deleted (or refactored to remove the `messages` field). The `/threads/{thread_id}` endpoint should return `ThreadResponse` instead.
 
 ### 4.3 New: `GET /v1/threads/{thread_id}/events`
 
@@ -117,11 +131,13 @@ class ThreadEventsListResponse(BaseModel):
     total: int
 ```
 
-Supports pagination via `?after_seq=N&limit=100` for large histories.
+Supports cursor-based pagination via `?after=<event_id>&limit=100`. Using `event_id` (UUID) as cursor since `sequence_no` resets per execution and is not globally unique across the thread's event set. Server-side filtering: `copilot_*` events are excluded from the response (internal to copilot domain, not rendered in chat).
+
+**Authorization:** Same workspace access check as existing thread endpoints — `require_workspace_role(viewer)` with `workspace_id` query param.
 
 ### 4.4 File Preview
 
-Uploaded files: existing `GET /v1/files/read/{filename}` already reads from sandbox. Extend to support binary content (images, PDF) via `Accept` header or query param `?mode=raw`.
+Uploaded files: existing `GET /v1/files/read/{filename}` currently returns JSON-wrapped text (`BaseResponse` with `{filename, content, is_binary}`). For inline preview of images/PDFs, add a `?mode=raw` query param that returns raw binary bytes with correct `Content-Type` header via `Response(content=bytes, media_type=mime)`. This is a new code path in the existing endpoint, not a new endpoint.
 
 Execution artifacts: existing `Artifact` model has `uri` pointing to stored file. Add `GET /v1/artifacts/{artifact_id}/content` if not already present.
 
