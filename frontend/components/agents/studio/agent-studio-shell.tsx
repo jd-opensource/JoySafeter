@@ -4,14 +4,14 @@ import { useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 import { AgentBuildShell } from '@/components/agents/agent-build/agent-build-shell'
+import { AgentReleaseStage } from '@/components/agents/agent-build/agent-release-stage'
+import { AgentUsageStage } from '@/components/agents/agent-build/agent-usage-stage'
 import { useCurrentWorkspace } from '@/providers/workspace-provider'
 import type { Agent } from '@/types/agent'
 
 import { StudioBriefStage } from './studio-brief-stage'
 import { StudioCanvasStage } from './studio-canvas-stage'
-import { StudioReleaseStage } from './studio-release-stage'
 import { StudioTestLabStage } from './studio-test-lab-stage'
-import { StudioUsageStage } from './studio-usage-stage'
 import {
   AGENT_STUDIO_STAGES,
   normalizeStudioStage,
@@ -102,15 +102,16 @@ export function AgentStudioShell({
               />
             )}
             {activeStage === 'release' && (
-              <StudioReleaseStage
+              <AgentReleaseStage
                 agent={agent}
-                nodesCount={nodesCount}
+                canPublishDraft={nodesCount > 0}
                 versionId={agent.current_draft_version_id || undefined}
                 workspaceId={workspaceId}
+                runtimeKind="graph"
               />
             )}
             {activeStage === 'usage' && (
-              <StudioUsageStage agent={agent} workspaceId={workspaceId} />
+              <AgentUsageStage agent={agent} workspaceId={workspaceId} />
             )}
           </>
         )

@@ -302,6 +302,30 @@ const zh = {
           tasksDesc: '把这个 Agent 绑定到任务执行和运营流程。',
         },
       },
+      build: {
+        status: {
+          published: '已发布',
+          notPublished: '未发布',
+        },
+        release: {
+          kicker: '发布生命周期',
+          title: '发布和管理版本',
+          subtitle: '发布会把当前草稿冻结成可用于业务的版本。已激活版本会驱动对话、任务和 API 调用。',
+          publishDraft: '发布草稿',
+          releases: '发布历史',
+          empty: '暂无发布版本。',
+        },
+        usage: {
+          kicker: '业务使用',
+          title: '把这个 Agent 用到业务场景',
+          subtitleReady: '当前激活版本可以接入对话、任务、API 调用和业务流程。',
+          subtitleNoRelease: '先发布并激活一个版本，再把这个 Agent 接入业务使用。',
+          chat: '对话',
+          chatDesc: '基于当前激活版本开始对话。',
+          tasks: '任务和流程',
+          tasksDesc: '把这个 Agent 绑定到任务执行和运营流程。',
+        },
+      },
       prompt: {
         label: '提示词配置',
         description: '通过系统提示词和指令定义智能体行为',

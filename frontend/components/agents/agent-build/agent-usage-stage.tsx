@@ -8,14 +8,14 @@ import { Card } from '@/components/ui/card'
 import { useTranslation } from '@/lib/i18n'
 import type { Agent } from '@/types/agent'
 
-import { ApiAccessDialog } from '@/components/editors/graph-builder/components/ApiAccessDialog'
+import { AgentApiAccessDialog } from './agent-api-access-dialog'
 
-interface StudioUsageStageProps {
+interface AgentUsageStageProps {
   agent: Agent
   workspaceId: string
 }
 
-export function StudioUsageStage({ agent, workspaceId }: StudioUsageStageProps) {
+export function AgentUsageStage({ agent, workspaceId }: AgentUsageStageProps) {
   const { t } = useTranslation()
   const [apiAccessOpen, setApiAccessOpen] = useState(false)
   const hasActiveRelease = Boolean(agent.active_release_id)
@@ -25,19 +25,22 @@ export function StudioUsageStage({ agent, workspaceId }: StudioUsageStageProps) 
       <div className="mx-auto max-w-5xl space-y-5">
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-5">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--text-muted)]">
-            {t('agents.studio.usage.kicker', { defaultValue: 'Business usage' })}
+            {t('agents.build.usage.kicker', { defaultValue: 'Business usage' })}
           </p>
           <h2 className="mt-1 text-2xl font-semibold text-[var(--text-primary)]">
-            {t('agents.studio.usage.title', { defaultValue: 'Use this Agent in business scenarios' })}
+            {t('agents.build.usage.title', {
+              defaultValue: 'Use this Agent in business scenarios',
+            })}
           </h2>
           <p className="mt-2 max-w-2xl text-sm text-[var(--text-secondary)]">
             {hasActiveRelease
-              ? t('agents.studio.usage.subtitleReady', {
+              ? t('agents.build.usage.subtitleReady', {
                   defaultValue:
                     'The active release can now be connected to chat, tasks, API calls, and business workflows.',
                 })
-              : t('agents.studio.usage.subtitleNoRelease', {
-                  defaultValue: 'Publish and activate a release before connecting this Agent to business usage.',
+              : t('agents.build.usage.subtitleNoRelease', {
+                  defaultValue:
+                    'Publish and activate a release before connecting this Agent to business usage.',
                 })}
           </p>
         </div>
@@ -46,10 +49,10 @@ export function StudioUsageStage({ agent, workspaceId }: StudioUsageStageProps) 
           <Card className="border-[var(--border)] bg-[var(--surface-1)] p-5">
             <MessageSquare className="h-5 w-5 text-[var(--skill-brand-600)]" />
             <h3 className="mt-3 text-sm font-semibold text-[var(--text-primary)]">
-              {t('agents.studio.usage.chat', { defaultValue: 'Chat' })}
+              {t('agents.build.usage.chat', { defaultValue: 'Chat' })}
             </h3>
             <p className="mt-2 text-sm text-[var(--text-muted)]">
-              {t('agents.studio.usage.chatDesc', {
+              {t('agents.build.usage.chatDesc', {
                 defaultValue: 'Start conversations against the active release.',
               })}
             </p>
@@ -57,10 +60,10 @@ export function StudioUsageStage({ agent, workspaceId }: StudioUsageStageProps) 
           <Card className="border-[var(--border)] bg-[var(--surface-1)] p-5">
             <Plug className="h-5 w-5 text-[var(--skill-brand-600)]" />
             <h3 className="mt-3 text-sm font-semibold text-[var(--text-primary)]">
-              {t('agents.studio.usage.tasks', { defaultValue: 'Tasks and workflows' })}
+              {t('agents.build.usage.tasks', { defaultValue: 'Tasks and workflows' })}
             </h3>
             <p className="mt-2 text-sm text-[var(--text-muted)]">
-              {t('agents.studio.usage.tasksDesc', {
+              {t('agents.build.usage.tasksDesc', {
                 defaultValue: 'Attach this Agent to task execution and operational flows.',
               })}
             </p>
@@ -87,7 +90,7 @@ export function StudioUsageStage({ agent, workspaceId }: StudioUsageStageProps) 
         </div>
       </div>
 
-      <ApiAccessDialog
+      <AgentApiAccessDialog
         open={apiAccessOpen}
         onOpenChange={setApiAccessOpen}
         agentId={agent.id}

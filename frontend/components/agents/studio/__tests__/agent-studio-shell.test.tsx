@@ -64,12 +64,12 @@ vi.mock('../studio-test-lab-stage', () => ({
   ),
 }))
 
-vi.mock('../studio-release-stage', () => ({
-  StudioReleaseStage: () => <div data-testid="studio-release-stage">Release Stage</div>,
+vi.mock('@/components/agents/agent-build/agent-release-stage', () => ({
+  AgentReleaseStage: () => <div data-testid="studio-release-stage">Release Stage</div>,
 }))
 
-vi.mock('../studio-usage-stage', () => ({
-  StudioUsageStage: () => <div data-testid="studio-usage-stage">Usage Stage</div>,
+vi.mock('@/components/agents/agent-build/agent-usage-stage', () => ({
+  AgentUsageStage: () => <div data-testid="studio-usage-stage">Usage Stage</div>,
 }))
 
 const agent: Agent = {
