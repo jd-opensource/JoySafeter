@@ -10,10 +10,7 @@ from fastapi import WebSocket
 
 
 class ExecutionSubscriptionManager:
-    """Tracks which WebSocket connections are subscribed to which execution IDs.
-
-    Mirrors RunSubscriptionManager but scoped to CLI agent executions.
-    """
+    """Tracks which WebSocket connections are subscribed to which execution IDs."""
 
     def __init__(self) -> None:
         self._exec_connections: dict[str, set[WebSocket]] = defaultdict(set)

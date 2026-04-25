@@ -64,10 +64,6 @@ class ExecutionEventsPageResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class InjectMessageRequest(BaseModel):
-    message: str
-
-
 class ApproveActionRequest(BaseModel):
     approved: bool
     message: str | None = None

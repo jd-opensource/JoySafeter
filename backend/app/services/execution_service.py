@@ -217,8 +217,6 @@ class ExecutionService:
             for env in envelopes
         ]
 
-        return results
-
     async def list_executions(self, run_id: uuid.UUID) -> List[Execution]:
         """List all executions for a run."""
         return await self.repo.list_by_run(run_id)

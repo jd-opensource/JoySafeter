@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events.envelope import ExecutionEventEnvelope
+from app.core.events.event_types import ExecutionEventType
 from app.core.events.subscriber import SubscriberPhase
 from app.models.execution import ExecutionEvent
 
@@ -62,5 +63,5 @@ class PersistenceSubscriber:
         envelope.seq = seq
 
         # Clean up cache on terminal events
-        if envelope.event_type == "execution_completed":
+        if envelope.event_type == ExecutionEventType.EXECUTION_COMPLETED:
             self._seq_cache.pop(eid, None)
