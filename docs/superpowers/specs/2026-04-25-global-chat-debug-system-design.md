@@ -33,12 +33,12 @@ The current `AgentChatTab` is a tightly-coupled page component with structural i
 
 Remove the existing model, migration, service methods, and API endpoints that depend on it.
 
-### 3.2 New: `ChatMessage` (table: `chat_messages`)
+### 3.2 New: `ConversationMessage` (table: `conversation_messages`)
 
-Replaces `ThreadMessage` with structured content.
+Replaces `ThreadMessage` with structured content. Named `ConversationMessage` (not `ChatMessage`) to avoid collision with the existing `ChatMessage` Pydantic schema in `openclaw_chat.py` and `code_agent/memory.py`.
 
 ```
-chat_messages
+conversation_messages
 ├── id              UUID PK
 ├── thread_id       UUID FK → threads (CASCADE)
 ├── execution_id    UUID FK → executions (SET NULL), nullable
@@ -48,20 +48,26 @@ chat_messages
 ├── content_meta    JSONB, nullable — structured metadata per content_type
 │                   e.g. code: {language: "python"}, tool_call: {tool_name, args}, error: {code, trace}
 ├── seq             INTEGER — monotonically increasing per thread, for ordering
+├── updated_at      TIMESTAMPTZ — for future edit/retry scenarios
 ├── created_at      TIMESTAMPTZ
 ```
+
+**`seq` generation strategy:** Use `SELECT COALESCE(MAX(seq), 0) + 1 FROM conversation_messages WHERE thread_id = :tid FOR UPDATE` within the same transaction that creates the message. The `FOR UPDATE` lock on the thread's message rows prevents concurrent inserts from generating duplicate seq values. This is safe because:
+- User messages are created synchronously in `dispatch_chat` (one at a time per thread)
+- Assistant messages are created by `MessageProjectionSubscriber` only after execution completes (no concurrent assistant writes to the same thread)
 
 Key changes from `ThreadMessage`:
 - **`content` JSONB blob → `content_type` + `content_text` + `content_meta`**: typed, queryable, no more guessing what's inside
 - **`run_id` removed**: `execution_id` is sufficient; `run_id` is a layer above that can be derived
-- **`seq` added**: explicit ordering instead of relying on `created_at` ties
+- **`seq` added**: explicit ordering with transactional uniqueness guarantee
+- **`updated_at` added**: supports future edit/retry without migration
 
 ### 3.3 New: `MessageAttachment` (table: `message_attachments`)
 
 ```
 message_attachments
 ├── id              UUID PK
-├── message_id      UUID FK → chat_messages (CASCADE)
+├── message_id      UUID FK → conversation_messages (CASCADE)
 ├── file_name       VARCHAR(255)
 ├── mime_type       VARCHAR(100)
 ├── size_bytes      BIGINT
@@ -69,14 +75,40 @@ message_attachments
 ├── source          VARCHAR(20) — "upload" | "artifact"
 │                   upload: user-attached file
 │                   artifact: execution-produced file
-├── preview_ready   BOOLEAN DEFAULT false — whether preview has been generated
 ├── metadata        JSONB, nullable — dimensions for images, language for code, page count for PDF
 ├── created_at      TIMESTAMPTZ
 ```
 
-### 3.4 Thread Model (unchanged)
+Note: `preview_ready` removed — preview is computed on-the-fly by MIME type at the endpoint level, no async pipeline needed.
 
-`Thread` stays as-is. It remains the grouping entity: `Thread` belongs to `Agent` + `Workspace`, `ChatMessage` belongs to `Thread`.
+### 3.4 New: `StagedUpload` (table: `staged_uploads`)
+
+The existing `POST /v1/files/upload` writes files to the Docker sandbox and returns `{filename, path, size}` — no UUID, no database record. Chat attachments need a UUID reference that can be linked to a message. `StagedUpload` is a short-lived staging table for this purpose.
+
+```
+staged_uploads
+├── id              UUID PK — this is the "attachment_id" referenced by ChatRequest
+├── user_id         VARCHAR(255) FK → user (CASCADE)
+├── workspace_id    UUID FK → workspaces
+├── file_name       VARCHAR(255)
+├── mime_type       VARCHAR(100)
+├── size_bytes      BIGINT
+├── storage_ref     VARCHAR(500) — sandbox path (e.g. /workspace/uploads/data.csv)
+├── status          VARCHAR(20) — "staged" | "attached" | "expired"
+├── expires_at      TIMESTAMPTZ — auto-expire unattached uploads after 1 hour
+├── created_at      TIMESTAMPTZ
+```
+
+**Flow:**
+1. `POST /v1/chat/upload` (new endpoint) → validates file, writes to sandbox, creates `StagedUpload` row → returns `{ id: UUID, file_name, mime_type, size_bytes }`
+2. `POST /v1/threads/{thread_id}/chat` with `attachment_ids: [uuid]` → resolves `StagedUpload` rows, creates `MessageAttachment` records, marks staged uploads as `attached`
+3. A periodic cleanup job expires `staged` uploads older than 1 hour
+
+This is a **separate endpoint from `/v1/files/upload`** — the existing file upload serves sandbox file management; the new one serves chat attachment staging. No patching of the existing endpoint.
+
+### 3.5 Thread Model (unchanged)
+
+`Thread` stays as-is. It remains the grouping entity: `Thread` belongs to `Agent` + `Workspace`, `ConversationMessage` belongs to `Thread`.
 
 ## 4. Backend: API Changes
 
@@ -87,19 +119,22 @@ message_attachments
 ```python
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=10000)
+    # Raised from 4000 to 10000: debug scenarios often include pasted logs, stack traces, config blocks
     attachment_ids: list[uuid.UUID] = Field(default_factory=list, max_length=10)
-    # attachment_ids reference files previously uploaded via POST /v1/files/upload
+    # attachment_ids reference StagedUpload rows from POST /v1/chat/upload
 ```
 
-Response (unchanged shape):
+Response:
 ```python
 class ChatResponse(BaseModel):
-    message_id: uuid.UUID    # NEW: the created ChatMessage id
+    message_id: uuid.UUID    # the created ConversationMessage id
     run_id: uuid.UUID
     execution_id: uuid.UUID
 ```
 
-**`GET /v1/threads/{thread_id}/messages`** — returns `ChatMessage` + nested `attachments`
+Note: this `ChatResponse` is in `app/schemas/thread.py`. It is distinct from `app/schemas/chat.py`'s `ChatResponse` (which serves the OpenClaw chat endpoint with `thread_id`, `response`, `duration_ms`).
+
+**`GET /v1/threads/{thread_id}/messages`** — returns `ConversationMessage` + nested `attachments`
 
 ```python
 class AttachmentResponse(BaseModel):
@@ -110,7 +145,7 @@ class AttachmentResponse(BaseModel):
     source: Literal["upload", "artifact"]
     preview_url: str          # computed: /v1/files/preview/{id}
 
-class ChatMessageResponse(BaseModel):
+class ConversationMessageResponse(BaseModel):
     id: uuid.UUID
     thread_id: uuid.UUID
     execution_id: uuid.UUID | None
@@ -125,8 +160,13 @@ class ChatMessageResponse(BaseModel):
 
 ### 4.2 New Endpoints
 
+**`POST /v1/chat/upload`** — stage a file for chat attachment
+
+Accepts multipart file upload. Validates (same rules as `/v1/files/upload`), writes to sandbox, creates `StagedUpload` row. Returns `{ id, file_name, mime_type, size_bytes }`.
+
 **`GET /v1/files/preview/{attachment_id}`** — file preview endpoint
 
+Looks up `MessageAttachment` by id, reads file from `storage_ref`:
 - Images (png/jpg/gif/webp/svg): return binary with correct Content-Type
 - Code/text files: return `{ content: str, language: str }`
 - PDF: return binary stream
@@ -134,11 +174,45 @@ class ChatMessageResponse(BaseModel):
 
 ### 4.3 Orchestrator Changes
 
-`ExecutionOrchestrator.dispatch_chat()` updated to:
-1. Create `ChatMessage` (role=user, content_type=text) with `seq`
-2. Create `MessageAttachment` records for each `attachment_id` (link uploaded files to the message)
-3. Create `AgentRun` + `Execution` (unchanged)
-4. On execution completion, the `MessageProjectionSubscriber` creates assistant `ChatMessage` records from execution events
+`ExecutionOrchestrator.dispatch_chat()` signature updated:
+
+```python
+async def dispatch_chat(
+    self,
+    thread_id: UUID,
+    message: str,
+    user_id: str,
+    attachment_ids: list[UUID] | None = None,  # NEW
+) -> ChatDispatchResult:
+```
+
+Updated flow:
+1. Acquire next `seq` via `SELECT MAX(seq)+1 ... FOR UPDATE` within transaction
+2. Create `ConversationMessage` (role=user, content_type=text, seq=seq)
+3. If `attachment_ids`: resolve `StagedUpload` rows, create `MessageAttachment` records, mark staged uploads as `attached`
+4. Create `AgentRun` + `Execution` (unchanged)
+5. Return `ChatDispatchResult(message_id, run_id, execution_id)`
+
+### 4.4 MessageProjectionSubscriber Rewrite
+
+The subscriber is rewritten to create `ConversationMessage` records instead of `ThreadMessage`. Event type → message mapping:
+
+| ExecutionEventType | → role | → content_type | → content_text | → content_meta |
+|---|---|---|---|---|
+| `USER_MESSAGE` | user | text | `payload["text"]` | `None` |
+| `ASSISTANT_TEXT` | assistant | markdown | `payload["text"]` | `None` |
+| `THINKING` | assistant | text | `payload["text"]` | `{"thinking": true}` |
+| `TOOL_USE_START` | tool | tool_call | `json.dumps(payload["input"])` | `{"tool_name": payload["name"]}` |
+| `TOOL_USE_END` | tool | tool_result | `payload.get("output", "")` | `{"tool_name": payload["name"], "success": payload.get("success", true)}` |
+| `ERROR` | system | error | `payload["message"]` | `{"code": payload.get("code"), "trace": payload.get("trace")}` |
+| `ARTIFACT_CREATED` | assistant | text | `f"Artifact created: {payload['name']}"` | `{"artifact_id": payload["id"]}` — also creates `MessageAttachment(source="artifact")` |
+| `EXECUTION_COMPLETED` (succeeded) | assistant | markdown | `envelope.result_summary` | `None` |
+| `EXECUTION_COMPLETED` (failed/cancelled) | system | error | `f"Execution {status}: {error}"` | `None` |
+
+Events NOT projected (lifecycle-only, no user-visible content):
+- `EXECUTION_STARTED`, `EXECUTION_STATUS_CHANGE` — status tracking, not messages
+- `APPROVAL_REQUESTED`, `APPROVAL_RESOLVED` — handled by execution UI, not chat
+- `COPILOT_*` events — separate copilot domain, not projected into thread chat
 
 ## 5. Frontend: Architecture
 
@@ -148,9 +222,9 @@ New top-level domain, parallel to existing concerns:
 
 ```
 frontend/domains/chat/
-├── types.ts              — ChatMessage, Attachment, ChatThread interfaces
+├── types.ts              — ConversationMessage, Attachment, ChatThread interfaces
 ├── services/
-│   └── chatService.ts    — API calls (listMessages, sendChat, uploadFile, getPreview)
+│   └── chatService.ts    — API calls (listMessages, sendChat, stageUpload, getPreview)
 ├── hooks/
 │   ├── useChatMessages.ts    — React Query hook for messages
 │   ├── useChatSend.ts        — mutation: upload files → send message → track execution
@@ -266,8 +340,8 @@ Attachments are rendered below the text content as `FilePreview` components.
 
 ## 7. Migration Strategy
 
-1. Create new tables (`chat_messages`, `message_attachments`) via Alembic migration
-2. Migrate existing `thread_messages` data → `chat_messages` (content JSONB → content_type + content_text)
+1. Create new tables (`conversation_messages`, `message_attachments`, `staged_uploads`) via Alembic migration
+2. Migrate existing `thread_messages` data → `conversation_messages` (content JSONB → content_type + content_text, seq backfilled from row_number ordered by created_at)
 3. Drop `thread_messages` table
 4. Build frontend `domains/chat/` from scratch
 5. Replace `AgentChatTab` with `ChatPanel`
