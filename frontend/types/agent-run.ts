@@ -4,7 +4,7 @@ export interface AgentRun {
   workspace_id: string
   thread_id: string | null
   task_id: string | null
-  trigger_source: 'task' | 'chat' | 'api' | 'scheduler' | 'copilot'
+  trigger_source: 'task' | 'chat' | 'api' | 'scheduler' | 'comment' | 'mention' | 'copilot'
   goal: string | null
   input_payload: Record<string, unknown> | null
   status: AgentRunStatus
@@ -56,7 +56,7 @@ export interface CreateAgentRunRequest {
   release_id: string
   thread_id?: string
   task_id?: string
-  trigger_source: 'task' | 'chat' | 'api' | 'scheduler' | 'copilot'
+  trigger_source: 'task' | 'chat' | 'api' | 'scheduler' | 'comment' | 'mention' | 'copilot'
   goal?: string
   input_payload?: Record<string, unknown>
 }

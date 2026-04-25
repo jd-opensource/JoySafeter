@@ -15,7 +15,7 @@ export interface Task {
   creator_id: string
   /** ID of the most recent AgentRun for this task */
   latest_run_id?: string | null
-  /** Legacy alias: some views use current_execution_id */
+  /** ID of the current Execution for this task's active AgentRun */
   current_execution_id?: string | null
   parent_task_id?: string | null
   tags?: string[] | null

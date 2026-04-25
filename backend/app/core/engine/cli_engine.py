@@ -19,7 +19,7 @@ from app.core.engine.protocol import ExecutionContext, ExecutionEngine
 class CLIEngine:
     """Docker container + CLI agent execution engine."""
 
-    engine_kind = "cli"
+    engine_kind = "sandbox"
 
     def __init__(self) -> None:
         # Track running sessions for cancel/message injection
