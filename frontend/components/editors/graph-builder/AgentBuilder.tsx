@@ -54,9 +54,16 @@ interface AgentBuilderContentProps {
   workspaceIdProp?: string
   agentIdProp?: string
   versionIdProp?: string
+  studioMode?: boolean
+  onOpenTestLab?: () => void
+  onOpenRelease?: () => void
 }
 
-const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: AgentBuilderContentProps) => {
+const AgentBuilderContent = ({
+  workspaceIdProp,
+  agentIdProp,
+  versionIdProp,
+}: AgentBuilderContentProps) => {
   const { t } = useTranslation()
   const params = useParams()
   const { workspaceId: currentWorkspaceId } = useCurrentWorkspace()
@@ -598,11 +605,28 @@ interface AgentBuilderProps {
   workspaceId?: string
   agentId?: string
   versionId?: string
+  studioMode?: boolean
+  onOpenTestLab?: () => void
+  onOpenRelease?: () => void
 }
 
-const AgentBuilder = ({ workspaceId, agentId: agentIdProp, versionId }: AgentBuilderProps = {}) => (
+const AgentBuilder = ({
+  workspaceId,
+  agentId: agentIdProp,
+  versionId,
+  studioMode = false,
+  onOpenTestLab,
+  onOpenRelease,
+}: AgentBuilderProps = {}) => (
   <ReactFlowProvider>
-    <AgentBuilderContent workspaceIdProp={workspaceId} agentIdProp={agentIdProp} versionIdProp={versionId} />
+    <AgentBuilderContent
+      workspaceIdProp={workspaceId}
+      agentIdProp={agentIdProp}
+      versionIdProp={versionId}
+      studioMode={studioMode}
+      onOpenTestLab={onOpenTestLab}
+      onOpenRelease={onOpenRelease}
+    />
   </ReactFlowProvider>
 )
 

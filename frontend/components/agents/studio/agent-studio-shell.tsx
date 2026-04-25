@@ -1,15 +1,18 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 
 import { useTranslation } from '@/lib/i18n'
+import { useCurrentWorkspace } from '@/providers/workspace-provider'
 import type { Agent } from '@/types/agent'
 
+import { StudioBriefStage } from './studio-brief-stage'
+import { StudioCanvasStage } from './studio-canvas-stage'
 import { StudioStageNav } from './studio-stage-nav'
 import { StudioTopBar } from './studio-top-bar'
 import {
   AGENT_STUDIO_STAGES,
-  getDefaultStudioStage,
   normalizeStudioStage,
   type AgentStudioStage,
 } from './studio-types'
@@ -28,13 +31,12 @@ export function AgentStudioShell({
   hasPendingChanges = false,
 }: AgentStudioShellProps) {
   const { t } = useTranslation()
+  const router = useRouter()
+  const { workspaceId } = useCurrentWorkspace()
   const stageContext = { nodesCount, hasActiveRelease: Boolean(agent.active_release_id) }
-  const defaultStage = getDefaultStudioStage(stageContext)
   const [activeStage, setActiveStage] = useState<AgentStudioStage>(() =>
     normalizeStudioStage(initialStage, stageContext),
   )
-  const activeStageMeta = AGENT_STUDIO_STAGES.find((stage) => stage.id === activeStage)
-  const defaultStageMeta = AGENT_STUDIO_STAGES.find((stage) => stage.id === defaultStage)
 
   useEffect(() => {
     if (!initialStage) return
@@ -56,6 +58,15 @@ export function AgentStudioShell({
     }
   }
 
+  const handleGenerateFromBrief = useCallback(
+    (prompt: string) => {
+      setActiveStage('canvas')
+      const encoded = encodeURIComponent(prompt)
+      router.replace(`/agents/${agent.id}?stage=canvas&copilotInput=${encoded}`, { scroll: false })
+    },
+    [agent.id, router],
+  )
+
   return (
     <section className="flex min-h-[640px] flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-1)] shadow-sm">
       <StudioTopBar
@@ -67,20 +78,33 @@ export function AgentStudioShell({
       />
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <StudioStageNav activeStage={activeStage} onStageChange={setActiveStage} />
-        <main className="flex-1 p-5 md:p-8">
-          <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface-1)] p-6">
-            <p className="text-sm font-medium text-[var(--text-primary)]">
-              {t('agents.studio.stageOverview', {
-                activeStage: t(activeStageMeta?.labelKey ?? 'agents.studio.stages.brief'),
-                defaultStage: t(defaultStageMeta?.labelKey ?? 'agents.studio.stages.brief'),
-              })}
-            </p>
-            <p className="mt-2 text-sm text-[var(--text-muted)]">
-              {t(
-                activeStageMeta?.descriptionKey ?? 'agents.studio.stageDescriptions.brief',
-              )}
-            </p>
-          </div>
+        <main className="min-w-0 flex-1 overflow-hidden">
+          {activeStage === 'brief' && (
+            <StudioBriefStage
+              agent={agent}
+              onGenerate={handleGenerateFromBrief}
+              onSkipToCanvas={() => setActiveStage('canvas')}
+            />
+          )}
+          {activeStage === 'canvas' && (
+            <StudioCanvasStage
+              agentId={agent.id}
+              workspaceId={workspaceId}
+              versionId={agent.current_draft_version_id || undefined}
+              onOpenTestLab={() => setActiveStage('test-lab')}
+              onOpenRelease={() => setActiveStage('release')}
+            />
+          )}
+          {activeStage !== 'brief' && activeStage !== 'canvas' && (
+            <div className="flex h-full items-center justify-center p-8 text-center">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--text-muted)]">
+                  {t('agents.studio.title', { defaultValue: 'Agent Studio' })}
+                </p>
+                <h2 className="mt-2 text-2xl font-semibold">{activeStage}</h2>
+              </div>
+            </div>
+          )}
         </main>
       </div>
     </section>
