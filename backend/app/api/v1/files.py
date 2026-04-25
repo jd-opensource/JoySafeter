@@ -31,9 +31,11 @@ Error codes:
 import asyncio
 import base64
 import mimetypes
+import mimetypes as mimetypes_module
 from pathlib import Path
 
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, File, Query, Request, UploadFile
+from fastapi.responses import Response
 from loguru import logger
 from pydantic import BaseModel
 
@@ -331,15 +333,20 @@ async def list_files(current_user: CurrentUser) -> BaseResponse[FileListResponse
 
 @router.get(
     "/read/{filename}",
-    response_model=BaseResponse[dict],
     summary="Read file content",
-    description="Read the content of a file in the user's sandbox upload directory.",
+    description="Read the content of a file in the user's sandbox upload directory. "
+    "Use mode=raw to get raw binary content with correct Content-Type header.",
     responses={
         404: {"description": "File not found"},
         500: {"description": "Failed to read file"},
     },
 )
-async def read_file(request: Request, filename: str, current_user: CurrentUser) -> BaseResponse[dict]:
+async def read_file(
+    request: Request,
+    filename: str,
+    current_user: CurrentUser,
+    mode: str = Query("json", description="'json' (default) or 'raw'"),
+) -> BaseResponse[dict] | Response:
     """Read file content from the user's sandbox via adapter API."""
     client_ip = get_client_ip(request)
 
@@ -347,6 +354,28 @@ async def read_file(request: Request, filename: str, current_user: CurrentUser) 
         safe_filename = sanitize_filename(filename)
         container_path = get_container_path(safe_filename)
 
+        if mode == "raw":
+            # Raw mode: return binary bytes with correct Content-Type header
+            async with await _get_sandbox_handle(str(current_user.id)) as handle:
+                content = await asyncio.to_thread(handle.adapter.raw_read, container_path)
+
+            if content.startswith("[Error:") or content.startswith("Error:"):
+                raise NotFoundException("File not found")
+
+            # raw_read returns text; encode back to bytes via latin-1 to preserve binary data
+            content_bytes = content.encode("latin-1")
+
+            mime, _ = mimetypes_module.guess_type(safe_filename)
+
+            logger.info(f"File read (raw): user={current_user.id}, filename={safe_filename}, ip={client_ip}")
+
+            return Response(
+                content=content_bytes,
+                media_type=mime or "application/octet-stream",
+                headers={"Content-Disposition": f'inline; filename="{safe_filename}"'},
+            )
+
+        # Default JSON mode
         async with await _get_sandbox_handle(str(current_user.id)) as handle:
             content = await asyncio.to_thread(handle.adapter.raw_read, container_path)
 
