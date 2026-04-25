@@ -54,7 +54,7 @@ export default function ExecutionDetailPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" asChild>
-              <Link href="/runs">
+              <Link href="/dashboard">
                 <ArrowLeft className="h-4 w-4" />
               </Link>
             </Button>

@@ -141,7 +141,7 @@ export function TaskListView({ tasks, agentsMap, onSelectTask }: TaskListViewPro
                     </span>
                     {m.current_execution_id && (
                       <Link
-                        href={`/runs?tab=executions&task=${m.id}`}
+                        href={`/tasks?task=${m.id}`}
                         onClick={(e) => e.stopPropagation()}
                         className="inline-flex items-center gap-1 text-[10px] text-[var(--status-success)] hover:underline"
                       >
@@ -152,7 +152,7 @@ export function TaskListView({ tasks, agentsMap, onSelectTask }: TaskListViewPro
                     {/* Show last run link when there's a linked run but no active execution */}
                     {m.latest_run_id && !m.current_execution_id && (
                       <Link
-                        href={`/runs?task=${m.id}`}
+                        href={`/tasks?task=${m.id}`}
                         onClick={(e) => e.stopPropagation()}
                         className="inline-flex items-center gap-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:underline"
                       >

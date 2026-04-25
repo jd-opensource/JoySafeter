@@ -69,7 +69,7 @@ export function ExecutionsTab() {
     const next = new URLSearchParams(searchParams.toString())
     next.delete('task')
     const qs = next.toString()
-    router.replace(qs ? `/runs?${qs}` : '/runs')
+    router.replace(qs ? `/tasks?${qs}` : '/tasks')
   }
 
   const selectedRun = useMemo(

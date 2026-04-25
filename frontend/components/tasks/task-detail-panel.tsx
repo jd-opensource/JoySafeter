@@ -613,7 +613,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                   )}
                 </div>
                 <Link
-                  href={`/runs?tab=executions&task=${taskId}`}
+                  href={`/tasks?task=${taskId}`}
                   className="mt-1.5 flex items-center gap-1 text-xs text-[var(--brand-400)] hover:underline"
                 >
                   <ExternalLink className="h-3 w-3" />
@@ -630,7 +630,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                 <p className="text-xs text-[var(--text-muted)]">
                   {t('execution.pastExecutionsCount', { count: pastRunCount })} —{' '}
                   <Link
-                    href={`/runs?tab=executions&task=${taskId}`}
+                    href={`/tasks?task=${taskId}`}
                     className="text-[var(--brand-400)] hover:underline"
                   >
                     {t('execution.pastExecutionsLink')}
@@ -646,7 +646,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                   {t('tasks.lastRun')}
                 </h3>
                 <Link
-                  href={`/runs?task=${taskId}`}
+                  href={`/tasks?task=${taskId}`}
                   className="flex items-center gap-1 text-xs text-[var(--brand-400)] hover:underline"
                 >
                   <ExternalLink className="h-3 w-3" />

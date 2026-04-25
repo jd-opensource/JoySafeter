@@ -116,7 +116,7 @@ export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
               {activities.map((item) => {
                 const href =
                   item.kind === 'run'
-                    ? `/agents/${agentId}/runs/${item.id}`
+                    ? `/executions/${item.current_execution_id ?? item.id}`
                     : `/agents/${agentId}?tab=chat&thread=${item.id}`
 
                 return (

@@ -92,7 +92,7 @@ export const TaskCard = forwardRef<
         {/* Latest run status badge — shown when a prior run exists but is no longer active */}
         {hasLinkedRun && (
           <Link
-            href={`/runs?task=${task.id}`}
+            href={`/tasks?task=${task.id}`}
             onClick={(e) => e.stopPropagation()}
             className={cn(
               'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium',
@@ -137,7 +137,7 @@ export const TaskCard = forwardRef<
 
       {hasActiveExecution && (
         <Link
-          href={`/runs?tab=executions&task=${task.id}`}
+          href={`/tasks?task=${task.id}`}
           onClick={(e) => e.stopPropagation()}
           className="bg-[var(--surface-3)]/50 -mx-3 -mb-3 mt-2 flex items-center gap-1.5 rounded-b-lg border-t border-[var(--border)] px-3 py-1.5 text-xs text-[var(--status-success)] hover:bg-[var(--surface-3)]"
         >
