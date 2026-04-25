@@ -29,7 +29,7 @@ export function StudioStageNav({ activeStage, onStageChange }: StudioStageNavPro
             aria-current={isActive ? 'page' : undefined}
             className={cn(
               'flex min-w-40 items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors',
-              'hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--skill-brand-500)]',
+              'hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--skill-brand-600)]',
               isActive
                 ? 'bg-[var(--skill-brand-50)] text-[var(--skill-brand-700)] shadow-sm'
                 : 'text-[var(--text-muted)]',

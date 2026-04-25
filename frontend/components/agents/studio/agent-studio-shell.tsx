@@ -46,7 +46,7 @@ export function AgentStudioShell({
   }
 
   return (
-    <section className="flex min-h-[640px] flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-0)] shadow-sm">
+    <section className="flex min-h-[640px] flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-1)] shadow-sm">
       <StudioTopBar
         agent={agent}
         activeStage={activeStage}
