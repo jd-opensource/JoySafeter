@@ -245,6 +245,7 @@ const zh = {
           generate: '用 Copilot 生成',
         },
         actions: {
+          openCanvas: '打开编排',
           generateDraft: '生成草稿',
           runDraft: '运行草稿',
           publish: '发布',

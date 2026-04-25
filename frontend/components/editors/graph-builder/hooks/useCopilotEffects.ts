@@ -11,6 +11,14 @@ import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotStat
 
 const logger = createLogger('CopilotEffects')
 
+interface CopilotSearchParams {
+  get: (name: string) => string | null
+}
+
+export function getCopilotInputFromSearchParams(searchParams: CopilotSearchParams): string | null {
+  return searchParams.get('copilotInput')
+}
+
 interface UseCopilotEffectsOptions {
   state: CopilotState
   actions: CopilotActions
@@ -161,11 +169,10 @@ export function useCopilotEffects({
 
   // Handle URL parameter for auto-executing copilot input
   useEffect(() => {
-    const copilotInput = searchParams.get('copilotInput')
+    const copilotInput = getCopilotInputFromSearchParams(searchParams)
     if (!copilotInput || refs.hasProcessedUrlInputRef.current || state.loading) return
 
     refs.hasProcessedUrlInputRef.current = true
-    const decodedInput = decodeURIComponent(copilotInput)
     const params = new URLSearchParams(searchParams.toString())
     params.delete('copilotInput')
     const newSearch = params.toString()
@@ -176,9 +183,9 @@ export function useCopilotEffects({
 
     setTimeout(() => {
       if (!refs.isMountedRef.current) return
-      actions.setInput(decodedInput)
+      actions.setInput(copilotInput)
       setTimeout(() => {
-        if (refs.isMountedRef.current) handleSendWithInput(decodedInput)
+        if (refs.isMountedRef.current) handleSendWithInput(copilotInput)
       }, 100)
     }, 300)
   }, [searchParams, state.loading, router, actions, refs, handleSendWithInput])

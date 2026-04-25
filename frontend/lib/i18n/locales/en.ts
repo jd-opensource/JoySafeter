@@ -246,6 +246,7 @@ const en = {
           generate: 'Generate with Copilot',
         },
         actions: {
+          openCanvas: 'Open Canvas',
           generateDraft: 'Generate Draft',
           runDraft: 'Run Draft',
           publish: 'Publish',

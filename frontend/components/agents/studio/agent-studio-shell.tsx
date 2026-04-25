@@ -49,12 +49,20 @@ export function AgentStudioShell({
     )
   }, [initialStage, nodesCount, agent.active_release_id])
 
+  const handleStageChange = useCallback(
+    (stage: AgentStudioStage) => {
+      setActiveStage(stage)
+      router.replace(`/agents/${agent.id}?stage=${stage}`, { scroll: false })
+    },
+    [agent.id, router],
+  )
+
   const handlePrimaryAction = () => {
     const currentIndex = AGENT_STUDIO_STAGES.findIndex((stage) => stage.id === activeStage)
     const nextStage = AGENT_STUDIO_STAGES[currentIndex + 1]?.id
 
     if (nextStage) {
-      setActiveStage(nextStage)
+      handleStageChange(nextStage)
     }
   }
 
@@ -77,13 +85,13 @@ export function AgentStudioShell({
         onPrimaryAction={handlePrimaryAction}
       />
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <StudioStageNav activeStage={activeStage} onStageChange={setActiveStage} />
+        <StudioStageNav activeStage={activeStage} onStageChange={handleStageChange} />
         <main className="min-w-0 flex-1 overflow-hidden">
           {activeStage === 'brief' && (
             <StudioBriefStage
               agent={agent}
               onGenerate={handleGenerateFromBrief}
-              onSkipToCanvas={() => setActiveStage('canvas')}
+              onSkipToCanvas={() => handleStageChange('canvas')}
             />
           )}
           {activeStage === 'canvas' && (
@@ -91,8 +99,8 @@ export function AgentStudioShell({
               agentId={agent.id}
               workspaceId={workspaceId}
               versionId={agent.current_draft_version_id || undefined}
-              onOpenTestLab={() => setActiveStage('test-lab')}
-              onOpenRelease={() => setActiveStage('release')}
+              onOpenTestLab={() => handleStageChange('test-lab')}
+              onOpenRelease={() => handleStageChange('release')}
             />
           )}
           {activeStage !== 'brief' && activeStage !== 'canvas' && (

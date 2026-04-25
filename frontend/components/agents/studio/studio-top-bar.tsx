@@ -8,7 +8,7 @@ import type { Agent } from '@/types/agent'
 import type { AgentStudioStage } from './studio-types'
 
 const PRIMARY_ACTION_BY_STAGE: Record<AgentStudioStage, string> = {
-  brief: 'generateDraft',
+  brief: 'openCanvas',
   canvas: 'runDraft',
   'test-lab': 'runDraft',
   release: 'publish',
