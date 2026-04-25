@@ -271,6 +271,7 @@ const en = {
           openCanvas: 'Open Canvas',
           generateDraft: 'Generate Draft',
           runDraft: 'Run Draft',
+          openRelease: 'Open Release',
           publish: 'Publish',
           openUsage: 'Open Usage',
           createTask: 'Create Task',

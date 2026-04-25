@@ -7,7 +7,7 @@ from __future__ import annotations
 import uuid
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent import AgentRelease, AgentVersion
@@ -33,38 +33,58 @@ class AgentRunRepository(BaseRepository[AgentRun]):
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def list_by_release(self, release_id: uuid.UUID) -> List[AgentRun]:
+    async def list_by_release(
+        self,
+        release_id: uuid.UUID,
+        workspace_id: uuid.UUID | None = None,
+    ) -> List[AgentRun]:
         """List all runs for a specific release."""
         query = (
             select(AgentRun)
             .where(AgentRun.release_id == release_id)
             .order_by(AgentRun.created_at.desc())
         )
+        if workspace_id:
+            query = query.where(AgentRun.workspace_id == workspace_id)
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def list_by_task(self, task_id: uuid.UUID) -> List[AgentRun]:
+    async def list_by_task(
+        self,
+        task_id: uuid.UUID,
+        workspace_id: uuid.UUID | None = None,
+    ) -> List[AgentRun]:
         """List all runs for a specific task."""
         query = (
             select(AgentRun)
             .where(AgentRun.task_id == task_id)
             .order_by(AgentRun.created_at.desc())
         )
+        if workspace_id:
+            query = query.where(AgentRun.workspace_id == workspace_id)
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
     async def find_by_agent_and_trigger(
         self,
         agent_id: uuid.UUID,
+        workspace_id: uuid.UUID,
         trigger_source: Optional[str] = None,
         status: Optional[str] = None,
     ) -> List[AgentRun]:
         """Find runs for a specific agent, optionally filtered by trigger_source and status."""
         query = (
             select(AgentRun)
-            .join(AgentRelease, AgentRun.release_id == AgentRelease.id)
-            .join(AgentVersion, AgentRelease.agent_version_id == AgentVersion.id)
+            .outerjoin(AgentRelease, AgentRun.release_id == AgentRelease.id)
+            .outerjoin(
+                AgentVersion,
+                or_(
+                    AgentRelease.agent_version_id == AgentVersion.id,
+                    AgentRun.agent_version_id == AgentVersion.id,
+                ),
+            )
             .where(AgentVersion.agent_id == agent_id)
+            .where(AgentRun.workspace_id == workspace_id)
         )
         if trigger_source:
             query = query.where(AgentRun.trigger_source == trigger_source)

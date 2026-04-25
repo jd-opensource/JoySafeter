@@ -3,15 +3,30 @@
 from __future__ import annotations
 
 import uuid
+import importlib.util
+import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.v1.executions import router
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
+
+
+def _load_executions_router():
+    module_path = Path(__file__).resolve().parents[2] / "app/api/v1/executions.py"
+    spec = importlib.util.spec_from_file_location("executions_under_test", module_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module.router
+
+
+router = _load_executions_router()
 
 
 async def mock_get_current_user():
@@ -38,12 +53,29 @@ def client():
         yield c
 
 
-@patch("app.api.v1.executions.ExecutionOrchestrator")
-def test_inject_message_calls_send_message(mock_orchestrator_cls, client: TestClient) -> None:
+@patch("executions_under_test.check_workspace_access", new_callable=AsyncMock)
+@patch("executions_under_test.ExecutionOrchestrator")
+def test_inject_message_calls_send_message(
+    mock_orchestrator_cls,
+    mock_check_workspace_access,
+    client: TestClient,
+) -> None:
     """POST /{id}/message should call orchestrator.send_message with execution_id and message."""
     execution_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
     mock_orchestrator = mock_orchestrator_cls.return_value
     mock_orchestrator.send_message = AsyncMock(return_value=None)
+    mock_check_workspace_access.return_value = True
+
+    exec_result = MagicMock()
+    exec_result.scalar_one_or_none.return_value = workspace_id
+    mock_db = AsyncMock()
+    mock_db.execute.return_value = exec_result
+
+    async def override_db():
+        yield mock_db
+
+    client.app.dependency_overrides[get_db] = override_db
 
     response = client.post(
         f"/v1/executions/{execution_id}/message",
@@ -53,10 +85,12 @@ def test_inject_message_calls_send_message(mock_orchestrator_cls, client: TestCl
     assert response.status_code == 200
     body = response.json()
     assert body["data"]["status"] == "sent"
+    mock_check_workspace_access.assert_awaited_once()
+    assert mock_check_workspace_access.await_args.args[1] == workspace_id
     mock_orchestrator.send_message.assert_awaited_once_with(execution_id, "hello world")
 
 
-@patch("app.api.v1.executions.ExecutionOrchestrator")
+@patch("executions_under_test.ExecutionOrchestrator")
 def test_inject_message_empty_body_returns_422(mock_orchestrator_cls, client: TestClient) -> None:
     """POST /{id}/message with missing message field should return 422 Unprocessable Entity."""
     execution_id = uuid.uuid4()
@@ -70,11 +104,27 @@ def test_inject_message_empty_body_returns_422(mock_orchestrator_cls, client: Te
     mock_orchestrator_cls.return_value.send_message.assert_not_called()
 
 
-@patch("app.api.v1.executions.ExecutionService")
-def test_list_execution_events_returns_page_contract(mock_service_cls, client: TestClient) -> None:
+@patch("executions_under_test.check_workspace_access", new_callable=AsyncMock)
+@patch("executions_under_test.ExecutionService")
+def test_list_execution_events_returns_page_contract(
+    mock_service_cls,
+    mock_check_workspace_access,
+    client: TestClient,
+) -> None:
     execution_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
     mock_service = mock_service_cls.return_value
+    mock_check_workspace_access.return_value = True
+
+    exec_result = MagicMock()
+    exec_result.scalar_one_or_none.return_value = workspace_id
+    mock_db = AsyncMock()
+    mock_db.execute.return_value = exec_result
+
+    async def override_db():
+        yield mock_db
+
+    client.app.dependency_overrides[get_db] = override_db
 
     event_1 = MagicMock()
     event_1.id = uuid.uuid4()
@@ -95,10 +145,12 @@ def test_list_execution_events_returns_page_contract(mock_service_cls, client: T
     mock_service.list_events_after = AsyncMock(return_value=[event_1, event_2])
 
     response = client.get(
-        f"/v1/executions/{execution_id}/events?workspace_id={workspace_id}&after_seq=1"
+        f"/v1/executions/{execution_id}/events?after_seq=1"
     )
 
     assert response.status_code == 200
+    mock_check_workspace_access.assert_awaited_once()
+    assert mock_check_workspace_access.await_args.args[1] == workspace_id
     body = response.json()
     assert body["data"] == {
         "execution_id": str(execution_id),

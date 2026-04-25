@@ -10,10 +10,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user, require_workspace_role
+from app.common.exceptions import ForbiddenException, NotFoundException
 from app.core.database import get_db
 from app.core.engine.orchestrator import ExecutionOrchestrator
 from app.models.auth import AuthUser as User
-from app.models.execution import Artifact
+from app.models.agent_run import AgentRun
+from app.models.execution import Artifact, Execution
 from app.models.workspace import WorkspaceMemberRole
 from app.schemas import BaseResponse
 from app.schemas.artifact import ArtifactResponse
@@ -25,6 +27,7 @@ from app.schemas.execution import (
 )
 from app.schemas.task import InjectMessageRequest
 from app.services.execution_service import ExecutionService
+from app.services.workspace_permission import check_workspace_access
 
 router = APIRouter(prefix="/v1/executions", tags=["Executions"])
 
@@ -37,13 +40,43 @@ def _event_to_response(event) -> ExecutionEventResponse:
     return ExecutionEventResponse.model_validate(event)
 
 
+async def _get_run_workspace_id(db: AsyncSession, run_id: uuid.UUID) -> uuid.UUID | None:
+    return (await db.execute(
+        select(AgentRun.workspace_id).where(AgentRun.id == run_id)
+    )).scalar_one_or_none()
+
+
+async def _get_execution_workspace_id(db: AsyncSession, execution_id: uuid.UUID) -> uuid.UUID | None:
+    return (await db.execute(
+        select(AgentRun.workspace_id)
+        .join(Execution, Execution.run_id == AgentRun.id)
+        .where(Execution.id == execution_id)
+    )).scalar_one_or_none()
+
+
+async def _require_execution_workspace_access(
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    current_user: User,
+    role: WorkspaceMemberRole,
+) -> None:
+    has_access = await check_workspace_access(db, workspace_id, current_user, role)
+    if not has_access:
+        raise ForbiddenException("Insufficient workspace permission")
+
+
 @router.get("", response_model=BaseResponse[List[ExecutionResponse]])
 async def list_executions(
-    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
+    current_user: User = Depends(get_current_user),
     run_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[List[ExecutionResponse]]:
     """List all executions for a run."""
+    workspace_id = await _get_run_workspace_id(db, run_id)
+    if not workspace_id:
+        raise NotFoundException(f"Run {run_id} not found")
+    await _require_execution_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.viewer)
+
     service = ExecutionService(db)
     executions = await service.list_executions(run_id)
     return BaseResponse(
@@ -57,10 +90,15 @@ async def list_executions(
 @router.get("/{execution_id}", response_model=BaseResponse[ExecutionResponse])
 async def get_execution(
     execution_id: uuid.UUID,
-    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[ExecutionResponse]:
     """Get an execution by ID."""
+    workspace_id = await _get_execution_workspace_id(db, execution_id)
+    if not workspace_id:
+        raise NotFoundException(f"Execution {execution_id} not found")
+    await _require_execution_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.viewer)
+
     service = ExecutionService(db)
     execution = await service.get_execution(execution_id)
     return BaseResponse(success=True, code=200, msg="ok", data=_to_response(execution))
@@ -70,10 +108,15 @@ async def get_execution(
 async def list_execution_events(
     execution_id: uuid.UUID,
     after_seq: int = Query(0, ge=0),
-    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[ExecutionEventsPageResponse]:
     """List execution events after a sequence number."""
+    workspace_id = await _get_execution_workspace_id(db, execution_id)
+    if not workspace_id:
+        raise NotFoundException(f"Execution {execution_id} not found")
+    await _require_execution_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.viewer)
+
     service = ExecutionService(db)
     events = await service.list_events_after(
         execution_id,
@@ -107,10 +150,15 @@ async def list_execution_events(
 @router.get("/{execution_id}/artifacts", response_model=BaseResponse[List[ArtifactResponse]])
 async def list_artifacts(
     execution_id: uuid.UUID,
-    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[List[ArtifactResponse]]:
     """List all artifacts for an execution."""
+    workspace_id = await _get_execution_workspace_id(db, execution_id)
+    if not workspace_id:
+        raise NotFoundException(f"Execution {execution_id} not found")
+    await _require_execution_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.viewer)
+
     result = await db.execute(
         select(Artifact).where(Artifact.execution_id == execution_id).order_by(Artifact.created_at)
     )
@@ -131,6 +179,12 @@ async def inject_message(
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse:
     """Inject a message into a running execution."""
+    workspace_id = await _get_execution_workspace_id(db, execution_id)
+    if not workspace_id:
+        raise NotFoundException(f"Execution {execution_id} not found")
+
+    await _require_execution_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.member)
+
     orchestrator = ExecutionOrchestrator(db)
     try:
         await orchestrator.send_message(execution_id, body.message)

@@ -57,14 +57,20 @@ async def spawn_agent(
     async with async_session_factory() as db:
         from app.models.agent_run import AgentRun
 
-        parent_release = (await db.execute(
-            select(AgentRun.release_id).join(
+        parent_identity = (await db.execute(
+            select(AgentRun.release_id, AgentRun.agent_version_id).join(
                 Execution, AgentRun.id == Execution.run_id
             ).where(Execution.id == parent_id)
-        )).scalar_one_or_none()
+        )).one_or_none()
+        if not parent_identity:
+            raise ValueError(f"Parent execution {parent_id} not found")
+
+        parent_release = parent_identity[0]
+        parent_version = None if parent_release else parent_identity[1]
 
         run = AgentRun(
             release_id=parent_release,
+            agent_version_id=parent_version,
             workspace_id=ws_id,
             trigger_source=EXECUTION_SOURCE_COORDINATOR,
             goal=f"[Sub] {agent_name}: {prompt[:80]}",

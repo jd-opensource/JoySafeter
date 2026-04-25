@@ -184,4 +184,13 @@ describe('AgentStudioShell', () => {
     expect(screen.getByTestId('studio-test-lab-stage')).toBeInTheDocument()
     expect(replaceMock).toHaveBeenCalledWith('/agents/agent-1?stage=test-lab', { scroll: false })
   })
+
+  it('labels the Test Lab top-bar primary action as opening Release', async () => {
+    const user = userEvent.setup()
+    render(<AgentStudioShell agent={agent} initialStage="test-lab" nodesCount={1} />)
+
+    await user.click(screen.getByRole('button', { name: 'agents.studio.actions.openRelease' }))
+
+    expect(replaceMock).toHaveBeenCalledWith('/agents/agent-1?stage=release', { scroll: false })
+  })
 })

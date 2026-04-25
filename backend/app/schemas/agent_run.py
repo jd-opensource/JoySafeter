@@ -10,7 +10,16 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel
 
-TriggerSourceLiteral = Literal["task", "chat", "api", "scheduler", "comment", "mention", "copilot"]
+TriggerSourceLiteral = Literal[
+    "task",
+    "chat",
+    "api",
+    "scheduler",
+    "comment",
+    "mention",
+    "copilot",
+    "draft_test",
+]
 
 
 class CreateAgentRunRequest(BaseModel):
@@ -22,9 +31,18 @@ class CreateAgentRunRequest(BaseModel):
     input_payload: Optional[dict] = None
 
 
+class CreateDraftAgentRunRequest(BaseModel):
+    agent_id: uuid.UUID
+    version_id: uuid.UUID
+    workspace_id: uuid.UUID
+    goal: Optional[str] = None
+    input_payload: Optional[dict] = None
+
+
 class AgentRunResponse(BaseModel):
     id: uuid.UUID
-    release_id: uuid.UUID
+    release_id: Optional[uuid.UUID]
+    agent_version_id: Optional[uuid.UUID] = None
     workspace_id: uuid.UUID
     thread_id: Optional[uuid.UUID]
     task_id: Optional[uuid.UUID]

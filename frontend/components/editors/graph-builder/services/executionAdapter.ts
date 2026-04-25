@@ -9,6 +9,13 @@ export interface StartRunParams {
   taskId?: string
 }
 
+export interface StartDraftRunParams {
+  agentId: string
+  versionId: string
+  prompt: string
+  workspaceId: string
+}
+
 export interface RunResult {
   id: string
   current_execution_id: string
@@ -24,6 +31,15 @@ export const executionAdapter = {
       trigger_source: 'api',
       thread_id: params.threadId,
       task_id: params.taskId,
+    })
+  },
+
+  async startDraftRun(params: StartDraftRunParams): Promise<RunResult> {
+    return apiPost<RunResult>('runs/draft', {
+      agent_id: params.agentId,
+      version_id: params.versionId,
+      goal: params.prompt,
+      workspace_id: params.workspaceId,
     })
   },
 

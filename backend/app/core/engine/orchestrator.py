@@ -140,6 +140,33 @@ class ExecutionOrchestrator:
             input_payload=input_payload,
         )
 
+    async def dispatch_draft(
+        self,
+        agent_id: uuid.UUID,
+        version_id: uuid.UUID,
+        prompt: str,
+        user_id: str,
+        workspace_id: uuid.UUID,
+        input_payload: dict | None = None,
+    ) -> AgentRun:
+        """Dispatch a Test Lab run against a draft AgentVersion."""
+        version = await self._get_version(version_id)
+        if version.agent_id != agent_id:
+            raise BadRequestException("Version does not belong to this agent")
+
+        agent = await self._get_agent(agent_id)
+        if agent.workspace_id != workspace_id:
+            raise BadRequestException("Agent does not belong to this workspace")
+
+        return await self._create_and_fire_draft(
+            version=version,
+            workspace_id=workspace_id,
+            prompt=prompt,
+            trigger_source="draft_test",
+            user_id=user_id,
+            input_payload=input_payload,
+        )
+
     async def dispatch_copilot(
         self,
         agent_id: uuid.UUID,
@@ -197,6 +224,22 @@ class ExecutionOrchestrator:
             return engine_registry.get(execution.executor_kind)
         return engine_registry.get(release.runtime_kind)
 
+    def _resolve_draft_engine_kind(self, version: AgentVersion) -> str:
+        if version.definition_kind == "graph":
+            return "graph"
+        if version.definition_kind == "code":
+            return "code"
+        raise BadRequestException(
+            f"Draft Test Lab does not support definition_kind={version.definition_kind}"
+        )
+
+    def _build_draft_runtime_binding(self, version: AgentVersion) -> dict:
+        if version.definition_kind == "graph":
+            return {"runtime_type": "graph"}
+        if version.definition_kind == "code":
+            return {"runtime_type": "code"}
+        return {}
+
     # ------------------------------------------------------------------
     # Cancel / Retry / Message
     # ------------------------------------------------------------------
@@ -212,8 +255,14 @@ class ExecutionOrchestrator:
                 select(Execution).where(Execution.id == run.current_execution_id)
             )).scalar_one_or_none()
             if execution:
-                release = await self._get_release(run.release_id)
-                engine = self._resolve_engine(execution, release)
+                if run.release_id:
+                    release = await self._get_release(run.release_id)
+                    engine = self._resolve_engine(execution, release)
+                elif run.agent_version_id:
+                    version = await self._get_version(run.agent_version_id)
+                    engine = engine_registry.get(self._resolve_draft_engine_kind(version))
+                else:
+                    raise BadRequestException("Run has neither release_id nor agent_version_id")
                 await engine.cancel(execution.id)
                 cancel_envelope = ExecutionEventEnvelope(
                     execution_id=execution.id,
@@ -237,6 +286,8 @@ class ExecutionOrchestrator:
         run = await self._get_run(run_id)
         if run.status not in ("failed", "cancelled"):
             raise BadRequestException("Can only retry failed or cancelled runs")
+        if not run.release_id:
+            raise BadRequestException("Draft Test Lab runs cannot be retried")
 
         release = await self._get_release(run.release_id)
         version = await self._get_version(release.agent_version_id)
@@ -283,8 +334,14 @@ class ExecutionOrchestrator:
             raise NotFoundException(f"Execution {execution_id} not found")
 
         run = await self._get_run(execution.run_id)
-        release = await self._get_release(run.release_id)
-        engine = self._resolve_engine(execution, release)
+        if run.release_id:
+            release = await self._get_release(run.release_id)
+            engine = self._resolve_engine(execution, release)
+        elif run.agent_version_id:
+            version = await self._get_version(run.agent_version_id)
+            engine = engine_registry.get(self._resolve_draft_engine_kind(version))
+        else:
+            raise BadRequestException("Run has neither release_id nor agent_version_id")
         await engine.send_message(execution_id, message)
 
     # ------------------------------------------------------------------
@@ -369,14 +426,81 @@ class ExecutionOrchestrator:
 
         return run
 
+    async def _create_and_fire_draft(
+        self,
+        version: AgentVersion,
+        workspace_id: uuid.UUID,
+        prompt: str,
+        trigger_source: str,
+        user_id: str,
+        input_payload: dict | None = None,
+    ) -> AgentRun:
+        runtime_binding = self._build_draft_runtime_binding(version)
+        engine_kind = self._resolve_draft_engine_kind(version)
+
+        run = AgentRun(
+            release_id=None,
+            agent_version_id=version.id,
+            workspace_id=workspace_id,
+            trigger_source=trigger_source,
+            goal=prompt[:500] if prompt else None,
+            input_payload=input_payload,
+            status="running",
+            created_by=user_id,
+            started_at=utc_now(),
+        )
+        self.db.add(run)
+        await self.db.flush()
+
+        execution = Execution(
+            run_id=run.id,
+            attempt_index=1,
+            executor_kind=runtime_binding.get("runtime_type", engine_kind),
+            status="pending",
+        )
+        self.db.add(execution)
+        await self.db.flush()
+
+        run.current_execution_id = execution.id
+        await self.db.commit()
+        await self.db.refresh(run)
+
+        try:
+            await self._fire_engine(
+                execution=execution,
+                release_runtime_binding=runtime_binding,
+                runtime_kind=engine_kind,
+                version=version,
+                workspace_id=workspace_id,
+                prompt=prompt,
+            )
+        except Exception as exc:
+            logger.error(f"[Orchestrator] _fire_engine failed for draft run: {exc}")
+            await transition_run(run, "failed", self.db, str(exc)[:2000])
+            fail_envelope = ExecutionEventEnvelope(
+                execution_id=execution.id,
+                run_id=run.id,
+                workspace_id=workspace_id,
+                event_type=ExecutionEventType.EXECUTION_STATUS_CHANGE,
+                payload={"status": "failed"},
+                target_status="failed",
+                error_message=str(exc)[:2000],
+            )
+            await execution_event_bus.publish(fail_envelope, self.db)
+            await self.db.refresh(run)
+
+        return run
+
     async def _fire_engine(
         self,
         execution: Execution,
-        release: AgentRelease,
         version: AgentVersion,
         workspace_id: uuid.UUID,
         prompt: str,
         *,
+        release: AgentRelease | None = None,
+        release_runtime_binding: dict | None = None,
+        runtime_kind: str | None = None,
         engine_kind_override: str | None = None,
         definition_kind_override: str | None = None,
         definition_payload_override: dict | None = None,
@@ -413,7 +537,12 @@ class ExecutionOrchestrator:
         )
         self._wire_context(context, **_run_meta)
 
-        engine = engine_registry.get(engine_kind_override or release.runtime_kind)
+        runtime_binding = release_runtime_binding or (release.runtime_binding if release else {})
+        resolved_runtime_kind = runtime_kind or (release.runtime_kind if release else None)
+        if not resolved_runtime_kind:
+            raise BadRequestException("No runtime kind available for execution")
+
+        engine = engine_registry.get(engine_kind_override or resolved_runtime_kind)
         _def_kind = definition_kind_override or version.definition_kind
         _def_payload = definition_payload_override or version.definition_payload
 
@@ -434,7 +563,7 @@ class ExecutionOrchestrator:
 
                     await engine.start(
                         ctx,
-                        release_runtime_binding=release.runtime_binding,
+                        release_runtime_binding=runtime_binding,
                         definition_kind=_def_kind,
                         definition_payload=_def_payload,
                         prompt=prompt,

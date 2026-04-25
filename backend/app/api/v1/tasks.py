@@ -232,7 +232,7 @@ async def list_task_runs(
     from app.services.agent_run_service import AgentRunService
 
     service = AgentRunService(db)
-    runs = await service.list_runs(task_id=task_id)
+    runs = await service.list_runs(workspace_id=workspace_id, task_id=task_id)
     return BaseResponse(
         success=True,
         code=200,

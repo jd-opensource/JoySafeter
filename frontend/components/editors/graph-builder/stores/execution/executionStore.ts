@@ -30,7 +30,14 @@ import {
   createExecutionContext,
   getExecutionManager,
 } from './ExecutionManager'
-import type { ExecutionStore, ExecutionContext, GraphExecutionState, InterruptInfo } from './types'
+import type {
+  ExecutionStore,
+  ExecutionContext,
+  GraphExecutionState,
+  InterruptInfo,
+  StartExecutionOptions,
+  StartDraftExecutionInput,
+} from './types'
 import { executionAdapter } from '../../services/executionAdapter'
 import { agentService as globalAgentService } from '@/services/agentService'
 import { useBuilderStore } from '../builderStore'
@@ -390,13 +397,18 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
 
     // ============ Execution Methods ============
 
-    startExecution: async (input: string) => {
+    startExecution: async (
+      input: string,
+      draftInput?: StartDraftExecutionInput,
+      options: StartExecutionOptions = {},
+    ) => {
       const store = get()
       if (!input.trim()) return
+      const openPanel = options.openPanel ?? true
 
       const builderState = useBuilderStore.getState()
-      const agentId = builderState.agentId
-      const workspaceId = builderState.workspaceId
+      const agentId = draftInput?.agentId ?? builderState.agentId
+      const workspaceId = draftInput?.workspaceId ?? builderState.workspaceId
 
       if (!agentId || !workspaceId) {
         throw new Error('agentId and workspaceId are required to start execution. Legacy workspace route is no longer supported.')
@@ -445,7 +457,9 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         activeNodeId: null,
         pendingInterrupts: new Map(),
       })
-      store.togglePanel(true)
+      if (openPanel) {
+        store.togglePanel(true)
+      }
 
       const workflowId = generateId('workflow')
       store.addStep({
@@ -626,19 +640,26 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
 
       const EXECUTION_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
       try {
+        const run = draftInput
+          ? await executionAdapter.startDraftRun({
+              agentId,
+              versionId: draftInput.versionId,
+              prompt: input,
+              workspaceId,
+            })
+          : await (async () => {
+              const agent = await globalAgentService.get(agentId, workspaceId)
+              const releaseId = agent.active_release_id
+              if (!releaseId) {
+                throw new Error('Agent has no active release. Please publish the agent first.')
+              }
 
-        const agent = await globalAgentService.get(agentId, workspaceId)
-        const releaseId = agent.active_release_id
-        if (!releaseId) {
-          throw new Error('Agent has no active release. Please publish the agent first.')
-        }
-
-
-        const run = await executionAdapter.startRun({
-          releaseId,
-          prompt: input,
-          workspaceId,
-        })
+              return executionAdapter.startRun({
+                releaseId,
+                prompt: input,
+                workspaceId,
+              })
+            })()
         store.setRunId(graphId, run.id)
 
         const executionId = run.current_execution_id
@@ -760,6 +781,10 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         store.setSubscribedExecutionId(graphId, null)
         store.setTimeoutId(graphId, null)
       }
+    },
+
+    startDraftExecution: async (params: StartDraftExecutionInput) => {
+      await get().startExecution(params.input, params, { openPanel: false })
     },
 
     stopExecution: async () => {

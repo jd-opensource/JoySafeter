@@ -47,6 +47,17 @@ export interface RouteDecision {
   timestamp: number
 }
 
+export interface StartDraftExecutionInput {
+  agentId: string
+  versionId: string
+  workspaceId: string
+  input: string
+}
+
+export interface StartExecutionOptions {
+  openPanel?: boolean
+}
+
 // ============ Graph Execution State ============
 
 export interface GraphExecutionState {
@@ -123,7 +134,12 @@ export interface ExecutionStoreActions {
   clearGraphState: (graphId: string) => void
   getRunningGraphIds: () => string[]
   setExecuting: (isExecuting: boolean) => void
-  startExecution: (input: string) => Promise<void>
+  startExecution: (
+    input: string,
+    draftInput?: StartDraftExecutionInput,
+    options?: StartExecutionOptions,
+  ) => Promise<void>
+  startDraftExecution: (params: StartDraftExecutionInput) => Promise<void>
   stopExecution: () => Promise<void>
 
   // Execution context management

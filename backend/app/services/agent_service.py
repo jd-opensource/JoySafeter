@@ -134,9 +134,15 @@ class AgentService(BaseService):
             select(AgentRelease.id).where(AgentRelease.agent_version_id.in_(version_ids))
         )).scalars().all() if version_ids else []
 
-        run_ids = (await db.execute(
+        release_run_ids = (await db.execute(
             select(AgentRun.id).where(AgentRun.release_id.in_(release_ids))
         )).scalars().all() if release_ids else []
+
+        draft_run_ids = (await db.execute(
+            select(AgentRun.id).where(AgentRun.agent_version_id.in_(version_ids))
+        )).scalars().all() if version_ids else []
+
+        run_ids = list(dict.fromkeys([*release_run_ids, *draft_run_ids]))
 
         exec_ids = (await db.execute(
             select(Execution.id).where(Execution.run_id.in_(run_ids))

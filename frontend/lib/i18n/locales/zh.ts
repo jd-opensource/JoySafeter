@@ -270,6 +270,7 @@ const zh = {
           openCanvas: '打开编排',
           generateDraft: '生成草稿',
           runDraft: '运行草稿',
+          openRelease: '打开发布',
           publish: '发布',
           openUsage: '打开使用',
           createTask: '创建任务',

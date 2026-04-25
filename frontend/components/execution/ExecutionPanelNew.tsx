@@ -204,16 +204,18 @@ function ExecutionPanelContent({ embedded = false }: ExecutionPanelContentProps)
                 >
                   <Trash2 size={12} />
                 </button>
-                <button
-                  onClick={() => toggleExecutionPanel(false)}
-                  className="flex items-center gap-0.5 rounded border border-transparent px-1.5 py-0.5 text-[var(--text-muted)] transition-colors hover:border-[var(--status-error-border)] hover:bg-[var(--status-error-bg)] hover:text-[var(--status-error)]"
-                  title={t('workspace.closePanel', { defaultValue: 'Close Panel' })}
-                >
-                  <ChevronDown size={12} />
-                  <span className="text-xs font-medium">
-                    {t('workspace.close', { defaultValue: 'Close' })}
-                  </span>
-                </button>
+                {!embedded && (
+                  <button
+                    onClick={() => toggleExecutionPanel(false)}
+                    className="flex items-center gap-0.5 rounded border border-transparent px-1.5 py-0.5 text-[var(--text-muted)] transition-colors hover:border-[var(--status-error-border)] hover:bg-[var(--status-error-bg)] hover:text-[var(--status-error)]"
+                    title={t('workspace.closePanel', { defaultValue: 'Close Panel' })}
+                  >
+                    <ChevronDown size={12} />
+                    <span className="text-xs font-medium">
+                      {t('workspace.close', { defaultValue: 'Close' })}
+                    </span>
+                  </button>
+                )}
               </div>
             </div>
 

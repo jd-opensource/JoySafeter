@@ -57,6 +57,28 @@ describe('executionAdapter', () => {
     )
   })
 
+  it('startDraftRun posts to the draft run endpoint with agent version identity', async () => {
+    mocks.apiPost.mockResolvedValue({ id: 'run-draft', current_execution_id: 'exec-draft', status: 'running' })
+
+    const result = await executionAdapter.startDraftRun({
+      agentId: 'agent-1',
+      versionId: 'version-1',
+      prompt: 'test draft',
+      workspaceId: 'workspace-1',
+    })
+
+    expect(mocks.apiPost).toHaveBeenCalledWith(
+      'runs/draft',
+      expect.objectContaining({
+        agent_id: 'agent-1',
+        version_id: 'version-1',
+        goal: 'test draft',
+        workspace_id: 'workspace-1',
+      }),
+    )
+    expect(result.current_execution_id).toBe('exec-draft')
+  })
+
   it('cancelRun posts to runs/{id}/cancel', async () => {
     mocks.apiPost.mockResolvedValue({})
     await executionAdapter.cancelRun('run1')

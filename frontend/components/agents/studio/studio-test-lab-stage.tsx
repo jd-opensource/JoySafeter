@@ -26,7 +26,7 @@ export function StudioTestLabStage({
 }: StudioTestLabStageProps) {
   const { t } = useTranslation()
   const [input, setInput] = useState('')
-  const { isExecuting, setCurrentGraphId, startExecution, stopExecution, togglePanel } =
+  const { isExecuting, setCurrentGraphId, startDraftExecution, stopExecution } =
     useExecutionStore()
 
   useEffect(() => {
@@ -40,9 +40,14 @@ export function StudioTestLabStage({
   }, [agentId, setCurrentGraphId, versionId, workspaceId])
 
   const runDraft = async () => {
-    if (!input.trim()) return
-    togglePanel(true)
-    await startExecution(input)
+    const trimmedInput = input.trim()
+    if (!trimmedInput || !versionId) return
+    await startDraftExecution({
+      agentId,
+      versionId,
+      workspaceId,
+      input: trimmedInput,
+    })
   }
 
   return (
@@ -88,7 +93,11 @@ export function StudioTestLabStage({
               defaultValue: 'Enter a sample request for this draft...',
             })}
           />
-          <Button className="mt-3 w-full" onClick={runDraft} disabled={!input.trim() || isExecuting}>
+          <Button
+            className="mt-3 w-full"
+            onClick={runDraft}
+            disabled={!input.trim() || !versionId || isExecuting}
+          >
             {isExecuting
               ? t('agents.studio.testLab.running', { defaultValue: 'Running...' })
               : t('agents.studio.testLab.runDraft', { defaultValue: 'Run Draft' })}

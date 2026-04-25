@@ -10,7 +10,7 @@ import type { AgentStudioStage } from './studio-types'
 const PRIMARY_ACTION_BY_STAGE: Record<AgentStudioStage, string> = {
   brief: 'openCanvas',
   canvas: 'runDraft',
-  'test-lab': 'runDraft',
+  'test-lab': 'openRelease',
   release: 'publish',
   usage: 'openUsage',
 }

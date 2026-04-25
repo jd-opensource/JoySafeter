@@ -91,7 +91,7 @@ class ExecutionRunner:
 
         logger.info(
             f"[exec:{execution_id}] Starting execution "
-            f"(release={release.id}, "
+            f"(release={release.id if release else 'draft'}, "
             f"executor={execution.executor_kind})"
         )
 
@@ -114,13 +114,15 @@ class ExecutionRunner:
                             f"[exec:{execution_id}] Pooled container {container.container_id[:12]} "
                             f"not running (status={status.strip()}), creating new one"
                         )
-                        await container_pool.remove(release.id)
+                        if release:
+                            await container_pool.remove(release.id)
                         container = None
                         prior_session_id = None
                         pooled = False
                 except Exception as inspect_exc:
                     logger.warning(f"[exec:{execution_id}] Failed to inspect pooled container: {inspect_exc}")
-                    await container_pool.remove(release.id)
+                    if release:
+                        await container_pool.remove(release.id)
                     container = None
                     prior_session_id = None
                     pooled = False
@@ -231,7 +233,10 @@ class ExecutionRunner:
             raise ValueError(f"AgentRun not found for execution: {execution.id}")
         return run
 
-    async def _get_release(self, run: AgentRun) -> AgentRelease:
+    async def _get_release(self, run: AgentRun) -> AgentRelease | None:
+        if not run.release_id:
+            return None
+
         result = await self.db.execute(select(AgentRelease).where(AgentRelease.id == run.release_id))
         release = result.scalar_one_or_none()
         if not release:
@@ -250,7 +255,7 @@ class ExecutionRunner:
         *,
         container_id: str,
         skills: Optional[list[dict[str, Any]]],
-        release: AgentRelease,
+        release: AgentRelease | None,
         working_dir: str,
     ) -> None:
         skill_injector = CLISkillInjector(self.container_service)
@@ -341,7 +346,7 @@ class ExecutionRunner:
         self,
         execution_id: uuid.UUID,
         result: CLIResult,
-        release: AgentRelease,
+        release: AgentRelease | None,
     ) -> None:
         status = "succeeded" if result.status == "completed" else "failed"
 

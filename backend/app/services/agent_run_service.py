@@ -43,15 +43,22 @@ class AgentRunService:
     ) -> List[AgentRun]:
         """List runs filtered by parameters."""
         if agent_id:
+            if not workspace_id:
+                raise BadRequestException("workspace_id is required when filtering by agent_id")
             return await self.run_repo.find_by_agent_and_trigger(
                 agent_id=agent_id,
+                workspace_id=workspace_id,
                 trigger_source=trigger_source,
                 status=status,
             )
         elif task_id:
-            return await self.run_repo.list_by_task(task_id)
+            if not workspace_id:
+                raise BadRequestException("workspace_id is required when filtering by task_id")
+            return await self.run_repo.list_by_task(task_id, workspace_id)
         elif release_id:
-            return await self.run_repo.list_by_release(release_id)
+            if not workspace_id:
+                raise BadRequestException("workspace_id is required when filtering by release_id")
+            return await self.run_repo.list_by_release(release_id, workspace_id)
         elif workspace_id:
             return await self.run_repo.list_by_workspace(workspace_id)
         else:
@@ -143,6 +150,8 @@ class AgentRunService:
         run = await self.run_repo.get(run_id)
         if not run:
             raise NotFoundException(f"AgentRun {run_id} not found")
+        if not run.release_id:
+            raise BadRequestException("Draft Test Lab runs cannot be retried")
 
         # Get max attempt index
         max_attempt = await self.execution_repo.get_max_attempt(run_id)

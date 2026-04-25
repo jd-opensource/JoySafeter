@@ -62,6 +62,11 @@ export function AgentStudioShell({
   )
 
   const handlePrimaryAction = () => {
+    if (activeStage === 'test-lab') {
+      handleStageChange('release')
+      return
+    }
+
     const currentIndex = AGENT_STUDIO_STAGES.findIndex((stage) => stage.id === activeStage)
     const nextStage = AGENT_STUDIO_STAGES[currentIndex + 1]?.id
 
