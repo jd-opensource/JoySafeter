@@ -2,6 +2,7 @@
 
 > 日期: 2026-04-26
 > 状态: 待审核
+> 修订: v2 — 修复 spec review 反馈
 
 ## 问题
 
@@ -32,8 +33,9 @@
 每种引擎实现 `BuilderSurface` 接口，通过 React Context 注入 AgentBuildShell。
 
 ```typescript
+type BuildStageId = 'brief' | 'build' | 'test-lab' | 'release' | 'usage'
+
 interface BuilderSurface {
-  kind: BuilderSurfaceKind  // 'visual' | 'cli' | 'code' | 'prompt'
   BriefStage:   React.ComponentType<StageProps>
   BuildStage:   React.ComponentType<StageProps>
   TestLabStage: React.ComponentType<StageProps>
@@ -41,11 +43,13 @@ interface BuilderSurface {
 
 interface StageProps {
   agent: Agent
-  version: AgentVersion
+  version: AgentVersion | null    // null when no draft version exists yet
   workspaceId: string
-  navigateToStage: (stageId: string) => void
+  navigateToStage: (stageId: BuildStageId) => void
 }
 ```
+
+> **注意：** 各 Surface 组件内部可以从 `StageProps` 派生所需的值（如 `agent.id`、`version?.id`、`version?.definition_kind`），不需要额外 props。通用阶段（Release/Usage）也接收 `StageProps`，内部从中提取 `runtimeKind` 等信息。
 
 Context 注入：
 
@@ -59,21 +63,81 @@ function useBuilderSurface(): BuilderSurface {
 }
 ```
 
-入口组装：
+### resolveBuilderSurface 实现
+
+```typescript
+// builder-surface-registry.ts
+import { visualSurface } from '@/components/agents/surfaces/visual'
+import { cliSurface } from '@/components/agents/surfaces/cli'
+import { codeSurface } from '@/components/agents/surfaces/code'
+import { promptSurface } from '@/components/agents/surfaces/prompt'
+
+const SURFACE_MAP: Record<BuilderSurfaceKind, BuilderSurface> = {
+  visual: visualSurface,
+  cli:    cliSurface,
+  code:   codeSurface,
+  prompt: promptSurface,
+}
+
+const DEFINITION_TO_SURFACE: Record<string, BuilderSurfaceKind> = {
+  graph:  'visual',
+  code:   'code',
+  prompt: 'prompt',
+}
+
+export function resolveBuilderSurface(definitionKind: string | null | undefined): BuilderSurface {
+  const surfaceKind = DEFINITION_TO_SURFACE[definitionKind ?? ''] ?? 'prompt'
+  return SURFACE_MAP[surfaceKind]
+}
+```
+
+### 数据获取与入口组装
 
 ```typescript
 // app/agents/[agentId]/page.tsx
-function AgentPage({ agent, version }) {
-  const surface = resolveBuilderSurface(version.definition_kind)
+export default function AgentDetailPage() {
+  const { workspaceId } = useCurrentWorkspace()
+  const { data: agent } = useAgent(agentId, workspaceId)
+  const draftVersionId = agent?.current_draft_version_id || undefined
+
+  // 获取 draft version（Brief 阶段也需要 version 信息）
+  const { data: version } = useVersion(agentId, draftVersionId, workspaceId, {
+    enabled: Boolean(draftVersionId),
+  })
+
+  const surface = resolveBuilderSurface(version?.definition_kind)
+
   return (
     <BuilderSurfaceContext.Provider value={surface}>
-      <AgentBuildShell agent={agent} version={version} />
+      <AgentBuildShell agent={agent} version={version ?? null} />
     </BuilderSurfaceContext.Provider>
   )
 }
 ```
 
-所有 Agent 统一走 AgentBuildShell，不再按 definitionKind 分叉路由。
+> **当 `version` 为 null 时**（新 Agent，无 draft version），Shell 默认进入 Brief 阶段。Brief 组件需要处理 `version === null` 的情况（显示创建表单）。
+
+### layout.tsx 变更
+
+当前 `layout.tsx` 有顶部 tab 导航（overview / builder / chat / settings）。重构后：
+
+- **删除 `overview` 和 `builder` tab** — 它们的职责被 AgentBuildShell 的 5 阶段取代
+- **保留 `chat` 和 `settings`** — 作为 layout 顶部的辅助入口
+- AgentBuildShell 的 stepper 成为主导航，layout 的 tab 退化为工具入口
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  ← [Agent名称] [状态]              [Chat] [Settings]         │  ← layout header（精简）
+├──────────────────────────────────────────────────────────────┤
+│  ① 目标  ─── ② 构建  ─── ③ 测试  ─── ④ 发布  ─── ⑤ 使用   │  ← AgentBuildShell stepper
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│                    全宽工作区                                  │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+所有 Agent 统一走 AgentBuildShell，不再按 definitionKind 分叉路由。`?tab=chat` 和 `?tab=settings` 仍由 layout 处理，其余情况全部进入 AgentBuildShell。
 
 ## 页面布局
 
@@ -117,8 +181,10 @@ function AgentPage({ agent, version }) {
 ### 构建阶段的测试快捷入口
 
 - 构建工具栏保留 "▶ Run Draft" 按钮
-- 点击后右侧滑出 Test Panel（overlay），不离开构建阶段
+- 点击后右侧滑出 `BuildTestOverlay` 面板（overlay），不离开构建阶段
 - 也可以点 stepper 的"测试"进入完整测试页面
+- `BuildTestOverlay` 属于各 Surface 自己实现（Visual 的测试 overlay 和 Code 的不同）
+- 文件位置：`surfaces/visual/visual-test-overlay.tsx`（Visual Surface 的实现）
 
 ## AgentBuildShell 重写
 
@@ -157,7 +223,9 @@ function AgentBuildShell({ agent, version }) {
 ### StageRenderer
 
 ```typescript
-function StageRenderer({ stageId, surface, ...stageProps }) {
+function StageRenderer({ stageId, surface, agent, version, workspaceId, navigateToStage }) {
+  const stageProps: StageProps = { agent, version, workspaceId, navigateToStage }
+
   switch (stageId) {
     case 'brief':    return <surface.BriefStage {...stageProps} />
     case 'build':    return <surface.BuildStage {...stageProps} />
@@ -167,6 +235,8 @@ function StageRenderer({ stageId, surface, ...stageProps }) {
   }
 }
 ```
+
+> **Stage ID 变更：** 旧代码中 `'canvas'` 重命名为 `'build'`。需要在 `resolveDefaultStage` 中兼容旧 URL：`?stage=canvas` 映射到 `'build'`。
 
 ## 进入 Agent 的默认阶段路由
 
@@ -218,20 +288,26 @@ frontend/components/agents/
 | `studio/studio-canvas-stage.tsx` + `studio/visual-builder-surface.tsx` | `surfaces/visual/visual-builder-surface.tsx`（合并） |
 | `studio/studio-test-lab-stage.tsx` | `surfaces/visual/visual-test-lab-stage.tsx` |
 | `studio/studio-right-panel.tsx` | 留在 `editors/graph-builder/` 内部 |
+| `studio/__tests__/agent-studio-shell.test.tsx` | 重写为 `agent-build/__tests__/agent-build-shell.test.tsx` |
+| `studio/__tests__/studio-stage-selection.test.ts` | 重写为 `agent-build/__tests__/stage-selection.test.ts` |
+| `studio/__tests__/studio-test-lab-stage.test.tsx` | 迁移到 `surfaces/visual/__tests__/visual-test-lab-stage.test.tsx` |
 
 ## 类型系统清理
 
-合并 `types/agents.ts` 到 `types/agent.ts`，删除 `types/agents.ts`。
+删除 `types/agents.ts`（无任何文件 import 它，属于死代码）。
+
+保留 `'hybrid'` 在 `DefinitionKind` 中但映射到 `'visual'` surface，避免后端返回 `'hybrid'` 时前端类型报错：
 
 ```typescript
 // types/agent.ts — 唯一的 Agent 类型定义
-export type DefinitionKind = 'prompt' | 'graph' | 'code'       // 删除 'hybrid'
+export type DefinitionKind = 'prompt' | 'graph' | 'code' | 'hybrid'
 export type RuntimeKind = 'graph' | 'sandbox' | 'code' | 'copilot' | 'hosted' | 'external'
 export type BuilderSurfaceKind = 'visual' | 'cli' | 'code' | 'prompt'
 ```
 
 DefinitionKind → BuilderSurfaceKind 映射：
 - `graph` → `visual`
+- `hybrid` → `visual`（兼容，后续后端废弃后可移除）
 - `code` → `code`
 - `prompt` → `prompt`
 - `cli` — 预留，暂无对应 DefinitionKind
