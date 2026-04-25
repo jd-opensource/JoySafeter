@@ -115,6 +115,8 @@ In `backend/app/services/thread_service.py`:
 - Remove `list_messages` method (lines 97-102)
 - Remove `get_thread_with_messages` method (lines 38-42)
 
+**Important:** The `get_thread` router handler in `threads.py` currently calls `service.get_thread_with_messages()`. This will break until Task 2 Step 2 changes it to call `service.get_thread()`. Both steps are in the same commit scope (Tasks 1+2 can be committed together if needed), but be aware of this dependency.
+
 - [ ] **Step 7: Create Alembic migration to drop `thread_messages` table**
 
 ```bash
@@ -260,7 +262,7 @@ class ThreadEventsListResponse(BaseModel):
 In `backend/app/services/thread_service.py`, add:
 
 ```python
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, not_
 from app.models.execution import Execution, ExecutionEvent
 from app.models.agent_run import AgentRun
 
@@ -280,7 +282,7 @@ class ThreadService:
 
         base_filter = and_(
             AgentRun.thread_id == thread_id,
-            ~ExecutionEvent.event_type.startswith("copilot_"),
+            not_(ExecutionEvent.event_type.like("copilot_%")),
         )
 
         count_q = (
@@ -493,7 +495,9 @@ async def read_file(
         raise InternalServerException("Failed to read file") from e
 ```
 
-Note: `raw_read_bytes` may not exist on the adapter. Check the adapter interface; if only `raw_read` (text) is available, read text then encode to bytes for binary MIME types, or use a different adapter method.
+Note: `raw_read_bytes` may not exist on the adapter. If only `raw_read` (text) is available, use `adapter.raw_read(path)` then encode: `content.encode('latin-1')` for binary, and determine MIME from filename. Check `live_read_file` in `artifacts.py` for the adapter read pattern used there.
+
+Artifact content preview is already handled by `GET /v1/artifacts/{thread_id}/{run_id}/download/{file_path}` — no additional work needed.
 
 - [ ] **Step 2: Verify endpoint works**
 
@@ -524,7 +528,7 @@ correct Content-Type header, enabling inline image/PDF preview."
 
 - [ ] **Step 1: Update `types/thread.ts`**
 
-Remove `ThreadMessage` and `ThreadDetail` interfaces. Add:
+Remove `ThreadMessage` interface (lines 12-20) and `ThreadDetail` interface (lines 22-24). Add:
 
 ```ts
 export interface ChatAttachment {

@@ -139,7 +139,7 @@ Supports cursor-based pagination via `?after=<event_id>&limit=100`. Using `event
 
 Uploaded files: existing `GET /v1/files/read/{filename}` currently returns JSON-wrapped text (`BaseResponse` with `{filename, content, is_binary}`). For inline preview of images/PDFs, add a `?mode=raw` query param that returns raw binary bytes with correct `Content-Type` header via `Response(content=bytes, media_type=mime)`. This is a new code path in the existing endpoint, not a new endpoint.
 
-Execution artifacts: existing `Artifact` model has `uri` pointing to stored file. Add `GET /v1/artifacts/{artifact_id}/content` if not already present.
+Execution artifacts: already served by existing `GET /v1/artifacts/{thread_id}/{run_id}/download/{file_path}` which returns `FileResponse` with correct Content-Type. No new endpoint needed.
 
 No new tables, no new models.
 
