@@ -167,7 +167,7 @@ export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
           <div className="flex flex-col gap-2">
             {isGraphAgent && (
               <Link
-                href={`/agents/${agentId}?tab=builder`}
+                href={`/agents/${agentId}?stage=canvas`}
                 className="group flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 transition-all hover:border-[var(--brand-400)] hover:bg-[var(--surface-3)]"
               >
                 <div className="flex h-8 w-8 items-center justify-center rounded bg-[var(--skill-brand-100)] text-[var(--skill-brand-600)] transition-transform group-hover:scale-105">
@@ -175,10 +175,10 @@ export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
                 </div>
                 <div className="flex flex-col">
                   <span className="text-sm font-medium text-[var(--text-primary)]">
-                    {t('agents.detail.openBuilder', { defaultValue: 'Open Builder' })}
+                    {t('agents.detail.openBuilder', { defaultValue: 'Open Studio' })}
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">
-                    {t('agents.detail.openBuilderDesc', { defaultValue: 'Edit graph configuration' })}
+                    {t('agents.detail.openBuilderDesc', { defaultValue: 'Build, test, publish, and use this Agent' })}
                   </span>
                 </div>
               </Link>

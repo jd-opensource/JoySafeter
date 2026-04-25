@@ -30,6 +30,12 @@ describe('Agent Studio stage helpers', () => {
     expect(normalizeStudioStage('unknown', { nodesCount: 1, hasActiveRelease: true })).toBe('canvas')
   })
 
+  it('accepts test-lab from URL stage values', () => {
+    expect(normalizeStudioStage('test-lab', { nodesCount: 0, hasActiveRelease: false })).toBe(
+      'test-lab',
+    )
+  })
+
   it('recognizes only known stage ids', () => {
     expect(isStudioStage('release')).toBe(true)
     expect(isStudioStage('versions')).toBe(false)
