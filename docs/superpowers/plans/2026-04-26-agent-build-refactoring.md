@@ -24,9 +24,9 @@
 - `frontend/components/agents/surfaces/visual/visual-brief-stage.tsx` — Visual Brief（从 studio 迁移重写）
 - `frontend/components/agents/surfaces/visual/visual-builder-surface.tsx` — Visual Build（从 studio 合并重写）
 - `frontend/components/agents/surfaces/visual/visual-test-lab-stage.tsx` — Visual Test Lab（从 studio 迁移重写）
-- `frontend/components/agents/surfaces/cli/index.ts` — placeholder
-- `frontend/components/agents/surfaces/code/index.ts` — placeholder
-- `frontend/components/agents/surfaces/prompt/index.ts` — placeholder
+- `frontend/components/agents/surfaces/cli/index.tsx` — placeholder
+- `frontend/components/agents/surfaces/code/index.tsx` — placeholder
+- `frontend/components/agents/surfaces/prompt/index.tsx` — placeholder
 
 ### 重写文件
 - `frontend/components/agents/agent-build/agent-build-shell.tsx` — 重写为顶部 Stepper + 全宽工作区
@@ -173,7 +173,7 @@ export function isBuildStageId(value: string | null | undefined): value is Build
   return Boolean(value && BUILD_STAGE_IDS.has(value as BuildStageId))
 }
 
-function hasVersionContent(version: AgentVersion): boolean {
+export function hasVersionContent(version: AgentVersion): boolean {
   const payload = version.definition_payload
   if (!payload) return false
   const nodes = payload.nodes as unknown[] | undefined
@@ -264,7 +264,7 @@ Expected: FAIL
 先创建 placeholder，让 registry 有东西可以引用。
 
 ```typescript
-// frontend/components/agents/surfaces/cli/index.ts
+// frontend/components/agents/surfaces/cli/index.tsx
 import type { BuilderSurface, StageProps } from '@/components/agents/agent-build/agent-build-types'
 
 function PlaceholderStage({ navigateToStage }: StageProps) {
@@ -283,7 +283,7 @@ export const cliSurface: BuilderSurface = {
 ```
 
 ```typescript
-// frontend/components/agents/surfaces/code/index.ts
+// frontend/components/agents/surfaces/code/index.tsx
 import type { BuilderSurface, StageProps } from '@/components/agents/agent-build/agent-build-types'
 
 function PlaceholderStage({ navigateToStage }: StageProps) {
@@ -302,7 +302,7 @@ export const codeSurface: BuilderSurface = {
 ```
 
 ```typescript
-// frontend/components/agents/surfaces/prompt/index.ts
+// frontend/components/agents/surfaces/prompt/index.tsx
 import type { BuilderSurface, StageProps } from '@/components/agents/agent-build/agent-build-types'
 
 function PlaceholderStage({ navigateToStage }: StageProps) {
@@ -692,7 +692,7 @@ const mockBriefStage = vi.fn(() => <div data-testid="brief-stage">Brief</div>)
 const mockBuildStage = vi.fn(() => <div data-testid="build-stage">Build</div>)
 const mockTestLabStage = vi.fn(() => <div data-testid="test-lab-stage">TestLab</div>)
 
-vi.mock('./builder-surface-context', () => ({
+vi.mock('../builder-surface-context', () => ({
   useBuilderSurface: () => ({
     BriefStage: mockBriefStage,
     BuildStage: mockBuildStage,
@@ -700,10 +700,10 @@ vi.mock('./builder-surface-context', () => ({
   }),
 }))
 
-vi.mock('./agent-release-stage', () => ({
+vi.mock('../agent-release-stage', () => ({
   AgentReleaseStage: () => <div data-testid="release-stage">Release</div>,
 }))
-vi.mock('./agent-usage-stage', () => ({
+vi.mock('../agent-usage-stage', () => ({
   AgentUsageStage: () => <div data-testid="usage-stage">Usage</div>,
 }))
 
@@ -798,6 +798,7 @@ git commit -m "feat: rewrite AgentBuildShell with top stepper and StageRenderer"
 
 // 新：
 import type { StageProps } from './agent-build-types'
+import { hasVersionContent } from './agent-build-types'
 import type { RuntimeKind } from '@/types/agent-release'
 
 function deriveRuntimeKind(definitionKind: string | undefined): RuntimeKind {
@@ -809,22 +810,10 @@ function deriveRuntimeKind(definitionKind: string | undefined): RuntimeKind {
   }
 }
 
-function hasPublishableContent(version: AgentVersion | null): boolean {
-  if (!version?.definition_payload) return false
-  const payload = version.definition_payload
-  const nodes = payload.nodes as unknown[] | undefined
-  if (Array.isArray(nodes) && nodes.length > 0) return true
-  const code = payload.code_content as string | undefined
-  if (code && code.trim().length > 0) return true
-  const prompt = payload.prompt as string | undefined
-  if (prompt && prompt.trim().length > 0) return true
-  return false
-}
-
 export function AgentReleaseStage({ agent, version, workspaceId }: StageProps) {
   const versionId = version?.id
   const runtimeKind = deriveRuntimeKind(version?.definition_kind)
-  const canPublishDraft = hasPublishableContent(version)
+  const canPublishDraft = version ? hasVersionContent(version) : false
   // ... 其余内部逻辑保持不变，只是从 props 解构改为从上面的变量读取
 }
 ```
@@ -868,6 +857,9 @@ vi.mock('@/hooks/queries/agents', () => ({
 }))
 vi.mock('@/hooks/queries/agentVersions', () => ({
   versionKeys: { all: () => ['versions'] },
+}))
+vi.mock('@/hooks/use-toast', () => ({
+  useToast: () => ({ toast: vi.fn() }),
 }))
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
@@ -1142,7 +1134,7 @@ git commit -m "feat: add VisualBriefStage with StageProps interface"
 // frontend/components/agents/surfaces/visual/visual-builder-surface.tsx
 'use client'
 
-import { AgentBuilder } from '@/components/editors/graph-builder/AgentBuilder'
+import AgentBuilder from '@/components/editors/graph-builder/AgentBuilder'
 import type { StageProps } from '@/components/agents/agent-build/agent-build-types'
 
 export function VisualBuilderSurface({ agent, version, workspaceId, navigateToStage }: StageProps) {
@@ -1428,7 +1420,7 @@ git commit -m "feat: wire real Visual Surface components into visualSurface expo
 'use client'
 
 import { Loader2 } from 'lucide-react'
-import { useParams, useSearchParams } from 'next/navigation'
+import { useParams, useSearchParams, useRouter } from 'next/navigation'
 
 import { AgentBuildShell } from '@/components/agents/agent-build/agent-build-shell'
 import { BuilderSurfaceContext } from '@/components/agents/agent-build/builder-surface-context'
@@ -1442,13 +1434,14 @@ import { useCurrentWorkspace } from '@/providers/workspace-provider'
 export default function AgentDetailPage() {
   const params = useParams()
   const searchParams = useSearchParams()
+  const router = useRouter()
   const agentId = params.agentId as string
   const tab = searchParams.get('tab')
   const threadId = searchParams.get('thread') || undefined
   const { workspaceId } = useCurrentWorkspace()
 
   const { data: agent, isLoading: isAgentLoading } = useAgent(agentId, workspaceId)
-  const draftVersionId = agent?.current_draft_version_id || undefined
+  const draftVersionId = agent?.current_draft_version_id || ''
   const { data: version, isLoading: isVersionLoading } = useVersion(
     agentId,
     draftVersionId,
@@ -1463,8 +1456,7 @@ export default function AgentDetailPage() {
         workspaceId={workspaceId}
         threadId={threadId}
         onThreadChange={(id) => {
-          const url = `/agents/${agentId}?tab=chat&thread=${id}`
-          window.history.replaceState(null, '', url)
+          router.push(`/agents/${agentId}?tab=chat&thread=${id}`)
         }}
       />
     )
