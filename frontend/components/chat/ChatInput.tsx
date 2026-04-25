@@ -1,11 +1,12 @@
 'use client'
 
-import { Paperclip, Send, Loader2 } from 'lucide-react'
+import { Paperclip, Send, Loader2, Upload } from 'lucide-react'
 import { useCallback, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { AttachmentChip } from './AttachmentChip'
 import { useTranslation } from '@/lib/i18n'
 import { UPLOAD_LIMITS, ALLOWED_MIME_TYPES } from '@/lib/core/constants/upload-limits'
+import { cn } from '@/lib/utils'
 
 interface ChatInputProps {
   onSend: (message: string, files: File[]) => void
@@ -16,7 +17,9 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
   const { t } = useTranslation()
   const [text, setText] = useState('')
   const [files, setFiles] = useState<File[]>([])
+  const [isDragOver, setIsDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const handleSend = useCallback(() => {
     if (!text.trim() && files.length === 0) return
@@ -33,25 +36,72 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
   }
 
   const addFiles = (newFiles: FileList | File[]) => {
-    const valid = Array.from(newFiles).filter(
-      (f) =>
-        f.size <= UPLOAD_LIMITS.MAX_FILE_SIZE_BYTES &&
-        ALLOWED_MIME_TYPES.includes(f.type),
-    )
-    setFiles((prev) => [...prev, ...valid].slice(0, 10))
+    const incoming = Array.from(newFiles)
+    const valid: File[] = []
+    const rejected: string[] = []
+
+    for (const f of incoming) {
+      if (f.size > UPLOAD_LIMITS.MAX_FILE_SIZE_BYTES) {
+        rejected.push(`${f.name}: exceeds ${UPLOAD_LIMITS.MAX_FILE_SIZE_MB}MB`)
+        continue
+      }
+      if (f.type && !ALLOWED_MIME_TYPES.includes(f.type)) {
+        rejected.push(`${f.name}: unsupported type (${f.type})`)
+        continue
+      }
+      valid.push(f)
+    }
+
+    if (rejected.length > 0) {
+      console.warn('Rejected files:', rejected)
+    }
+
+    setFiles((prev) => [...prev, ...valid].slice(0, UPLOAD_LIMITS.MAX_FILES_PER_UPLOAD))
   }
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
+    setIsDragOver(false)
     if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files)
+  }
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    if (e.currentTarget === e.target) setIsDragOver(false)
+  }
+
+  // Auto-resize textarea
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setText(e.target.value)
+    const el = e.target
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`
   }
 
   return (
     <div
-      className="border-t border-[var(--border)] bg-[var(--surface-elevated)] px-4 py-3"
+      className={cn(
+        'relative border-t border-[var(--border)] bg-[var(--surface-elevated)] px-4 py-3 transition-colors',
+        isDragOver && 'bg-[var(--skill-brand-600)]/5 ring-2 ring-inset ring-[var(--skill-brand-600)]/30',
+      )}
       onDrop={handleDrop}
       onDragOver={(e) => e.preventDefault()}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
     >
+      {isDragOver && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+          <div className="flex items-center gap-2 rounded-lg bg-[var(--skill-brand-600)] px-4 py-2 text-sm text-white shadow-lg">
+            <Upload className="h-4 w-4" />
+            Drop files here
+          </div>
+        </div>
+      )}
       {files.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {files.map((f, i) => (
@@ -65,12 +115,18 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
               }
             />
           ))}
+          {files.length >= UPLOAD_LIMITS.MAX_FILES_PER_UPLOAD && (
+            <span className="self-center text-[10px] text-[var(--text-muted)]">
+              Max {UPLOAD_LIMITS.MAX_FILES_PER_UPLOAD} files
+            </span>
+          )}
         </div>
       )}
       <div className="flex gap-2">
         <textarea
+          ref={textareaRef}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={handleTextChange}
           onKeyDown={handleKeyDown}
           placeholder={t('chat.describeHelpNeeded')}
           disabled={disabled}
@@ -93,6 +149,7 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
           className="h-9 w-9 p-0"
+          title="Attach files"
         >
           <Paperclip className="h-4 w-4" />
         </Button>

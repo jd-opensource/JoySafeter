@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Loader2 } from 'lucide-react'
 import { ChatEventBubble } from './ChatEventBubble'
 import { useTranslation } from '@/lib/i18n'
@@ -9,6 +9,7 @@ import type { ThreadEvent } from '@/types/thread'
 interface ChatHistoryProps {
   events: ThreadEvent[]
   isLoading?: boolean
+  isExecuting?: boolean
 }
 
 const IGNORED_EVENTS = new Set([
@@ -17,13 +18,23 @@ const IGNORED_EVENTS = new Set([
   'approval_resolved',
 ])
 
-export function ChatHistory({ events, isLoading }: ChatHistoryProps) {
+export function ChatHistory({ events, isLoading, isExecuting }: ChatHistoryProps) {
   const { t } = useTranslation()
   const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [events.length])
+
+  const visible = useMemo(
+    () =>
+      events.filter(
+        (e) =>
+          !IGNORED_EVENTS.has(e.event_type) &&
+          !e.event_type.startsWith('copilot_'),
+      ),
+    [events],
+  )
 
   if (isLoading) {
     return (
@@ -32,12 +43,6 @@ export function ChatHistory({ events, isLoading }: ChatHistoryProps) {
       </div>
     )
   }
-
-  const visible = events.filter(
-    (e) =>
-      !IGNORED_EVENTS.has(e.event_type) &&
-      !e.event_type.startsWith('copilot_'),
-  )
 
   if (visible.length === 0) {
     return (
@@ -54,6 +59,12 @@ export function ChatHistory({ events, isLoading }: ChatHistoryProps) {
       {visible.map((event) => (
         <ChatEventBubble key={event.id} event={event} />
       ))}
+      {isExecuting && (
+        <div className="flex items-center gap-2 py-2">
+          <Loader2 className="h-4 w-4 animate-spin text-[var(--text-muted)]" />
+          <span className="text-xs text-[var(--text-muted)]">Agent is working...</span>
+        </div>
+      )}
       <div ref={endRef} />
     </div>
   )

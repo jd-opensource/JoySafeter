@@ -101,6 +101,7 @@ export function ChatPanel({
               <ChatHistory
                 events={eventsData?.events ?? []}
                 isLoading={eventsLoading}
+                isExecuting={isExecuting}
               />
             </div>
             <ChatInput
