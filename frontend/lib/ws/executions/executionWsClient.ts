@@ -44,21 +44,23 @@ class SharedExecutionWsClient extends BaseWsClient<ExecutionConnectionState> {
     if (!subscription) return
     const { callbacks } = subscription
 
-    if (frame.type === 'snapshot') {
-      subscription.afterSeq = Math.max(subscription.afterSeq, frame.last_seq)
-      callbacks.onSnapshot?.(frame)
-    }
-    if (frame.type === 'event') {
-      if (frame.seq <= subscription.afterSeq) return
-      subscription.afterSeq = frame.seq
-      callbacks.onEvent?.(frame)
-    }
-    if (frame.type === 'execution_completed') {
-      callbacks.onCompleted?.(frame)
-    }
-    if (frame.type === 'replay_done') {
-      subscription.afterSeq = Math.max(subscription.afterSeq, frame.last_seq)
-      callbacks.onReplayDone?.(frame)
+    switch (frame.type) {
+      case 'snapshot':
+        subscription.afterSeq = Math.max(subscription.afterSeq, frame.last_seq)
+        callbacks.onSnapshot?.(frame)
+        break
+      case 'event':
+        if (frame.seq <= subscription.afterSeq) return
+        subscription.afterSeq = frame.seq
+        callbacks.onEvent?.(frame)
+        break
+      case 'execution_completed':
+        callbacks.onCompleted?.(frame)
+        break
+      case 'replay_done':
+        subscription.afterSeq = Math.max(subscription.afterSeq, frame.last_seq)
+        callbacks.onReplayDone?.(frame)
+        break
     }
   }
 

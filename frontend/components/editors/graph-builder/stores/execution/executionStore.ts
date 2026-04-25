@@ -23,7 +23,7 @@ import type { ExecutionStep, ExecutionTreeNode } from '@/types'
 
 import { buildExecutionTree } from '../../lib/tree-building'
 import type { GraphState, TraceStep } from './types'
-import { generateId as genId } from './utils'
+import { generateId } from './utils'
 
 import {
   createEmptyGraphState,
@@ -31,18 +31,12 @@ import {
   getExecutionManager,
 } from './ExecutionManager'
 import type { ExecutionStore, ExecutionContext, GraphExecutionState, InterruptInfo } from './types'
-import { generateId } from './utils'
 import { executionAdapter } from '../../services/executionAdapter'
 import { agentService as globalAgentService } from '@/services/agentService'
 import { useBuilderStore } from '../builderStore'
 
-// ============ Batch Update Buffer ============
-// Used to merge high-frequency appendContent calls, reducing state update frequency
-
 const pendingContentUpdates = new Map<string, string>()
 let contentUpdateScheduled = false
-
-// ============ Helper Functions ============
 
 function getOrCreateContext(
   contexts: Map<string, ExecutionContext>,
@@ -445,7 +439,6 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       store.setRunId(graphId, null)
       store.setSubscribedExecutionId(graphId, null)
 
-      store.clearInterrupts()
       store.updateGraphState(graphId, {
         steps: [],
         isExecuting: true,
@@ -466,7 +459,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         data: { input },
       })
 
-      // Local state for mapping tool_use_start → tool_use_end
+      // toolUseId → stepId
       const toolStepMap = new Map<string, string>() // toolUseId → stepId
       let currentThoughtStepId: string | null = null
 
@@ -478,13 +471,11 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
 
         switch (event_type) {
           case 'assistant_text': {
-            const text = (payload.text as string) ?? ''
+            const text = (payload.delta as string) ?? (payload.content as string) ?? (payload.text as string) ?? ''
             if (currentThoughtStepId) {
-              // Append to existing thought step
               store.appendContent(currentThoughtStepId, text)
             } else {
-              // Start a new thought step
-              const stepId = genId('thought')
+              const stepId = generateId('thought')
               currentThoughtStepId = stepId
               store.addStep({
                 id: stepId,
@@ -502,7 +493,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
 
           case 'thinking': {
             const text = (payload.text as string) ?? ''
-            const stepId = genId('thinking')
+            const stepId = generateId('thinking')
             currentThoughtStepId = stepId
             store.addStep({
               id: stepId,
@@ -518,7 +509,6 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
           }
 
           case 'tool_use_start': {
-            // Close any open thought step
             if (currentThoughtStepId) {
               store.updateStep(currentThoughtStepId, { status: 'success', endTime: Date.now() })
               currentThoughtStepId = null
@@ -526,7 +516,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
             const toolUseId = (payload.tool_use_id as string) ?? ''
             const toolName = (payload.tool_name as string) ?? 'tool'
             const toolInput = (payload.input as Record<string, unknown>) ?? {}
-            const stepId = genId('tool')
+            const stepId = generateId('tool')
             toolStepMap.set(toolUseId, stepId)
             store.addStep({
               id: stepId,
@@ -565,7 +555,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
               store.updateStep(workflowId, { status: 'error', endTime: Date.now() })
             } else {
               store.addStep({
-                id: genId('error'),
+                id: generateId('error'),
                 nodeId: 'system',
                 nodeLabel: 'Error',
                 stepType: 'system_log',
@@ -581,7 +571,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
           case 'artifact_created': {
             const artifactName = (payload.name as string) ?? 'Artifact'
             store.addStep({
-              id: genId('artifact'),
+              id: generateId('artifact'),
               nodeId: 'artifact',
               nodeLabel: artifactName,
               stepType: 'artifact',
@@ -636,14 +626,14 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
 
       const EXECUTION_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
       try {
-        // 1. Fetch the agent to get its active_release_id
+
         const agent = await globalAgentService.get(agentId, workspaceId)
         const releaseId = agent.active_release_id
         if (!releaseId) {
           throw new Error('Agent has no active release. Please publish the agent first.')
         }
 
-        // 2. Start a run via the REST API
+
         const run = await executionAdapter.startRun({
           releaseId,
           prompt: input,
@@ -653,7 +643,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
 
         const executionId = run.current_execution_id
 
-        // 3. Set execution timeout — force-stop if the execution stalls
+
         const timeoutId = setTimeout(() => {
           const context = getOrCreateContext(get().contexts, graphId)
           if (context.runId) {
@@ -676,9 +666,8 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         }, EXECUTION_TIMEOUT_MS)
         store.setTimeoutId(graphId, timeoutId)
 
-        // 4. Subscribe to execution events via authenticated shared WS client
+
         await new Promise<void>((resolve, reject) => {
-          // Abort listener — unsubscribe when the AbortController fires
           const onAbort = () => {
             try { getExecutionWsClient().unsubscribe(executionId) } catch { /* ignore */ }
             resolve()
@@ -695,7 +684,6 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
             },
 
             onSnapshot: (frame: ExecutionSnapshotFrame) => {
-              // Replay all events in the snapshot to rebuild state
               for (const evt of frame.events) {
                 try {
                   handleExecutionEvent({
@@ -714,27 +702,19 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
 
             onCompleted: (frame: ExecutionCompletedFrame) => {
               abortController.signal.removeEventListener('abort', onAbort)
-              // Close any open thought step
               if (currentThoughtStepId) {
                 store.updateStep(currentThoughtStepId, { status: 'success', endTime: Date.now() })
                 currentThoughtStepId = null
               }
-              // Mark workflow step as success if execution succeeded
+              const now = Date.now()
               const graphContext = store.getContext(graphId)
               const workflowStep = graphContext.state.steps.find((s) => s.id === workflowId)
-              if (frame.status === 'succeeded' || frame.status === 'completed') {
-                store.updateStep(workflowId, {
-                  status: 'success',
-                  endTime: Date.now(),
-                  duration: Date.now() - (workflowStep?.startTime || Date.now()),
-                })
-              } else {
-                store.updateStep(workflowId, {
-                  status: 'error',
-                  endTime: Date.now(),
-                  duration: Date.now() - (workflowStep?.startTime || Date.now()),
-                })
-              }
+              const status = (frame.status === 'succeeded' || frame.status === 'completed') ? 'success' : 'error' as const
+              store.updateStep(workflowId, {
+                status,
+                endTime: now,
+                duration: now - (workflowStep?.startTime || now),
+              })
               resolve()
             },
 
