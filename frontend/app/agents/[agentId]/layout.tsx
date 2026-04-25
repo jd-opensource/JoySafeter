@@ -1,44 +1,24 @@
 'use client'
 
-import { ArrowLeft, Bot, Loader2, Plus, MessageSquare } from 'lucide-react'
+import { ArrowLeft, Bot, Loader2, MessageSquare, Settings } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useSearchParams } from 'next/navigation'
-import { useEffect } from 'react'
 
 import { AgentStatusIndicator } from '@/components/agents/agent-status'
 import { Button } from '@/components/ui/button'
 import { useAgent } from '@/hooks/queries/agents'
-import { useVersion } from '@/hooks/queries/agentVersions'
-import { hasBuilderSupport } from '@/types/agent'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { useCurrentWorkspace } from '@/providers/workspace-provider'
-import { useSidebarStore } from '@/stores/sidebar/store'
-
-type TabKey = 'overview' | 'chat' | 'builder' | 'settings'
 
 export default function AgentDetailLayout({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation()
   const params = useParams()
   const searchParams = useSearchParams()
   const agentId = params.agentId as string
-
   const { workspaceId } = useCurrentWorkspace()
-
   const { data: agent, isLoading } = useAgent(agentId, workspaceId)
-
-  const draftVersionId = agent?.current_draft_version_id || ''
-  const { data: draftVersion } = useVersion(agentId, draftVersionId, workspaceId, {
-    enabled: Boolean(draftVersionId),
-  })
-
-  const hasBuilder = hasBuilderSupport(draftVersion?.definition_kind)
-  const tabKeys: TabKey[] = hasBuilder
-    ? ['overview', 'builder', 'chat', 'settings']
-    : ['overview', 'chat', 'settings']
-
-  const currentTab = (searchParams.get('tab') as TabKey) || 'overview'
-  const basePath = `/agents/${agentId}`
+  const currentTab = searchParams.get('tab')
 
   if (isLoading) {
     return (
@@ -61,71 +41,52 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
   }
 
   return (
-      <div className="flex h-full flex-col bg-[var(--bg)]">
-        {/* Header - Ultra Compact Single Line */}
-        <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-elevated)] px-4 py-2 transition-all">
-          
-          {/* Left: Identity (flex-1 to allow middle centering if needed, but min-w-0 for truncation) */}
-          <div className="flex flex-1 items-center gap-3 min-w-0 pr-4">
-            <Button variant="ghost" size="sm" asChild className="-ml-2 h-8 w-8 p-0 text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
-              <Link href="/agents">
-                <ArrowLeft className="h-4 w-4" />
-              </Link>
-            </Button>
-            <Bot className="h-4 w-4 shrink-0 text-[var(--skill-brand-600)]" />
-            <h1 className="truncate text-sm font-semibold text-[var(--text-primary)]">
-              {agent.name}
-            </h1>
-            <AgentStatusIndicator status={agent.status} className="shrink-0 scale-75 origin-left" />
-          </div>
-
-          {/* Middle: Tab Navigation */}
-          <nav className="flex shrink-0 items-center gap-1 bg-[var(--surface-2)] p-0.5 rounded-lg border border-[var(--border)]">
-            {tabKeys.map((tab) => {
-              const href = tab === 'overview' ? basePath : `${basePath}?tab=${tab}`
-              const isActive = currentTab === tab
-              return (
-                <Link
-                  key={tab}
-                  href={href}
-                  className={cn(
-                    'rounded-md px-3 py-1 text-xs font-medium transition-all',
-                    isActive
-                      ? 'bg-[var(--surface-elevated)] text-[var(--text-primary)] shadow-sm'
-                      : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]',
-                  )}
-                >
-                  {t(`agents.detail.tabs.${tab}`)}
-                </Link>
-              )
-            })}
-          </nav>
-
-          {/* Right: Actions */}
-          <div className="flex flex-1 items-center justify-end gap-2 pl-4">
-            {currentTab !== 'builder' && (
-              <>
-                <Button variant="ghost" size="sm" asChild className="h-7 px-2 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
-                  <Link href={`/agents/${agentId}?tab=chat`}>
-                    <MessageSquare className="mr-1.5 h-3 w-3" />
-                    {t('agents.detail.startChat')}
-                  </Link>
-                </Button>
-                <Button size="sm" asChild className="h-7 px-3 text-xs">
-                  <Link href={`/tasks?agent=${agentId}`}>
-                    <Plus className="mr-1.5 h-3 w-3" />
-                    {t('agents.detail.assignTask')}
-                  </Link>
-                </Button>
-              </>
-            )}
-          </div>
+    <div className="flex h-full flex-col bg-[var(--bg)]">
+      <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-elevated)] px-4 py-2">
+        {/* Left: Identity */}
+        <div className="flex items-center gap-3 min-w-0">
+          <Button variant="ghost" size="sm" asChild className="-ml-2 h-8 w-8 p-0 text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+            <Link href="/agents">
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
+          </Button>
+          <Bot className="h-4 w-4 shrink-0 text-[var(--skill-brand-600)]" />
+          <h1 className="truncate text-sm font-semibold text-[var(--text-primary)]">
+            {agent.name}
+          </h1>
+          <AgentStatusIndicator status={agent.status} className="shrink-0 scale-75 origin-left" />
         </div>
 
-        {/* Content */}
-        <div className={cn('flex-1', currentTab === 'builder' ? 'overflow-hidden' : 'overflow-y-auto')}>
-          {children}
+        {/* Right: Chat + Settings */}
+        <div className="flex items-center gap-1">
+          <Button
+            variant={currentTab === 'chat' ? 'secondary' : 'ghost'}
+            size="sm"
+            asChild
+            className="h-7 px-2 text-xs"
+          >
+            <Link href={`/agents/${agentId}?tab=chat`}>
+              <MessageSquare className="mr-1.5 h-3 w-3" />
+              {t('agents.detail.tabs.chat', { defaultValue: 'Chat' })}
+            </Link>
+          </Button>
+          <Button
+            variant={currentTab === 'settings' ? 'secondary' : 'ghost'}
+            size="sm"
+            asChild
+            className="h-7 px-2 text-xs"
+          >
+            <Link href={`/agents/${agentId}?tab=settings`}>
+              <Settings className="mr-1.5 h-3 w-3" />
+              {t('agents.detail.tabs.settings', { defaultValue: 'Settings' })}
+            </Link>
+          </Button>
         </div>
       </div>
+
+      <div className={cn('flex-1', currentTab ? 'overflow-y-auto' : 'overflow-hidden')}>
+        {children}
+      </div>
+    </div>
   )
 }
