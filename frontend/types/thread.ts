@@ -9,18 +9,22 @@ export interface Thread {
   updated_at: string
 }
 
-export interface ThreadMessage {
-  id: string
-  thread_id: string
-  run_id: string | null
-  execution_id: string | null
-  role: 'user' | 'assistant' | 'system' | 'tool'
-  content: Record<string, unknown>
-  created_at: string
+export interface ChatAttachment {
+  filename: string
+  storage_ref: string
+  mime_type: string
+  size_bytes: number
 }
 
-export interface ThreadDetail extends Thread {
-  messages: ThreadMessage[]
+export interface ThreadEvent {
+  id: string
+  run_id: string
+  execution_id: string
+  sequence_no: number
+  event_type: string
+  payload: Record<string, unknown>
+  execution_status: string
+  created_at: string
 }
 
 export interface CreateThreadRequest {

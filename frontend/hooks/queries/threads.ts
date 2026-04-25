@@ -1,7 +1,8 @@
 /**
  * Thread Queries
  *
- * React Query hooks for Thread and ThreadMessage entities.
+ * React Query hooks for Thread entities.
+ * Message-related hooks removed — messages are now execution events.
  */
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -21,8 +22,6 @@ export const threadKeys = {
     [...threadKeys.all, 'list', agentId, workspaceId] as const,
   detail: (threadId: string, workspaceId: string) =>
     [...threadKeys.all, 'detail', threadId, workspaceId] as const,
-  messages: (threadId: string, workspaceId: string) =>
-    [...threadKeys.all, 'messages', threadId, workspaceId] as const,
 }
 
 // ==================== Query Hooks ====================
@@ -51,20 +50,6 @@ export function useThread(
   return useQuery({
     queryKey: threadKeys.detail(threadId, workspaceId),
     queryFn: () => threadService.get(threadId, workspaceId),
-    enabled:
-      Boolean(threadId) && Boolean(workspaceId) && options?.enabled !== false,
-    staleTime: STALE_TIME.SHORT,
-  })
-}
-
-export function useThreadMessages(
-  threadId: string,
-  workspaceId: string,
-  options?: { enabled?: boolean },
-) {
-  return useQuery({
-    queryKey: threadKeys.messages(threadId, workspaceId),
-    queryFn: () => threadService.listMessages(threadId, workspaceId),
     enabled:
       Boolean(threadId) && Boolean(workspaceId) && options?.enabled !== false,
     staleTime: STALE_TIME.SHORT,
@@ -114,30 +99,6 @@ export function useArchiveThread() {
     }) => threadService.archive(threadId, workspaceId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: threadKeys.all })
-    },
-  })
-}
-
-export function useChatMessage() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: ({
-      threadId,
-      workspaceId,
-      message,
-    }: {
-      threadId: string
-      workspaceId: string
-      message: string
-    }) => threadService.chat(threadId, workspaceId, message),
-    onSuccess: (_data, variables) => {
-      // Don't invalidate messages here — MessageProjectionSubscriber
-      // will write the user message asynchronously. We invalidate
-      // when the execution completes (in useAgentChat).
-      queryClient.invalidateQueries({
-        queryKey: threadKeys.messages(variables.threadId, variables.workspaceId),
-      })
     },
   })
 }

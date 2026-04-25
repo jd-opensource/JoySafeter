@@ -3,8 +3,8 @@
 import { apiGet, apiPost, apiPatch, apiDelete } from '@/lib/api-client'
 import type {
   Thread,
-  ThreadDetail,
-  ThreadMessage,
+  ThreadEvent,
+  ChatAttachment,
   ChatResponse,
   CreateThreadRequest,
   UpdateThreadRequest,
@@ -18,8 +18,8 @@ export const threadService = {
     return res ?? []
   },
 
-  get: async (threadId: string, workspaceId: string): Promise<ThreadDetail> => {
-    return apiGet<ThreadDetail>(`threads/${threadId}?workspace_id=${workspaceId}`)
+  get: async (threadId: string, workspaceId: string): Promise<Thread> => {
+    return apiGet<Thread>(`threads/${threadId}?workspace_id=${workspaceId}`)
   },
 
   create: async (
@@ -44,25 +44,26 @@ export const threadService = {
     await apiDelete(`threads/${threadId}?workspace_id=${workspaceId}`)
   },
 
-  // Messages (read-only — writes go through /chat → event bus → projection)
-  listMessages: async (
+  listThreadEvents: async (
     threadId: string,
     workspaceId: string,
-  ): Promise<ThreadMessage[]> => {
-    const res = await apiGet<ThreadMessage[]>(
-      `threads/${threadId}/messages?workspace_id=${workspaceId}`,
-    )
-    return res ?? []
+    options?: { after?: string; limit?: number },
+  ): Promise<{ events: ThreadEvent[]; total: number }> => {
+    const params = new URLSearchParams({ workspace_id: workspaceId })
+    if (options?.after) params.set('after', options.after)
+    if (options?.limit) params.set('limit', String(options.limit))
+    return apiGet(`threads/${threadId}/events?${params}`)
   },
 
-  chat: async (
+  sendChat: async (
     threadId: string,
     workspaceId: string,
     message: string,
+    attachments: ChatAttachment[] = [],
   ): Promise<ChatResponse> => {
     return apiPost<ChatResponse>(
       `threads/${threadId}/chat?workspace_id=${workspaceId}`,
-      { message },
+      { message, attachments: attachments.length ? attachments : undefined },
     )
   },
 }
