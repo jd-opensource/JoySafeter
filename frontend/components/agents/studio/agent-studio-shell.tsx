@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { useTranslation } from '@/lib/i18n'
 import type { Agent } from '@/types/agent'
@@ -35,6 +35,17 @@ export function AgentStudioShell({
   )
   const activeStageMeta = AGENT_STUDIO_STAGES.find((stage) => stage.id === activeStage)
   const defaultStageMeta = AGENT_STUDIO_STAGES.find((stage) => stage.id === defaultStage)
+
+  useEffect(() => {
+    if (!initialStage) return
+
+    setActiveStage(
+      normalizeStudioStage(initialStage, {
+        nodesCount,
+        hasActiveRelease: Boolean(agent.active_release_id),
+      }),
+    )
+  }, [initialStage, nodesCount, agent.active_release_id])
 
   const handlePrimaryAction = () => {
     const currentIndex = AGENT_STUDIO_STAGES.findIndex((stage) => stage.id === activeStage)
