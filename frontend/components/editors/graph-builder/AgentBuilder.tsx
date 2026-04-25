@@ -575,7 +575,11 @@ const AgentBuilderContent = ({
       {/* Main Content Area - Canvas takes full space, panels overlay on top */}
       <div className="relative min-h-0 flex-1">
         <ErrorBoundary>
-          <BuilderCanvas key={agentId || 'empty'} inspectorMode={studioMode ? 'external' : 'floating'} />
+          <BuilderCanvas
+            key={agentId || 'empty'}
+            inspectorMode={studioMode ? 'external' : 'floating'}
+            enableContextMenu={studioMode}
+          />
         </ErrorBoundary>
       </div>
 

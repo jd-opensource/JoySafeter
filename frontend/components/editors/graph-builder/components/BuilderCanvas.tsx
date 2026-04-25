@@ -16,6 +16,7 @@ import { nodeTypes, edgeTypes } from '../utils/reactFlowConfig'
 
 import { EdgePropertiesPanel } from './EdgePropertiesPanel'
 import { CanvasContextMenu } from './CanvasContextMenu'
+import { getContextMenuFlowPosition } from './canvasContextMenuPosition'
 import { GraphStatusBar } from './GraphStatusBar'
 import PropertiesPanel from './PropertiesPanel'
 
@@ -120,9 +121,10 @@ function CustomControls({
 
 interface BuilderCanvasProps {
   inspectorMode?: 'floating' | 'external'
+  enableContextMenu?: boolean
 }
 
-export function BuilderCanvas({ inspectorMode = 'floating' }: BuilderCanvasProps) {
+export function BuilderCanvas({ inspectorMode = 'floating', enableContextMenu = false }: BuilderCanvasProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
   const userPermissions = useUserPermissionsContext()
@@ -328,13 +330,9 @@ export function BuilderCanvas({ inspectorMode = 'floating' }: BuilderCanvasProps
   const onDragLeave = useCallback(() => setIsDragOver(false), [])
 
   const getFlowPositionFromEvent = useCallback((clientX: number, clientY: number) => {
-    const bounds = reactFlowWrapper.current?.getBoundingClientRect()
     const instance = useBuilderStore.getState().rfInstance
-    if (!bounds || !instance) return { x: 0, y: 0 }
-    return instance.screenToFlowPosition({
-      x: clientX - bounds.left,
-      y: clientY - bounds.top,
-    })
+    if (!instance) return { x: 0, y: 0 }
+    return getContextMenuFlowPosition(instance.screenToFlowPosition, clientX, clientY)
   }, [])
 
   const onDrop = useCallback(
@@ -391,7 +389,7 @@ export function BuilderCanvas({ inspectorMode = 'floating' }: BuilderCanvasProps
       onDrop={onDrop}
       onContextMenu={(event) => {
         event.preventDefault()
-        if (!userPermissions.canEdit) return
+        if (!enableContextMenu || !userPermissions.canEdit) return
         setContextMenu({
           open: true,
           screenX: event.clientX,
@@ -524,7 +522,7 @@ export function BuilderCanvas({ inspectorMode = 'floating' }: BuilderCanvasProps
       )}
 
       <CanvasContextMenu
-        open={contextMenu.open}
+        open={enableContextMenu && contextMenu.open}
         x={contextMenu.screenX}
         y={contextMenu.screenY}
         onClose={() => setContextMenu((current) => ({ ...current, open: false }))}
