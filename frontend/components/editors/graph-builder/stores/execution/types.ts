@@ -6,7 +6,20 @@
 
 import type { ExecutionStep, ExecutionTreeNode } from '@/types'
 
-import type { GraphState, TraceStep } from '../../services/eventProcessor'
+export interface GraphState {
+  context?: Record<string, unknown>
+  messages?: unknown[]
+  current_node?: string
+}
+
+export interface TraceStep {
+  nodeId: string
+  nodeType: string
+  timestamp: number
+  command: { update: Record<string, unknown>; goto?: string; reason?: string }
+  stateSnapshot: GraphState
+  routeDecision?: { result: boolean | string; reason: string; goto: string }
+}
 
 // ============ Basic Types ============
 
@@ -55,12 +68,10 @@ export interface GraphExecutionState {
 export interface ExecutionContext {
   graphId: string
   abortController: AbortController | null
-  threadId: string | null
-  requestId: string | null
   /** Run ID returned by executionAdapter.startRun — used for cancel */
   runId: string | null
-  /** WebSocket returned by executionAdapter.subscribeToExecution — closed on stop */
-  executionWs: WebSocket | null
+  /** Execution ID currently subscribed to via the shared WS client */
+  subscribedExecutionId: string | null
   /** Timeout handle — cleared on normal completion, fires to force-stop stalled executions */
   timeoutId: ReturnType<typeof setTimeout> | null
   state: GraphExecutionState
@@ -118,10 +129,8 @@ export interface ExecutionStoreActions {
   // Execution context management
   getContext: (graphId: string) => ExecutionContext
   setAbortController: (graphId: string, controller: AbortController | null) => void
-  setThreadId: (graphId: string, threadId: string | null) => void
-  setRequestId: (graphId: string, requestId: string | null) => void
   setRunId: (graphId: string, runId: string | null) => void
-  setExecutionWs: (graphId: string, ws: WebSocket | null) => void
+  setSubscribedExecutionId: (graphId: string, executionId: string | null) => void
   setTimeoutId: (graphId: string, timeoutId: ReturnType<typeof setTimeout> | null) => void
 
   // Command Mode visualization

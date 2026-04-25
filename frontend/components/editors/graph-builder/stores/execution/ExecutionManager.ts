@@ -35,10 +35,8 @@ export function createExecutionContext(graphId: string): ExecutionContext {
   return {
     graphId,
     abortController: null,
-    threadId: null,
-    requestId: null,
     runId: null,
-    executionWs: null,
+    subscribedExecutionId: null,
     timeoutId: null,
     state: createEmptyGraphState(),
   }

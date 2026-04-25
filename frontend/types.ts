@@ -192,6 +192,7 @@ export type ExecutionStepType =
   | 'tool_execution'
   | 'system_log'
   | 'model_io'
+  | 'artifact'
   | 'code_agent_thought'
   | 'code_agent_code'
   | 'code_agent_observation'

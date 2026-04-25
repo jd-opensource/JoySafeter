@@ -27,15 +27,6 @@ export const executionAdapter = {
     })
   },
 
-  subscribeToExecution(executionId: string): WebSocket {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/executions`)
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'subscribe', execution_id: executionId }))
-    }
-    return ws
-  },
-
   async cancelRun(runId: string): Promise<void> {
     await agentRunService.cancel(runId)
   },
