@@ -175,6 +175,7 @@ export interface VersionGraphState {
   viewport?: { x: number; y: number; zoom: number }
   variables?: Record<string, unknown>
   definitionKind?: string
+  versionStatus?: 'draft' | 'frozen'
 }
 
 function toVersionGraphState(payload: Record<string, unknown>): VersionGraphState {
@@ -222,6 +223,7 @@ export function useVersionGraphState(
       return {
         ...toVersionGraphState(version.definition_payload),
         definitionKind: version.definition_kind,
+        versionStatus: version.status as 'draft' | 'frozen',
       }
     },
     enabled:

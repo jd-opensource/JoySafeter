@@ -336,6 +336,7 @@ async def list_files(current_user: CurrentUser) -> BaseResponse[FileListResponse
     summary="Read file content",
     description="Read the content of a file in the user's sandbox upload directory. "
     "Use mode=raw to get raw binary content with correct Content-Type header.",
+    response_model=None,
     responses={
         404: {"description": "File not found"},
         500: {"description": "Failed to read file"},
