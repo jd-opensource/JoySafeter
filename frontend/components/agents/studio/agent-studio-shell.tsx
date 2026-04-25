@@ -11,26 +11,26 @@ import {
   AGENT_STUDIO_STAGES,
   getDefaultStudioStage,
   normalizeStudioStage,
-  type StudioStageId,
+  type AgentStudioStage,
 } from './studio-types'
 
 interface AgentStudioShellProps {
   agent: Agent
   initialStage?: string | null
   nodesCount: number
-  hasPendingChanges: boolean
+  hasPendingChanges?: boolean
 }
 
 export function AgentStudioShell({
   agent,
   initialStage,
   nodesCount,
-  hasPendingChanges,
+  hasPendingChanges = false,
 }: AgentStudioShellProps) {
   const { t } = useTranslation()
   const stageContext = { nodesCount, hasActiveRelease: Boolean(agent.active_release_id) }
   const defaultStage = getDefaultStudioStage(stageContext)
-  const [activeStage, setActiveStage] = useState<StudioStageId>(() =>
+  const [activeStage, setActiveStage] = useState<AgentStudioStage>(() =>
     normalizeStudioStage(initialStage, stageContext),
   )
   const activeStageMeta = AGENT_STUDIO_STAGES.find((stage) => stage.id === activeStage)
@@ -60,12 +60,14 @@ export function AgentStudioShell({
           <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface-1)] p-6">
             <p className="text-sm font-medium text-[var(--text-primary)]">
               {t('agents.studio.stageOverview', {
-                activeStage: t(`agents.studio.stages.${activeStageMeta?.i18nKey ?? 'brief'}`),
-                defaultStage: t(`agents.studio.stages.${defaultStageMeta?.i18nKey ?? 'brief'}`),
+                activeStage: t(activeStageMeta?.labelKey ?? 'agents.studio.stages.brief'),
+                defaultStage: t(defaultStageMeta?.labelKey ?? 'agents.studio.stages.brief'),
               })}
             </p>
             <p className="mt-2 text-sm text-[var(--text-muted)]">
-              {t(`agents.studio.stageDescriptions.${activeStageMeta?.i18nKey ?? 'brief'}`)}
+              {t(
+                activeStageMeta?.descriptionKey ?? 'agents.studio.stageDescriptions.brief',
+              )}
             </p>
           </div>
         </main>

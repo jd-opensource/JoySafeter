@@ -3,11 +3,11 @@
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
-import { AGENT_STUDIO_STAGES, type StudioStageId } from './studio-types'
+import { AGENT_STUDIO_STAGES, type AgentStudioStage } from './studio-types'
 
 interface StudioStageNavProps {
-  activeStage: StudioStageId
-  onStageChange: (stage: StudioStageId) => void
+  activeStage: AgentStudioStage
+  onStageChange: (stage: AgentStudioStage) => void
 }
 
 export function StudioStageNav({ activeStage, onStageChange }: StudioStageNavProps) {
@@ -47,11 +47,9 @@ export function StudioStageNav({ activeStage, onStageChange }: StudioStageNavPro
               <Icon className="h-4 w-4" />
             </span>
             <span className="min-w-0">
-              <span className="block text-sm font-semibold">
-                {t(`agents.studio.stages.${stage.i18nKey}`)}
-              </span>
+              <span className="block text-sm font-semibold">{t(stage.labelKey)}</span>
               <span className="block truncate text-xs text-[var(--text-muted)]">
-                {t(`agents.studio.stageDescriptions.${stage.i18nKey}`)}
+                {t(stage.descriptionKey)}
               </span>
             </span>
           </button>

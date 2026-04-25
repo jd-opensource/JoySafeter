@@ -5,9 +5,9 @@ import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/lib/i18n'
 import type { Agent } from '@/types/agent'
 
-import type { StudioStageId } from './studio-types'
+import type { AgentStudioStage } from './studio-types'
 
-const PRIMARY_ACTION_BY_STAGE: Record<StudioStageId, string> = {
+const PRIMARY_ACTION_BY_STAGE: Record<AgentStudioStage, string> = {
   brief: 'generateDraft',
   canvas: 'runDraft',
   'test-lab': 'runDraft',
@@ -17,7 +17,7 @@ const PRIMARY_ACTION_BY_STAGE: Record<StudioStageId, string> = {
 
 interface StudioTopBarProps {
   agent: Agent
-  activeStage: StudioStageId
+  activeStage: AgentStudioStage
   nodesCount: number
   hasPendingChanges: boolean
   onPrimaryAction: () => void
