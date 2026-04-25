@@ -182,6 +182,7 @@ git commit -m "refactor: remove dead backend code — schemas/runs.py, legacy co
 **Files:**
 - Modify: `frontend/lib/ws/executions/types.ts`
 - Modify: `frontend/lib/ws/executions/executionWsClient.ts`
+- Modify: `frontend/hooks/use-execution-stream.ts` (also uses `onStatus`/`ExecutionStatusFrame`)
 
 - [ ] **Step 1: Update types.ts — callbacks and frame union**
 
@@ -253,16 +254,69 @@ In `frontend/lib/ws/executions/executionWsClient.ts`, replace the `handleMessage
   }
 ```
 
-- [ ] **Step 3: Verify TypeScript compiles**
+- [ ] **Step 3: Update use-execution-stream.ts**
+
+`frontend/hooks/use-execution-stream.ts` also imports `ExecutionStatusFrame` and passes `onStatus` to the WS client. Since the backend never sends `execution_status` frames, this callback never fired — but it must be updated to compile.
+
+Remove import of `ExecutionStatusFrame` (line 9):
+```typescript
+import type {
+  ExecutionEventFrame,
+  ExecutionSnapshotFrame,
+} from '@/lib/ws/executions/types'
+```
+
+Add import for `ExecutionCompletedFrame`:
+```typescript
+import type {
+  ExecutionCompletedFrame,
+  ExecutionEventFrame,
+  ExecutionSnapshotFrame,
+} from '@/lib/ws/executions/types'
+```
+
+Delete the `handleStatus` callback (lines 68-71):
+```typescript
+  const handleStatus = useCallback((frame: ExecutionStatusFrame) => {
+    if (!mountedRef.current) return
+    setStatus(frame.status)
+  }, [])
+```
+
+Add `handleCompleted` callback:
+```typescript
+  const handleCompleted = useCallback((frame: ExecutionCompletedFrame) => {
+    if (!mountedRef.current) return
+    setStatus(frame.status)
+  }, [])
+```
+
+Update the `subscribe` call (lines 93-98) — replace `onStatus: handleStatus` with `onCompleted: handleCompleted`:
+```typescript
+    client
+      .subscribe(executionId, seqRef.current, {
+        onSnapshot: handleSnapshot,
+        onEvent: handleEvent,
+        onCompleted: handleCompleted,
+        onError: handleError,
+      })
+```
+
+Update the `useEffect` dependency array (line 108) — replace `handleStatus` with `handleCompleted`:
+```typescript
+  }, [executionId, enabled, handleSnapshot, handleEvent, handleCompleted, handleError])
+```
+
+- [ ] **Step 4: Verify TypeScript compiles**
 
 Run: `cd /Users/yuzhenjiang1/Downloads/2024/JoySafeter/frontend && npx tsc --noEmit --pretty 2>&1 | head -30`
 
-Check: no errors related to `executionWsClient`, `types.ts`, or `ExecutionStatusFrame`. (Other pre-existing errors are acceptable.)
+Check: no errors related to `executionWsClient`, `types.ts`, `ExecutionStatusFrame`, or `use-execution-stream`. (Other pre-existing errors are acceptable.)
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add frontend/lib/ws/executions/types.ts frontend/lib/ws/executions/executionWsClient.ts
+git add frontend/lib/ws/executions/types.ts frontend/lib/ws/executions/executionWsClient.ts frontend/hooks/use-execution-stream.ts
 git commit -m "fix: align WS frame protocol — handle execution_completed/replay_done, remove phantom execution_status"
 ```
 
@@ -278,7 +332,26 @@ This is the core task. It combines the WS auth fix (L1.1), snapshot parsing fix 
 - Modify: `frontend/components/editors/graph-builder/stores/execution/executionStore.ts`
 - Modify: `frontend/components/editors/graph-builder/services/executionAdapter.ts`
 
-- [ ] **Step 1: Update ExecutionContext in types.ts**
+- [ ] **Step 1: Add 'artifact' to ExecutionStepType**
+
+In `frontend/types.ts`, line 189, add `'artifact'` to the `ExecutionStepType` union:
+```typescript
+export type ExecutionStepType =
+  | 'node_lifecycle'
+  | 'agent_thought'
+  | 'tool_execution'
+  | 'system_log'
+  | 'model_io'
+  | 'artifact'
+  | 'code_agent_thought'
+  | 'code_agent_code'
+  | 'code_agent_observation'
+  | 'code_agent_final_answer'
+  | 'code_agent_planning'
+  | 'code_agent_error'
+```
+
+- [ ] **Step 3: Update ExecutionContext in types.ts**
 
 In `frontend/components/editors/graph-builder/stores/execution/types.ts`:
 
@@ -330,7 +403,7 @@ Update `ExecutionStoreActions` — remove `setThreadId`, `setRequestId`, `setExe
   setTimeoutId: (graphId: string, timeoutId: ReturnType<typeof setTimeout> | null) => void
 ```
 
-- [ ] **Step 2: Update ExecutionManager.ts**
+- [ ] **Step 4: Update ExecutionManager.ts**
 
 In `frontend/components/editors/graph-builder/stores/execution/ExecutionManager.ts`:
 
@@ -348,7 +421,7 @@ export function createExecutionContext(graphId: string): ExecutionContext {
 }
 ```
 
-- [ ] **Step 3: Remove subscribeToExecution from executionAdapter.ts**
+- [ ] **Step 5: Remove subscribeToExecution from executionAdapter.ts**
 
 In `frontend/components/editors/graph-builder/services/executionAdapter.ts`:
 
@@ -364,7 +437,7 @@ Delete the `subscribeToExecution` method (lines 30-37):
   },
 ```
 
-- [ ] **Step 4: Rewrite executionStore.ts**
+- [ ] **Step 6: Rewrite executionStore.ts**
 
 This is the largest change. The full rewritten file replaces ALL old pipeline code with native handlers.
 
@@ -731,18 +804,16 @@ The new `handleExecutionEvent` function inside `startExecution`:
 
 Remove the import of `agentService` from `../../services/agentService` (the local one, not `globalAgentService`).
 
-- [ ] **Step 5: Verify TypeScript compiles**
+- [ ] **Step 7: Verify TypeScript compiles**
 
 Run: `cd /Users/yuzhenjiang1/Downloads/2024/JoySafeter/frontend && npx tsc --noEmit --pretty 2>&1 | head -50`
 
-Fix any type errors. The most likely issues:
-- `ExecutionStep` may not have an `artifact` step type — check the type definition and add if needed.
-- `handleExecutionEvent` references within the Promise need correct closure scope.
+Fix any type errors. `'artifact'` step type was added in Step 1.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add frontend/components/editors/graph-builder/stores/execution/types.ts frontend/components/editors/graph-builder/stores/execution/ExecutionManager.ts frontend/components/editors/graph-builder/stores/execution/executionStore.ts frontend/components/editors/graph-builder/services/executionAdapter.ts
+git add frontend/types.ts frontend/components/editors/graph-builder/stores/execution/types.ts frontend/components/editors/graph-builder/stores/execution/ExecutionManager.ts frontend/components/editors/graph-builder/stores/execution/executionStore.ts frontend/components/editors/graph-builder/services/executionAdapter.ts
 git commit -m "refactor: rewrite executionStore — authenticated WS, native event handlers, remove old pipeline"
 ```
 
@@ -761,6 +832,7 @@ This task can only run AFTER Task 4 (which removes all imports of the old pipeli
 - Delete: `frontend/components/editors/graph-builder/services/eventProcessor.ts`
 - Modify: `frontend/components/editors/graph-builder/services/index.ts`
 - Modify: `frontend/components/editors/graph-builder/hooks/useCopilotWebSocketHandler.ts`
+- Modify: `frontend/lib/utils/wsUrl.ts` (remove dead `getWsChatUrl`)
 
 - [ ] **Step 1: Delete old pipeline files**
 
@@ -806,27 +878,39 @@ Now returns the callbacks object directly (no spread). The usage at lines 55-63 
 
 No code change needed here — verify it still compiles.
 
-- [ ] **Step 5: Verify no dangling imports**
+- [ ] **Step 5: Remove dead getWsChatUrl from wsUrl.ts**
+
+In `frontend/lib/utils/wsUrl.ts`, delete the `getWsChatUrl` function (lines 37-39):
+```typescript
+/** Fetch a short-lived WS token from the backend and return a ready-to-use WS URL. */
+export async function getWsChatUrl(): Promise<string> {
+  return getWsTokenUrl('/ws/chat')
+}
+```
+
+This function is only used by the deleted chat WS client. `getWsBaseUrl`, `getWsNotificationUrl`, and `getWsExecutionsUrl` remain.
+
+- [ ] **Step 6: Verify no dangling imports**
 
 ```bash
 cd /Users/yuzhenjiang1/Downloads/2024/JoySafeter/frontend
 grep -r "chatBackend" --include="*.ts" --include="*.tsx" . && echo "DANGLING" || echo "Clean"
 grep -r "eventAdapter" --include="*.ts" --include="*.tsx" . | grep -v node_modules | grep -v ".next" && echo "CHECK ABOVE" || echo "Clean"
 grep -r "eventProcessor" --include="*.ts" --include="*.tsx" . | grep -v node_modules | grep -v ".next" && echo "CHECK ABOVE" || echo "Clean"
-grep -r "getChatWsClient\|ChatWsClient\|ChatWsFrame\|ChatStreamEvent" --include="*.ts" --include="*.tsx" . | grep -v node_modules | grep -v ".next" && echo "CHECK ABOVE" || echo "Clean"
+grep -r "getChatWsClient\|ChatWsClient\|ChatWsFrame\|ChatStreamEvent\|getWsChatUrl" --include="*.ts" --include="*.tsx" . | grep -v node_modules | grep -v ".next" && echo "CHECK ABOVE" || echo "Clean"
 ```
 
 Expected: All `Clean`.
 
-- [ ] **Step 6: Verify TypeScript compiles**
+- [ ] **Step 7: Verify TypeScript compiles**
 
 Run: `cd /Users/yuzhenjiang1/Downloads/2024/JoySafeter/frontend && npx tsc --noEmit --pretty 2>&1 | head -30`
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add -u frontend/services/chatBackend.ts frontend/lib/ws/chat/ frontend/components/editors/graph-builder/services/eventAdapter.ts frontend/components/editors/graph-builder/services/eventProcessor.ts frontend/components/editors/graph-builder/services/index.ts frontend/components/editors/graph-builder/hooks/useCopilotWebSocketHandler.ts
-git commit -m "refactor: delete dead frontend code — chatBackend, chat WS, eventAdapter, eventProcessor"
+git add -u frontend/services/chatBackend.ts frontend/lib/ws/chat/ frontend/components/editors/graph-builder/services/eventAdapter.ts frontend/components/editors/graph-builder/services/eventProcessor.ts frontend/components/editors/graph-builder/services/index.ts frontend/components/editors/graph-builder/hooks/useCopilotWebSocketHandler.ts frontend/lib/utils/wsUrl.ts
+git commit -m "refactor: delete dead frontend code — chatBackend, chat WS, eventAdapter, eventProcessor, getWsChatUrl"
 ```
 
 ---
@@ -868,18 +952,23 @@ No code change. Proceed to Layer 3.
 
 - [ ] **Step 1: Fix /runs links in all files**
 
-Replace all `"/runs"` and `"/runs?..."` with `"/dashboard"` and `"/dashboard?..."` respectively.
+The correct target depends on context:
+- Links with `?task=` params → `/tasks?task=...` (Tasks page handles `?task=` searchParam)
+- Simple back buttons → `/dashboard`
+- Executions tab self-navigation → `/tasks`
 
 Specific changes:
-- `app/executions/[executionId]/page.tsx:57` — `href="/runs"` → `href="/dashboard"`
-- `components/tasks/task-detail-panel.tsx:616` — `href="/runs?tab=executions&task=..."` → `href="/dashboard?tab=executions&task=..."`
+- `app/executions/[executionId]/page.tsx:57` — `href="/runs"` → `href="/dashboard"` (simple back button, no params)
+- `components/tasks/task-detail-panel.tsx:616` — `href="/runs?tab=executions&task=..."` → `href="/tasks?task=..."`
 - `components/tasks/task-detail-panel.tsx:633` — same pattern
-- `components/tasks/task-detail-panel.tsx:649` — `href="/runs?task=..."` → `href="/dashboard?task=..."`
-- `components/tasks/task-card.tsx:95` — `href="/runs?task=..."` → `href="/dashboard?task=..."`
-- `components/tasks/task-card.tsx:140` — `href="/runs?tab=executions&task=..."` → `href="/dashboard?tab=executions&task=..."`
+- `components/tasks/task-detail-panel.tsx:649` — `href="/runs?task=..."` → `href="/tasks?task=..."`
+- `components/tasks/task-card.tsx:95` — `href="/runs?task=..."` → `href="/tasks?task=..."`
+- `components/tasks/task-card.tsx:140` — `href="/runs?tab=executions&task=..."` → `href="/tasks?task=..."`
 - `components/tasks/task-list-view.tsx:144` — same pattern
 - `components/tasks/task-list-view.tsx:155` — same pattern
-- `components/executions/executions-tab.tsx:72` — `router.replace('/runs')` → `router.replace('/dashboard')`
+- `components/executions/executions-tab.tsx:72` — `router.replace('/runs')` → `router.replace('/tasks')`
+
+**Important:** `/dashboard` does NOT accept `tab`/`task` searchParams. Only use `/dashboard` for parameterless back-navigation. All task-contextualized links must go to `/tasks`.
 
 - [ ] **Step 2: Fix 404 route in agent-overview-tab.tsx**
 
@@ -963,20 +1052,21 @@ git commit -m "fix: sync trigger_source enum, fix current_execution_id comment, 
 
 ---
 
-## Task 9: Duplicate Component Consolidation
+## Task 9: Delete Duplicate Execution Components
 
 **Files:**
-- Modify: Multiple graph-builder component imports
-- Delete: `frontend/components/editors/graph-builder/components/execution/` directory (all files except `index.ts` which doesn't exist there)
+- Delete: `frontend/components/editors/graph-builder/components/execution/` directory
 
-- [ ] **Step 1: Identify graph-builder imports of local execution components**
+No files in the codebase import from `graph-builder/components/execution/` — this directory is pure dead code. The canonical components live at `frontend/components/execution/` and are already used by all consumers.
+
+- [ ] **Step 1: Confirm no imports reference the duplicate directory**
 
 ```bash
 cd /Users/yuzhenjiang1/Downloads/2024/JoySafeter/frontend
-grep -rn "from.*graph-builder/components/execution" --include="*.ts" --include="*.tsx" . | grep -v node_modules | grep -v ".next"
+grep -rn "from.*graph-builder/components/execution" --include="*.ts" --include="*.tsx" . | grep -v node_modules | grep -v ".next" && echo "HAS IMPORTS — DO NOT DELETE" || echo "Clean — safe to delete"
 ```
 
-For each import found, update the path to use `@/components/execution/` instead.
+Expected: `Clean — safe to delete`
 
 - [ ] **Step 2: Delete the duplicate directory**
 
@@ -991,8 +1081,8 @@ Run: `cd /Users/yuzhenjiang1/Downloads/2024/JoySafeter/frontend && npx tsc --noE
 - [ ] **Step 4: Commit**
 
 ```bash
-git add -A frontend/components/editors/graph-builder/components/execution/ frontend/components/
-git commit -m "refactor: consolidate duplicate execution components into @/components/execution/"
+git add -u frontend/components/editors/graph-builder/components/execution/
+git commit -m "refactor: delete duplicate execution components (dead code, no imports)"
 ```
 
 ---

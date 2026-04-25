@@ -27,7 +27,7 @@ Three layers, each self-contained and independently verifiable. No old Graph exe
 
 ### 1.2 WS Frame Protocol Alignment
 
-**Files changed:** `frontend/lib/ws/executions/executionWsClient.ts`, `frontend/lib/ws/executions/types.ts`
+**Files changed:** `frontend/lib/ws/executions/executionWsClient.ts`, `frontend/lib/ws/executions/types.ts`, `frontend/hooks/use-execution-stream.ts`
 
 **Problem:** Backend sends `execution_completed` and `replay_done` frames that the frontend silently drops. Frontend handles `execution_status` which the backend never sends.
 
@@ -67,6 +67,7 @@ Three layers, each self-contained and independently verifiable. No old Graph exe
 | `backend/app/schemas/runs.py` | Entire file, zero imports |
 | `POST /v1/copilot/stream` endpoint + handler | Legacy SSE, no frontend caller |
 | `frontend/lib/ws/chat/` directory (chatWsClient.ts, types.ts, errors.ts, index.ts) | Backend `/ws/chat` endpoint doesn't exist, `getChatWsClient()` never called |
+| `getWsChatUrl()` in `frontend/lib/utils/wsUrl.ts` | Only consumer was the deleted chat WS client |
 | `frontend/services/chatBackend.ts` | All consumers removed in Layer 2 |
 | `handleCopilotEvent` function in `useCopilotWebSocketHandler.ts` | Dead bridge for nonexistent chat WS; only `ChatStreamEvent` import removed |
 | `frontend/components/editors/graph-builder/services/eventAdapter.ts` | Old LangGraph event adapter, replaced by native handlers in Layer 2 |
@@ -134,15 +135,15 @@ From `executionStore.ts`, remove:
 
 **`/runs` links (9 locations):**
 
-All `/runs` links redirect to `/dashboard` losing query params. Fix by pointing to the correct existing pages:
+All `/runs` links redirect to `/dashboard` losing query params. Fix by pointing to the correct existing pages. **Important:** `/dashboard` does NOT accept `tab`/`task` searchParams — only use it for parameterless back-navigation. Task-contextualized links go to `/tasks`.
 
 | File | Current | Target |
 |------|---------|--------|
-| `app/executions/[executionId]/page.tsx:57` | `href="/runs"` | `href="/dashboard"` (back button) |
-| `components/tasks/task-detail-panel.tsx:616,633,649` | `href="/runs?tab=executions&task=..."` | `href="/dashboard?tab=executions&task=..."` or appropriate executions route |
-| `components/tasks/task-card.tsx:95,140` | `href="/runs?task=..."` | Same fix |
-| `components/tasks/task-list-view.tsx:144,155` | `href="/runs?..."` | Same fix |
-| `components/executions/executions-tab.tsx:72` | `router.replace('/runs')` | `router.replace('/dashboard')` |
+| `app/executions/[executionId]/page.tsx:57` | `href="/runs"` | `href="/dashboard"` (back button, no params) |
+| `components/tasks/task-detail-panel.tsx:616,633,649` | `href="/runs?tab=executions&task=..."` | `href="/tasks?task=..."` |
+| `components/tasks/task-card.tsx:95,140` | `href="/runs?task=..."` | `href="/tasks?task=..."` |
+| `components/tasks/task-list-view.tsx:144,155` | `href="/runs?..."` | `href="/tasks?task=..."` |
+| `components/executions/executions-tab.tsx:72` | `router.replace('/runs')` | `router.replace('/tasks')` |
 
 **404 route:**
 
@@ -164,7 +165,7 @@ Frontend `types/agent-run.ts` line 7 and line 59: add `'comment' | 'mention'` to
 
 `frontend/components/execution/` is a thin re-export of `frontend/components/editors/graph-builder/components/execution/` with only import path differences.
 
-**Fix:** Make `frontend/components/execution/` the canonical location. Update graph-builder imports to use `@/components/execution/`. Delete the copies under `graph-builder/components/execution/`.
+**Fix:** `frontend/components/editors/graph-builder/components/execution/` is pure dead code — no files import from it. Delete the directory. The canonical `frontend/components/execution/` is already used by all consumers.
 
 ### 3.4 Backend Engine Registry Naming
 
@@ -199,6 +200,7 @@ The docstring already says `runtime_kind: "sandbox"`. The attribute should match
 | `types.ts` (execution context) | L1+L2 | Replace `executionWs` with `subscribedExecutionId`, remove `requestId`/`threadId` |
 | `executionWsClient.ts` | L1 | Handle `execution_completed`, `replay_done`; remove `execution_status` |
 | `ws/executions/types.ts` | L1 | Update callbacks and frame union |
+| `use-execution-stream.ts` | L1 | Replace `onStatus`/`ExecutionStatusFrame` with `onCompleted`/`ExecutionCompletedFrame` |
 | `useCopilotWebSocketHandler.ts` | L1 | Delete `handleCopilotEvent`, remove `ChatStreamEvent` import |
 | `services/index.ts` (graph-builder) | L1 | Remove eventAdapter/eventProcessor exports |
 | `persistence.py` | L1 | Use constant instead of string |
@@ -207,7 +209,9 @@ The docstring already says `runtime_kind: "sandbox"`. The attribute should match
 | `schemas/execution.py` | L1 | Delete duplicate class |
 | `types/agent-run.ts` | L3 | Add `comment`/`mention` to trigger_source |
 | `types/tasks.ts` | L3 | Remove "legacy alias" comment |
-| 9 component files with `/runs` links | L3 | Point to correct routes |
+| `types.ts` (ExecutionStepType) | L2 | Add `'artifact'` to union |
+| `lib/utils/wsUrl.ts` | L1 | Remove dead `getWsChatUrl()` |
+| 9 component files with `/runs` links | L3 | Point to correct routes (`/tasks` for param links, `/dashboard` for back nav) |
 | `agent-overview-tab.tsx` | L3 | Fix 404 route |
 | `cli_engine.py` | L3 | `engine_kind = "sandbox"` |
 
