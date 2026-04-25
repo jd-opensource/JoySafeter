@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 import { useTranslation } from '@/lib/i18n'
 import { useCurrentWorkspace } from '@/providers/workspace-provider'
@@ -32,6 +32,7 @@ export function AgentStudioShell({
 }: AgentStudioShellProps) {
   const { t } = useTranslation()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { workspaceId } = useCurrentWorkspace()
   const stageContext = { nodesCount, hasActiveRelease: Boolean(agent.active_release_id) }
   const [activeStage, setActiveStage] = useState<AgentStudioStage>(() =>
@@ -52,9 +53,11 @@ export function AgentStudioShell({
   const handleStageChange = useCallback(
     (stage: AgentStudioStage) => {
       setActiveStage(stage)
-      router.replace(`/agents/${agent.id}?stage=${stage}`, { scroll: false })
+      const params = new URLSearchParams(searchParams.toString())
+      params.set('stage', stage)
+      router.replace(`/agents/${agent.id}?${params.toString()}`, { scroll: false })
     },
-    [agent.id, router],
+    [agent.id, router, searchParams],
   )
 
   const handlePrimaryAction = () => {
@@ -69,10 +72,12 @@ export function AgentStudioShell({
   const handleGenerateFromBrief = useCallback(
     (prompt: string) => {
       setActiveStage('canvas')
-      const encoded = encodeURIComponent(prompt)
-      router.replace(`/agents/${agent.id}?stage=canvas&copilotInput=${encoded}`, { scroll: false })
+      const params = new URLSearchParams(searchParams.toString())
+      params.set('stage', 'canvas')
+      params.set('copilotInput', prompt)
+      router.replace(`/agents/${agent.id}?${params.toString()}`, { scroll: false })
     },
-    [agent.id, router],
+    [agent.id, router, searchParams],
   )
 
   return (
