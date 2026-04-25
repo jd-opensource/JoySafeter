@@ -102,12 +102,12 @@ export function useUpdateAgent() {
   })
 }
 
-export function useArchiveAgent() {
+export function useDeleteAgent() {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async ({ agentId, workspaceId }: { agentId: string; workspaceId: string }) => {
-      await agentService.archive(agentId, workspaceId)
+      await agentService.delete(agentId, workspaceId)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: agentKeys.all })

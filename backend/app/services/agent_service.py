@@ -9,10 +9,14 @@ import uuid
 from typing import List
 
 from loguru import logger
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import ConflictException, NotFoundException
-from app.models.agent import Agent, AgentVersion
+from app.models.agent import Agent, AgentRelease, AgentVersion
+from app.models.agent_run import AgentRun
+from app.models.execution import Artifact, Execution, ExecutionEvent
+from app.models.thread import Thread
 from app.repositories.agent import AgentRepository, AgentVersionRepository
 from app.schemas.agent import CreateAgentRequest, UpdateAgentRequest
 
@@ -108,13 +112,66 @@ class AgentService(BaseService):
         await self.commit()
         return updated
 
-    async def archive_agent(self, agent_id: uuid.UUID) -> Agent:
+    async def delete_agent(self, agent_id: uuid.UUID) -> None:
+        """Delete an agent and all dependent records.
+
+        FK dependency chain: Agent → Versions → Releases → Runs → Executions → Events/Artifacts.
+        Self-referencing FKs (agent.current_draft_version_id, agent.active_release_id,
+        runs.current_execution_id, executions.parent_execution_id) must be nullified
+        before their targets are deleted.
+        """
         agent = await self.agent_repo.get(agent_id)
         if not agent:
             raise NotFoundException(f"Agent {agent_id} not found")
 
-        updated = await self.agent_repo.update(agent_id, {"status": "archived"})
-        assert updated is not None
+        db = self.db
+
+        version_ids = (await db.execute(
+            select(AgentVersion.id).where(AgentVersion.agent_id == agent_id)
+        )).scalars().all()
+
+        release_ids = (await db.execute(
+            select(AgentRelease.id).where(AgentRelease.agent_version_id.in_(version_ids))
+        )).scalars().all() if version_ids else []
+
+        run_ids = (await db.execute(
+            select(AgentRun.id).where(AgentRun.release_id.in_(release_ids))
+        )).scalars().all() if release_ids else []
+
+        exec_ids = (await db.execute(
+            select(Execution.id).where(Execution.run_id.in_(run_ids))
+        )).scalars().all() if run_ids else []
+
+        if exec_ids:
+            await db.execute(delete(ExecutionEvent).where(ExecutionEvent.execution_id.in_(exec_ids)))
+            await db.execute(delete(Artifact).where(Artifact.execution_id.in_(exec_ids)))
+            await db.execute(update(Execution).where(Execution.parent_execution_id.in_(exec_ids)).values(parent_execution_id=None))
+
+        if run_ids:
+            await db.execute(update(AgentRun).where(AgentRun.id.in_(run_ids)).values(current_execution_id=None, thread_id=None))
+
+        if exec_ids:
+            await db.execute(delete(Execution).where(Execution.id.in_(exec_ids)))
+
+        if run_ids:
+            await db.execute(delete(AgentRun).where(AgentRun.id.in_(run_ids)))
+
+        await db.execute(delete(Thread).where(Thread.agent_id == agent_id))
+
+        await db.execute(
+            update(Agent).where(Agent.id == agent_id).values(
+                current_draft_version_id=None,
+                active_release_id=None,
+            )
+        )
+
+        if release_ids:
+            await db.execute(delete(AgentRelease).where(AgentRelease.id.in_(release_ids)))
+
+        if version_ids:
+            await db.execute(delete(AgentVersion).where(AgentVersion.id.in_(version_ids)))
+
+        await db.execute(delete(Agent).where(Agent.id == agent_id))
+
         await self.commit()
-        logger.info(f"Archived agent {agent_id}")
-        return updated
+        logger.info(f"Deleted agent {agent_id} and all related records")

@@ -131,16 +131,16 @@ async def update_agent(
     return BaseResponse(success=True, code=200, msg="Agent updated", data=_to_response(agent))
 
 
-@router.delete("/{agent_id}", response_model=BaseResponse[AgentResponse])
-async def archive_agent(
+@router.delete("/{agent_id}", response_model=BaseResponse)
+async def delete_agent(
     agent_id: uuid.UUID,
     current_user: User = require_workspace_role(WorkspaceMemberRole.member),
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
-) -> BaseResponse[AgentResponse]:
+) -> BaseResponse:
     service = AgentService(db)
-    agent = await service.archive_agent(agent_id)
-    return BaseResponse(success=True, code=200, msg="Agent archived", data=_to_response(agent))
+    await service.delete_agent(agent_id)
+    return BaseResponse(success=True, code=200, msg="Agent deleted")
 
 
 # ---------------------------------------------------------------------------

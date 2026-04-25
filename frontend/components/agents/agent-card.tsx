@@ -1,6 +1,6 @@
 'use client'
 
-import { Bot, Pencil } from 'lucide-react'
+import { Bot, Pencil, Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -13,9 +13,10 @@ interface AgentCardProps {
   agent: Agent
   onClick: (agent: Agent) => void
   onEdit?: (agent: Agent) => void
+  onDelete?: (agent: Agent) => void
 }
 
-export function AgentCard({ agent, onClick, onEdit }: AgentCardProps) {
+export function AgentCard({ agent, onClick, onEdit, onDelete }: AgentCardProps) {
   const { t } = useTranslation()
 
   return (
@@ -58,6 +59,20 @@ export function AgentCard({ agent, onClick, onEdit }: AgentCardProps) {
           >
             <Pencil className="h-3.5 w-3.5" />
             {t('agents.edit')}
+          </Button>
+        )}
+        {onDelete && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 text-[var(--status-error)] hover:bg-[var(--status-error)] hover:text-white"
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete(agent)
+            }}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            {t('common.delete')}
           </Button>
         )}
       </div>

@@ -8,7 +8,8 @@ import { AgentCard } from '@/components/agents/agent-card'
 import { AgentFormDialog } from '@/components/agents/agent-form-dialog'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { useAgents, useCreateAgent, useUpdateAgent } from '@/hooks/queries/agents'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { useAgents, useCreateAgent, useUpdateAgent, useDeleteAgent } from '@/hooks/queries/agents'
 import { useTranslation } from '@/lib/i18n'
 import { useCurrentWorkspace } from '@/providers/workspace-provider'
 import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
@@ -23,9 +24,11 @@ export default function AgentsPage() {
   const { data: agents = [], isLoading } = useAgents(workspaceId)
   const createMutation = useCreateAgent()
   const updateMutation = useUpdateAgent()
+  const deleteMutation = useDeleteAgent()
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null)
+  const [deletingAgent, setDeletingAgent] = useState<Agent | null>(null)
 
   function handleCreate() {
     setEditingAgent(null)
@@ -39,6 +42,18 @@ export default function AgentsPage() {
 
   function handleNavigate(agent: Agent) {
     router.push(`/agents/${agent.id}`)
+  }
+
+  function handleDelete(agent: Agent) {
+    setDeletingAgent(agent)
+  }
+
+  function confirmDelete() {
+    if (!deletingAgent) return
+    deleteMutation.mutate(
+      { agentId: deletingAgent.id, workspaceId },
+      { onSuccess: () => setDeletingAgent(null) },
+    )
   }
 
   function handleSubmit(data: CreateAgentRequest) {
@@ -100,13 +115,14 @@ export default function AgentsPage() {
             )}
           </Card>
         ) : (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
             {agents.map((agent) => (
               <AgentCard
                 key={agent.id}
                 agent={agent}
                 onClick={handleNavigate}
                 onEdit={canEdit ? handleEdit : undefined}
+                onDelete={canEdit ? handleDelete : undefined}
               />
             ))}
           </div>
@@ -121,6 +137,19 @@ export default function AgentsPage() {
         workspaceId={workspaceId}
         onSubmit={handleSubmit}
         isPending={isPending}
+      />
+
+      {/* Delete Confirmation */}
+      <ConfirmDialog
+        open={Boolean(deletingAgent)}
+        onOpenChange={() => setDeletingAgent(null)}
+        title={t('workspace.deleteAgentConfirmTitle')}
+        description={`${t('workspace.deleteAgentConfirmMessagePrefix')} "${deletingAgent?.name}" ${t('workspace.deleteAgentConfirmMessageSuffix')}`}
+        confirmLabel={t('common.delete')}
+        cancelLabel={t('common.cancel')}
+        onConfirm={confirmDelete}
+        variant="destructive"
+        loading={deleteMutation.isPending}
       />
     </div>
   )

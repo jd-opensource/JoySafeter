@@ -47,6 +47,7 @@ class AgentSummary(BaseModel):
     id: uuid.UUID
     name: str
     slug: str
+    description: Optional[str] = None
     status: str
 
     model_config = {"from_attributes": True}

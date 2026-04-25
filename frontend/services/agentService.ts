@@ -26,7 +26,7 @@ export const agentService = {
     return apiPatch<Agent>(`agents/${agentId}?workspace_id=${workspaceId}`, data)
   },
 
-  archive: async (agentId: string, workspaceId: string): Promise<void> => {
+  delete: async (agentId: string, workspaceId: string): Promise<void> => {
     await apiDelete(`agents/${agentId}?workspace_id=${workspaceId}`)
   },
 }
