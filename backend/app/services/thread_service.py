@@ -84,3 +84,61 @@ class ThreadService:
         await self.db.refresh(updated)
         logger.info(f"Archived thread {thread_id}")
         return updated
+
+    # ---- Thread Events (aggregation) ----
+
+    async def list_thread_events(
+        self,
+        thread_id: uuid.UUID,
+        after_id: uuid.UUID | None = None,
+        limit: int = 200,
+    ) -> tuple[list[dict], int]:
+        """Aggregate execution events across all runs in a thread."""
+        from sqlalchemy import select, func, and_, not_
+        from app.models.execution import Execution, ExecutionEvent
+        from app.models.agent_run import AgentRun
+
+        thread = await self.thread_repo.get(thread_id)
+        if not thread:
+            raise NotFoundException(f"Thread {thread_id} not found")
+
+        base_filter = and_(
+            AgentRun.thread_id == thread_id,
+            not_(ExecutionEvent.event_type.like("copilot_%")),
+        )
+
+        count_q = (
+            select(func.count(ExecutionEvent.id))
+            .join(Execution, ExecutionEvent.execution_id == Execution.id)
+            .join(AgentRun, Execution.run_id == AgentRun.id)
+            .where(base_filter)
+        )
+        total = (await self.db.execute(count_q)).scalar() or 0
+
+        query = (
+            select(
+                ExecutionEvent.id,
+                ExecutionEvent.execution_id,
+                ExecutionEvent.sequence_no,
+                ExecutionEvent.event_type,
+                ExecutionEvent.payload,
+                ExecutionEvent.created_at,
+                Execution.status.label("execution_status"),
+                AgentRun.id.label("run_id"),
+            )
+            .join(Execution, ExecutionEvent.execution_id == Execution.id)
+            .join(AgentRun, Execution.run_id == AgentRun.id)
+            .where(base_filter)
+            .order_by(AgentRun.created_at, Execution.attempt_index, ExecutionEvent.sequence_no)
+        )
+
+        if after_id:
+            ref_event = (await self.db.execute(
+                select(ExecutionEvent.created_at).where(ExecutionEvent.id == after_id)
+            )).scalar()
+            if ref_event:
+                query = query.where(ExecutionEvent.created_at > ref_event)
+
+        query = query.limit(limit)
+        rows = (await self.db.execute(query)).mappings().all()
+        return [dict(r) for r in rows], total

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -77,3 +77,21 @@ class ThreadResponse(BaseModel):
 class ChatResponse(BaseModel):
     run_id: uuid.UUID
     execution_id: uuid.UUID
+
+
+class ThreadEventResponse(BaseModel):
+    id: uuid.UUID
+    run_id: uuid.UUID
+    execution_id: uuid.UUID
+    sequence_no: int
+    event_type: str
+    payload: Dict[str, Any]
+    execution_status: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ThreadEventsListResponse(BaseModel):
+    events: list[ThreadEventResponse]
+    total: int

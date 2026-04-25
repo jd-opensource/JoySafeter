@@ -23,6 +23,8 @@ from app.schemas.thread import (
     ChatRequest,
     ChatResponse,
     CreateThreadRequest,
+    ThreadEventResponse,
+    ThreadEventsListResponse,
     ThreadResponse,
     ThreadSummary,
     UpdateThreadRequest,
@@ -206,4 +208,32 @@ async def list_thread_artifacts(
         code=200,
         msg="ok",
         data=[ArtifactResponse.model_validate(a) for a in artifacts],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Thread events: aggregate execution events across all runs
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{thread_id}/events", response_model=BaseResponse[ThreadEventsListResponse])
+async def list_thread_events(
+    thread_id: uuid.UUID,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
+    workspace_id: uuid.UUID = Query(...),
+    after: uuid.UUID | None = Query(None, description="Cursor: event ID to paginate after"),
+    limit: int = Query(200, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+) -> BaseResponse[ThreadEventsListResponse]:
+    """List aggregated execution events across all runs in this thread."""
+    service = ThreadService(db)
+    events, total = await service.list_thread_events(thread_id, after_id=after, limit=limit)
+    return BaseResponse(
+        success=True,
+        code=200,
+        msg="ok",
+        data=ThreadEventsListResponse(
+            events=[ThreadEventResponse(**e) for e in events],
+            total=total,
+        ),
     )
