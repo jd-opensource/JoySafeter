@@ -9,13 +9,14 @@ import uuid
 from typing import List
 
 from loguru import logger
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, exists, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import ConflictException, NotFoundException
 from app.models.agent import Agent, AgentRelease, AgentVersion
 from app.models.agent_run import AgentRun
 from app.models.execution import Artifact, Execution, ExecutionEvent
+from app.models.task import Task
 from app.models.thread import Thread
 from app.repositories.agent import AgentRepository, AgentVersionRepository
 from app.schemas.agent import CreateAgentRequest, UpdateAgentRequest
@@ -125,6 +126,12 @@ class AgentService(BaseService):
             raise NotFoundException(f"Agent {agent_id} not found")
 
         db = self.db
+
+        has_tasks = (await db.execute(
+            select(exists().where(Task.agent_id == agent_id))
+        )).scalar()
+        if has_tasks:
+            raise ConflictException("Cannot delete agent: tasks still reference it")
 
         version_ids = (await db.execute(
             select(AgentVersion.id).where(AgentVersion.agent_id == agent_id)
