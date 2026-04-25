@@ -1,11 +1,11 @@
-import type { BuilderSurface, StageProps } from '@/components/agents/agent-build/agent-build-types'
+import type { BuilderSurface } from '@/components/agents/agent-build/agent-build-types'
 
-function StubStage(_props: StageProps) {
-  return <div>Visual stub — will be replaced</div>
-}
+import { VisualBriefStage } from './visual-brief-stage'
+import { VisualBuilderSurface } from './visual-builder-surface'
+import { VisualTestLabStage } from './visual-test-lab-stage'
 
 export const visualSurface: BuilderSurface = {
-  BriefStage: StubStage,
-  BuildStage: StubStage,
-  TestLabStage: StubStage,
+  BriefStage: VisualBriefStage,
+  BuildStage: VisualBuilderSurface,
+  TestLabStage: VisualTestLabStage,
 }
