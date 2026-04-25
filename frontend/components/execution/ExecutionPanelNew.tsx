@@ -35,7 +35,11 @@ type NavigationView = 'tree' | 'timeline'
 
 // ============ Inner Content (has access to contexts) ============
 
-function ExecutionPanelContent() {
+interface ExecutionPanelContentProps {
+  embedded?: boolean
+}
+
+function ExecutionPanelContent({ embedded = false }: ExecutionPanelContentProps) {
   const { t } = useTranslation()
   const {
     steps: executionSteps,
@@ -117,7 +121,10 @@ function ExecutionPanelContent() {
 
   return (
     <div
-      className="z-40 flex h-[320px] w-[calc(100%-320px)] shrink-0 flex-col border-t border-[var(--border)] bg-[var(--surface-elevated)] font-sans shadow-[0_-4px_20px_rgba(0,0,0,0.05)] duration-300 animate-in slide-in-from-bottom-10"
+      className={cn(
+        'z-40 flex shrink-0 flex-col border-t border-[var(--border)] bg-[var(--surface-elevated)] font-sans shadow-[0_-4px_20px_rgba(0,0,0,0.05)] duration-300 animate-in slide-in-from-bottom-10',
+        embedded ? 'h-full w-full' : 'h-[320px] w-[calc(100%-320px)]',
+      )}
       onKeyDown={handleKeyDown}
       tabIndex={0}
     >
@@ -273,12 +280,17 @@ function ExecutionPanelContent() {
 
 // ============ Main Exported Component ============
 
-export function ExecutionPanelNew() {
+interface ExecutionPanelNewProps {
+  embedded?: boolean
+}
+
+export function ExecutionPanelNew({ embedded = false }: ExecutionPanelNewProps) {
   const { steps, isExecuting, treeRoots, treeNodeMap } = useExecutionStore()
 
   return (
     <ExecutionSelectionProvider>
       <ExecutionSelectionConsumerWrapper
+        embedded={embedded}
         steps={steps}
         isExecuting={isExecuting}
         treeRoots={treeRoots}
@@ -293,11 +305,13 @@ export function ExecutionPanelNew() {
  * to pass into DataProvider.
  */
 function ExecutionSelectionConsumerWrapper({
+  embedded = false,
   steps,
   isExecuting,
   treeRoots,
   treeNodeMap,
 }: {
+  embedded?: boolean
   steps: any[]
   isExecuting: boolean
   treeRoots: any[]
@@ -314,7 +328,7 @@ function ExecutionSelectionConsumerWrapper({
       collapsedIds={collapsedIds}
     >
       <ExecutionViewPreferencesProvider>
-        <ExecutionPanelContent />
+        <ExecutionPanelContent embedded={embedded} />
       </ExecutionViewPreferencesProvider>
     </ExecutionDataProvider>
   )

@@ -254,6 +254,18 @@ const zh = {
           skip: '手动构建',
           generate: '用 Copilot 生成',
         },
+        testLab: {
+          kicker: '草稿验证',
+          title: '测试当前草稿',
+          subtitle: '发布前先运行草稿行为。这些测试不会影响当前已发布版本。',
+          inputLabel: '测试输入',
+          inputPlaceholder: '输入一个用于测试草稿的请求...',
+          runDraft: '运行草稿',
+          running: '运行中...',
+          stop: '停止',
+          backToCanvas: '回到编排',
+          openRelease: '打开发布',
+        },
         actions: {
           openCanvas: '打开编排',
           generateDraft: '生成草稿',

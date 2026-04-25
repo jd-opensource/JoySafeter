@@ -594,6 +594,7 @@ const AgentBuilderContent = ({
             agentId={agentId || ''}
             nodesCount={nodes.length}
             onAddNode={studioMode ? handleToolbarAddNode : undefined}
+            studioMode={studioMode}
           />
         </div>
 

@@ -10,6 +10,7 @@ import type { Agent } from '@/types/agent'
 import { StudioBriefStage } from './studio-brief-stage'
 import { StudioCanvasStage } from './studio-canvas-stage'
 import { StudioStageNav } from './studio-stage-nav'
+import { StudioTestLabStage } from './studio-test-lab-stage'
 import { StudioTopBar } from './studio-top-bar'
 import {
   AGENT_STUDIO_STAGES,
@@ -108,7 +109,16 @@ export function AgentStudioShell({
               onOpenRelease={() => handleStageChange('release')}
             />
           )}
-          {activeStage !== 'brief' && activeStage !== 'canvas' && (
+          {activeStage === 'test-lab' && (
+            <StudioTestLabStage
+              agentId={agent.id}
+              onOpenCanvas={() => handleStageChange('canvas')}
+              onOpenRelease={() => handleStageChange('release')}
+              versionId={agent.current_draft_version_id || undefined}
+              workspaceId={workspaceId}
+            />
+          )}
+          {activeStage !== 'brief' && activeStage !== 'canvas' && activeStage !== 'test-lab' && (
             <div className="flex h-full items-center justify-center p-8 text-center">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--text-muted)]">

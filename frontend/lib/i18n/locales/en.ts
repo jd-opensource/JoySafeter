@@ -255,6 +255,18 @@ const en = {
           skip: 'Build manually',
           generate: 'Generate with Copilot',
         },
+        testLab: {
+          kicker: 'Draft validation',
+          title: 'Test the current draft',
+          subtitle: 'Run draft behavior before publishing. These tests do not affect the active release.',
+          inputLabel: 'Test input',
+          inputPlaceholder: 'Enter a sample request for this draft...',
+          runDraft: 'Run Draft',
+          running: 'Running...',
+          stop: 'Stop',
+          backToCanvas: 'Back to Canvas',
+          openRelease: 'Open Release',
+        },
         actions: {
           openCanvas: 'Open Canvas',
           generateDraft: 'Generate Draft',

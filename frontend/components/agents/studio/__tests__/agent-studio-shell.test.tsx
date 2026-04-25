@@ -26,9 +26,40 @@ vi.mock('@/providers/workspace-provider', () => ({
 }))
 
 vi.mock('../studio-canvas-stage', () => ({
-  StudioCanvasStage: ({ agentId, workspaceId }: { agentId: string; workspaceId: string }) => (
+  StudioCanvasStage: ({
+    agentId,
+    workspaceId,
+    onOpenTestLab,
+  }: {
+    agentId: string
+    workspaceId: string
+    onOpenTestLab: () => void
+  }) => (
     <div data-testid="studio-canvas-stage">
       Canvas {agentId} {workspaceId}
+      <button type="button" onClick={onOpenTestLab}>
+        Open Test Lab
+      </button>
+    </div>
+  ),
+}))
+
+vi.mock('../studio-test-lab-stage', () => ({
+  StudioTestLabStage: ({
+    onOpenCanvas,
+    onOpenRelease,
+  }: {
+    onOpenCanvas: () => void
+    onOpenRelease: () => void
+  }) => (
+    <div data-testid="studio-test-lab-stage">
+      Test Lab Stage
+      <button type="button" onClick={onOpenCanvas}>
+        Back to Canvas
+      </button>
+      <button type="button" onClick={onOpenRelease}>
+        Open Release
+      </button>
     </div>
   ),
 }))
@@ -129,5 +160,28 @@ describe('AgentStudioShell', () => {
     expect(params.get('stage')).toBe('canvas')
     expect(params.get('copilotInput')).toContain('Reach 95% accuracy')
     expect(options).toEqual({ scroll: false })
+  })
+
+  it('renders the Test Lab stage and keeps its navigation URL-synced', async () => {
+    const user = userEvent.setup()
+    render(<AgentStudioShell agent={agent} initialStage="test-lab" nodesCount={1} />)
+
+    expect(screen.getByTestId('studio-test-lab-stage')).toBeInTheDocument()
+    expect(screen.queryByText('test-lab')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Back to Canvas' }))
+
+    expect(screen.getByTestId('studio-canvas-stage')).toBeInTheDocument()
+    expect(replaceMock).toHaveBeenCalledWith('/agents/agent-1?stage=canvas', { scroll: false })
+  })
+
+  it('opens Test Lab from the Canvas stage with URL synchronization', async () => {
+    const user = userEvent.setup()
+    render(<AgentStudioShell agent={agent} initialStage="canvas" nodesCount={1} />)
+
+    await user.click(screen.getByRole('button', { name: 'Open Test Lab' }))
+
+    expect(screen.getByTestId('studio-test-lab-stage')).toBeInTheDocument()
+    expect(replaceMock).toHaveBeenCalledWith('/agents/agent-1?stage=test-lab', { scroll: false })
   })
 })

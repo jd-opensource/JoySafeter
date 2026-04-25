@@ -47,6 +47,7 @@ interface BuilderToolbarProps {
   agentId?: string
   nodesCount?: number
   onAddNode?: (node: { type: string; label: string }) => void
+  studioMode?: boolean
 }
 
 export function BuilderToolbar({
@@ -56,6 +57,7 @@ export function BuilderToolbar({
   agentId,
   nodesCount = 0,
   onAddNode,
+  studioMode = false,
 }: BuilderToolbarProps) {
   const { workspaceId } = useCurrentWorkspace()
   const { t } = useTranslation()
@@ -122,6 +124,9 @@ export function BuilderToolbar({
   }
 
   const isDeployed = Boolean(deployedAt)
+  const runLabel = studioMode
+    ? t('agents.studio.testLab.runDraft', { defaultValue: 'Run Draft' })
+    : t('workspace.run', { defaultValue: 'Run' })
 
   const getDeployTooltip = () => {
     if (nodesCount === 0) {
@@ -311,7 +316,7 @@ export function BuilderToolbar({
               ) : (
                 <>
                   <Play size={13} className="fill-current" />
-                  <span>{t('workspace.run')}</span>
+                  <span>{runLabel}</span>
                 </>
               )}
             </Button>
