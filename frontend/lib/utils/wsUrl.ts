@@ -33,11 +33,6 @@ async function getWsTokenUrl(path: string): Promise<string> {
   return `${getWsBaseUrl()}${path}?token=${encodeURIComponent(token)}`
 }
 
-/** Fetch a short-lived WS token from the backend and return a ready-to-use WS URL. */
-export async function getWsChatUrl(): Promise<string> {
-  return getWsTokenUrl('/ws/chat')
-}
-
 /** Fetch a short-lived WS token from the backend and return a ready-to-use notification WS URL. */
 export async function getWsNotificationUrl(): Promise<string> {
   return getWsTokenUrl('/ws/notifications')
