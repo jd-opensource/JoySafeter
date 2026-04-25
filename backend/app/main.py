@@ -190,13 +190,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         from app.core.events.subscribers.persistence import PersistenceSubscriber
         from app.core.events.subscribers.state_transition import StateTransitionSubscriber
         from app.core.events.subscribers.websocket import WebSocketSubscriber
-        from app.core.events.subscribers.message_projection import MessageProjectionSubscriber
         from app.core.events.subscribers.task_sync import TaskSyncSubscriber
 
         execution_event_bus.register(PersistenceSubscriber())
         execution_event_bus.register(StateTransitionSubscriber())
         execution_event_bus.register(WebSocketSubscriber())
-        execution_event_bus.register(MessageProjectionSubscriber())
         execution_event_bus.register(TaskSyncSubscriber())
         logger.info("   ✓ Execution event bus subscribers registered")
     except Exception as e:

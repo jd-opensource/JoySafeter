@@ -1,5 +1,5 @@
 """
-ThreadService — manages Thread and ThreadMessage lifecycle.
+ThreadService — manages Thread lifecycle.
 """
 
 from __future__ import annotations
@@ -11,18 +11,17 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import NotFoundException
-from app.models.thread import Thread, ThreadMessage
-from app.repositories.thread import ThreadMessageRepository, ThreadRepository
+from app.models.thread import Thread
+from app.repositories.thread import ThreadRepository
 from app.schemas.thread import CreateThreadRequest, UpdateThreadRequest
 
 
 class ThreadService:
-    """Manages Thread and ThreadMessage entities."""
+    """Manages Thread entities."""
 
     def __init__(self, db: AsyncSession):
         self.db = db
         self.thread_repo = ThreadRepository(db)
-        self.message_repo = ThreadMessageRepository(db)
 
     # ---- Thread CRUD ----
 
@@ -31,12 +30,6 @@ class ThreadService:
 
     async def get_thread(self, thread_id: uuid.UUID) -> Thread:
         thread = await self.thread_repo.get(thread_id)
-        if not thread:
-            raise NotFoundException(f"Thread {thread_id} not found")
-        return thread
-
-    async def get_thread_with_messages(self, thread_id: uuid.UUID) -> Thread:
-        thread = await self.thread_repo.get_with_messages(thread_id)
         if not thread:
             raise NotFoundException(f"Thread {thread_id} not found")
         return thread
@@ -91,12 +84,3 @@ class ThreadService:
         await self.db.refresh(updated)
         logger.info(f"Archived thread {thread_id}")
         return updated
-
-    # ---- Message CRUD ----
-
-    async def list_messages(self, thread_id: uuid.UUID) -> List[ThreadMessage]:
-        # Verify thread exists
-        thread = await self.thread_repo.get(thread_id)
-        if not thread:
-            raise NotFoundException(f"Thread {thread_id} not found")
-        return await self.message_repo.list_by_thread(thread_id)

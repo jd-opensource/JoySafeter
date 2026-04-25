@@ -23,8 +23,6 @@ from app.schemas.thread import (
     ChatRequest,
     ChatResponse,
     CreateThreadRequest,
-    MessageResponse,
-    ThreadDetailResponse,
     ThreadResponse,
     ThreadSummary,
     UpdateThreadRequest,
@@ -73,16 +71,16 @@ async def create_thread(
     return BaseResponse(success=True, code=200, msg="Thread created", data=ThreadResponse.model_validate(thread))
 
 
-@router.get("/{thread_id}", response_model=BaseResponse[ThreadDetailResponse])
+@router.get("/{thread_id}", response_model=BaseResponse[ThreadResponse])
 async def get_thread(
     thread_id: uuid.UUID,
     current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
-) -> BaseResponse[ThreadDetailResponse]:
+) -> BaseResponse[ThreadResponse]:
     service = ThreadService(db)
-    thread = await service.get_thread_with_messages(thread_id)
-    return BaseResponse(success=True, code=200, msg="ok", data=ThreadDetailResponse.model_validate(thread))
+    thread = await service.get_thread(thread_id)
+    return BaseResponse(success=True, code=200, msg="ok", data=ThreadResponse.model_validate(thread))
 
 
 @router.patch("/{thread_id}", response_model=BaseResponse[ThreadResponse])
@@ -111,29 +109,6 @@ async def archive_thread(
 
 
 # ---------------------------------------------------------------------------
-# Message sub-routes
-# ---------------------------------------------------------------------------
-
-
-@router.get("/{thread_id}/messages", response_model=BaseResponse[List[MessageResponse]])
-async def list_messages(
-    thread_id: uuid.UUID,
-    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
-    workspace_id: uuid.UUID = Query(...),
-    db: AsyncSession = Depends(get_db),
-) -> BaseResponse[List[MessageResponse]]:
-    service = ThreadService(db)
-    messages = await service.list_messages(thread_id)
-    return BaseResponse(
-        success=True,
-        code=200,
-        msg="ok",
-        data=[MessageResponse.model_validate(m) for m in messages],
-    )
-
-
-
-# ---------------------------------------------------------------------------
 # Chat: send message + dispatch agent run (single call)
 # ---------------------------------------------------------------------------
 
@@ -148,9 +123,7 @@ async def chat(
 ) -> BaseResponse[ChatResponse]:
     """Send a user message and dispatch an agent run in one call.
 
-    The user message is NOT written directly to ThreadMessage.
-    Instead it flows through the event bus as a `user_message` event,
-    and MessageProjectionSubscriber materializes it into ThreadMessage.
+    The user message flows through the event bus as a `user_message` event.
     ExecutionEvent is the single source of truth.
     """
     has_access = await check_workspace_access(
@@ -177,17 +150,20 @@ async def chat(
     )
 
     # 2. Emit user_message as the first event in this execution.
-    #    MessageProjectionSubscriber will project it into ThreadMessage.
     from app.core.events import ExecutionEventEnvelope, execution_event_bus
     from app.core.events.event_types import ExecutionEventType
     from app.utils.datetime import utc_now
+
+    payload: dict = {"text": request.message}
+    if request.attachments:
+        payload["attachments"] = [att.model_dump() for att in request.attachments]
 
     user_msg_envelope = ExecutionEventEnvelope(
         execution_id=run.current_execution_id,
         run_id=run.id,
         workspace_id=workspace_id,
         event_type=ExecutionEventType.USER_MESSAGE,
-        payload={"text": request.message},
+        payload=payload,
         created_at=utc_now(),
         trigger_source="chat",
         thread_id=thread_id,

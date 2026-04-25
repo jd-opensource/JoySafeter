@@ -1,12 +1,12 @@
 """
-Pydantic schemas for Thread and ThreadMessage API.
+Pydantic schemas for Thread API.
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -15,7 +15,6 @@ from pydantic import BaseModel, Field
 # ---------------------------------------------------------------------------
 
 ThreadStatusLiteral = Literal["active", "archived"]
-MessageRoleLiteral = Literal["user", "assistant", "system", "tool"]
 
 # ---------------------------------------------------------------------------
 # Request schemas
@@ -32,13 +31,19 @@ class UpdateThreadRequest(BaseModel):
     status: Optional[ThreadStatusLiteral] = None
 
 
-class CreateMessageRequest(BaseModel):
-    role: MessageRoleLiteral
-    content: Dict[str, Any]
+class ChatAttachment(BaseModel):
+    """A file attachment sent alongside a chat message."""
+    filename: str = Field(..., min_length=1, max_length=255)
+    mime_type: str = Field(..., min_length=1, max_length=127)
+    url: str = Field(..., min_length=1, max_length=2048, description="Pre-signed or public URL")
+    size_bytes: Optional[int] = Field(None, ge=0, description="File size in bytes")
 
 
 class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=4000)
+    message: str = Field(..., min_length=1, max_length=10000)
+    attachments: Optional[List[ChatAttachment]] = Field(
+        None, max_length=10, description="Up to 10 file attachments"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -65,24 +70,6 @@ class ThreadResponse(BaseModel):
     created_by: str
     created_at: datetime
     updated_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class MessageResponse(BaseModel):
-    id: uuid.UUID
-    thread_id: uuid.UUID
-    run_id: Optional[uuid.UUID] = None
-    execution_id: Optional[uuid.UUID] = None
-    role: str
-    content: Dict[str, Any]
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class ThreadDetailResponse(ThreadResponse):
-    messages: List[MessageResponse] = []
 
     model_config = {"from_attributes": True}
 

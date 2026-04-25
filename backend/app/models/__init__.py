@@ -5,7 +5,7 @@ Data models
 from app.models.message import Message
 
 from .agent import Agent, AgentRelease, AgentVersion
-from .thread import Thread, ThreadMessage
+from .thread import Thread
 from .access_control import (
     Permission,
     PermissionType,
@@ -109,5 +109,4 @@ __all__ = [
     "ActivityAuthorType",
     "ActivityType",
     "Thread",
-    "ThreadMessage",
 ]
