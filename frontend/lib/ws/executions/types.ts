@@ -22,12 +22,6 @@ export interface ExecutionEventFrame {
   created_at: string
 }
 
-export interface ExecutionStatusFrame {
-  type: 'execution_status'
-  execution_id: string
-  status: string
-}
-
 export interface ExecutionCompletedFrame {
   type: 'execution_completed'
   execution_id: string
@@ -49,7 +43,6 @@ export interface ExecutionWsErrorFrame {
 export type IncomingExecutionWsFrame =
   | ExecutionSnapshotFrame
   | ExecutionEventFrame
-  | ExecutionStatusFrame
   | ExecutionCompletedFrame
   | ExecutionReplayDoneFrame
   | ExecutionWsErrorFrame
@@ -57,6 +50,7 @@ export type IncomingExecutionWsFrame =
 export interface ExecutionSubscriptionCallbacks {
   onSnapshot?: (frame: ExecutionSnapshotFrame) => void
   onEvent?: (frame: ExecutionEventFrame) => void
-  onStatus?: (frame: ExecutionStatusFrame) => void
+  onCompleted?: (frame: ExecutionCompletedFrame) => void
+  onReplayDone?: (frame: ExecutionReplayDoneFrame) => void
   onError?: (message: string) => void
 }

@@ -4,9 +4,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { getExecutionWsClient } from '@/lib/ws/executions/executionWsClient'
 import type {
+  ExecutionCompletedFrame,
   ExecutionEventFrame,
   ExecutionSnapshotFrame,
-  ExecutionStatusFrame,
 } from '@/lib/ws/executions/types'
 import type { ExecutionEvent } from '@/types/agent-run'
 
@@ -65,7 +65,7 @@ export function useExecutionStream({
     failCountRef.current = 0
   }, [])
 
-  const handleStatus = useCallback((frame: ExecutionStatusFrame) => {
+  const handleCompleted = useCallback((frame: ExecutionCompletedFrame) => {
     if (!mountedRef.current) return
     setStatus(frame.status)
   }, [])
@@ -93,7 +93,7 @@ export function useExecutionStream({
       .subscribe(executionId, seqRef.current, {
         onSnapshot: handleSnapshot,
         onEvent: handleEvent,
-        onStatus: handleStatus,
+        onCompleted: handleCompleted,
         onError: handleError,
       })
       .catch(() => {
@@ -105,7 +105,7 @@ export function useExecutionStream({
       unsub()
       client.unsubscribe(executionId)
     }
-  }, [executionId, enabled, handleSnapshot, handleEvent, handleStatus, handleError])
+  }, [executionId, enabled, handleSnapshot, handleEvent, handleCompleted, handleError])
 
   return { events, status, isConnected, wsFailed }
 }
