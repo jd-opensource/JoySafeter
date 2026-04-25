@@ -88,14 +88,14 @@ export function useCopilotEffects({
   useEffect(() => {
     if (state.currentRunId || refs.isCreatingSessionRef.current) return
 
-    const agentId = useBuilderStore.getState().agentId
-    if (!agentId) return
+    const { agentId, workspaceId } = useBuilderStore.getState()
+    if (!agentId || !workspaceId) return
 
     const timer = setTimeout(() => {
       if (lastRestoredSessionIdRef.current || !refs.isMountedRef.current) return
 
       agentRunService
-        .list({ agent_id: agentId, trigger_source: 'copilot', status: 'running' })
+        .list({ agent_id: agentId, workspace_id: workspaceId, trigger_source: 'copilot', status: 'running' })
         .then((runs) => {
           if (!refs.isMountedRef.current || runs.length === 0) return
           if (lastRestoredSessionIdRef.current) return
