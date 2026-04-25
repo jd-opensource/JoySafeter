@@ -1,31 +1,27 @@
+import type { BuilderSurface } from './agent-build-types'
+import { visualSurface } from '@/components/agents/surfaces/visual'
+import { cliSurface } from '@/components/agents/surfaces/cli'
+import { codeSurface } from '@/components/agents/surfaces/code'
+import { promptSurface } from '@/components/agents/surfaces/prompt'
+
 export type BuilderSurfaceKind = 'visual' | 'cli' | 'code' | 'prompt'
 
-const BUILDER_SURFACE_KINDS = new Set<BuilderSurfaceKind>([
-  'visual',
-  'cli',
-  'code',
-  'prompt',
-])
+const SURFACE_MAP: Record<BuilderSurfaceKind, BuilderSurface> = {
+  visual: visualSurface,
+  cli:    cliSurface,
+  code:   codeSurface,
+  prompt: promptSurface,
+}
 
-const DEFINITION_KIND_TO_SURFACE: Record<string, BuilderSurfaceKind> = {
-  graph: 'visual',
-  code: 'code',
+const DEFINITION_TO_SURFACE: Record<string, BuilderSurfaceKind> = {
+  graph:  'visual',
+  hybrid: 'visual',
+  code:   'code',
   prompt: 'prompt',
-  cli: 'cli',
+  cli:    'cli',
 }
 
-export function isBuilderSurfaceKind(
-  value: string | null | undefined
-): value is BuilderSurfaceKind {
-  return BUILDER_SURFACE_KINDS.has(value as BuilderSurfaceKind)
-}
-
-export function getBuilderSurfaceKind(
-  definitionKind: string | null | undefined
-): BuilderSurfaceKind {
-  if (!definitionKind) {
-    return 'visual'
-  }
-
-  return DEFINITION_KIND_TO_SURFACE[definitionKind] ?? 'visual'
+export function resolveBuilderSurface(definitionKind: string | null | undefined): BuilderSurface {
+  const surfaceKind = DEFINITION_TO_SURFACE[definitionKind ?? ''] ?? 'visual'
+  return SURFACE_MAP[surfaceKind]
 }

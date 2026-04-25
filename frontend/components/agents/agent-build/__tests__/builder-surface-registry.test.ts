@@ -1,27 +1,31 @@
-import { describe, expect, it } from 'vitest'
+import { describe, it, expect } from 'vitest'
+import { resolveBuilderSurface } from '../builder-surface-registry'
 
-import {
-  getBuilderSurfaceKind,
-  isBuilderSurfaceKind,
-  type BuilderSurfaceKind,
-} from '../builder-surface-registry'
-
-describe('builder surface registry', () => {
-  it.each<[string | null | undefined, BuilderSurfaceKind]>([
-    ['graph', 'visual'],
-    ['code', 'code'],
-    ['prompt', 'prompt'],
-    ['cli', 'cli'],
-    ['unknown', 'visual'],
-    [null, 'visual'],
-    [undefined, 'visual'],
-  ])('maps definition kind %s to builder surface %s', (definitionKind, expected) => {
-    expect(getBuilderSurfaceKind(definitionKind)).toBe(expected)
+describe('resolveBuilderSurface', () => {
+  it('returns visual surface for graph', () => {
+    const surface = resolveBuilderSurface('graph')
+    expect(surface.BriefStage).toBeDefined()
+    expect(surface.BuildStage).toBeDefined()
+    expect(surface.TestLabStage).toBeDefined()
   })
 
-  it('recognizes only supported builder surface kinds', () => {
-    expect(isBuilderSurfaceKind('visual')).toBe(true)
-    expect(isBuilderSurfaceKind('cli')).toBe(true)
-    expect(isBuilderSurfaceKind('spreadsheet')).toBe(false)
+  it('returns visual surface for hybrid', () => {
+    const surface = resolveBuilderSurface('hybrid')
+    expect(surface).toBe(resolveBuilderSurface('graph'))
+  })
+
+  it('returns placeholder surface for code', () => {
+    const surface = resolveBuilderSurface('code')
+    expect(surface.BriefStage).toBeDefined()
+  })
+
+  it('returns placeholder surface for prompt', () => {
+    const surface = resolveBuilderSurface('prompt')
+    expect(surface.BriefStage).toBeDefined()
+  })
+
+  it('defaults to visual for null/undefined', () => {
+    expect(resolveBuilderSurface(null)).toBe(resolveBuilderSurface('graph'))
+    expect(resolveBuilderSurface(undefined)).toBe(resolveBuilderSurface('graph'))
   })
 })
