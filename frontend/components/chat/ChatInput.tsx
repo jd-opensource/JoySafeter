@@ -45,7 +45,7 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
         rejected.push(`${f.name}: exceeds ${UPLOAD_LIMITS.MAX_FILE_SIZE_MB}MB`)
         continue
       }
-      if (f.type && !ALLOWED_MIME_TYPES.includes(f.type)) {
+      if (f.type && !(ALLOWED_MIME_TYPES as readonly string[]).includes(f.type)) {
         rejected.push(`${f.name}: unsupported type (${f.type})`)
         continue
       }

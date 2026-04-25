@@ -25,12 +25,12 @@ export function useChatStream(
     if (!executionId || !events.length) return
 
     const newEvents = events.filter(
-      (e) => e.sequence_no > lastSeenSeqRef.current,
+      (e) => e.seq > lastSeenSeqRef.current,
     )
     if (!newEvents.length) return
 
     lastSeenSeqRef.current = Math.max(
-      ...newEvents.map((e) => e.sequence_no),
+      ...newEvents.map((e) => e.seq),
     )
 
     queryClient.setQueryData(
@@ -38,10 +38,10 @@ export function useChatStream(
       (old: { events: ThreadEvent[]; total: number } | undefined) => {
         const existing = old?.events ?? []
         const mapped: ThreadEvent[] = newEvents.map((e) => ({
-          id: e.id || `stream-${e.sequence_no}`,
+          id: e.id || `stream-${e.seq}`,
           run_id: '',
           execution_id: executionId,
-          sequence_no: e.sequence_no,
+          sequence_no: e.seq,
           event_type: e.event_type,
           payload: e.payload,
           execution_status: status || 'running',

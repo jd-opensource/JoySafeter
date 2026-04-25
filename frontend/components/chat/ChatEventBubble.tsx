@@ -161,7 +161,7 @@ export function ChatEventBubble({ event }: ChatEventBubbleProps) {
           <AlertCircle className="h-4 w-4" />
           <span>{(payload.message as string) || 'Error'}</span>
         </div>
-        {payload.trace && (
+        {typeof payload.trace === 'string' && (
           <button
             type="button"
             onClick={() => setCollapsed(!collapsed)}
@@ -170,7 +170,7 @@ export function ChatEventBubble({ event }: ChatEventBubbleProps) {
             {collapsed ? 'Show trace' : 'Hide trace'}
             {!collapsed && (
               <pre className="mt-1 max-h-40 overflow-auto">
-                {payload.trace as string}
+                {payload.trace}
               </pre>
             )}
           </button>
