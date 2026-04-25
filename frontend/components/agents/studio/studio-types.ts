@@ -7,6 +7,7 @@ export interface AgentStudioStageConfig {
   labelKey: string
   descriptionKey: string
   icon: LucideIcon
+  primaryActionKey?: string
 }
 
 export interface StudioStageContext {
@@ -20,24 +21,28 @@ export const AGENT_STUDIO_STAGES: readonly AgentStudioStageConfig[] = [
     labelKey: 'agents.studio.stages.brief',
     descriptionKey: 'agents.studio.stageDescriptions.brief',
     icon: FileText,
+    primaryActionKey: 'agents.studio.actions.openCanvas',
   },
   {
     id: 'canvas',
     labelKey: 'agents.studio.stages.canvas',
     descriptionKey: 'agents.studio.stageDescriptions.canvas',
     icon: GitBranch,
+    primaryActionKey: 'agents.studio.actions.openTestLab',
   },
   {
     id: 'test-lab',
     labelKey: 'agents.studio.stages.testLab',
     descriptionKey: 'agents.studio.stageDescriptions.testLab',
     icon: Beaker,
+    primaryActionKey: 'agents.studio.actions.openRelease',
   },
   {
     id: 'release',
     labelKey: 'agents.studio.stages.release',
     descriptionKey: 'agents.studio.stageDescriptions.release',
     icon: Rocket,
+    primaryActionKey: 'agents.studio.actions.openUsage',
   },
   {
     id: 'usage',

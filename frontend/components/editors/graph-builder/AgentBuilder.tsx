@@ -65,6 +65,8 @@ const AgentBuilderContent = ({
   agentIdProp,
   versionIdProp,
   studioMode = false,
+  onOpenTestLab,
+  onOpenRelease,
 }: AgentBuilderContentProps) => {
   const { t } = useTranslation()
   const params = useParams()
@@ -595,6 +597,8 @@ const AgentBuilderContent = ({
             nodesCount={nodes.length}
             onAddNode={studioMode ? handleToolbarAddNode : undefined}
             studioMode={studioMode}
+            onOpenTestLab={onOpenTestLab}
+            onOpenRelease={onOpenRelease}
           />
         </div>
 
@@ -605,16 +609,18 @@ const AgentBuilderContent = ({
       </aside>
 
       {/* Run Input Modal - Below Toolbar */}
-      <RunInputModal
-        isOpen={isRunModalOpen}
-        input={runInput}
-        onInputChange={setRunInput}
-        onStart={handleStartExecution}
-        onClose={() => setIsRunModalOpen(false)}
-      />
+      {!studioMode && (
+        <RunInputModal
+          isOpen={isRunModalOpen}
+          input={runInput}
+          onInputChange={setRunInput}
+          onStart={handleStartExecution}
+          onClose={() => setIsRunModalOpen(false)}
+        />
+      )}
 
       {/* Execution Panel - Bottom Dock */}
-      {showExecutionPanel && <ExecutionPanel />}
+      {!studioMode && showExecutionPanel && <ExecutionPanel />}
     </div>
   )
 }

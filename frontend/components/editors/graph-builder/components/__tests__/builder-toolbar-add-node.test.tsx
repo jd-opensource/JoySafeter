@@ -9,6 +9,10 @@ const permissionState = vi.hoisted(() => ({
   canAdmin: true,
 }))
 
+const executionState = vi.hoisted(() => ({
+  showPanel: true,
+}))
+
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
 }))
@@ -117,7 +121,7 @@ vi.mock('../../stores/execution/executionStore', () => ({
   useExecutionStore: () => ({
     isExecuting: false,
     stopExecution: vi.fn(),
-    showPanel: true,
+    showPanel: executionState.showPanel,
     togglePanel: vi.fn(),
   }),
 }))
@@ -150,6 +154,27 @@ const renderToolbar = (onAddNode = vi.fn()) =>
     />,
   )
 
+const renderStudioToolbar = ({
+  onOpenTestLab = vi.fn(),
+  onOpenRelease = vi.fn(),
+}: {
+  onOpenTestLab?: () => void
+  onOpenRelease?: () => void
+} = {}) =>
+  render(
+    <BuilderToolbar
+      onImport={vi.fn()}
+      onExport={vi.fn()}
+      onRunClick={vi.fn()}
+      agentId="agent-1"
+      nodesCount={1}
+      onAddNode={vi.fn()}
+      studioMode
+      onOpenTestLab={onOpenTestLab}
+      onOpenRelease={onOpenRelease}
+    />,
+  )
+
 describe('BuilderToolbar add node palette', () => {
   it('does not render Add for read-only users', () => {
     permissionState.canEdit = false
@@ -171,5 +196,28 @@ describe('BuilderToolbar add node palette', () => {
 
     expect(onAddNode).toHaveBeenCalledWith({ type: 'agent', label: 'Agent' })
     expect(screen.queryByTestId('add-node-popover')).not.toBeInTheDocument()
+  })
+
+  it('uses lifecycle navigation instead of direct run and publish in Studio mode', () => {
+    permissionState.canEdit = true
+    permissionState.canAdmin = true
+    executionState.showPanel = false
+    const onOpenTestLab = vi.fn()
+    const onOpenRelease = vi.fn()
+
+    renderStudioToolbar({ onOpenTestLab, onOpenRelease })
+
+    expect(screen.queryByText('Run Draft')).not.toBeInTheDocument()
+    expect(screen.queryByText('Publish')).not.toBeInTheDocument()
+    expect(screen.queryByText('workspace.deploymentHistory')).not.toBeInTheDocument()
+    expect(screen.queryByText('Access API')).not.toBeInTheDocument()
+    expect(screen.queryByText('workspace.showExecutionPanel')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Test Lab'))
+    fireEvent.click(screen.getByText('Release'))
+
+    expect(onOpenTestLab).toHaveBeenCalledTimes(1)
+    expect(onOpenRelease).toHaveBeenCalledTimes(1)
+    executionState.showPanel = true
   })
 })

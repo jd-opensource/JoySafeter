@@ -1,8 +1,8 @@
 'use client'
 
-import { VisualBuilderSurface } from './visual-builder-surface'
+import AgentBuilder from '@/components/editors/graph-builder/AgentBuilder'
 
-interface StudioCanvasStageProps {
+interface VisualBuilderSurfaceProps {
   agentId: string
   workspaceId: string
   versionId?: string
@@ -10,18 +10,19 @@ interface StudioCanvasStageProps {
   onOpenRelease: () => void
 }
 
-export function StudioCanvasStage({
+export function VisualBuilderSurface({
   agentId,
   workspaceId,
   versionId,
   onOpenTestLab,
   onOpenRelease,
-}: StudioCanvasStageProps) {
+}: VisualBuilderSurfaceProps) {
   return (
-    <VisualBuilderSurface
+    <AgentBuilder
       workspaceId={workspaceId}
       agentId={agentId}
       versionId={versionId}
+      studioMode
       onOpenTestLab={onOpenTestLab}
       onOpenRelease={onOpenRelease}
     />

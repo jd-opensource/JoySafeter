@@ -64,6 +64,14 @@ vi.mock('../studio-test-lab-stage', () => ({
   ),
 }))
 
+vi.mock('../studio-release-stage', () => ({
+  StudioReleaseStage: () => <div data-testid="studio-release-stage">Release Stage</div>,
+}))
+
+vi.mock('../studio-usage-stage', () => ({
+  StudioUsageStage: () => <div data-testid="studio-usage-stage">Usage Stage</div>,
+}))
+
 const agent: Agent = {
   id: 'agent-1',
   workspace_id: 'workspace-1',
@@ -192,5 +200,19 @@ describe('AgentStudioShell', () => {
     await user.click(screen.getByRole('button', { name: 'agents.studio.actions.openRelease' }))
 
     expect(replaceMock).toHaveBeenCalledWith('/agents/agent-1?stage=release', { scroll: false })
+  })
+
+  it('renders the Release stage surface instead of a placeholder', () => {
+    render(<AgentStudioShell agent={agent} initialStage="release" nodesCount={1} />)
+
+    expect(screen.getByTestId('studio-release-stage')).toBeInTheDocument()
+    expect(screen.queryByText('release')).not.toBeInTheDocument()
+  })
+
+  it('renders the Usage stage surface instead of a placeholder', () => {
+    render(<AgentStudioShell agent={agent} initialStage="usage" nodesCount={1} />)
+
+    expect(screen.getByTestId('studio-usage-stage')).toBeInTheDocument()
+    expect(screen.queryByText('usage')).not.toBeInTheDocument()
   })
 })

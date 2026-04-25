@@ -48,6 +48,8 @@ interface BuilderToolbarProps {
   nodesCount?: number
   onAddNode?: (node: { type: string; label: string }) => void
   studioMode?: boolean
+  onOpenTestLab?: () => void
+  onOpenRelease?: () => void
 }
 
 export function BuilderToolbar({
@@ -58,6 +60,8 @@ export function BuilderToolbar({
   nodesCount = 0,
   onAddNode,
   studioMode = false,
+  onOpenTestLab,
+  onOpenRelease,
 }: BuilderToolbarProps) {
   const { workspaceId } = useCurrentWorkspace()
   const { t } = useTranslation()
@@ -124,10 +128,6 @@ export function BuilderToolbar({
   }
 
   const isDeployed = Boolean(deployedAt)
-  const runLabel = studioMode
-    ? t('agents.studio.testLab.runDraft', { defaultValue: 'Run Draft' })
-    : t('workspace.run', { defaultValue: 'Run' })
-
   const getDeployTooltip = () => {
     if (nodesCount === 0) {
       return t('workspace.cannotDeployEmpty')
@@ -184,7 +184,7 @@ export function BuilderToolbar({
                 <DropdownMenuItem onClick={onExport}>
                   <Download size={14} className="mr-2" /> {t('workspace.exportGraph')}
                 </DropdownMenuItem>
-                {agentId && (
+                {agentId && !studioMode && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => setShowDeploymentHistory(true)}>
@@ -196,7 +196,7 @@ export function BuilderToolbar({
             </DropdownMenu>
 
             {/* Toggle Execution Panel */}
-            {!showExecutionPanel && (
+            {!studioMode && !showExecutionPanel && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -234,98 +234,124 @@ export function BuilderToolbar({
               </Popover>
             )}
 
-            {/* Deploy Dropdown */}
-            <DropdownMenu>
-              <div className="group flex rounded-md shadow-sm transition-all hover:shadow">
-                {/* Main Deploy Action Button */}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
+            {studioMode ? (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onOpenRelease}
+                  disabled={!onOpenRelease}
+                  className="h-7 gap-1.5 px-2.5"
+                >
+                  <Rocket size={13} />
+                  <span>{t('agents.studio.stages.release', { defaultValue: 'Release' })}</span>
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={onOpenTestLab}
+                  disabled={!canEdit || !onOpenTestLab}
+                  className="h-7 gap-1.5 rounded-md px-3 text-base font-medium shadow-sm transition-all hover:shadow"
+                >
+                  <Play size={13} className="fill-current" />
+                  <span>{t('agents.studio.stages.testLab', { defaultValue: 'Test Lab' })}</span>
+                </Button>
+              </>
+            ) : (
+              <>
+                {/* Deploy Dropdown */}
+                <DropdownMenu>
+                  <div className="group flex rounded-md shadow-sm transition-all hover:shadow">
+                    {/* Main Deploy Action Button */}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <Button
+                            size="sm"
+                            onClick={handleDeploy}
+                            disabled={isDeploying || nodesCount === 0 || !canAdmin}
+                            className={cn(
+                              'h-7 gap-1.5 rounded-r-none px-3 text-base font-medium transition-all',
+                              isDeployed
+                                ? 'border border-[var(--status-success-border)] border-r-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success-strong)] hover:bg-[var(--status-success-bg)]'
+                                : 'border border-[var(--border)] border-r-black/10 bg-[var(--surface-2)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)]',
+                            )}
+                            style={{ borderRightWidth: '1px' }}
+                          >
+                            {isDeploying ? (
+                              <Loader2 size={13} className="animate-spin" />
+                            ) : (
+                              <Rocket size={13} strokeWidth={2} />
+                            )}
+                            <span>{getDeployText()}</span>
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">{getDeployTooltip()}</TooltipContent>
+                    </Tooltip>
+
+                    {/* Dropdown Trigger */}
+                    <DropdownMenuTrigger asChild>
                       <Button
                         size="sm"
-                        onClick={handleDeploy}
-                        disabled={isDeploying || nodesCount === 0 || !canAdmin}
                         className={cn(
-                          'h-7 gap-1.5 rounded-r-none px-3 text-base font-medium transition-all',
+                          'h-7 rounded-l-none px-1 transition-all',
                           isDeployed
-                            ? 'border border-[var(--status-success-border)] border-r-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success-strong)] hover:bg-[var(--status-success-bg)]'
-                            : 'border border-[var(--border)] border-r-black/10 bg-[var(--surface-2)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)]',
+                            ? 'border border-l-0 border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success-strong)] hover:bg-[var(--status-success-bg)]'
+                            : 'border border-l-0 border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)]',
                         )}
-                        style={{ borderRightWidth: '1px' }}
+                        aria-label={t('workspace.deployOptions', { defaultValue: 'Deploy options' })}
                       >
-                        {isDeploying ? (
-                          <Loader2 size={13} className="animate-spin" />
-                        ) : (
-                          <Rocket size={13} strokeWidth={2} />
-                        )}
-                        <span>{getDeployText()}</span>
+                        <ChevronDown size={14} />
                       </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">{getDeployTooltip()}</TooltipContent>
-                </Tooltip>
+                    </DropdownMenuTrigger>
+                  </div>
 
-                {/* Dropdown Trigger */}
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size="sm"
-                    className={cn(
-                      'h-7 rounded-l-none px-1 transition-all',
-                      isDeployed
-                        ? 'border border-l-0 border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success-strong)] hover:bg-[var(--status-success-bg)]'
-                        : 'border border-l-0 border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)]',
+                  <DropdownMenuContent align="end" side="bottom" sideOffset={8}>
+                    <DropdownMenuItem onClick={handleDeploy} disabled={isDeploying || nodesCount === 0 || !canAdmin}>
+                      <Rocket size={14} className="mr-2" />
+                      {getDeployText()}
+                    </DropdownMenuItem>
+                    {agentId && (
+                      <DropdownMenuItem onClick={() => setShowApiAccess(true)}>
+                        <Terminal size={14} className="mr-2" />
+                        {t('workspace.accessApi', { defaultValue: 'Access API' })}
+                      </DropdownMenuItem>
                     )}
-                    aria-label={t('workspace.deployOptions', { defaultValue: 'Deploy options' })}
-                  >
-                    <ChevronDown size={14} />
-                  </Button>
-                </DropdownMenuTrigger>
-              </div>
+                  </DropdownMenuContent>
+                </DropdownMenu>
 
-              <DropdownMenuContent align="end" side="bottom" sideOffset={8}>
-                <DropdownMenuItem onClick={handleDeploy} disabled={isDeploying || nodesCount === 0 || !canAdmin}>
-                  <Rocket size={14} className="mr-2" />
-                  {getDeployText()}
-                </DropdownMenuItem>
-                {agentId && (
-                  <DropdownMenuItem onClick={() => setShowApiAccess(true)}>
-                    <Terminal size={14} className="mr-2" />
-                    {t('workspace.accessApi', { defaultValue: 'Access API' })}
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Run Button */}
-            <Button
-              size="sm"
-              onClick={toggleRun}
-              disabled={!canEdit}
-              className={cn(
-                'h-7 gap-1.5 rounded-md px-3 text-base font-medium shadow-sm transition-all hover:shadow',
-                isExecuting
-                  ? 'bg-[var(--status-error)] text-white hover:bg-[var(--status-error-hover)]'
-                  : 'bg-primary text-white hover:bg-primary/90',
-              )}
-            >
-              {isExecuting ? (
-                <>
-                  <Square size={13} className="fill-current" />
-                  <span>{t('workspace.stop')}</span>
-                </>
-              ) : (
-                <>
-                  <Play size={13} className="fill-current" />
-                  <span>{runLabel}</span>
-                </>
-              )}
-            </Button>
+                {/* Run Button */}
+                <Button
+                  size="sm"
+                  onClick={toggleRun}
+                  disabled={!canEdit}
+                  className={cn(
+                    'h-7 gap-1.5 rounded-md px-3 text-base font-medium shadow-sm transition-all hover:shadow',
+                    isExecuting
+                      ? 'bg-[var(--status-error)] text-white hover:bg-[var(--status-error-hover)]'
+                      : 'bg-primary text-white hover:bg-primary/90',
+                  )}
+                >
+                  {isExecuting ? (
+                    <>
+                      <Square size={13} className="fill-current" />
+                      <span>{t('workspace.stop')}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play size={13} className="fill-current" />
+                      <span>{t('workspace.run', { defaultValue: 'Run' })}</span>
+                    </>
+                  )}
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </TooltipProvider>
 
       {/* Deployment History Panel */}
-      {agentId && (
+      {!studioMode && agentId && (
         <DeploymentHistoryPanel
           graphId={agentId}
           open={showDeploymentHistory}
@@ -335,7 +361,7 @@ export function BuilderToolbar({
       )}
 
       {/* API Access Dialog */}
-      {agentId && (
+      {!studioMode && agentId && (
         <ApiAccessDialog
           open={showApiAccess}
           onOpenChange={setShowApiAccess}

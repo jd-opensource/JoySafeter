@@ -269,6 +269,7 @@ const en = {
         },
         actions: {
           openCanvas: 'Open Canvas',
+          openTestLab: 'Open Test Lab',
           generateDraft: 'Generate Draft',
           runDraft: 'Run Draft',
           openRelease: 'Open Release',
@@ -282,6 +283,24 @@ const en = {
           savedDraft: 'Draft saved',
           published: 'Published',
           notPublished: 'Not published',
+        },
+        release: {
+          kicker: 'Release lifecycle',
+          title: 'Publish and manage releases',
+          subtitle: 'Release freezes the current draft into a business-ready version. Active releases power chat, tasks, and API usage.',
+          publishDraft: 'Publish Draft',
+          releases: 'Release History',
+          empty: 'No releases yet.',
+        },
+        usage: {
+          kicker: 'Business usage',
+          title: 'Use this Agent in business scenarios',
+          subtitleReady: 'The active release can now be connected to chat, tasks, API calls, and business workflows.',
+          subtitleNoRelease: 'Publish and activate a release before connecting this Agent to business usage.',
+          chat: 'Chat',
+          chatDesc: 'Start conversations against the active release.',
+          tasks: 'Tasks and workflows',
+          tasksDesc: 'Attach this Agent to task execution and operational flows.',
         },
       },
       prompt: {
