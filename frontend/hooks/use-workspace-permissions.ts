@@ -111,11 +111,11 @@ export function useWorkspacePermissions(workspaceId: string | null): UseWorkspac
     const userId = session?.user?.id || ''
     const userName = session?.user?.name || null
 
-    if (!userEmail) {
-      throw new Error('User session not found')
+    if (!userEmail || !workspaceId) {
+      return null
     }
 
-    return () => fetchMyPermission(workspaceId!, userEmail, userId, userName)
+    return () => fetchMyPermission(workspaceId, userEmail, userId, userName)
   }, [workspaceId, session])
 
   const {
@@ -125,7 +125,7 @@ export function useWorkspacePermissions(workspaceId: string | null): UseWorkspac
     refetch: queryRefetch,
   } = useQuery({
     queryKey: [...workspacePermissionKeys.detail(workspaceId || ''), 'my-permission'],
-    queryFn: fetchFn,
+    queryFn: fetchFn ?? (() => Promise.reject(new Error('disabled'))),
     enabled: !!workspaceId && !!session?.user?.email,
     staleTime: 60 * 1000,
     gcTime: 5 * 60 * 1000,

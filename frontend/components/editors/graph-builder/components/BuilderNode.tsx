@@ -1,7 +1,6 @@
 'use client'
 
 import { Bot, Loader2, Zap, Layers, Copy, Trash2, PauseCircle, ArrowRight } from 'lucide-react'
-import { useParams } from 'next/navigation'
 import React, { memo, useState, useMemo } from 'react'
 import { Handle, Position } from 'reactflow'
 
@@ -19,9 +18,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useToast } from '@/hooks/use-toast'
 import { useModels } from '@/hooks/queries/models'
 import { useBuiltinTools } from '@/hooks/queries/tools'
-import { useUserPermissions } from '@/hooks/use-user-permissions'
-import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
 import { useTranslation } from '@/lib/i18n'
+import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
 import { cn } from '@/lib/utils'
 
 import { nodeRegistry, type FieldSchema } from '../services/nodeRegistry'
@@ -40,11 +38,8 @@ interface BuilderNodeProps {
 
 const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
   const { t } = useTranslation()
-  const params = useParams()
-  const workspaceId = params.workspaceId as string
   const { toast } = useToast()
-  const { permissions, loading: permissionsLoading } = useWorkspacePermissions(workspaceId)
-  const userPermissions = useUserPermissions(permissions, permissionsLoading, null)
+  const userPermissions = useUserPermissionsContext()
   const activeExecutionNodeId = useBuilderStore((state) => state.activeExecutionNodeId)
   const deleteNode = useBuilderStore((state) => state.deleteNode)
   const duplicateNode = useBuilderStore((state) => state.duplicateNode)

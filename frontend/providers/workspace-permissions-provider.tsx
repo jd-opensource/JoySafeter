@@ -18,7 +18,7 @@
  * - canManageMembers: whether the user can manage members
  * - isOfflineMode: offline mode flag
  *
- * Integrated in workspace layout.tsx as a top-level provider.
+ * Integrated in WorkspaceProvider as an inner provider.
  */
 
 import { useParams } from 'next/navigation'

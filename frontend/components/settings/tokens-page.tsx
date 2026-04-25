@@ -10,6 +10,7 @@ import { TokenList } from '@/components/tokens/TokenList'
 import { usePlatformTokens, useCreateToken } from '@/hooks/queries/platformTokens'
 import type { PlatformTokenCreateResponse } from '@/hooks/queries/platformTokens'
 import { useTranslation } from '@/lib/i18n'
+import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
 
 import { CreateTokenDialog } from './create-token-dialog'
 import { TokenCreatedDialog } from './token-created-dialog'
@@ -17,6 +18,7 @@ import { TokenCreatedDialog } from './token-created-dialog'
 export const TokensPage = () => {
   const { t } = useTranslation()
   const { toast } = useToast()
+  const { canAdmin } = useUserPermissionsContext()
 
   const { data: tokens } = usePlatformTokens()
   const createToken = useCreateToken()
@@ -63,7 +65,7 @@ export const TokensPage = () => {
       <Button
         size="sm"
         onClick={() => setCreateDialogOpen(true)}
-        disabled={(tokens?.length ?? 0) >= 50}
+        disabled={(tokens?.length ?? 0) >= 50 || !canAdmin}
         className="gap-2 rounded-lg"
       >
         <Key className="h-3.5 w-3.5" />

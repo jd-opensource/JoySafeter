@@ -13,7 +13,6 @@ import {
   History,
   Terminal,
 } from 'lucide-react'
-import { useParams } from 'next/navigation'
 import React, { useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -30,6 +29,7 @@ import { versionKeys } from '@/hooks/queries/agentVersions'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
+import { useCurrentWorkspace } from '@/providers/workspace-provider'
 import { deploymentAdapter } from '../services/deploymentAdapter'
 import { useBuilderStore } from '../stores/builderStore'
 import { useExecutionStore } from '../stores/execution/executionStore'
@@ -52,7 +52,7 @@ export function BuilderToolbar({
   agentId,
   nodesCount = 0,
 }: BuilderToolbarProps) {
-  const { workspaceId = '' } = useParams() as { workspaceId: string }
+  const { workspaceId } = useCurrentWorkspace()
   const { t } = useTranslation()
   const { toast } = useToast()
   const queryClient = useQueryClient()

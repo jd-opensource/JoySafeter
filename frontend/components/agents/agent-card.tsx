@@ -12,7 +12,7 @@ import { AgentStatusIndicator } from './agent-status'
 interface AgentCardProps {
   agent: Agent
   onClick: (agent: Agent) => void
-  onEdit: (agent: Agent) => void
+  onEdit?: (agent: Agent) => void
 }
 
 export function AgentCard({ agent, onClick, onEdit }: AgentCardProps) {
@@ -46,18 +46,20 @@ export function AgentCard({ agent, onClick, onEdit }: AgentCardProps) {
 
       {/* Actions */}
       <div className="mt-auto flex items-center gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1.5"
-          onClick={(e) => {
-            e.stopPropagation()
-            onEdit(agent)
-          }}
-        >
-          <Pencil className="h-3.5 w-3.5" />
-          {t('agents.edit')}
-        </Button>
+        {onEdit && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={(e) => {
+              e.stopPropagation()
+              onEdit(agent)
+            }}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            {t('agents.edit')}
+          </Button>
+        )}
       </div>
     </Card>
   )

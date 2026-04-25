@@ -15,9 +15,11 @@ import {
 } from '@/hooks/queries/mcp'
 import { useBuiltinTools } from '@/hooks/queries/tools'
 import { useTranslation } from '@/lib/i18n'
+import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
 
 export function ToolsPage() {
   const { t } = useTranslation()
+  const { canEdit, canAdmin } = useUserPermissionsContext()
   const [showAddMcp, setShowAddMcp] = useState(false)
   const [editingServer, setEditingServer] = useState<McpServer | null>(null)
   const { toast } = useToast()
@@ -96,12 +98,14 @@ export function ToolsPage() {
             {t('settings.toolsAndMcpDescription')}
           </p>
         </div>
-        <Button
-          onClick={() => setShowAddMcp(true)}
-          className="h-9 gap-2 bg-[var(--status-success)] text-xs text-white shadow-lg shadow-[var(--status-success-border)] hover:bg-[var(--status-success-hover)]"
-        >
-          <Plus size={14} /> {t('settings.addMcp')}
-        </Button>
+        {canAdmin && (
+          <Button
+            onClick={() => setShowAddMcp(true)}
+            className="h-9 gap-2 bg-[var(--status-success)] text-xs text-white shadow-lg shadow-[var(--status-success-border)] hover:bg-[var(--status-success-hover)]"
+          >
+            <Plus size={14} /> {t('settings.addMcp')}
+          </Button>
+        )}
       </div>
 
       <div className="flex-1 space-y-6 overflow-y-auto bg-[var(--surface-1)] p-6">
@@ -137,9 +141,9 @@ export function ToolsPage() {
                     key={server.id}
                     server={server}
                     toolCount={server.toolCount}
-                    onEdit={setEditingServer}
-                    onToggleEnabled={handleToggleEnabled}
-                    onDelete={handleDelete}
+                    onEdit={canAdmin ? setEditingServer : undefined}
+                    onToggleEnabled={canEdit ? handleToggleEnabled : undefined}
+                    onDelete={canAdmin ? handleDelete : undefined}
                     isUpdating={updateMcpServer.isPending}
                     isDeleting={deleteMcpServer.isPending}
                   />
@@ -147,7 +151,7 @@ export function ToolsPage() {
               </div>
             )}
 
-            {builtinTools.length === 0 && mcpServers.length === 0 && (
+            {builtinTools.length === 0 && mcpServers.length === 0 && canAdmin && (
               <div
                 className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-1)] p-4 text-center transition-colors hover:border-[var(--text-muted)] hover:bg-[var(--surface-elevated)]"
                 onClick={() => setShowAddMcp(true)}
@@ -166,7 +170,7 @@ export function ToolsPage() {
               </div>
             )}
 
-            {(builtinTools.length > 0 || mcpServers.length > 0) && (
+            {(builtinTools.length > 0 || mcpServers.length > 0) && canAdmin && (
               <div
                 className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-1)] p-4 text-center transition-colors hover:border-[var(--text-muted)] hover:bg-[var(--surface-elevated)]"
                 onClick={() => setShowAddMcp(true)}

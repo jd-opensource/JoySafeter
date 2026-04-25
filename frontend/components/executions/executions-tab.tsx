@@ -10,9 +10,9 @@ import { Card } from '@/components/ui/card'
 import { useAgentRuns, useCancelAgentRun } from '@/hooks/queries/agentRuns'
 import { useTasks } from '@/hooks/queries/tasks'
 import { useReleaseAgentNameMap } from '@/hooks/queries/agents'
-import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { useCurrentWorkspace } from '@/providers/workspace-provider'
 import type { AgentRunStatus } from '@/types/agent-run'
 import { RUN_STATUS_I18N } from '@/types/agent-run'
 
@@ -34,8 +34,7 @@ export function ExecutionsTab() {
   const searchParams = useSearchParams()
   const taskFilter = searchParams.get('task') || undefined
 
-  const { data: workspaces = [] } = useWorkspaces()
-  const workspaceId = workspaces[0]?.id ?? ''
+  const { workspaceId } = useCurrentWorkspace()
 
   const [statusFilter, setStatusFilter] = useState<AgentRunStatus | 'all'>('all')
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)

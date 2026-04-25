@@ -8,6 +8,7 @@ import { Toaster } from '@/components/ui/toaster'
 import { I18nProvider } from '@/providers/i18n-provider'
 import { NotificationProvider } from '@/providers/notification-provider'
 import { QueryProvider } from '@/providers/query-provider'
+import { WorkspaceProvider } from '@/providers/workspace-provider'
 import { ThemeProvider } from '@/providers/theme-provider'
 import '@/styles/globals.css'
 import { ZoomPrevention } from '@/providers/zoom-prevention'
@@ -56,11 +57,13 @@ export default function RootLayout({
           <I18nProvider>
             <QueryProvider>
               <AuthGuard>
+                <WorkspaceProvider>
                 <NotificationProvider>
                   <ZoomPrevention />
                   <AppShell>{children}</AppShell>
                   <Toaster />
                 </NotificationProvider>
+                </WorkspaceProvider>
               </AuthGuard>
             </QueryProvider>
           </I18nProvider>

@@ -66,10 +66,12 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
 
 export default function KnowledgePage() {
   const { t } = useTranslation()
   const { toast } = useToast()
+  const { canEdit, canAdmin } = useUserPermissionsContext()
 
   // State
   const [searchQuery, setSearchQuery] = useState('')
@@ -238,7 +240,7 @@ export default function KnowledgePage() {
               variant="outline"
               size="sm"
               onClick={handleOptimize}
-              disabled={optimizeMutation.isPending || memories.length === 0}
+              disabled={optimizeMutation.isPending || memories.length === 0 || !canAdmin}
               className="h-9 gap-1.5 text-xs"
             >
               {optimizeMutation.isPending ? (
@@ -248,14 +250,16 @@ export default function KnowledgePage() {
               )}
               {t('memory.optimize')}
             </Button>
-            <Button
-              size="sm"
-              onClick={openCreate}
-              className="h-9 gap-1.5 bg-[var(--skill-brand-600)] text-xs shadow-lg shadow-[var(--skill-brand-100)] hover:bg-[var(--skill-brand-700)]"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              {t('memory.addMemory')}
-            </Button>
+            {canEdit && (
+              <Button
+                size="sm"
+                onClick={openCreate}
+                className="h-9 gap-1.5 bg-[var(--skill-brand-600)] text-xs shadow-lg shadow-[var(--skill-brand-100)] hover:bg-[var(--skill-brand-700)]"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {t('memory.addMemory')}
+              </Button>
+            )}
           </div>
         </div>
 
@@ -382,32 +386,34 @@ export default function KnowledgePage() {
                 </div>
 
                 {/* Actions - consistent with McpServerCard */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-[var(--text-muted)] opacity-0 transition-opacity hover:text-[var(--text-primary)] group-hover:opacity-100"
-                      aria-label={t('memory.moreOptions')}
-                    >
-                      <MoreHorizontal size={16} />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => openEdit(memory)}>
-                      <Edit3 size={14} className="mr-2" />
-                      {t('memory.edit')}
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={() => setDeleteConfirmMemory(memory)}
-                      className="text-[var(--status-error)] focus:text-[var(--status-error)]"
-                    >
-                      <Trash2 size={14} className="mr-2" />
-                      {t('memory.delete')}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                {canEdit && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-[var(--text-muted)] opacity-0 transition-opacity hover:text-[var(--text-primary)] group-hover:opacity-100"
+                        aria-label={t('memory.moreOptions')}
+                      >
+                        <MoreHorizontal size={16} />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => openEdit(memory)}>
+                        <Edit3 size={14} className="mr-2" />
+                        {t('memory.edit')}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => setDeleteConfirmMemory(memory)}
+                        className="text-[var(--status-error)] focus:text-[var(--status-error)]"
+                      >
+                        <Trash2 size={14} className="mr-2" />
+                        {t('memory.delete')}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
               </Card>
             ))}
           </div>

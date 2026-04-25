@@ -4,9 +4,9 @@ import { Cpu, Users, Box, Key } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname, useParams } from 'next/navigation'
 
-import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { useCurrentWorkspace } from '@/providers/workspace-provider'
 
 /**
  * Global settings layout (e.g. /settings/models)
@@ -15,8 +15,8 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   const { t } = useTranslation()
   const pathname = usePathname()
   const params = useParams()
-  const { data: workspaces = [] } = useWorkspaces()
-  const workspaceId = (params?.workspaceId as string) || workspaces[0]?.id || ''
+  const { workspaceId: currentWorkspaceId } = useCurrentWorkspace()
+  const workspaceId = (params?.workspaceId as string) || currentWorkspaceId
 
   const navItems = [
     {

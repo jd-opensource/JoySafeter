@@ -6,7 +6,7 @@ import { AgentBuilderTab } from '@/components/agents/agent-builder-tab'
 import { AgentOverviewTab } from '@/components/agents/agent-overview-tab'
 import { ChatPanel } from '@/components/chat/ChatPanel'
 import { AgentSettingsTab } from '@/components/agents/agent-settings-tab'
-import { useWorkspaces } from '@/hooks/queries/workspaces'
+import { useCurrentWorkspace } from '@/providers/workspace-provider'
 
 export default function AgentDetailPage() {
   const params = useParams()
@@ -17,9 +17,7 @@ export default function AgentDetailPage() {
   const tab = searchParams.get('tab') || 'overview'
   const threadId = searchParams.get('thread') || undefined
 
-  const { data: workspaces = [] } = useWorkspaces()
-  const personalWorkspace = workspaces.find((ws) => ws.type === 'personal')
-  const workspaceId = personalWorkspace?.id || ''
+  const { workspaceId } = useCurrentWorkspace()
 
   switch (tab) {
     case 'builder':

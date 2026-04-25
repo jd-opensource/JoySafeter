@@ -11,9 +11,9 @@ import { useAgentRuns } from '@/hooks/queries/agentRuns'
 import { useReleases } from '@/hooks/queries/agentReleases'
 import { useVersion } from '@/hooks/queries/agentVersions'
 import { useThreads } from '@/hooks/queries/threads'
-import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { useCurrentWorkspace } from '@/providers/workspace-provider'
 import { formatRelativeTime } from '@/lib/utils/dateHelpers'
 import type { AgentRunStatus } from '@/types/agent-run'
 import { RUN_STATUS_STYLES } from '@/types/agent-run'
@@ -25,9 +25,7 @@ interface AgentOverviewTabProps {
 
 export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
   const { t } = useTranslation()
-  const { data: workspaces = [] } = useWorkspaces()
-  const personalWorkspace = workspaces.find((ws) => ws.type === 'personal')
-  const workspaceId = personalWorkspace?.id || ''
+  const { workspaceId } = useCurrentWorkspace()
 
   const { data: agent } = useAgent(agentId, workspaceId)
   const draftVersionId = agent?.current_draft_version_id || ''

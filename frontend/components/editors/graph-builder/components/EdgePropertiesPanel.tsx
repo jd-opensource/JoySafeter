@@ -1,7 +1,6 @@
 'use client'
 
 import { X, ArrowRight, Trash2 } from 'lucide-react'
-import { useParams } from 'next/navigation'
 import { useMemo, useState } from 'react'
 import { Node, Edge } from 'reactflow'
 
@@ -19,9 +18,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
-import { useUserPermissions } from '@/hooks/use-user-permissions'
-import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
 import { useTranslation } from '@/lib/i18n'
+import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
 
 import { EdgeData } from '../types/graph'
 
@@ -43,11 +41,8 @@ export function EdgePropertiesPanel({
   onClose,
 }: EdgePropertiesPanelProps) {
   const { t } = useTranslation()
-  const params = useParams()
-  const workspaceId = params.workspaceId as string
   const { toast } = useToast()
-  const { permissions, loading: permissionsLoading } = useWorkspacePermissions(workspaceId)
-  const userPermissions = useUserPermissions(permissions, permissionsLoading, null)
+  const userPermissions = useUserPermissionsContext()
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 

@@ -41,6 +41,7 @@ import { useToast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/utils/toast'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
 import { sandboxService, Sandbox } from '@/services/sandbox-service'
 
 const IMAGE_PRESETS = ['python:3.12-slim', 'python:3.11-slim', 'node:20-slim'] as const
@@ -49,6 +50,7 @@ const CUSTOM_IMAGE_VALUE = '__custom__'
 export const SandboxesPage = () => {
   const { t } = useTranslation()
   const { toast } = useToast()
+  const { canAdmin } = useUserPermissionsContext()
   const [sandboxes, setSandboxes] = useState<Sandbox[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
@@ -434,7 +436,7 @@ export const SandboxesPage = () => {
                                 className="max-w-[140px] cursor-pointer truncate text-left font-mono text-xs text-[var(--text-secondary)] hover:text-[var(--brand-600)] hover:underline"
                                 title={sandbox.image}
                                 onClick={() => openInlineEdit(sandbox)}
-                                disabled={actionLoading === sandbox.id}
+                                disabled={actionLoading === sandbox.id || !canAdmin}
                               >
                                 {sandbox.image}
                               </button>
@@ -466,7 +468,7 @@ export const SandboxesPage = () => {
                         </TableCell>
                         <TableCell className="py-3">
                           <div className="flex justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                            {sandbox.status === 'running' ? (
+                            {canAdmin && (sandbox.status === 'running' ? (
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <Button
@@ -514,53 +516,57 @@ export const SandboxesPage = () => {
                                   {t('settings.sandboxes.restart')}
                                 </TooltipContent>
                               </Tooltip>
+                            ))}
+                            {canAdmin && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 rounded-md text-[var(--brand-600)] hover:bg-[var(--brand-50)] hover:text-[var(--brand-700)]"
+                                    onClick={() =>
+                                      setConfirmDialog({
+                                        type: 'rebuild',
+                                        sandboxId: sandbox.id,
+                                        open: true,
+                                      })
+                                    }
+                                    disabled={actionLoading === sandbox.id}
+                                    aria-label="Rebuild sandbox"
+                                  >
+                                    <RotateCcw className="h-3.5 w-3.5" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="text-xs">
+                                  {t('settings.sandboxes.rebuild')}
+                                </TooltipContent>
+                              </Tooltip>
                             )}
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 rounded-md text-[var(--brand-600)] hover:bg-[var(--brand-50)] hover:text-[var(--brand-700)]"
-                                  onClick={() =>
-                                    setConfirmDialog({
-                                      type: 'rebuild',
-                                      sandboxId: sandbox.id,
-                                      open: true,
-                                    })
-                                  }
-                                  disabled={actionLoading === sandbox.id}
-                                  aria-label="Rebuild sandbox"
-                                >
-                                  <RotateCcw className="h-3.5 w-3.5" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="text-xs">
-                                {t('settings.sandboxes.rebuild')}
-                              </TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 rounded-md text-[var(--status-error)] hover:bg-[var(--status-error-bg)] hover:text-[var(--status-error-hover)]"
-                                  onClick={() =>
-                                    setConfirmDialog({
-                                      type: 'delete',
-                                      sandboxId: sandbox.id,
-                                      open: true,
-                                    })
-                                  }
-                                  disabled={actionLoading === sandbox.id}
-                                  aria-label="Delete sandbox"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="text-xs">
-                                {t('settings.sandboxes.delete')}
-                              </TooltipContent>
-                            </Tooltip>
+                            {canAdmin && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 rounded-md text-[var(--status-error)] hover:bg-[var(--status-error-bg)] hover:text-[var(--status-error-hover)]"
+                                    onClick={() =>
+                                      setConfirmDialog({
+                                        type: 'delete',
+                                        sandboxId: sandbox.id,
+                                        open: true,
+                                      })
+                                    }
+                                    disabled={actionLoading === sandbox.id}
+                                    aria-label="Delete sandbox"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="text-xs">
+                                  {t('settings.sandboxes.delete')}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>

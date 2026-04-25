@@ -11,8 +11,9 @@ import { TaskListView } from '@/components/tasks/task-list-view'
 import { Button } from '@/components/ui/button'
 import { useAgentNameMap } from '@/hooks/queries/agents'
 import { useTasks } from '@/hooks/queries/tasks'
-import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { cn } from '@/lib/utils'
+import { useCurrentWorkspace } from '@/providers/workspace-provider'
+import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
 
 type ViewMode = 'board' | 'list'
 
@@ -37,9 +38,8 @@ export default function AgentTasksPage() {
     [searchParams, router, agentId],
   )
 
-  const { data: workspaces = [], isLoading: isWorkspacesLoading } = useWorkspaces()
-  const personalWorkspace = workspaces.find((ws) => ws.type === 'personal')
-  const workspaceId = personalWorkspace?.id ?? ''
+  const { workspaceId, isLoading: isWorkspacesLoading } = useCurrentWorkspace()
+  const { canEdit } = useUserPermissionsContext()
 
   const { data: allTasks = [], isLoading: isTasksLoading } = useTasks(
     workspaceId,
@@ -100,7 +100,7 @@ export default function AgentTasksPage() {
               </button>
             </div>
 
-            {workspaceId && (
+            {workspaceId && canEdit && (
               <TaskCreateDialog
                 workspaceId={workspaceId}
                 trigger={

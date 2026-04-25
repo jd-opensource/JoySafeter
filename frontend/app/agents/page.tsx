@@ -9,16 +9,16 @@ import { AgentFormDialog } from '@/components/agents/agent-form-dialog'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useAgents, useCreateAgent, useUpdateAgent } from '@/hooks/queries/agents'
-import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useTranslation } from '@/lib/i18n'
+import { useCurrentWorkspace } from '@/providers/workspace-provider'
+import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
 import type { Agent, CreateAgentRequest } from '@/types/agent'
 
 export default function AgentsPage() {
   const { t } = useTranslation()
   const router = useRouter()
-  const { data: workspaces = [] } = useWorkspaces()
-  const personalWorkspace = workspaces.find((ws) => ws.type === 'personal')
-  const workspaceId = personalWorkspace?.id || ''
+  const { workspaceId } = useCurrentWorkspace()
+  const { canEdit } = useUserPermissionsContext()
 
   const { data: agents = [], isLoading } = useAgents(workspaceId)
   const createMutation = useCreateAgent()
@@ -67,10 +67,12 @@ export default function AgentsPage() {
             <Bot className="h-5 w-5 text-[var(--skill-brand-600)]" />
             <h1 className="text-lg font-semibold text-[var(--text-primary)]">{t('agents.title')}</h1>
           </div>
-          <Button size="sm" className="gap-1.5" onClick={handleCreate}>
-            <Plus className="h-4 w-4" />
-            {t('agents.newAgent')}
-          </Button>
+          {canEdit && (
+            <Button size="sm" className="gap-1.5" onClick={handleCreate}>
+              <Plus className="h-4 w-4" />
+              {t('agents.newAgent')}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -90,10 +92,12 @@ export default function AgentsPage() {
               {t('agents.emptyTitle')}
             </h2>
             <p className="mt-1 text-sm text-[var(--text-muted)]">{t('agents.emptyDescription')}</p>
-            <Button size="sm" className="mt-4 gap-1.5" onClick={handleCreate}>
-              <Plus className="h-4 w-4" />
-              {t('agents.newAgent')}
-            </Button>
+            {canEdit && (
+              <Button size="sm" className="mt-4 gap-1.5" onClick={handleCreate}>
+                <Plus className="h-4 w-4" />
+                {t('agents.newAgent')}
+              </Button>
+            )}
           </Card>
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -102,7 +106,7 @@ export default function AgentsPage() {
                 key={agent.id}
                 agent={agent}
                 onClick={handleNavigate}
-                onEdit={handleEdit}
+                onEdit={canEdit ? handleEdit : undefined}
               />
             ))}
           </div>

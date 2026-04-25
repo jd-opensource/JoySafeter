@@ -14,9 +14,10 @@ import { TaskListView } from '@/components/tasks/task-list-view'
 import { Button } from '@/components/ui/button'
 import { useAgentNameMap, useAgents } from '@/hooks/queries/agents'
 import { useTasks } from '@/hooks/queries/tasks'
-import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { useCurrentWorkspace } from '@/providers/workspace-provider'
+import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
 
 type ViewMode = 'board' | 'list'
 
@@ -55,8 +56,8 @@ export default function TasksPage() {
     [searchParams, router],
   )
 
-  const { data: workspaces = [], isLoading: isWorkspacesLoading } = useWorkspaces()
-  const workspaceId = workspaces[0]?.id ?? ''
+  const { workspaceId, isLoading: isWorkspacesLoading } = useCurrentWorkspace()
+  const { canEdit } = useUserPermissionsContext()
 
   const { data: allTasks = [], isLoading: isTasksLoading } = useTasks(workspaceId)
   const { data: agents = [] } = useAgents(workspaceId)
@@ -143,7 +144,7 @@ export default function TasksPage() {
               </button>
             </div>
 
-            {workspaceId && (
+            {workspaceId && canEdit && (
               <TaskCreateDialog
                 workspaceId={workspaceId}
                 trigger={

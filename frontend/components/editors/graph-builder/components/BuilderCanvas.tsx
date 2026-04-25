@@ -1,14 +1,12 @@
 'use client'
 
 import { Plus, Undo2, Redo2, ZoomIn, ZoomOut, Maximize } from 'lucide-react'
-import { useParams } from 'next/navigation'
 import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react'
 import ReactFlow, { Background, BackgroundVariant, useReactFlow } from 'reactflow'
 
 import { useToast } from '@/hooks/use-toast'
-import { useUserPermissions } from '@/hooks/use-user-permissions'
-import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
 import { useTranslation } from '@/lib/i18n'
+import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
 import { useSidebarStore } from '@/stores/sidebar/store'
 
 import { useBuilderStore } from '../stores/builderStore'
@@ -121,11 +119,8 @@ function CustomControls({
 
 export function BuilderCanvas() {
   const { t } = useTranslation()
-  const params = useParams()
-  const workspaceId = params.workspaceId as string
   const { toast } = useToast()
-  const { permissions, loading: permissionsLoading } = useWorkspacePermissions(workspaceId)
-  const userPermissions = useUserPermissions(permissions, permissionsLoading, null)
+  const userPermissions = useUserPermissionsContext()
   const {
     nodes,
     edges,

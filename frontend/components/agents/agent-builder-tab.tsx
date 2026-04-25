@@ -1,7 +1,7 @@
 'use client'
 
 import { useAgent } from '@/hooks/queries/agents'
-import { useWorkspaces } from '@/hooks/queries/workspaces'
+import { useCurrentWorkspace } from '@/providers/workspace-provider'
 import AgentBuilder from '@/components/editors/graph-builder/AgentBuilder'
 
 interface AgentBuilderTabProps {
@@ -9,9 +9,7 @@ interface AgentBuilderTabProps {
 }
 
 export function AgentBuilderTab({ agentId }: AgentBuilderTabProps) {
-  const { data: workspaces = [] } = useWorkspaces()
-  const personalWorkspace = workspaces.find((ws) => ws.type === 'personal')
-  const workspaceId = personalWorkspace?.id || ''
+  const { workspaceId } = useCurrentWorkspace()
 
   const { data: agent } = useAgent(agentId, workspaceId)
 

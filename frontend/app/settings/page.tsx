@@ -2,15 +2,14 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { useWorkspaces } from '@/hooks/queries/workspaces'
+import { useCurrentWorkspace } from '@/providers/workspace-provider'
 
 /**
  * Main settings page - redirects to the default settings tab
  */
 export default function SettingsPage() {
   const router = useRouter()
-  const { data: workspaces = [] } = useWorkspaces()
-  const workspaceId = workspaces[0]?.id ?? ''
+  const { workspaceId } = useCurrentWorkspace()
 
   useEffect(() => {
     if (workspaceId) {

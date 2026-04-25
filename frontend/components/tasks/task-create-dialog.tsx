@@ -25,7 +25,6 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { useAgents } from '@/hooks/queries/agents'
 import { useCreateTask, useAssignTask } from '@/hooks/queries/tasks'
-import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useTranslation } from '@/lib/i18n'
 import type { TaskPriority } from '@/types/tasks'
 

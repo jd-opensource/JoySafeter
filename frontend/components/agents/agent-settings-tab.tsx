@@ -11,8 +11,9 @@ import { Textarea } from '@/components/ui/textarea'
 import { useAgent, useUpdateAgent } from '@/hooks/queries/agents'
 import { useVersions, useVersion, useFreezeVersion, useUnfreezeVersion } from '@/hooks/queries/agentVersions'
 import { useReleases, useActivateRelease, useRetireRelease } from '@/hooks/queries/agentReleases'
-import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useTranslation } from '@/lib/i18n'
+import { useCurrentWorkspace } from '@/providers/workspace-provider'
+import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
 
 import { ReleaseManager } from './release-manager'
 import { VersionFormDialog } from './version-form-dialog'
@@ -24,9 +25,8 @@ interface AgentSettingsTabProps {
 export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
   const { t } = useTranslation()
 
-  const { data: workspaces = [] } = useWorkspaces()
-  const personalWorkspace = workspaces.find((ws) => ws.type === 'personal')
-  const workspaceId = personalWorkspace?.id || ''
+  const { workspaceId } = useCurrentWorkspace()
+  const { canEdit, canAdmin } = useUserPermissionsContext()
 
   const { data: agent } = useAgent(agentId, workspaceId)
   const updateAgent = useUpdateAgent()
@@ -96,7 +96,7 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
           <h2 className="text-sm font-semibold text-[var(--text-primary)]">
             {t('agents.detail.basicInfo')}
           </h2>
-          {!editing && (
+          {!editing && canEdit && (
             <Button variant="outline" size="sm" onClick={startEditing}>
               <Pencil className="mr-1.5 h-3.5 w-3.5" />
               {t('settings.edit')}
@@ -200,17 +200,19 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
             {t('agents.detail.versionManagement')}
           </h2>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation()
-                setVersionDialogOpen(true)
-              }}
-            >
-              <Plus className="mr-1.5 h-3.5 w-3.5" />
-              {t('agents.detail.createVersion')}
-            </Button>
+            {canEdit && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setVersionDialogOpen(true)
+                }}
+              >
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                {t('agents.detail.createVersion')}
+              </Button>
+            )}
             {versionsOpen ? (
               <ChevronDown className="h-4 w-4 text-[var(--text-muted)]" />
             ) : (
@@ -253,7 +255,7 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      {v.status === 'draft' && (
+                      {v.status === 'draft' && canAdmin && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -272,7 +274,7 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
                             : t('agents.detail.freezeVersion')}
                         </Button>
                       )}
-                      {v.status === 'frozen' && (
+                      {v.status === 'frozen' && canAdmin && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -313,17 +315,19 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
             {t('agents.detail.releaseManagement')}
           </h2>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation()
-                setReleaseDialogOpen(true)
-              }}
-            >
-              <Rocket className="mr-1.5 h-3.5 w-3.5" />
-              {t('agents.detail.publishRelease')}
-            </Button>
+            {canAdmin && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setReleaseDialogOpen(true)
+                }}
+              >
+                <Rocket className="mr-1.5 h-3.5 w-3.5" />
+                {t('agents.detail.publishRelease')}
+              </Button>
+            )}
             {releasesOpen ? (
               <ChevronDown className="h-4 w-4 text-[var(--text-muted)]" />
             ) : (
@@ -369,7 +373,7 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      {rel.status === 'ready' && agent.active_release_id !== rel.id && (
+                      {rel.status === 'ready' && agent.active_release_id !== rel.id && canAdmin && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -385,7 +389,7 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
                           {t('workspace.deploy')}
                         </Button>
                       )}
-                      {agent.active_release_id === rel.id && (
+                      {agent.active_release_id === rel.id && canAdmin && (
                         <Button
                           size="sm"
                           variant="outline"

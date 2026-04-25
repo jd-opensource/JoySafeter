@@ -6,14 +6,12 @@ import { NeedsAttention } from '@/components/dashboard/needs-attention'
 import { RecentTasks } from '@/components/dashboard/recent-tasks'
 import { useAgents } from '@/hooks/queries/agents'
 import { useTasks } from '@/hooks/queries/tasks'
-import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useTranslation } from '@/lib/i18n'
+import { useCurrentWorkspace } from '@/providers/workspace-provider'
 
 export default function DashboardPage() {
   const { t } = useTranslation()
-  const { data: workspaces = [] } = useWorkspaces()
-  const personalWorkspace = workspaces.find((ws) => ws.type === 'personal')
-  const workspaceId = personalWorkspace?.id || ''
+  const { workspaceId } = useCurrentWorkspace()
 
   const { data: agents = [], isLoading: agentsLoading } = useAgents(workspaceId)
   const { data: tasks = [], isLoading: tasksLoading } = useTasks(workspaceId)

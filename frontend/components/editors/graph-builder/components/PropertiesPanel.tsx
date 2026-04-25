@@ -1,7 +1,6 @@
 'use client'
 
 import { X, AlertCircle, Settings, Hammer, Sparkles } from 'lucide-react'
-import { useParams } from 'next/navigation'
 import React, { useCallback, useMemo } from 'react'
 import { Node, Edge } from 'reactflow'
 
@@ -9,9 +8,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
-import { useUserPermissions } from '@/hooks/use-user-permissions'
-import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
 import { useTranslation } from '@/lib/i18n'
+import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
 import { cn } from '@/lib/utils'
 
 import { nodeRegistry, FieldSchema } from '../services/nodeRegistry'
@@ -114,11 +112,8 @@ export default function PropertiesPanel({
   onClose,
 }: PropertiesPanelProps) {
   const { t } = useTranslation()
-  const params = useParams()
-  const workspaceId = params.workspaceId as string
   const { toast } = useToast()
-  const { permissions, loading: permissionsLoading } = useWorkspacePermissions(workspaceId)
-  const userPermissions = useUserPermissions(permissions, permissionsLoading, null)
+  const userPermissions = useUserPermissionsContext()
   const { onConnect, updateEdge, graphStateFields } = useBuilderStore()
   const nodeData = node?.data as
     | { type: string; label?: string; config?: Record<string, unknown> }

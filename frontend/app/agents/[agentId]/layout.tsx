@@ -10,10 +10,9 @@ import { Button } from '@/components/ui/button'
 import { useAgent } from '@/hooks/queries/agents'
 import { useVersion } from '@/hooks/queries/agentVersions'
 import { hasBuilderSupport } from '@/types/agent'
-import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import { WorkspacePermissionsProvider } from '@/providers/workspace-permissions-provider'
+import { useCurrentWorkspace } from '@/providers/workspace-provider'
 import { useSidebarStore } from '@/stores/sidebar/store'
 
 type TabKey = 'overview' | 'chat' | 'builder' | 'settings'
@@ -24,9 +23,7 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
   const searchParams = useSearchParams()
   const agentId = params.agentId as string
 
-  const { data: workspaces = [] } = useWorkspaces()
-  const personalWorkspace = workspaces.find((ws) => ws.type === 'personal')
-  const workspaceId = personalWorkspace?.id || ''
+  const { workspaceId } = useCurrentWorkspace()
 
   const { data: agent, isLoading } = useAgent(agentId, workspaceId)
 
@@ -64,7 +61,6 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
   }
 
   return (
-    <WorkspacePermissionsProvider workspaceId={workspaceId}>
       <div className="flex h-full flex-col bg-[var(--bg)]">
         {/* Header - Ultra Compact Single Line */}
         <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-elevated)] px-4 py-2 transition-all">
@@ -131,6 +127,5 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
           {children}
         </div>
       </div>
-    </WorkspacePermissionsProvider>
   )
 }

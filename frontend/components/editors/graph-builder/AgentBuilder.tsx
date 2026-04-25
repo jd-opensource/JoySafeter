@@ -20,7 +20,7 @@ import { useAgent } from '@/hooks/queries/agents'
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
 import { computeGraphStateHash } from '@/lib/utils/graphStateHash'
-import { useWorkspaces } from '@/hooks/queries/workspaces'
+import { useCurrentWorkspace } from '@/providers/workspace-provider'
 
 import { BuilderCanvas } from './components/BuilderCanvas'
 import { BuilderSidebarTabs } from './components/BuilderSidebarTabs'
@@ -59,11 +59,10 @@ interface AgentBuilderContentProps {
 const AgentBuilderContent = ({ workspaceIdProp, agentIdProp, versionIdProp }: AgentBuilderContentProps) => {
   const { t } = useTranslation()
   const params = useParams()
-  const { data: workspaces = [] } = useWorkspaces()
-  const personalWorkspace = workspaces.find((ws) => ws.type === 'personal')
+  const { workspaceId: currentWorkspaceId } = useCurrentWorkspace()
 
-  // Use prop if provided, otherwise try URL param, otherwise fall back to personal workspace
-  const workspaceId = workspaceIdProp || (params.workspaceId as string) || personalWorkspace?.id || ''
+  // Use prop if provided, otherwise fall back to current workspace
+  const workspaceId = workspaceIdProp || currentWorkspaceId
   const rawAgentId = agentIdProp || (params.agentId as string | undefined)
   const agentId = rawAgentId && isValidUUID(rawAgentId) ? rawAgentId : null
 
