@@ -18,26 +18,25 @@ import { versionKeys } from '@/hooks/queries/agentVersions'
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
 import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
-import type { Agent } from '@/types/agent'
 import type { RuntimeKind } from '@/types/agent-release'
 
+import { hasVersionContent } from './agent-build-types'
+import type { StageProps } from './agent-build-types'
 import { agentReleaseAdapter } from './agent-release-adapter'
 
-interface AgentReleaseStageProps {
-  agent: Agent
-  canPublishDraft?: boolean
-  versionId?: string
-  workspaceId: string
-  runtimeKind: RuntimeKind
+function deriveRuntimeKind(definitionKind: string | undefined): RuntimeKind {
+  switch (definitionKind) {
+    case 'graph': return 'graph'
+    case 'hybrid': return 'graph'
+    case 'code': return 'sandbox'
+    default: return 'graph'
+  }
 }
 
-export function AgentReleaseStage({
-  agent,
-  canPublishDraft = true,
-  versionId,
-  workspaceId,
-  runtimeKind,
-}: AgentReleaseStageProps) {
+export function AgentReleaseStage({ agent, version, workspaceId }: StageProps) {
+  const versionId = version?.id
+  const runtimeKind = deriveRuntimeKind(version?.definition_kind)
+  const canPublishDraft = version ? hasVersionContent(version) : false
   const { t } = useTranslation()
   const { toast } = useToast()
   const queryClient = useQueryClient()

@@ -6,16 +6,10 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useTranslation } from '@/lib/i18n'
-import type { Agent } from '@/types/agent'
-
+import type { StageProps } from './agent-build-types'
 import { AgentApiAccessDialog } from './agent-api-access-dialog'
 
-interface AgentUsageStageProps {
-  agent: Agent
-  workspaceId: string
-}
-
-export function AgentUsageStage({ agent, workspaceId }: AgentUsageStageProps) {
+export function AgentUsageStage({ agent, workspaceId }: StageProps) {
   const { t } = useTranslation()
   const [apiAccessOpen, setApiAccessOpen] = useState(false)
   const hasActiveRelease = Boolean(agent.active_release_id)
