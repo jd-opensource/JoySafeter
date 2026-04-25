@@ -388,8 +388,8 @@ export function BuilderCanvas({ inspectorMode = 'floating', enableContextMenu = 
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       onContextMenu={(event) => {
-        event.preventDefault()
         if (!enableContextMenu || !userPermissions.canEdit) return
+        event.preventDefault()
         setContextMenu({
           open: true,
           screenX: event.clientX,

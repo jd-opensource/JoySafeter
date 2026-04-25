@@ -76,6 +76,7 @@ export function BuilderToolbar({
   const [showDeploymentHistory, setShowDeploymentHistory] = useState(false)
   const [showApiAccess, setShowApiAccess] = useState(false)
   const [isDeploying, setIsDeploying] = useState(false)
+  const [isAddNodeOpen, setIsAddNodeOpen] = useState(false)
 
   const handleImportClick = () => {
     fileInputRef.current?.click()
@@ -209,8 +210,8 @@ export function BuilderToolbar({
 
           {/* Right: Action Buttons */}
           <div className="flex items-center gap-2">
-            {onAddNode && (
-              <Popover>
+            {onAddNode && canEdit && (
+              <Popover open={isAddNodeOpen} onOpenChange={setIsAddNodeOpen}>
                 <PopoverTrigger asChild>
                   <Button size="sm" variant="outline" className="h-7 gap-1.5 px-2.5">
                     <Plus size={13} />
@@ -218,7 +219,12 @@ export function BuilderToolbar({
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-auto p-0">
-                  <AddNodePalette onSelect={onAddNode} />
+                  <AddNodePalette
+                    onSelect={(node) => {
+                      onAddNode(node)
+                      setIsAddNodeOpen(false)
+                    }}
+                  />
                 </PopoverContent>
               </Popover>
             )}
