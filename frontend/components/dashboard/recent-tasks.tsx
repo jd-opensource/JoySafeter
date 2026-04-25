@@ -26,7 +26,8 @@ export function RecentTasks({ workspaceId, tasks }: RecentTasksProps) {
   const recentTasks = useMemo(
     () =>
       tasks
-        .toSorted((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+        .slice()
+        .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
         .slice(0, 10),
     [tasks],
   )

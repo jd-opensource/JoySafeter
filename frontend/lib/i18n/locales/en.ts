@@ -1486,7 +1486,7 @@ const en = {
       copyToClipboard: 'Copy to clipboard',
       copy: 'Copy',
       // CodeViewer
-      untitled: 'untitled',
+      untitledCode: 'untitled',
       lines: 'lines',
       moreLines: '+{{count}} more lines',
       // ToolCallDetail

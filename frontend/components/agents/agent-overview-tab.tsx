@@ -13,7 +13,9 @@ import { useVersion } from '@/hooks/queries/agentVersions'
 import { useThreads } from '@/hooks/queries/threads'
 import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/utils/dateHelpers'
+import type { AgentRunStatus } from '@/types/agent-run'
 import { RUN_STATUS_STYLES } from '@/types/agent-run'
 import { hasBuilderSupport } from '@/types/agent'
 
@@ -51,13 +53,14 @@ export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
   // Merge runs and threads into a single recent activity list, sorted by time
   const activities = useMemo(() => {
     type ActivityItem =
-      | { kind: 'run'; id: string; label: string; status: string; time: string }
+      | { kind: 'run'; id: string; current_execution_id?: string | null; label: string; status: AgentRunStatus; time: string }
       | { kind: 'thread'; id: string; label: string; status: string; time: string }
 
     const items: ActivityItem[] = [
       ...recentRuns.map((run) => ({
         kind: 'run' as const,
         id: run.id,
+        current_execution_id: run.current_execution_id,
         label: run.goal || t('execution.untitled'),
         status: run.status,
         time: run.started_at || run.created_at || '',

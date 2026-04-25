@@ -1461,7 +1461,7 @@ const zh = {
       copyToClipboard: 'Copy to clipboard',
       copy: '复制',
       // CodeViewer
-      untitled: '未命名',
+      untitledCode: '未命名',
       lines: '行',
       moreLines: '+{{count}} 更多行',
       // ToolCallDetail
