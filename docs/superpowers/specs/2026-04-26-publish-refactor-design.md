@@ -29,7 +29,9 @@
 
 当前 `AgentVersionService.freeze_version()` 和 `AgentReleaseService.publish_release()` 各自在方法末尾调用 `self.commit()`。多步操作被拆成多个独立事务，freeze 成功但 publish 失败会导致脏状态。
 
-改造后：sub-service 方法只做 validate + repo 操作 + flush，永远不 commit。commit 权统一在编排层（`AgentPublishService`）或 API route handler。
+改造后：被 `AgentPublishService` 编排的 sub-service 方法只做 validate + repo 操作 + flush，不 commit。commit 权统一在编排层（`AgentPublishService`）。
+
+**scope 边界**：仅移除被编排的方法（`freeze_version`, `publish_release`, `activate_release`, `retire_release`）中的 `self.commit()`。不参与编排的独立方法（如 `AgentVersionService.create_version()`, `update_version()`）保留各自的 `self.commit()`，因为它们仍由独立的 API route 直接调用，自身就是事务边界。
 
 ### 新建：AgentPublishService
 
@@ -54,9 +56,12 @@ class AgentPublishService(BaseService):
             await self.version_svc.freeze_version(version.id)
 
         runtime_kind = self._infer_runtime_kind(version.definition_kind)
+        release_data = CreateAgentReleaseRequest(
+            agent_version_id=version.id,
+            runtime_kind=runtime_kind,
+        )
         release = await self.release_svc.publish_release(
-            agent_id, user_id,
-            {"agent_version_id": version.id, "runtime_kind": runtime_kind},
+            agent_id, user_id, release_data,
         )
 
         await self.release_svc.activate_release(agent_id, release.id)
@@ -94,9 +99,13 @@ class AgentPublishService(BaseService):
 
 ### 改造：子 Service 去掉 commit
 
+仅移除被 `AgentPublishService` 编排的方法中的 commit。独立使用的方法保留 commit。
+
 **AgentVersionService：**
 - `freeze_version()` — 删除末尾的 `await self.commit()`
 - `unfreeze_version()` — 整个方法删除（只为前端 rollback hack 存在）
+- `create_version()` — **保留 commit**（由独立 API route 直接调用）
+- `update_version()` — **保留 commit**（由独立 API route 直接调用）
 
 **AgentReleaseService：**
 - `publish_release()` — 删除末尾的 `await self.commit()`
@@ -166,7 +175,7 @@ AgentRelease:  (不存在) → ready
 Agent:         draft → active (active_release_id = new release)
 ```
 
-状态机定义（`definitions.py`）不变。
+状态机定义（`definitions.py`）不变。`VERSION_STATES` 中 `frozen → draft` 的转换路径不再有代码行使，但保留以维持状态机定义的完备性。
 
 ## 前端设计
 
@@ -209,7 +218,7 @@ const agentPublishService = {
 
 ```typescript
 export const publishKeys = {
-  releases: (agentId: string) => ['agents', agentId, 'releases'] as const,
+  releases: (agentId: string) => [...agentKeys.all(agentId), 'releases'] as const,
 }
 
 export function useReleaseHistory(agentId: string, workspaceId: string) {
@@ -259,7 +268,7 @@ export function useRetireRelease() {
 
 如果 `agentReleases.ts` 中只剩 `useReleases` 和 `useRetireRelease`，且 `useRetireRelease` 已移到 `agentPublish.ts`，则整个文件可评估删除或仅保留 `releaseKeys`（如果其他模块还在引用）。同理 `agentVersionService.ts` 中 freeze/unfreeze 删除后如果 `list`/`get`/`create`/`update` 仍被使用则保留。
 
-### 重写文件（8个）
+### 重写文件（9个）
 
 **1. `agent-release-stage.tsx`**
 
@@ -319,6 +328,12 @@ export function useRetireRelease() {
 **8. `agent-build-stages.test.tsx`**
 
 更新所有 mocks：`agentReleases` → `agentPublish`，删除 `agent-release-adapter` mock。
+
+**9. `AgentBuilder.tsx`**
+
+当前 `AgentBuilder.tsx` 导入 `useUnfreezeVersion`，在用户进入 graph builder 时如果发现 version 是 frozen 状态会自动 unfreeze。删除 `/unfreeze` 端点后，这个逻辑不再需要也不再可能。处理方式：
+- 删除 `useUnfreezeVersion` 导入和相关 `useEffect` 块
+- 不需要替代逻辑 — publish 会 freeze 当前 draft 并创建 release，但 `current_draft_version` 指向的 version 被 freeze 后不可编辑。因此 publish 后需要检查：如果用户想继续编辑，应该由 `AgentVersionService.create_version()` 创建一个新的 draft version（现有逻辑可能已经处理了这一点，实现时需确认）。
 
 ### i18n 变更
 
