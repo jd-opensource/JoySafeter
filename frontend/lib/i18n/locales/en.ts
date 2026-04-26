@@ -956,6 +956,7 @@ const en = {
       // Properties Panel
       general: 'General',
       displayName: 'Display Name',
+      behavior: 'Behavior',
       capabilities: 'Capabilities',
       knowledgeMemory: 'Knowledge & Memory',
       enableLongTermMemory: 'Enable Long-term Memory',

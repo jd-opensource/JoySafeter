@@ -113,10 +113,14 @@ class AgentReleaseService(BaseService):
         )
         assert updated is not None
 
-        # If this was the active release, clear it
+        # If this was the active release, clear it and revert status
         agent = await self.agent_repo.get(agent_id)
         if agent and agent.active_release_id == release_id:
-            await self.agent_repo.update(agent_id, {"active_release_id": None})
+            update_data: dict = {"active_release_id": None}
+            if agent.status == "active":
+                AGENT_SM.validate(agent.status, "draft")
+                update_data["status"] = "draft"
+            await self.agent_repo.update(agent_id, update_data)
 
         logger.info(f"Retired release {release_id} for agent {agent_id}")
         return updated

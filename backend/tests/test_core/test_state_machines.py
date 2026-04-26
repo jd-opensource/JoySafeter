@@ -25,6 +25,27 @@ class TestStateMachineEngine:
             RUN_SM.validate("nonexistent", "running")
 
 
+class TestAgentStateMachine:
+    def test_draft_to_active(self):
+        AGENT_SM.validate("draft", "active")
+
+    def test_active_to_draft(self):
+        AGENT_SM.validate("active", "draft")
+
+    def test_active_to_archived(self):
+        AGENT_SM.validate("active", "archived")
+
+    def test_draft_to_archived(self):
+        AGENT_SM.validate("draft", "archived")
+
+    def test_archived_to_draft(self):
+        AGENT_SM.validate("archived", "draft")
+
+    def test_archived_to_active_is_invalid(self):
+        with pytest.raises(InvalidTransition):
+            AGENT_SM.validate("archived", "active")
+
+
 class TestRunStateMachine:
     def test_pending_can_run_or_cancel(self):
         RUN_SM.validate("pending", "running")

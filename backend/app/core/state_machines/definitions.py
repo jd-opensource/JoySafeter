@@ -16,7 +16,7 @@ from __future__ import annotations
 # ---------------------------------------------------------------------------
 AGENT_STATES: dict[str, set[str]] = {
     "draft":    {"active", "archived"},
-    "active":   {"archived"},
+    "active":   {"draft", "archived"},
     "archived": {"draft"},
 }
 AGENT_TERMINAL: set[str] = set()  # archived can be reverted

@@ -1,6 +1,6 @@
 'use client'
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState, useCallback, useMemo } from 'react'
 
 import { useToast } from '@/hooks/use-toast'
@@ -8,6 +8,12 @@ import { useTranslation } from '@/lib/i18n'
 import { agentVersionService } from '@/services/agentVersionService'
 
 import { agentPublishService } from '@/services/agentPublishService'
+import {
+  publishKeys,
+  useRollbackAgent,
+  useRetireRelease,
+} from '@/hooks/queries/agentPublish'
+import { STALE_TIME } from '@/hooks/queries/constants'
 import { useGraphStore } from '../stores/graphStore'
 
 export interface GraphDeploymentVersion {
@@ -51,8 +57,6 @@ export function useDeploymentHistory(
 ) {
   const { t } = useTranslation()
   const { toast } = useToast()
-  const queryClient = useQueryClient()
-
   const agentId = useGraphStore((state) => state.agentId)
   const workspaceId = useGraphStore((state) => state.workspaceId)
   const rfInstance = useGraphStore((state) => state.rfInstance)
@@ -62,9 +66,10 @@ export function useDeploymentHistory(
   // ── List loading ──────────────────────────────────────────────────────────
 
   const releasesQuery = useQuery({
-    queryKey: ['releases', agentId, workspaceId],
+    queryKey: publishKeys.list(agentId ?? '', workspaceId ?? ''),
     queryFn: () => agentPublishService.list(agentId!, workspaceId!),
     enabled: open && !!agentId && !!workspaceId,
+    staleTime: STALE_TIME.STANDARD,
   })
 
   // Map DeploymentVersion[] → GraphDeploymentVersion[]
@@ -216,21 +221,8 @@ export function useDeploymentHistory(
 
   // ── Mutations ─────────────────────────────────────────────────────────────
 
-  const activateMutation = useMutation({
-    mutationFn: ({ releaseId }: { releaseId: string }) =>
-      agentPublishService.rollback(agentId!, releaseId, workspaceId!),
-    onSuccess: (_data, { releaseId: _releaseId }) => {
-      queryClient.invalidateQueries({ queryKey: ['releases', agentId, workspaceId] })
-    },
-  })
-
-  const retireMutation = useMutation({
-    mutationFn: ({ releaseId }: { releaseId: string }) =>
-      agentPublishService.retire(agentId!, releaseId, workspaceId!),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['releases', agentId, workspaceId] })
-    },
-  })
+  const rollbackMutation = useRollbackAgent()
+  const retireMutation = useRetireRelease()
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -268,7 +260,7 @@ export function useDeploymentHistory(
     if (!releaseId) return
 
     try {
-      await activateMutation.mutateAsync({ releaseId })
+      await rollbackMutation.mutateAsync({ agentId: agentId!, releaseId, workspaceId: workspaceId! })
 
       // Reload canvas state from the activated version's definition_payload
       try {
@@ -325,7 +317,7 @@ export function useDeploymentHistory(
     if (!releaseId) return
 
     try {
-      await retireMutation.mutateAsync({ releaseId })
+      await retireMutation.mutateAsync({ agentId: agentId!, releaseId, workspaceId: workspaceId! })
 
       toast({
         title: t('workspace.deleteVersionSuccess'),
@@ -360,7 +352,7 @@ export function useDeploymentHistory(
     }
 
     try {
-      await retireMutation.mutateAsync({ releaseId })
+      await retireMutation.mutateAsync({ agentId: agentId!, releaseId, workspaceId: workspaceId! })
 
       toast({
         title: t('workspace.undeploySuccess'),
@@ -407,7 +399,7 @@ export function useDeploymentHistory(
     return `${year}-${month}-${day} ${hours}:${minutes}`
   }
 
-  const isReverting = activateMutation.isPending
+  const isReverting = rollbackMutation.isPending
   const isDeleting = retireMutation.isPending
   const isUndeploying = retireMutation.isPending
 

@@ -21,8 +21,6 @@ import { useTranslation } from '@/lib/i18n'
 import { useCurrentWorkspace } from '@/providers/workspace-provider'
 import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
 
-import { VersionFormDialog } from './version-form-dialog'
-
 interface AgentSettingsTabProps {
   agentId: string
 }
@@ -41,7 +39,10 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
     enabled: Boolean(draftVersionId),
   })
 
-  const { data: releases = [], isLoading: releasesLoading } = useReleaseHistory(agentId, workspaceId)
+  const isPublished = Boolean(agent?.active_release_id)
+  const { data: releases = [], isLoading: releasesLoading } = useReleaseHistory(agentId, workspaceId, {
+    enabled: isPublished,
+  })
   const rollbackAgent = useRollbackAgent()
   const retireRelease = useRetireRelease()
 
@@ -51,8 +52,6 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
   const [avatar, setAvatar] = useState('')
 
   const [releasesOpen, setReleasesOpen] = useState(false)
-
-  const [versionDialogOpen, setVersionDialogOpen] = useState(false)
 
   if (!agent) return null
 
@@ -306,13 +305,6 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
         )}
       </Card>
 
-      {/* Dialogs */}
-      <VersionFormDialog
-        open={versionDialogOpen}
-        onOpenChange={setVersionDialogOpen}
-        agentId={agentId}
-        workspaceId={workspaceId}
-      />
     </div>
   )
 }

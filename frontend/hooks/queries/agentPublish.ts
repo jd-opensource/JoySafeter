@@ -12,11 +12,15 @@ export const publishKeys = {
     [...publishKeys.all(agentId), 'list', workspaceId] as const,
 }
 
-export function useReleaseHistory(agentId: string, workspaceId: string) {
+export function useReleaseHistory(
+  agentId: string,
+  workspaceId: string,
+  options?: { enabled?: boolean },
+) {
   return useQuery({
     queryKey: publishKeys.list(agentId, workspaceId),
     queryFn: () => agentPublishService.list(agentId, workspaceId),
-    enabled: !!agentId && !!workspaceId,
+    enabled: !!agentId && !!workspaceId && options?.enabled !== false,
     staleTime: STALE_TIME.STANDARD,
   })
 }

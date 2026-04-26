@@ -1,11 +1,10 @@
 'use client'
 
-import { X, AlertCircle, Settings, Hammer, Sparkles } from 'lucide-react'
+import { X, AlertCircle, MessageSquare, Hammer, Sparkles } from 'lucide-react'
 import React, { useCallback, useMemo } from 'react'
 import { Node, Edge } from 'reactflow'
 
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
@@ -197,13 +196,17 @@ export default function PropertiesPanel({
     return pd?.config?.useDeepAgents === true
   })
 
-  const basicFields =
+  const modelField = def?.schema.find((s) => s.key === 'model_name')
+  const behaviorFields =
     def?.schema.filter(
       (s) =>
+        s.key !== 'model_name' &&
         !['enableMemory', 'memory_model_name', 'memoryPrompt', 'description'].includes(s.key) &&
         s.type !== 'toolSelector' &&
-        !(s.type === 'skillSelector' && !s.showWhen),
+        s.type !== 'skillSelector',
     ) || []
+  const deepAgentSkillFields =
+    def?.schema.filter((s) => s.type === 'skillSelector' && s.showWhen) || []
   const toolsFields = def?.schema.filter((s) => s.type === 'toolSelector') || []
   const skillsFields = def?.schema.filter((s) => s.type === 'skillSelector' && !s.showWhen) || []
   const memoryFields =
@@ -221,37 +224,39 @@ export default function PropertiesPanel({
           : 'absolute bottom-[60px] right-[336px] top-[56px] z-50 w-[400px] rounded-2xl border border-[var(--border)] shadow-2xl duration-300 animate-in fade-in slide-in-from-right-10',
       )}
     >
-      {/* Header */}
-      <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface-1)] px-4 py-3.5">
-        <div className="flex items-center gap-3 overflow-hidden text-[var(--text-primary)]">
-          <div
-            className={cn(
-              'shrink-0 rounded-lg border border-[var(--border)] p-1.5 shadow-sm',
-              def?.style.bg,
-              def?.style.color,
-            )}
+      {/* Header — only in standalone (non-embedded) mode */}
+      {!embedded && (
+        <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface-1)] px-4 py-3.5">
+          <div className="flex items-center gap-3 overflow-hidden text-[var(--text-primary)]">
+            <div
+              className={cn(
+                'shrink-0 rounded-lg border border-[var(--border)] p-1.5 shadow-sm',
+                def?.style.bg,
+                def?.style.color,
+              )}
+            >
+              <Icon size={14} />
+            </div>
+            <div className="flex min-w-0 flex-col">
+              <h3 className="truncate text-sm font-bold leading-tight">
+                {nodeData.label || def?.label}
+              </h3>
+              <span className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">
+                {def?.label}
+              </span>
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            className="h-7 w-7 text-[var(--text-disabled)] hover:bg-[var(--surface-2)] hover:text-[var(--text-secondary)]"
+            aria-label={t('workspace.closePanel', { defaultValue: 'Close panel' })}
           >
-            <Icon size={14} />
-          </div>
-          <div className="flex min-w-0 flex-col">
-            <h3 className="truncate text-sm font-bold leading-tight">
-              {nodeData.label || def?.label}
-            </h3>
-            <span className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">
-              {def?.label}
-            </span>
-          </div>
+            <X size={16} />
+          </Button>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onClose}
-          className="h-7 w-7 text-[var(--text-disabled)] hover:bg-[var(--surface-2)] hover:text-[var(--text-secondary)]"
-          aria-label={t('workspace.closePanel', { defaultValue: 'Close panel' })}
-        >
-          <X size={16} />
-        </Button>
-      </div>
+      )}
 
       {/* Body */}
       <div className="custom-scrollbar flex-1 space-y-6 overflow-y-auto p-4 pb-12">
@@ -281,48 +286,45 @@ export default function PropertiesPanel({
           </div>
         )}
 
-        {/* Section: General */}
-        <div className="space-y-4">
-          <SectionHeader icon={Settings} title={t('workspace.general')} />
+        {/* Model Selection — top-level, most important */}
+        {modelField && (
+          <SchemaFieldRenderer
+            key={modelField.key}
+            schema={modelField}
+            value={
+              config.provider_name
+                ? `${config.provider_name}:${config.model_name || ''}`
+                : config.model_name
+            }
+            onChange={(val) => updateConfig(modelField.key, val)}
+            canEdit={userPermissions.canEdit}
+            t={t}
+            onModelChange={updateModelConfig}
+            nodes={nodes}
+            edges={edges}
+            currentNodeId={node.id}
+            onCreateEdge={undefined}
+            graphStateFields={graphStateFields}
+          />
+        )}
+
+        {/* Section: Behavior */}
+        {behaviorFields.length > 0 && (
           <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                {t('workspace.displayName')}
-              </Label>
-              <Input
-                value={nodeData.label || ''}
-                onChange={(e) => {
-                  if (!userPermissions.canEdit) {
-                    toast({
-                      title: t('workspace.noPermission'),
-                      description: t('workspace.cannotEditNode'),
-                      variant: 'destructive',
-                    })
-                    return
-                  }
-                  onUpdate(node.id, { label: e.target.value, config })
-                }}
-                disabled={!userPermissions.canEdit}
-                className="h-8 text-xs font-medium"
-              />
-            </div>
-            {basicFields
+            <SectionHeader
+              icon={MessageSquare}
+              title={t('workspace.behavior', { defaultValue: 'Behavior' })}
+            />
+            {behaviorFields
               .filter((field) => shouldShowField(field, config))
               .map((field) => (
                 <SchemaFieldRenderer
                   key={field.key}
                   schema={field}
-                  value={
-                    field.key === 'model_name' && config.provider_name
-                      ? `${config.provider_name}:${config.model_name || ''}`
-                      : field.key === 'memory_model_name' && config.memory_provider_name
-                        ? `${config.memory_provider_name}:${config.memory_model_name || ''}`
-                        : config[field.key]
-                  }
+                  value={config[field.key]}
                   onChange={(val) => updateConfig(field.key, val)}
                   canEdit={userPermissions.canEdit}
                   t={t}
-                  onModelChange={field.key === 'model_name' ? updateModelConfig : undefined}
                   nodes={nodes}
                   edges={edges}
                   currentNodeId={node.id}
@@ -331,6 +333,30 @@ export default function PropertiesPanel({
                 />
               ))}
 
+            {/* DeepAgents conditional fields — indented */}
+            {deepAgentSkillFields.filter((f) => shouldShowField(f, config)).length > 0 && (
+              <div className="space-y-4 border-l-2 border-[var(--brand-100)] pl-4 duration-300 animate-in slide-in-from-top-2">
+                {deepAgentSkillFields
+                  .filter((f) => shouldShowField(f, config))
+                  .map((field) => (
+                    <SchemaFieldRenderer
+                      key={field.key}
+                      schema={field}
+                      value={config[field.key]}
+                      onChange={(val) => updateConfig(field.key, val)}
+                      canEdit={userPermissions.canEdit}
+                      t={t}
+                      nodes={nodes}
+                      edges={edges}
+                      currentNodeId={node.id}
+                      onCreateEdge={undefined}
+                      graphStateFields={graphStateFields}
+                    />
+                  ))}
+              </div>
+            )}
+
+            {/* SubAgent description — when parent uses DeepAgents */}
             {hasParentWithDeepAgents && descriptionField && (
               <div className="space-y-1.5 border-l-2 border-[var(--brand-200)] pl-4 duration-300 animate-in slide-in-from-top-2">
                 <SchemaFieldRenderer
@@ -348,7 +374,7 @@ export default function PropertiesPanel({
               </div>
             )}
           </div>
-        </div>
+        )}
 
         {/* Section: Tools */}
         <FieldListSection
@@ -395,14 +421,12 @@ export default function PropertiesPanel({
         />
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between border-t border-[var(--border)] bg-[var(--surface-2)] px-4 py-2 font-mono text-xs text-[var(--text-muted)]">
-        <span className="truncate">TYPE: {nodeData.type}</span>
-        <span className="flex items-center gap-1">
-          <div className="h-1.5 w-1.5 rounded-full bg-[var(--status-success)]" />{' '}
-          {t('workspace.synced')}
-        </span>
-      </div>
+      {/* Footer — only in standalone (non-embedded) mode */}
+      {!embedded && (
+        <div className="border-t border-[var(--border)] bg-[var(--surface-2)] px-4 py-1.5 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+          {nodeData.type}
+        </div>
+      )}
     </div>
   )
 }

@@ -43,6 +43,15 @@ class RollbackRequest(PydanticBaseModel):
     release_id: uuid.UUID
 
 
+class PublishAgentResponse(PydanticBaseModel):
+    agent: AgentResponse
+    release: AgentReleaseResponse
+
+
+class RollbackAgentResponse(PydanticBaseModel):
+    agent: AgentResponse
+
+
 router = APIRouter(prefix="/v1/agents", tags=["Agents"])
 
 
@@ -260,29 +269,34 @@ async def retire_release(
 ) -> BaseResponse[AgentReleaseResponse]:
     service = AgentPublishService(db)
     result = await service.retire(agent_id, release_id)
-    return BaseResponse(data=result)
+    return BaseResponse(data=_release_to_response(result["release"]))
 
 
-@router.post("/{agent_id}/publish")
+@router.post("/{agent_id}/publish", response_model=BaseResponse[PublishAgentResponse])
 async def publish_agent(
     agent_id: uuid.UUID,
     current_user: User = require_workspace_role(WorkspaceMemberRole.admin),
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
-):
+) -> BaseResponse[PublishAgentResponse]:
     service = AgentPublishService(db)
     result = await service.publish(agent_id, current_user.id)
-    return BaseResponse(data=result)
+    return BaseResponse(data=PublishAgentResponse(
+        agent=_to_response(result["agent"]),
+        release=_release_to_response(result["release"]),
+    ))
 
 
-@router.post("/{agent_id}/rollback")
+@router.post("/{agent_id}/rollback", response_model=BaseResponse[RollbackAgentResponse])
 async def rollback_agent(
     agent_id: uuid.UUID,
     body: RollbackRequest,
     current_user: User = require_workspace_role(WorkspaceMemberRole.admin),
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
-):
+) -> BaseResponse[RollbackAgentResponse]:
     service = AgentPublishService(db)
     result = await service.rollback(agent_id, body.release_id)
-    return BaseResponse(data=result)
+    return BaseResponse(data=RollbackAgentResponse(
+        agent=_to_response(result["agent"]),
+    ))

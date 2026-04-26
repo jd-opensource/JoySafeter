@@ -115,7 +115,7 @@ function PublishedCard({
             </p>
             {activeRelease && (
               <p className="text-xs text-[var(--text-muted)]">
-                {`版本 ${activeRelease.release_number} · 发布于 ${formatDate(activeRelease.published_at)}`}
+                {`${t('agents.build.release.releaseVersion', { defaultValue: 'Version {{version}}', version: String(activeRelease.release_number) })} · ${t('agents.build.release.publishedAt', { defaultValue: 'Published' })} ${formatDate(activeRelease.published_at)}`}
               </p>
             )}
           </div>
@@ -138,20 +138,21 @@ function ReleaseRow({
   release,
   isActive,
   canAdmin,
-  agentId,
-  workspaceId,
+  onRollback,
+  isRollingBack,
+  onRetire,
+  isRetiring,
   t,
 }: {
   release: AgentRelease
   isActive: boolean
   canAdmin: boolean
-  agentId: string
-  workspaceId: string
+  onRollback: (releaseId: string) => void
+  isRollingBack: boolean
+  onRetire: (releaseId: string) => void
+  isRetiring: boolean
   t: (key: string, opts?: Record<string, string>) => string
 }) {
-  const rollbackAgent = useRollbackAgent()
-  const retireRelease = useRetireRelease()
-
   return (
     <div
       className={`flex flex-col gap-3 rounded-xl border p-3 md:flex-row md:items-center md:justify-between ${
@@ -162,10 +163,13 @@ function ReleaseRow({
     >
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-semibold text-[var(--text-primary)]">
-          {`版本 ${release.release_number}`}
+          {t('agents.build.release.releaseVersion', {
+            defaultValue: 'Version {{version}}',
+            version: String(release.release_number),
+          })}
         </span>
         <span className="text-xs text-[var(--text-muted)]">
-          {`· 发布于 ${formatDate(release.published_at)}`}
+          {`· ${t('agents.build.release.publishedAt', { defaultValue: 'Published' })} ${formatDate(release.published_at)}`}
         </span>
         {isActive && (
           <Badge className="bg-green-600 text-white hover:bg-green-700">
@@ -175,17 +179,14 @@ function ReleaseRow({
       </div>
 
       <div className="flex items-center gap-2">
-        {/* Rollback button — only for non-active, ready releases */}
         {!isActive && release.status === 'ready' && canAdmin && (
           <Button
             size="sm"
             variant="outline"
-            onClick={() =>
-              rollbackAgent.mutate({ agentId, releaseId: release.id, workspaceId })
-            }
-            disabled={rollbackAgent.isPending}
+            onClick={() => onRollback(release.id)}
+            disabled={isRollingBack}
           >
-            {rollbackAgent.isPending ? (
+            {isRollingBack ? (
               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
             ) : (
               <Undo2 className="mr-1.5 h-3.5 w-3.5" />
@@ -194,7 +195,6 @@ function ReleaseRow({
           </Button>
         )}
 
-        {/* Overflow menu with retire action */}
         {canAdmin && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -204,16 +204,14 @@ function ReleaseRow({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
-                onClick={() =>
-                  retireRelease.mutate({ agentId, releaseId: release.id, workspaceId })
-                }
-                disabled={retireRelease.isPending}
+                onClick={() => onRetire(release.id)}
+                disabled={isRetiring}
                 className="text-destructive"
               >
-                {retireRelease.isPending ? (
+                {isRetiring ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : null}
-                退役
+                {t('agents.build.release.retireRelease', { defaultValue: 'Retire' })}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -235,15 +233,21 @@ export function AgentReleaseStage({ agent, version, workspaceId }: StageProps) {
   const canPublishDraft = version ? hasVersionContent(version) : false
   const canPublish = canAdmin && canPublishDraft
 
+  const isPublished = Boolean(agent.active_release_id)
+
   const publishAgent = usePublishAgent()
+  const rollbackAgent = useRollbackAgent()
+  const retireRelease = useRetireRelease()
   const { data: releases = [], isLoading: isLoadingHistory } = useReleaseHistory(
     agent.id,
     workspaceId,
+    { enabled: isPublished },
   )
 
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [pendingRollbackId, setPendingRollbackId] = useState<string | null>(null)
+  const [pendingRetireId, setPendingRetireId] = useState<string | null>(null)
 
-  const isPublished = Boolean(agent.active_release_id)
   const activeRelease = releases.find((r) => r.id === agent.active_release_id)
 
   const handlePublish = () => {
@@ -334,8 +338,22 @@ export function AgentReleaseStage({ agent, version, workspaceId }: StageProps) {
                         release={release}
                         isActive={agent.active_release_id === release.id}
                         canAdmin={canAdmin}
-                        agentId={agent.id}
-                        workspaceId={workspaceId}
+                        onRollback={(releaseId) => {
+                          setPendingRollbackId(releaseId)
+                          rollbackAgent.mutate(
+                            { agentId: agent.id, releaseId, workspaceId },
+                            { onSettled: () => setPendingRollbackId(null) },
+                          )
+                        }}
+                        isRollingBack={pendingRollbackId === release.id}
+                        onRetire={(releaseId) => {
+                          setPendingRetireId(releaseId)
+                          retireRelease.mutate(
+                            { agentId: agent.id, releaseId, workspaceId },
+                            { onSettled: () => setPendingRetireId(null) },
+                          )
+                        }}
+                        isRetiring={pendingRetireId === release.id}
                         t={t}
                       />
                     ))

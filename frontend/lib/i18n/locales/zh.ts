@@ -944,6 +944,7 @@ const zh = {
       // Properties Panel
       general: '常规',
       displayName: '显示名称',
+      behavior: '行为',
       capabilities: '能力',
       knowledgeMemory: '知识与记忆',
       enableLongTermMemory: '启用长期记忆',

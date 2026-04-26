@@ -24,6 +24,7 @@ import { useExecutionStore } from './stores/execution/executionStore'
 import { ExecutionPanelNew as ExecutionPanel } from '@/components/execution/ExecutionPanelNew'
 import { RunInputModal } from './components/RunInputModal'
 import { usePublishAgent } from '@/hooks/queries/agentPublish'
+import { useAgent } from '@/hooks/queries/agents'
 
 interface Props {
   graphId: string
@@ -42,6 +43,7 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
   const setGraphName = useCodeEditorStore((s) => s.setGraphName)
 
   const publishAgent = usePublishAgent()
+  const { data: agent } = useAgent(graphId, workspaceId)
 
   const isExecuting = useExecutionStore((s) => s.isExecuting)
   const showExecutionPanel = useExecutionStore((s) => s.showPanel)
@@ -86,7 +88,7 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
   }
 
   const isDeploying = publishAgent.isPending
-  const isDeployed = publishAgent.isSuccess
+  const isDeployed = Boolean(agent?.active_release_id) || publishAgent.isSuccess
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-[var(--bg)] text-[var(--text-primary)]">
