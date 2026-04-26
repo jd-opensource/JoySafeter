@@ -4,7 +4,7 @@ import { useTranslation } from '@/lib/i18n'
 import { agentRunService } from '@/services/agentRunService'
 import { copilotService } from '@/services/copilotService'
 
-import { useBuilderStore } from '../stores/builderStore'
+import { useGraphStore } from '../stores/graphStore'
 
 import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotState'
 
@@ -28,7 +28,7 @@ export function useCopilotActions({
   selectedModelName,
 }: UseCopilotActionsOptions) {
   const { t } = useTranslation()
-  const { getGraphContext } = useBuilderStore()
+  const { getGraphContext } = useGraphStore()
 
   const handleSendWithInput = useCallback(
     async (userText: string) => {
@@ -60,7 +60,7 @@ export function useCopilotActions({
       actions.clearSession()
 
       const graphContext = getGraphContext()
-      const storeState = useBuilderStore.getState()
+      const storeState = useGraphStore.getState()
       const storeGraphId = storeState.graphId
       const storeAgentId = storeState.agentId
 

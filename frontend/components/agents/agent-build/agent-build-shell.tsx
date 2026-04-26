@@ -1,9 +1,8 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useState, type ReactNode } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
-import { Badge } from '@/components/ui/badge'
 import { useTranslation } from '@/lib/i18n'
 import { useCurrentWorkspace } from '@/providers/workspace-provider'
 import type { Agent, AgentVersion } from '@/types/agent'
@@ -19,11 +18,11 @@ interface AgentBuildShellProps {
 }
 
 export function AgentBuildShell({ agent, version }: AgentBuildShellProps) {
-  const { t } = useTranslation()
   const router = useRouter()
   const searchParams = useSearchParams()
   const surface = useBuilderSurface()
   const { workspaceId } = useCurrentWorkspace()
+  const [toolbarSlot, setToolbarSlot] = useState<ReactNode>(null)
 
   const [activeStageId, setActiveStageId] = useState<BuildStageId>(() => {
     const urlStage = searchParams.get('stage')
@@ -46,26 +45,25 @@ export function AgentBuildShell({ agent, version }: AgentBuildShellProps) {
     version,
     workspaceId,
     navigateToStage,
+    onToolbarSlot: setToolbarSlot,
   }
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-elevated)] px-4 py-2">
+      <header className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-1">
         <BuildStepper
           stages={BUILD_STAGES}
           activeStage={activeStageId}
           onNavigate={navigateToStage}
         />
-        <div className="flex items-center gap-2">
-          <Badge variant={agent.active_release_id ? 'default' : 'outline'}>
-            {agent.active_release_id
-              ? t('agents.build.status.published', { defaultValue: 'Published' })
-              : t('agents.build.status.notPublished', { defaultValue: 'Not Published' })}
-          </Badge>
-        </div>
+        {toolbarSlot}
       </header>
       <main className="min-h-0 flex-1 overflow-hidden">
-        <StageRenderer stageId={activeStageId} surface={surface} stageProps={stageProps} />
+        <StageRenderer
+          stageId={activeStageId}
+          surface={surface}
+          stageProps={stageProps}
+        />
       </main>
     </div>
   )

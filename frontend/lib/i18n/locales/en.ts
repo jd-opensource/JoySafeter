@@ -1777,6 +1777,11 @@ const en = {
         'Warning: Deleting the instance will clear all of its execution history.',
       syncSkillsDesc: 'Manually synchronize skills between the OpenClaw instance and the platform.',
     },
+    graph: {
+      copilot: {
+        placeholder: 'Ask Copilot to build or modify your graph...',
+      },
+    },
   },
 }
 

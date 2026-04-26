@@ -24,7 +24,8 @@ import { useExecutionStore } from './stores/execution/executionStore'
 import { ExecutionPanelNew as ExecutionPanel } from '@/components/execution/ExecutionPanelNew'
 import { RunInputModal } from './components/RunInputModal'
 import { deploymentAdapter } from './services/deploymentAdapter'
-import { useBuilderStore } from './stores/builderStore'
+import { useGraphStore } from './stores/graphStore'
+import { useSaveStore } from './stores/saveStore'
 
 interface Props {
   graphId: string
@@ -42,8 +43,8 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
   const graphName = useCodeEditorStore((s) => s.graphName)
   const setGraphName = useCodeEditorStore((s) => s.setGraphName)
 
-  const deployedAt = useBuilderStore((s) => s.deployedAt)
-  const setDeployedAt = useBuilderStore((s) => s.setDeployedAt)
+  const deployedAt = useSaveStore((s) => s.deployedAt)
+  const setDeployedAt = useSaveStore((s) => s.setDeployedAt)
 
   const isExecuting = useExecutionStore((s) => s.isExecuting)
   const showExecutionPanel = useExecutionStore((s) => s.showPanel)
@@ -69,7 +70,7 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
 
   const handleDeploy = async () => {
     if (isDeploying || !graphId) return
-    const { versionId } = useBuilderStore.getState()
+    const { versionId } = useGraphStore.getState()
     if (!versionId) {
       toast({ title: t('workspace.noVersionToDeploy', { defaultValue: 'No version to deploy' }), variant: 'destructive' })
       return

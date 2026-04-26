@@ -3,14 +3,13 @@
 import AgentBuilder from '@/components/editors/graph-builder/AgentBuilder'
 import type { StageProps } from '@/components/agents/agent-build/agent-build-types'
 
-export function VisualBuilderSurface({ agent, version, workspaceId, navigateToStage }: StageProps) {
+export function VisualBuilderSurface({ agent, version, workspaceId, onToolbarSlot }: StageProps) {
   return (
     <AgentBuilder
       agentId={agent.id}
       workspaceId={workspaceId}
       versionId={version?.id}
-      onOpenTestLab={() => navigateToStage('test-lab')}
-      onOpenRelease={() => navigateToStage('release')}
+      onToolbarSlot={onToolbarSlot}
     />
   )
 }

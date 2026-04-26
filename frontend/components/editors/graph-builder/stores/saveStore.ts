@@ -2,8 +2,10 @@
 
 import { create } from 'zustand'
 
+import { computeGraphStateHash } from '@/lib/utils/graphStateHash'
+
 import { SaveManager, type GraphState as SaveManagerGraphState } from '../utils/saveManager'
-import { useGraphStore } from './graphStore'
+import { useGraphStore, setAutoSaveTrigger } from './graphStore'
 
 interface SaveState {
   isSaving: boolean
@@ -97,19 +99,35 @@ export const useSaveStore = create<SaveState>((set, get) => {
   }
 })
 
-// Expose getInitialState for test resets
-;(useSaveStore as unknown as { getInitialState: () => SaveState }).getInitialState = () => ({
-  isSaving: false,
-  lastAutoSaveTime: null,
-  deployedAt: null,
-  lastSavedStateHash: null,
-  hasPendingChanges: false,
-  saveRetryCount: 0,
-  lastSaveError: null,
-  startAutoSave: useSaveStore.getState().startAutoSave,
-  stopAutoSave: useSaveStore.getState().stopAutoSave,
-  saveNow: useSaveStore.getState().saveNow,
-  autoSave: useSaveStore.getState().autoSave,
-  setDeployedAt: useSaveStore.getState().setDeployedAt,
-  triggerAutoSave: useSaveStore.getState().triggerAutoSave,
+setAutoSaveTrigger(() => {
+  useSaveStore.getState().triggerAutoSave()
 })
+
+// Reactive hasPendingChanges: subscribe to graphStore and recompute on change
+useGraphStore.subscribe((state, prev) => {
+  if (
+    state.nodes === prev.nodes &&
+    state.edges === prev.edges &&
+    state.graphStateFields === prev.graphStateFields &&
+    state.fallbackNodeId === prev.fallbackNodeId
+  ) {
+    return
+  }
+
+  const { lastSavedStateHash } = useSaveStore.getState()
+  const { nodes, edges, graphStateFields, fallbackNodeId, graphId } = state
+
+  if (!graphId && nodes.length === 0 && edges.length === 0) {
+    useSaveStore.setState({ hasPendingChanges: false })
+    return
+  }
+
+  const currentHash = computeGraphStateHash(nodes, edges, graphStateFields, fallbackNodeId)
+  const hasPendingChanges = lastSavedStateHash !== null
+    ? currentHash !== lastSavedStateHash
+    : nodes.length > 0 || edges.length > 0
+  useSaveStore.setState({ hasPendingChanges })
+})
+const saveStoreInitialState = useSaveStore.getState()
+;(useSaveStore as unknown as { getInitialState: () => SaveState }).getInitialState =
+  () => saveStoreInitialState

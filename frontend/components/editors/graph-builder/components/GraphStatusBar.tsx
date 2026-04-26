@@ -5,20 +5,21 @@ import { AlertCircle, Wifi, WifiOff, Loader2, Save } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/lib/i18n'
 
-import { useBuilderStore } from '../stores/builderStore'
+import { useGraphStore } from '../stores/graphStore'
+import { useSaveStore } from '../stores/saveStore'
+import { ZoomControls } from './ZoomControls'
 
 export function GraphStatusBar() {
   const { t } = useTranslation()
   const {
     lastAutoSaveTime,
-    deployedAt,
     hasPendingChanges,
     lastSaveError,
     saveRetryCount,
     isSaving,
-    graphId,
     autoSave,
-  } = useBuilderStore()
+  } = useSaveStore()
+  const graphId = useGraphStore((s) => s.graphId)
 
   const formatTime = (timestamp: number | null): string => {
     if (!timestamp) return ''
@@ -29,32 +30,9 @@ export function GraphStatusBar() {
     return `${hours}:${minutes}:${seconds}`
   }
 
-  const formatPublishedTime = (publishedAt: string | null): string => {
-    if (!publishedAt) return ''
-    const published = new Date(publishedAt)
-    const now = new Date()
-    const diffMs = now.getTime() - published.getTime()
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-
-    if (diffDays === 0) {
-      const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
-      if (diffHours === 0) {
-        const diffMinutes = Math.floor(diffMs / (1000 * 60))
-        return diffMinutes <= 0
-          ? t('workspace.justPublished')
-          : t('workspace.publishedMinutesAgo', { minutes: diffMinutes })
-      }
-      return t('workspace.publishedHoursAgo', { hours: diffHours })
-    }
-    return t('workspace.publishedDaysAgo', { days: diffDays })
-  }
-
-  // Render save status
   const renderSaveStatus = () => {
-    // Check if graph is ready for saving
     const isGraphReady = graphId !== null
 
-    // Network offline status
     if (lastSaveError === 'offline') {
       return (
         <span className="flex items-center gap-1 text-[var(--status-warning)]">
@@ -64,7 +42,6 @@ export function GraphStatusBar() {
       )
     }
 
-    // Currently saving
     if (isSaving) {
       return (
         <span className="flex items-center gap-1 text-primary">
@@ -74,7 +51,6 @@ export function GraphStatusBar() {
       )
     }
 
-    // Save failed with unsaved changes
     if (lastSaveError && hasPendingChanges && saveRetryCount >= 3) {
       return (
         <span className="flex items-center gap-1 text-[var(--status-error)]" title={lastSaveError}>
@@ -84,7 +60,6 @@ export function GraphStatusBar() {
       )
     }
 
-    // Retrying
     if (saveRetryCount > 0 && saveRetryCount < 3) {
       return (
         <span className="text-[var(--status-warning)]">
@@ -93,7 +68,6 @@ export function GraphStatusBar() {
       )
     }
 
-    // Graph not ready for saving
     if (!isGraphReady) {
       return (
         <span className="text-[var(--text-muted)]" title={t('workspace.waiting')}>
@@ -102,7 +76,6 @@ export function GraphStatusBar() {
       )
     }
 
-    // Has unsaved changes
     if (hasPendingChanges) {
       return (
         <span className="flex items-center gap-1.5 text-[var(--text-muted)]">
@@ -120,7 +93,6 @@ export function GraphStatusBar() {
       )
     }
 
-    // Normally display last save time
     if (lastAutoSaveTime) {
       return (
         <span className="flex items-center gap-1">
@@ -134,16 +106,11 @@ export function GraphStatusBar() {
   }
 
   return (
-    <div className="text-xs text-[var(--text-secondary)]">
-      <div className="flex items-center gap-2">
+    <div className="flex items-center justify-between border-t border-[var(--border)] px-3 py-1 text-xs text-[var(--text-secondary)]">
+      <div className="flex items-center">
         {renderSaveStatus()}
-        <span className="text-[var(--text-subtle)]">·</span>
-        {deployedAt ? (
-          <span>{formatPublishedTime(deployedAt)}</span>
-        ) : (
-          <span className="text-[var(--text-muted)]">{t('workspace.unpublished')}</span>
-        )}
       </div>
+      <ZoomControls />
     </div>
   )
 }

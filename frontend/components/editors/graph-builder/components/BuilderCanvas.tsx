@@ -1,130 +1,24 @@
 'use client'
 
-import { Plus, Undo2, Redo2, ZoomIn, ZoomOut, Maximize } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react'
-import ReactFlow, { Background, BackgroundVariant, useReactFlow } from 'reactflow'
+import ReactFlow, { Background, BackgroundVariant } from 'reactflow'
 
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
 import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
-import { useSidebarStore } from '@/stores/sidebar/store'
 
-import { useBuilderStore } from '../stores/builderStore'
+import { useGraphStore } from '../stores/graphStore'
 import { EdgeData } from '../types/graph'
 import { EDGE_COLORS } from '../utils/edgeStyles'
 import { nodeTypes, edgeTypes } from '../utils/reactFlowConfig'
 
-import { EdgePropertiesPanel } from './EdgePropertiesPanel'
 import { CanvasContextMenu } from './CanvasContextMenu'
 import { getContextMenuFlowPosition } from './canvasContextMenuPosition'
-import { GraphStatusBar } from './GraphStatusBar'
-import PropertiesPanel from './PropertiesPanel'
 
 import 'reactflow/dist/style.css'
 
-// Custom Controls Component
-interface CustomControlsProps {
-  past: unknown[]
-  future: unknown[]
-  canEdit: boolean
-  onUndo: () => void
-  onRedo: () => void
-  onPermissionDenied: () => void
-  undoTitle: string
-  redoTitle: string
-  zoomInTitle: string
-  zoomOutTitle: string
-  fitViewTitle: string
-}
-
-function CustomControls({
-  past,
-  future,
-  canEdit,
-  onUndo,
-  onRedo,
-  onPermissionDenied,
-  undoTitle,
-  redoTitle,
-  zoomInTitle,
-  zoomOutTitle,
-  fitViewTitle,
-}: CustomControlsProps) {
-  const { zoomIn, zoomOut, fitView } = useReactFlow()
-
-  const handleUndo = () => {
-    if (!canEdit) {
-      onPermissionDenied()
-      return
-    }
-    onUndo()
-  }
-
-  const handleRedo = () => {
-    if (!canEdit) {
-      onPermissionDenied()
-      return
-    }
-    onRedo()
-  }
-
-  return (
-    <div className="absolute bottom-4 left-1/2 z-50 -translate-x-1/2 transform">
-      <div className="flex items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-1 shadow-lg">
-        {/* Zoom Controls */}
-        <button
-          onClick={() => zoomIn()}
-          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--surface-3)] active:bg-[var(--surface-5)]"
-          title={zoomInTitle}
-        >
-          <ZoomIn size={15} className="text-[var(--text-secondary)]" />
-        </button>
-        <button
-          onClick={() => zoomOut()}
-          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--surface-3)] active:bg-[var(--surface-5)]"
-          title={zoomOutTitle}
-        >
-          <ZoomOut size={15} className="text-[var(--text-secondary)]" />
-        </button>
-        <button
-          onClick={() => fitView({ padding: 0.2 })}
-          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--surface-3)] active:bg-[var(--surface-5)]"
-          title={fitViewTitle}
-        >
-          <Maximize size={15} className="text-[var(--text-secondary)]" />
-        </button>
-
-        {/* Divider */}
-        <div className="mx-1 h-5 w-px bg-[var(--surface-5)]" />
-
-        {/* Undo/Redo */}
-        <button
-          onClick={handleUndo}
-          disabled={past.length === 0 || !canEdit}
-          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--surface-3)] active:bg-[var(--surface-5)] disabled:cursor-not-allowed disabled:opacity-40"
-          title={undoTitle}
-        >
-          <Undo2 size={15} className="text-[var(--text-secondary)]" />
-        </button>
-        <button
-          onClick={handleRedo}
-          disabled={future.length === 0 || !canEdit}
-          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--surface-3)] active:bg-[var(--surface-5)] disabled:cursor-not-allowed disabled:opacity-40"
-          title={redoTitle}
-        >
-          <Redo2 size={15} className="text-[var(--text-secondary)]" />
-        </button>
-      </div>
-    </div>
-  )
-}
-
-interface BuilderCanvasProps {
-  inspectorMode?: 'floating' | 'external'
-  enableContextMenu?: boolean
-}
-
-export function BuilderCanvas({ inspectorMode = 'floating', enableContextMenu = false }: BuilderCanvasProps) {
+export function BuilderCanvas() {
   const { t } = useTranslation()
   const { toast } = useToast()
   const userPermissions = useUserPermissionsContext()
@@ -133,8 +27,6 @@ export function BuilderCanvas({ inspectorMode = 'floating', enableContextMenu = 
     edges,
     selectedNodeId,
     selectedEdgeId,
-    past,
-    future,
     onNodesChange,
     onEdgesChange,
     onConnect,
@@ -144,17 +36,11 @@ export function BuilderCanvas({ inspectorMode = 'floating', enableContextMenu = 
     selectEdge,
     deleteNode,
     duplicateNode,
-    updateNodeConfig,
-    updateNodeLabel,
-    updateEdge,
     takeSnapshot,
     undo,
     redo,
     graphId,
-  } = useBuilderStore()
-
-  // Get sidebar state to adjust status bar position
-  const isSidebarCollapsed = useSidebarStore((state) => state.isCollapsed)
+  } = useGraphStore()
 
   const [isDragOver, setIsDragOver] = useState(false)
   const [contextMenu, setContextMenu] = useState<{
@@ -164,8 +50,6 @@ export function BuilderCanvas({ inspectorMode = 'floating', enableContextMenu = 
     flowPosition: { x: number; y: number }
   }>({ open: false, screenX: 0, screenY: 0, flowPosition: { x: 0, y: 0 } })
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
-
-  const selectedNode = nodes.find((n) => n.id === selectedNodeId)
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -182,7 +66,7 @@ export function BuilderCanvas({ inspectorMode = 'floating', enableContextMenu = 
       // Undo: Ctrl+Z / Cmd+Z
       if (ctrlOrCmd && event.key === 'z' && !event.shiftKey) {
         event.preventDefault()
-        if (past.length > 0 && userPermissions.canEdit) {
+        if (useGraphStore.getState().past.length > 0 && userPermissions.canEdit) {
           undo()
         }
         return
@@ -191,7 +75,7 @@ export function BuilderCanvas({ inspectorMode = 'floating', enableContextMenu = 
       // Redo: Ctrl+Shift+Z / Cmd+Shift+Z or Ctrl+Y / Cmd+Y
       if ((ctrlOrCmd && event.key === 'z' && event.shiftKey) || (ctrlOrCmd && event.key === 'y')) {
         event.preventDefault()
-        if (future.length > 0 && userPermissions.canEdit) {
+        if (useGraphStore.getState().future.length > 0 && userPermissions.canEdit) {
           redo()
         }
         return
@@ -287,8 +171,6 @@ export function BuilderCanvas({ inspectorMode = 'floating', enableContextMenu = 
       window.removeEventListener('keydown', handleKeyDown)
     }
   }, [
-    past,
-    future,
     selectedNodeId,
     selectedEdgeId,
     nodes,
@@ -330,7 +212,7 @@ export function BuilderCanvas({ inspectorMode = 'floating', enableContextMenu = 
   const onDragLeave = useCallback(() => setIsDragOver(false), [])
 
   const getFlowPositionFromEvent = useCallback((clientX: number, clientY: number) => {
-    const instance = useBuilderStore.getState().rfInstance
+    const instance = useGraphStore.getState().rfInstance
     if (!instance) return { x: 0, y: 0 }
     return getContextMenuFlowPosition(instance.screenToFlowPosition, clientX, clientY)
   }, [])
@@ -355,17 +237,14 @@ export function BuilderCanvas({ inspectorMode = 'floating', enableContextMenu = 
       if (!type || !reactFlowWrapper.current) return
 
       const bounds = reactFlowWrapper.current.getBoundingClientRect()
-      const instance = useBuilderStore.getState().rfInstance
+      const instance = useGraphStore.getState().rfInstance
 
       const position = instance?.screenToFlowPosition({
         x: event.clientX - bounds.left,
         y: event.clientY - bounds.top,
       }) || { x: 0, y: 0 }
 
-      // Agent nodes: model field left empty, user must select in node config
-      const configOverride: Record<string, unknown> | undefined = undefined
-
-      addNode(type, position, label, configOverride)
+      addNode(type, position, label)
     },
     [addNode, userPermissions.canEdit, toast, t],
   )
@@ -388,7 +267,7 @@ export function BuilderCanvas({ inspectorMode = 'floating', enableContextMenu = 
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       onContextMenu={(event) => {
-        if (!enableContextMenu || !userPermissions.canEdit) return
+        if (!userPermissions.canEdit) return
         event.preventDefault()
         setContextMenu({
           open: true,
@@ -404,18 +283,6 @@ export function BuilderCanvas({ inspectorMode = 'floating', enableContextMenu = 
         <div className="flex animate-bounce items-center gap-3 rounded-xl border border-[var(--brand-100)] bg-[var(--surface-elevated)] px-6 py-3 font-medium text-[var(--brand-600)] shadow-xl">
           <Plus size={20} /> <span className="text-lg">{t('workspace.dropToAddNode')}</span>
         </div>
-      </div>
-
-      {/* Status Bar - Top Left */}
-      {/* Adjust position based on sidebar state to avoid overlap */}
-      {/* Sidebar header when collapsed is at left-[190px] with max-w-[232px], but actual content is narrower */}
-      <div
-        className="absolute top-4 z-50"
-        style={{
-          left: isSidebarCollapsed ? '320px' : '16px',
-        }}
-      >
-        <GraphStatusBar />
       </div>
 
       <ReactFlow
@@ -442,87 +309,10 @@ export function BuilderCanvas({ inspectorMode = 'floating', enableContextMenu = 
         proOptions={{ hideAttribution: true }}
       >
         <Background color="var(--canvas-dot)" gap={20} size={1} variant={BackgroundVariant.Dots} />
-        {/* Custom Controls with Zoom + Undo/Redo - Bottom Center */}
-        <CustomControls
-          past={past}
-          future={future}
-          canEdit={userPermissions.canEdit}
-          onUndo={undo}
-          onRedo={redo}
-          onPermissionDenied={() => {
-            toast({
-              title: t('workspace.noPermission'),
-              description: t('workspace.cannotEditNode'),
-              variant: 'destructive',
-            })
-          }}
-          undoTitle={t('workspace.undo')}
-          redoTitle={t('workspace.redo')}
-          zoomInTitle={t('workspace.zoomIn')}
-          zoomOutTitle={t('workspace.zoomOut')}
-          fitViewTitle={t('workspace.fitView')}
-        />
       </ReactFlow>
 
-      {inspectorMode === 'floating' && selectedNode && (
-        <PropertiesPanel
-          node={selectedNode}
-          nodes={nodes}
-          edges={edges}
-          onUpdate={(id, data) => {
-            if (!userPermissions.canEdit) {
-              toast({
-                title: t('workspace.noPermission'),
-                description: t('workspace.cannotEditNode'),
-                variant: 'destructive',
-              })
-              return
-            }
-            takeSnapshot()
-            const nodeData = selectedNode.data as { label?: string }
-            if (data.label !== nodeData.label) updateNodeLabel(id, data.label)
-            if (data.config) updateNodeConfig(id, data.config)
-          }}
-          onClose={() => selectNode(null)}
-        />
-      )}
-
-      {inspectorMode === 'floating' && selectedEdgeId && (
-        <EdgePropertiesPanel
-          edge={edges.find((e) => e.id === selectedEdgeId)!}
-          nodes={nodes}
-          edges={edges}
-          onUpdate={(id, data) => {
-            if (!userPermissions.canEdit) {
-              toast({
-                title: t('workspace.noPermission'),
-                description: t('workspace.cannotEditNode'),
-                variant: 'destructive',
-              })
-              return
-            }
-            takeSnapshot()
-            updateEdge(id, data)
-          }}
-          onDelete={(id) => {
-            if (!userPermissions.canEdit) {
-              toast({
-                title: t('workspace.noPermission'),
-                description: t('workspace.cannotEditNode'),
-                variant: 'destructive',
-              })
-              return
-            }
-            takeSnapshot()
-            onEdgesChange([{ type: 'remove', id }])
-            selectEdge(null)
-          }}
-          onClose={() => selectEdge(null)}
-        />
-      )}
-
       <CanvasContextMenu
-        open={enableContextMenu && contextMenu.open}
+        open={contextMenu.open}
         x={contextMenu.screenX}
         y={contextMenu.screenY}
         onClose={() => setContextMenu((current) => ({ ...current, open: false }))}

@@ -5,7 +5,7 @@ import { useToast } from '@/hooks/use-toast'
 import { createLogger } from '@/lib/logs/console/logger'
 import { agentRunService } from '@/services/agentRunService'
 
-import { useBuilderStore } from '../stores/builderStore'
+import { useGraphStore } from '../stores/graphStore'
 
 import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotState'
 
@@ -96,7 +96,7 @@ export function useCopilotEffects({
   useEffect(() => {
     if (state.currentRunId || refs.isCreatingSessionRef.current) return
 
-    const { agentId, workspaceId } = useBuilderStore.getState()
+    const { agentId, workspaceId } = useGraphStore.getState()
     if (!agentId || !workspaceId) return
 
     const timer = setTimeout(() => {

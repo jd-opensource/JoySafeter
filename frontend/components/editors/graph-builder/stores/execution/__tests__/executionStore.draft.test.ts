@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useExecutionStore } from '../executionStore'
-import { useBuilderStore } from '../../builderStore'
+import { useGraphStore } from '../../graphStore'
 import { executionAdapter } from '../../../services/executionAdapter'
 
 vi.mock('@/lib/ws/executions/executionWsClient', () => ({
@@ -49,7 +49,7 @@ describe('executionStore draft execution', () => {
       treeRoots: [],
       treeNodeMap: new Map(),
     })
-    useBuilderStore.setState({
+    useGraphStore.setState({
       agentId: 'agent-1',
       graphId: 'agent-1',
       versionId: 'version-1',

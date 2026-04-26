@@ -40,7 +40,7 @@ import type {
 } from './types'
 import { executionAdapter } from '../../services/executionAdapter'
 import { agentService as globalAgentService } from '@/services/agentService'
-import { useBuilderStore } from '../builderStore'
+import { useGraphStore } from '../graphStore'
 
 const pendingContentUpdates = new Map<string, string>()
 let contentUpdateScheduled = false
@@ -406,7 +406,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       if (!input.trim()) return
       const openPanel = options.openPanel ?? true
 
-      const builderState = useBuilderStore.getState()
+      const builderState = useGraphStore.getState()
       const agentId = draftInput?.agentId ?? builderState.agentId
       const workspaceId = draftInput?.workspaceId ?? builderState.workspaceId
 

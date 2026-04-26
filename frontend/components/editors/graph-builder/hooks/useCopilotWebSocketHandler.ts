@@ -16,7 +16,7 @@ import { useTranslation } from '@/lib/i18n'
 import type { GraphAction } from '@/types/copilot'
 
 import { hasCurrentMessage } from '../utils/copilotUtils'
-import { useBuilderStore } from '../stores/builderStore'
+import { useGraphStore } from '../stores/graphStore'
 
 import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotState'
 
@@ -140,7 +140,7 @@ export function useCopilotWebSocketHandler({
         if (!refs.isMountedRef.current) return
         refs.isCreatingSessionRef.current = false
         if (graphId) {
-          const { versionId, workspaceId } = useBuilderStore.getState()
+          const { versionId, workspaceId } = useGraphStore.getState()
           if (versionId && workspaceId) {
             queryClient.invalidateQueries({ queryKey: versionKeys.graphState(graphId, versionId, workspaceId) })
           }

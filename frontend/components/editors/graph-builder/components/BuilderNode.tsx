@@ -23,7 +23,7 @@ import { useUserPermissionsContext } from '@/providers/workspace-permissions-pro
 import { cn } from '@/lib/utils'
 
 import { nodeRegistry, type FieldSchema } from '../services/nodeRegistry'
-import { useBuilderStore } from '../stores/builderStore'
+import { useGraphStore } from '../stores/graphStore'
 import { useExecutionStore } from '../stores/execution/executionStore'
 
 interface BuilderNodeProps {
@@ -40,10 +40,10 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
   const { t } = useTranslation()
   const { toast } = useToast()
   const userPermissions = useUserPermissionsContext()
-  const activeExecutionNodeId = useBuilderStore((state) => state.activeExecutionNodeId)
-  const deleteNode = useBuilderStore((state) => state.deleteNode)
-  const duplicateNode = useBuilderStore((state) => state.duplicateNode)
-  const isExecuting = activeExecutionNodeId === id
+  const activeNodeId = useExecutionStore((state) => state.activeNodeId)
+  const deleteNode = useGraphStore((state) => state.deleteNode)
+  const duplicateNode = useGraphStore((state) => state.duplicateNode)
+  const isExecuting = activeNodeId === id
 
   const executionSteps = useExecutionStore((state) => state.steps)
   const nodeExecutionStatus = useMemo(() => {

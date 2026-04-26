@@ -18,12 +18,14 @@ import { create } from 'zustand'
 
 import { generateUUID } from '@/lib/utils/uuid'
 import { createLogger } from '@/lib/logs/console/logger'
+import { useSidebarStore } from '@/stores/sidebar/store'
 
 import { nodeRegistry } from '../services/nodeRegistry'
 import type { StateField } from '../types/graph'
 import { EdgeData } from '../types/graph'
 import { determineEdgeTypeAndRouteKey } from '../utils/connectionUtils'
-import { getEdgeStyleByType } from '../utils/edgeStyles'
+import { getEdgeStyleByType, processEdgesForReactFlow } from '../utils/edgeStyles'
+import { exportGraphToJson, parseImportedGraph } from '../utils/graphImportExport'
 
 const logger = createLogger('GraphStore')
 
@@ -31,6 +33,9 @@ interface HistoryState {
   nodes: Node[]
   edges: Edge[]
 }
+
+let importGraphTimeout1: NodeJS.Timeout | null = null
+let importGraphTimeout2: NodeJS.Timeout | null = null
 
 interface GraphState {
   // Canvas State
@@ -62,6 +67,7 @@ interface GraphState {
   onNodesChange: OnNodesChange
   onEdgesChange: OnEdgesChange
   onConnect: OnConnect
+  setRfInstance: (instance: ReactFlowInstance) => void
 
   // Selection
   selectNode: (id: string | null) => void
@@ -71,10 +77,12 @@ interface GraphState {
   // History
   undo: () => void
   redo: () => void
-  pushHistory: () => void
+  takeSnapshot: () => void
 
   // Identity setters
   setWorkspaceId: (workspaceId: string) => void
+  setGraphId: (graphId: string | null) => void
+  setGraphName: (graphName: string | null) => void
 
   // Direct setters
   setNodes: (nodes: Node[]) => void
@@ -88,7 +96,41 @@ interface GraphState {
     configOverride?: Record<string, unknown>,
   ) => void
   updateNodeData: (id: string, data: Partial<Record<string, unknown>>) => void
-  removeNode: (id: string) => void
+  updateNodeConfig: (id: string, config: Record<string, unknown>) => void
+  updateNodeLabel: (id: string, label: string) => void
+  deleteNode: (id: string) => void
+  duplicateNode: (id: string) => void
+
+  // Edge actions
+  updateEdge: (id: string, data: Partial<EdgeData>) => void
+  getOutgoingEdges: (nodeId: string) => Edge[]
+
+  // Graph persistence
+  loadGraph: () => Promise<void>
+  exportGraph: () => void
+  importGraph: (file: File) => Promise<void>
+
+  // AI integration
+  applyAIChanges: (changes: { nodes?: Node[]; edges?: Edge[] }) => void
+  getGraphContext: () => { nodes: Node[]; edges: { source: string; target: string }[] }
+
+  // State schema
+  addStateField: (field: StateField) => void
+  updateStateField: (name: string, field: Partial<StateField>) => void
+  deleteStateField: (name: string) => void
+  setFallbackNodeId: (nodeId: string | null) => void
+}
+
+export type { GraphState }
+
+let _triggerAutoSave: (() => void) | null = null
+
+export function setAutoSaveTrigger(fn: () => void) {
+  _triggerAutoSave = fn
+}
+
+function triggerAutoSave() {
+  _triggerAutoSave?.()
 }
 
 export const useGraphStore = create<GraphState>((set, get) => ({
@@ -109,13 +151,17 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   isInitializing: false,
 
   onNodesChange: (changes: NodeChange[]) => {
-    if (changes.some((c) => c.type === 'remove')) get().pushHistory()
+    if (changes.some((c) => c.type === 'remove')) get().takeSnapshot()
     set({ nodes: applyNodeChanges(changes, get().nodes) })
+    const isContentChange = changes.some((c) => c.type !== 'select' && c.type !== 'dimensions')
+    if (isContentChange) triggerAutoSave()
   },
 
   onEdgesChange: (changes: EdgeChange[]) => {
-    if (changes.some((c) => c.type === 'remove')) get().pushHistory()
+    if (changes.some((c) => c.type === 'remove')) get().takeSnapshot()
     set({ edges: applyEdgeChanges(changes, get().edges) })
+    const isContentChange = changes.some((c) => c.type !== 'select')
+    if (isContentChange) triggerAutoSave()
   },
 
   onConnect: (connection: Connection) => {
@@ -147,7 +193,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 
       const { style: edgeStyle } = getEdgeStyleByType(edgeType)
 
-      get().pushHistory()
+      get().takeSnapshot()
       set({
         edges: addEdge(
           {
@@ -160,16 +206,20 @@ export const useGraphStore = create<GraphState>((set, get) => ({
           get().edges,
         ),
       })
+
+      triggerAutoSave()
     } catch (error) {
       logger.error('Failed to create connection:', error)
     }
   },
 
+  setRfInstance: (instance) => set({ rfInstance: instance }),
+
   selectNode: (id) => set({ selectedNodeId: id, selectedEdgeId: null }),
   selectEdge: (id) => set({ selectedEdgeId: id, selectedNodeId: null }),
   clearSelection: () => set({ selectedNodeId: null, selectedEdgeId: null }),
 
-  pushHistory: () => {
+  takeSnapshot: () => {
     const { nodes, edges, past } = get()
     const newPast = [...past, { nodes: [...nodes], edges: [...edges] }].slice(-50)
     set({ past: newPast, future: [] })
@@ -185,6 +235,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       nodes: previous.nodes,
       edges: previous.edges,
     })
+    triggerAutoSave()
   },
 
   redo: () => {
@@ -197,14 +248,17 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       nodes: next.nodes,
       edges: next.edges,
     })
+    triggerAutoSave()
   },
 
   setWorkspaceId: (workspaceId) => set({ workspaceId }),
+  setGraphId: (graphId) => set({ graphId }),
+  setGraphName: (graphName) => set({ graphName }),
   setNodes: (nodes) => set({ nodes }),
   setEdges: (edges) => set({ edges }),
 
   addNode: (type, position, label, configOverride) => {
-    get().pushHistory()
+    get().takeSnapshot()
     const def = nodeRegistry.get(type)
     const defaultConfig = { ...def?.defaultConfig }
     if (configOverride) {
@@ -221,6 +275,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       },
     }
     set({ nodes: [...get().nodes, newNode], selectedNodeId: newNode.id })
+    triggerAutoSave()
   },
 
   updateNodeData: (id, data) => {
@@ -232,47 +287,184 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     })
   },
 
-  removeNode: (id) => {
-    get().pushHistory()
+  updateNodeConfig: (id, config) => {
+    set({
+      nodes: get().nodes.map((n) => {
+        if (n.id !== id) return n
+        const nodeData = n.data as { config?: Record<string, unknown> }
+        return { ...n, data: { ...n.data, config: { ...nodeData.config, ...config } } }
+      }),
+    })
+    triggerAutoSave()
+  },
+
+  updateNodeLabel: (id, label) => {
+    set({
+      nodes: get().nodes.map((node) => {
+        if (node.id !== id) return node
+        return { ...node, data: { ...node.data, label } }
+      }),
+    })
+    triggerAutoSave()
+  },
+
+  deleteNode: (id) => {
+    get().takeSnapshot()
     const { nodes, edges } = get()
     set({
       nodes: nodes.filter((n) => n.id !== id),
       edges: edges.filter((e) => e.source !== id && e.target !== id),
       selectedNodeId: null,
     })
+    triggerAutoSave()
+  },
+
+  duplicateNode: (id) => {
+    get().takeSnapshot()
+    const nodeToDuplicate = get().nodes.find((n) => n.id === id)
+    if (!nodeToDuplicate) return
+
+    const sidebarState = useSidebarStore.getState()
+    const isSidebarCollapsed = sidebarState.isCollapsed
+    const sidebarWidth = sidebarState.sidebarWidth || 280
+    const offsetX = 200
+    const offsetY = 50
+    let newX = nodeToDuplicate.position.x + offsetX
+    const newY = nodeToDuplicate.position.y + offsetY
+    const sidebarRightBoundary = isSidebarCollapsed ? 422 : sidebarWidth
+
+    if (newX < sidebarRightBoundary + 50) {
+      newX = sidebarRightBoundary + 50
+    }
+
+    const newNode: Node = {
+      ...nodeToDuplicate,
+      id: generateUUID(),
+      position: { x: newX, y: newY },
+      selected: false,
+    }
+    set({ nodes: [...get().nodes, newNode], selectedNodeId: newNode.id })
+    triggerAutoSave()
+  },
+
+  // Edge actions
+  updateEdge: (id, data) => {
+    set((state) => ({
+      edges: state.edges.map((e) => {
+        if (e.id !== id) return e
+        const updatedData = { ...(e.data || {}), ...data } as EdgeData
+        const edgeType = updatedData.edge_type
+        const { type: edgeTypeForReactFlow, style: edgeStyle } = getEdgeStyleByType(edgeType, e.style)
+        return { ...e, type: edgeTypeForReactFlow, data: updatedData, style: edgeStyle }
+      }),
+    }))
+    triggerAutoSave()
+  },
+
+  getOutgoingEdges: (nodeId) => {
+    return get().edges.filter((e) => e.source === nodeId)
+  },
+
+  // Graph persistence
+  loadGraph: async () => {
+    set({ isInitializing: true })
+    try {
+      const processedEdges = processEdgesForReactFlow([])
+      set({ nodes: [], edges: processedEdges, past: [], future: [], isInitializing: false })
+    } catch {
+      set({ nodes: [], edges: [], past: [], future: [], isInitializing: false })
+    }
+  },
+
+  exportGraph: () => {
+    const { nodes, edges, rfInstance } = get()
+    exportGraphToJson(nodes, edges, rfInstance)
+  },
+
+  importGraph: async (file: File) => {
+    const { nodes, edges, viewport } = await parseImportedGraph(file)
+
+    get().takeSnapshot()
+
+    set({
+      nodes,
+      edges,
+      past: [],
+      future: [],
+      selectedNodeId: null,
+    })
+
+    if (importGraphTimeout1) {
+      clearTimeout(importGraphTimeout1)
+      importGraphTimeout1 = null
+    }
+    if (importGraphTimeout2) {
+      clearTimeout(importGraphTimeout2)
+      importGraphTimeout2 = null
+    }
+
+    importGraphTimeout1 = setTimeout(() => {
+      const { rfInstance } = get()
+      if (viewport && rfInstance) {
+        rfInstance.setViewport(viewport)
+        importGraphTimeout1 = null
+      } else if (rfInstance) {
+        importGraphTimeout2 = setTimeout(() => {
+          rfInstance?.fitView({ padding: 0.2 })
+          importGraphTimeout2 = null
+        }, 100)
+        importGraphTimeout1 = null
+      } else {
+        importGraphTimeout1 = null
+      }
+    }, 100)
+  },
+
+  // AI integration
+  applyAIChanges: ({ nodes, edges }) => {
+    get().takeSnapshot()
+    set((state) => ({
+      nodes: nodes !== undefined ? nodes : state.nodes,
+      edges: edges !== undefined ? edges : state.edges,
+    }))
+  },
+
+  getGraphContext: () => {
+    const { nodes, edges } = get()
+    return {
+      nodes,
+      edges: edges.map((e) => ({ source: e.source, target: e.target })),
+    }
+  },
+
+  // State schema
+  addStateField: (field) => {
+    set((state) => ({ graphStateFields: [...state.graphStateFields, field] }))
+    triggerAutoSave()
+  },
+
+  updateStateField: (name, updates) => {
+    set((state) => ({
+      graphStateFields: state.graphStateFields.map((f) =>
+        f.name === name ? { ...f, ...updates } : f,
+      ),
+    }))
+    triggerAutoSave()
+  },
+
+  deleteStateField: (name) => {
+    set((state) => ({
+      graphStateFields: state.graphStateFields.filter((f) => f.name !== name),
+    }))
+    triggerAutoSave()
+  },
+
+  setFallbackNodeId: (nodeId) => {
+    set({ fallbackNodeId: nodeId })
+    triggerAutoSave()
   },
 }))
 
-// Expose getInitialState for test resets
-;(useGraphStore as unknown as { getInitialState: () => GraphState }).getInitialState = () => ({
-  nodes: [],
-  edges: [],
-  rfInstance: null,
-  selectedNodeId: null,
-  selectedEdgeId: null,
-  past: [],
-  future: [],
-  agentId: null,
-  versionId: null,
-  workspaceId: null,
-  graphId: null,
-  graphName: null,
-  graphStateFields: [],
-  fallbackNodeId: null,
-  isInitializing: false,
-  onNodesChange: useGraphStore.getState().onNodesChange,
-  onEdgesChange: useGraphStore.getState().onEdgesChange,
-  onConnect: useGraphStore.getState().onConnect,
-  selectNode: useGraphStore.getState().selectNode,
-  selectEdge: useGraphStore.getState().selectEdge,
-  clearSelection: useGraphStore.getState().clearSelection,
-  pushHistory: useGraphStore.getState().pushHistory,
-  undo: useGraphStore.getState().undo,
-  redo: useGraphStore.getState().redo,
-  setWorkspaceId: useGraphStore.getState().setWorkspaceId,
-  setNodes: useGraphStore.getState().setNodes,
-  setEdges: useGraphStore.getState().setEdges,
-  addNode: useGraphStore.getState().addNode,
-  updateNodeData: useGraphStore.getState().updateNodeData,
-  removeNode: useGraphStore.getState().removeNode,
-})
+const graphStoreInitialState = useGraphStore.getState()
+;(useGraphStore as unknown as { getInitialState: () => GraphState }).getInitialState =
+  () => graphStoreInitialState

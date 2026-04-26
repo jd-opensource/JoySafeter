@@ -5,7 +5,7 @@
 import { useState, useCallback } from 'react'
 import { Node, Edge } from 'reactflow'
 
-import { useBuilderStore } from '@/components/editors/graph-builder/stores/builderStore'
+import { useGraphStore } from '@/components/editors/graph-builder/stores/graphStore'
 import type { GraphAction } from '@/types/copilot'
 import { createLogger } from '@/lib/logs/console/logger'
 import { ActionProcessor } from '@/lib/utils/copilot/actionProcessor'
@@ -14,11 +14,11 @@ const logger = createLogger('useActionExecutor')
 
 export function useActionExecutor(expectedGraphId?: string) {
   const [executingActions, setExecutingActions] = useState(false)
-  const { applyAIChanges } = useBuilderStore()
+  const { applyAIChanges } = useGraphStore()
 
   const executeActions = useCallback(
     async (actions: GraphAction[]) => {
-      const currentState = useBuilderStore.getState()
+      const currentState = useGraphStore.getState()
       const currentGraphId = currentState.graphId
 
       if (expectedGraphId && currentGraphId !== expectedGraphId) {

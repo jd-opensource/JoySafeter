@@ -8,7 +8,7 @@ import { useTranslation } from '@/lib/i18n'
 import { agentVersionService } from '@/services/agentVersionService'
 
 import { deploymentAdapter } from '../services/deploymentAdapter'
-import { useBuilderStore } from '../stores/builderStore'
+import { useGraphStore } from '../stores/graphStore'
 
 export interface GraphDeploymentVersion {
   id?: string
@@ -53,11 +53,11 @@ export function useDeploymentHistory(
   const { toast } = useToast()
   const queryClient = useQueryClient()
 
-  const agentId = useBuilderStore((state) => state.agentId)
-  const workspaceId = useBuilderStore((state) => state.workspaceId)
-  const rfInstance = useBuilderStore((state) => state.rfInstance)
-  const currentNodes = useBuilderStore((state) => state.nodes)
-  const currentEdges = useBuilderStore((state) => state.edges)
+  const agentId = useGraphStore((state) => state.agentId)
+  const workspaceId = useGraphStore((state) => state.workspaceId)
+  const rfInstance = useGraphStore((state) => state.rfInstance)
+  const currentNodes = useGraphStore((state) => state.nodes)
+  const currentEdges = useGraphStore((state) => state.edges)
 
   // ── List loading ──────────────────────────────────────────────────────────
 
@@ -285,7 +285,7 @@ export function useDeploymentHistory(
             edges?: unknown[]
             viewport?: { x: number; y: number; zoom: number }
           }
-          useBuilderStore.setState({
+          useGraphStore.setState({
             nodes: (payload.nodes as import('reactflow').Node[]) ?? [],
             edges: (payload.edges as import('reactflow').Edge[]) ?? [],
             past: [],

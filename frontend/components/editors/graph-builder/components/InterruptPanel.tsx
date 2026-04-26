@@ -26,7 +26,7 @@ import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
 
 import { resumeWithCommand } from '../services/commandService'
-import { useBuilderStore } from '../stores/builderStore'
+import { useGraphStore } from '../stores/graphStore'
 import { useExecutionStore } from '../stores/execution/executionStore'
 import type { InterruptInfo } from '../stores/execution/types'
 import { getNodeNameFromFlowNode } from '../utils/nodeNameUtils'
@@ -148,7 +148,7 @@ function extractKeyStateFields(state: any): { key: string; value: any }[] {
 export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
   const { t } = useTranslation()
   const { removeInterrupt } = useExecutionStore()
-  const { nodes } = useBuilderStore()
+  const { nodes } = useGraphStore()
   const { toast } = useToast()
   const [isResuming, setIsResuming] = useState(false)
   const [editedState, setEditedState] = useState(interrupt.state)

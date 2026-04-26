@@ -6,8 +6,8 @@ vi.mock('@/lib/i18n', () => ({
     t: (_key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? _key,
   }),
 }))
-vi.mock('@/components/editors/graph-builder/stores/builderStore', () => ({
-  useBuilderStore: { setState: vi.fn() },
+vi.mock('@/components/editors/graph-builder/stores/graphStore', () => ({
+  useGraphStore: { setState: vi.fn() },
 }))
 vi.mock('@/components/editors/graph-builder/stores/execution/executionStore', () => ({
   useExecutionStore: () => ({

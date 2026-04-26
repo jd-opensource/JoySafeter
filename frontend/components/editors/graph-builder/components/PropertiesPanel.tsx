@@ -13,7 +13,7 @@ import { useUserPermissionsContext } from '@/providers/workspace-permissions-pro
 import { cn } from '@/lib/utils'
 
 import { nodeRegistry, FieldSchema } from '../services/nodeRegistry'
-import { useBuilderStore } from '../stores/builderStore'
+import { useGraphStore } from '../stores/graphStore'
 
 import { MemorySection } from './MemorySection'
 import { SchemaFieldRenderer } from './SchemaFieldRenderer'
@@ -116,7 +116,7 @@ export default function PropertiesPanel({
   const { t } = useTranslation()
   const { toast } = useToast()
   const userPermissions = useUserPermissionsContext()
-  const { onConnect, updateEdge, graphStateFields } = useBuilderStore()
+  const { onConnect, updateEdge, graphStateFields } = useGraphStore()
   const nodeData = node?.data as
     | { type: string; label?: string; config?: Record<string, unknown> }
     | undefined

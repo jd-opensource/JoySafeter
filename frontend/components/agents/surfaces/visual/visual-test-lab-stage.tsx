@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 
-import { useBuilderStore } from '@/components/editors/graph-builder/stores/builderStore'
+import { useGraphStore } from '@/components/editors/graph-builder/stores/graphStore'
 import { useExecutionStore } from '@/components/editors/graph-builder/stores/execution/executionStore'
 import { ExecutionPanelNew as ExecutionPanel } from '@/components/execution/ExecutionPanelNew'
 import { Button } from '@/components/ui/button'
@@ -20,7 +20,7 @@ export function VisualTestLabStage({ agent, version, workspaceId, navigateToStag
     useExecutionStore()
 
   useEffect(() => {
-    useBuilderStore.setState({
+    useGraphStore.setState({
       agentId,
       graphId: agentId,
       versionId: versionId ?? null,

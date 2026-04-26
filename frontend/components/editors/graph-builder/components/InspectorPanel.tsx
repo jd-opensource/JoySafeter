@@ -7,7 +7,7 @@ import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
 import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
 
-import { useBuilderStore } from '../stores/builderStore'
+import { useGraphStore } from '../stores/graphStore'
 import { EdgePropertiesPanel } from './EdgePropertiesPanel'
 import PropertiesPanel from './PropertiesPanel'
 
@@ -31,7 +31,7 @@ export function InspectorPanel({ onClose }: InspectorPanelProps) {
     selectNode,
     selectEdge,
     takeSnapshot,
-  } = useBuilderStore()
+  } = useGraphStore()
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId)
   const selectedEdge = edges.find((e) => e.id === selectedEdgeId)
