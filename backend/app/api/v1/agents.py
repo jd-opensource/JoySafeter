@@ -6,6 +6,7 @@ import uuid
 from typing import List
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser, require_workspace_role
@@ -24,7 +25,6 @@ from app.schemas.agent import (
 from app.schemas.agent_release import (
     AgentReleaseResponse,
     AgentReleaseSummary,
-    CreateAgentReleaseRequest,
 )
 from app.schemas.agent_version import (
     AgentVersionResponse,
@@ -32,10 +32,16 @@ from app.schemas.agent_version import (
     CreateAgentVersionRequest,
     UpdateAgentVersionRequest,
 )
-from app.services.agent_service import AgentService
+from app.services.agent_publish_service import AgentPublishService
 from app.services.agent_release_service import AgentReleaseService
+from app.services.agent_service import AgentService
 from app.services.agent_version_service import AgentVersionService
 from app.services.workspace_permission import check_workspace_access
+
+
+class RollbackRequest(PydanticBaseModel):
+    release_id: uuid.UUID
+
 
 router = APIRouter(prefix="/v1/agents", tags=["Agents"])
 
@@ -209,38 +215,6 @@ async def update_version(
     return BaseResponse(success=True, code=200, msg="Version updated", data=_version_to_response(version))
 
 
-@router.post("/{agent_id}/versions/{version_id}/freeze", response_model=BaseResponse[AgentVersionResponse])
-async def freeze_version(
-    agent_id: uuid.UUID,
-    version_id: uuid.UUID,
-    current_user: User = require_workspace_role(WorkspaceMemberRole.member),
-    workspace_id: uuid.UUID = Query(...),
-    db: AsyncSession = Depends(get_db),
-) -> BaseResponse[AgentVersionResponse]:
-    service = AgentVersionService(db)
-    version = await service.freeze_version(version_id)
-    return BaseResponse(success=True, code=200, msg="Version frozen", data=_version_to_response(version))
-
-
-@router.post("/{agent_id}/versions/{version_id}/unfreeze", response_model=BaseResponse[AgentVersionResponse])
-async def unfreeze_version(
-    agent_id: uuid.UUID,
-    version_id: uuid.UUID,
-    current_user: User = require_workspace_role(WorkspaceMemberRole.member),
-    workspace_id: uuid.UUID = Query(...),
-    db: AsyncSession = Depends(get_db),
-) -> BaseResponse[AgentVersionResponse]:
-    """Revert a frozen version back to draft.
-
-    This endpoint exists to allow rollback when a freeze succeeds but the
-    subsequent publish operation fails, preventing the version from being
-    stuck in an uneditable frozen state.
-    """
-    service = AgentVersionService(db)
-    version = await service.unfreeze_version(version_id)
-    return BaseResponse(success=True, code=200, msg="Version reverted to draft", data=_version_to_response(version))
-
-
 # ---------------------------------------------------------------------------
 # AgentRelease sub-routes
 # ---------------------------------------------------------------------------
@@ -263,23 +237,6 @@ async def list_releases(
     )
 
 
-@router.post("/{agent_id}/releases", response_model=BaseResponse[AgentReleaseResponse])
-async def publish_release(
-    agent_id: uuid.UUID,
-    request: CreateAgentReleaseRequest,
-    current_user: CurrentUser,
-    workspace_id: uuid.UUID = Query(...),
-    db: AsyncSession = Depends(get_db),
-) -> BaseResponse[AgentReleaseResponse]:
-    has_access = await check_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.member)
-    if not has_access:
-        raise ForbiddenException("No access to workspace")
-
-    service = AgentReleaseService(db)
-    release = await service.publish_release(agent_id, str(current_user.id), request)
-    return BaseResponse(success=True, code=200, msg="Release published", data=_release_to_response(release))
-
-
 @router.get("/{agent_id}/releases/{release_id}", response_model=BaseResponse[AgentReleaseResponse])
 async def get_release(
     agent_id: uuid.UUID,
@@ -293,27 +250,39 @@ async def get_release(
     return BaseResponse(success=True, code=200, msg="ok", data=_release_to_response(release))
 
 
-@router.post("/{agent_id}/releases/{release_id}/activate", response_model=BaseResponse[AgentReleaseResponse])
-async def activate_release(
-    agent_id: uuid.UUID,
-    release_id: uuid.UUID,
-    current_user: User = require_workspace_role(WorkspaceMemberRole.member),
-    workspace_id: uuid.UUID = Query(...),
-    db: AsyncSession = Depends(get_db),
-) -> BaseResponse[AgentReleaseResponse]:
-    service = AgentReleaseService(db)
-    release = await service.activate_release(agent_id, release_id)
-    return BaseResponse(success=True, code=200, msg="Release activated", data=_release_to_response(release))
-
-
 @router.post("/{agent_id}/releases/{release_id}/retire", response_model=BaseResponse[AgentReleaseResponse])
 async def retire_release(
     agent_id: uuid.UUID,
     release_id: uuid.UUID,
-    current_user: User = require_workspace_role(WorkspaceMemberRole.member),
+    current_user: User = require_workspace_role(WorkspaceMemberRole.admin),
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[AgentReleaseResponse]:
-    service = AgentReleaseService(db)
-    release = await service.retire_release(agent_id, release_id)
-    return BaseResponse(success=True, code=200, msg="Release retired", data=_release_to_response(release))
+    service = AgentPublishService(db)
+    result = await service.retire(agent_id, release_id)
+    return BaseResponse(data=result)
+
+
+@router.post("/{agent_id}/publish")
+async def publish_agent(
+    agent_id: uuid.UUID,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.admin),
+    workspace_id: uuid.UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    service = AgentPublishService(db)
+    result = await service.publish(agent_id, current_user.id)
+    return BaseResponse(data=result)
+
+
+@router.post("/{agent_id}/rollback")
+async def rollback_agent(
+    agent_id: uuid.UUID,
+    body: RollbackRequest,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.admin),
+    workspace_id: uuid.UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    service = AgentPublishService(db)
+    result = await service.rollback(agent_id, body.release_id)
+    return BaseResponse(data=result)
