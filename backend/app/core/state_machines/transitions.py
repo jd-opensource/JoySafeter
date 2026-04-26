@@ -7,6 +7,7 @@ All status changes in the codebase should route through here.
 
 from __future__ import annotations
 
+import uuid
 from typing import Optional
 
 from sqlalchemy import select
@@ -29,6 +30,10 @@ async def transition_run(
     """Transition an AgentRun to a new status with validation."""
     RUN_SM.validate(run.status, to_status)
     run.status = to_status
+    if to_status == "running":
+        run.ended_at = None
+        if not run.started_at:
+            run.started_at = utc_now()
     if RUN_SM.is_terminal(to_status):
         run.ended_at = run.ended_at or utc_now()
         if result_summary is not None:
@@ -55,10 +60,14 @@ async def transition_task(
     task,  # Task
     to_status: str,
     db: AsyncSession,
+    *,
+    latest_run_id: Optional[uuid.UUID] = None,
 ) -> None:
     """Transition a Task to a new status with validation."""
     TASK_SM.validate(task.status, to_status)
     task.status = to_status
+    if latest_run_id is not None:
+        task.latest_run_id = latest_run_id
     await db.flush()
 
 

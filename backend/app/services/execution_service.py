@@ -153,7 +153,7 @@ class ExecutionService:
         self,
         *,
         execution_id: uuid.UUID,
-        event_type: str,
+        event_type: ExecutionEventType,
         payload: dict[str, Any],
     ) -> ExecutionEvent:
         if self._event_ctx is None:
@@ -216,6 +216,40 @@ class ExecutionService:
             )
             for env in envelopes
         ]
+
+    async def complete_execution(
+        self,
+        *,
+        execution_id: uuid.UUID,
+        terminal_status: str,
+        result_summary: dict | None = None,
+        error_message: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        """Publish a single EXECUTION_COMPLETED event with full metadata.
+
+        StateTransitionSubscriber handles Execution + Run terminal transitions.
+        """
+        if self._event_ctx is None:
+            raise RuntimeError(
+                "EventContext not set. Call set_event_context() before completing."
+            )
+
+        envelope = ExecutionEventEnvelope(
+            execution_id=execution_id,
+            run_id=self._event_ctx.run_id,
+            workspace_id=self._event_ctx.workspace_id,
+            event_type=ExecutionEventType.EXECUTION_COMPLETED,
+            payload={"status": terminal_status},
+            terminal_status=terminal_status,
+            error_message=error_message,
+            container_id=session_id,
+            metrics=result_summary,
+            trigger_source=self._event_ctx.trigger_source,
+            thread_id=self._event_ctx.thread_id,
+            task_id=self._event_ctx.task_id,
+        )
+        await execution_event_bus.publish(envelope, self.db)
 
     async def list_executions(self, run_id: uuid.UUID) -> List[Execution]:
         """List all executions for a run."""
@@ -287,9 +321,8 @@ class ExecutionService:
         For each (statuses, threshold) pair:
           1. Query stale executions           → Repository
           2. Cancel active runtime session    → session_registry
-          3. Mark execution as failed         → self.mark_status
-          4. Mark parent run as failed        → transition_run
-          5. Sync task status                 → sync_task_from_run
+          3. Mark execution as failed         → self.mark_status (bus)
+          4. Mark parent run as failed        → RUN_STATUS_CHANGE (bus)
 
         Args:
             thresholds: list of ``((status, ...), timedelta)`` pairs defining
@@ -299,7 +332,6 @@ class ExecutionService:
             Total number of reaped executions.
         """
         from app.core.agent.cli_backends.session_registry import session_registry
-        from app.core.state_machines.transitions import transition_run, sync_task_from_run
         from app.models.agent_run import AgentRun
 
         now = utc_now()
@@ -317,7 +349,7 @@ class ExecutionService:
                     if session:
                         await session.cancel()
 
-                    # 2. Mark execution failed
+                    # 2. Mark execution failed (via bus → StateTransitionSubscriber)
                     await self.mark_status(
                         execution_id=execution.id,
                         status="failed",
@@ -327,15 +359,18 @@ class ExecutionService:
                         ),
                     )
 
-                    # 3. Transition parent run to failed
+                    # 3. Transition parent run to failed via EventBus
+                    from app.core.engine.orchestrator import ExecutionOrchestrator
                     run = (await self.db.execute(
                         select(AgentRun).where(AgentRun.id == execution.run_id)
                     )).scalar_one_or_none()
                     if run and run.status not in ("succeeded", "failed", "cancelled"):
-                        await transition_run(run, "failed", self.db, "Reaped: stale execution")
-                        await self.db.commit()
-                        # 4. Sync task status from run
-                        await sync_task_from_run(run, self.db)
+                        await ExecutionOrchestrator.publish_run_status_change(
+                            self.db, run,
+                            execution_id=execution.id,
+                            target_status="failed",
+                            result_summary="Reaped: stale execution",
+                        )
 
                     total += 1
                     logger.info(

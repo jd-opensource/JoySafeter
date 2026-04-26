@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from app.core.agent.cli_backends.base import CLIMessage
 from app.core.agent.cli_backends.execution_runner import ExecutionRunner
 
@@ -36,7 +38,8 @@ def test_msg_to_event_type_artifact():
 
 def test_msg_to_event_type_unknown():
     msg = CLIMessage(type="custom_type", content="data")
-    assert ExecutionRunner._msg_to_event_type(msg) == "custom_type"
+    with pytest.raises(ValueError, match="is not a valid ExecutionEventType"):
+        ExecutionRunner._msg_to_event_type(msg)
 
 
 def test_msg_to_payload_text():

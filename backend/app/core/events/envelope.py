@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
 
+from app.core.events.event_types import ExecutionEventType
 from app.utils.datetime import utc_now
 
 
@@ -19,7 +20,7 @@ class ExecutionEventEnvelope:
     execution_id: uuid.UUID
     run_id: uuid.UUID
     workspace_id: uuid.UUID
-    event_type: str
+    event_type: ExecutionEventType | str
     payload: dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=utc_now)
     seq: int = 0  # filled by PersistenceSubscriber in Phase 1

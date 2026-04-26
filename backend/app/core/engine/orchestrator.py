@@ -82,8 +82,7 @@ class ExecutionOrchestrator:
         )
 
         # Update task status
-        await transition_task(task, "in_progress", self.db)
-        task.latest_run_id = run.id
+        await transition_task(task, "in_progress", self.db, latest_run_id=run.id)
         await self.db.commit()
 
         return run
@@ -245,8 +244,33 @@ class ExecutionOrchestrator:
         return {}
 
     # ------------------------------------------------------------------
-    # Cancel / Retry / Message
+    # Cancel / Retry / Message / Event helpers
     # ------------------------------------------------------------------
+
+    async def emit_user_message(
+        self,
+        *,
+        run: AgentRun,
+        execution_id: uuid.UUID,
+        message: str,
+        attachments: list[dict] | None = None,
+    ) -> None:
+        """Emit a USER_MESSAGE event for the given execution."""
+        payload: dict = {"text": message}
+        if attachments:
+            payload["attachments"] = attachments
+
+        envelope = ExecutionEventEnvelope(
+            execution_id=execution_id,
+            run_id=run.id,
+            workspace_id=run.workspace_id,
+            event_type=ExecutionEventType.USER_MESSAGE,
+            payload=payload,
+            trigger_source=run.trigger_source,
+            thread_id=run.thread_id,
+            task_id=run.task_id,
+        )
+        await execution_event_bus.publish(envelope, self.db)
 
     async def cancel_run(self, run_id: uuid.UUID) -> AgentRun:
         """Cancel a running execution."""
@@ -278,16 +302,10 @@ class ExecutionOrchestrator:
                 )
                 await execution_event_bus.publish(cancel_envelope, self.db)
 
-        await execution_event_bus.publish(
-            ExecutionEventEnvelope(
-                execution_id=run.current_execution_id or uuid.UUID(int=0),
-                run_id=run.id,
-                workspace_id=run.workspace_id,
-                event_type=ExecutionEventType.RUN_STATUS_CHANGE,
-                payload={"status": "cancelled"},
-                target_status="cancelled",
-            ),
-            self.db,
+        await self.publish_run_status_change(
+            self.db, run,
+            execution_id=run.current_execution_id or uuid.UUID(int=0),
+            target_status="cancelled",
         )
         await self.db.refresh(run)
 
@@ -325,20 +343,11 @@ class ExecutionOrchestrator:
         run.current_execution_id = execution.id
         await self.db.flush()
 
-        # Transition Run to running via event bus
-        await execution_event_bus.publish(
-            ExecutionEventEnvelope(
-                execution_id=execution.id,
-                run_id=run.id,
-                workspace_id=run.workspace_id,
-                event_type=ExecutionEventType.RUN_STATUS_CHANGE,
-                payload={"status": "running"},
-                target_status="running",
-            ),
-            self.db,
+        await self.publish_run_status_change(
+            self.db, run,
+            execution_id=execution.id,
+            target_status="running",
         )
-        run.ended_at = None
-        await self.db.flush()
         await self.db.commit()
 
         # Fire engine in background
@@ -412,7 +421,6 @@ class ExecutionOrchestrator:
         self.db.add(run)
         await self.db.flush()
 
-        # Create initial Execution
         execution = Execution(
             run_id=run.id,
             attempt_index=1,
@@ -425,20 +433,10 @@ class ExecutionOrchestrator:
         run.current_execution_id = execution.id
         await self.db.commit()
 
-        # Transition Run to running via event bus
-        await execution_event_bus.publish(
-            ExecutionEventEnvelope(
-                execution_id=execution.id,
-                run_id=run.id,
-                workspace_id=workspace_id,
-                event_type=ExecutionEventType.RUN_STATUS_CHANGE,
-                payload={"status": "running"},
-                target_status="running",
-                trigger_source=trigger_source,
-                thread_id=thread_id,
-                task_id=task_id,
-            ),
-            self.db,
+        await self.publish_run_status_change(
+            self.db, run,
+            execution_id=execution.id,
+            target_status="running",
         )
         await self.db.refresh(run)
 
@@ -457,24 +455,15 @@ class ExecutionOrchestrator:
             )
         except Exception as exc:
             logger.error(f"[Orchestrator] _fire_engine failed: {exc}")
-            fail_envelope = ExecutionEventEnvelope(
-                execution_id=execution.id,
-                run_id=run.id,
-                workspace_id=workspace_id,
-                event_type=ExecutionEventType.EXECUTION_STATUS_CHANGE,
-                payload={"status": "failed"},
-                target_status="failed",
-                error_message=str(exc)[:2000],
-            )
-            await execution_event_bus.publish(fail_envelope, self.db)
             await execution_event_bus.publish(
                 ExecutionEventEnvelope(
                     execution_id=execution.id,
                     run_id=run.id,
                     workspace_id=workspace_id,
-                    event_type=ExecutionEventType.RUN_STATUS_CHANGE,
+                    event_type=ExecutionEventType.EXECUTION_COMPLETED,
                     payload={"status": "failed"},
-                    target_status="failed",
+                    terminal_status="failed",
+                    error_message=str(exc)[:2000],
                     result_summary=str(exc)[:2000],
                 ),
                 self.db,
@@ -521,18 +510,10 @@ class ExecutionOrchestrator:
         run.current_execution_id = execution.id
         await self.db.commit()
 
-        # Transition Run to running via event bus
-        await execution_event_bus.publish(
-            ExecutionEventEnvelope(
-                execution_id=execution.id,
-                run_id=run.id,
-                workspace_id=workspace_id,
-                event_type=ExecutionEventType.RUN_STATUS_CHANGE,
-                payload={"status": "running"},
-                target_status="running",
-                trigger_source=trigger_source,
-            ),
-            self.db,
+        await self.publish_run_status_change(
+            self.db, run,
+            execution_id=execution.id,
+            target_status="running",
         )
         await self.db.refresh(run)
 
@@ -558,17 +539,13 @@ class ExecutionOrchestrator:
                 error_message=str(exc)[:2000],
             )
             await execution_event_bus.publish(fail_envelope, self.db)
-            await execution_event_bus.publish(
-                ExecutionEventEnvelope(
-                    execution_id=execution.id,
-                    run_id=run.id,
-                    workspace_id=workspace_id,
-                    event_type=ExecutionEventType.RUN_STATUS_CHANGE,
-                    payload={"status": "failed"},
-                    target_status="failed",
-                    result_summary=str(exc)[:2000],
-                ),
+            await self.publish_run_status_change(
                 self.db,
+                execution_id=execution.id,
+                run_id=run.id,
+                workspace_id=workspace_id,
+                target_status="failed",
+                result_summary=str(exc)[:2000],
             )
             await self.db.refresh(run)
 
@@ -719,6 +696,32 @@ class ExecutionOrchestrator:
     # ------------------------------------------------------------------
     # Internal: helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    async def publish_run_status_change(
+        db: AsyncSession,
+        run: AgentRun,
+        *,
+        execution_id: uuid.UUID,
+        target_status: str,
+        result_summary: str | None = None,
+    ) -> None:
+        """Publish a RUN_STATUS_CHANGE event through the bus."""
+        await execution_event_bus.publish(
+            ExecutionEventEnvelope(
+                execution_id=execution_id,
+                run_id=run.id,
+                workspace_id=run.workspace_id,
+                event_type=ExecutionEventType.RUN_STATUS_CHANGE,
+                payload={"status": target_status},
+                target_status=target_status,
+                result_summary=result_summary,
+                trigger_source=run.trigger_source,
+                thread_id=run.thread_id,
+                task_id=run.task_id,
+            ),
+            db,
+        )
 
     async def _get_task(self, task_id: uuid.UUID) -> Task:
         result = (await self.db.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()

@@ -1,9 +1,10 @@
 """
 StateTransitionSubscriber — Phase 1.
 
-Handles execution state transitions driven by events:
+Handles execution and run state transitions driven by events:
 - execution_status_change → non-terminal transitions (dispatched, running, approval_wait)
-- execution_completed → terminal transitions (succeeded, failed, cancelled)
+- execution_completed → terminal transitions (succeeded, failed, cancelled) for both Execution and Run
+- run_status_change → direct Run transitions (e.g. running, cancelled, reaper-failed)
 
 Flushes but does NOT commit — the bus commits once after all Phase 1 subscribers.
 """
@@ -24,7 +25,11 @@ from app.core.state_machines.transitions import transition_execution, transition
 from app.models.agent_run import AgentRun
 from app.models.execution import Execution
 
-_HANDLED = {ExecutionEventType.EXECUTION_STATUS_CHANGE, ExecutionEventType.EXECUTION_COMPLETED}
+_HANDLED = {
+    ExecutionEventType.EXECUTION_STATUS_CHANGE,
+    ExecutionEventType.EXECUTION_COMPLETED,
+    ExecutionEventType.RUN_STATUS_CHANGE,
+}
 
 
 class StateTransitionSubscriber:
@@ -44,8 +49,10 @@ class StateTransitionSubscriber:
 
         if envelope.event_type == ExecutionEventType.EXECUTION_STATUS_CHANGE:
             await self._handle_status_change(envelope, db)
-        else:
+        elif envelope.event_type == ExecutionEventType.EXECUTION_COMPLETED:
             await self._handle_completed(envelope, db)
+        elif envelope.event_type == ExecutionEventType.RUN_STATUS_CHANGE:
+            await self._handle_run_status_change(envelope, db)
 
     async def _handle_status_change(
         self, envelope: ExecutionEventEnvelope, db: AsyncSession
@@ -98,6 +105,23 @@ class StateTransitionSubscriber:
             )
 
         await db.flush()
+
+    async def _handle_run_status_change(
+        self, envelope: ExecutionEventEnvelope, db: AsyncSession
+    ) -> None:
+        if not envelope.target_status:
+            raise RuntimeError("run_status_change envelope missing target_status")
+
+        run = (await db.execute(
+            select(AgentRun).where(AgentRun.id == envelope.run_id)
+        )).scalar_one()
+
+        try:
+            await transition_run(run, envelope.target_status, db, envelope.result_summary)
+        except InvalidTransition:
+            logger.warning(
+                f"[StateTransition] Skipping run {run.id}: already {run.status}"
+            )
 
     @staticmethod
     def _apply_metadata(execution: Execution, envelope: ExecutionEventEnvelope) -> None:

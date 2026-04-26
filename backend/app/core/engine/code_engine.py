@@ -16,6 +16,7 @@ from loguru import logger
 from sqlalchemy import select
 
 from app.core.engine.protocol import ExecutionContext
+from app.core.events.event_types import ExecutionEventType
 
 
 class CodeEngine:
@@ -55,7 +56,7 @@ class CodeEngine:
 
         try:
             await context.update_status("running")
-            await context.emit("execution_started", {
+            await context.emit(ExecutionEventType.EXECUTION_STARTED, {
                 "engine": "code",
                 "code_length": len(code),
             })
@@ -75,10 +76,10 @@ class CodeEngine:
 
             from app.core.code_executor import execute_code
 
-            await context.emit("assistant_text", {"content": "Compiling user code..."})
+            await context.emit(ExecutionEventType.ASSISTANT_TEXT, {"content": "Compiling user code..."})
             state_graph = execute_code(code)
 
-            await context.emit("assistant_text", {"content": "Graph extracted, compiling..."})
+            await context.emit(ExecutionEventType.ASSISTANT_TEXT, {"content": "Graph extracted, compiling..."})
             compiled = state_graph.compile()
 
             result_text: str = ""
@@ -98,17 +99,17 @@ class CodeEngine:
                         )
                         if content:
                             result_text = str(content)
-                            await context.emit("assistant_text", {"content": result_text})
+                            await context.emit(ExecutionEventType.ASSISTANT_TEXT, {"content": result_text})
 
             await context.complete("succeeded", result_text[:2000] if result_text else None)
 
         except (ValueError, ImportError, TimeoutError) as exc:
             logger.warning(f"[CodeEngine] Code execution error {execution_id}: {exc}")
-            await context.emit("error", {"message": str(exc)})
+            await context.emit(ExecutionEventType.ERROR, {"message": str(exc)})
             await context.complete("failed", str(exc)[:2000])
         except Exception as exc:
             logger.error(f"[CodeEngine] Execution {execution_id} failed: {exc}")
-            await context.emit("error", {"message": str(exc)})
+            await context.emit(ExecutionEventType.ERROR, {"message": str(exc)})
             await context.complete("failed", str(exc)[:2000])
         finally:
             self._running.pop(execution_id, None)

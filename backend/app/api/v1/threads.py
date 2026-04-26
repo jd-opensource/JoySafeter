@@ -152,25 +152,13 @@ async def chat(
     )
 
     # 2. Emit user_message as the first event in this execution.
-    from app.core.events import ExecutionEventEnvelope, execution_event_bus
-    from app.core.events.event_types import ExecutionEventType
-    from app.utils.datetime import utc_now
-
-    payload: dict = {"text": request.message}
-    if request.attachments:
-        payload["attachments"] = [att.model_dump() for att in request.attachments]
-
-    user_msg_envelope = ExecutionEventEnvelope(
+    attachments = [att.model_dump() for att in request.attachments] if request.attachments else None
+    await orchestrator.emit_user_message(
+        run=run,
         execution_id=run.current_execution_id,
-        run_id=run.id,
-        workspace_id=workspace_id,
-        event_type=ExecutionEventType.USER_MESSAGE,
-        payload=payload,
-        created_at=utc_now(),
-        trigger_source="chat",
-        thread_id=thread_id,
+        message=request.message,
+        attachments=attachments,
     )
-    await execution_event_bus.publish(user_msg_envelope, db)
 
     return BaseResponse(
         success=True,

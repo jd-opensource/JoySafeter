@@ -96,7 +96,7 @@ class ExecutionSubscriptionHandler:
             events = await service.list_events_after(execution_id, user_id, after_seq=catchup_after_seq, limit=1000)
             replay_last_seq = snapshot_last_seq
             for event in events:
-                seq = int(getattr(event, "sequence_no", getattr(event, "seq")))
+                seq = int(event.sequence_no)
                 replay_last_seq = max(replay_last_seq, seq)
                 await websocket.send_text(
                     json.dumps(

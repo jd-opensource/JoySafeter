@@ -15,6 +15,7 @@ from typing import Any
 from loguru import logger
 
 from app.core.engine.protocol import ExecutionContext
+from app.core.events.event_types import ExecutionEventType
 
 
 class CopilotEngine:
@@ -52,7 +53,7 @@ class CopilotEngine:
 
         try:
             await context.update_status("running")
-            await context.emit("execution_started", {"engine": "copilot", "mode": mode})
+            await context.emit(ExecutionEventType.EXECUTION_STARTED, {"engine": "copilot", "mode": mode})
 
             from app.services.copilot_service import CopilotService
 
@@ -80,23 +81,23 @@ class CopilotEngine:
                 event_type = event.get("type", "")
 
                 if event_type == "status":
-                    await context.emit("copilot_status", {
+                    await context.emit(ExecutionEventType.COPILOT_STATUS, {
                         "stage": event.get("stage"),
                         "message": event.get("message"),
                     })
 
                 elif event_type == "content":
-                    await context.emit("copilot_content", {
+                    await context.emit(ExecutionEventType.COPILOT_CONTENT, {
                         "content": event.get("content", ""),
                     })
 
                 elif event_type == "thought_step":
-                    await context.emit("copilot_thought_step", {
+                    await context.emit(ExecutionEventType.COPILOT_THOUGHT_STEP, {
                         "step": event.get("step", {}),
                     })
 
                 elif event_type == "tool_call":
-                    await context.emit("copilot_tool_call", {
+                    await context.emit(ExecutionEventType.COPILOT_TOOL_CALL, {
                         "tool": event.get("tool"),
                         "input": event.get("input", {}),
                     })
@@ -104,7 +105,7 @@ class CopilotEngine:
                 elif event_type == "tool_result":
                     action = event.get("action", {})
                     result_actions.append(action)
-                    await context.emit("copilot_tool_result", {
+                    await context.emit(ExecutionEventType.COPILOT_TOOL_RESULT, {
                         "action": action,
                     })
 
@@ -112,13 +113,13 @@ class CopilotEngine:
                     result_message = event.get("message", "")
                     actions = event.get("actions", [])
                     result_actions = actions if actions else result_actions
-                    await context.emit("copilot_result", {
+                    await context.emit(ExecutionEventType.COPILOT_RESULT, {
                         "message": result_message,
                         "actions": result_actions,
                     })
 
                 elif event_type == "error":
-                    await context.emit("error", {
+                    await context.emit(ExecutionEventType.ERROR, {
                         "message": event.get("message", "Unknown error"),
                         "code": event.get("code"),
                     })
@@ -133,7 +134,7 @@ class CopilotEngine:
 
         except Exception as exc:
             logger.error(f"[CopilotEngine] Execution {execution_id} failed: {exc}")
-            await context.emit("error", {"message": str(exc)})
+            await context.emit(ExecutionEventType.ERROR, {"message": str(exc)})
             await context.complete("failed", str(exc)[:2000])
         finally:
             self._running.pop(execution_id, None)

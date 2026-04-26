@@ -350,21 +350,12 @@ class ExecutionRunner:
     ) -> None:
         status = "succeeded" if result.status == "completed" else "failed"
 
-        await self.execution_service.append_event(
+        await self.execution_service.complete_execution(
             execution_id=execution_id,
-            event_type=ExecutionEventType.EXECUTION_COMPLETED if status == "succeeded" else ExecutionEventType.ERROR,
-            payload={
-                "result_summary": {"output_length": len(result.output)},
-                "message": result.error or "",
-            },
-        )
-
-        await self.execution_service.mark_status(
-            execution_id=execution_id,
-            status=status,
-            session_id=result.session_id,
-            error_message=result.error if result.error else None,
+            terminal_status=status,
             result_summary=result.usage,
+            error_message=result.error if result.error else None,
+            session_id=result.session_id,
         )
 
         if self.callbacks:
@@ -401,7 +392,7 @@ class ExecutionRunner:
             logger.warning(f"Failed to cleanup container {container_id[:12]}: {exc}")
 
     @staticmethod
-    def _msg_to_event_type(msg: CLIMessage) -> str:
+    def _msg_to_event_type(msg: CLIMessage) -> ExecutionEventType:
         mapping = {
             "text": ExecutionEventType.ASSISTANT_TEXT,
             "thinking": ExecutionEventType.THINKING,
@@ -411,7 +402,7 @@ class ExecutionRunner:
             "artifact": ExecutionEventType.ARTIFACT_CREATED,
             "approval_request": ExecutionEventType.APPROVAL_REQUESTED,
         }
-        return mapping.get(msg.type, msg.type)
+        return mapping.get(msg.type) or ExecutionEventType(msg.type)
 
     @staticmethod
     def _msg_to_payload(msg: CLIMessage) -> dict[str, Any]:

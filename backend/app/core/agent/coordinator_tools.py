@@ -11,9 +11,9 @@ from sqlalchemy import select
 from app.core.agent.cli_backends.base import CLIResult
 from app.core.agent.cli_backends.execution_runner import ExecutionRunner
 from app.core.database import async_session_factory
+from app.core.engine.orchestrator import ExecutionOrchestrator
 from app.models.execution import Execution
 from app.services.execution_service import ExecutionService
-from app.utils.datetime import utc_now
 from app.utils.safe_task import safe_create_task
 
 # Execution source and status string literals
@@ -74,9 +74,8 @@ async def spawn_agent(
             workspace_id=ws_id,
             trigger_source=EXECUTION_SOURCE_COORDINATOR,
             goal=f"[Sub] {agent_name}: {prompt[:80]}",
-            status="running",
+            status="pending",
             created_by=user_id,
-            started_at=utc_now(),
         )
         db.add(run)
         await db.flush()
@@ -90,6 +89,12 @@ async def spawn_agent(
         run.current_execution_id = execution.id
         await db.commit()
         exec_id = execution.id
+
+        await ExecutionOrchestrator.publish_run_status_change(
+            db, run,
+            execution_id=execution.id,
+            target_status="running",
+        )
 
     logger.info(f"Coordinator spawned {agent_name} ({runtime_type}) -> execution {exec_id}")
 

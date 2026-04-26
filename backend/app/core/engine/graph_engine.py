@@ -15,6 +15,7 @@ from loguru import logger
 from sqlalchemy import select
 
 from app.core.engine.protocol import ExecutionContext, ExecutionEngine
+from app.core.events.event_types import ExecutionEventType
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +103,7 @@ class GraphEngine:
         self._running[execution_id] = cancel_event
 
         await context.update_status("running")
-        await context.emit("execution_started", {
+        await context.emit(ExecutionEventType.EXECUTION_STARTED, {
             "engine": "graph",
             "node_count": len(raw_nodes),
             "edge_count": len(raw_edges),
@@ -142,13 +143,16 @@ class GraphEngine:
             # Build deep-agents graph
             # ------------------------------------------------------------------
             from app.core.graph.deep_agents.builder import build_deep_agents_graph
+            from app.services.model_service import ModelService
+
+            model_service = ModelService(context.db)
 
             compiled = await build_deep_agents_graph(
                 graph,
                 nodes,
                 edges,
                 user_id=user_id,
-                model_service=None,  # resolved internally by ModelResolver
+                model_service=model_service,
                 thread_id=thread_id,
             )
 
@@ -173,7 +177,7 @@ class GraphEngine:
                         )
                         if content:
                             result_text = str(content)
-                            await context.emit("agent_message", {"content": result_text})
+                            await context.emit(ExecutionEventType.ASSISTANT_TEXT, {"content": result_text})
 
             # ------------------------------------------------------------------
             # Cleanup sandbox if the compiled agent holds one

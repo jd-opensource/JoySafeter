@@ -13,6 +13,8 @@ from typing import Any, Protocol, runtime_checkable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.events.event_types import ExecutionEventType
+
 
 @dataclass
 class ExecutionContext:
@@ -37,7 +39,7 @@ class ExecutionContext:
     _status_fn: Any = None  # async (status) -> None
     _complete_fn: Any = None  # async (status, result_summary) -> None
 
-    async def emit(self, event_type: str, payload: dict | None = None) -> None:
+    async def emit(self, event_type: ExecutionEventType, payload: dict | None = None) -> None:
         """Emit an execution event → persisted + broadcast."""
         if self._emit_fn:
             await self._emit_fn(event_type, payload or {})

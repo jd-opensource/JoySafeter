@@ -14,6 +14,7 @@ from typing import Any
 from loguru import logger
 
 from app.core.engine.protocol import ExecutionContext, ExecutionEngine
+from app.core.events.event_types import ExecutionEventType
 
 
 class CLIEngine:
@@ -44,7 +45,7 @@ class CLIEngine:
         logger.info(f"[CLIEngine] Starting execution {execution_id} with {runtime_type}")
 
         await context.update_status("running")
-        await context.emit("execution_started", {
+        await context.emit(ExecutionEventType.EXECUTION_STARTED, {
             "engine": "cli",
             "runtime_type": runtime_type,
         })
@@ -52,21 +53,11 @@ class CLIEngine:
         try:
             async with AsyncSessionLocal() as db:
                 runner = ExecutionRunner(db)
-                result = await runner.run(
+                await runner.run(
                     execution_id=execution_id,
                     prompt=prompt,
                     credentials=context.credentials or None,
                 )
-
-            # Map CLI result to execution status
-            if result.status == "completed":
-                await context.complete("succeeded", result.output[:2000] if result.output else None)
-            elif result.status == "failed":
-                await context.complete("failed", result.error[:2000] if result.error else None)
-            elif result.status == "timeout":
-                await context.complete("failed", "Execution timed out")
-            else:
-                await context.complete("failed", f"Unexpected result status: {result.status}")
 
         except asyncio.CancelledError:
             await context.complete("cancelled")
