@@ -1,21 +1,26 @@
 'use client'
 
-import { ChevronDown, ChevronRight, Loader2, Lock, LockOpen, Pencil, Plus, Rocket, Save } from 'lucide-react'
+import { ChevronDown, ChevronRight, Loader2, MoreHorizontal, Pencil, Save, Undo2 } from 'lucide-react'
 import { useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useAgent, useUpdateAgent } from '@/hooks/queries/agents'
-import { useVersions, useVersion, useFreezeVersion, useUnfreezeVersion } from '@/hooks/queries/agentVersions'
-import { useReleases, useActivateRelease, useRetireRelease } from '@/hooks/queries/agentReleases'
+import { useReleaseHistory, useRollbackAgent, useRetireRelease } from '@/hooks/queries/agentPublish'
+import { useVersion } from '@/hooks/queries/agentVersions'
 import { useTranslation } from '@/lib/i18n'
 import { useCurrentWorkspace } from '@/providers/workspace-provider'
 import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
 
-import { ReleaseManager } from './release-manager'
 import { VersionFormDialog } from './version-form-dialog'
 
 interface AgentSettingsTabProps {
@@ -36,14 +41,8 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
     enabled: Boolean(draftVersionId),
   })
 
-  const { data: versions = [], isLoading: versionsLoading } = useVersions(agentId, workspaceId)
-  const { data: releases = [], isLoading: releasesLoading } = useReleases(agentId, workspaceId, {
-    enabled: Boolean(workspaceId),
-  })
-
-  const freezeVersion = useFreezeVersion()
-  const unfreezeVersion = useUnfreezeVersion()
-  const activateRelease = useActivateRelease()
+  const { data: releases = [], isLoading: releasesLoading } = useReleaseHistory(agentId, workspaceId)
+  const rollbackAgent = useRollbackAgent()
   const retireRelease = useRetireRelease()
 
   const [editing, setEditing] = useState(false)
@@ -51,11 +50,9 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
   const [description, setDescription] = useState('')
   const [avatar, setAvatar] = useState('')
 
-  const [versionsOpen, setVersionsOpen] = useState(false)
   const [releasesOpen, setReleasesOpen] = useState(false)
 
   const [versionDialogOpen, setVersionDialogOpen] = useState(false)
-  const [releaseDialogOpen, setReleaseDialogOpen] = useState(false)
 
   if (!agent) return null
 
@@ -190,144 +187,19 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
         )}
       </Card>
 
-      {/* Section 3: Version Management (collapsible) */}
-      <Card className="border-[var(--border)] bg-[var(--surface-1)]">
-        <div
-          onClick={() => setVersionsOpen(!versionsOpen)}
-          className="flex w-full cursor-pointer items-center justify-between p-5 text-left"
-        >
-          <h2 className="text-sm font-semibold text-[var(--text-primary)]">
-            {t('agents.detail.versionManagement')}
-          </h2>
-          <div className="flex items-center gap-2">
-            {canEdit && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setVersionDialogOpen(true)
-                }}
-              >
-                <Plus className="mr-1.5 h-3.5 w-3.5" />
-                {t('agents.detail.createVersion')}
-              </Button>
-            )}
-            {versionsOpen ? (
-              <ChevronDown className="h-4 w-4 text-[var(--text-muted)]" />
-            ) : (
-              <ChevronRight className="h-4 w-4 text-[var(--text-muted)]" />
-            )}
-          </div>
-        </div>
-        {versionsOpen && (
-          <div className="border-t border-[var(--border)] px-5 py-4">
-            {versionsLoading ? (
-              <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {t('common.loading')}
-              </div>
-            ) : versions.length === 0 ? (
-              <p className="text-sm text-[var(--text-muted)]">
-                {t('agents.detail.noActivity')}
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {versions.map((v) => (
-                  <div
-                    key={v.id}
-                    className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-[var(--text-primary)]">
-                        v{v.version_number}
-                      </span>
-                      <Badge variant="outline">
-                        {DEFINITION_KIND_LABELS[v.definition_kind] || v.definition_kind}
-                      </Badge>
-                      <Badge variant={v.status === 'frozen' ? 'default' : 'secondary'}>
-                        {v.status === 'frozen'
-                          ? t('agents.detail.versionStatus.frozen')
-                          : t('agents.detail.versionStatus.draft')}
-                      </Badge>
-                      {v.changelog && (
-                        <span className="text-xs text-[var(--text-muted)]">{v.changelog}</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {v.status === 'draft' && canAdmin && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            freezeVersion.mutate({
-                              agentId,
-                              versionId: v.id,
-                              workspaceId,
-                            })
-                          }
-                          disabled={freezeVersion.isPending}
-                        >
-                          <Lock className="mr-1.5 h-3 w-3" />
-                          {freezeVersion.isPending
-                            ? t('agents.detail.freezingVersion')
-                            : t('agents.detail.freezeVersion')}
-                        </Button>
-                      )}
-                      {v.status === 'frozen' && canAdmin && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            unfreezeVersion.mutate({
-                              agentId,
-                              versionId: v.id,
-                              workspaceId,
-                            })
-                          }
-                          disabled={unfreezeVersion.isPending}
-                        >
-                          <LockOpen className="mr-1.5 h-3 w-3" />
-                          {unfreezeVersion.isPending
-                            ? t('agents.detail.unfreezingVersion')
-                            : t('agents.detail.unfreezeVersion')}
-                        </Button>
-                      )}
-                      <span className="text-xs text-[var(--text-muted)]">
-                        {new Date(v.created_at).toLocaleDateString()}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </Card>
-
-      {/* Section 4: Release Management (collapsible) */}
+      {/* Section 3: Release History (collapsible) */}
       <Card className="border-[var(--border)] bg-[var(--surface-1)]">
         <div
           onClick={() => setReleasesOpen(!releasesOpen)}
           className="flex w-full cursor-pointer items-center justify-between p-5 text-left"
         >
           <h2 className="text-sm font-semibold text-[var(--text-primary)]">
-            {t('agents.detail.releaseManagement')}
+            {t('agents.detail.releaseHistory', { defaultValue: 'Release History' })}
           </h2>
           <div className="flex items-center gap-2">
-            {canAdmin && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setReleaseDialogOpen(true)
-                }}
-              >
-                <Rocket className="mr-1.5 h-3.5 w-3.5" />
-                {t('agents.detail.publishRelease')}
-              </Button>
-            )}
+            <span className="text-xs text-[var(--text-muted)]">
+              {t('agents.detail.goToPublish', { defaultValue: 'Go to publish' })}
+            </span>
             {releasesOpen ? (
               <ChevronDown className="h-4 w-4 text-[var(--text-muted)]" />
             ) : (
@@ -348,71 +220,86 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
               </p>
             ) : (
               <div className="space-y-2">
-                {releases.map((rel) => (
-                  <div
-                    key={rel.id}
-                    className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Rocket className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-                      <span className="text-sm font-medium text-[var(--text-primary)]">
-                        #{rel.release_number}
-                      </span>
-                      <Badge
-                        variant={rel.status === 'ready' ? 'default' : 'secondary'}
-                      >
-                        {t(`agents.detail.releaseStatus.${rel.status}`)}
-                      </Badge>
-                      <Badge variant="outline" className="text-xs">
-                        {t(`agents.detail.runtimeKindOptions.${rel.runtime_kind}`)}
-                      </Badge>
-                      {agent.active_release_id === rel.id && (
-                        <Badge variant="default" className="bg-[var(--status-success)] text-white">
-                          {t('workspace.active')}
-                        </Badge>
-                      )}
+                {releases.map((rel) => {
+                  const isActive = agent.active_release_id === rel.id
+                  return (
+                    <div
+                      key={rel.id}
+                      className={`flex items-center justify-between rounded-lg border p-3 ${
+                        isActive
+                          ? 'border-[var(--status-success)] bg-[var(--status-success)]/5'
+                          : 'border-[var(--border)] bg-[var(--surface-2)]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-[var(--text-primary)]">
+                          {t('agents.detail.releaseVersion', {
+                            defaultValue: 'Version {{number}}',
+                            number: rel.release_number,
+                          })}
+                        </span>
+                        <span className="text-xs text-[var(--text-muted)]">
+                          {rel.published_at
+                            ? t('agents.detail.publishedAt', {
+                                defaultValue: 'published {{date}}',
+                                date: new Date(rel.published_at).toLocaleDateString(),
+                              })
+                            : '-'}
+                        </span>
+                        {isActive && (
+                          <Badge variant="default" className="bg-[var(--status-success)] text-white">
+                            {t('workspace.active')}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {!isActive && rel.status === 'ready' && canAdmin && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              rollbackAgent.mutate({
+                                agentId,
+                                releaseId: rel.id,
+                                workspaceId,
+                              })
+                            }
+                            disabled={rollbackAgent.isPending}
+                          >
+                            <Undo2 className="mr-1.5 h-3 w-3" />
+                            {t('agents.detail.rollbackToVersion', {
+                              defaultValue: 'Rollback to this version',
+                            })}
+                          </Button>
+                        )}
+                        {canAdmin && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  retireRelease.mutate({
+                                    agentId,
+                                    releaseId: rel.id,
+                                    workspaceId,
+                                  })
+                                }
+                              >
+                                {t('agents.detail.retireRelease', {
+                                  defaultValue: 'Retire',
+                                })}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {rel.status === 'ready' && agent.active_release_id !== rel.id && canAdmin && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            activateRelease.mutate({
-                              agentId,
-                              releaseId: rel.id,
-                              workspaceId,
-                            })
-                          }
-                          disabled={activateRelease.isPending}
-                        >
-                          {t('workspace.deploy')}
-                        </Button>
-                      )}
-                      {agent.active_release_id === rel.id && canAdmin && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            retireRelease.mutate({
-                              agentId,
-                              releaseId: rel.id,
-                              workspaceId,
-                            })
-                          }
-                          disabled={retireRelease.isPending}
-                        >
-                          {t('workspace.undeploy')}
-                        </Button>
-                      )}
-                      <span className="text-xs text-[var(--text-muted)]">
-                        {rel.published_at
-                          ? new Date(rel.published_at).toLocaleDateString()
-                          : '-'}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
@@ -423,12 +310,6 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
       <VersionFormDialog
         open={versionDialogOpen}
         onOpenChange={setVersionDialogOpen}
-        agentId={agentId}
-        workspaceId={workspaceId}
-      />
-      <ReleaseManager
-        open={releaseDialogOpen}
-        onOpenChange={setReleaseDialogOpen}
         agentId={agentId}
         workspaceId={workspaceId}
       />
