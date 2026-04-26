@@ -28,10 +28,6 @@ export default function AgentsPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [deletingAgent, setDeletingAgent] = useState<Agent | null>(null)
 
-  function handleCreate() {
-    setDialogOpen(true)
-  }
-
   async function handleSubmit(data: CreateAgentRequest) {
     try {
       const newAgent = await createMutation.mutateAsync({
@@ -47,10 +43,6 @@ export default function AgentsPage() {
 
   function handleNavigate(agent: Agent) {
     router.push(`/agents/${agent.id}`)
-  }
-
-  function handleDelete(agent: Agent) {
-    setDeletingAgent(agent)
   }
 
   function confirmDelete() {
@@ -72,51 +64,53 @@ export default function AgentsPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-[var(--bg)] p-6">
-      <div className="mx-auto max-w-6xl">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-[var(--text-primary)]">
-              {t('agents.title')}
-            </h1>
-            <p className="mt-1 text-sm text-[var(--text-muted)]">{t('agents.subtitle')}</p>
-          </div>
-          {canEdit && (
-            <Button onClick={handleCreate} className="gap-1.5">
-              <Plus className="h-4 w-4" />
-              {t('agents.newAgent')}
-            </Button>
-          )}
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-[var(--text-primary)]">
+            {t('agents.title', { defaultValue: 'Agents' })}
+          </h1>
+          <p className="mt-1 text-sm text-[var(--text-muted)]">
+            {t('agents.subtitle', { defaultValue: 'Build and manage your AI agents' })}
+          </p>
         </div>
-
-        {agents.length === 0 ? (
-          <Card className="flex flex-col items-center justify-center gap-4 border-dashed p-12 text-center">
-            <Bot className="h-10 w-10 text-[var(--text-muted)]" />
-            <div>
-              <h3 className="text-sm font-medium text-[var(--text-primary)]">
-                {t('agents.emptyTitle')}
-              </h3>
-              <p className="mt-1 text-sm text-[var(--text-muted)]">{t('agents.emptySubtitle')}</p>
-            </div>
-            {canEdit && (
-              <Button onClick={handleCreate} variant="outline" className="gap-1.5">
-                <Plus className="h-4 w-4" />
-                {t('agents.newAgent')}
-              </Button>
-            )}
-          </Card>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {agents.map((agent) => (
-              <AgentCard
-                key={agent.id}
-                agent={agent}
-                onClick={handleNavigate}
-                onDelete={canEdit ? handleDelete : undefined}
-              />
-            ))}
-          </div>
+        {canEdit && (
+          <Button onClick={() => setDialogOpen(true)} className="gap-1.5">
+            <Plus className="h-4 w-4" />
+            {t('agents.newAgent', { defaultValue: 'New Agent' })}
+          </Button>
         )}
       </div>
+
+      {agents.length === 0 ? (
+        <Card className="flex flex-col items-center justify-center gap-4 border-dashed p-12 text-center">
+          <Bot className="h-10 w-10 text-[var(--text-muted)]" />
+          <div>
+            <h3 className="text-sm font-medium text-[var(--text-primary)]">
+              {t('agents.emptyTitle', { defaultValue: 'No agents yet' })}
+            </h3>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">
+              {t('agents.emptySubtitle', { defaultValue: 'Create your first agent to get started' })}
+            </p>
+          </div>
+          {canEdit && (
+            <Button onClick={() => setDialogOpen(true)} variant="outline" className="gap-1.5">
+              <Plus className="h-4 w-4" />
+              {t('agents.newAgent', { defaultValue: 'New Agent' })}
+            </Button>
+          )}
+        </Card>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {agents.map((agent) => (
+            <AgentCard
+              key={agent.id}
+              agent={agent}
+              onClick={handleNavigate}
+              onDelete={canEdit ? (a) => setDeletingAgent(a) : undefined}
+            />
+          ))}
+        </div>
+      )}
 
       <CreateAgentDialog
         open={dialogOpen}
@@ -127,9 +121,12 @@ export default function AgentsPage() {
 
       <ConfirmDialog
         open={Boolean(deletingAgent)}
-        onOpenChange={(open) => !open && setDeletingAgent(null)}
-        title={t('agents.deleteConfirmTitle')}
-        description={t('agents.deleteConfirmDescription', { name: deletingAgent?.name })}
+        onOpenChange={(open) => { if (!open) setDeletingAgent(null) }}
+        title={t('agents.deleteConfirmTitle', { defaultValue: 'Delete agent' })}
+        description={t('agents.deleteConfirmDescription', {
+          name: deletingAgent?.name,
+          defaultValue: `Are you sure you want to delete "${deletingAgent?.name}"?`,
+        })}
         onConfirm={confirmDelete}
         loading={deleteMutation.isPending}
         variant="destructive"
