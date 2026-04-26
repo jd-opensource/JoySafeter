@@ -9,11 +9,12 @@ vi.mock('@/lib/i18n', () => ({
 vi.mock('@/providers/workspace-permissions-provider', () => ({
   useUserPermissionsContext: () => ({ canAdmin: true }),
 }))
-vi.mock('@/hooks/queries/agentReleases', () => ({
-  releaseKeys: { all: () => ['releases'] },
-  useReleases: () => ({ data: [], isLoading: false }),
-  useActivateRelease: () => ({ mutate: vi.fn(), isPending: false }),
-  useRetireRelease: () => ({ mutate: vi.fn(), isPending: false }),
+vi.mock('@/hooks/queries/agentPublish', () => ({
+  publishKeys: { all: () => ['releases'] },
+  usePublishAgent: () => ({ mutate: vi.fn(), isPending: false, isSuccess: false }),
+  useRollbackAgent: () => ({ mutate: vi.fn(), isPending: false, isSuccess: false }),
+  useRetireRelease: () => ({ mutate: vi.fn(), isPending: false, isSuccess: false }),
+  useReleaseHistory: () => ({ data: [], isLoading: false }),
 }))
 vi.mock('@/hooks/queries/agents', () => ({
   agentKeys: { detail: () => ['agent'] },
@@ -26,9 +27,6 @@ vi.mock('@/hooks/use-toast', () => ({
 }))
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
-}))
-vi.mock('../agent-release-adapter', () => ({
-  agentReleaseAdapter: { publish: vi.fn() },
 }))
 vi.mock('../agent-api-access-dialog', () => ({
   AgentApiAccessDialog: () => null,
@@ -47,18 +45,18 @@ const baseStageProps = {
 describe('AgentReleaseStage', () => {
   it('renders with StageProps', () => {
     render(<AgentReleaseStage {...baseStageProps} />)
-    expect(screen.getByText('Publish and manage releases')).toBeInTheDocument()
+    expect(screen.getByText('Publish your Agent')).toBeInTheDocument()
   })
 
   it('enables publish when version has content', () => {
     render(<AgentReleaseStage {...baseStageProps} />)
-    const publishBtn = screen.getByRole('button', { name: /publish draft/i })
+    const publishBtn = screen.getByRole('button', { name: /publish/i })
     expect(publishBtn).not.toBeDisabled()
   })
 
   it('disables publish when version is null', () => {
     render(<AgentReleaseStage {...baseStageProps} version={null} />)
-    const publishBtn = screen.getByRole('button', { name: /publish draft/i })
+    const publishBtn = screen.getByRole('button', { name: /publish/i })
     expect(publishBtn).toBeDisabled()
   })
 })
