@@ -20,15 +20,14 @@ from app.core.engine.registry import engine_registry
 from app.core.events import ExecutionEventEnvelope, execution_event_bus
 from app.core.events.event_types import ExecutionEventType
 from app.core.state_machines.transitions import (
-    sync_task_from_run, transition_run, transition_task,
+    sync_task_from_run, transition_task,
 )
 from app.models.agent import Agent, AgentRelease, AgentVersion
 from app.models.agent_run import AgentRun
 from app.models.execution import Execution
 from app.models.task import Task
 from app.models.thread import Thread
-from app.utils.credentials import build_credentials
-from app.utils.datetime import utc_now
+from app.utils.credentials import build_agent_credentials
 from app.utils.safe_task import safe_create_task
 
 
@@ -73,6 +72,7 @@ class ExecutionOrchestrator:
 
         prompt = prompt_override or task.goal or task.title
         run = await self._create_and_fire(
+            agent=agent,
             release_id=agent.active_release_id,
             workspace_id=agent.workspace_id,
             prompt=prompt,
@@ -106,6 +106,7 @@ class ExecutionOrchestrator:
             raise BadRequestException(f"Agent '{agent.name}' has no active release")
 
         return await self._create_and_fire(
+            agent=agent,
             release_id=agent.active_release_id,
             workspace_id=agent.workspace_id,
             prompt=message,
@@ -130,6 +131,7 @@ class ExecutionOrchestrator:
         agent = await self._get_agent(version.agent_id)
 
         return await self._create_and_fire(
+            agent=agent,
             release_id=release_id,
             workspace_id=agent.workspace_id,
             prompt=prompt,
@@ -159,6 +161,7 @@ class ExecutionOrchestrator:
             raise BadRequestException("Agent does not belong to this workspace")
 
         return await self._create_and_fire_draft(
+            agent=agent,
             version=version,
             workspace_id=workspace_id,
             prompt=prompt,
@@ -202,6 +205,7 @@ class ExecutionOrchestrator:
         }
 
         return await self._create_and_fire(
+            agent=agent,
             release_id=agent.active_release_id,
             workspace_id=agent.workspace_id,
             prompt=prompt,
@@ -274,8 +278,17 @@ class ExecutionOrchestrator:
                 )
                 await execution_event_bus.publish(cancel_envelope, self.db)
 
-        await transition_run(run, "cancelled", self.db)
-        await self.db.commit()
+        await execution_event_bus.publish(
+            ExecutionEventEnvelope(
+                execution_id=run.current_execution_id or uuid.UUID(int=0),
+                run_id=run.id,
+                workspace_id=run.workspace_id,
+                event_type=ExecutionEventType.RUN_STATUS_CHANGE,
+                payload={"status": "cancelled"},
+                target_status="cancelled",
+            ),
+            self.db,
+        )
         await self.db.refresh(run)
 
         await sync_task_from_run(run, self.db)
@@ -291,6 +304,7 @@ class ExecutionOrchestrator:
 
         release = await self._get_release(run.release_id)
         version = await self._get_version(release.agent_version_id)
+        agent = await self._get_agent(version.agent_id)
 
         # Create new execution attempt
         from sqlalchemy import func
@@ -309,8 +323,22 @@ class ExecutionOrchestrator:
         await self.db.flush()
 
         run.current_execution_id = execution.id
-        await transition_run(run, "running", self.db)
+        await self.db.flush()
+
+        # Transition Run to running via event bus
+        await execution_event_bus.publish(
+            ExecutionEventEnvelope(
+                execution_id=execution.id,
+                run_id=run.id,
+                workspace_id=run.workspace_id,
+                event_type=ExecutionEventType.RUN_STATUS_CHANGE,
+                payload={"status": "running"},
+                target_status="running",
+            ),
+            self.db,
+        )
         run.ended_at = None
+        await self.db.flush()
         await self.db.commit()
 
         # Fire engine in background
@@ -318,6 +346,7 @@ class ExecutionOrchestrator:
             execution=execution,
             release=release,
             version=version,
+            agent=agent,
             workspace_id=run.workspace_id,
             prompt=run.goal or "",
         )
@@ -350,6 +379,7 @@ class ExecutionOrchestrator:
 
     async def _create_and_fire(
         self,
+        agent: Agent,
         release_id: uuid.UUID,
         workspace_id: uuid.UUID,
         prompt: str,
@@ -367,7 +397,7 @@ class ExecutionOrchestrator:
         release = await self._get_release(release_id)
         version = await self._get_version(release.agent_version_id)
 
-        # Create Run directly in running state
+        # Create Run in pending state — bus will transition to running
         run = AgentRun(
             release_id=release_id,
             workspace_id=workspace_id,
@@ -376,9 +406,8 @@ class ExecutionOrchestrator:
             trigger_source=trigger_source,
             goal=prompt[:500] if prompt else None,
             input_payload=input_payload,
-            status="running",
+            status="pending",
             created_by=user_id,
-            started_at=utc_now(),
         )
         self.db.add(run)
         await self.db.flush()
@@ -395,6 +424,22 @@ class ExecutionOrchestrator:
 
         run.current_execution_id = execution.id
         await self.db.commit()
+
+        # Transition Run to running via event bus
+        await execution_event_bus.publish(
+            ExecutionEventEnvelope(
+                execution_id=execution.id,
+                run_id=run.id,
+                workspace_id=workspace_id,
+                event_type=ExecutionEventType.RUN_STATUS_CHANGE,
+                payload={"status": "running"},
+                target_status="running",
+                trigger_source=trigger_source,
+                thread_id=thread_id,
+                task_id=task_id,
+            ),
+            self.db,
+        )
         await self.db.refresh(run)
 
         # Fire engine in background
@@ -403,6 +448,7 @@ class ExecutionOrchestrator:
                 execution=execution,
                 release=release,
                 version=version,
+                agent=agent,
                 workspace_id=workspace_id,
                 prompt=prompt,
                 engine_kind_override=engine_kind_override,
@@ -411,7 +457,6 @@ class ExecutionOrchestrator:
             )
         except Exception as exc:
             logger.error(f"[Orchestrator] _fire_engine failed: {exc}")
-            await transition_run(run, "failed", self.db, str(exc)[:2000])
             fail_envelope = ExecutionEventEnvelope(
                 execution_id=execution.id,
                 run_id=run.id,
@@ -422,12 +467,25 @@ class ExecutionOrchestrator:
                 error_message=str(exc)[:2000],
             )
             await execution_event_bus.publish(fail_envelope, self.db)
+            await execution_event_bus.publish(
+                ExecutionEventEnvelope(
+                    execution_id=execution.id,
+                    run_id=run.id,
+                    workspace_id=workspace_id,
+                    event_type=ExecutionEventType.RUN_STATUS_CHANGE,
+                    payload={"status": "failed"},
+                    target_status="failed",
+                    result_summary=str(exc)[:2000],
+                ),
+                self.db,
+            )
             await self.db.refresh(run)
 
         return run
 
     async def _create_and_fire_draft(
         self,
+        agent: Agent,
         version: AgentVersion,
         workspace_id: uuid.UUID,
         prompt: str,
@@ -445,9 +503,8 @@ class ExecutionOrchestrator:
             trigger_source=trigger_source,
             goal=prompt[:500] if prompt else None,
             input_payload=input_payload,
-            status="running",
+            status="pending",
             created_by=user_id,
-            started_at=utc_now(),
         )
         self.db.add(run)
         await self.db.flush()
@@ -463,6 +520,20 @@ class ExecutionOrchestrator:
 
         run.current_execution_id = execution.id
         await self.db.commit()
+
+        # Transition Run to running via event bus
+        await execution_event_bus.publish(
+            ExecutionEventEnvelope(
+                execution_id=execution.id,
+                run_id=run.id,
+                workspace_id=workspace_id,
+                event_type=ExecutionEventType.RUN_STATUS_CHANGE,
+                payload={"status": "running"},
+                target_status="running",
+                trigger_source=trigger_source,
+            ),
+            self.db,
+        )
         await self.db.refresh(run)
 
         try:
@@ -471,12 +542,12 @@ class ExecutionOrchestrator:
                 release_runtime_binding=runtime_binding,
                 runtime_kind=engine_kind,
                 version=version,
+                agent=agent,
                 workspace_id=workspace_id,
                 prompt=prompt,
             )
         except Exception as exc:
             logger.error(f"[Orchestrator] _fire_engine failed for draft run: {exc}")
-            await transition_run(run, "failed", self.db, str(exc)[:2000])
             fail_envelope = ExecutionEventEnvelope(
                 execution_id=execution.id,
                 run_id=run.id,
@@ -487,6 +558,18 @@ class ExecutionOrchestrator:
                 error_message=str(exc)[:2000],
             )
             await execution_event_bus.publish(fail_envelope, self.db)
+            await execution_event_bus.publish(
+                ExecutionEventEnvelope(
+                    execution_id=execution.id,
+                    run_id=run.id,
+                    workspace_id=workspace_id,
+                    event_type=ExecutionEventType.RUN_STATUS_CHANGE,
+                    payload={"status": "failed"},
+                    target_status="failed",
+                    result_summary=str(exc)[:2000],
+                ),
+                self.db,
+            )
             await self.db.refresh(run)
 
         return run
@@ -495,6 +578,7 @@ class ExecutionOrchestrator:
         self,
         execution: Execution,
         version: AgentVersion,
+        agent: Agent,
         workspace_id: uuid.UUID,
         prompt: str,
         *,
@@ -506,7 +590,7 @@ class ExecutionOrchestrator:
         definition_payload_override: dict | None = None,
     ) -> None:
         """Build context and fire engine in a background task."""
-        credentials = await build_credentials(self.db, workspace_id)
+        credentials = build_agent_credentials(agent)
 
         # Resolve auto_approve from task if linked
         auto_approve = True

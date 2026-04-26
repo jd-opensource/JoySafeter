@@ -5,7 +5,6 @@ import pytest
 from app.core.agent.cli_backends.container_service import ContainerConfig, ContainerInfo
 from app.core.agent.cli_backends.injectors import (
     CLISkillInjector,
-    CredentialInjector,
     RuntimeConfigInjector,
 )
 
@@ -107,20 +106,6 @@ def test_build_claude_md_full():
 # ---------------------------------------------------------------------------
 # Async injector tests (using fake container service)
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_credential_injector_build_env():
-    injector = CredentialInjector()
-    env = injector.build_env({"ANTHROPIC_API_KEY": "sk-test", "GITHUB_TOKEN": "ghp-abc"})
-    assert env == {"ANTHROPIC_API_KEY": "sk-test", "GITHUB_TOKEN": "ghp-abc"}
-
-
-@pytest.mark.asyncio
-async def test_credential_injector_empty():
-    injector = CredentialInjector()
-    env = injector.build_env({})
-    assert env == {}
 
 
 @pytest.mark.asyncio

@@ -46,6 +46,11 @@ class Agent(BaseModel):
     created_by: Mapped[str] = mapped_column(
         String(255), ForeignKey("user.id", ondelete="CASCADE"), nullable=False
     )
+    encrypted_custom_env: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    @property
+    def has_custom_env(self) -> bool:
+        return self.encrypted_custom_env is not None
 
     # Relationships
     versions: Mapped[List[AgentVersion]] = relationship(

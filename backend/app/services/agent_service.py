@@ -13,6 +13,7 @@ from sqlalchemy import delete, exists, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import ConflictException, NotFoundException
+from app.core.model.utils import encrypt_credentials
 from app.models.agent import Agent, AgentRelease, AgentVersion
 from app.models.agent_run import AgentRun
 from app.models.execution import Artifact, Execution, ExecutionEvent
@@ -62,17 +63,19 @@ class AgentService(BaseService):
             slug = f"{base_slug}-{suffix}"
 
         # Create the Agent
-        agent = await self.agent_repo.create(
-            {
-                "workspace_id": workspace_id,
-                "name": data.name,
-                "slug": slug,
-                "description": data.description,
-                "avatar": data.avatar,
-                "status": "draft",
-                "created_by": user_id,
-            }
-        )
+        create_data = {
+            "workspace_id": workspace_id,
+            "name": data.name,
+            "slug": slug,
+            "description": data.description,
+            "avatar": data.avatar,
+            "status": "draft",
+            "created_by": user_id,
+        }
+        if data.custom_env:
+            create_data["encrypted_custom_env"] = encrypt_credentials(data.custom_env)
+
+        agent = await self.agent_repo.create(create_data)
 
         # Create an initial draft AgentVersion (v1)
         version = await self.version_repo.create(
@@ -107,6 +110,13 @@ class AgentService(BaseService):
         update_data = data.model_dump(exclude_unset=True)
         if not update_data:
             return agent
+
+        if "custom_env" in update_data:
+            raw = update_data.pop("custom_env")
+            if raw:
+                update_data["encrypted_custom_env"] = encrypt_credentials(raw)
+            else:
+                update_data["encrypted_custom_env"] = None
 
         updated = await self.agent_repo.update(agent_id, update_data)
         assert updated is not None

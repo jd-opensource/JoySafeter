@@ -46,6 +46,7 @@ async def test_dispatch_draft_uses_requested_version_without_active_release() ->
 
     assert result is run
     orchestrator._create_and_fire_draft.assert_awaited_once_with(  # type: ignore[attr-defined]
+        agent=agent,
         version=version,
         workspace_id=workspace_id,
         prompt="hello draft",

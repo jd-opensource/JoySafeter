@@ -29,6 +29,7 @@ class CreateAgentRequest(BaseModel):
     definition_kind: DefinitionKindLiteral = "prompt"
     definition_payload: Optional[Dict[str, Any]] = None
     capability_manifest: Optional[Dict[str, Any]] = None
+    custom_env: Optional[Dict[str, str]] = None
 
 
 class UpdateAgentRequest(BaseModel):
@@ -36,6 +37,7 @@ class UpdateAgentRequest(BaseModel):
     description: Optional[str] = None
     avatar: Optional[str] = None
     status: Optional[AgentStatusLiteral] = None
+    custom_env: Optional[Dict[str, str]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +63,7 @@ class AgentResponse(BaseModel):
     description: Optional[str] = None
     avatar: Optional[str] = None
     status: str
+    has_custom_env: bool = False
     current_draft_version_id: Optional[uuid.UUID] = None
     active_release_id: Optional[uuid.UUID] = None
     created_by: str

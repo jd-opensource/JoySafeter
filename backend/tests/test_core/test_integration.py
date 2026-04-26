@@ -20,7 +20,6 @@ from app.core.agent.cli_backends.container_service import ContainerInfo
 from app.core.agent.cli_backends.execution_runner import ExecutionRunner
 from app.core.agent.cli_backends.injectors import (
     CLISkillInjector,
-    CredentialInjector,
     RuntimeConfigInjector,
 )
 from app.schemas.task import TaskSummary
@@ -107,16 +106,6 @@ async def test_container_injection_pipeline():
     container = await svc.create_container(execution_id=exec_id)
     assert container.status == "running"
     assert container.container_id.startswith("fake-ctr-")
-
-    # Build credentials env (no longer writes to container filesystem)
-    cred_injector = CredentialInjector()
-    env = cred_injector.build_env(
-        {
-            "ANTHROPIC_API_KEY": "sk-test-key",
-            "GITHUB_TOKEN": "ghp-test",
-        }
-    )
-    assert env == {"ANTHROPIC_API_KEY": "sk-test-key", "GITHUB_TOKEN": "ghp-test"}
 
     # Inject skills
     skill_injector = CLISkillInjector(svc)

@@ -5,6 +5,10 @@ Shared credential helpers for CLI agent containers.
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.agent import Agent
 
 # Host env keys that should be passed through to CLI agent containers
 PASSTHROUGH_ENV_KEYS = (
@@ -38,6 +42,14 @@ def build_credentials(custom_env: dict[str, str] | None) -> dict[str, str]:
         raise ValueError(
             "CLI agent requires an Anthropic API key. "
             "Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN in "
-            "the backend environment (.env) or in the agent profile's custom_env."
+            "the backend environment (.env) or in the agent's custom_env."
         )
     return env
+
+
+def build_agent_credentials(agent: Agent) -> dict[str, str]:
+    """Build credentials for an agent, merging its custom_env with host keys."""
+    from app.core.model.utils import decrypt_credentials
+
+    custom_env = decrypt_credentials(agent.encrypted_custom_env) if agent.encrypted_custom_env else None
+    return build_credentials(custom_env)
