@@ -48,25 +48,4 @@ export const agentVersionService = {
     )
   },
 
-  freeze: async (
-    agentId: string,
-    versionId: string,
-    workspaceId: string,
-  ): Promise<AgentVersion> => {
-    return apiPost<AgentVersion>(
-      `agents/${agentId}/versions/${versionId}/freeze?workspace_id=${workspaceId}`,
-      {},
-    )
-  },
-
-  unfreeze: async (
-    agentId: string,
-    versionId: string,
-    workspaceId: string,
-  ): Promise<AgentVersion> => {
-    return apiPost<AgentVersion>(
-      `agents/${agentId}/versions/${versionId}/unfreeze?workspace_id=${workspaceId}`,
-      {},
-    )
-  },
 }

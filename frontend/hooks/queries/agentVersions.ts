@@ -115,58 +115,6 @@ export function useUpdateVersion() {
   })
 }
 
-export function useFreezeVersion() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: async ({
-      agentId,
-      versionId,
-      workspaceId,
-    }: {
-      agentId: string
-      versionId: string
-      workspaceId: string
-    }) => {
-      return agentVersionService.freeze(agentId, versionId, workspaceId)
-    },
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: versionKeys.all(variables.agentId, variables.workspaceId),
-      })
-      queryClient.invalidateQueries({
-        queryKey: agentKeys.detail(variables.agentId, variables.workspaceId),
-      })
-    },
-  })
-}
-
-export function useUnfreezeVersion() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: async ({
-      agentId,
-      versionId,
-      workspaceId,
-    }: {
-      agentId: string
-      versionId: string
-      workspaceId: string
-    }) => {
-      return agentVersionService.unfreeze(agentId, versionId, workspaceId)
-    },
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: versionKeys.all(variables.agentId, variables.workspaceId),
-      })
-      queryClient.invalidateQueries({
-        queryKey: agentKeys.detail(variables.agentId, variables.workspaceId),
-      })
-    },
-  })
-}
-
 // ==================== Graph State from Version ====================
 
 export interface VersionGraphState {
