@@ -10,7 +10,6 @@ import { useGraphStore, setAutoSaveTrigger } from './graphStore'
 interface SaveState {
   isSaving: boolean
   lastAutoSaveTime: number | null
-  deployedAt: string | null
   lastSavedStateHash: string | null
   hasPendingChanges: boolean
   saveRetryCount: number
@@ -20,7 +19,6 @@ interface SaveState {
   stopAutoSave: () => void
   saveNow: (reason?: string) => Promise<void>
   autoSave: () => Promise<void>
-  setDeployedAt: (deployedAt: string | null) => void
   triggerAutoSave: () => void
 }
 
@@ -65,7 +63,6 @@ export const useSaveStore = create<SaveState>((set, get) => {
   return {
     isSaving: false,
     lastAutoSaveTime: null,
-    deployedAt: null,
     lastSavedStateHash: null,
     hasPendingChanges: false,
     saveRetryCount: 0,
@@ -87,8 +84,6 @@ export const useSaveStore = create<SaveState>((set, get) => {
     autoSave: async () => {
       await manager.save('auto')
     },
-
-    setDeployedAt: (deployedAt) => set({ deployedAt }),
 
     triggerAutoSave: () => {
       const gs = useGraphStore.getState()

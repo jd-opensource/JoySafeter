@@ -23,9 +23,7 @@ import { useCodeEditorStore } from './stores/codeEditorStore'
 import { useExecutionStore } from './stores/execution/executionStore'
 import { ExecutionPanelNew as ExecutionPanel } from '@/components/execution/ExecutionPanelNew'
 import { RunInputModal } from './components/RunInputModal'
-import { deploymentAdapter } from './services/deploymentAdapter'
-import { useGraphStore } from './stores/graphStore'
-import { useSaveStore } from './stores/saveStore'
+import { usePublishAgent } from '@/hooks/queries/agentPublish'
 
 interface Props {
   graphId: string
@@ -43,15 +41,13 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
   const graphName = useCodeEditorStore((s) => s.graphName)
   const setGraphName = useCodeEditorStore((s) => s.setGraphName)
 
-  const deployedAt = useSaveStore((s) => s.deployedAt)
-  const setDeployedAt = useSaveStore((s) => s.setDeployedAt)
+  const publishAgent = usePublishAgent()
 
   const isExecuting = useExecutionStore((s) => s.isExecuting)
   const showExecutionPanel = useExecutionStore((s) => s.showPanel)
 
   const [isRunModalOpen, setIsRunModalOpen] = useState(false)
   const [runInput, setRunInput] = useState('')
-  const [isDeploying, setIsDeploying] = useState(false)
 
   const handleRunClick = () => {
     if (isExecuting) {
@@ -69,31 +65,28 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
   }
 
   const handleDeploy = async () => {
-    if (isDeploying || !graphId) return
-    const { versionId } = useGraphStore.getState()
-    if (!versionId) {
-      toast({ title: t('workspace.noVersionToDeploy', { defaultValue: 'No version to deploy' }), variant: 'destructive' })
-      return
-    }
+    if (publishAgent.isPending || !graphId) return
     if (isDirty) await save()
-    setIsDeploying(true)
-    try {
-      const deployment = await deploymentAdapter.deploy(graphId, versionId, workspaceId, 'code')
-      queryClient.invalidateQueries({ queryKey: versionKeys.all(graphId, workspaceId) })
-      setDeployedAt(deployment.published_at || new Date().toISOString())
-      toast({ title: t('workspace.deploySuccess'), variant: 'success' })
-    } catch (error) {
-      toast({
-        title: t('workspace.deployFailed'),
-        description: error instanceof Error ? error.message : t('workspace.deployFailedDescription'),
-        variant: 'destructive',
-      })
-    } finally {
-      setIsDeploying(false)
-    }
+    publishAgent.mutate(
+      { agentId: graphId, workspaceId },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: versionKeys.all(graphId, workspaceId) })
+          toast({ title: t('workspace.deploySuccess'), variant: 'success' })
+        },
+        onError: (error) => {
+          toast({
+            title: t('workspace.deployFailed'),
+            description: error instanceof Error ? error.message : t('workspace.deployFailedDescription'),
+            variant: 'destructive',
+          })
+        },
+      },
+    )
   }
 
-  const isDeployed = Boolean(deployedAt)
+  const isDeploying = publishAgent.isPending
+  const isDeployed = publishAgent.isSuccess
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-[var(--bg)] text-[var(--text-primary)]">

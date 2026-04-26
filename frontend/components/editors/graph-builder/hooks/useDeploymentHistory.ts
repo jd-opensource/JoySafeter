@@ -7,7 +7,7 @@ import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
 import { agentVersionService } from '@/services/agentVersionService'
 
-import { deploymentAdapter } from '../services/deploymentAdapter'
+import { agentPublishService } from '@/services/agentPublishService'
 import { useGraphStore } from '../stores/graphStore'
 
 export interface GraphDeploymentVersion {
@@ -63,7 +63,7 @@ export function useDeploymentHistory(
 
   const releasesQuery = useQuery({
     queryKey: ['releases', agentId, workspaceId],
-    queryFn: () => deploymentAdapter.list(agentId!, workspaceId!),
+    queryFn: () => agentPublishService.list(agentId!, workspaceId!),
     enabled: open && !!agentId && !!workspaceId,
   })
 
@@ -78,15 +78,13 @@ export function useDeploymentHistory(
       rawReleases.map((r) => ({
         id: r.id,
         releaseId: r.id,
-        version: r.version,
+        version: r.release_number,
         name: undefined,
         created_at: r.published_at ?? '',
         createdAt: r.published_at ?? '',
         isActive: r.status === 'ready',
         is_current: r.status === 'ready',
-        // agent_version_id is not exposed by DeploymentVersion; keep undefined so
-        // fetchVersionState can handle it gracefully.
-        agentVersionId: undefined,
+        agentVersionId: r.agent_version_id,
       })),
     [rawReleases],
   )
@@ -144,24 +142,23 @@ export function useDeploymentHistory(
       if (versionCache[version]) return
 
       // Find the corresponding release to get its agent_version_id
-      const release = rawReleases.find((r) => r.version === version)
+      const release = rawReleases.find((r) => r.release_number === version)
       if (!release) return
 
-      // DeploymentVersion doesn't expose agent_version_id — we need to look it
-      // up from the full AgentRelease which agentReleaseService.get() would give us.
-      // For now derive it from the agentVersionService list as a fallback.
       setIsLoadingPreview(true)
       try {
-        const agentVersions = await agentVersionService.list(agentId, workspaceId)
-        // Each release maps to a version by release_number → version_number ordering;
-        // we match by release.version (release_number). The simplest heuristic is
-        // version_number === release_number (they tend to align), but we use the
-        // version list sorted to find the one at position `version`.
-        const sorted = [...agentVersions].sort((a, b) => a.version_number - b.version_number)
-        const agentVersion = sorted[version - 1] ?? sorted[sorted.length - 1]
-        if (!agentVersion) return
+        // Use agent_version_id from the release when available; otherwise fall
+        // back to a heuristic lookup via the version list.
+        let versionId = release.agent_version_id
+        if (!versionId) {
+          const agentVersions = await agentVersionService.list(agentId, workspaceId)
+          const sorted = [...agentVersions].sort((a, b) => a.version_number - b.version_number)
+          const agentVersion = sorted[version - 1] ?? sorted[sorted.length - 1]
+          if (!agentVersion) return
+          versionId = agentVersion.id
+        }
 
-        const fullVersion = await agentVersionService.get(agentId, agentVersion.id, workspaceId)
+        const fullVersion = await agentVersionService.get(agentId, versionId, workspaceId)
         const payload = fullVersion.definition_payload as {
           nodes?: GraphVersionState['nodes']
           edges?: GraphVersionState['edges']
@@ -221,7 +218,7 @@ export function useDeploymentHistory(
 
   const activateMutation = useMutation({
     mutationFn: ({ releaseId }: { releaseId: string }) =>
-      deploymentAdapter.activate(agentId!, releaseId, workspaceId!),
+      agentPublishService.rollback(agentId!, releaseId, workspaceId!),
     onSuccess: (_data, { releaseId: _releaseId }) => {
       queryClient.invalidateQueries({ queryKey: ['releases', agentId, workspaceId] })
     },
@@ -229,7 +226,7 @@ export function useDeploymentHistory(
 
   const retireMutation = useMutation({
     mutationFn: ({ releaseId }: { releaseId: string }) =>
-      deploymentAdapter.retire(agentId!, releaseId, workspaceId!),
+      agentPublishService.retire(agentId!, releaseId, workspaceId!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['releases', agentId, workspaceId] })
     },

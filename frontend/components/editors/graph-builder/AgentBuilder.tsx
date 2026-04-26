@@ -5,10 +5,9 @@ import React, { useEffect } from 'react'
 import { ReactFlowProvider } from 'reactflow'
 
 import {
-  useVersionGraphState, useUnfreezeVersion,
+  useVersionGraphState,
 } from '@/hooks/queries/agentVersions'
 import { useAgent } from '@/hooks/queries/agents'
-import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
 import { computeGraphStateHash } from '@/lib/utils/graphStateHash'
 import { useCurrentWorkspace } from '@/providers/workspace-provider'
@@ -78,35 +77,6 @@ function AgentBuilderInit({
     workspaceId || undefined,
     { refetchOnMount: 'always', enabled: Boolean(versionIdProp && agentId && workspaceId) },
   )
-
-  const { toast } = useToast()
-
-  const unfreezeVersion = useUnfreezeVersion()
-
-  // Auto-unfreeze frozen versions so the builder can save edits
-  useEffect(() => {
-    if (
-      graphStateData?.versionStatus === 'frozen' &&
-      agentId &&
-      versionIdProp &&
-      workspaceId &&
-      !unfreezeVersion.isPending
-    ) {
-      unfreezeVersion.mutate(
-        { agentId, versionId: versionIdProp, workspaceId },
-        {
-          onSuccess: () => {
-            toast({
-              title: t('agents.detail.versionUnfrozen', { defaultValue: 'Version unfrozen' }),
-              description: t('agents.detail.versionUnfrozenDesc', {
-                defaultValue: 'The frozen version has been reverted to draft for editing.',
-              }),
-            })
-          },
-        },
-      )
-    }
-  }, [graphStateData?.versionStatus, agentId, versionIdProp, workspaceId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync workspaceId into the store
   useEffect(() => {
