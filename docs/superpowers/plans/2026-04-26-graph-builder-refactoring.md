@@ -31,9 +31,12 @@
 
 ### 删除文件
 - `graph-builder/components/BuilderToolbar.tsx` — 被 GraphToolbar + AddNodeButton + ImportExportMenu 取代
-- `graph-builder/BuilderSidebarTabs.tsx` — studioMode=false 路径
-- `graph-builder/studio/StudioRightPanel.tsx` — Copilot 迁移到 CopilotOverlay，属性迁移到 InspectorPanel
+- `graph-builder/components/BuilderSidebarTabs.tsx` — studioMode=false 路径
+- `graph-builder/components/StudioRightPanel.tsx` — Copilot 迁移到 CopilotOverlay，属性迁移到 InspectorPanel
 - `graph-builder/stores/builderStore.ts` — 拆成 3 个 store（最后删除兼容层）
+
+### 重写文件（已有）
+- `graph-builder/components/GraphStatusBar.tsx` — 已有 149 行，重写为使用 saveStore + 统一布局
 
 ---
 
@@ -526,13 +529,13 @@ git commit -m "feat: add InspectorPanel for node/edge property editing"
 
 ---
 
-## Task 6: GraphStatusBar — 统一底部状态栏
+## Task 6: GraphStatusBar — 重写已有底部状态栏
 
 **Files:**
-- Create: `frontend/components/editors/graph-builder/components/GraphStatusBar.tsx`
+- Rewrite: `frontend/components/editors/graph-builder/components/GraphStatusBar.tsx` (已有 149 行，重写为使用 saveStore)
 - Create: `frontend/components/editors/graph-builder/components/ZoomControls.tsx`
 
-**目标：** 统一底部状态栏：左侧保存状态 + 发布状态，右侧缩放控件。
+**目标：** 重写已有 GraphStatusBar，改为从 saveStore 读取状态（而非 builderStore），并抽出 ZoomControls 为独立组件。保留已有功能：保存错误显示、重试计数、手动保存按钮、在线/离线状态。
 
 **依赖：** Task 2（saveStore）
 
@@ -543,7 +546,7 @@ git commit -m "feat: add InspectorPanel for node/edge property editing"
 'use client'
 
 import { Maximize, Minus, Plus } from 'lucide-react'
-import { useReactFlow } from '@xyflow/react'
+import { useReactFlow } from 'reactflow'
 import { Button } from '@/components/ui/button'
 
 export function ZoomControls() {
@@ -933,7 +936,7 @@ git commit -m "feat: add GraphBuilderShell layout container"
 // frontend/components/editors/graph-builder/AgentBuilder.tsx
 'use client'
 
-import { ReactFlowProvider } from '@xyflow/react'
+import { ReactFlowProvider } from 'reactflow'
 import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 
@@ -1110,8 +1113,8 @@ Expected: 只有旧文件自身。如果 AgentBuilder 还引用，说明 Task 9 
 
 ```bash
 rm frontend/components/editors/graph-builder/components/BuilderToolbar.tsx
-rm frontend/components/editors/graph-builder/BuilderSidebarTabs.tsx
-rm -rf frontend/components/editors/graph-builder/studio/
+rm frontend/components/editors/graph-builder/components/BuilderSidebarTabs.tsx
+rm frontend/components/editors/graph-builder/components/StudioRightPanel.tsx
 ```
 
 - [ ] **Step 3: 迁移 useBuilderStore 消费者**
