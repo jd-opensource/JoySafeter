@@ -303,6 +303,20 @@ const zh = {
         },
       },
       build: {
+        stages: {
+          brief: '目标',
+          build: '构建',
+          testLab: '测试',
+          release: '发布',
+          usage: '使用',
+        },
+        stageDescriptions: {
+          brief: '定义 Agent 的目标和行为',
+          build: '构建 Agent 逻辑',
+          testLab: '测试当前草稿',
+          release: '发布和管理版本',
+          usage: '接入业务场景',
+        },
         status: {
           published: '已发布',
           notPublished: '未发布',

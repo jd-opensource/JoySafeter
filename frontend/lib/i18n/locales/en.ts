@@ -304,6 +304,20 @@ const en = {
         },
       },
       build: {
+        stages: {
+          brief: 'Goal',
+          build: 'Build',
+          testLab: 'Test',
+          release: 'Release',
+          usage: 'Usage',
+        },
+        stageDescriptions: {
+          brief: 'Define what this Agent should do',
+          build: 'Build the Agent logic',
+          testLab: 'Test the current draft',
+          release: 'Publish and manage releases',
+          usage: 'Connect to business scenarios',
+        },
         status: {
           published: 'Published',
           notPublished: 'Not published',
