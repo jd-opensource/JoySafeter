@@ -105,7 +105,7 @@ export default function AgentsPage() {
             )}
           </Card>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {agents.map((agent) => (
               <AgentCard
                 key={agent.id}
@@ -121,7 +121,6 @@ export default function AgentsPage() {
       <CreateAgentDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        workspaceId={workspaceId}
         onSubmit={handleSubmit}
         isPending={createMutation.isPending}
       />

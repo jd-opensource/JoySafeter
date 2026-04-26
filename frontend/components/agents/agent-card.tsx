@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useTranslation } from '@/lib/i18n'
+import { formatRelativeTime } from '@/lib/utils/dateHelpers'
 import type { Agent } from '@/types/agent'
 
 import { AgentStatusIndicator } from './agent-status'
@@ -16,33 +17,15 @@ interface AgentCardProps {
   onDelete?: (agent: Agent) => void
 }
 
-function formatRelativeTime(dateStr: string): string {
-  const now = Date.now()
-  const date = new Date(dateStr).getTime()
-  const diff = now - date
-  const minutes = Math.floor(diff / 60000)
-  if (minutes < 1) return 'just now'
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  if (days < 30) return `${days}d ago`
-  return new Date(dateStr).toLocaleDateString()
-}
-
-function getActionHint(agent: Agent, t: (key: string, opts?: { defaultValue?: string }) => string) {
-  if (agent.active_release_id) {
-    return t('agents.card.hintPublished', { defaultValue: 'View usage & manage' })
-  }
-  if (agent.current_draft_version_id) {
-    return t('agents.card.hintBuilding', { defaultValue: 'Continue building' })
-  }
-  return t('agents.card.hintNew', { defaultValue: 'Start building' })
-}
-
 export function AgentCard({ agent, onClick, onDelete }: AgentCardProps) {
   const { t } = useTranslation()
   const hasRelease = Boolean(agent.active_release_id)
+
+  const actionHint = agent.active_release_id
+    ? t('agents.card.hintPublished', { defaultValue: 'View usage & manage' })
+    : agent.current_draft_version_id
+      ? t('agents.card.hintBuilding', { defaultValue: 'Continue building' })
+      : t('agents.card.hintNew', { defaultValue: 'Start building' })
 
   return (
     <Card
@@ -78,14 +61,14 @@ export function AgentCard({ agent, onClick, onDelete }: AgentCardProps) {
             : t('agents.card.draft', { defaultValue: 'Draft' })}
         </Badge>
         <span className="text-[10px] text-[var(--text-muted)]">
-          {formatRelativeTime(agent.updated_at)}
+          {formatRelativeTime(agent.updated_at, t)}
         </span>
       </div>
 
-      {/* Footer: action hint + delete */}
+      {/* Footer */}
       <div className="mt-auto flex items-center justify-between border-t border-[var(--border)] pt-3">
         <span className="flex items-center gap-1 text-xs font-medium text-[var(--skill-brand-600)] opacity-0 transition-opacity group-hover:opacity-100">
-          {getActionHint(agent, t)}
+          {actionHint}
           <ArrowRight className="h-3 w-3" />
         </span>
         {onDelete && (
@@ -93,6 +76,7 @@ export function AgentCard({ agent, onClick, onDelete }: AgentCardProps) {
             variant="ghost"
             size="sm"
             className="h-7 w-7 p-0 text-[var(--text-muted)] opacity-0 transition-opacity hover:text-[var(--error-text)] group-hover:opacity-100"
+            aria-label={t('agents.card.delete', { defaultValue: 'Delete agent' })}
             onClick={(e) => {
               e.stopPropagation()
               onDelete(agent)

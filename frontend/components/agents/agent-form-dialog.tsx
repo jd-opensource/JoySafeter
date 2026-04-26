@@ -49,7 +49,6 @@ const BUILD_METHOD_OPTIONS: BuildMethodOption[] = [
 interface CreateAgentDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  workspaceId: string
   onSubmit: (data: CreateAgentRequest) => void
   isPending?: boolean
 }
@@ -57,7 +56,6 @@ interface CreateAgentDialogProps {
 export function CreateAgentDialog({
   open,
   onOpenChange,
-  workspaceId,
   onSubmit,
   isPending,
 }: CreateAgentDialogProps) {
@@ -114,7 +112,7 @@ export function CreateAgentDialog({
             <Label>
               {t('agents.buildMethod', { defaultValue: 'Build method' })}
             </Label>
-            <div className="grid gap-2">
+            <div className="grid gap-2" role="radiogroup" aria-label={t('agents.buildMethod', { defaultValue: 'Build method' })}>
               {BUILD_METHOD_OPTIONS.map((option) => {
                 const Icon = option.icon
                 const isSelected = definitionKind === option.value
@@ -122,6 +120,8 @@ export function CreateAgentDialog({
                   <button
                     key={option.value}
                     type="button"
+                    role="radio"
+                    aria-checked={isSelected}
                     className={cn(
                       'flex items-center gap-3 rounded-lg border p-3 text-left transition-colors',
                       'hover:bg-[var(--surface-2)]',
