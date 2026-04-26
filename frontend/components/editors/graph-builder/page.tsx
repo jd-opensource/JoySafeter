@@ -2,6 +2,8 @@
 
 import { useParams } from 'next/navigation'
 
+import { useCurrentWorkspace } from '@/providers/workspace-provider'
+
 import AgentBuilder from './AgentBuilder'
 
 /**
@@ -14,6 +16,7 @@ import AgentBuilder from './AgentBuilder'
 export default function AgentPage() {
   const params = useParams()
   const agentId = params.agentId as string
+  const { workspaceId } = useCurrentWorkspace()
 
-  return <AgentBuilder key={agentId} />
+  return <AgentBuilder key={agentId} agentId={agentId} workspaceId={workspaceId} />
 }
