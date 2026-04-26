@@ -30,10 +30,6 @@ interface PropertiesPanelProps {
   embedded?: boolean
 }
 
-// ============================================================================
-// Utility Functions
-// ============================================================================
-
 function normalizeValue(value: unknown): string | boolean | number {
   if (typeof value === 'boolean') return value
   if (typeof value === 'number') return value
@@ -51,11 +47,6 @@ function shouldShowField(field: FieldSchema, config: Record<string, unknown>): b
   return field.showWhen.values.some((val) => normalizeValue(val) === normalizedDependent)
 }
 
-// ============================================================================
-// Sub-components
-// ============================================================================
-
-/** Renders a list of SchemaFieldRenderer items under a SectionHeader */
 const FieldListSection = React.memo(function FieldListSection({
   icon,
   title,
@@ -182,6 +173,40 @@ export default function PropertiesPanel({
     [onUpdate, node.id, nodeData?.label, config],
   )
 
+  const schema = def?.schema
+  const modelField = useMemo(() => schema?.find((s) => s.key === 'model_name'), [schema])
+  const behaviorFields = useMemo(
+    () =>
+      schema?.filter(
+        (s) =>
+          s.key !== 'model_name' &&
+          !['enableMemory', 'memory_model_name', 'memoryPrompt', 'description'].includes(s.key) &&
+          s.type !== 'toolSelector' &&
+          s.type !== 'skillSelector',
+      ) || [],
+    [schema],
+  )
+  const deepAgentSkillFields = useMemo(
+    () => schema?.filter((s) => s.type === 'skillSelector' && s.showWhen) || [],
+    [schema],
+  )
+  const toolsFields = useMemo(
+    () => schema?.filter((s) => s.type === 'toolSelector') || [],
+    [schema],
+  )
+  const skillsFields = useMemo(
+    () => schema?.filter((s) => s.type === 'skillSelector' && !s.showWhen) || [],
+    [schema],
+  )
+  const memoryFields = useMemo(
+    () =>
+      schema?.filter((s) =>
+        ['enableMemory', 'memory_model_name', 'memoryPrompt'].includes(s.key),
+      ) || [],
+    [schema],
+  )
+  const descriptionField = useMemo(() => schema?.find((s) => s.key === 'description'), [schema])
+
   if (!node || !nodeData) return null
 
   const Icon = def?.icon || AlertCircle
@@ -195,25 +220,9 @@ export default function PropertiesPanel({
     const pd = p?.data as { config?: Record<string, unknown> }
     return pd?.config?.useDeepAgents === true
   })
-
-  const modelField = def?.schema.find((s) => s.key === 'model_name')
-  const behaviorFields =
-    def?.schema.filter(
-      (s) =>
-        s.key !== 'model_name' &&
-        !['enableMemory', 'memory_model_name', 'memoryPrompt', 'description'].includes(s.key) &&
-        s.type !== 'toolSelector' &&
-        s.type !== 'skillSelector',
-    ) || []
-  const deepAgentSkillFields =
-    def?.schema.filter((s) => s.type === 'skillSelector' && s.showWhen) || []
-  const toolsFields = def?.schema.filter((s) => s.type === 'toolSelector') || []
-  const skillsFields = def?.schema.filter((s) => s.type === 'skillSelector' && !s.showWhen) || []
-  const memoryFields =
-    def?.schema.filter((s) =>
-      ['enableMemory', 'memory_model_name', 'memoryPrompt'].includes(s.key),
-    ) || []
-  const descriptionField = def?.schema.find((s) => s.key === 'description')
+  const visibleDeepAgentSkillFields = deepAgentSkillFields.filter((f) =>
+    shouldShowField(f, config),
+  )
 
   return (
     <div
@@ -224,7 +233,6 @@ export default function PropertiesPanel({
           : 'absolute bottom-[60px] right-[336px] top-[56px] z-50 w-[400px] rounded-2xl border border-[var(--border)] shadow-2xl duration-300 animate-in fade-in slide-in-from-right-10',
       )}
     >
-      {/* Header — only in standalone (non-embedded) mode */}
       {!embedded && (
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface-1)] px-4 py-3.5">
           <div className="flex items-center gap-3 overflow-hidden text-[var(--text-primary)]">
@@ -258,9 +266,7 @@ export default function PropertiesPanel({
         </div>
       )}
 
-      {/* Body */}
       <div className="custom-scrollbar flex-1 space-y-6 overflow-y-auto p-4 pb-12">
-        {/* Validation Errors */}
         {validationErrors.length > 0 && (
           <div className="space-y-2">
             <Label className="text-xs font-bold uppercase tracking-wider text-[var(--status-error)]">
@@ -286,7 +292,6 @@ export default function PropertiesPanel({
           </div>
         )}
 
-        {/* Model Selection — top-level, most important */}
         {modelField && (
           <SchemaFieldRenderer
             key={modelField.key}
@@ -308,7 +313,6 @@ export default function PropertiesPanel({
           />
         )}
 
-        {/* Section: Behavior */}
         {behaviorFields.length > 0 && (
           <div className="space-y-4">
             <SectionHeader
@@ -332,51 +336,46 @@ export default function PropertiesPanel({
                   graphStateFields={graphStateFields}
                 />
               ))}
-
-            {/* DeepAgents conditional fields — indented */}
-            {deepAgentSkillFields.filter((f) => shouldShowField(f, config)).length > 0 && (
-              <div className="space-y-4 border-l-2 border-[var(--brand-100)] pl-4 duration-300 animate-in slide-in-from-top-2">
-                {deepAgentSkillFields
-                  .filter((f) => shouldShowField(f, config))
-                  .map((field) => (
-                    <SchemaFieldRenderer
-                      key={field.key}
-                      schema={field}
-                      value={config[field.key]}
-                      onChange={(val) => updateConfig(field.key, val)}
-                      canEdit={userPermissions.canEdit}
-                      t={t}
-                      nodes={nodes}
-                      edges={edges}
-                      currentNodeId={node.id}
-                      onCreateEdge={undefined}
-                      graphStateFields={graphStateFields}
-                    />
-                  ))}
-              </div>
-            )}
-
-            {/* SubAgent description — when parent uses DeepAgents */}
-            {hasParentWithDeepAgents && descriptionField && (
-              <div className="space-y-1.5 border-l-2 border-[var(--brand-200)] pl-4 duration-300 animate-in slide-in-from-top-2">
-                <SchemaFieldRenderer
-                  schema={{ ...descriptionField, required: true }}
-                  value={config[descriptionField.key]}
-                  onChange={(val) => updateConfig(descriptionField.key, val)}
-                  canEdit={userPermissions.canEdit}
-                  t={t}
-                  nodes={nodes}
-                  edges={edges}
-                  currentNodeId={node.id}
-                  onCreateEdge={undefined}
-                  graphStateFields={graphStateFields}
-                />
-              </div>
-            )}
           </div>
         )}
 
-        {/* Section: Tools */}
+        {visibleDeepAgentSkillFields.length > 0 && (
+          <div className="space-y-4 border-l-2 border-[var(--brand-100)] pl-4 duration-300 animate-in slide-in-from-top-2">
+            {visibleDeepAgentSkillFields.map((field) => (
+              <SchemaFieldRenderer
+                key={field.key}
+                schema={field}
+                value={config[field.key]}
+                onChange={(val) => updateConfig(field.key, val)}
+                canEdit={userPermissions.canEdit}
+                t={t}
+                nodes={nodes}
+                edges={edges}
+                currentNodeId={node.id}
+                onCreateEdge={undefined}
+                graphStateFields={graphStateFields}
+              />
+            ))}
+          </div>
+        )}
+
+        {hasParentWithDeepAgents && descriptionField && (
+          <div className="space-y-1.5 border-l-2 border-[var(--brand-200)] pl-4 duration-300 animate-in slide-in-from-top-2">
+            <SchemaFieldRenderer
+              schema={{ ...descriptionField, required: true }}
+              value={config[descriptionField.key]}
+              onChange={(val) => updateConfig(descriptionField.key, val)}
+              canEdit={userPermissions.canEdit}
+              t={t}
+              nodes={nodes}
+              edges={edges}
+              currentNodeId={node.id}
+              onCreateEdge={undefined}
+              graphStateFields={graphStateFields}
+            />
+          </div>
+        )}
+
         <FieldListSection
           icon={Hammer}
           title={t('workspace.capabilities')}
@@ -391,7 +390,6 @@ export default function PropertiesPanel({
           graphStateFields={graphStateFields}
         />
 
-        {/* Section: Skills */}
         <FieldListSection
           icon={Sparkles}
           title={t('workspace.skills', { defaultValue: 'Skills' })}
@@ -406,7 +404,6 @@ export default function PropertiesPanel({
           graphStateFields={graphStateFields}
         />
 
-        {/* Section: Memory */}
         <MemorySection
           memoryFields={memoryFields}
           config={config}
@@ -421,7 +418,6 @@ export default function PropertiesPanel({
         />
       </div>
 
-      {/* Footer — only in standalone (non-embedded) mode */}
       {!embedded && (
         <div className="border-t border-[var(--border)] bg-[var(--surface-2)] px-4 py-1.5 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
           {nodeData.type}
