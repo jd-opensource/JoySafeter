@@ -5,11 +5,11 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
 import { AgentCard } from '@/components/agents/agent-card'
-import { AgentFormDialog } from '@/components/agents/agent-form-dialog'
+import { CreateAgentDialog } from '@/components/agents/agent-form-dialog'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { useAgents, useCreateAgent, useUpdateAgent, useDeleteAgent } from '@/hooks/queries/agents'
+import { useAgents, useCreateAgent, useDeleteAgent } from '@/hooks/queries/agents'
 import { useTranslation } from '@/lib/i18n'
 import { useCurrentWorkspace } from '@/providers/workspace-provider'
 import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
@@ -23,21 +23,26 @@ export default function AgentsPage() {
 
   const { data: agents = [], isLoading } = useAgents(workspaceId)
   const createMutation = useCreateAgent()
-  const updateMutation = useUpdateAgent()
   const deleteMutation = useDeleteAgent()
 
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [editingAgent, setEditingAgent] = useState<Agent | null>(null)
   const [deletingAgent, setDeletingAgent] = useState<Agent | null>(null)
 
   function handleCreate() {
-    setEditingAgent(null)
     setDialogOpen(true)
   }
 
-  function handleEdit(agent: Agent) {
-    setEditingAgent(agent)
-    setDialogOpen(true)
+  async function handleSubmit(data: CreateAgentRequest) {
+    try {
+      const newAgent = await createMutation.mutateAsync({
+        ...data,
+        workspace_id: workspaceId,
+      })
+      setDialogOpen(false)
+      router.push(`/agents/${newAgent.id}?stage=brief`)
+    } catch {
+      // error handled by React Query
+    }
   }
 
   function handleNavigate(agent: Agent) {
@@ -52,76 +57,60 @@ export default function AgentsPage() {
     if (!deletingAgent) return
     deleteMutation.mutate(
       { agentId: deletingAgent.id, workspaceId },
-      { onSuccess: () => setDeletingAgent(null) },
+      { onSettled: () => setDeletingAgent(null) },
     )
   }
 
-  function handleSubmit(data: CreateAgentRequest) {
-    if (editingAgent) {
-      const { definition_kind, definition_payload, capability_manifest, ...rest } = data
-      updateMutation.mutate(
-        { agentId: editingAgent.id, workspaceId, ...rest },
-        { onSuccess: () => setDialogOpen(false) },
-      )
-    } else {
-      createMutation.mutate(
-        { ...data, workspace_id: workspaceId },
-        { onSuccess: () => setDialogOpen(false) },
-      )
-    }
+  if (isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-[var(--text-muted)]">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        {t('common.loading')}
+      </div>
+    )
   }
 
-  const isPending = createMutation.isPending || updateMutation.isPending
-
   return (
-    <div className="flex h-full flex-col bg-[var(--bg)]">
-      {/* Header */}
-      <div className="border-b border-[var(--border)] bg-[var(--surface-elevated)] px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Bot className="h-5 w-5 text-[var(--skill-brand-600)]" />
-            <h1 className="text-lg font-semibold text-[var(--text-primary)]">{t('agents.title')}</h1>
+    <div className="h-full overflow-y-auto bg-[var(--bg)] p-6">
+      <div className="mx-auto max-w-6xl">
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-[var(--text-primary)]">
+              {t('agents.title')}
+            </h1>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">{t('agents.subtitle')}</p>
           </div>
           {canEdit && (
-            <Button size="sm" className="gap-1.5" onClick={handleCreate}>
+            <Button onClick={handleCreate} className="gap-1.5">
               <Plus className="h-4 w-4" />
               {t('agents.newAgent')}
             </Button>
           )}
         </div>
-      </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto px-6 py-6">
-        {isLoading ? (
-          <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {t('agents.loading')}
-          </div>
-        ) : agents.length === 0 ? (
-          <Card className="border-dashed border-[var(--border)] bg-[var(--surface-1)] p-8 text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--surface-3)] text-[var(--text-muted)]">
-              <Bot className="h-5 w-5" />
+        {agents.length === 0 ? (
+          <Card className="flex flex-col items-center justify-center gap-4 border-dashed p-12 text-center">
+            <Bot className="h-10 w-10 text-[var(--text-muted)]" />
+            <div>
+              <h3 className="text-sm font-medium text-[var(--text-primary)]">
+                {t('agents.emptyTitle')}
+              </h3>
+              <p className="mt-1 text-sm text-[var(--text-muted)]">{t('agents.emptySubtitle')}</p>
             </div>
-            <h2 className="mt-4 text-sm font-semibold text-[var(--text-primary)]">
-              {t('agents.emptyTitle')}
-            </h2>
-            <p className="mt-1 text-sm text-[var(--text-muted)]">{t('agents.emptyDescription')}</p>
             {canEdit && (
-              <Button size="sm" className="mt-4 gap-1.5" onClick={handleCreate}>
+              <Button onClick={handleCreate} variant="outline" className="gap-1.5">
                 <Plus className="h-4 w-4" />
                 {t('agents.newAgent')}
               </Button>
             )}
           </Card>
         ) : (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {agents.map((agent) => (
               <AgentCard
                 key={agent.id}
                 agent={agent}
                 onClick={handleNavigate}
-                onEdit={canEdit ? handleEdit : undefined}
                 onDelete={canEdit ? handleDelete : undefined}
               />
             ))}
@@ -129,27 +118,22 @@ export default function AgentsPage() {
         )}
       </div>
 
-      {/* Dialog */}
-      <AgentFormDialog
+      <CreateAgentDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        agent={editingAgent}
         workspaceId={workspaceId}
         onSubmit={handleSubmit}
-        isPending={isPending}
+        isPending={createMutation.isPending}
       />
 
-      {/* Delete Confirmation */}
       <ConfirmDialog
         open={Boolean(deletingAgent)}
-        onOpenChange={() => setDeletingAgent(null)}
-        title={t('workspace.deleteAgentConfirmTitle')}
-        description={`${t('workspace.deleteAgentConfirmMessagePrefix')} "${deletingAgent?.name}" ${t('workspace.deleteAgentConfirmMessageSuffix')}`}
-        confirmLabel={t('common.delete')}
-        cancelLabel={t('common.cancel')}
+        onOpenChange={(open) => !open && setDeletingAgent(null)}
+        title={t('agents.deleteConfirmTitle')}
+        description={t('agents.deleteConfirmDescription', { name: deletingAgent?.name })}
         onConfirm={confirmDelete}
-        variant="destructive"
         loading={deleteMutation.isPending}
+        variant="destructive"
       />
     </div>
   )
