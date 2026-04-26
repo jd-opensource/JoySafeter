@@ -1,7 +1,5 @@
 'use client'
 
-import { useEffect, type ReactNode } from 'react'
-
 import { BuilderCanvas } from './components/BuilderCanvas'
 import { CopilotOverlay } from './components/CopilotOverlay'
 import { GraphStatusBar } from './components/GraphStatusBar'
@@ -12,12 +10,10 @@ import { useBuilderUIStore } from './stores/builderUIStore'
 
 interface GraphBuilderShellProps {
   agentId: string
-  onToolbarSlot?: (slot: ReactNode) => void
 }
 
 export function GraphBuilderShell({
   agentId,
-  onToolbarSlot,
 }: GraphBuilderShellProps) {
   const selectedNodeId = useGraphStore((s) => s.selectedNodeId)
   const selectedEdgeId = useGraphStore((s) => s.selectedEdgeId)
@@ -27,20 +23,16 @@ export function GraphBuilderShell({
   const copilotExpanded = useBuilderUIStore((s) => s.copilotExpanded)
   const toggleCopilot = useBuilderUIStore((s) => s.toggleCopilot)
 
-  useEffect(() => {
-    if (onToolbarSlot) {
-      onToolbarSlot(<GraphToolbar />)
-    }
-    return () => {
-      if (onToolbarSlot) onToolbarSlot(null)
-    }
-  }, [onToolbarSlot])
-
   return (
     <div className="flex h-full flex-col">
       <div className="relative flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1">
           <BuilderCanvas />
+          <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center">
+            <div className="pointer-events-auto">
+              <GraphToolbar />
+            </div>
+          </div>
         </div>
 
         {hasSelection && (

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useState, type ReactNode } from 'react'
+import { useCallback, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 import { useTranslation } from '@/lib/i18n'
@@ -22,8 +22,6 @@ export function AgentBuildShell({ agent, version }: AgentBuildShellProps) {
   const searchParams = useSearchParams()
   const surface = useBuilderSurface()
   const { workspaceId } = useCurrentWorkspace()
-  const [toolbarSlot, setToolbarSlot] = useState<ReactNode>(null)
-
   const [activeStageId, setActiveStageId] = useState<BuildStageId>(() => {
     const urlStage = searchParams.get('stage')
     if (urlStage && isBuildStageId(urlStage)) return urlStage
@@ -45,18 +43,16 @@ export function AgentBuildShell({ agent, version }: AgentBuildShellProps) {
     version,
     workspaceId,
     navigateToStage,
-    onToolbarSlot: setToolbarSlot,
   }
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-1">
+      <header className="flex items-center border-b border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-1">
         <BuildStepper
           stages={BUILD_STAGES}
           activeStage={activeStageId}
           onNavigate={navigateToStage}
         />
-        {toolbarSlot}
       </header>
       <main className="min-h-0 flex-1 overflow-hidden">
         <StageRenderer

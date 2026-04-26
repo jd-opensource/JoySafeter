@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react'
 import { Beaker, BriefcaseBusiness, FileText, Hammer, Rocket, type LucideIcon } from 'lucide-react'
 import type { Agent, AgentVersion } from '@/types/agent'
 
@@ -9,7 +8,6 @@ export interface StageProps {
   version: AgentVersion | null
   workspaceId: string
   navigateToStage: (stageId: BuildStageId) => void
-  onToolbarSlot?: (slot: ReactNode) => void
 }
 
 export interface BuilderSurface {

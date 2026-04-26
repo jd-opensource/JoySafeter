@@ -40,14 +40,12 @@ interface AgentBuilderProps {
   agentId: string
   versionId?: string
   workspaceId: string
-  onToolbarSlot?: (slot: React.ReactNode) => void
 }
 
 function AgentBuilderInit({
   agentId: agentIdProp,
   versionId: versionIdProp,
   workspaceId: workspaceIdProp,
-  onToolbarSlot,
 }: AgentBuilderProps) {
   const { t } = useTranslation()
   const { workspaceId: currentWorkspaceId } = useCurrentWorkspace()
@@ -327,7 +325,6 @@ function AgentBuilderInit({
   return (
     <GraphBuilderShell
       agentId={agentIdProp}
-      onToolbarSlot={onToolbarSlot}
     />
   )
 }

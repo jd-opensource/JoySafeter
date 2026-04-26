@@ -23,7 +23,7 @@ export function GraphToolbar() {
   }
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 shadow-md">
       {canEdit && <AddNodeButton onAddNode={handleAddNode} />}
       <ImportExportMenu />
       <div className="mx-1 h-4 w-px bg-[var(--border)]" />

@@ -124,10 +124,7 @@ export default function PropertiesPanel({
         config[field.key] !== 0 &&
         config[field.key] !== false
       ) {
-        if (field.showWhen) {
-          const dependentValue = config[field.showWhen.field]
-          if (!field.showWhen.values.includes(String(dependentValue))) return
-        }
+        if (field.showWhen && !shouldShowField(field, config)) return
         errors.push({
           field: field.label || field.key,
           message: t('workspace.fieldRequired', { defaultValue: 'Field is required' }),
@@ -220,8 +217,9 @@ export default function PropertiesPanel({
     const pd = p?.data as { config?: Record<string, unknown> }
     return pd?.config?.useDeepAgents === true
   })
-  const visibleDeepAgentSkillFields = deepAgentSkillFields.filter((f) =>
-    shouldShowField(f, config),
+  const visibleDeepAgentSkillFields = useMemo(
+    () => deepAgentSkillFields.filter((f) => shouldShowField(f, config)),
+    [deepAgentSkillFields, config],
   )
 
   return (
