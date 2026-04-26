@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { Sparkles, Wrench } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,7 +21,6 @@ export function VisualBriefStage({ agent, navigateToStage }: StageProps) {
   const [output, setOutput] = useState('')
   const [tools, setTools] = useState('')
   const [constraints, setConstraints] = useState('')
-  const [scenario, setScenario] = useState('')
 
   const prompt = useMemo(
     () =>
@@ -31,10 +31,9 @@ export function VisualBriefStage({ agent, navigateToStage }: StageProps) {
         `Output: ${output || 'Not specified'}`,
         `Tools or Skills: ${tools || 'Not specified'}`,
         `Safety and human confirmation rules: ${constraints || 'Not specified'}`,
-        `Business usage scenario: ${scenario || 'Not specified'}`,
         'Create an initial graph, add reasonable nodes and edges, and explain missing configuration.',
       ].join('\n'),
-    [agent.name, constraints, goal, input, output, scenario, tools],
+    [agent.name, constraints, goal, input, output, tools],
   )
 
   const handleGenerate = () => {
@@ -45,58 +44,105 @@ export function VisualBriefStage({ agent, navigateToStage }: StageProps) {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-[var(--surface-1)]">
-      <div className="mx-auto max-w-3xl px-8 py-8">
-        <div className="mb-8">
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--text-muted)]">
-            {t('agents.studio.brief.kicker', { defaultValue: 'First build step' })}
-          </p>
-          <h2 className="mt-2 text-3xl font-semibold text-[var(--text-primary)]">
-            {t('agents.studio.brief.title', { defaultValue: 'Describe the Agent you want to build' })}
+    <div className="flex h-full items-start justify-center overflow-y-auto bg-[var(--surface-1)] py-10">
+      <div className="w-full max-w-2xl px-6">
+        {/* Title */}
+        <div className="mb-6 text-center">
+          <h2 className="text-xl font-semibold text-[var(--text-primary)]">
+            {t('agents.studio.brief.title', { defaultValue: 'Describe your Agent' })}
           </h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">
+          <p className="mt-1.5 text-sm text-[var(--text-secondary)]">
             {t('agents.studio.brief.subtitle', {
-              defaultValue:
-                'Copilot will turn this brief into an editable visual workflow. You can still skip and build manually on the canvas.',
+              defaultValue: 'Copilot will turn this into a visual workflow, or skip to build manually.',
             })}
           </p>
         </div>
 
-        <div className="grid gap-5 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-5 shadow-sm">
-          <div className="space-y-2">
-            <Label>{t('agents.studio.brief.goal', { defaultValue: 'Goal' })}</Label>
-            <Textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={3} />
+        {/* Form */}
+        <div className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-5">
+          {/* Goal — primary field, larger */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-[var(--text-secondary)]">
+              {t('agents.studio.brief.goal', { defaultValue: 'Goal' })} *
+            </Label>
+            <Textarea
+              value={goal}
+              onChange={(e) => setGoal(e.target.value)}
+              rows={3}
+              placeholder={t('agents.studio.brief.goalPlaceholder', {
+                defaultValue: 'What should this agent do? e.g. "Analyze customer feedback and generate weekly reports"',
+              })}
+              className="resize-none"
+            />
           </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label>{t('agents.studio.brief.input', { defaultValue: 'Input' })}</Label>
-              <Input value={input} onChange={(e) => setInput(e.target.value)} />
+
+          {/* Input / Output — side by side */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-[var(--text-secondary)]">
+                {t('agents.studio.brief.input', { defaultValue: 'Input' })}
+              </Label>
+              <Input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={t('agents.studio.brief.inputPlaceholder', {
+                  defaultValue: 'e.g. CSV file, API request, user message',
+                })}
+              />
             </div>
-            <div className="space-y-2">
-              <Label>{t('agents.studio.brief.output', { defaultValue: 'Output' })}</Label>
-              <Input value={output} onChange={(e) => setOutput(e.target.value)} />
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-[var(--text-secondary)]">
+                {t('agents.studio.brief.output', { defaultValue: 'Output' })}
+              </Label>
+              <Input
+                value={output}
+                onChange={(e) => setOutput(e.target.value)}
+                placeholder={t('agents.studio.brief.outputPlaceholder', {
+                  defaultValue: 'e.g. JSON report, email, Slack message',
+                })}
+              />
             </div>
           </div>
-          <div className="space-y-2">
-            <Label>{t('agents.studio.brief.tools', { defaultValue: 'Tools / Skills' })}</Label>
-            <Input value={tools} onChange={(e) => setTools(e.target.value)} />
+
+          {/* Tools */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-[var(--text-secondary)]">
+              {t('agents.studio.brief.tools', { defaultValue: 'Tools / Skills' })}
+            </Label>
+            <Input
+              value={tools}
+              onChange={(e) => setTools(e.target.value)}
+              placeholder={t('agents.studio.brief.toolsPlaceholder', {
+                defaultValue: 'e.g. Web search, database query, code execution',
+              })}
+            />
           </div>
-          <div className="space-y-2">
-            <Label>{t('agents.studio.brief.constraints', { defaultValue: 'Safety / approval rules' })}</Label>
-            <Textarea value={constraints} onChange={(e) => setConstraints(e.target.value)} rows={2} />
+
+          {/* Constraints */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-[var(--text-secondary)]">
+              {t('agents.studio.brief.constraints', { defaultValue: 'Safety / approval rules' })}
+            </Label>
+            <Input
+              value={constraints}
+              onChange={(e) => setConstraints(e.target.value)}
+              placeholder={t('agents.studio.brief.constraintsPlaceholder', {
+                defaultValue: 'e.g. Require human approval before sending emails',
+              })}
+            />
           </div>
-          <div className="space-y-2">
-            <Label>{t('agents.studio.brief.scenario', { defaultValue: 'Business scenario' })}</Label>
-            <Input value={scenario} onChange={(e) => setScenario(e.target.value)} />
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={() => navigateToStage('build')}>
-              {t('agents.studio.brief.skip', { defaultValue: 'Build manually' })}
-            </Button>
-            <Button onClick={handleGenerate} disabled={!goal.trim()}>
-              {t('agents.studio.brief.generate', { defaultValue: 'Generate with Copilot' })}
-            </Button>
-          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="outline" onClick={() => navigateToStage('build')} className="gap-1.5">
+            <Wrench className="h-3.5 w-3.5" />
+            {t('agents.studio.brief.skip', { defaultValue: 'Build manually' })}
+          </Button>
+          <Button onClick={handleGenerate} disabled={!goal.trim()} className="gap-1.5">
+            <Sparkles className="h-3.5 w-3.5" />
+            {t('agents.studio.brief.generate', { defaultValue: 'Generate with Copilot' })}
+          </Button>
         </div>
       </div>
     </div>
