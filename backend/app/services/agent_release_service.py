@@ -72,7 +72,6 @@ class AgentReleaseService(BaseService):
             }
         )
 
-        await self.commit()
         logger.info(
             f"Published release {release.id} (r{next_num}) for agent {agent_id}"
         )
@@ -98,7 +97,6 @@ class AgentReleaseService(BaseService):
             update_data["status"] = "active"
 
         await self.agent_repo.update(agent_id, update_data)
-        await self.commit()
         logger.info(f"Activated release {release_id} for agent {agent_id}")
         return release
 
@@ -120,6 +118,5 @@ class AgentReleaseService(BaseService):
         if agent and agent.active_release_id == release_id:
             await self.agent_repo.update(agent_id, {"active_release_id": None})
 
-        await self.commit()
         logger.info(f"Retired release {release_id} for agent {agent_id}")
         return updated
