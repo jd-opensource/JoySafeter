@@ -1,7 +1,6 @@
 'use client'
 
-import { Loader2, AlertTriangle, FilePlus } from 'lucide-react'
-import { useParams } from 'next/navigation'
+import { AlertTriangle, FilePlus, Loader2 } from 'lucide-react'
 import React, { useEffect, useState } from 'react'
 import { ReactFlowProvider } from 'reactflow'
 
@@ -22,18 +21,12 @@ import { useTranslation } from '@/lib/i18n'
 import { computeGraphStateHash } from '@/lib/utils/graphStateHash'
 import { useCurrentWorkspace } from '@/providers/workspace-provider'
 
-import { BuilderCanvas } from './components/BuilderCanvas'
-import { BuilderSidebarTabs } from './components/BuilderSidebarTabs'
-import { BuilderToolbar } from './components/BuilderToolbar'
-import { StudioRightPanel } from './components/StudioRightPanel'
-import { ExecutionPanelNew as ExecutionPanel } from '@/components/execution/ExecutionPanelNew'
-import { RunInputModal } from './components/RunInputModal'
 import { CodeEditorPage } from './CodeEditorPage'
-import { useCodeEditorStore } from './stores/codeEditorStore'
-import { ErrorBoundary } from './error-boundary'
-import { agentService } from './services/agentService'
+import { GraphBuilderShell } from './GraphBuilderShell'
 import { graphDataAdapter } from './services/graphDataAdapter'
+import { agentService } from './services/agentService'
 import { useBuilderStore } from './stores/builderStore'
+import { useCodeEditorStore } from './stores/codeEditorStore'
 import { useExecutionStore } from './stores/execution/executionStore'
 import type { StateField } from './types/graph'
 
@@ -51,40 +44,33 @@ const isValidUUID = (str: string): boolean => {
   return uuidRegex.test(str)
 }
 
-interface AgentBuilderContentProps {
-  workspaceIdProp?: string
-  agentIdProp?: string
-  versionIdProp?: string
-  studioMode?: boolean
+interface AgentBuilderProps {
+  agentId: string
+  versionId?: string
+  workspaceId: string
   onOpenTestLab?: () => void
   onOpenRelease?: () => void
 }
 
-const AgentBuilderContent = ({
-  workspaceIdProp,
-  agentIdProp,
-  versionIdProp,
-  studioMode = false,
+function AgentBuilderInit({
+  agentId: agentIdProp,
+  versionId: versionIdProp,
+  workspaceId: workspaceIdProp,
   onOpenTestLab,
   onOpenRelease,
-}: AgentBuilderContentProps) => {
+}: AgentBuilderProps) {
   const { t } = useTranslation()
-  const params = useParams()
   const { workspaceId: currentWorkspaceId } = useCurrentWorkspace()
 
-  // Use prop if provided, otherwise fall back to current workspace
   const workspaceId = workspaceIdProp || currentWorkspaceId
-  const rawAgentId = agentIdProp || (params.agentId as string | undefined)
-  const agentId = rawAgentId && isValidUUID(rawAgentId) ? rawAgentId : null
+  const agentId = agentIdProp && isValidUUID(agentIdProp) ? agentIdProp : null
 
   const {
     isInitializing,
     rfInstance,
     nodes,
     loadGraph,
-    exportGraph,
     importGraph,
-    addNode,
     setWorkspaceId,
     setGraphId,
     setGraphName,
@@ -92,9 +78,11 @@ const AgentBuilderContent = ({
     stopAutoSave,
   } = useBuilderStore()
 
-  const { showPanel: showExecutionPanel, startExecution, setCurrentGraphId } = useExecutionStore()
+  const { setCurrentGraphId } = useExecutionStore()
 
-  const { data: agentData } = useAgent(agentId ?? '', workspaceId, { enabled: Boolean(agentId && workspaceId) })
+  const { data: agentData } = useAgent(agentId ?? '', workspaceId, {
+    enabled: Boolean(agentId && workspaceId),
+  })
   const { data: graphStateData, isSuccess: isGraphStateLoaded } = useVersionGraphState(
     agentId ?? undefined,
     versionIdProp,
@@ -105,11 +93,7 @@ const AgentBuilderContent = ({
   const { toast } = useToast()
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
   const [showNewConfirm, setShowNewConfirm] = useState(false)
-  const [pendingGraph, setPendingGraph] = useState<
-    { type: 'import'; file: File } | null
-  >(null)
-  const [isRunModalOpen, setIsRunModalOpen] = useState(false)
-  const [runInput, setRunInput] = useState('')
+  const [pendingGraph, setPendingGraph] = useState<{ type: 'import'; file: File } | null>(null)
 
   const unfreezeVersion = useUnfreezeVersion()
 
@@ -138,14 +122,14 @@ const AgentBuilderContent = ({
     }
   }, [graphStateData?.versionStatus, agentId, versionIdProp, workspaceId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Set workspaceId and agentId in the store
+  // Sync workspaceId into the store
   useEffect(() => {
     if (workspaceId) {
       setWorkspaceId(workspaceId)
     }
   }, [workspaceId, setWorkspaceId])
 
-  // Sync agentId + versionId props into the store so downstream consumers can read them
+  // Sync agentId + versionId props into the store
   useEffect(() => {
     useBuilderStore.setState({
       agentId: agentId ?? null,
@@ -154,12 +138,11 @@ const AgentBuilderContent = ({
   }, [agentId, versionIdProp])
 
   // Sync currentGraphId in executionStore when agentId changes
-  // This ensures each graph has its own execution state
   useEffect(() => {
     setCurrentGraphId(agentId || null)
   }, [agentId, setCurrentGraphId])
 
-  // Cleanup execution state and WebSocket when the component unmounts
+  // Cleanup execution state on unmount
   useEffect(() => {
     return () => {
       const { currentGraphId } = useExecutionStore.getState()
@@ -172,6 +155,7 @@ const AgentBuilderContent = ({
   const graphId = useBuilderStore((state) => state.graphId)
   const graphName = useBuilderStore((state) => state.graphName)
 
+  // Auto-save lifecycle
   useEffect(() => {
     if (graphId && graphId === agentId && graphName && !isInitializing) {
       startAutoSave()
@@ -182,6 +166,7 @@ const AgentBuilderContent = ({
     }
   }, [graphId, graphName, isInitializing, agentId, startAutoSave, stopAutoSave])
 
+  // Handle online event (reconnect save)
   useEffect(() => {
     const handleOnline = () => {
       const { hasPendingChanges, lastSaveError } = useBuilderStore.getState()
@@ -197,9 +182,11 @@ const AgentBuilderContent = ({
     }
   }, [])
 
+  // Handle beforeunload (beacon save)
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      const { hasPendingChanges, nodes, edges, rfInstance, graphId, versionId, workspaceId } = useBuilderStore.getState()
+      const { hasPendingChanges, nodes, edges, rfInstance, graphId, versionId, workspaceId } =
+        useBuilderStore.getState()
 
       if (!graphId || graphId !== agentId || !isValidUUID(graphId)) {
         return
@@ -236,38 +223,29 @@ const AgentBuilderContent = ({
 
   // Load graph when agentId changes and graph state is loaded from React Query
   useEffect(() => {
-    // Wait for necessary data to load
     if (!agentId) {
       loadGraph()
       return
     }
 
-    // When switching to a different agent
     if (loadedGraphIdRef.current !== agentId) {
-      // Important: DO NOT clear the canvas yet.
-      // Wait until we have the new data to avoid triggering auto-save on an empty state.
       useBuilderStore.setState({ isInitializing: true })
-      // Clear stale rfInstance so setViewportWhenReady waits for the new ReactFlow instance
       useBuilderStore.setState({ rfInstance: null })
 
-      // If we don't have data yet, we must stop here and wait for the next run
       if (!isGraphStateLoaded || !graphStateData) {
         return
       }
     }
 
-    // Wait for graph state data to load
     if (!isGraphStateLoaded || !graphStateData) {
       useBuilderStore.setState({ isInitializing: true })
       return
     }
 
-    // Avoid duplicate initialization for the same graphId
     if (loadedGraphIdRef.current === agentId && !useBuilderStore.getState().isInitializing) {
       return
     }
 
-    // Use React Query cached state data
     const state = graphStateData
 
     // Code mode: hydrate code editor store instead of canvas
@@ -282,12 +260,10 @@ const AgentBuilderContent = ({
       return
     }
 
-    // CRITICAL: Ensure we are applying data for the CORRECT agentId
     if (agentId) {
       agentService.setCachedGraphId(agentId)
       setGraphId(agentId)
     }
-
 
     if (agentData) {
       if (agentData.name) {
@@ -300,9 +276,6 @@ const AgentBuilderContent = ({
       }
     }
 
-    // Parse stateFields and fallbackNodeId from the loaded graph state
-    // so the hash is computed with the correct values for THIS graph,
-    // not stale values from the previous graph still in the store.
     const loadedVariables = (state.variables || {}) as BuilderVariables
     const loadedStateFields = (() => {
       const sf = loadedVariables.state_fields || []
@@ -322,7 +295,6 @@ const AgentBuilderContent = ({
     })()
     const loadedFallbackNodeId = loadedVariables.fallback_node_id ?? null
 
-    // Calculate hash of initial state (same 4 params as SaveManager for consistency)
     const initialHash = computeGraphStateHash(
       state.nodes || [],
       state.edges || [],
@@ -330,7 +302,6 @@ const AgentBuilderContent = ({
       loadedFallbackNodeId,
     )
 
-    // Apply multiple state changes in one batch to ensure consistency
     useBuilderStore.setState({
       nodes: state.nodes || [],
       edges: state.edges || [],
@@ -342,13 +313,11 @@ const AgentBuilderContent = ({
       lastSavedStateHash: initialHash,
       saveRetryCount: 0,
       lastSaveError: null,
-      isInitializing: false, // FINALLY mark as non-initializing
+      isInitializing: false,
     })
 
-    // Now we are officially initialized for this agentId
     loadedGraphIdRef.current = agentId
 
-    // Wait for ReactFlow instance to be ready
     let retryCount = 0
     const maxRetries = 40
     const setViewportWhenReady = () => {
@@ -381,30 +350,23 @@ const AgentBuilderContent = ({
     }
   }, [agentId, isGraphStateLoaded, graphStateData, agentData, loadGraph, setGraphId, setGraphName])
 
-
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
-    // Check if current canvas has nodes
     if (nodes.length > 0) {
-      // Show confirmation dialog
       setPendingGraph({ type: 'import', file })
       setShowOverwriteConfirm(true)
-      // Reset file input
       e.target.value = ''
       return
     }
 
-    // Import directly if canvas is empty
     try {
       await importGraph(file)
       toast({
         title: t('workspace.graphImported'),
         description: t('workspace.graphImportedSuccess', { name: file.name }),
       })
-
-      // Fit view after import
       setTimeout(() => {
         rfInstance?.fitView({ padding: 0.2 })
       }, 100)
@@ -417,7 +379,6 @@ const AgentBuilderContent = ({
       })
     }
 
-    // Reset file input
     e.target.value = ''
   }
 
@@ -433,7 +394,6 @@ const AgentBuilderContent = ({
         title: t('workspace.graphImported'),
         description: t('workspace.graphImportedSuccess', { name: pendingGraph.file.name }),
       })
-
       setTimeout(() => {
         rfInstance?.fitView({ padding: 0.2 })
       }, 100)
@@ -455,70 +415,23 @@ const AgentBuilderContent = ({
     setShowOverwriteConfirm(false)
   }
 
-  const createNewGraph = () => {
-    agentService.clearCachedGraphId()
-    agentService.clearCachedGraphName()
-    setGraphId(null)
-    setGraphName(null)
-    // Clear executionStore currentGraphId for new graph
-    setCurrentGraphId(null)
-
-    useBuilderStore.setState({
-      nodes: [],
-      edges: [],
-      past: [],
-      future: [],
-      selectedNodeId: null,
-      lastSavedStateHash: null,
-      saveRetryCount: 0,
-      lastSaveError: null,
-      lastAutoSaveTime: null,
-    })
-
-    // Reset viewport
-    setTimeout(() => {
-      rfInstance?.setViewport({ x: 0, y: 0, zoom: 1 })
-    }, 100)
-
-    toast({
-      title: t('workspace.newGraphCreated'),
-      description: t('workspace.newGraphCreatedDescription'),
-    })
-  }
-
-  const handleConfirmNew = () => {
-    setShowNewConfirm(false)
-    createNewGraph()
-  }
-
-  const handleRunClick = () => {
-    setIsRunModalOpen(true)
-  }
-
-  const handleStartExecution = () => {
-    if (!runInput.trim()) return
-    setIsRunModalOpen(false)
-    startExecution(runInput)
-    setRunInput('')
-  }
-
-  const handleToolbarAddNode = (node: { type: string; label: string }) => {
-    const viewport = useBuilderStore.getState().rfInstance?.getViewport()
-    const position = {
-      x: viewport ? -viewport.x / viewport.zoom + 120 : 120,
-      y: viewport ? -viewport.y / viewport.zoom + 120 : 120,
-    }
-    addNode(node.type, position, node.label)
-  }
-
   // Code mode: render CodeEditorPage instead of canvas
   if (graphStateData?.definitionKind === 'code' && agentId && !isInitializing) {
     return <CodeEditorPage graphId={agentId} workspaceId={workspaceId} />
   }
 
-  return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden bg-[var(--bg)] text-[var(--text-primary)]">
+  // Loading overlay
+  if (isInitializing) {
+    return (
+      <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[var(--bg)] backdrop-blur-sm">
+        <Loader2 size={40} className="mb-3 animate-spin text-[var(--brand-500)]" />
+        <p className="font-medium text-[var(--text-muted)]">{t('workspace.loadingWorkspace')}</p>
+      </div>
+    )
+  }
 
+  return (
+    <>
       <AlertDialog open={showOverwriteConfirm} onOpenChange={setShowOverwriteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -526,18 +439,11 @@ const AgentBuilderContent = ({
               <AlertTriangle size={20} />
               <AlertDialogTitle>{t('workspace.overwriteCanvas')}</AlertDialogTitle>
             </div>
-            <AlertDialogDescription>
-              {t('workspace.importOverwriteWarning')}
-            </AlertDialogDescription>
+            <AlertDialogDescription>{t('workspace.importOverwriteWarning')}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={handleCancelOverwrite}>
-              {t('common.cancel')}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmOverwrite}
-              className="bg-primary hover:bg-primary/90"
-            >
+            <AlertDialogCancel onClick={handleCancelOverwrite}>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmOverwrite} className="bg-primary hover:bg-primary/90">
               {t('workspace.import')}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -556,7 +462,7 @@ const AgentBuilderContent = ({
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleConfirmNew}
+              onClick={() => setShowNewConfirm(false)}
               className="bg-[var(--status-success)] hover:bg-[var(--status-success-hover)]"
             >
               {t('workspace.createNew')}
@@ -565,93 +471,21 @@ const AgentBuilderContent = ({
         </AlertDialogContent>
       </AlertDialog>
 
-      {isInitializing && (
-        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[var(--bg)] backdrop-blur-sm">
-          <Loader2 size={40} className="mb-3 animate-spin text-[var(--brand-500)]" />
-          <p className="font-medium text-[var(--text-muted)]">
-            {t('workspace.loadingWorkspace')}
-          </p>
-        </div>
-      )}
-
-      {/* Main Content Area - Canvas takes full space, panels overlay on top */}
-      <div className="relative min-h-0 flex-1">
-        <ErrorBoundary>
-          <BuilderCanvas
-            key={agentId || 'empty'}
-            inspectorMode={studioMode ? 'external' : 'floating'}
-            enableContextMenu={studioMode}
-          />
-        </ErrorBoundary>
-      </div>
-
-      {/* RIGHT: Panel - Absolute Position within the relative container (combines Toolbar and Sidebar) */}
-      <aside className="absolute inset-y-0 right-0 z-20 flex w-[320px] flex-col overflow-hidden border-l border-[var(--border-muted)] bg-[var(--surface-2)]">
-        {/* Header with Toolbar */}
-        <div className="flex-shrink-0 border-b border-[var(--border)]">
-          <BuilderToolbar
-            onImport={handleImport}
-            onExport={exportGraph}
-            onRunClick={handleRunClick}
-            agentId={agentId || ''}
-            nodesCount={nodes.length}
-            onAddNode={studioMode ? handleToolbarAddNode : undefined}
-            studioMode={studioMode}
-            onOpenTestLab={onOpenTestLab}
-            onOpenRelease={onOpenRelease}
-          />
-        </div>
-
-        {/* Sidebar Content with Tabs (Copilot and Toolbox) */}
-        <div className="min-h-0 flex-1 overflow-hidden">
-          {studioMode ? <StudioRightPanel /> : <BuilderSidebarTabs />}
-        </div>
-      </aside>
-
-      {/* Run Input Modal - Below Toolbar */}
-      {!studioMode && (
-        <RunInputModal
-          isOpen={isRunModalOpen}
-          input={runInput}
-          onInputChange={setRunInput}
-          onStart={handleStartExecution}
-          onClose={() => setIsRunModalOpen(false)}
-        />
-      )}
-
-      {/* Execution Panel - Bottom Dock */}
-      {!studioMode && showExecutionPanel && <ExecutionPanel />}
-    </div>
+      <GraphBuilderShell
+        agentId={agentIdProp}
+        versionId={versionIdProp}
+        workspaceId={workspaceId}
+        onOpenTestLab={onOpenTestLab}
+        onOpenRelease={onOpenRelease}
+      />
+    </>
   )
 }
 
-interface AgentBuilderProps {
-  workspaceId?: string
-  agentId?: string
-  versionId?: string
-  studioMode?: boolean
-  onOpenTestLab?: () => void
-  onOpenRelease?: () => void
+export default function AgentBuilder(props: AgentBuilderProps) {
+  return (
+    <ReactFlowProvider>
+      <AgentBuilderInit {...props} />
+    </ReactFlowProvider>
+  )
 }
-
-const AgentBuilder = ({
-  workspaceId,
-  agentId: agentIdProp,
-  versionId,
-  studioMode = false,
-  onOpenTestLab,
-  onOpenRelease,
-}: AgentBuilderProps = {}) => (
-  <ReactFlowProvider>
-    <AgentBuilderContent
-      workspaceIdProp={workspaceId}
-      agentIdProp={agentIdProp}
-      versionIdProp={versionId}
-      studioMode={studioMode}
-      onOpenTestLab={onOpenTestLab}
-      onOpenRelease={onOpenRelease}
-    />
-  </ReactFlowProvider>
-)
-
-export default AgentBuilder

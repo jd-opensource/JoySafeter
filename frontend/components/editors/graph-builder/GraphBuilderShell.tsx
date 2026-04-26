@@ -1,6 +1,6 @@
 'use client'
 
-import BuilderCanvas from './components/BuilderCanvas'
+import { BuilderCanvas } from './components/BuilderCanvas'
 import { CopilotOverlay } from './components/CopilotOverlay'
 import { GraphStatusBar } from './components/GraphStatusBar'
 import { GraphToolbar } from './components/GraphToolbar'

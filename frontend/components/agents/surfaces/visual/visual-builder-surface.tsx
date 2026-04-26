@@ -9,7 +9,6 @@ export function VisualBuilderSurface({ agent, version, workspaceId, navigateToSt
       agentId={agent.id}
       workspaceId={workspaceId}
       versionId={version?.id}
-      studioMode
       onOpenTestLab={() => navigateToStage('test-lab')}
       onOpenRelease={() => navigateToStage('release')}
     />
