@@ -218,7 +218,7 @@ const agentPublishService = {
 
 ```typescript
 export const publishKeys = {
-  releases: (agentId: string) => [...agentKeys.all(agentId), 'releases'] as const,
+  all: (agentId: string) => [...agentKeys.all, 'releases', agentId] as const,
 }
 
 export function useReleaseHistory(agentId: string, workspaceId: string) {
