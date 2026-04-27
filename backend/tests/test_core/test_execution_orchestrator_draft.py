@@ -56,6 +56,69 @@ async def test_dispatch_draft_uses_requested_version_without_active_release() ->
     )
 
 
+@pytest.mark.asyncio
+async def test_dispatch_copilot_draft_uses_requested_version_without_active_release() -> None:
+    db = AsyncMock()
+    orchestrator = ExecutionOrchestrator(db)
+    agent_id = uuid.uuid4()
+    version_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    graph_context = {"graph": {"nodes": []}}
+    conversation_history = [{"role": "user", "content": "hello"}]
+
+    version = MagicMock()
+    version.id = version_id
+    version.agent_id = agent_id
+
+    agent = MagicMock()
+    agent.id = agent_id
+    agent.workspace_id = workspace_id
+    agent.active_release_id = None
+
+    run = MagicMock()
+    copilot_payload = {
+        "graph_context": graph_context,
+        "conversation_history": conversation_history,
+        "mode": "deepagents",
+        "provider_name": "openai",
+        "model_name": "gpt-5",
+        "user_id": "user-123",
+        "graph_id": str(agent_id),
+    }
+
+    orchestrator._get_version = AsyncMock(return_value=version)  # type: ignore[method-assign]
+    orchestrator._get_agent = AsyncMock(return_value=agent)  # type: ignore[method-assign]
+    orchestrator._create_and_fire_draft = AsyncMock(return_value=run)  # type: ignore[attr-defined]
+
+    result = await orchestrator.dispatch_copilot_draft(
+        agent_id=agent_id,
+        version_id=version_id,
+        workspace_id=workspace_id,
+        prompt="hello copilot draft",
+        user_id="user-123",
+        graph_context=graph_context,
+        conversation_history=conversation_history,
+        mode="deepagents",
+        provider_name="openai",
+        model_name="gpt-5",
+    )
+
+    assert result is run
+    orchestrator._create_and_fire_draft.assert_awaited_once_with(  # type: ignore[attr-defined]
+        agent=agent,
+        version=version,
+        workspace_id=workspace_id,
+        prompt="hello copilot draft",
+        trigger_source="copilot",
+        user_id="user-123",
+        input_payload=copilot_payload,
+        engine_kind_override="copilot",
+        definition_kind_override="copilot",
+        definition_payload_override=copilot_payload,
+        executor_kind_override="copilot",
+    )
+
+
 def test_cli_provider_draft_runs_use_sandbox_engine_and_provider_runtime() -> None:
     orchestrator = ExecutionOrchestrator(AsyncMock())
     version = MagicMock()

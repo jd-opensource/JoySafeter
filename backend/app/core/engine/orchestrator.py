@@ -216,6 +216,52 @@ class ExecutionOrchestrator:
             executor_kind_override="copilot",
         )
 
+    async def dispatch_copilot_draft(
+        self,
+        agent_id: uuid.UUID,
+        version_id: uuid.UUID,
+        workspace_id: uuid.UUID,
+        prompt: str,
+        user_id: str,
+        graph_context: dict,
+        conversation_history: list | None = None,
+        mode: str = "deepagents",
+        provider_name: str | None = None,
+        model_name: str | None = None,
+    ) -> AgentRun:
+        """Dispatch a copilot interaction against a draft AgentVersion."""
+        version = await self._get_version(version_id)
+        if version.agent_id != agent_id:
+            raise BadRequestException("Version does not belong to this agent")
+
+        agent = await self._get_agent(agent_id)
+        if agent.workspace_id != workspace_id:
+            raise BadRequestException("Agent does not belong to this workspace")
+
+        copilot_payload = {
+            "graph_context": graph_context,
+            "conversation_history": conversation_history,
+            "mode": mode,
+            "provider_name": provider_name,
+            "model_name": model_name,
+            "user_id": user_id,
+            "graph_id": str(agent_id),
+        }
+
+        return await self._create_and_fire_draft(
+            agent=agent,
+            version=version,
+            workspace_id=workspace_id,
+            prompt=prompt,
+            trigger_source="copilot",
+            user_id=user_id,
+            input_payload=copilot_payload,
+            engine_kind_override="copilot",
+            definition_kind_override="copilot",
+            definition_payload_override=copilot_payload,
+            executor_kind_override="copilot",
+        )
+
     def _resolve_engine(self, execution: Execution, release: AgentRelease):
         """Resolve the correct engine for an execution.
 
@@ -469,6 +515,11 @@ class ExecutionOrchestrator:
         trigger_source: str,
         user_id: str,
         input_payload: dict | None = None,
+        *,
+        engine_kind_override: str | None = None,
+        definition_kind_override: str | None = None,
+        definition_payload_override: dict | None = None,
+        executor_kind_override: str | None = None,
     ) -> AgentRun:
         runtime_binding = self._build_draft_runtime_binding(version)
         engine_kind = self._resolve_draft_engine_kind(version)
@@ -489,7 +540,7 @@ class ExecutionOrchestrator:
         execution = Execution(
             run_id=run.id,
             attempt_index=1,
-            executor_kind=runtime_binding.get("runtime_type", engine_kind),
+            executor_kind=executor_kind_override or runtime_binding.get("runtime_type", engine_kind),
             status="pending",
         )
         self.db.add(execution)
@@ -514,6 +565,9 @@ class ExecutionOrchestrator:
                 agent=agent,
                 workspace_id=workspace_id,
                 prompt=prompt,
+                engine_kind_override=engine_kind_override,
+                definition_kind_override=definition_kind_override,
+                definition_payload_override=definition_payload_override,
             )
         except Exception as exc:
             logger.error(f"[Orchestrator] _fire_engine failed for draft run: {exc}")
