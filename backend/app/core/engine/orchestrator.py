@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import BadRequestException, NotFoundException
+from app.core.agent_kinds import infer_runtime_kind, is_cli_definition_kind
 from app.core.engine.protocol import ExecutionContext
 from app.core.engine.registry import engine_registry
 from app.core.events import ExecutionEventEnvelope, execution_event_bus
@@ -226,19 +227,11 @@ class ExecutionOrchestrator:
         return engine_registry.get(release.runtime_kind)
 
     def _resolve_draft_engine_kind(self, version: AgentVersion) -> str:
-        if version.definition_kind == "graph":
-            return "graph"
-        if version.definition_kind == "code":
-            return "code"
-        raise BadRequestException(
-            f"Draft Test Lab does not support definition_kind={version.definition_kind}"
-        )
+        return infer_runtime_kind(version.definition_kind)
 
     def _build_draft_runtime_binding(self, version: AgentVersion) -> dict:
-        if version.definition_kind == "graph":
-            return {"runtime_type": "graph"}
-        if version.definition_kind == "code":
-            return {"runtime_type": "code"}
+        if is_cli_definition_kind(version.definition_kind):
+            return {"runtime_type": version.definition_kind}
         return {}
 
     # ------------------------------------------------------------------

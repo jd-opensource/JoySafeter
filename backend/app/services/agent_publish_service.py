@@ -12,6 +12,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import BadRequestException, NotFoundException
+from app.core.agent_kinds import infer_runtime_kind, is_cli_definition_kind
 from app.models.agent import AgentRelease, AgentVersion
 from app.repositories.agent import AgentRepository, AgentVersionRepository
 from app.schemas.agent_release import CreateAgentReleaseRequest
@@ -44,6 +45,11 @@ class AgentPublishService(BaseService):
         release_data = CreateAgentReleaseRequest(
             agent_version_id=version.id,
             runtime_kind=runtime_kind,
+            runtime_binding=(
+                {"runtime_type": version.definition_kind}
+                if is_cli_definition_kind(version.definition_kind)
+                else {}
+            ),
         )
         release = await self.release_svc.publish_release(
             agent_id, user_id, release_data
@@ -52,12 +58,19 @@ class AgentPublishService(BaseService):
         await self.release_svc.activate_release(agent_id, release.id)
 
         await self.safe_commit()
-        return {"agent": agent, "release": release}
+        reloaded_agent = await self.agent_repo.get(
+            agent_id,
+            relations=["current_draft_version", "active_release"],
+        )
+        return {"agent": reloaded_agent or agent, "release": release}
 
     async def rollback(self, agent_id: uuid.UUID, release_id: uuid.UUID) -> dict:
         await self.release_svc.activate_release(agent_id, release_id)
         await self.safe_commit()
-        agent = await self.agent_repo.get(agent_id)
+        agent = await self.agent_repo.get(
+            agent_id,
+            relations=["current_draft_version", "active_release"],
+        )
         return {"agent": agent}
 
     async def retire(self, agent_id: uuid.UUID, release_id: uuid.UUID) -> dict:
@@ -75,8 +88,4 @@ class AgentPublishService(BaseService):
 
     @staticmethod
     def _infer_runtime_kind(definition_kind: str) -> str:
-        if definition_kind in ("graph", "hybrid"):
-            return "graph"
-        if definition_kind == "code":
-            return "sandbox"
-        return "graph"
+        return infer_runtime_kind(definition_kind)

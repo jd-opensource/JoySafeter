@@ -54,3 +54,35 @@ async def test_dispatch_draft_uses_requested_version_without_active_release() ->
         user_id="user-123",
         input_payload=input_payload,
     )
+
+
+def test_cli_provider_draft_runs_use_sandbox_engine_and_provider_runtime() -> None:
+    orchestrator = ExecutionOrchestrator(AsyncMock())
+    version = MagicMock()
+    version.definition_kind = "openclaw"
+
+    assert orchestrator._resolve_draft_engine_kind(version) == "sandbox"
+    assert orchestrator._build_draft_runtime_binding(version) == {"runtime_type": "openclaw"}
+
+
+@pytest.mark.parametrize(
+    ("definition_kind", "engine_kind", "runtime_binding"),
+    [
+        ("graph", "graph", {}),
+        ("code", "code", {}),
+        ("claude_code", "sandbox", {"runtime_type": "claude_code"}),
+        ("codex", "sandbox", {"runtime_type": "codex"}),
+        ("openclaw", "sandbox", {"runtime_type": "openclaw"}),
+    ],
+)
+def test_draft_engine_resolution_matches_definition_kind(
+    definition_kind: str,
+    engine_kind: str,
+    runtime_binding: dict,
+) -> None:
+    orchestrator = ExecutionOrchestrator(AsyncMock())
+    version = MagicMock()
+    version.definition_kind = definition_kind
+
+    assert orchestrator._resolve_draft_engine_kind(version) == engine_kind
+    assert orchestrator._build_draft_runtime_binding(version) == runtime_binding

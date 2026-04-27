@@ -1,6 +1,14 @@
-export type DefinitionKind = 'prompt' | 'graph' | 'code' | 'hybrid'
+export type DefinitionKind = 'graph' | 'code' | 'claude_code' | 'codex' | 'openclaw'
 
-export const BUILDER_DEFINITION_KINDS: readonly DefinitionKind[] = ['graph', 'code'] as const
+export type RuntimeKind = 'graph' | 'code' | 'sandbox'
+
+export const BUILDER_DEFINITION_KINDS: readonly DefinitionKind[] = [
+  'graph',
+  'code',
+  'claude_code',
+  'codex',
+  'openclaw',
+] as const
 
 export function hasBuilderSupport(kind?: string): boolean {
   return BUILDER_DEFINITION_KINDS.includes(kind as DefinitionKind)
@@ -14,8 +22,11 @@ export interface Agent {
   description: string | null
   avatar: string | null
   status: 'draft' | 'active' | 'archived'
+  has_custom_env: boolean
   current_draft_version_id: string | null
   active_release_id: string | null
+  definition_kind: DefinitionKind | null
+  runtime_kind: RuntimeKind | null
   created_by: string
   created_at: string
   updated_at: string
@@ -25,7 +36,7 @@ export interface CreateAgentRequest {
   name: string
   description?: string
   avatar?: string
-  definition_kind: 'prompt' | 'graph' | 'code' | 'hybrid'
+  definition_kind: DefinitionKind
   definition_payload?: Record<string, unknown>
   capability_manifest?: Record<string, unknown>
 }
@@ -43,7 +54,7 @@ export interface AgentVersion {
   version_number: number
   status: 'draft' | 'frozen'
   source_kind: string
-  definition_kind: 'prompt' | 'graph' | 'code' | 'hybrid'
+  definition_kind: DefinitionKind
   definition_payload: Record<string, unknown>
   capability_manifest: Record<string, unknown>
   changelog: string | null
@@ -53,7 +64,7 @@ export interface AgentVersion {
 
 export interface CreateAgentVersionRequest {
   source_kind?: string
-  definition_kind: 'prompt' | 'graph' | 'code' | 'hybrid'
+  definition_kind: DefinitionKind
   definition_payload?: Record<string, unknown>
   capability_manifest?: Record<string, unknown>
   changelog?: string

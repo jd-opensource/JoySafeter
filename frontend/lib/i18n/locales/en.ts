@@ -349,21 +349,41 @@ const en = {
           tasksDesc: 'Attach this Agent to task execution and operational flows.',
         },
       },
-      prompt: {
-        label: 'Prompt Configuration',
-        description: 'Define agent behavior via system prompts and instructions',
+      filters: {
+        allBuildTypes: 'All build types',
+        allRuntimeTypes: 'All runtime types',
+        emptyTitle: 'No matching agents',
+        emptySubtitle: 'Adjust the build type or runtime filters.',
+      },
+      runtime: {
+        graph: 'Graph',
+        code: 'Code',
+        sandbox: 'Sandbox',
       },
       graph: {
+        shortLabel: 'Graph',
         label: 'Visual Orchestration',
         description: 'Build workflows by dragging and dropping nodes',
       },
       code: {
+        shortLabel: 'Code',
         label: 'Code Definition',
         description: 'Define agent logic via code (Coming Soon)',
       },
-      hybrid: {
-        label: 'Hybrid Mode',
-        description: 'Combine multiple definition methods (Coming Soon)',
+      claudeCode: {
+        shortLabel: 'Claude Code',
+        label: 'Claude Code',
+        description: 'Run a Claude Code CLI agent in a sandbox',
+      },
+      codex: {
+        shortLabel: 'Codex',
+        label: 'Codex',
+        description: 'Run a Codex CLI agent in a sandbox',
+      },
+      openclaw: {
+        shortLabel: 'OpenClaw',
+        label: 'OpenClaw',
+        description: 'Run an OpenClaw CLI agent in a sandbox',
       },
       detail: {
         tabs: {

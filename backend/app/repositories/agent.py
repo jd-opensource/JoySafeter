@@ -9,6 +9,7 @@ from typing import List, Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.agent import Agent, AgentVersion
 
@@ -32,6 +33,10 @@ class AgentRepository(BaseRepository[Agent]):
     async def list_by_workspace(self, workspace_id: uuid.UUID) -> List[Agent]:
         query = (
             select(Agent)
+            .options(
+                selectinload(Agent.current_draft_version),
+                selectinload(Agent.active_release),
+            )
             .where(Agent.workspace_id == workspace_id)
             .order_by(Agent.created_at.desc())
         )

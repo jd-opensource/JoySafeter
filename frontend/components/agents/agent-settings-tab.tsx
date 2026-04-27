@@ -78,10 +78,11 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
   }
 
   const DEFINITION_KIND_LABELS: Record<string, string> = {
-    prompt: t('agents.prompt.label'),
     graph: t('agents.graph.label'),
     code: t('agents.code.label'),
-    hybrid: t('agents.hybrid.label'),
+    claude_code: t('agents.claudeCode.label'),
+    codex: t('agents.codex.label'),
+    openclaw: t('agents.openclaw.label'),
   }
 
   return (

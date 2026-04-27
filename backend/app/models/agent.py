@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.core.agent_kinds import normalize_definition_kind, normalize_runtime_kind
 from app.utils.datetime import utc_now
 
 from .base import BaseModel
@@ -51,6 +52,18 @@ class Agent(BaseModel):
     @property
     def has_custom_env(self) -> bool:
         return self.encrypted_custom_env is not None
+
+    @property
+    def definition_kind(self) -> Optional[str]:
+        if not self.current_draft_version:
+            return None
+        return normalize_definition_kind(self.current_draft_version.definition_kind)
+
+    @property
+    def runtime_kind(self) -> Optional[str]:
+        if not self.active_release:
+            return None
+        return normalize_runtime_kind(self.active_release.runtime_kind)
 
     # Relationships
     versions: Mapped[List[AgentVersion]] = relationship(

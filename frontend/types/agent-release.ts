@@ -1,4 +1,6 @@
-export type RuntimeKind = 'graph' | 'sandbox' | 'code' | 'copilot' | 'hosted' | 'external'
+import type { RuntimeKind } from './agent'
+
+export type { RuntimeKind }
 
 export interface AgentRelease {
   id: string

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
+import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -23,8 +23,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { useCreateVersion } from '@/hooks/queries/agentVersions'
 import { useTranslation } from '@/lib/i18n'
-
-type DefinitionKind = 'prompt' | 'graph' | 'code' | 'hybrid'
+import type { DefinitionKind } from '@/types/agent'
 
 interface VersionFormDialogProps {
   open: boolean
@@ -42,12 +41,19 @@ export function VersionFormDialog({
   const { t } = useTranslation()
   const createVersion = useCreateVersion()
 
-  const [definitionKind, setDefinitionKind] = useState<DefinitionKind>('prompt')
+  const [definitionKind, setDefinitionKind] = useState<DefinitionKind>('graph')
   const [changelog, setChangelog] = useState('')
 
   function resetForm() {
-    setDefinitionKind('prompt')
+    setDefinitionKind('graph')
     setChangelog('')
+  }
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen) {
+      resetForm()
+    }
+    onOpenChange(nextOpen)
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -62,15 +68,14 @@ export function VersionFormDialog({
       },
       {
         onSuccess: () => {
-          resetForm()
-          onOpenChange(false)
+          handleOpenChange(false)
         },
       },
     )
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t('agents.detail.createVersion')}</DialogTitle>
@@ -88,10 +93,11 @@ export function VersionFormDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="prompt">{t('agents.prompt.label')}</SelectItem>
                 <SelectItem value="graph">{t('agents.graph.label')}</SelectItem>
                 <SelectItem value="code">{t('agents.code.label')}</SelectItem>
-                <SelectItem value="hybrid" disabled>{t('agents.hybrid.label')}</SelectItem>
+                <SelectItem value="claude_code">{t('agents.claudeCode.label')}</SelectItem>
+                <SelectItem value="codex">{t('agents.codex.label')}</SelectItem>
+                <SelectItem value="openclaw">{t('agents.openclaw.label')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -107,7 +113,7 @@ export function VersionFormDialog({
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
               {t('agents.cancel')}
             </Button>
             <Button type="submit" disabled={createVersion.isPending}>

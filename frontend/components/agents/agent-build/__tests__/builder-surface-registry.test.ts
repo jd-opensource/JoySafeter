@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+
 import { resolveBuilderSurface } from '../builder-surface-registry'
 
 describe('resolveBuilderSurface', () => {
@@ -9,19 +10,15 @@ describe('resolveBuilderSurface', () => {
     expect(surface.TestLabStage).toBeDefined()
   })
 
-  it('returns visual surface for hybrid', () => {
-    const surface = resolveBuilderSurface('hybrid')
-    expect(surface).toBe(resolveBuilderSurface('graph'))
-  })
-
   it('returns placeholder surface for code', () => {
     const surface = resolveBuilderSurface('code')
     expect(surface.BriefStage).toBeDefined()
   })
 
-  it('returns placeholder surface for prompt', () => {
-    const surface = resolveBuilderSurface('prompt')
-    expect(surface.BriefStage).toBeDefined()
+  it('returns the shared sandbox builder surface for CLI-backed definition kinds', () => {
+    const claudeCode = resolveBuilderSurface('claude_code')
+    expect(resolveBuilderSurface('codex')).toBe(claudeCode)
+    expect(resolveBuilderSurface('openclaw')).toBe(claudeCode)
   })
 
   it('defaults to visual for null/undefined', () => {

@@ -9,10 +9,24 @@ import { CreateAgentDialog } from '@/components/agents/agent-form-dialog'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useAgents, useCreateAgent, useDeleteAgent } from '@/hooks/queries/agents'
+import {
+  AGENT_LIST_DEFINITION_FILTERS,
+  AGENT_LIST_RUNTIME_FILTERS,
+  filterAgentsForList,
+  type AgentListDefinitionFilter,
+  type AgentListRuntimeFilter,
+} from '@/lib/agents/agent-list-filters'
 import { useTranslation } from '@/lib/i18n'
-import { useCurrentWorkspace } from '@/providers/workspace-provider'
 import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
+import { useCurrentWorkspace } from '@/providers/workspace-provider'
 import type { Agent, CreateAgentRequest } from '@/types/agent'
 
 export default function AgentsPage() {
@@ -27,6 +41,13 @@ export default function AgentsPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [deletingAgent, setDeletingAgent] = useState<Agent | null>(null)
+  const [definitionFilter, setDefinitionFilter] = useState<AgentListDefinitionFilter>('all')
+  const [runtimeFilter, setRuntimeFilter] = useState<AgentListRuntimeFilter>('all')
+
+  const filteredAgents = filterAgentsForList(agents, {
+    definitionKind: definitionFilter,
+    runtimeKind: runtimeFilter,
+  })
 
   async function handleSubmit(data: CreateAgentRequest) {
     try {
@@ -81,6 +102,42 @@ export default function AgentsPage() {
         )}
       </div>
 
+      {agents.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <Select
+            value={definitionFilter}
+            onValueChange={(value) => setDefinitionFilter(value as AgentListDefinitionFilter)}
+          >
+            <SelectTrigger className="h-9 w-[190px] bg-[var(--surface-1)]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {AGENT_LIST_DEFINITION_FILTERS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {t(option.labelKey, { defaultValue: option.defaultLabel })}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={runtimeFilter}
+            onValueChange={(value) => setRuntimeFilter(value as AgentListRuntimeFilter)}
+          >
+            <SelectTrigger className="h-9 w-[190px] bg-[var(--surface-1)]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {AGENT_LIST_RUNTIME_FILTERS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {t(option.labelKey, { defaultValue: option.defaultLabel })}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       {agents.length === 0 ? (
         <Card className="flex flex-col items-center justify-center gap-4 border-dashed p-12 text-center">
           <Bot className="h-10 w-10 text-[var(--text-muted)]" />
@@ -99,9 +156,23 @@ export default function AgentsPage() {
             </Button>
           )}
         </Card>
+      ) : filteredAgents.length === 0 ? (
+        <Card className="flex flex-col items-center justify-center gap-3 border-dashed p-10 text-center">
+          <Bot className="h-8 w-8 text-[var(--text-muted)]" />
+          <div>
+            <h3 className="text-sm font-medium text-[var(--text-primary)]">
+              {t('agents.filters.emptyTitle', { defaultValue: 'No matching agents' })}
+            </h3>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">
+              {t('agents.filters.emptySubtitle', {
+                defaultValue: 'Adjust the build type or runtime filters.',
+              })}
+            </p>
+          </div>
+        </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {agents.map((agent) => (
+          {filteredAgents.map((agent) => (
             <AgentCard
               key={agent.id}
               agent={agent}

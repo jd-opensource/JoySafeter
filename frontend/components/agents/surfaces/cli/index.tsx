@@ -3,7 +3,7 @@ import type { BuilderSurface, StageProps } from '@/components/agents/agent-build
 function PlaceholderStage(_props: StageProps) {
   return (
     <div className="flex h-full items-center justify-center text-sm text-[var(--text-muted)]">
-      CLI Builder — coming soon
+      Claude Code / Codex / OpenClaw builder coming soon
     </div>
   )
 }

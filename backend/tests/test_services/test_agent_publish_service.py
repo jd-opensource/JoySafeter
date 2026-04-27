@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.common.exceptions import BadRequestException
 from app.services.agent_publish_service import AgentPublishService
 from app.services.agent_release_service import AgentReleaseService
 
@@ -16,14 +17,76 @@ class TestInferRuntimeKind:
     def test_graph(self):
         assert AgentPublishService._infer_runtime_kind("graph") == "graph"
 
-    def test_hybrid(self):
-        assert AgentPublishService._infer_runtime_kind("hybrid") == "graph"
-
     def test_code(self):
-        assert AgentPublishService._infer_runtime_kind("code") == "sandbox"
+        assert AgentPublishService._infer_runtime_kind("code") == "code"
 
-    def test_unknown_defaults_to_graph(self):
-        assert AgentPublishService._infer_runtime_kind("whatever") == "graph"
+    @pytest.mark.parametrize("definition_kind", ["claude_code", "codex", "openclaw"])
+    def test_cli_provider_definitions_run_in_sandbox(self, definition_kind: str):
+        assert AgentPublishService._infer_runtime_kind(definition_kind) == "sandbox"
+
+    @pytest.mark.parametrize("definition_kind", ["prompt", "hybrid", "cli", "copilot", "whatever"])
+    def test_unsupported_definition_kind_is_rejected(self, definition_kind: str):
+        with pytest.raises(BadRequestException):
+            AgentPublishService._infer_runtime_kind(definition_kind)
+
+
+class TestPublishRuntimeBinding:
+    def _make_service(self) -> AgentPublishService:
+        db = AsyncMock()
+        svc = AgentPublishService.__new__(AgentPublishService)
+        svc.db = db
+        svc.version_svc = AsyncMock()
+        svc.release_svc = AsyncMock()
+        svc.agent_repo = AsyncMock()
+        svc.version_repo = AsyncMock()
+        svc.safe_commit = AsyncMock()
+        return svc
+
+    @pytest.mark.asyncio
+    async def test_cli_provider_definition_sets_sandbox_runtime_type(self):
+        svc = self._make_service()
+        agent_id = uuid.uuid4()
+        version_id = uuid.uuid4()
+        release_id = uuid.uuid4()
+        user_id = "user-1"
+
+        agent = SimpleNamespace(id=agent_id, current_draft_version_id=version_id)
+        version = SimpleNamespace(id=version_id, status="draft", definition_kind="codex")
+        release = SimpleNamespace(id=release_id)
+
+        svc.agent_repo.get = AsyncMock(return_value=agent)
+        svc.version_repo.get = AsyncMock(return_value=version)
+        svc.release_svc.publish_release = AsyncMock(return_value=release)
+        svc.release_svc.activate_release = AsyncMock()
+
+        await svc.publish(agent_id, user_id)
+
+        request = svc.release_svc.publish_release.await_args.args[2]
+        assert request.runtime_kind == "sandbox"
+        assert request.runtime_binding == {"runtime_type": "codex"}
+
+    @pytest.mark.asyncio
+    async def test_graph_definition_keeps_empty_runtime_binding(self):
+        svc = self._make_service()
+        agent_id = uuid.uuid4()
+        version_id = uuid.uuid4()
+        release_id = uuid.uuid4()
+        user_id = "user-1"
+
+        agent = SimpleNamespace(id=agent_id, current_draft_version_id=version_id)
+        version = SimpleNamespace(id=version_id, status="draft", definition_kind="graph")
+        release = SimpleNamespace(id=release_id)
+
+        svc.agent_repo.get = AsyncMock(return_value=agent)
+        svc.version_repo.get = AsyncMock(return_value=version)
+        svc.release_svc.publish_release = AsyncMock(return_value=release)
+        svc.release_svc.activate_release = AsyncMock()
+
+        await svc.publish(agent_id, user_id)
+
+        request = svc.release_svc.publish_release.await_args.args[2]
+        assert request.runtime_kind == "graph"
+        assert request.runtime_binding == {}
 
 
 class TestRetireStatusSync:

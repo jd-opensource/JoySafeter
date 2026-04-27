@@ -19,7 +19,7 @@ from app.schemas.agent import DefinitionKindLiteral
 
 class CreateAgentVersionRequest(BaseModel):
     source_kind: Optional[str] = "manual"
-    definition_kind: DefinitionKindLiteral = "prompt"
+    definition_kind: DefinitionKindLiteral = "graph"
     definition_payload: Optional[Dict[str, Any]] = None
     capability_manifest: Optional[Dict[str, Any]] = None
     changelog: Optional[str] = None

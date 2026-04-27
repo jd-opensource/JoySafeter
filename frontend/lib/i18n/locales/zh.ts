@@ -348,21 +348,41 @@ const zh = {
           tasksDesc: '把这个 Agent 绑定到任务执行和运营流程。',
         },
       },
-      prompt: {
-        label: '提示词配置',
-        description: '通过系统提示词和指令定义智能体行为',
+      filters: {
+        allBuildTypes: '全部构建类型',
+        allRuntimeTypes: '全部运行环境',
+        emptyTitle: '没有匹配的智能体',
+        emptySubtitle: '调整构建类型或运行环境筛选条件。',
+      },
+      runtime: {
+        graph: 'Graph',
+        code: 'Code',
+        sandbox: 'Sandbox',
       },
       graph: {
+        shortLabel: 'Graph',
         label: '可视化编排',
         description: '通过拖拽节点构建工作流',
       },
       code: {
+        shortLabel: 'Code',
         label: '代码定义',
         description: '通过代码定义智能体逻辑（即将推出）',
       },
-      hybrid: {
-        label: '混合模式',
-        description: '组合多种定义方式（即将推出）',
+      claudeCode: {
+        shortLabel: 'Claude Code',
+        label: 'Claude Code',
+        description: '在沙箱中运行 Claude Code CLI 智能体',
+      },
+      codex: {
+        shortLabel: 'Codex',
+        label: 'Codex',
+        description: '在沙箱中运行 Codex CLI 智能体',
+      },
+      openclaw: {
+        shortLabel: 'OpenClaw',
+        label: 'OpenClaw',
+        description: '在沙箱中运行 OpenClaw CLI 智能体',
       },
       detail: {
         tabs: {

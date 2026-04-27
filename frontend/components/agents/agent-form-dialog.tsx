@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Code2, GitBranch, MessageSquareText } from 'lucide-react'
+import { Bot, Code2, GitBranch, Terminal } from 'lucide-react'
+import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -27,12 +27,6 @@ interface BuildMethodOption {
 
 const BUILD_METHOD_OPTIONS: BuildMethodOption[] = [
   {
-    value: 'prompt',
-    labelKey: 'agents.prompt.label',
-    descriptionKey: 'agents.prompt.description',
-    icon: MessageSquareText,
-  },
-  {
     value: 'graph',
     labelKey: 'agents.graph.label',
     descriptionKey: 'agents.graph.description',
@@ -43,6 +37,24 @@ const BUILD_METHOD_OPTIONS: BuildMethodOption[] = [
     labelKey: 'agents.code.label',
     descriptionKey: 'agents.code.description',
     icon: Code2,
+  },
+  {
+    value: 'claude_code',
+    labelKey: 'agents.claudeCode.label',
+    descriptionKey: 'agents.claudeCode.description',
+    icon: Terminal,
+  },
+  {
+    value: 'codex',
+    labelKey: 'agents.codex.label',
+    descriptionKey: 'agents.codex.description',
+    icon: Bot,
+  },
+  {
+    value: 'openclaw',
+    labelKey: 'agents.openclaw.label',
+    descriptionKey: 'agents.openclaw.description',
+    icon: Terminal,
   },
 ]
 
@@ -62,14 +74,19 @@ export function CreateAgentDialog({
   const { t } = useTranslation()
 
   const [name, setName] = useState('')
-  const [definitionKind, setDefinitionKind] = useState<DefinitionKind>('prompt')
+  const [definitionKind, setDefinitionKind] = useState<DefinitionKind>('graph')
 
-  useEffect(() => {
-    if (open) {
-      setName('')
-      setDefinitionKind('prompt')
+  function resetForm() {
+    setName('')
+    setDefinitionKind('graph')
+  }
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen) {
+      resetForm()
     }
-  }, [open])
+    onOpenChange(nextOpen)
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -82,7 +99,7 @@ export function CreateAgentDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t('agents.newAgent', { defaultValue: 'New Agent' })}</DialogTitle>
@@ -156,7 +173,7 @@ export function CreateAgentDialog({
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
               {t('common.cancel', { defaultValue: 'Cancel' })}
             </Button>
             <Button type="submit" disabled={!name.trim() || isPending}>

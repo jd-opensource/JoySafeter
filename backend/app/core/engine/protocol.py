@@ -1,7 +1,7 @@
 """
 Execution engine protocol — the stable abstraction layer.
 
-All execution engines (CLI, Graph, Code, future engines) implement this protocol.
+All execution engines (sandbox, graph, code, future engines) implement this protocol.
 The orchestrator dispatches to engines via the registry; engines emit events via context.
 """
 
@@ -61,10 +61,9 @@ class ExecutionEngine(Protocol):
     Stable interface for all execution engines.
 
     Implementations:
-      - CLIEngine   (runtime_kind: sandbox)  — Docker + CLI agent
-      - GraphEngine (runtime_kind: graph)    — LangGraph compiler
-      - [future]    (runtime_kind: hosted)   — hosted API agent
-      - [future]    (runtime_kind: external) — external webhook
+      - CLIEngine   (runtime_kind: sandbox) — Docker + CLI-backed agent runtime
+      - GraphEngine (runtime_kind: graph)   — LangGraph compiler
+      - CodeEngine  (runtime_kind: code)    — in-process code agent runtime
     """
 
     engine_kind: str
@@ -84,7 +83,7 @@ class ExecutionEngine(Protocol):
         Args:
             context: execution context with emit/status/complete callbacks
             release_runtime_binding: from AgentRelease.runtime_binding
-            definition_kind: "prompt" | "graph" | "code" | "hybrid"
+            definition_kind: "graph" | "code" | "claude_code" | "codex" | "openclaw"
             definition_payload: from AgentVersion.definition_payload
             prompt: the user prompt or task goal
         """

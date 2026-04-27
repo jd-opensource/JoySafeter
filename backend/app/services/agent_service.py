@@ -35,6 +35,8 @@ def _generate_slug(name: str) -> str:
 class AgentService(BaseService):
     """Manages the Agent entity and its initial version."""
 
+    RESPONSE_RELATIONS = ["current_draft_version", "active_release"]
+
     def __init__(self, db: AsyncSession):
         super().__init__(db)
         self.agent_repo = AgentRepository(db)
@@ -44,7 +46,10 @@ class AgentService(BaseService):
         return await self.agent_repo.list_by_workspace(workspace_id)
 
     async def get_agent(self, agent_id: uuid.UUID) -> Agent:
-        agent = await self.agent_repo.get(agent_id)
+        agent = await self.agent_repo.get(
+            agent_id,
+            relations=self.RESPONSE_RELATIONS,
+        )
         if not agent:
             raise NotFoundException(f"Agent {agent_id} not found")
         return agent
@@ -95,8 +100,10 @@ class AgentService(BaseService):
         await self.agent_repo.update(agent.id, {"current_draft_version_id": version.id})
 
         await self.commit()
+        reloaded = await self.agent_repo.get(agent.id, relations=self.RESPONSE_RELATIONS)
+        assert reloaded is not None
         logger.info(f"Created agent {agent.id} ({data.name}) with initial version {version.id}")
-        return agent
+        return reloaded
 
     async def update_agent(
         self,
@@ -121,7 +128,9 @@ class AgentService(BaseService):
         updated = await self.agent_repo.update(agent_id, update_data)
         assert updated is not None
         await self.commit()
-        return updated
+        reloaded = await self.agent_repo.get(agent_id, relations=self.RESPONSE_RELATIONS)
+        assert reloaded is not None
+        return reloaded
 
     async def delete_agent(self, agent_id: uuid.UUID) -> None:
         """Delete an agent and all dependent records.

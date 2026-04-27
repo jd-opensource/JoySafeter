@@ -2,7 +2,6 @@
 
 import { ArrowRight, Bot, Trash2 } from 'lucide-react'
 
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useTranslation } from '@/lib/i18n'
@@ -10,6 +9,14 @@ import { formatRelativeTime } from '@/lib/utils/dateHelpers'
 import type { Agent } from '@/types/agent'
 
 import { AgentStatusIndicator } from './agent-status'
+
+const DEFINITION_LABEL_KEYS: Record<string, { labelKey: string; defaultLabel: string }> = {
+  graph: { labelKey: 'agents.graph.shortLabel', defaultLabel: 'Graph' },
+  code: { labelKey: 'agents.code.shortLabel', defaultLabel: 'Code' },
+  claude_code: { labelKey: 'agents.claudeCode.shortLabel', defaultLabel: 'Claude Code' },
+  codex: { labelKey: 'agents.codex.shortLabel', defaultLabel: 'Codex' },
+  openclaw: { labelKey: 'agents.openclaw.shortLabel', defaultLabel: 'OpenClaw' },
+}
 
 interface AgentCardProps {
   agent: Agent
@@ -19,8 +26,6 @@ interface AgentCardProps {
 
 export function AgentCard({ agent, onClick, onDelete }: AgentCardProps) {
   const { t } = useTranslation()
-  const hasRelease = Boolean(agent.active_release_id)
-
   const actionHint = agent.active_release_id
     ? t('agents.card.hintPublished', { defaultValue: 'View usage & manage' })
     : agent.current_draft_version_id
@@ -28,6 +33,7 @@ export function AgentCard({ agent, onClick, onDelete }: AgentCardProps) {
       : t('agents.card.hintNew', { defaultValue: 'Start building' })
 
   const timeText = agent.updated_at ? formatRelativeTime(agent.updated_at, t) : ''
+  const definitionLabel = agent.definition_kind ? DEFINITION_LABEL_KEYS[agent.definition_kind] : null
 
   return (
     <Card
@@ -57,11 +63,11 @@ export function AgentCard({ agent, onClick, onDelete }: AgentCardProps) {
       {/* Meta + Action — single compact row */}
       <div className="mt-auto flex items-center justify-between pt-2">
         <div className="flex items-center gap-1.5">
-          <Badge variant={hasRelease ? 'default' : 'outline'} className="h-5 text-[10px]">
-            {hasRelease
-              ? t('agents.card.published', { defaultValue: 'Published' })
-              : t('agents.card.draft', { defaultValue: 'Draft' })}
-          </Badge>
+          {definitionLabel && (
+            <span className="inline-flex h-5 items-center rounded-md border border-[var(--border)] px-1.5 text-[10px] text-[var(--text-muted)]">
+              {t(definitionLabel.labelKey, { defaultValue: definitionLabel.defaultLabel })}
+            </span>
+          )}
           {timeText && (
             <span className="text-[10px] text-[var(--text-muted)]">{timeText}</span>
           )}
