@@ -1,8 +1,14 @@
 from __future__ import annotations
 
-from fastapi import status
+from fastapi import FastAPI, status
+from fastapi.testclient import TestClient
 
-from app.common.exceptions import BadRequestException, ModelConfigError, normalize_exception
+from app.common.exceptions import (
+    BadRequestException,
+    ModelConfigError,
+    normalize_exception,
+    register_exception_handlers,
+)
 
 
 def test_model_config_error_serializes_to_canonical_descriptor() -> None:
@@ -79,4 +85,37 @@ def test_model_config_error_legacy_error_code_alias_preserves_params_and_descrip
         "http_status": 400,
         "model": "gpt-x",
         "provider": "openai",
+    }
+
+
+def test_app_exception_handler_returns_error_envelope() -> None:
+    app = FastAPI()
+    register_exception_handlers(app)
+
+    @app.get("/boom")
+    async def boom() -> None:
+        raise BadRequestException(
+            message="Invalid request",
+            code="VALIDATION_INVALID_REQUEST",
+            detail="The request body is malformed.",
+            source="validation",
+            retryable=False,
+            user_action="fix_input",
+        )
+
+    client = TestClient(app)
+    response = client.get("/boom")
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json() == {
+        "success": False,
+        "error": {
+            "code": "VALIDATION_INVALID_REQUEST",
+            "message": "Invalid request",
+            "detail": "The request body is malformed.",
+            "source": "validation",
+            "retryable": False,
+            "user_action": "fix_input",
+            "context": {"http_status": 400},
+        },
     }

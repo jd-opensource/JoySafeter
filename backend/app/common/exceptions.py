@@ -290,33 +290,34 @@ ResourceConflictException = ConflictException
 # Unified error response construction & global exception handlers
 
 
-def create_error_response(*, status_code: int, code: int, message: str, data: Any = None) -> Response:
-    """Build a unified error response (conforming to app.common.response.error_response)."""
+def create_error_response(*, status_code: int, error: ErrorDescriptor | dict[str, Any]) -> Response:
+    """Build an HTTP error response using the canonical error envelope."""
     return JSONResponse(
         status_code=status_code,
-        content=error_response(message=message, code=code, data=data),
+        content=error_response(error=error),
     )
 
 
 async def app_exception_handler(request: Request, exc: AppException) -> Response:
     """Handle application exceptions (AppException)."""
-    code_value = getattr(exc, "code", exc.status_code)
-    code = code_value if isinstance(code_value, int) else exc.status_code
     return create_error_response(
         status_code=exc.status_code,
-        code=code,
-        message=str(exc.detail),
-        data=getattr(exc, "data", None),
+        error=exc.to_error_descriptor(http_status=exc.status_code),
     )
 
 
 async def http_exception_handler(request: Request, exc: HTTPException) -> Response:
     """Handle FastAPI/Starlette HTTPException (non-AppException)."""
+    normalized = BadRequestException(
+        message=str(exc.detail),
+        code=str(exc.status_code),
+        source="api",
+        retryable=False,
+    )
+    normalized.status_code = exc.status_code
     return create_error_response(
         status_code=exc.status_code,
-        code=exc.status_code,
-        message=str(exc.detail),
-        data=getattr(exc, "data", None),
+        error=normalized.to_error_descriptor(http_status=exc.status_code),
     )
 
 
@@ -341,11 +342,18 @@ async def request_validation_exception_handler(request: Request, exc: Exception)
     if isinstance(exc, (RequestValidationError, PydanticValidationError)):
         errors = _format_validation_errors(exc.errors())
 
+    error = ErrorDescriptor(
+        code=str(status.HTTP_422_UNPROCESSABLE_ENTITY),
+        message="Request parameter validation failed",
+        detail="Request parameter validation failed.",
+        source="validation",
+        retryable=False,
+        user_action="fix_input",
+        context={"validation_errors": errors} if errors else {},
+    )
     return create_error_response(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        message="Request parameter validation failed",
-        data={"validation_errors": errors} if errors else None,
+        error=error.to_dict(http_status=status.HTTP_422_UNPROCESSABLE_ENTITY),
     )
 
 
@@ -383,11 +391,20 @@ async def general_exception_handler(request: Request, exc: Exception) -> Respons
     except Exception:
         debug = False
 
+    detail = str(exc) if debug else "An unexpected internal error occurred."
+    context = {"error_type": type(exc).__name__} if debug else {}
+    normalized = InternalServerException(
+        message="Internal Server Error",
+        code="INTERNAL_UNEXPECTED_ERROR",
+        detail=detail,
+        source="internal",
+        retryable=False,
+        user_action="contact_support",
+        context=context,
+    )
     return create_error_response(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        message=str(exc) if debug else "Internal Server Error",
-        data={"error_type": type(exc).__name__} if debug else None,
+        error=normalized.to_error_descriptor(http_status=status.HTTP_500_INTERNAL_SERVER_ERROR),
     )
 
 

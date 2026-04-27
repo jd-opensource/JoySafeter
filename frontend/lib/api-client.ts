@@ -66,34 +66,72 @@ export interface ApiResponse<T> {
   timestamp?: string
 }
 
+export interface ApiErrorDescriptor {
+  code: string
+  message: string
+  detail?: string
+  source: string
+  retryable: boolean
+  user_action?: string
+  context?: Record<string, unknown>
+}
+
 export class ApiError extends Error {
   /** Error code, used to identify specific error types (e.g., 'EMAIL_NOT_VERIFIED', 'BAD_REQUEST') */
   public readonly code?: string
+  public readonly descriptor?: ApiErrorDescriptor
 
   constructor(
     public readonly status: number,
     public readonly statusText: string,
     public readonly detail?: string,
     code?: string,
+    descriptor?: ApiErrorDescriptor,
   ) {
-    super(detail || statusText || `API Error: ${status}`)
+    super(descriptor?.message || detail || statusText || `API Error: ${status}`)
     this.name = 'ApiError'
-    this.code = code || statusText
+    this.code = descriptor?.code || code || statusText
+    this.descriptor = descriptor
   }
 }
 
 async function extractErrorFromResponse(response: Response): Promise<ApiError> {
   let errorMessage = response.statusText
   let errorCode: string | undefined
+  let errorDetail: string | undefined
+  let descriptor: ApiErrorDescriptor | undefined
   try {
     const text = await response.text()
     const errorData = JSON.parse(text)
-    errorMessage = errorData.detail || errorData.message || errorMessage
-    errorCode = errorData.code
+    const structuredError =
+      errorData &&
+      typeof errorData === 'object' &&
+      'error' in errorData &&
+      errorData.error &&
+      typeof errorData.error === 'object'
+        ? (errorData.error as ApiErrorDescriptor)
+        : undefined
+
+    if (structuredError) {
+      descriptor = structuredError
+      errorMessage = structuredError.message || errorMessage
+      errorDetail = structuredError.detail
+      errorCode = structuredError.code
+    } else {
+      errorMessage = errorData.detail || errorData.message || errorMessage
+      errorDetail = errorData.detail || errorData.message
+      errorCode = errorData.code
+    }
   } catch {
     /* not JSON or empty body */
   }
-  return new ApiError(response.status, response.statusText, errorMessage, errorCode)
+  return new ApiError(
+    response.status,
+    response.statusText,
+    errorDetail || errorMessage,
+    errorCode,
+    descriptor,
+  )
 }
 
 export interface ApiRequestOptions extends Omit<RequestInit, 'body'> {
@@ -128,6 +166,18 @@ async function parseResponse<T>(response: Response): Promise<T> {
     // Standard API response format: { success?, data }
     // Auto-unwrap `data` whether or not `success` is present,
     // so callers always receive the inner payload directly.
+    if (json && typeof json === 'object' && 'success' in json && !json.success && 'error' in json) {
+      const descriptor =
+        json.error && typeof json.error === 'object' ? (json.error as ApiErrorDescriptor) : undefined
+      throw new ApiError(
+        response.status,
+        response.statusText,
+        descriptor?.detail || descriptor?.message || 'API request failed',
+        descriptor?.code,
+        descriptor,
+      )
+    }
+
     if (json && typeof json === 'object' && 'data' in json) {
       if ('success' in json && !json.success) {
         throw new ApiError(
