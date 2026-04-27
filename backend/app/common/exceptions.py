@@ -17,13 +17,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError as PydanticValidationError
 
+from app.common.error_contract import ErrorDescriptor, ErrorSource, UserAction
 from app.common.response import error_response
 
 
 class AppException(HTTPException):
     """Base application exception (recommended for all business code)."""
 
-    code: int
+    code: int | str
     data: Any
 
     def __init__(
@@ -31,13 +32,31 @@ class AppException(HTTPException):
         status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR,
         message: str = "Internal Server Error",
         *,
-        code: int | None = None,
+        code: int | str | None = None,
         data: Any = None,
+        source: ErrorSource = "internal",
+        retryable: bool = False,
+        detail: str | None = None,
+        user_action: UserAction | None = None,
+        context: dict[str, Any] | None = None,
         headers: Optional[Dict[str, str]] = None,
     ):
         super().__init__(status_code=status_code, detail=message, headers=headers)
         self.code = status_code if code is None else code
         self.data = data
+        self.error = ErrorDescriptor(
+            code=str(self.code),
+            message=message,
+            source=source,
+            retryable=retryable,
+            detail=detail,
+            user_action=user_action,
+            context=context or {},
+        )
+
+    def to_error_descriptor(self, *, http_status: int | None = None) -> dict[str, Any]:
+        """Expose structured error metadata for the new contract without changing live HTTP responses yet."""
+        return self.error.to_dict(http_status=http_status)
 
 
 # Common HTTP exceptions (raise directly from business code)
@@ -47,7 +66,14 @@ class NotFoundException(AppException):
     """Resource not found (404)."""
 
     def __init__(self, message: str = "Resource not found", *, code: int | None = None, data: Any = None):
-        super().__init__(status_code=status.HTTP_404_NOT_FOUND, message=message, code=code, data=data)
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            message=message,
+            code=code,
+            data=data,
+            source="api",
+            retryable=False,
+        )
 
 
 class ModelConfigError(AppException):
@@ -70,25 +96,65 @@ class ModelConfigError(AppException):
 
     def __init__(
         self,
-        error_code: str,
+        code: str | None = None,
         message: str = "Model configuration error",
         *,
+        error_code: str | None = None,
         params: Dict[str, Any] | None = None,
+        detail: str | None = None,
+        source: ErrorSource = "node",
+        retryable: bool = False,
+        user_action: UserAction | None = None,
+        context: dict[str, Any] | None = None,
     ):
-        self.error_code = error_code
+        resolved_code = error_code if error_code is not None else code
+        if resolved_code is None:
+            raise TypeError("ModelConfigError requires 'code' or legacy 'error_code'")
+
+        self.error_code = resolved_code
         self.params = params or {}
+        merged_context = dict(self.params)
+        if context:
+            merged_context.update(context)
         super().__init__(
             status_code=status.HTTP_400_BAD_REQUEST,
             message=message,
-            data={"error_code": error_code, "params": self.params},
+            code=resolved_code,
+            data={"error_code": resolved_code, "params": self.params},
+            source=source,
+            retryable=retryable,
+            detail=detail,
+            user_action=user_action,
+            context=merged_context,
         )
 
 
 class BadRequestException(AppException):
     """Bad request (400)."""
 
-    def __init__(self, message: str = "Bad request", *, code: int | None = None, data: Any = None):
-        super().__init__(status_code=status.HTTP_400_BAD_REQUEST, message=message, code=code, data=data)
+    def __init__(
+        self,
+        message: str = "Bad request",
+        *,
+        code: int | str | None = None,
+        data: Any = None,
+        source: ErrorSource = "api",
+        retryable: bool = False,
+        detail: str | None = None,
+        user_action: UserAction | None = None,
+        context: dict[str, Any] | None = None,
+    ):
+        super().__init__(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            message=message,
+            code=code,
+            data=data,
+            source=source,
+            retryable=retryable,
+            detail=detail,
+            user_action=user_action,
+            context=context,
+        )
 
 
 class UnauthorizedException(AppException):
@@ -100,6 +166,8 @@ class UnauthorizedException(AppException):
             message=message,
             code=code,
             data=data,
+            source="auth",
+            retryable=False,
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -108,35 +176,84 @@ class ForbiddenException(AppException):
     """Forbidden (403)."""
 
     def __init__(self, message: str = "Forbidden", *, code: int | None = None, data: Any = None):
-        super().__init__(status_code=status.HTTP_403_FORBIDDEN, message=message, code=code, data=data)
+        super().__init__(
+            status_code=status.HTTP_403_FORBIDDEN,
+            message=message,
+            code=code,
+            data=data,
+            source="permission",
+            retryable=False,
+        )
 
 
 class ValidationException(AppException):
     """Request validation failed (422)."""
 
     def __init__(self, message: str = "Validation error", *, code: int | None = None, data: Any = None):
-        super().__init__(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, message=message, code=code, data=data)
+        super().__init__(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            message=message,
+            code=code,
+            data=data,
+            source="validation",
+            retryable=False,
+        )
 
 
 class ConflictException(AppException):
     """Resource conflict (409)."""
 
     def __init__(self, message: str = "Resource conflict", *, code: int | None = None, data: Any = None):
-        super().__init__(status_code=status.HTTP_409_CONFLICT, message=message, code=code, data=data)
+        super().__init__(
+            status_code=status.HTTP_409_CONFLICT,
+            message=message,
+            code=code,
+            data=data,
+            source="api",
+            retryable=False,
+        )
 
 
 class TooManyRequestsException(AppException):
     """Too many requests (429)."""
 
     def __init__(self, message: str = "Too many requests", *, code: int | None = None, data: Any = None):
-        super().__init__(status_code=status.HTTP_429_TOO_MANY_REQUESTS, message=message, code=code, data=data)
+        super().__init__(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            message=message,
+            code=code,
+            data=data,
+            source="api",
+            retryable=True,
+        )
 
 
 class InternalServerException(AppException):
     """Internal server error (500)."""
 
-    def __init__(self, message: str = "Internal Server Error", *, code: int | None = 1007, data: Any = None):
-        super().__init__(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, message=message, code=code, data=data)
+    def __init__(
+        self,
+        message: str = "Internal Server Error",
+        *,
+        code: int | str | None = 1007,
+        data: Any = None,
+        source: ErrorSource = "internal",
+        retryable: bool = False,
+        detail: str | None = None,
+        user_action: UserAction | None = None,
+        context: dict[str, Any] | None = None,
+    ):
+        super().__init__(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=message,
+            code=code,
+            data=data,
+            source=source,
+            retryable=retryable,
+            detail=detail,
+            user_action=user_action,
+            context=context,
+        )
 
 
 class ClientClosedException(AppException):
@@ -144,7 +261,7 @@ class ClientClosedException(AppException):
 
     def __init__(self, message: str = "Client has closed the connection", *, code: int | None = 1008, data: Any = None):
         # 499 is a non-standard HTTP status code, but some gateways/logging systems use it
-        super().__init__(status_code=499, message=message, code=code, data=data)
+        super().__init__(status_code=499, message=message, code=code, data=data, source="api", retryable=True)
 
 
 class BusinessLogicException(BadRequestException):
@@ -233,7 +350,7 @@ async def request_validation_exception_handler(request: Request, exc: Exception)
 
 
 async def general_exception_handler(request: Request, exc: Exception) -> Response:
-    """Handle uncaught exceptions — auto-translate common service-layer exceptions."""
+    """Handle uncaught exceptions through the legacy HTTP error response path until Task 2."""
 
     # ValueError → 400 (or 404 if message says "not found")
     if isinstance(exc, ValueError):
@@ -288,6 +405,20 @@ def register_exception_handlers(app: Any) -> None:
     app.add_exception_handler(PermissionError, general_exception_handler)
     app.add_exception_handler(RuntimeError, general_exception_handler)
     app.add_exception_handler(Exception, general_exception_handler)
+
+
+def normalize_exception(exc: Exception) -> AppException:
+    """Foundation helper for the new contract; runtime handlers do not use this path yet."""
+    if isinstance(exc, AppException):
+        return exc
+    return InternalServerException(
+        message="Unexpected internal error.",
+        code="INTERNAL_UNEXPECTED_ERROR",
+        detail=str(exc),
+        source="internal",
+        retryable=False,
+        user_action="contact_support",
+    )
 
 
 # Convenience raise_* helpers
