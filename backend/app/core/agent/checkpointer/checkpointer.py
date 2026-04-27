@@ -5,7 +5,6 @@ Manages persistence of conversation state.
 Centralize all checkpointer logic and provide a unified interface.
 """
 
-import os
 from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
@@ -63,10 +62,11 @@ class CheckpointerManager:
 
         try:
             db_uri = cls._get_db_uri()
+            from app.core.settings import settings as _settings
             cls._pool = AsyncConnectionPool(
                 conninfo=db_uri,
-                min_size=int(os.getenv("DB_POOL_MIN_SIZE", 1)),
-                max_size=int(os.getenv("DB_POOL_MAX_SIZE", 10)),
+                min_size=_settings.checkpointer_pool_min_size,
+                max_size=_settings.checkpointer_pool_max_size,
                 kwargs={"autocommit": True, "prepare_threshold": 0},
                 open=False,  # do not auto-open in constructor
             )
@@ -75,7 +75,7 @@ class CheckpointerManager:
             cls._initialized = True
             logger.info(
                 f"CheckpointerManager initialized | "
-                f"pool_size={os.getenv('DB_POOL_MIN_SIZE', 1)}-{os.getenv('DB_POOL_MAX_SIZE', 10)}"
+                f"pool_size={_settings.checkpointer_pool_min_size}-{_settings.checkpointer_pool_max_size}"
             )
 
             # initialize database table schema
