@@ -1,7 +1,7 @@
 import uuid
 from typing import Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CopilotRunRequest(BaseModel):
@@ -11,7 +11,7 @@ class CopilotRunRequest(BaseModel):
     workspace_id: uuid.UUID
     prompt: str
     graph_context: dict[str, Any]
-    conversation_history: list[dict[str, Any]] = []
+    conversation_history: list[dict[str, Any]] = Field(default_factory=list)
     mode: str = "deepagents"
     provider_name: Optional[str] = None
     model_name: Optional[str] = None

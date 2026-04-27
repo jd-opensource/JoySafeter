@@ -102,3 +102,23 @@ def test_copilot_run_dispatches_draft_contract(
         provider_name=None,
         model_name=None,
     )
+
+
+@patch("copilot_under_test.DispatchService", create=True)
+def test_copilot_run_requires_draft_identifiers(
+    mock_dispatch_service_cls,
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/v1/copilot/run",
+        json={
+            "agent_id": str(uuid.uuid4()),
+            "prompt": "plan the draft",
+            "graph_context": {"node_id": "graph-1"},
+            "conversation_history": [{"role": "user", "content": "hi"}],
+            "mode": "deepagents",
+        },
+    )
+
+    assert response.status_code == 422
+    mock_dispatch_service_cls.return_value.dispatch_copilot_draft.assert_not_called()
