@@ -9,8 +9,8 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.dependencies import CurrentUser, require_workspace_role
 from app.common.app_errors import AccessDeniedError
+from app.common.dependencies import CurrentUser, require_workspace_role
 from app.core.database import get_db
 from app.models.agent import Agent, AgentRelease, AgentVersion
 from app.models.auth import AuthUser as User
@@ -281,10 +281,12 @@ async def publish_agent(
 ) -> BaseResponse[PublishAgentResponse]:
     service = AgentPublishService(db)
     result = await service.publish(agent_id, current_user.id)
-    return BaseResponse(data=PublishAgentResponse(
-        agent=_to_response(result["agent"]),
-        release=_release_to_response(result["release"]),
-    ))
+    return BaseResponse(
+        data=PublishAgentResponse(
+            agent=_to_response(result["agent"]),
+            release=_release_to_response(result["release"]),
+        )
+    )
 
 
 @router.post("/{agent_id}/rollback", response_model=BaseResponse[RollbackAgentResponse])
@@ -297,6 +299,8 @@ async def rollback_agent(
 ) -> BaseResponse[RollbackAgentResponse]:
     service = AgentPublishService(db)
     result = await service.rollback(agent_id, body.release_id)
-    return BaseResponse(data=RollbackAgentResponse(
-        agent=_to_response(result["agent"]),
-    ))
+    return BaseResponse(
+        data=RollbackAgentResponse(
+            agent=_to_response(result["agent"]),
+        )
+    )

@@ -75,9 +75,9 @@ class ExecutionEventAdapter:
         await execution_event_bus.publish(envelope, self.db)
 
         if execution is None:
-            execution = (await self.db.execute(
-                select(Execution).where(Execution.id == execution_id)
-            )).scalar_one_or_none()
+            execution = (
+                await self.db.execute(select(Execution).where(Execution.id == execution_id))
+            ).scalar_one_or_none()
         else:
             await self.db.refresh(execution)
         return execution
@@ -90,9 +90,7 @@ class ExecutionEventAdapter:
         payload: dict[str, Any],
     ) -> ExecutionEvent:
         if self._event_ctx is None:
-            raise RuntimeError(
-                "EventContext not set. Call set_event_context() before appending events."
-            )
+            raise RuntimeError("EventContext not set. Call set_event_context() before appending events.")
 
         envelope = ExecutionEventEnvelope(
             execution_id=execution_id,
@@ -120,9 +118,7 @@ class ExecutionEventAdapter:
         events: list[dict[str, Any]],
     ) -> list[ExecutionEvent]:
         if self._event_ctx is None:
-            raise RuntimeError(
-                "EventContext not set. Call set_event_context() before appending events."
-            )
+            raise RuntimeError("EventContext not set. Call set_event_context() before appending events.")
 
         envelopes = [
             ExecutionEventEnvelope(
@@ -159,9 +155,7 @@ class ExecutionEventAdapter:
         session_id: Optional[str] = None,
     ) -> None:
         if self._event_ctx is None:
-            raise RuntimeError(
-                "EventContext not set. Call set_event_context() before completing."
-            )
+            raise RuntimeError("EventContext not set. Call set_event_context() before completing.")
 
         envelope = ExecutionEventEnvelope(
             execution_id=execution_id,

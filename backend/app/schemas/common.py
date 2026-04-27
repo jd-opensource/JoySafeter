@@ -38,5 +38,3 @@ class IDSchema(TimestampSchema):
     """Schema with ID."""
 
     id: uuid.UUID
-
-

@@ -16,6 +16,7 @@ class AppErrorPayload(BaseModel):
     message: str
     data: dict | None = None
 
+
 # ---------------------------------------------------------------------------
 # Execution (Phase 4 - new schema)
 # ---------------------------------------------------------------------------

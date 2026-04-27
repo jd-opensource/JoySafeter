@@ -177,7 +177,11 @@ let refreshPromise: Promise<void> | null = null
 
 export async function refreshAccessTokenOrRelogin(timeout = 10000): Promise<void> {
   if (typeof window === 'undefined') {
-    throw new Error('Cannot refresh token in server environment')
+    throw createApiError(500, 'Server Environment Unsupported', {
+      code: 'REFRESH_UNAVAILABLE',
+      message: 'Cannot refresh token in server environment',
+      data: null,
+    })
   }
 
   if (isRefreshing && refreshPromise) {
@@ -200,17 +204,26 @@ export async function refreshAccessTokenOrRelogin(timeout = 10000): Promise<void
       clearTimeout(timeoutId)
 
       if (response.status === 401) {
-        throw new Error('Refresh token expired, please login again')
+        throw createApiError(401, 'Unauthorized', {
+          code: 'REFRESH_TOKEN_INVALID',
+          message: 'Refresh token expired, please login again',
+          data: null,
+        })
       }
 
       if (!response.ok) {
-        throw new Error(`Token refresh failed: ${response.statusText}`)
+        throw await extractErrorFromResponse(response)
       }
     } catch (error) {
       clearTimeout(timeoutId)
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error('Token refresh timed out')
+        throw createApiError(408, 'Request Timeout', {
+          code: 'REQUEST_TIMEOUT',
+          message: 'Token refresh timed out',
+          data: null,
+        })
       }
+      if (error instanceof ApiError) throw error
       throw error
     } finally {
       isRefreshing = false

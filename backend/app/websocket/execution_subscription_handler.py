@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import uuid
 
-from app.common.app_errors import AppError, InvalidRequestError, NotFoundError
 from fastapi import WebSocket, WebSocketDisconnect
 
+from app.common.app_errors import AppError, InvalidRequestError, NotFoundError
 from app.core.database import AsyncSessionLocal
 from app.services.execution_service import ExecutionService
 from app.websocket.execution_subscription_manager import execution_subscription_manager

@@ -108,12 +108,16 @@ class Settings(BaseSettings):
     )
     checkpointer_pool_min_size: int = Field(
         default=1,
-        validation_alias=AliasChoices("DB_POOL_MIN_SIZE",),
+        validation_alias=AliasChoices(
+            "DB_POOL_MIN_SIZE",
+        ),
         description="Min connections for the LangGraph checkpointer psycopg pool",
     )
     checkpointer_pool_max_size: int = Field(
         default=10,
-        validation_alias=AliasChoices("DB_POOL_MAX_SIZE",),
+        validation_alias=AliasChoices(
+            "DB_POOL_MAX_SIZE",
+        ),
         description="Max connections for the LangGraph checkpointer psycopg pool",
     )
 

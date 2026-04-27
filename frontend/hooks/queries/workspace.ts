@@ -10,7 +10,7 @@
  */
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { apiGet, apiPatch, API_ENDPOINTS } from '@/lib/api-client'
+import { apiGet, apiPatch, API_ENDPOINTS, createApiError } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
 
 import { STALE_TIME } from './constants'
@@ -83,7 +83,11 @@ async function fetchWorkspaceSettings(workspaceId: string) {
       : { users: [] as BackendPermissionUser[] }
 
   if (!settings) {
-    throw new Error('Failed to fetch workspace settings')
+    throw createApiError(500, 'Workspace Settings Fetch Failed', {
+      code: 'WORKSPACE_SETTINGS_FETCH_FAILED',
+      message: 'Failed to fetch workspace settings',
+      data: { workspace_id: workspaceId },
+    })
   }
 
   return {

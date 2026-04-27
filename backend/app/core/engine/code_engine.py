@@ -56,18 +56,22 @@ class CodeEngine:
 
         try:
             await context.update_status("running")
-            await context.emit(ExecutionEventType.EXECUTION_STARTED, {
-                "engine": "code",
-                "code_length": len(code),
-            })
+            await context.emit(
+                ExecutionEventType.EXECUTION_STARTED,
+                {
+                    "engine": "code",
+                    "code_length": len(code),
+                },
+            )
 
             user_id: str | None = None
             thread_id: str | None = None
             try:
                 from app.models.agent_run import AgentRun
-                run = (await context.db.execute(
-                    select(AgentRun).where(AgentRun.id == context.run_id)
-                )).scalar_one_or_none()
+
+                run = (
+                    await context.db.execute(select(AgentRun).where(AgentRun.id == context.run_id))
+                ).scalar_one_or_none()
                 if run:
                     user_id = run.created_by
                     thread_id = str(run.thread_id) if run.thread_id else None

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.app_errors import InvalidRequestError, NotFoundError
 from app.core.agent_kinds import infer_runtime_kind, is_cli_definition_kind
-from app.models.agent import AgentRelease, AgentVersion
+from app.models.agent import AgentVersion
 from app.repositories.agent import AgentRepository, AgentVersionRepository
 from app.schemas.agent_release import CreateAgentReleaseRequest
 from app.services.agent_release_service import AgentReleaseService
@@ -23,7 +23,6 @@ from .base import BaseService
 
 
 class AgentPublishService(BaseService):
-
     def __init__(self, db: AsyncSession):
         super().__init__(db)
         self.version_svc = AgentVersionService(db)
@@ -46,14 +45,10 @@ class AgentPublishService(BaseService):
             agent_version_id=version.id,
             runtime_kind=runtime_kind,
             runtime_binding=(
-                {"runtime_type": version.definition_kind}
-                if is_cli_definition_kind(version.definition_kind)
-                else {}
+                {"runtime_type": version.definition_kind} if is_cli_definition_kind(version.definition_kind) else {}
             ),
         )
-        release = await self.release_svc.publish_release(
-            agent_id, user_id, release_data
-        )
+        release = await self.release_svc.publish_release(agent_id, user_id, release_data)
 
         await self.release_svc.activate_release(agent_id, release.id)
 

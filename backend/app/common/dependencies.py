@@ -11,8 +11,8 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.app_errors import AccessDeniedError, AuthenticationError, NotFoundError
 from app.common.cookie_auth import extract_token_from_cookies
-from app.common.app_errors import AccessDeniedError, NotFoundError, AuthenticationError
 from app.core.database import get_db
 from app.core.security import decode_token
 from app.models.auth import AuthUser as User

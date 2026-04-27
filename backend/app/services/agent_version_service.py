@@ -16,7 +16,6 @@ from app.models.agent import AgentVersion
 from app.repositories.agent import AgentRepository, AgentVersionRepository
 from app.schemas.agent_version import CreateAgentVersionRequest, UpdateAgentVersionRequest
 
-
 from .base import BaseService
 
 

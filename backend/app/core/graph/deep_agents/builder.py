@@ -7,7 +7,10 @@ No inheritance — uses composition of dedicated resolvers.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, List, Optional
+
+# app.models.graph was removed; use Protocol stubs for type-checking only.
+# At runtime, duck-typed shim objects (from graph_engine.py) satisfy these contracts.
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from loguru import logger
 
@@ -29,10 +32,6 @@ from app.core.graph.deep_agents.skills_loader import (
 )
 from app.core.graph.deep_agents.tool_resolver import resolve_tools
 from app.core.graph.runtime_prompt_template import build_runtime_prompt_context, render_runtime_template
-
-# app.models.graph was removed; use Protocol stubs for type-checking only.
-# At runtime, duck-typed shim objects (from graph_engine.py) satisfy these contracts.
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from typing import Protocol

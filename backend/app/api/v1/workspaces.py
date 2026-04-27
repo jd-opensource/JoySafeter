@@ -7,8 +7,8 @@ from fastapi import APIRouter, Body, Depends, Query
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.app_errors import AccessDeniedError, InvalidRequestError
 from app.common.dependencies import get_current_user, require_workspace_role
-from app.common.app_errors import InvalidRequestError, AccessDeniedError
 from app.common.pagination import PaginationParams
 from app.core.database import get_db
 from app.models.auth import AuthUser as User

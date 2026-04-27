@@ -382,9 +382,7 @@ def _normalize_user_id(user_id: Any | None) -> str:
     return str(user_id)
 
 
-async def resolve_tools_for_node(
-    node: Any, *, user_id: str | None = None, backend: Any = None
-) -> Optional[List[Any]]:
+async def resolve_tools_for_node(node: Any, *, user_id: str | None = None, backend: Any = None) -> Optional[List[Any]]:
     """
     Resolve tools list for a node.
 

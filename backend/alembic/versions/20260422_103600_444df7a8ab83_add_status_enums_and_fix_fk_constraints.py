@@ -15,7 +15,6 @@ Changes:
 
 from typing import Sequence, Union
 
-import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -28,6 +27,7 @@ depends_on: Union[str, Sequence[str], None] = None
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
 
 def _create_enum(name: str, *values: str) -> None:
     """CREATE TYPE <name> AS ENUM (...) — idempotent via IF NOT EXISTS."""
@@ -42,6 +42,7 @@ def _drop_enum(name: str) -> None:
 # ---------------------------------------------------------------------------
 # upgrade
 # ---------------------------------------------------------------------------
+
 
 def upgrade() -> None:
     # ------------------------------------------------------------------
@@ -63,12 +64,16 @@ def upgrade() -> None:
 
     # agent_versions
     op.execute("ALTER TABLE agent_versions ALTER COLUMN status DROP DEFAULT")
-    op.execute("ALTER TABLE agent_versions ALTER COLUMN status TYPE agent_version_status USING status::agent_version_status")
+    op.execute(
+        "ALTER TABLE agent_versions ALTER COLUMN status TYPE agent_version_status USING status::agent_version_status"
+    )
     op.execute("ALTER TABLE agent_versions ALTER COLUMN status SET DEFAULT 'draft'::agent_version_status")
 
     # agent_releases
     op.execute("ALTER TABLE agent_releases ALTER COLUMN status DROP DEFAULT")
-    op.execute("ALTER TABLE agent_releases ALTER COLUMN status TYPE agent_release_status USING status::agent_release_status")
+    op.execute(
+        "ALTER TABLE agent_releases ALTER COLUMN status TYPE agent_release_status USING status::agent_release_status"
+    )
     op.execute("ALTER TABLE agent_releases ALTER COLUMN status SET DEFAULT 'building'::agent_release_status")
 
     # agent_runs
@@ -145,29 +150,22 @@ def upgrade() -> None:
 # downgrade
 # ---------------------------------------------------------------------------
 
+
 def downgrade() -> None:
     # Restore thread_messages FKs without ondelete
     op.drop_constraint("fk_thread_messages_execution_id", "thread_messages", type_="foreignkey")
-    op.create_foreign_key(
-        "fk_messages_execution", "thread_messages", "executions", ["execution_id"], ["id"]
-    )
+    op.create_foreign_key("fk_messages_execution", "thread_messages", "executions", ["execution_id"], ["id"])
 
     op.drop_constraint("fk_thread_messages_run_id", "thread_messages", type_="foreignkey")
-    op.create_foreign_key(
-        "fk_messages_run", "thread_messages", "agent_runs", ["run_id"], ["id"]
-    )
+    op.create_foreign_key("fk_messages_run", "thread_messages", "agent_runs", ["run_id"], ["id"])
 
     # Restore agent_versions.created_by FK without ondelete
     op.drop_constraint("fk_agent_versions_created_by", "agent_versions", type_="foreignkey")
-    op.create_foreign_key(
-        None, "agent_versions", "user", ["created_by"], ["id"]
-    )
+    op.create_foreign_key(None, "agent_versions", "user", ["created_by"], ["id"])
 
     # Restore agents.created_by FK without ondelete
     op.drop_constraint("fk_agents_created_by", "agents", type_="foreignkey")
-    op.create_foreign_key(
-        None, "agents", "user", ["created_by"], ["id"]
-    )
+    op.create_foreign_key(None, "agents", "user", ["created_by"], ["id"])
 
     # Revert status columns enum → varchar
     # executions

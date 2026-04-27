@@ -4,14 +4,13 @@ Pydantic schemas for AgentRelease API.
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import Optional
-import uuid
 
 from pydantic import BaseModel
 
 from app.core.agent_kinds import RuntimeKindLiteral
-
 
 # ---------------------------------------------------------------------------
 # Request schemas

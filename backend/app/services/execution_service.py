@@ -21,7 +21,7 @@ from app.models.execution import (
     Execution,
     ExecutionEvent,
 )
-from app.repositories.execution import ExecutionRepository, ExecutionEventRepository
+from app.repositories.execution import ExecutionEventRepository, ExecutionRepository
 from app.utils.datetime import utc_now
 
 TERMINAL_EXECUTION_STATUSES = EXECUTION_TERMINAL
@@ -96,6 +96,7 @@ class ExecutionService:
         if ctx is None:
             # Fallback for callers without event context (e.g. reaper)
             from app.models.agent_run import AgentRun
+
             result = await self.db.execute(
                 select(Execution, AgentRun.workspace_id)
                 .join(AgentRun, Execution.run_id == AgentRun.id)
@@ -130,9 +131,9 @@ class ExecutionService:
 
         # Return the updated row
         if execution is None:
-            execution = (await self.db.execute(
-                select(Execution).where(Execution.id == execution_id)
-            )).scalar_one_or_none()
+            execution = (
+                await self.db.execute(select(Execution).where(Execution.id == execution_id))
+            ).scalar_one_or_none()
         else:
             await self.db.refresh(execution)
         return execution
@@ -145,9 +146,7 @@ class ExecutionService:
         payload: dict[str, Any],
     ) -> ExecutionEvent:
         if self._event_ctx is None:
-            raise RuntimeError(
-                "EventContext not set. Call set_event_context() before appending events."
-            )
+            raise RuntimeError("EventContext not set. Call set_event_context() before appending events.")
 
         envelope = ExecutionEventEnvelope(
             execution_id=execution_id,
@@ -176,9 +175,7 @@ class ExecutionService:
     ) -> list[ExecutionEvent]:
         """Append multiple events in a single transaction via the event bus."""
         if self._event_ctx is None:
-            raise RuntimeError(
-                "EventContext not set. Call set_event_context() before appending events."
-            )
+            raise RuntimeError("EventContext not set. Call set_event_context() before appending events.")
 
         envelopes = [
             ExecutionEventEnvelope(
@@ -219,9 +216,7 @@ class ExecutionService:
         StateTransitionSubscriber handles Execution + Run terminal transitions.
         """
         if self._event_ctx is None:
-            raise RuntimeError(
-                "EventContext not set. Call set_event_context() before completing."
-            )
+            raise RuntimeError("EventContext not set. Call set_event_context() before completing.")
 
         envelope = ExecutionEventEnvelope(
             execution_id=execution_id,
@@ -343,9 +338,9 @@ class ExecutionService:
                         await session.cancel()
 
                     # 2. Load run for envelope metadata
-                    run = (await self.db.execute(
-                        select(AgentRun).where(AgentRun.id == execution.run_id)
-                    )).scalar_one_or_none()
+                    run = (
+                        await self.db.execute(select(AgentRun).where(AgentRun.id == execution.run_id))
+                    ).scalar_one_or_none()
 
                     # 3. Atomically mark execution + run as failed
                     error_msg = f"No heartbeat for {int(threshold.total_seconds() // 60)}+ minutes"

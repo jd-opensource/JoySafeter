@@ -44,7 +44,7 @@ RUN_STATES = {
     "pending":   {"running", "cancelled"},
     "running":   {"succeeded", "failed", "cancelled"},
     "succeeded": set(),         # 终态
-    "failed":    set(),         # 终态  
+    "failed":    set(),         # 终态
     "cancelled": set(),         # 终态
 }
 
@@ -162,7 +162,7 @@ from app.core.state_machines.definitions import (
 )
 from app.utils.datetime import utc_now
 
-async def transition_run(run: AgentRun, to_status: str, db: AsyncSession, 
+async def transition_run(run: AgentRun, to_status: str, db: AsyncSession,
                          result_summary: str | None = None) -> None:
     RUN_SM.validate(run.status, to_status)
     run.status = to_status

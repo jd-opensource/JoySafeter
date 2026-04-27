@@ -8,7 +8,6 @@ Integrates Langfuse tracing with LangChain/LangGraph agents to track:
 - User interactions
 """
 
-import os
 from typing import Any
 
 from loguru import logger

@@ -46,7 +46,6 @@ ValidationErrorResponse = ErrorEnvelopeResponse
 InternalServerErrorResponse = ErrorEnvelopeResponse
 
 
-
 class HealthResponse(BaseModel):
     model_config = ConfigDict(json_schema_extra={"example": {"status": "ok", "instantiated_at": "1760169236.778903"}})
 

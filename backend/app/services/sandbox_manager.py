@@ -7,7 +7,6 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, cast
 
-from fastapi import status
 from loguru import logger
 from sqlalchemy import CursorResult, delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession

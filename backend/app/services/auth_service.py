@@ -312,7 +312,9 @@ class AuthService(BaseService):
             raise AuthenticationError("Inactive user", code="USER_INACTIVE")
 
         if settings.require_email_verification and not user.email_verified:
-            raise AccessDeniedError("Email not verified. Please verify your email before logging in.", code="EMAIL_NOT_VERIFIED")
+            raise AccessDeniedError(
+                "Email not verified. Please verify your email before logging in.", code="EMAIL_NOT_VERIFIED"
+            )
 
         if login_success:
             from app.services.login_init import run_post_login_init

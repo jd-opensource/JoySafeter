@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import List
 
-from app.common.app_errors import InvalidRequestError, AccessDeniedError, NotFoundError
+from app.common.app_errors import AccessDeniedError, InvalidRequestError, NotFoundError
 from app.common.skill_permissions import check_skill_access
 from app.models.skill import Skill
 from app.models.skill_collaborator import CollaboratorRole, SkillCollaborator
@@ -56,7 +56,9 @@ class SkillCollaboratorService(BaseService[SkillCollaborator]):
         )
 
         if target_user_id == skill.owner_id:
-            raise InvalidRequestError("Cannot add the owner as a collaborator", code="SKILL_OWNER_COLLABORATOR_FORBIDDEN")
+            raise InvalidRequestError(
+                "Cannot add the owner as a collaborator", code="SKILL_OWNER_COLLABORATOR_FORBIDDEN"
+            )
 
         existing = await self.repo.get_by_skill_and_user(skill_id, target_user_id)
         if existing:

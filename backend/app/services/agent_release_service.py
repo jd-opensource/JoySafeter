@@ -18,7 +18,6 @@ from app.repositories.agent_release import AgentReleaseRepository
 from app.schemas.agent_release import CreateAgentReleaseRequest
 from app.utils.datetime import utc_now
 
-
 from .base import BaseService
 
 
@@ -88,14 +87,10 @@ class AgentReleaseService(BaseService):
             }
         )
 
-        logger.info(
-            f"Published release {release.id} (r{next_num}) for agent {agent_id}"
-        )
+        logger.info(f"Published release {release.id} (r{next_num}) for agent {agent_id}")
         return release
 
-    async def activate_release(
-        self, agent_id: uuid.UUID, release_id: uuid.UUID
-    ) -> AgentRelease:
+    async def activate_release(self, agent_id: uuid.UUID, release_id: uuid.UUID) -> AgentRelease:
         release = await self.release_repo.get(release_id)
         if not release:
             raise NotFoundError(
@@ -124,9 +119,7 @@ class AgentReleaseService(BaseService):
         logger.info(f"Activated release {release_id} for agent {agent_id}")
         return release
 
-    async def retire_release(
-        self, agent_id: uuid.UUID, release_id: uuid.UUID
-    ) -> AgentRelease:
+    async def retire_release(self, agent_id: uuid.UUID, release_id: uuid.UUID) -> AgentRelease:
         release = await self.release_repo.get(release_id)
         if not release:
             raise NotFoundError(
@@ -136,9 +129,7 @@ class AgentReleaseService(BaseService):
             )
 
         RELEASE_SM.validate(release.status, "retired")
-        updated = await self.release_repo.update(
-            release_id, {"status": "retired", "retired_at": utc_now()}
-        )
+        updated = await self.release_repo.update(release_id, {"status": "retired", "retired_at": utc_now()})
         assert updated is not None
 
         # If this was the active release, clear it and revert status

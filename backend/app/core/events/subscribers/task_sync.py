@@ -18,7 +18,6 @@ from app.core.events.event_types import ExecutionEventType
 from app.core.events.subscriber import SubscriberPhase
 from app.core.state_machines.definitions import RUN_TERMINAL
 
-
 _HANDLED = {
     ExecutionEventType.EXECUTION_COMPLETED,
     ExecutionEventType.RUN_STATUS_CHANGE,
@@ -46,9 +45,7 @@ class TaskSyncSubscriber:
         from app.models.agent_run import AgentRun
 
         async with AsyncSessionLocal() as session:
-            run = (await session.execute(
-                select(AgentRun).where(AgentRun.id == envelope.run_id)
-            )).scalar_one_or_none()
+            run = (await session.execute(select(AgentRun).where(AgentRun.id == envelope.run_id))).scalar_one_or_none()
             if not run:
                 logger.warning(f"[TaskSync] Run {envelope.run_id} not found")
                 return
@@ -56,6 +53,4 @@ class TaskSyncSubscriber:
                 return
             await sync_task_from_run(run, session)
             await session.commit()
-            logger.info(
-                f"[TaskSync] Synced task {run.task_id} from run {envelope.run_id}"
-            )
+            logger.info(f"[TaskSync] Synced task {run.task_id} from run {envelope.run_id}")

@@ -7,7 +7,6 @@ Wraps ExecutionOrchestrator so that API routes never import from core/engine/.
 from __future__ import annotations
 
 import uuid
-from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +15,6 @@ from app.models.agent_run import AgentRun
 
 
 class DispatchService:
-
     def __init__(self, db: AsyncSession):
         self._orchestrator = ExecutionOrchestrator(db)
 
@@ -47,7 +45,9 @@ class DispatchService:
         input_payload: dict | None = None,
     ) -> AgentRun:
         return await self._orchestrator.dispatch_direct(
-            release_id, prompt, user_id,
+            release_id,
+            prompt,
+            user_id,
             trigger_source=trigger_source,
             thread_id=thread_id,
             task_id=task_id,
@@ -64,7 +64,11 @@ class DispatchService:
         input_payload: dict | None = None,
     ) -> AgentRun:
         return await self._orchestrator.dispatch_draft(
-            agent_id, version_id, prompt, user_id, workspace_id,
+            agent_id,
+            version_id,
+            prompt,
+            user_id,
+            workspace_id,
             input_payload=input_payload,
         )
 
@@ -112,6 +116,8 @@ class DispatchService:
         attachments: list[dict] | None = None,
     ) -> None:
         return await self._orchestrator.emit_user_message(
-            run=run, execution_id=execution_id,
-            message=message, attachments=attachments,
+            run=run,
+            execution_id=execution_id,
+            message=message,
+            attachments=attachments,
         )

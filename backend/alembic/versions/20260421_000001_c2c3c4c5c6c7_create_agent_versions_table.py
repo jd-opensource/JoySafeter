@@ -3,8 +3,9 @@
 from typing import Union
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB, UUID
+
+from alembic import op
 
 revision: str = "c2c3c4c5c6c7"
 down_revision: Union[str, None] = "b1b2b3b4b5b6"

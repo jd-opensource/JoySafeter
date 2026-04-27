@@ -9,8 +9,8 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.dependencies import get_current_user
 from app.common.app_errors import AccessDeniedError, NotFoundError
+from app.common.dependencies import get_current_user
 from app.common.response import success_response
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
@@ -189,7 +189,6 @@ async def update_settings(
             "errorNotificationsEnabled": settings.error_notifications_enabled,
         },
     }
-
 
 
 @router.get("/{user_id}", response_model=UserResponse)

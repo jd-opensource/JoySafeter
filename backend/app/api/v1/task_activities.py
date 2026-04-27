@@ -132,7 +132,9 @@ async def update_activity(
     )
 
     if not activity:
-        raise NotFoundError("Activity not found", code="TASK_ACTIVITY_NOT_FOUND", data={"activity_id": str(activity_id)})
+        raise NotFoundError(
+            "Activity not found", code="TASK_ACTIVITY_NOT_FOUND", data={"activity_id": str(activity_id)}
+        )
 
     return BaseResponse(
         success=True,
@@ -159,5 +161,7 @@ async def delete_activity(
     )
 
     if not deleted:
-        raise NotFoundError("Activity not found", code="TASK_ACTIVITY_NOT_FOUND", data={"activity_id": str(activity_id)})
+        raise NotFoundError(
+            "Activity not found", code="TASK_ACTIVITY_NOT_FOUND", data={"activity_id": str(activity_id)}
+        )
     return BaseResponse(success=True, code=200, msg="Activity deleted", data=None)

@@ -1,7 +1,9 @@
 """create new execution chain tables"""
-from alembic import op
+
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+
+from alembic import op
 
 revision = "dd44ee55ff66"
 down_revision = "cc33dd44ee55"
@@ -47,8 +49,10 @@ def upgrade():
     # Circular FK: agent_runs.current_execution_id -> executions.id
     op.create_foreign_key(
         "fk_agent_runs_current_execution",
-        "agent_runs", "executions",
-        ["current_execution_id"], ["id"],
+        "agent_runs",
+        "executions",
+        ["current_execution_id"],
+        ["id"],
     )
 
     op.create_table(

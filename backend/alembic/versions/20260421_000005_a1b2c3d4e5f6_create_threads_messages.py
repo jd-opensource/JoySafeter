@@ -1,7 +1,9 @@
 """create threads and messages tables"""
-from alembic import op
+
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+
+from alembic import op
 
 revision = "aa11bb22cc33"
 down_revision = "f5f6f7f8f9f0"

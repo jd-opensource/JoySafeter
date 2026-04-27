@@ -13,7 +13,6 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.app_errors import InvalidRequestError, NotFoundError
-from app.core.state_machines import TASK_SM
 from app.core.state_machines.engine import InvalidTransition
 from app.core.state_machines.transitions import transition_task
 from app.models.task import Task, TaskPriority, TaskStatus
@@ -89,6 +88,7 @@ class TaskService:
     @classmethod
     def get_transitions(cls) -> dict[str, list[str]]:
         from app.core.state_machines.definitions import TASK_STATES
+
         return {status: sorted(targets) for status, targets in TASK_STATES.items()}
 
     async def update_task(

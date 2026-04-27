@@ -32,7 +32,13 @@ export function useTestModelStream() {
       })
 
       const reader = response.body?.getReader()
-      if (!reader) throw new Error('No response body')
+      if (!reader) {
+        throw createApiError(500, 'Invalid Stream Response', {
+          code: 'MODEL_STREAM_RESPONSE_INVALID',
+          message: 'No response body',
+          data: null,
+        })
+      }
 
       const decoder = new TextDecoder()
       let buffer = ''
@@ -77,17 +83,20 @@ export function useTestModelStream() {
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') return
-      const apiError = err instanceof Error
-        ? createApiError(0, 'Stream Error', {
-            code: 'MODEL_STREAM_CLIENT_ERROR',
-            message: err.message,
-            data: null,
-          })
-        : createApiError(0, 'Stream Error', {
-            code: 'MODEL_STREAM_CLIENT_ERROR',
-            message: 'Request failed',
-            data: null,
-          })
+      const apiError =
+        err instanceof Error && 'code' in err
+          ? (err as ReturnType<typeof createApiError>)
+          : err instanceof Error
+            ? createApiError(0, 'Stream Error', {
+                code: 'MODEL_STREAM_CLIENT_ERROR',
+                message: err.message,
+                data: null,
+              })
+            : createApiError(0, 'Stream Error', {
+                code: 'MODEL_STREAM_CLIENT_ERROR',
+                message: 'Request failed',
+                data: null,
+              })
       setState((prev) => ({
         ...prev,
         error: {

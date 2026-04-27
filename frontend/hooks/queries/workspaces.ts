@@ -7,7 +7,7 @@
  */
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { apiGet, apiPost, apiPut, apiDelete, API_ENDPOINTS } from '@/lib/api-client'
+import { apiGet, apiPost, apiPut, apiDelete, API_ENDPOINTS, createApiError } from '@/lib/api-client'
 import i18n from '@/lib/i18n/config'
 import { createLogger } from '@/lib/logs/console/logger'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
@@ -185,7 +185,11 @@ export function useUpdateWorkspace() {
         )
         const workspaceData = response.workspace || response
         if (!workspaceData) {
-          throw new Error('Invalid response format: workspace data not found')
+          throw createApiError(500, 'Workspace Update Response Invalid', {
+            code: 'WORKSPACE_RESPONSE_INVALID',
+            message: 'Invalid response format: workspace data not found',
+            data: { workspace_id: variables.id },
+          })
         }
         return mapWorkspace(workspaceData)
       } catch (error) {

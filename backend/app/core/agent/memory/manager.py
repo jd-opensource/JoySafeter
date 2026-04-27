@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
 def _is_memory_service(obj: Any) -> bool:
     from app.services.memory_service import MemoryService as _MS  # cached by Python's import system
+
     return isinstance(obj, _MS)
 
 

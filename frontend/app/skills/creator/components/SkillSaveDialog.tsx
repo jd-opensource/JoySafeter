@@ -13,7 +13,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { API_BASE } from '@/lib/api-client'
+import { API_BASE, createApiError } from '@/lib/api-client'
 import { toastSuccess, toastError, getErrorMessage } from '@/lib/utils/toast'
 import { getFilenameFromPath } from '@/services/skillService'
 
@@ -99,7 +99,11 @@ export default function SkillSaveDialog({
 
       if (!resp.ok) {
         const errText = await resp.text()
-        throw new Error(errText || `HTTP ${resp.status}`)
+        throw createApiError(resp.status, resp.statusText, {
+          code: 'SKILL_SAVE_FAILED',
+          message: errText || 'Failed to save skill',
+          data: { skill_id: editSkillId ?? null, name: name.trim() },
+        })
       }
 
       const result = await resp.json()

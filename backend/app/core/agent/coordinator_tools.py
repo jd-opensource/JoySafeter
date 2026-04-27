@@ -55,11 +55,13 @@ async def spawn_agent(
     async with async_session_factory() as db:
         from app.models.agent_run import AgentRun
 
-        parent_identity = (await db.execute(
-            select(AgentRun.release_id, AgentRun.agent_version_id).join(
-                Execution, AgentRun.id == Execution.run_id
-            ).where(Execution.id == parent_id)
-        )).one_or_none()
+        parent_identity = (
+            await db.execute(
+                select(AgentRun.release_id, AgentRun.agent_version_id)
+                .join(Execution, AgentRun.id == Execution.run_id)
+                .where(Execution.id == parent_id)
+            )
+        ).one_or_none()
         if not parent_identity:
             raise ValueError(f"Parent execution {parent_id} not found")
 
@@ -79,6 +81,7 @@ async def spawn_agent(
         await db.flush()
 
         from app.services.execution_service import ExecutionService
+
         svc = ExecutionService(db)
         execution = await svc.create_execution(
             run_id=run.id,
@@ -90,7 +93,8 @@ async def spawn_agent(
         exec_id = execution.id
 
         await ExecutionOrchestrator.publish_run_status_change(
-            db, run,
+            db,
+            run,
             execution_id=execution.id,
             target_status="running",
         )
@@ -192,6 +196,7 @@ async def get_agent_result(execution_id: str, *, user_id: str) -> dict:
 
     async with async_session_factory() as db:
         from app.services.execution_service import ExecutionService
+
         svc = ExecutionService(db)
         execution = await svc.get_execution(exec_id, user_id)
 

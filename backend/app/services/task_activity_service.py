@@ -193,7 +193,9 @@ class TaskActivityService:
 
         # Need workspace_id — fetch task
         from sqlalchemy import select
+
         from app.models.task import Task
+
         result = await self.db.execute(select(Task).where(Task.id == run.task_id))
         task = result.scalar_one_or_none()
         if not task:
@@ -224,15 +226,15 @@ class TaskActivityService:
         error_message: str = "",
     ) -> Optional[TaskActivity]:
         """Post an activity after execution completion."""
-        agent_id = str(execution.agent_id) if hasattr(execution, 'agent_id') and execution.agent_id else None
+        agent_id = str(execution.agent_id) if hasattr(execution, "agent_id") and execution.agent_id else None
         if not agent_id:
             # Try to get from created_by
-            agent_id = str(execution.created_by) if hasattr(execution, 'created_by') and execution.created_by else None
+            agent_id = str(execution.created_by) if hasattr(execution, "created_by") and execution.created_by else None
         if not agent_id:
             return None
 
         if result_status == "succeeded":
-            if hasattr(execution, 'started_at') and execution.started_at:
+            if hasattr(execution, "started_at") and execution.started_at:
                 already = await self.repo.has_agent_posted_since(task_id, agent_id, execution.started_at)
                 if already:
                     return None
@@ -246,7 +248,9 @@ class TaskActivityService:
 
         # Need workspace_id — fetch task
         from sqlalchemy import select
+
         from app.models.task import Task
+
         result = await self.db.execute(select(Task).where(Task.id == task_id))
         task = result.scalar_one_or_none()
         if not task:

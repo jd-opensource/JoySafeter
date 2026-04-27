@@ -104,6 +104,7 @@ async def resolve_mcp_server_instance(server_name: str, user_id: str, db: AsyncS
 
     try:
         from app.services.mcp_server_service import McpServerService
+
         service = McpServerService(db)
         server = await service.repo.get_by_name(user_id, server_name)
 

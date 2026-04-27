@@ -9,23 +9,23 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.dependencies import get_current_user, require_workspace_role
 from app.common.app_errors import AccessDeniedError, InvalidRequestError, NotFoundError
+from app.common.dependencies import get_current_user
 from app.core.database import get_db
-from app.services.dispatch_service import DispatchService
-from app.models.auth import AuthUser as User
 from app.models.agent_run import AgentRun
+from app.models.auth import AuthUser as User
 from app.models.execution import Artifact, Execution
 from app.models.workspace import WorkspaceMemberRole
 from app.schemas import BaseResponse
 from app.schemas.artifact import ArtifactResponse
 from app.schemas.execution import (
     ExecutionEventItemResponse,
-    ExecutionEventsPageResponse,
     ExecutionEventResponse,
+    ExecutionEventsPageResponse,
     ExecutionResponse,
 )
 from app.schemas.task import InjectMessageRequest
+from app.services.dispatch_service import DispatchService
 from app.services.execution_service import ExecutionService
 from app.services.workspace_permission import check_workspace_access
 
@@ -41,17 +41,17 @@ def _event_to_response(event) -> ExecutionEventResponse:
 
 
 async def _get_run_workspace_id(db: AsyncSession, run_id: uuid.UUID) -> uuid.UUID | None:
-    return (await db.execute(
-        select(AgentRun.workspace_id).where(AgentRun.id == run_id)
-    )).scalar_one_or_none()
+    return (await db.execute(select(AgentRun.workspace_id).where(AgentRun.id == run_id))).scalar_one_or_none()
 
 
 async def _get_execution_workspace_id(db: AsyncSession, execution_id: uuid.UUID) -> uuid.UUID | None:
-    return (await db.execute(
-        select(AgentRun.workspace_id)
-        .join(Execution, Execution.run_id == AgentRun.id)
-        .where(Execution.id == execution_id)
-    )).scalar_one_or_none()
+    return (
+        await db.execute(
+            select(AgentRun.workspace_id)
+            .join(Execution, Execution.run_id == AgentRun.id)
+            .where(Execution.id == execution_id)
+        )
+    ).scalar_one_or_none()
 
 
 async def _require_execution_workspace_access(

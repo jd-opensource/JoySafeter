@@ -14,8 +14,8 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.dependencies import get_current_user
 from app.common.app_errors import InvalidRequestError, NotFoundError
+from app.common.dependencies import get_current_user
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.services.mcp_client_service import McpConnectionConfig, get_mcp_client

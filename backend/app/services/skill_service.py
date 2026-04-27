@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from loguru import logger
 
-from app.common.app_errors import InvalidRequestError, AccessDeniedError, NotFoundError
+from app.common.app_errors import AccessDeniedError, InvalidRequestError, NotFoundError
 from app.common.skill_permissions import check_skill_access
 from app.core.skill.validators import (
     truncate_compatibility,

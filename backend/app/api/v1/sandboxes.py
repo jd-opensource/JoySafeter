@@ -10,8 +10,8 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.app_errors import AccessDeniedError, InvalidRequestError, NotFoundError
 from app.common.dependencies import get_current_user
-from app.common.app_errors import InvalidRequestError, AccessDeniedError, NotFoundError
 from app.common.response import success_response
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
@@ -216,7 +216,11 @@ async def stop_sandbox(
     service = SandboxManagerService(db)
     success = await service.stop_sandbox(sandbox_id)
     if not success:
-        raise NotFoundError("Sandbox not found or already stopped", code="SANDBOX_STOP_TARGET_NOT_FOUND", data={"sandbox_id": sandbox_id})
+        raise NotFoundError(
+            "Sandbox not found or already stopped",
+            code="SANDBOX_STOP_TARGET_NOT_FOUND",
+            data={"sandbox_id": sandbox_id},
+        )
 
     return success_response(message="Sandbox stopped successfully")
 

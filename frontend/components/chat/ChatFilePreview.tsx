@@ -2,7 +2,7 @@
 
 import { FileIcon, Download, Loader2, ChevronDown } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { API_BASE } from '@/lib/api-client'
+import { API_BASE, createApiError } from '@/lib/api-client'
 import { cn } from '@/lib/utils'
 
 interface ChatFilePreviewProps {
@@ -186,14 +186,20 @@ function TextPreview({
     setLoading(true)
     fetch(rawUrl, { credentials: 'include' })
       .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        if (!r.ok) {
+          throw createApiError(r.status, r.statusText, {
+            code: 'FILE_PREVIEW_LOAD_FAILED',
+            message: 'Failed to load file preview',
+            data: { filename },
+          })
+        }
         return r.text()
       })
       .then((text) => {
         setContent(text)
         setError(null)
       })
-      .catch((e) => setError(e.message || 'Failed to load'))
+      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load'))
       .finally(() => setLoading(false))
   }, [open, rawUrl, content])
 

@@ -127,4 +127,3 @@ function formatElapsed(dateStr: string): string {
   const hours = Math.floor(minutes / 60)
   return `${hours}h${String(minutes % 60).padStart(2, '0')}m`
 }
-

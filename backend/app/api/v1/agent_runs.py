@@ -9,8 +9,8 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.dependencies import CurrentUser, get_current_user, require_workspace_role
 from app.common.app_errors import AccessDeniedError
+from app.common.dependencies import CurrentUser, get_current_user, require_workspace_role
 from app.core.database import get_db
 from app.models.agent import Agent, AgentRelease, AgentVersion
 from app.models.auth import AuthUser as User
@@ -21,8 +21,8 @@ from app.schemas.agent_run import (
     CreateAgentRunRequest,
     CreateDraftAgentRunRequest,
 )
-from app.services.dispatch_service import DispatchService
 from app.services.agent_run_service import AgentRunService
+from app.services.dispatch_service import DispatchService
 from app.services.workspace_permission import check_workspace_access
 
 router = APIRouter(prefix="/v1/runs", tags=["Runs"])
@@ -33,12 +33,14 @@ def _to_response(run) -> AgentRunResponse:
 
 
 async def _get_release_workspace_id(db: AsyncSession, release_id: uuid.UUID) -> uuid.UUID | None:
-    return (await db.execute(
-        select(Agent.workspace_id)
-        .join(AgentVersion, AgentVersion.agent_id == Agent.id)
-        .join(AgentRelease, AgentRelease.agent_version_id == AgentVersion.id)
-        .where(AgentRelease.id == release_id)
-    )).scalar_one_or_none()
+    return (
+        await db.execute(
+            select(Agent.workspace_id)
+            .join(AgentVersion, AgentVersion.agent_id == Agent.id)
+            .join(AgentRelease, AgentRelease.agent_version_id == AgentVersion.id)
+            .where(AgentRelease.id == release_id)
+        )
+    ).scalar_one_or_none()
 
 
 async def _require_workspace_access(

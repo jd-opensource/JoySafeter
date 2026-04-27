@@ -40,10 +40,13 @@ class PersistenceSubscriber:
 
         # Seed cache on first event for this execution
         if eid not in self._seq_cache:
-            max_seq = (await db.execute(
-                select(func.coalesce(func.max(ExecutionEvent.sequence_no), 0))
-                .where(ExecutionEvent.execution_id == envelope.execution_id)
-            )).scalar()
+            max_seq = (
+                await db.execute(
+                    select(func.coalesce(func.max(ExecutionEvent.sequence_no), 0)).where(
+                        ExecutionEvent.execution_id == envelope.execution_id
+                    )
+                )
+            ).scalar()
             self._seq_cache[eid] = max_seq or 0
 
         self._seq_cache[eid] += 1

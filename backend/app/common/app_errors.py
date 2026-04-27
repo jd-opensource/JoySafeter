@@ -97,7 +97,9 @@ class RateLimitExceededError(RateLimitError):
 
 
 class InternalServiceError(InternalError):
-    def __init__(self, message: str = "内部错误", *, code: str = "INTERNAL_ERROR", data: Mapping[str, Any] | None = None):
+    def __init__(
+        self, message: str = "内部错误", *, code: str = "INTERNAL_ERROR", data: Mapping[str, Any] | None = None
+    ):
         super().__init__(code=code, message=message, data=_normalize_data(data))
 
 
@@ -113,7 +115,9 @@ class ServiceUnavailableError(InfraError):
 
 
 class ClientClosedError(AppError):
-    def __init__(self, message: str = "客户端已关闭连接", *, code: str = "CLIENT_CLOSED", data: Mapping[str, Any] | None = None):
+    def __init__(
+        self, message: str = "客户端已关闭连接", *, code: str = "CLIENT_CLOSED", data: Mapping[str, Any] | None = None
+    ):
         super().__init__(code=code, message=message, data=_normalize_data(data))
 
 

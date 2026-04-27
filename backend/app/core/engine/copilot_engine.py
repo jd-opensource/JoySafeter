@@ -81,48 +81,69 @@ class CopilotEngine:
                 event_type = event.get("type", "")
 
                 if event_type == "status":
-                    await context.emit(ExecutionEventType.COPILOT_STATUS, {
-                        "stage": event.get("stage"),
-                        "message": event.get("message"),
-                    })
+                    await context.emit(
+                        ExecutionEventType.COPILOT_STATUS,
+                        {
+                            "stage": event.get("stage"),
+                            "message": event.get("message"),
+                        },
+                    )
 
                 elif event_type == "content":
-                    await context.emit(ExecutionEventType.COPILOT_CONTENT, {
-                        "content": event.get("content", ""),
-                    })
+                    await context.emit(
+                        ExecutionEventType.COPILOT_CONTENT,
+                        {
+                            "content": event.get("content", ""),
+                        },
+                    )
 
                 elif event_type == "thought_step":
-                    await context.emit(ExecutionEventType.COPILOT_THOUGHT_STEP, {
-                        "step": event.get("step", {}),
-                    })
+                    await context.emit(
+                        ExecutionEventType.COPILOT_THOUGHT_STEP,
+                        {
+                            "step": event.get("step", {}),
+                        },
+                    )
 
                 elif event_type == "tool_call":
-                    await context.emit(ExecutionEventType.COPILOT_TOOL_CALL, {
-                        "tool": event.get("tool"),
-                        "input": event.get("input", {}),
-                    })
+                    await context.emit(
+                        ExecutionEventType.COPILOT_TOOL_CALL,
+                        {
+                            "tool": event.get("tool"),
+                            "input": event.get("input", {}),
+                        },
+                    )
 
                 elif event_type == "tool_result":
                     action = event.get("action", {})
                     result_actions.append(action)
-                    await context.emit(ExecutionEventType.COPILOT_TOOL_RESULT, {
-                        "action": action,
-                    })
+                    await context.emit(
+                        ExecutionEventType.COPILOT_TOOL_RESULT,
+                        {
+                            "action": action,
+                        },
+                    )
 
                 elif event_type == "result":
                     result_message = event.get("message", "")
                     actions = event.get("actions", [])
                     result_actions = actions if actions else result_actions
-                    await context.emit(ExecutionEventType.COPILOT_RESULT, {
-                        "message": result_message,
-                        "actions": result_actions,
-                    })
+                    await context.emit(
+                        ExecutionEventType.COPILOT_RESULT,
+                        {
+                            "message": result_message,
+                            "actions": result_actions,
+                        },
+                    )
 
                 elif event_type == "error":
-                    await context.emit(ExecutionEventType.ERROR, {
-                        "message": event.get("message", "Unknown error"),
-                        "code": event.get("code"),
-                    })
+                    await context.emit(
+                        ExecutionEventType.ERROR,
+                        {
+                            "message": event.get("message", "Unknown error"),
+                            "code": event.get("code"),
+                        },
+                    )
 
                 elif event_type == "done":
                     pass  # handled by complete() below

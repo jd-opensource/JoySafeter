@@ -8,7 +8,6 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError as PydanticValidationError
 
 from app.common.app_errors import (
-    AccessDeniedError,
     AppError,
     AuthError,
     ClientClosedError,

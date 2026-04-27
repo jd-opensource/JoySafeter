@@ -8,7 +8,7 @@ so core/ no longer needs direct ORM access.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Optional
+from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,9 +34,7 @@ class ExecutionReaderAdapter:
 
     async def get_run_for_execution(self, execution_id: uuid.UUID) -> AgentRun:
         result = await self.db.execute(
-            select(AgentRun)
-            .join(Execution, Execution.run_id == AgentRun.id)
-            .where(Execution.id == execution_id)
+            select(AgentRun).join(Execution, Execution.run_id == AgentRun.id).where(Execution.id == execution_id)
         )
         run = result.scalar_one_or_none()
         if not run:
@@ -45,9 +43,7 @@ class ExecutionReaderAdapter:
 
     async def get_release_for_run(self, run_id: uuid.UUID) -> Optional[AgentRelease]:
         result = await self.db.execute(
-            select(AgentRelease)
-            .join(AgentRun, AgentRun.release_id == AgentRelease.id)
-            .where(AgentRun.id == run_id)
+            select(AgentRelease).join(AgentRun, AgentRun.release_id == AgentRelease.id).where(AgentRun.id == run_id)
         )
         return result.scalar_one_or_none()
 

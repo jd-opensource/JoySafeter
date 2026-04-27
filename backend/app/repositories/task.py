@@ -28,9 +28,7 @@ class TaskRepository(BaseRepository[Task]):
         )
         return result.scalar_one_or_none()
 
-    async def get_for_update(
-        self, task_id: uuid.UUID, workspace_id: Optional[uuid.UUID] = None
-    ) -> Optional[Task]:
+    async def get_for_update(self, task_id: uuid.UUID, workspace_id: Optional[uuid.UUID] = None) -> Optional[Task]:
         query = select(Task).where(Task.id == task_id)
         if workspace_id is not None:
             query = query.where(Task.workspace_id == workspace_id)
@@ -59,9 +57,7 @@ class TaskRepository(BaseRepository[Task]):
         result = await self.db.execute(query.order_by(Task.position.asc(), desc(Task.created_at)).limit(limit))
         return result.scalars().all()
 
-    async def list_dispatchable(
-        self, *, workspace_id: Optional[uuid.UUID] = None, limit: int = 10
-    ) -> Sequence[Task]:
+    async def list_dispatchable(self, *, workspace_id: Optional[uuid.UUID] = None, limit: int = 10) -> Sequence[Task]:
         """Find BACKLOG tasks with an agent assigned, ready for dispatch.
 
         When workspace_id is None, searches across all workspaces.

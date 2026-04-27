@@ -1,4 +1,4 @@
-import { API_BASE, apiGet, apiPost, apiPut, apiDelete, ApiResponse } from '@/lib/api-client'
+import { API_BASE, apiGet, apiPost, apiPut, apiDelete, ApiResponse, createApiError } from '@/lib/api-client'
 
 import {
   Skill,
@@ -1017,7 +1017,11 @@ export const skillService = {
       if (skillData) {
         return normalizeSkill(skillData)
       }
-      throw new Error('Failed to save skill')
+      throw createApiError(500, 'Invalid Skill Save Response', {
+        code: 'SKILL_SAVE_RESPONSE_INVALID',
+        message: 'Failed to save skill',
+        data: { skill_id: skill.id ?? null, name: skill.name },
+      })
     } catch (error) {
       console.error('Failed to save skill:', error)
       throw error
@@ -1104,7 +1108,11 @@ export const skillService = {
       // First get the original skill with all files
       const originalSkill = await this.getSkill(skillId)
       if (!originalSkill) {
-        throw new Error('Skill not found')
+        throw createApiError(404, 'Skill Not Found', {
+          code: 'SKILL_NOT_FOUND',
+          message: 'Skill not found',
+          data: { skill_id: skillId },
+        })
       }
 
       // Generate a unique name with timestamp to avoid duplicates

@@ -115,7 +115,7 @@ export const executionAdapter = {
     // Get active release
     const agent = await agentService.get(agentId, workspaceId)
     if (!agent.active_release_id) throw new Error('No active release')
-    
+
     // Create run via API
     const run = await agentRunService.create({
       release_id: agent.active_release_id,
@@ -124,7 +124,7 @@ export const executionAdapter = {
     })
     return run
   },
-  
+
   subscribeToEvents(executionId: string, onEvent: (event: ExecutionEvent) => void) {
     // Connect to /ws/executions/{executionId}
     const ws = new WebSocket(`${WS_BASE}/ws/executions/${executionId}`)

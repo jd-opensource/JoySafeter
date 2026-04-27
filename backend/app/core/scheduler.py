@@ -40,20 +40,28 @@ async def task_dispatcher_loop() -> None:
         try:
             async with AsyncSessionLocal() as db:
                 from sqlalchemy import select
+
                 from app.models.task import Task
 
                 # Find backlog tasks with assigned agents
-                tasks = (await db.execute(
-                    select(Task).where(
-                        Task.status == "backlog",
-                        Task.agent_id.isnot(None),
+                tasks = (
+                    (
+                        await db.execute(
+                            select(Task).where(
+                                Task.status == "backlog",
+                                Task.agent_id.isnot(None),
+                            )
+                        )
                     )
-                )).scalars().all()
+                    .scalars()
+                    .all()
+                )
 
                 count = 0
                 for task in tasks:
                     try:
                         from app.services.dispatch_service import DispatchService
+
                         dispatch = DispatchService(db)
                         await dispatch.dispatch_task(task.id, task.creator_id)
                         count += 1
@@ -98,6 +106,6 @@ async def _reap_stale_executions() -> int:
     """
     async with AsyncSessionLocal() as db:
         from app.services.execution_service import ExecutionService
+
         svc = ExecutionService(db)
         return await svc.reap_stale_executions(_STALE_THRESHOLDS)
-

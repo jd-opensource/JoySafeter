@@ -8,8 +8,8 @@ from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text,
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.database import Base
 from app.core.agent_kinds import normalize_definition_kind, normalize_runtime_kind
+from app.core.database import Base
 from app.utils.datetime import utc_now
 
 from .base import BaseModel
@@ -44,9 +44,7 @@ class Agent(BaseModel):
     active_release_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("agent_releases.id"), nullable=True
     )
-    created_by: Mapped[str] = mapped_column(
-        String(255), ForeignKey("user.id", ondelete="CASCADE"), nullable=False
-    )
+    created_by: Mapped[str] = mapped_column(String(255), ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
     encrypted_custom_env: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     @property
@@ -85,13 +83,9 @@ class AgentVersion(Base):
     """An immutable snapshot of an agent's configuration at a point in time."""
 
     __tablename__ = "agent_versions"
-    __table_args__ = (
-        UniqueConstraint("agent_id", "version_number", name="uq_agent_versions_agent_version"),
-    )
+    __table_args__ = (UniqueConstraint("agent_id", "version_number", name="uq_agent_versions_agent_version"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     agent_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
     )
@@ -104,9 +98,7 @@ class AgentVersion(Base):
     definition_payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     capability_manifest: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     changelog: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_by: Mapped[str] = mapped_column(
-        String(255), ForeignKey("user.id", ondelete="CASCADE"), nullable=False
-    )
+    created_by: Mapped[str] = mapped_column(String(255), ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False
     )
@@ -123,12 +115,12 @@ class AgentRelease(Base):
     """A release artifact built from a specific agent version."""
 
     __tablename__ = "agent_releases"
-    __table_args__ = (
-        UniqueConstraint("agent_version_id", "release_number", name="uq_agent_releases_version_number"),
-    )
+    __table_args__ = (UniqueConstraint("agent_version_id", "release_number", name="uq_agent_releases_version_number"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    agent_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_versions.id"), nullable=False)
+    agent_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agent_versions.id"), nullable=False
+    )
     release_number: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(
         Enum("ready", "failed", "retired", name="agent_release_status"),

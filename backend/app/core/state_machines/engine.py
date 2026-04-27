@@ -10,9 +10,7 @@ class InvalidTransition(Exception):
         self.entity = entity
         self.from_status = from_status
         self.to_status = to_status
-        super().__init__(
-            f"{entity}: cannot transition from '{from_status}' to '{to_status}'"
-        )
+        super().__init__(f"{entity}: cannot transition from '{from_status}' to '{to_status}'")
 
 
 class StateMachine:

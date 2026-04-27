@@ -12,7 +12,7 @@ from typing import Any
 
 from loguru import logger
 
-from app.core.engine.protocol import ExecutionContext, ExecutionEngine
+from app.core.engine.protocol import ExecutionContext
 from app.core.events.event_types import ExecutionEventType
 
 
@@ -39,7 +39,6 @@ class CLIEngine:
         _mark_failed on error. If runner.run() itself throws (extreme case),
         _fire_engine._run_engine provides the last-resort safety net.
         """
-        from app.core.agent.cli_backends.execution_runner import ExecutionRunner
         from app.core.database import AsyncSessionLocal
 
         execution_id = context.execution_id
@@ -48,10 +47,13 @@ class CLIEngine:
         logger.info(f"[CLIEngine] Starting execution {execution_id} with {runtime_type}")
 
         await context.update_status("running")
-        await context.emit(ExecutionEventType.EXECUTION_STARTED, {
-            "engine": "cli",
-            "runtime_type": runtime_type,
-        })
+        await context.emit(
+            ExecutionEventType.EXECUTION_STARTED,
+            {
+                "engine": "cli",
+                "runtime_type": runtime_type,
+            },
+        )
 
         async with AsyncSessionLocal() as db:
             from app.services.runner_factory import create_execution_runner

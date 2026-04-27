@@ -14,8 +14,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.state_machines import (
-    RUN_SM, EXECUTION_SM, TASK_SM, VERSION_SM, RELEASE_SM, AGENT_SM,
+    EXECUTION_SM,
+    RUN_SM,
     RUN_TO_TASK_SYNC,
+    TASK_SM,
 )
 from app.core.state_machines.engine import InvalidTransition
 from app.utils.datetime import utc_now
@@ -79,9 +81,8 @@ async def sync_task_from_run(
     if not run.task_id:
         return
     from app.models.task import Task
-    task = (await db.execute(
-        select(Task).where(Task.id == run.task_id)
-    )).scalar_one_or_none()
+
+    task = (await db.execute(select(Task).where(Task.id == run.task_id))).scalar_one_or_none()
     if not task:
         return
     target = RUN_TO_TASK_SYNC.get(run.status)

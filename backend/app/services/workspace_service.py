@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Dict, List, Optional
 
-from app.common.app_errors import InvalidRequestError, AccessDeniedError, NotFoundError
+from app.common.app_errors import AccessDeniedError, InvalidRequestError, NotFoundError
 from app.common.pagination import PageResult, PaginationParams
 from app.models.auth import AuthUser as User
 from app.models.workspace import Workspace, WorkspaceMemberRole, WorkspaceType
@@ -471,15 +471,21 @@ class WorkspaceService(BaseService[Workspace]):
         # role hierarchy protection: non-owner cannot modify members >= their own level
         if current_role != WorkspaceMemberRole.owner:
             if ROLE_RANK.get(target_member.role, 0) >= ROLE_RANK.get(current_role, 0):
-                raise AccessDeniedError("Cannot modify a member with equal or higher role", code="WORKSPACE_MEMBER_ROLE_TOO_HIGH")
+                raise AccessDeniedError(
+                    "Cannot modify a member with equal or higher role", code="WORKSPACE_MEMBER_ROLE_TOO_HIGH"
+                )
             if ROLE_RANK.get(new_role, 0) >= ROLE_RANK.get(current_role, 0):
-                raise AccessDeniedError("Cannot assign a role equal to or higher than your own", code="WORKSPACE_MEMBER_ROLE_TOO_HIGH")
+                raise AccessDeniedError(
+                    "Cannot assign a role equal to or higher than your own", code="WORKSPACE_MEMBER_ROLE_TOO_HIGH"
+                )
 
         # if modifying an admin, check if they are the last admin
         if target_member.role in {WorkspaceMemberRole.owner, WorkspaceMemberRole.admin}:
             admin_count = await self.member_repo.count_admins(workspace_id)
             if admin_count <= 1 and new_role not in {WorkspaceMemberRole.owner, WorkspaceMemberRole.admin}:
-                raise InvalidRequestError("Cannot remove the last admin from a workspace", code="WORKSPACE_LAST_ADMIN_REMOVE_FORBIDDEN")
+                raise InvalidRequestError(
+                    "Cannot remove the last admin from a workspace", code="WORKSPACE_LAST_ADMIN_REMOVE_FORBIDDEN"
+                )
 
         # update role
         updated_member = await self.member_repo.update_member_role(workspace_id, target_user_id, new_role)
@@ -553,13 +559,17 @@ class WorkspaceService(BaseService[Workspace]):
         if is_admin and not is_self and current_role != WorkspaceMemberRole.owner:
             assert isinstance(current_role, WorkspaceMemberRole)
             if ROLE_RANK.get(target_member.role, 0) >= ROLE_RANK.get(current_role, 0):
-                raise AccessDeniedError("Cannot remove a member with equal or higher role", code="WORKSPACE_MEMBER_ROLE_TOO_HIGH")
+                raise AccessDeniedError(
+                    "Cannot remove a member with equal or higher role", code="WORKSPACE_MEMBER_ROLE_TOO_HIGH"
+                )
 
         # if removing an admin/owner role member, check if they are the last admin
         if target_member.role in {WorkspaceMemberRole.owner, WorkspaceMemberRole.admin}:
             admin_count = await self.member_repo.count_admins(workspace_id)
             if admin_count <= 1:
-                raise InvalidRequestError("Cannot remove the last admin from a workspace", code="WORKSPACE_LAST_ADMIN_REMOVE_FORBIDDEN")
+                raise InvalidRequestError(
+                    "Cannot remove the last admin from a workspace", code="WORKSPACE_LAST_ADMIN_REMOVE_FORBIDDEN"
+                )
 
         # execute deletion
         await self.member_repo.delete_member(workspace_id, str(target_user_id))

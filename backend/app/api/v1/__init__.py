@@ -7,18 +7,16 @@ Each sub-router is expected to declare its own `prefix` and `tags`.
 from fastapi import APIRouter
 
 from .agent_runs import router as agent_runs_router
-from .copilot import router as copilot_router
 from .agents import router as agents_router
 from .artifacts import router as artifacts_router
 from .auth import router as auth_router
+from .copilot import router as copilot_router
 from .custom_tools import router as custom_tools_router
 from .environment import router as environment_router
 from .executions import router as executions_router
 from .files import router as files_router
 from .mcp import router as mcp_router
 from .memory import router as memory_router
-from .task_activities import router as task_activities_router
-from .tasks import router as tasks_router
 from .model_credentials import router as model_credentials_router
 from .model_providers import router as model_providers_router
 from .model_usage import router as model_usage_router
@@ -33,8 +31,10 @@ from .sandboxes import router as sandboxes_router
 from .skill_collaborators import router as skill_collaborators_router
 from .skill_versions import router as skill_versions_router
 from .skills import router as skills_router
-from .tokens import router as tokens_router
+from .task_activities import router as task_activities_router
+from .tasks import router as tasks_router
 from .threads import router as threads_router
+from .tokens import router as tokens_router
 from .tools import router as tools_router
 from .traces import router as traces_router
 from .users import router as users_router

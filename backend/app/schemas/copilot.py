@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 class CopilotRunRequest(BaseModel):
     """Dispatch a copilot interaction through the execution engine."""
+
     agent_id: uuid.UUID
     version_id: uuid.UUID
     workspace_id: uuid.UUID

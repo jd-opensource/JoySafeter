@@ -5,7 +5,7 @@
  * - Use camelCase for types
  * - API response: { success: true, data: {...} }
  */
-import { apiGet } from '@/lib/api-client'
+import { apiGet, createApiError } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
 import type { CustomToolDefinition, CustomToolSchema } from '@/stores/custom-tools/types'
 
@@ -86,7 +86,11 @@ async function fetchCustomTools(): Promise<CustomToolDefinition[]> {
   const data = await apiGet<RawApiCustomTool[]>('custom-tools')
 
   if (!Array.isArray(data)) {
-    throw new Error('Invalid response format')
+    throw createApiError(500, 'Invalid Custom Tools Response', {
+      code: 'CUSTOM_TOOLS_RESPONSE_INVALID',
+      message: 'Invalid response format',
+      data: null,
+    })
   }
 
   const normalizedTools: CustomToolDefinition[] = []

@@ -19,12 +19,8 @@ def upgrade():
     # Use IF EXISTS at SQL level — Python try/except won't work because a
     # failed statement aborts the entire PostgreSQL transaction.
     op.execute("DROP INDEX IF EXISTS executions_agent_profile_idx")
-    op.execute(
-        "ALTER TABLE executions DROP CONSTRAINT IF EXISTS executions_agent_profile_id_fkey"
-    )
-    op.execute(
-        "ALTER TABLE executions DROP CONSTRAINT IF EXISTS fk_executions_agent_profile_id_agent_profiles"
-    )
+    op.execute("ALTER TABLE executions DROP CONSTRAINT IF EXISTS executions_agent_profile_id_fkey")
+    op.execute("ALTER TABLE executions DROP CONSTRAINT IF EXISTS fk_executions_agent_profile_id_agent_profiles")
     op.drop_table("agent_profiles")
 
 

@@ -59,8 +59,7 @@ class ExecutionOrchestrator:
             raise InvalidRequestError("Task already has an active run. Cancel it first.")
         if task.status not in self.DISPATCHABLE_STATUSES and task.status != "in_progress":
             raise InvalidRequestError(
-                f"Cannot dispatch task in '{task.status}' status. "
-                "Move the task back to backlog first."
+                f"Cannot dispatch task in '{task.status}' status. " "Move the task back to backlog first."
             )
         if not task.agent_id:
             raise InvalidRequestError("Task has no assigned agent")
@@ -93,9 +92,7 @@ class ExecutionOrchestrator:
         user_id: str,
     ) -> AgentRun:
         """Dispatch from a Thread conversation → creates Run + Execution."""
-        thread = (await self.db.execute(
-            select(Thread).where(Thread.id == thread_id)
-        )).scalar_one_or_none()
+        thread = (await self.db.execute(select(Thread).where(Thread.id == thread_id))).scalar_one_or_none()
         if not thread:
             raise NotFoundError(f"Thread {thread_id} not found")
 
@@ -291,9 +288,9 @@ class ExecutionOrchestrator:
         execution_id = run.current_execution_id or uuid.UUID(int=0)
 
         if run.current_execution_id:
-            execution = (await self.db.execute(
-                select(Execution).where(Execution.id == run.current_execution_id)
-            )).scalar_one_or_none()
+            execution = (
+                await self.db.execute(select(Execution).where(Execution.id == run.current_execution_id))
+            ).scalar_one_or_none()
             if execution:
                 if run.release_id:
                     release = await self._get_release(run.release_id)
@@ -333,10 +330,12 @@ class ExecutionOrchestrator:
 
         # Create new execution attempt
         from sqlalchemy import func
-        max_attempt = (await self.db.execute(
-            select(func.coalesce(func.max(Execution.attempt_index), 0))
-            .where(Execution.run_id == run_id)
-        )).scalar()
+
+        max_attempt = (
+            await self.db.execute(
+                select(func.coalesce(func.max(Execution.attempt_index), 0)).where(Execution.run_id == run_id)
+            )
+        ).scalar()
 
         execution = Execution(
             run_id=run_id,
@@ -351,7 +350,8 @@ class ExecutionOrchestrator:
         await self.db.flush()
 
         await self.publish_run_status_change(
-            self.db, run,
+            self.db,
+            run,
             execution_id=execution.id,
             target_status="running",
         )
@@ -372,9 +372,7 @@ class ExecutionOrchestrator:
 
     async def send_message(self, execution_id: uuid.UUID, message: str) -> None:
         """Inject a message into a running execution."""
-        execution = (await self.db.execute(
-            select(Execution).where(Execution.id == execution_id)
-        )).scalar_one_or_none()
+        execution = (await self.db.execute(select(Execution).where(Execution.id == execution_id))).scalar_one_or_none()
         if not execution:
             raise NotFoundError(f"Execution {execution_id} not found")
 
@@ -441,7 +439,8 @@ class ExecutionOrchestrator:
         await self.db.commit()
 
         await self.publish_run_status_change(
-            self.db, run,
+            self.db,
+            run,
             execution_id=execution.id,
             target_status="running",
         )
@@ -545,7 +544,8 @@ class ExecutionOrchestrator:
         await self.db.commit()
 
         await self.publish_run_status_change(
-            self.db, run,
+            self.db,
+            run,
             execution_id=execution.id,
             target_status="running",
         )
@@ -614,9 +614,7 @@ class ExecutionOrchestrator:
             executor_kind_override is not None,
         )
         if any(override_presence) and not all(override_presence):
-            raise InvalidRequestError(
-                "Draft override parameters must be all absent or all present."
-            )
+            raise InvalidRequestError("Draft override parameters must be all absent or all present.")
 
     async def _fire_engine(
         self,
@@ -638,13 +636,9 @@ class ExecutionOrchestrator:
 
         # Resolve auto_approve from task if linked
         auto_approve = True
-        run = (await self.db.execute(
-            select(AgentRun).where(AgentRun.id == execution.run_id)
-        )).scalar_one()
+        run = (await self.db.execute(select(AgentRun).where(AgentRun.id == execution.run_id))).scalar_one()
         if run.task_id:
-            task = (await self.db.execute(
-                select(Task).where(Task.id == run.task_id)
-            )).scalar_one_or_none()
+            task = (await self.db.execute(select(Task).where(Task.id == run.task_id))).scalar_one_or_none()
             if task:
                 auto_approve = task.auto_approve
 
@@ -676,6 +670,7 @@ class ExecutionOrchestrator:
 
         async def _run_engine():
             from app.core.database import AsyncSessionLocal
+
             try:
                 async with AsyncSessionLocal() as db:
                     # Rebuild context with fresh session
@@ -732,7 +727,8 @@ class ExecutionOrchestrator:
 
         async def _emit(event_type: ExecutionEventType, payload: dict) -> None:
             await execution_event_bus.publish(
-                _envelope(event_type=event_type, payload=payload), ctx.db,
+                _envelope(event_type=event_type, payload=payload),
+                ctx.db,
             )
 
         async def _status(status: str) -> None:

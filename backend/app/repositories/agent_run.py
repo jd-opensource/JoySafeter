@@ -20,9 +20,7 @@ class AgentRunRepository(BaseRepository[AgentRun]):
     def __init__(self, db: AsyncSession):
         super().__init__(AgentRun, db)
 
-    async def list_by_workspace(
-        self, workspace_id: uuid.UUID, limit: int = 50
-    ) -> List[AgentRun]:
+    async def list_by_workspace(self, workspace_id: uuid.UUID, limit: int = 50) -> List[AgentRun]:
         """List all runs for a workspace."""
         query = (
             select(AgentRun)
@@ -39,11 +37,7 @@ class AgentRunRepository(BaseRepository[AgentRun]):
         workspace_id: uuid.UUID | None = None,
     ) -> List[AgentRun]:
         """List all runs for a specific release."""
-        query = (
-            select(AgentRun)
-            .where(AgentRun.release_id == release_id)
-            .order_by(AgentRun.created_at.desc())
-        )
+        query = select(AgentRun).where(AgentRun.release_id == release_id).order_by(AgentRun.created_at.desc())
         if workspace_id:
             query = query.where(AgentRun.workspace_id == workspace_id)
         result = await self.db.execute(query)
@@ -55,11 +49,7 @@ class AgentRunRepository(BaseRepository[AgentRun]):
         workspace_id: uuid.UUID | None = None,
     ) -> List[AgentRun]:
         """List all runs for a specific task."""
-        query = (
-            select(AgentRun)
-            .where(AgentRun.task_id == task_id)
-            .order_by(AgentRun.created_at.desc())
-        )
+        query = select(AgentRun).where(AgentRun.task_id == task_id).order_by(AgentRun.created_at.desc())
         if workspace_id:
             query = query.where(AgentRun.workspace_id == workspace_id)
         result = await self.db.execute(query)

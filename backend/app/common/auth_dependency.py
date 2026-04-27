@@ -11,8 +11,8 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.dependencies import get_current_user
 from app.common.app_errors import AuthenticationError
+from app.common.dependencies import get_current_user
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.models.platform_token import PlatformToken

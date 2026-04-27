@@ -14,9 +14,8 @@ from typing import Any
 from loguru import logger
 from sqlalchemy import select
 
-from app.core.engine.protocol import ExecutionContext, ExecutionEngine
+from app.core.engine.protocol import ExecutionContext
 from app.core.events.event_types import ExecutionEventType
-
 
 # ---------------------------------------------------------------------------
 # Duck-typed shims — wrap plain dicts from definition_payload into objects
@@ -154,11 +153,14 @@ class GraphEngine:
         self._running[execution_id] = cancel_event
 
         await context.update_status("running")
-        await context.emit(ExecutionEventType.EXECUTION_STARTED, {
-            "engine": "graph",
-            "node_count": len(raw_nodes),
-            "edge_count": len(raw_edges),
-        })
+        await context.emit(
+            ExecutionEventType.EXECUTION_STARTED,
+            {
+                "engine": "graph",
+                "node_count": len(raw_nodes),
+                "edge_count": len(raw_edges),
+            },
+        )
 
         # ------------------------------------------------------------------
         # Resolve user_id and thread_id from the AgentRun linked to this
@@ -168,9 +170,8 @@ class GraphEngine:
         thread_id: str | None = None
         try:
             from app.models.agent_run import AgentRun
-            run = (await context.db.execute(
-                select(AgentRun).where(AgentRun.id == context.run_id)
-            )).scalar_one_or_none()
+
+            run = (await context.db.execute(select(AgentRun).where(AgentRun.id == context.run_id))).scalar_one_or_none()
             if run:
                 user_id = run.created_by
                 thread_id = str(run.thread_id) if run.thread_id else None

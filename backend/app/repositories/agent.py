@@ -20,9 +20,7 @@ class AgentRepository(BaseRepository[Agent]):
     def __init__(self, db: AsyncSession):
         super().__init__(Agent, db)
 
-    async def get_by_workspace_and_slug(
-        self, workspace_id: uuid.UUID, slug: str
-    ) -> Optional[Agent]:
+    async def get_by_workspace_and_slug(self, workspace_id: uuid.UUID, slug: str) -> Optional[Agent]:
         query = select(Agent).where(
             Agent.workspace_id == workspace_id,
             Agent.slug == slug,
@@ -50,16 +48,12 @@ class AgentVersionRepository(BaseRepository[AgentVersion]):
 
     async def list_by_agent(self, agent_id: uuid.UUID) -> List[AgentVersion]:
         query = (
-            select(AgentVersion)
-            .where(AgentVersion.agent_id == agent_id)
-            .order_by(AgentVersion.version_number.desc())
+            select(AgentVersion).where(AgentVersion.agent_id == agent_id).order_by(AgentVersion.version_number.desc())
         )
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
     async def get_max_version_number(self, agent_id: uuid.UUID) -> int:
-        query = select(func.coalesce(func.max(AgentVersion.version_number), 0)).where(
-            AgentVersion.agent_id == agent_id
-        )
+        query = select(func.coalesce(func.max(AgentVersion.version_number), 0)).where(AgentVersion.agent_id == agent_id)
         result = await self.db.execute(query)
         return result.scalar() or 0

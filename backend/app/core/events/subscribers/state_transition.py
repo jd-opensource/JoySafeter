@@ -11,7 +11,7 @@ Flushes but does NOT commit — the bus commits once after all Phase 1 subscribe
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 
 from loguru import logger
 from sqlalchemy import select
@@ -55,9 +55,7 @@ class StateTransitionSubscriber:
         elif envelope.event_type == ExecutionEventType.RUN_STATUS_CHANGE:
             await self._handle_run_status_change(envelope, db)
 
-    async def _handle_status_change(
-        self, envelope: ExecutionEventEnvelope, db: AsyncSession
-    ) -> None:
+    async def _handle_status_change(self, envelope: ExecutionEventEnvelope, db: AsyncSession) -> None:
         if not envelope.target_status:
             raise RuntimeError("execution_status_change envelope missing target_status")
 
@@ -67,69 +65,48 @@ class StateTransitionSubscriber:
                 f"EXECUTION_COMPLETED, not EXECUTION_STATUS_CHANGE"
             )
 
-        execution = (await db.execute(
-            select(Execution).where(Execution.id == envelope.execution_id)
-        )).scalar_one()
+        execution = (await db.execute(select(Execution).where(Execution.id == envelope.execution_id))).scalar_one()
 
         try:
             await transition_execution(execution, envelope.target_status, db)
         except InvalidTransition:
-            logger.warning(
-                f"[StateTransition] Skipping execution {execution.id}: "
-                f"already {execution.status}"
-            )
+            logger.warning(f"[StateTransition] Skipping execution {execution.id}: " f"already {execution.status}")
             return
 
         self._apply_metadata(execution, envelope)
         await db.flush()
 
-    async def _handle_completed(
-        self, envelope: ExecutionEventEnvelope, db: AsyncSession
-    ) -> None:
+    async def _handle_completed(self, envelope: ExecutionEventEnvelope, db: AsyncSession) -> None:
         if not envelope.terminal_status:
             raise RuntimeError("execution_completed envelope missing terminal_status")
 
-        execution = (await db.execute(
-            select(Execution).where(Execution.id == envelope.execution_id)
-        )).scalar_one()
+        execution = (await db.execute(select(Execution).where(Execution.id == envelope.execution_id))).scalar_one()
         try:
             await transition_execution(execution, envelope.terminal_status, db)
         except InvalidTransition:
-            logger.warning(
-                f"[StateTransition] Skipping execution {execution.id}: already {execution.status}"
-            )
+            logger.warning(f"[StateTransition] Skipping execution {execution.id}: already {execution.status}")
             return
 
         self._apply_metadata(execution, envelope)
 
-        run = (await db.execute(
-            select(AgentRun).where(AgentRun.id == envelope.run_id)
-        )).scalar_one()
+        run = (await db.execute(select(AgentRun).where(AgentRun.id == envelope.run_id))).scalar_one()
         try:
             await transition_run(run, envelope.terminal_status, db, envelope.result_summary)
         except InvalidTransition:
-            logger.warning(
-                f"[StateTransition] Skipping run {run.id}: already {run.status}"
-            )
+            logger.warning(f"[StateTransition] Skipping run {run.id}: already {run.status}")
 
         await db.flush()
 
-    async def _handle_run_status_change(
-        self, envelope: ExecutionEventEnvelope, db: AsyncSession
-    ) -> None:
+    async def _handle_run_status_change(self, envelope: ExecutionEventEnvelope, db: AsyncSession) -> None:
         if not envelope.target_status:
             raise RuntimeError("run_status_change envelope missing target_status")
 
-        run = (await db.execute(
-            select(AgentRun).where(AgentRun.id == envelope.run_id)
-        )).scalar_one()
+        run = (await db.execute(select(AgentRun).where(AgentRun.id == envelope.run_id))).scalar_one()
 
         try:
             await transition_run(run, envelope.target_status, db, envelope.result_summary)
         except InvalidTransition:
-            logger.warning(
-                f"[StateTransition] Skipping run {run.id}: already {run.status}"
-            )
+            logger.warning(f"[StateTransition] Skipping run {run.id}: already {run.status}")
 
     @staticmethod
     def _apply_metadata(execution: Execution, envelope: ExecutionEventEnvelope) -> None:

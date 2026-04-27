@@ -32,8 +32,8 @@ class AgentReleaseRepository(BaseRepository[AgentRelease]):
 
     async def get_max_release_number(self, agent_version_id: uuid.UUID) -> int:
         """Get the max release number for a given agent version (for auto-increment)."""
-        query = select(
-            func.coalesce(func.max(AgentRelease.release_number), 0)
-        ).where(AgentRelease.agent_version_id == agent_version_id)
+        query = select(func.coalesce(func.max(AgentRelease.release_number), 0)).where(
+            AgentRelease.agent_version_id == agent_version_id
+        )
         result = await self.db.execute(query)
         return result.scalar() or 0

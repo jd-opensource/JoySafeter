@@ -314,7 +314,9 @@ class McpServerService(BaseService[McpServer]):
             raise NotFoundError("MCP server not found", code="MCP_SERVER_NOT_FOUND", data={"server_id": str(server_id)})
 
         if server.user_id != user_id:
-            raise NotFoundError("MCP server not found", code="MCP_SERVER_NOT_FOUND", data={"server_id": str(server_id)})  # Security: don't reveal existence
+            raise NotFoundError(
+                "MCP server not found", code="MCP_SERVER_NOT_FOUND", data={"server_id": str(server_id)}
+            )  # Security: don't reveal existence
 
         return server
 

@@ -13,8 +13,8 @@ from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.dependencies import CurrentUser
 from app.common.app_errors import AccessDeniedError, NotFoundError
+from app.common.dependencies import CurrentUser
 from app.core.database import get_db
 from app.schemas import BaseResponse
 from app.services.trace_service import TraceService

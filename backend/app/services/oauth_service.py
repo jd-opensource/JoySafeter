@@ -20,7 +20,7 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.app_errors import InvalidRequestError, AuthenticationError
+from app.common.app_errors import AuthenticationError, InvalidRequestError
 from app.core.oauth import get_oauth_config
 from app.core.redis import RedisClient
 from app.models.auth import AuthUser
@@ -475,7 +475,9 @@ class OAuthService(BaseService):
 
         # 3) Create new user
         if not oauth_settings.allow_registration:
-            raise AuthenticationError("Registration via OAuth is not allowed. Please sign up first.", code="OAUTH_REGISTRATION_DISABLED")
+            raise AuthenticationError(
+                "Registration via OAuth is not allowed. Please sign up first.", code="OAUTH_REGISTRATION_DISABLED"
+            )
 
         if not email:
             raise InvalidRequestError(

@@ -37,7 +37,6 @@ from app.core.copilot.response_parser import (
 )
 from app.core.copilot.tool_output_parser import parse_tool_output
 from app.core.copilot.tools import reset_node_registry
-from app.repositories.auth_user import AuthUserRepository
 
 
 class CopilotService:
@@ -557,24 +556,18 @@ class CopilotService:
                 return False
 
             if not agent.current_draft_version_id:
-                logger.warning(
-                    f"[CopilotService] _persist_graph_from_actions: no draft version for agent={graph_id}"
-                )
+                logger.warning(f"[CopilotService] _persist_graph_from_actions: no draft version for agent={graph_id}")
                 return False
 
             version = (
-                await self.db.execute(
-                    select(AgentVersion).where(AgentVersion.id == agent.current_draft_version_id)
-                )
+                await self.db.execute(select(AgentVersion).where(AgentVersion.id == agent.current_draft_version_id))
             ).scalar_one()
 
             payload = dict(version.definition_payload or {})
             current_nodes: List[Dict[str, Any]] = payload.get("nodes", [])
             current_edges: List[Dict[str, Any]] = payload.get("edges", [])
 
-            updated_nodes, updated_edges = apply_actions_to_graph_state(
-                current_nodes, current_edges, final_actions
-            )
+            updated_nodes, updated_edges = apply_actions_to_graph_state(current_nodes, current_edges, final_actions)
 
             payload["nodes"] = updated_nodes
             payload["edges"] = updated_edges

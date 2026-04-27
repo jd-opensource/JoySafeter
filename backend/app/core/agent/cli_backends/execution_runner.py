@@ -79,13 +79,15 @@ class ExecutionRunner:
         pooled = False  # whether the container came from the pool
 
         # Inject run metadata so events route through the bus
-        self._events.set_event_context(EventContext(
-            run_id=run.id,
-            workspace_id=run.workspace_id,
-            trigger_source=run.trigger_source,
-            thread_id=run.thread_id,
-            task_id=run.task_id,
-        ))
+        self._events.set_event_context(
+            EventContext(
+                run_id=run.id,
+                workspace_id=run.workspace_id,
+                trigger_source=run.trigger_source,
+                thread_id=run.thread_id,
+                task_id=run.task_id,
+            )
+        )
 
         logger.info(
             f"[exec:{execution_id}] Starting execution "
@@ -142,7 +144,9 @@ class ExecutionRunner:
                     f"{container.container_id[:12]} with session {prior_session_id}"
                 )
 
-            await self._events.mark_status(execution_id=execution_id, status="running", container_id=container.container_id)
+            await self._events.mark_status(
+                execution_id=execution_id, status="running", container_id=container.container_id
+            )
 
             # 3. Inject skills and config (idempotent — safe to re-run on reuse)
             await self._inject(
@@ -216,9 +220,7 @@ class ExecutionRunner:
                 logger.info(f"[exec:{execution_id}] Released container {container.container_id[:12]} back to pool")
             elif container:
                 await self._cleanup_container(container.container_id)
-                logger.info(
-                    f"[exec:{execution_id}] Destroyed container {container.container_id[:12]} (no release)"
-                )
+                logger.info(f"[exec:{execution_id}] Destroyed container {container.container_id[:12]} (no release)")
 
     async def _inject(
         self,

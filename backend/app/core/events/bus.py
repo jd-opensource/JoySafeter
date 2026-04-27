@@ -24,7 +24,6 @@ if TYPE_CHECKING:
 
 
 class ExecutionEventBus:
-
     def __init__(self) -> None:
         self._persist_subs: list[EventSubscriber] = []
         self._broadcast_subs: list[EventSubscriber] = []
@@ -65,11 +64,7 @@ class ExecutionEventBus:
     async def _fan_out(self, envelopes: list[ExecutionEventEnvelope]) -> None:
         if not self._broadcast_subs:
             return
-        tasks = [
-            sub.handle(envelope)
-            for envelope in envelopes
-            for sub in self._broadcast_subs
-        ]
+        tasks = [sub.handle(envelope) for envelope in envelopes for sub in self._broadcast_subs]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for i, result in enumerate(results):
             if isinstance(result, Exception):

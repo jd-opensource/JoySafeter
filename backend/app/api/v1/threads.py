@@ -9,10 +9,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.app_errors import AccessDeniedError, InvalidRequestError
 from app.common.dependencies import CurrentUser, require_workspace_role
-from app.common.app_errors import InvalidRequestError, AccessDeniedError
 from app.core.database import get_db
-from app.services.dispatch_service import DispatchService
 from app.models.agent_run import AgentRun
 from app.models.auth import AuthUser as User
 from app.models.execution import Artifact, Execution
@@ -29,6 +28,7 @@ from app.schemas.thread import (
     ThreadSummary,
     UpdateThreadRequest,
 )
+from app.services.dispatch_service import DispatchService
 from app.services.thread_service import ThreadService
 from app.services.workspace_permission import check_workspace_access
 
@@ -129,17 +129,22 @@ async def chat(
     ExecutionEvent is the single source of truth.
     """
     has_access = await check_workspace_access(
-        db, workspace_id, current_user, WorkspaceMemberRole.member,
+        db,
+        workspace_id,
+        current_user,
+        WorkspaceMemberRole.member,
     )
     if not has_access:
         raise AccessDeniedError("No access to workspace", code="WORKSPACE_ACCESS_DENIED")
 
-    active_run = (await db.execute(
-        select(AgentRun).where(
-            AgentRun.thread_id == thread_id,
-            AgentRun.status.in_(["pending", "running"]),
+    active_run = (
+        await db.execute(
+            select(AgentRun).where(
+                AgentRun.thread_id == thread_id,
+                AgentRun.status.in_(["pending", "running"]),
+            )
         )
-    )).scalar_one_or_none()
+    ).scalar_one_or_none()
     if active_run:
         raise InvalidRequestError(
             "Thread has an active run, please wait for it to complete",
@@ -188,13 +193,19 @@ async def list_thread_artifacts(
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[List[ArtifactResponse]]:
     """List all artifacts produced by runs in this thread."""
-    artifacts = (await db.execute(
-        select(Artifact)
-        .join(Execution, Artifact.execution_id == Execution.id)
-        .join(AgentRun, Execution.run_id == AgentRun.id)
-        .where(AgentRun.thread_id == thread_id)
-        .order_by(Artifact.created_at.desc())
-    )).scalars().all()
+    artifacts = (
+        (
+            await db.execute(
+                select(Artifact)
+                .join(Execution, Artifact.execution_id == Execution.id)
+                .join(AgentRun, Execution.run_id == AgentRun.id)
+                .where(AgentRun.thread_id == thread_id)
+                .order_by(Artifact.created_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
     return BaseResponse(
         success=True,
         code=200,

@@ -104,7 +104,7 @@ export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
               {t('agents.detail.recentActivity')}
             </h2>
           </div>
-          
+
           {activities.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-[var(--border)] py-8">
               <Activity className="mb-2 h-8 w-8 text-[var(--border)]" />
@@ -183,7 +183,7 @@ export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
                 </div>
               </Link>
             )}
-            
+
             <Link
               href={`/agents/${agentId}?tab=settings`}
               className="group flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 transition-all hover:border-[var(--brand-400)] hover:bg-[var(--surface-3)]"
@@ -226,7 +226,7 @@ export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
               </span>
             </div>
           </div>
-          
+
           <div className="mt-4 flex flex-col gap-1 border-t border-[var(--border)] pt-4 text-xs">
             <div className="flex justify-between">
               <span className="text-[var(--text-muted)]">{t('agents.detail.createdAt')}</span>

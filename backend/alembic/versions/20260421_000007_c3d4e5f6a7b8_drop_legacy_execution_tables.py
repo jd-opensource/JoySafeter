@@ -1,4 +1,5 @@
 """drop legacy execution tables"""
+
 from alembic import op
 
 revision = "cc33dd44ee55"
@@ -18,12 +19,8 @@ def upgrade():
     op.execute("DROP TABLE IF EXISTS agent_run_events CASCADE")
 
     # 3. Remove FK from missions table
-    op.execute(
-        "ALTER TABLE missions DROP CONSTRAINT IF EXISTS fk_missions_current_execution"
-    )
-    op.execute(
-        "ALTER TABLE missions DROP COLUMN IF EXISTS current_execution_id"
-    )
+    op.execute("ALTER TABLE missions DROP CONSTRAINT IF EXISTS fk_missions_current_execution")
+    op.execute("ALTER TABLE missions DROP COLUMN IF EXISTS current_execution_id")
 
     # 4. Drop main tables (CASCADE handles any remaining dependent FKs)
     op.execute("DROP TABLE IF EXISTS executions CASCADE")

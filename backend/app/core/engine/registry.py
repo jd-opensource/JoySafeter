@@ -23,10 +23,7 @@ class EngineRegistry:
         engine = self._engines.get(runtime_kind)
         if not engine:
             available = ", ".join(self._engines.keys()) or "(none)"
-            raise ValueError(
-                f"No engine registered for runtime_kind={runtime_kind!r}. "
-                f"Available: {available}"
-            )
+            raise ValueError(f"No engine registered for runtime_kind={runtime_kind!r}. " f"Available: {available}")
         return engine
 
     def list_kinds(self) -> list[str]:

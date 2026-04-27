@@ -7,7 +7,7 @@
  * produced during an agent run.
  */
 
-import { API_BASE, apiFetch, apiDelete } from '@/lib/api-client'
+import { API_BASE, apiFetch, apiDelete, createApiError } from '@/lib/api-client'
 
 // ==================== Types ====================
 
@@ -93,7 +93,13 @@ export const artifactService = {
   async downloadFile(threadId: string, runId: string, filePath: string): Promise<Blob> {
     const url = getArtifactDownloadUrl(threadId, runId, filePath)
     const res = await fetch(url, { credentials: 'include' })
-    if (!res.ok) throw new Error(`Download failed: ${res.statusText}`)
+    if (!res.ok) {
+      throw createApiError(res.status, res.statusText, {
+        code: 'ARTIFACT_DOWNLOAD_FAILED',
+        message: 'Download failed',
+        data: { thread_id: threadId, run_id: runId, file_path: filePath },
+      })
+    }
     return res.blob()
   },
 
@@ -112,7 +118,13 @@ export const artifactService = {
     const encodedPath = filePath.split('/').map(encodeURIComponent).join('/')
     const url = `${API_BASE}/artifacts/${encodeURIComponent(threadId)}/live/${encodedPath}`
     const res = await fetch(url, { credentials: 'include' })
-    if (!res.ok) throw new Error(`Live read failed: ${res.statusText}`)
+    if (!res.ok) {
+      throw createApiError(res.status, res.statusText, {
+        code: 'ARTIFACT_LIVE_READ_FAILED',
+        message: 'Live read failed',
+        data: { thread_id: threadId, file_path: filePath },
+      })
+    }
     return res.text()
   },
 

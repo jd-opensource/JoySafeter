@@ -41,11 +41,14 @@ class WebSocketSubscriber:
             await execution_subscription_manager.broadcast_event(eid, payload)
             execution_subscription_manager.remove_execution(eid)
         else:
-            await execution_subscription_manager.broadcast_event(eid, {
-                "type": "event",
-                "execution_id": eid,
-                "seq": envelope.seq,
-                "event_type": envelope.event_type,
-                "payload": envelope.payload,
-                "created_at": envelope.created_at.isoformat() if envelope.created_at else None,
-            })
+            await execution_subscription_manager.broadcast_event(
+                eid,
+                {
+                    "type": "event",
+                    "execution_id": eid,
+                    "seq": envelope.seq,
+                    "event_type": envelope.event_type,
+                    "payload": envelope.payload,
+                    "created_at": envelope.created_at.isoformat() if envelope.created_at else None,
+                },
+            )

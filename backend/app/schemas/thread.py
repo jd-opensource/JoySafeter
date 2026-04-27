@@ -33,17 +33,18 @@ class UpdateThreadRequest(BaseModel):
 
 class ChatAttachment(BaseModel):
     """A file attachment sent alongside a chat message."""
+
     filename: str = Field(..., min_length=1, max_length=255)
-    storage_ref: str = Field(..., min_length=1, max_length=500, description="Sandbox path from /v1/files/upload response")
+    storage_ref: str = Field(
+        ..., min_length=1, max_length=500, description="Sandbox path from /v1/files/upload response"
+    )
     mime_type: str = Field(..., min_length=1, max_length=100)
     size_bytes: int = Field(..., gt=0)
 
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=10000)
-    attachments: Optional[List[ChatAttachment]] = Field(
-        None, max_length=10, description="Up to 10 file attachments"
-    )
+    attachments: Optional[List[ChatAttachment]] = Field(None, max_length=10, description="Up to 10 file attachments")
 
 
 # ---------------------------------------------------------------------------

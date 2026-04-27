@@ -4,7 +4,7 @@ Redis Configuration - Cache and Distributed Lock
 
 import json
 from contextlib import asynccontextmanager
-from typing import Any, Awaitable, Dict, Optional, cast
+from typing import Any, Awaitable, Optional, cast
 
 import redis.asyncio as redis_async
 from loguru import logger

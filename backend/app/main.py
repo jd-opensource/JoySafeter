@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import asyncio  # noqa: E402
 from contextlib import asynccontextmanager  # noqa: E402
-from datetime import datetime, timedelta, timezone  # noqa: E402
 from typing import AsyncGenerator, Optional  # noqa: E402
 
 from dotenv import load_dotenv  # noqa: E402
@@ -189,8 +188,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         from app.core.events.bus import execution_event_bus
         from app.core.events.subscribers.persistence import PersistenceSubscriber
         from app.core.events.subscribers.state_transition import StateTransitionSubscriber
-        from app.core.events.subscribers.websocket import WebSocketSubscriber
         from app.core.events.subscribers.task_sync import TaskSyncSubscriber
+        from app.core.events.subscribers.websocket import WebSocketSubscriber
 
         execution_event_bus.register(PersistenceSubscriber())
         execution_event_bus.register(StateTransitionSubscriber())
@@ -226,8 +225,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     try:
         from app.core.scheduler import (
             execution_reaper_loop,
-            task_dispatcher_loop,
             recover_stale_on_startup,
+            task_dispatcher_loop,
         )
 
         await recover_stale_on_startup()

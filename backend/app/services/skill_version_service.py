@@ -58,7 +58,9 @@ class SkillVersionService(BaseService[SkillVersion]):
             )
         # Reject pre-release / build metadata
         if new_ver.prerelease or new_ver.build:
-            raise InvalidRequestError("Pre-release and build metadata are not supported", code="SKILL_VERSION_PRERELEASE_UNSUPPORTED")
+            raise InvalidRequestError(
+                "Pre-release and build metadata are not supported", code="SKILL_VERSION_PRERELEASE_UNSUPPORTED"
+            )
 
         # Check > highest existing
         highest_str = await self.repo.get_highest_version_str(skill_id)
@@ -175,7 +177,9 @@ class SkillVersionService(BaseService[SkillVersion]):
         )
         sv = await self.repo.get_latest(skill_id)
         if not sv:
-            raise NotFoundError("No published versions found", code="SKILL_VERSION_NOT_FOUND", data={"skill_id": str(skill_id)})
+            raise NotFoundError(
+                "No published versions found", code="SKILL_VERSION_NOT_FOUND", data={"skill_id": str(skill_id)}
+            )
         return sv  # type: ignore[return-value,no-any-return]
 
     async def delete_version(

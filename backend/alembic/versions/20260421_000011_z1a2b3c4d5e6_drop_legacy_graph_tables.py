@@ -1,4 +1,5 @@
 """drop legacy graph tables"""
+
 from alembic import op
 
 revision = "z1a2b3c4d5e6"

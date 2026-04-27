@@ -63,6 +63,7 @@ class CheckpointerManager:
         try:
             db_uri = cls._get_db_uri()
             from app.core.settings import settings as _settings
+
             cls._pool = AsyncConnectionPool(
                 conninfo=db_uri,
                 min_size=_settings.checkpointer_pool_min_size,

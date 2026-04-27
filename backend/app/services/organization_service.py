@@ -8,10 +8,10 @@ from typing import Dict, List, Optional
 from pydantic import EmailStr
 
 from app.common.app_errors import (
-    InvalidRequestError,
-    ResourceConflictError,
     AccessDeniedError,
+    InvalidRequestError,
     NotFoundError,
+    ResourceConflictError,
 )
 from app.models.auth import AuthUser as User
 from app.models.enums import OrgRole
@@ -306,7 +306,9 @@ class OrganizationService(BaseService[Organization]):
         requester = await self._ensure_member(organization_id, current_user.id)
         target = await self.member_repo.get_with_user(member_id)
         if not target or target.organization_id != organization.id:
-            raise NotFoundError("Member not found", code="ORGANIZATION_MEMBER_NOT_FOUND", data={"member_id": str(member_id)})
+            raise NotFoundError(
+                "Member not found", code="ORGANIZATION_MEMBER_NOT_FOUND", data={"member_id": str(member_id)}
+            )
 
         if requester.user_id != target.user_id and requester.role not in [OrgRole.OWNER, OrgRole.ADMIN]:
             raise AccessDeniedError("Not allowed to view this member", code="ORGANIZATION_MEMBER_VIEW_FORBIDDEN")
@@ -333,7 +335,9 @@ class OrganizationService(BaseService[Organization]):
         actor = await self._ensure_member(organization_id, current_user.id)
         target = await self.member_repo.get_with_user(member_id)
         if not target or target.organization_id != organization.id:
-            raise NotFoundError("Member not found", code="ORGANIZATION_MEMBER_NOT_FOUND", data={"member_id": str(member_id)})
+            raise NotFoundError(
+                "Member not found", code="ORGANIZATION_MEMBER_NOT_FOUND", data={"member_id": str(member_id)}
+            )
 
         if role not in self.SUPPORTED_ROLES:
             raise InvalidRequestError(
@@ -342,7 +346,9 @@ class OrganizationService(BaseService[Organization]):
                 data={"role": role},
             )
         if role == OrgRole.OWNER:
-            raise InvalidRequestError("Owner role cannot be reassigned", code="ORGANIZATION_OWNER_ROLE_REASSIGN_FORBIDDEN")
+            raise InvalidRequestError(
+                "Owner role cannot be reassigned", code="ORGANIZATION_OWNER_ROLE_REASSIGN_FORBIDDEN"
+            )
         if target.role == OrgRole.OWNER:
             raise AccessDeniedError("Cannot modify owner role", code="ORGANIZATION_OWNER_ROLE_MODIFY_FORBIDDEN")
 
@@ -350,9 +356,13 @@ class OrganizationService(BaseService[Organization]):
         if role == OrgRole.ADMIN and actor.role != OrgRole.OWNER:
             raise AccessDeniedError("Only owner can promote to admin", code="ORGANIZATION_ADMIN_PROMOTE_FORBIDDEN")
         if actor.role not in [OrgRole.OWNER, OrgRole.ADMIN]:
-            raise AccessDeniedError("Insufficient permission to update roles", code="ORGANIZATION_MEMBER_ROLE_UPDATE_FORBIDDEN")
+            raise AccessDeniedError(
+                "Insufficient permission to update roles", code="ORGANIZATION_MEMBER_ROLE_UPDATE_FORBIDDEN"
+            )
         if actor.role == OrgRole.ADMIN and target.role in [OrgRole.ADMIN, OrgRole.OWNER]:
-            raise AccessDeniedError("Admin cannot change other admins/owner", code="ORGANIZATION_ADMIN_ROLE_TARGET_FORBIDDEN")
+            raise AccessDeniedError(
+                "Admin cannot change other admins/owner", code="ORGANIZATION_ADMIN_ROLE_TARGET_FORBIDDEN"
+            )
 
         target.role = role
         await self.commit()
@@ -379,12 +389,16 @@ class OrganizationService(BaseService[Organization]):
         actor = await self._ensure_member(organization_id, current_user.id)
         target = await self.member_repo.get_with_user(member_id)
         if not target or target.organization_id != organization.id:
-            raise NotFoundError("Member not found", code="ORGANIZATION_MEMBER_NOT_FOUND", data={"member_id": str(member_id)})
+            raise NotFoundError(
+                "Member not found", code="ORGANIZATION_MEMBER_NOT_FOUND", data={"member_id": str(member_id)}
+            )
 
         if target.role == OrgRole.OWNER:
             raise AccessDeniedError("Cannot remove organization owner", code="ORGANIZATION_OWNER_REMOVE_FORBIDDEN")
         if actor.role == OrgRole.ADMIN and target.role in [OrgRole.ADMIN, OrgRole.OWNER]:
-            raise AccessDeniedError("Admin cannot remove admins or owner", code="ORGANIZATION_ADMIN_REMOVE_TARGET_FORBIDDEN")
+            raise AccessDeniedError(
+                "Admin cannot remove admins or owner", code="ORGANIZATION_ADMIN_REMOVE_TARGET_FORBIDDEN"
+            )
         if actor.role not in [OrgRole.OWNER, OrgRole.ADMIN] and actor.user_id != target.user_id:
             raise AccessDeniedError("Not allowed to remove this member", code="ORGANIZATION_MEMBER_REMOVE_FORBIDDEN")
 
@@ -417,7 +431,9 @@ class OrganizationService(BaseService[Organization]):
 
     def _ensure_admin_or_owner(self, member: Member) -> None:
         if member.role not in [OrgRole.OWNER, OrgRole.ADMIN]:
-            raise AccessDeniedError("Only owner or admin can perform this action", code="ORGANIZATION_PERMISSION_DENIED")
+            raise AccessDeniedError(
+                "Only owner or admin can perform this action", code="ORGANIZATION_PERMISSION_DENIED"
+            )
 
     def _validate_plan_for_seats(self, organization: Organization) -> None:
         plan = (organization.metadata_ or {}).get("plan_type", self.TEAM_PLAN)

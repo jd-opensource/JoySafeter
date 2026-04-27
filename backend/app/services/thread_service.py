@@ -94,9 +94,10 @@ class ThreadService:
         limit: int = 200,
     ) -> tuple[list[dict], int]:
         """Aggregate execution events across all runs in a thread."""
-        from sqlalchemy import select, func, and_, not_
-        from app.models.execution import Execution, ExecutionEvent
+        from sqlalchemy import and_, func, not_, select
+
         from app.models.agent_run import AgentRun
+        from app.models.execution import Execution, ExecutionEvent
 
         thread = await self.thread_repo.get(thread_id)
         if not thread:
@@ -133,9 +134,9 @@ class ThreadService:
         )
 
         if after_id:
-            ref_event = (await self.db.execute(
-                select(ExecutionEvent.created_at).where(ExecutionEvent.id == after_id)
-            )).scalar()
+            ref_event = (
+                await self.db.execute(select(ExecutionEvent.created_at).where(ExecutionEvent.id == after_id))
+            ).scalar()
             if ref_event:
                 query = query.where(ExecutionEvent.created_at > ref_event)
 

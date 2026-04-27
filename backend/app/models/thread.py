@@ -18,17 +18,11 @@ class Thread(BaseModel):
 
     __tablename__ = "threads"
 
-    agent_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("agents.id"), nullable=False
-    )
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False
-    )
+    agent_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id"), nullable=False)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     title: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
-    created_by: Mapped[str] = mapped_column(
-        String(255), ForeignKey("user.id"), nullable=False
-    )
+    created_by: Mapped[str] = mapped_column(String(255), ForeignKey("user.id"), nullable=False)
 
     # Relationships
     agent: Mapped[Agent] = relationship("Agent")

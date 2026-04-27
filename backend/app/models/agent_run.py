@@ -1,10 +1,13 @@
 from __future__ import annotations
+
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
+
 from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from app.core.database import Base
 from app.utils.datetime import utc_now
 
@@ -23,8 +26,12 @@ class AgentRun(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    release_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_releases.id"), nullable=True)
-    agent_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_versions.id"), nullable=True)
+    release_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agent_releases.id"), nullable=True
+    )
+    agent_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agent_versions.id"), nullable=True
+    )
     workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     thread_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("threads.id"), nullable=True)
     task_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("tasks.id"), nullable=True)
@@ -36,7 +43,9 @@ class AgentRun(Base):
         nullable=False,
         default="pending",
     )
-    current_execution_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("executions.id"), nullable=True)
+    current_execution_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("executions.id"), nullable=True
+    )
     result_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -46,4 +55,6 @@ class AgentRun(Base):
     release: Mapped[Optional["AgentRelease"]] = relationship("AgentRelease")
     agent_version: Mapped[Optional["AgentVersion"]] = relationship("AgentVersion")
     current_execution: Mapped[Optional["Execution"]] = relationship("Execution", foreign_keys=[current_execution_id])
-    executions: Mapped[List["Execution"]] = relationship("Execution", back_populates="run", foreign_keys="Execution.run_id")
+    executions: Mapped[List["Execution"]] = relationship(
+        "Execution", back_populates="run", foreign_keys="Execution.run_id"
+    )

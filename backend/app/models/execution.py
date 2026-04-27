@@ -1,10 +1,13 @@
 from __future__ import annotations
+
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
+
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from app.core.database import Base
 from app.utils.datetime import utc_now
 
@@ -18,12 +21,23 @@ class Execution(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_runs.id"), nullable=False)
-    parent_execution_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("executions.id"), nullable=True)
+    parent_execution_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("executions.id"), nullable=True
+    )
     attempt_index: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     executor_kind: Mapped[str] = mapped_column(String(20), nullable=False)
     runtime_session_ref: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(
-        Enum("pending", "dispatched", "running", "approval_wait", "succeeded", "failed", "cancelled", name="execution_status"),
+        Enum(
+            "pending",
+            "dispatched",
+            "running",
+            "approval_wait",
+            "succeeded",
+            "failed",
+            "cancelled",
+            name="execution_status",
+        ),
         nullable=False,
         default="pending",
     )

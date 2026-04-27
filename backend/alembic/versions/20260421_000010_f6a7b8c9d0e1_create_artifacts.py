@@ -1,7 +1,9 @@
 """create artifacts table"""
+
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB, UUID
+
+from alembic import op
 
 revision = "ff66aa77bb88"
 down_revision = "ee55ff66aa77"
