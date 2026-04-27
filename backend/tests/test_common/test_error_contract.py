@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, status
+from fastapi import FastAPI, HTTPException, status
 from fastapi.testclient import TestClient
 
 from app.common.exceptions import (
@@ -117,5 +117,56 @@ def test_app_exception_handler_returns_error_envelope() -> None:
             "retryable": False,
             "user_action": "fix_input",
             "context": {"http_status": 400},
+        },
+    }
+
+
+def test_unauthorized_exception_preserves_headers_and_canonical_envelope() -> None:
+    app = FastAPI()
+    register_exception_handlers(app)
+
+    @app.get("/unauthorized")
+    async def unauthorized() -> None:
+        from app.common.exceptions import UnauthorizedException
+
+        raise UnauthorizedException("Authentication required")
+
+    client = TestClient(app)
+    response = client.get("/unauthorized")
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert response.headers["WWW-Authenticate"] == "Bearer"
+    assert response.json() == {
+        "success": False,
+        "error": {
+            "code": "401",
+            "message": "Authentication required",
+            "source": "auth",
+            "retryable": False,
+            "context": {"http_status": 401},
+        },
+    }
+
+
+def test_plain_http_exception_429_maps_to_retryable_descriptor() -> None:
+    app = FastAPI()
+    register_exception_handlers(app)
+
+    @app.get("/limited")
+    async def limited() -> None:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many requests")
+
+    client = TestClient(app)
+    response = client.get("/limited")
+
+    assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+    assert response.json() == {
+        "success": False,
+        "error": {
+            "code": "429",
+            "message": "Too many requests",
+            "source": "api",
+            "retryable": True,
+            "context": {"http_status": 429},
         },
     }

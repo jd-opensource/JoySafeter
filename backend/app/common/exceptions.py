@@ -290,11 +290,17 @@ ResourceConflictException = ConflictException
 # Unified error response construction & global exception handlers
 
 
-def create_error_response(*, status_code: int, error: ErrorDescriptor | dict[str, Any]) -> Response:
+def create_error_response(
+    *,
+    status_code: int,
+    error: ErrorDescriptor | dict[str, Any],
+    headers: Mapping[str, str] | None = None,
+) -> Response:
     """Build an HTTP error response using the canonical error envelope."""
     return JSONResponse(
         status_code=status_code,
         content=error_response(error=error),
+        headers=dict(headers) if headers else None,
     )
 
 
@@ -303,21 +309,37 @@ async def app_exception_handler(request: Request, exc: AppException) -> Response
     return create_error_response(
         status_code=exc.status_code,
         error=exc.to_error_descriptor(http_status=exc.status_code),
+        headers=exc.headers,
+    )
+
+
+def _build_http_exception_descriptor(exc: HTTPException) -> ErrorDescriptor:
+    source: ErrorSource = "api"
+    retryable = False
+
+    if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+        source = "auth"
+    elif exc.status_code == status.HTTP_403_FORBIDDEN:
+        source = "permission"
+    elif exc.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY:
+        source = "validation"
+    elif exc.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+        retryable = True
+
+    return ErrorDescriptor(
+        code=str(exc.status_code),
+        message=str(exc.detail),
+        source=source,
+        retryable=retryable,
     )
 
 
 async def http_exception_handler(request: Request, exc: HTTPException) -> Response:
     """Handle FastAPI/Starlette HTTPException (non-AppException)."""
-    normalized = BadRequestException(
-        message=str(exc.detail),
-        code=str(exc.status_code),
-        source="api",
-        retryable=False,
-    )
-    normalized.status_code = exc.status_code
     return create_error_response(
         status_code=exc.status_code,
-        error=normalized.to_error_descriptor(http_status=exc.status_code),
+        error=_build_http_exception_descriptor(exc).to_dict(http_status=exc.status_code),
+        headers=exc.headers,
     )
 
 
