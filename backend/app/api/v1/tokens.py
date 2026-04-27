@@ -68,7 +68,11 @@ async def list_tokens(
     parsed_resource_id = None
     if resource_id is not None:
         if not is_valid_uuid(resource_id):
-            raise InvalidRequestError("Invalid resource_id: must be a valid UUID")
+            raise InvalidRequestError(
+                "Invalid resource_id: must be a valid UUID",
+                code="TOKEN_RESOURCE_ID_INVALID",
+                data={"resource_id": resource_id},
+            )
         parsed_resource_id = uuid.UUID(resource_id)
 
     service = PlatformTokenService(db)

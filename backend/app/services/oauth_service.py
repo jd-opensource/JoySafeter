@@ -42,6 +42,61 @@ class OAuthService(BaseService):
         self.user_repo = AuthUserRepository(db)
         self.oauth_config = get_oauth_config()
 
+    def _provider_not_found(self, provider_name: str) -> InvalidRequestError:
+        return InvalidRequestError(
+            f"OAuth provider '{provider_name}' not found",
+            code="OAUTH_PROVIDER_NOT_FOUND",
+            data={"provider_name": provider_name},
+        )
+
+    def _endpoint_discovery_failed(self, provider_name: str, endpoint_type: str) -> InvalidRequestError:
+        code_map = {
+            "authorization": "OAUTH_DISCOVERY_FAILED",
+            "token": "OAUTH_TOKEN_ENDPOINT_DISCOVERY_FAILED",
+            "userinfo": "OAUTH_USERINFO_ENDPOINT_DISCOVERY_FAILED",
+        }
+        message_map = {
+            "authorization": f"Failed to discover OAuth authorization endpoint for {provider_name}",
+            "token": f"Failed to discover OAuth token endpoint for {provider_name}",
+            "userinfo": f"Failed to discover OAuth userinfo endpoint for {provider_name}",
+        }
+        return InvalidRequestError(
+            message_map[endpoint_type],
+            code=code_map[endpoint_type],
+            data={"provider_name": provider_name},
+        )
+
+    def _missing_endpoint(self, provider_name: str, endpoint_type: str) -> InvalidRequestError:
+        code_map = {
+            "authorization": "OAUTH_AUTHORIZE_URL_MISSING",
+            "token": "OAUTH_TOKEN_URL_MISSING",
+            "userinfo": "OAUTH_USERINFO_URL_MISSING",
+        }
+        message_map = {
+            "authorization": f"No authorization URL configured for {provider_name}",
+            "token": f"No token URL configured for {provider_name}",
+            "userinfo": f"No userinfo URL configured for {provider_name}",
+        }
+        return InvalidRequestError(
+            message_map[endpoint_type],
+            code=code_map[endpoint_type],
+            data={"provider_name": provider_name},
+        )
+
+    def _token_exchange_failed(self, provider_name: str) -> InvalidRequestError:
+        return InvalidRequestError(
+            f"Failed to exchange OAuth code for tokens for {provider_name}",
+            code="OAUTH_TOKEN_EXCHANGE_FAILED",
+            data={"provider_name": provider_name},
+        )
+
+    def _userinfo_fetch_failed(self, provider_name: str) -> InvalidRequestError:
+        return InvalidRequestError(
+            f"Failed to fetch OAuth user info for {provider_name}",
+            code="OAUTH_USERINFO_FETCH_FAILED",
+            data={"provider_name": provider_name},
+        )
+
     # ==================== Authorization Flow ====================
 
     async def generate_authorization_url(
@@ -66,11 +121,7 @@ class OAuthService(BaseService):
         """
         provider = self.oauth_config.get_provider(provider_name)
         if not provider:
-            raise InvalidRequestError(
-                f"OAuth provider '{provider_name}' not found or not enabled",
-                code="OAUTH_PROVIDER_NOT_FOUND",
-                data={"provider_name": provider_name},
-            )
+            raise self._provider_not_found(provider_name)
 
         # Generate or reuse state
         if not state:
@@ -100,10 +151,10 @@ class OAuthService(BaseService):
                 authorize_url = cast(Optional[str], oidc_config.get("authorization_endpoint"))
             except Exception as e:
                 logger.error(f"{LOG_PREFIX} OIDC Discovery failed: {e}")
-                raise InvalidRequestError(f"Failed to discover OAuth endpoints for {provider_name}")
+                raise self._endpoint_discovery_failed(provider_name, "authorization")
 
         if not authorize_url:
-            raise InvalidRequestError(f"No authorization URL configured for {provider_name}")
+            raise self._missing_endpoint(provider_name, "authorization")
 
         # Build authorization URL params
         params = {
@@ -171,11 +222,7 @@ class OAuthService(BaseService):
         """
         provider = self.oauth_config.get_provider(provider_name)
         if not provider:
-            raise InvalidRequestError(
-                f"OAuth provider '{provider_name}' not found",
-                code="OAUTH_PROVIDER_NOT_FOUND",
-                data={"provider_name": provider_name},
-            )
+            raise self._provider_not_found(provider_name)
 
         # Get token URL
         token_url: Optional[str] = provider.token_url or None
@@ -185,10 +232,10 @@ class OAuthService(BaseService):
                 token_url = cast(Optional[str], oidc_config.get("token_endpoint"))
             except Exception as e:
                 logger.error(f"{LOG_PREFIX} OIDC Discovery failed: {e}")
-                raise InvalidRequestError(f"Failed to discover token endpoint for {provider_name}")
+                raise self._endpoint_discovery_failed(provider_name, "token")
 
         if not token_url:
-            raise InvalidRequestError(f"No token URL configured for {provider_name}")
+            raise self._missing_endpoint(provider_name, "token")
 
         # Build request
         data = {
@@ -236,10 +283,10 @@ class OAuthService(BaseService):
 
         except httpx.HTTPStatusError as e:
             logger.error(f"{LOG_PREFIX} Token exchange failed: {e.response.text}")
-            raise InvalidRequestError("Failed to exchange code for tokens")
+            raise self._token_exchange_failed(provider_name)
         except Exception as e:
             logger.error(f"{LOG_PREFIX} Token exchange error: {e}")
-            raise InvalidRequestError("Token exchange failed")
+            raise self._token_exchange_failed(provider_name)
 
     # ==================== User Info ====================
 
@@ -260,11 +307,7 @@ class OAuthService(BaseService):
         """
         provider = self.oauth_config.get_provider(provider_name)
         if not provider:
-            raise InvalidRequestError(
-                f"OAuth provider '{provider_name}' not found",
-                code="OAUTH_PROVIDER_NOT_FOUND",
-                data={"provider_name": provider_name},
-            )
+            raise self._provider_not_found(provider_name)
 
         # Get userinfo URL
         userinfo_url = provider.userinfo_url
@@ -274,9 +317,10 @@ class OAuthService(BaseService):
                 userinfo_url = oidc_config.get("userinfo_endpoint")
             except Exception as e:
                 logger.error(f"{LOG_PREFIX} OIDC Discovery failed: {e}")
+                raise self._endpoint_discovery_failed(provider_name, "userinfo")
 
         if not userinfo_url:
-            raise InvalidRequestError(f"No userinfo URL configured for {provider_name}")
+            raise self._missing_endpoint(provider_name, "userinfo")
 
         headers = {
             "Authorization": f"Bearer {access_token}",
@@ -300,10 +344,10 @@ class OAuthService(BaseService):
 
         except httpx.HTTPStatusError as e:
             logger.error(f"{LOG_PREFIX} Failed to fetch userinfo: {e.response.text}")
-            raise InvalidRequestError("Failed to fetch user info")
+            raise self._userinfo_fetch_failed(provider_name)
         except Exception as e:
             logger.error(f"{LOG_PREFIX} Userinfo fetch error: {e}")
-            raise InvalidRequestError("Failed to fetch user info")
+            raise self._userinfo_fetch_failed(provider_name)
 
     async def _fetch_github_email(self, access_token: str) -> Optional[str]:
         """Get GitHub primary email."""
@@ -353,11 +397,7 @@ class OAuthService(BaseService):
         """
         provider = self.oauth_config.get_provider(provider_name)
         if not provider:
-            raise InvalidRequestError(
-                f"OAuth provider '{provider_name}' not found",
-                code="OAUTH_PROVIDER_NOT_FOUND",
-                data={"provider_name": provider_name},
-            )
+            raise self._provider_not_found(provider_name)
 
         mapping = provider.user_mapping
 

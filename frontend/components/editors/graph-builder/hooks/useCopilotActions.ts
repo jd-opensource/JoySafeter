@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 
+import { ApiError } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { agentRunService } from '@/services/agentRunService'
 import { draftCopilotService } from '@/services/draftCopilotService'
@@ -109,16 +110,17 @@ export function useCopilotActions({
 
         let errorMessage = t('workspace.couldNotProcessRequest')
 
-        if (e && typeof e === 'object') {
-          const error = e as { response?: { status?: number }; message?: string }
-          if (error.response?.status === 401 || error.response?.status === 403) {
+        if (e instanceof ApiError) {
+          if (e.status === 401 || e.status === 403) {
             errorMessage = t('workspace.copilotError.auth', {
               defaultValue: 'Authentication error. Please check your credentials.',
             })
-          } else if (error.message?.includes('fetch') || error.message?.includes('network')) {
+          } else if (e.code === 'NETWORK_ERROR' || e.code === 'REQUEST_TIMEOUT') {
             errorMessage = t('workspace.copilotError.network', {
               defaultValue: 'Network error. Please check your connection and try again.',
             })
+          } else if (e.message) {
+            errorMessage = e.message
           }
         }
 

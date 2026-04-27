@@ -388,7 +388,9 @@ async def execute_tool(
     if not tool:
         # get_mcp_tool_with_instance already logs detailed warnings
         raise NotFoundError(
-            f"MCP tool '{request.toolName}' not found on server '{request.serverName}' or server is not accessible"
+            f"MCP tool '{request.toolName}' not found on server '{request.serverName}' or server is not accessible",
+            code="MCP_TOOL_NOT_FOUND",
+            data={"server_name": request.serverName, "tool_name": request.toolName},
         )
 
     try:
@@ -405,4 +407,8 @@ async def execute_tool(
             f"toolName={request.toolName}, error={str(e)}",
             exc_info=True,
         )
-        raise InvalidRequestError(f"Tool execution failed: {str(e)}")
+        raise InvalidRequestError(
+            f"Tool execution failed: {str(e)}",
+            code="MCP_TOOL_EXECUTION_FAILED",
+            data={"server_name": request.serverName, "tool_name": request.toolName},
+        )

@@ -15,6 +15,7 @@ import json
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
@@ -23,7 +24,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_db
-from app.common.app_errors import InvalidRequestError
+from app.common.response import success_response
 from app.core.oauth import get_oauth_config, get_protocol_handler
 from app.core.redis import RedisClient
 from app.core.security import create_access_token, create_csrf_token, generate_refresh_token
@@ -73,7 +74,7 @@ async def oauth_authorize(
     request: Request,
     callback_url: Optional[str] = Query(None, description="Redirect URL after successful login"),
     db: AsyncSession = Depends(get_db),
-) -> RedirectResponse:
+) -> Dict[str, Any]:
     """
     Start OAuth authorization flow.
 
@@ -106,19 +107,20 @@ async def oauth_authorize(
         except Exception as e:
             logger.warning(f"{LOG_PREFIX} Failed to store state in Redis: {e}")
 
-    # Generate authorization URL
-    try:
-        authorization_url, _ = await oauth_service.generate_authorization_url(
-            provider_name=provider,
-            redirect_uri=redirect_uri,
-            state=state,
-        )
-    except Exception as e:
-        logger.error(f"{LOG_PREFIX} Failed to generate authorization URL: {e}")
-        raise InvalidRequestError(f"Failed to initiate OAuth flow: {str(e)}")
+    authorization_url, resolved_state = await oauth_service.generate_authorization_url(
+        provider_name=provider,
+        redirect_uri=redirect_uri,
+        state=state,
+    )
 
-    logger.info(f"{LOG_PREFIX} Redirecting to {provider} authorization")
-    return RedirectResponse(url=authorization_url, status_code=302)
+    logger.info(f"{LOG_PREFIX} Generated authorization URL for {provider}")
+    return success_response(
+        data={
+            "authorization_url": authorization_url,
+            "state": resolved_state,
+        },
+        message="OAuth authorization URL generated",
+    )
 
 
 @router.get("/{provider}/callback")
@@ -146,13 +148,13 @@ async def oauth_callback(
     # Handle user denial
     if error:
         logger.warning(f"{LOG_PREFIX} OAuth error: {error} - {error_description}")
-        return _redirect_with_error(frontend_url, "oauth_denied", error_description or error)
+        return _redirect_with_error(frontend_url, "OAUTH_ACCESS_DENIED", error_description or error)
 
     # 2. Load provider config (needed to detect protocol)
     provider_config = oauth_config.get_provider(provider)
     if not provider_config:
         logger.error(f"{LOG_PREFIX} Provider not found: {provider}")
-        return _redirect_with_error(frontend_url, "provider_not_found")
+        return _redirect_with_error(frontend_url, "OAUTH_PROVIDER_NOT_FOUND")
 
     # 1. Validate state (JD SSO can skip; it relies on Cookie, not auth code)
     callback_url = oauth_config.settings.default_redirect_url
@@ -162,16 +164,16 @@ async def oauth_callback(
         # Validate when state is present
         state_data, callback_url = await _validate_state(state, oauth_config)
         if state_data is None:
-            return _redirect_with_error(frontend_url, "invalid_state")
+            return _redirect_with_error(frontend_url, "OAUTH_STATE_INVALID")
 
         # Validate provider match
         if state_data.get("provider") != provider:
             logger.warning(f"{LOG_PREFIX} Provider mismatch: expected {state_data.get('provider')}, got {provider}")
-            return _redirect_with_error(frontend_url, "provider_mismatch")
+            return _redirect_with_error(frontend_url, "OAUTH_PROVIDER_MISMATCH")
     elif provider_config.protocol != "jd_sso":
         # Non-JD SSO protocols require state
         logger.warning(f"{LOG_PREFIX} Missing state parameter for {provider_config.protocol}")
-        return _redirect_with_error(frontend_url, "missing_state")
+        return _redirect_with_error(frontend_url, "OAUTH_STATE_MISSING")
 
     try:
         # 3. Use protocol handler to fetch user info
@@ -242,11 +244,11 @@ async def oauth_callback(
         # Validation error raised by protocol handler
         logger.error(f"{LOG_PREFIX} OAuth callback validation error: {e}")
         await db.rollback()
-        return _redirect_with_error(frontend_url, "oauth_failed", str(e))
+        return _redirect_with_error(frontend_url, "OAUTH_CALLBACK_INVALID", str(e))
     except Exception as e:
         logger.error(f"{LOG_PREFIX} OAuth callback error: {e}", exc_info=True)
         await db.rollback()
-        return _redirect_with_error(frontend_url, "oauth_failed", str(e))
+        return _redirect_with_error(frontend_url, "OAUTH_CALLBACK_FAILED", str(e))
 
 
 # ==================== User OAuth Account Management ====================
@@ -336,11 +338,12 @@ def _get_client_ip(request: Request) -> str:
     return ip
 
 
-def _redirect_with_error(frontend_url: str, error: str, description: Optional[str] = None) -> RedirectResponse:
+def _redirect_with_error(frontend_url: str, error_code: str, message: Optional[str] = None) -> RedirectResponse:
     """Build error redirect response."""
-    error_url = f"{frontend_url}/signin?error={error}"
-    if description:
-        error_url += f"&error_description={description}"
+    params = {"error_code": error_code}
+    if message:
+        params["error_message"] = message
+    error_url = f"{frontend_url}/signin?{urlencode(params)}"
     return RedirectResponse(url=error_url, status_code=302)
 
 

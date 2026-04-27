@@ -75,11 +75,15 @@ async def add_collaborator(
         user_service = UserService(db)
         user = await user_service.get_user_by_email(payload.email.strip())
         if not user:
-            raise NotFoundError("User not found")
+            raise NotFoundError(
+                "User not found",
+                code="USER_NOT_FOUND",
+                data={"email": payload.email.strip()},
+            )
         target_user_id = user.id
 
     if not target_user_id:
-        raise NotFoundError("User not found")
+        raise NotFoundError("User not found", code="USER_NOT_FOUND")
 
     service = SkillCollaboratorService(db)
     collaborator = await service.add_collaborator(

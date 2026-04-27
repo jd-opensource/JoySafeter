@@ -49,7 +49,7 @@ async def _require_workspace_access(
 ) -> None:
     has_access = await check_workspace_access(db, workspace_id, current_user, role)
     if not has_access:
-        raise AccessDeniedError("Insufficient workspace permission")
+        raise AccessDeniedError("Insufficient workspace permission", code="WORKSPACE_PERMISSION_DENIED")
 
 
 @router.get("", response_model=BaseResponse[List[AgentRunResponse]])
@@ -90,7 +90,7 @@ async def create_run(
     """Create a new agent run via the unified orchestrator."""
     workspace_id = await _get_release_workspace_id(db, request.release_id)
     if not workspace_id:
-        raise AccessDeniedError("Insufficient workspace permission")
+        raise AccessDeniedError("Insufficient workspace permission", code="WORKSPACE_PERMISSION_DENIED")
     await _require_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.member)
 
     dispatch = DispatchService(db)

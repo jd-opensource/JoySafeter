@@ -19,6 +19,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { client, useSession, type AuthError } from '@/lib/auth/auth-client'
+import { ApiError } from '@/lib/api-client'
 import { getEnv, isFalsy } from '@/lib/core/config/env'
 import { getBaseUrl } from '@/lib/core/utils/urls'
 import { useTranslation } from '@/lib/i18n'
@@ -43,6 +44,52 @@ const getEmailErrorKey = (reason?: string): string => {
   if (reason.includes('no MX records')) return 'auth.emailNoMxRecords'
   if (reason.includes('Validation service')) return 'auth.emailValidationUnavailable'
   return 'auth.emailInvalid'
+}
+
+const getAuthErrorMessageKey = (errorCode: string): string | null => {
+  switch (errorCode) {
+    case 'INVALID_CREDENTIALS':
+    case 'MISSING_CREDENTIALS':
+    case 'FAILED_TO_CREATE_SESSION':
+      return 'auth.invalidCredentials'
+    case 'USER_NOT_FOUND':
+      return 'auth.userNotFound'
+    case 'EMAIL_PASSWORD_DISABLED':
+      return 'auth.emailSignInDisabled'
+    case 'RATE_LIMITED':
+      return 'auth.tooManyAttempts'
+    case 'NETWORK_ERROR':
+    case 'REQUEST_TIMEOUT':
+      return 'auth.networkError'
+    default:
+      return null
+  }
+}
+
+const getOAuthCallbackErrorKey = (errorCode?: string | null): string => {
+  switch (errorCode) {
+    case 'OAUTH_ACCESS_DENIED':
+      return 'auth.oauthDenied'
+    case 'OAUTH_STATE_INVALID':
+    case 'OAUTH_STATE_MISSING':
+    case 'OAUTH_PROVIDER_MISMATCH':
+      return 'auth.oauthInvalidState'
+    case 'OAUTH_DISCOVERY_FAILED':
+    case 'OAUTH_TOKEN_ENDPOINT_DISCOVERY_FAILED':
+    case 'OAUTH_USERINFO_ENDPOINT_DISCOVERY_FAILED':
+      return 'auth.oauthDiscoveryFailed'
+    case 'OAUTH_AUTHORIZE_URL_MISSING':
+      return 'auth.oauthAuthorizeUrlMissing'
+    case 'OAUTH_TOKEN_URL_MISSING':
+      return 'auth.oauthTokenUrlMissing'
+    case 'OAUTH_USERINFO_URL_MISSING':
+      return 'auth.oauthUserinfoUrlMissing'
+    case 'OAUTH_TOKEN_EXCHANGE_FAILED':
+    case 'OAUTH_USERINFO_FETCH_FAILED':
+      return 'auth.oauthFailed'
+    default:
+      return 'auth.oauthError'
+  }
 }
 
 const validateCallbackUrl = (url: string): boolean => {
@@ -110,24 +157,22 @@ export default function LoginPage() {
       setIsInviteFlow(inviteFlow)
 
       // handle OAuth errors
-      const error = searchParams.get('error')
-      const errorDescription = searchParams.get('error_description')
-      if (error) {
-        let errorMessage = t('auth.oauthError')
-        if (error === 'oauth_denied') {
-          errorMessage = t('auth.oauthDenied')
-        } else if (error === 'invalid_state') {
-          errorMessage = t('auth.oauthInvalidState')
-        } else if (error === 'oauth_failed') {
-          errorMessage = errorDescription || t('auth.oauthFailed')
-        } else if (errorDescription) {
-          errorMessage = errorDescription
-        }
+      const errorCode = searchParams.get('error_code')
+      const errorMessageParam = searchParams.get('error_message')
+      if (errorCode) {
+        const errorKey = getOAuthCallbackErrorKey(errorCode)
+        const errorMessage =
+          errorMessageParam &&
+          (errorKey === 'auth.oauthFailed' ||
+            errorKey === 'auth.oauthError' ||
+            errorKey === 'auth.oauthDiscoveryFailed')
+            ? errorMessageParam
+            : t(errorKey)
         setOauthError(errorMessage)
         // clear error params from URL
         const url = new URL(window.location.href)
-        url.searchParams.delete('error')
-        url.searchParams.delete('error_description')
+        url.searchParams.delete('error_code')
+        url.searchParams.delete('error_message')
         window.history.replaceState({}, '', url.toString())
       }
     }
@@ -164,14 +209,16 @@ export default function LoginPage() {
       logger.error('Error requesting password reset:', { error })
 
       let errorMessage = 'Failed to request password reset'
-      if (error instanceof Error) {
-        if (error.message.includes('invalid email')) {
+      if (error instanceof ApiError) {
+        if (error.code === 'INVALID_EMAIL') {
           errorMessage = 'Please enter a valid email address'
-        } else if (error.message.includes('Email is required')) {
+        } else if (error.code === 'EMAIL_REQUIRED') {
           errorMessage = 'Please enter your email address'
         } else {
           errorMessage = error.message
         }
+      } else if (error instanceof Error) {
+        errorMessage = error.message
       }
 
       toastError(errorMessage)
@@ -232,20 +279,9 @@ export default function LoginPage() {
 
             let displayMessage = t('auth.invalidCredentials')
 
-            if (errorCode === 'INVALID_CREDENTIALS') {
-              displayMessage = t('auth.invalidCredentials')
-            } else if (errorCode === 'USER_NOT_FOUND') {
-              displayMessage = t('auth.userNotFound')
-            } else if (errorCode === 'MISSING_CREDENTIALS') {
-              displayMessage = t('auth.invalidCredentials')
-            } else if (errorCode === 'EMAIL_PASSWORD_DISABLED') {
-              displayMessage = t('auth.emailSignInDisabled')
-            } else if (errorCode === 'FAILED_TO_CREATE_SESSION') {
-              displayMessage = t('auth.invalidCredentials')
-            } else if (errorCode === 'RATE_LIMITED') {
-              displayMessage = t('auth.tooManyAttempts')
-            } else if (errorCode === 'network' || errorMessage.includes('network')) {
-              displayMessage = t('auth.networkError')
+            const messageKey = getAuthErrorMessageKey(errorCode)
+            if (messageKey) {
+              displayMessage = t(messageKey)
             } else if (errorMessage) {
               displayMessage = errorMessage
             }
@@ -272,14 +308,9 @@ export default function LoginPage() {
 
           let displayMessage = t('auth.invalidCredentials')
 
-          if (errorCode === 'INVALID_CREDENTIALS') {
-            displayMessage = t('auth.invalidCredentials')
-          } else if (errorCode === 'USER_NOT_FOUND') {
-            displayMessage = t('auth.userNotFound')
-          } else if (errorCode === 'RATE_LIMITED') {
-            displayMessage = t('auth.tooManyAttempts')
-          } else if (errorCode === 'network' || errorMsg.includes('network')) {
-            displayMessage = t('auth.networkError')
+          const messageKey = getAuthErrorMessageKey(errorCode)
+          if (messageKey) {
+            displayMessage = t(messageKey)
           } else if (errorMsg) {
             displayMessage = errorMsg
           }
@@ -333,7 +364,7 @@ export default function LoginPage() {
       }, 50)
     } catch (err: unknown) {
       const error = err as { message?: string; code?: string }
-      if (error.message?.includes('not verified') || error.code?.includes('EMAIL_NOT_VERIFIED')) {
+      if (error.code === 'EMAIL_NOT_VERIFIED') {
         if (typeof window !== 'undefined') {
           sessionStorage.setItem('verificationEmail', email)
         }

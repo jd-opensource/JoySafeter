@@ -170,6 +170,8 @@ def _validate_file_content(filename: str, content: bytes) -> None:
         logger.warning(f"File content validation failed for {filename}: got {content_start[:16].hex()}")
         raise InvalidRequestError(
             f"File content does not match declared type: {file_ext}",
+            code="FILE_CONTENT_TYPE_MISMATCH",
+            data={"filename": filename, "file_type": file_ext},
         )
 
 
@@ -177,7 +179,11 @@ def _validate_file_type(filename: str, content_type: str | None) -> None:
     """Validate file type (extension and MIME type)."""
     file_ext = Path(filename).suffix.lower()
     if file_ext and file_ext not in ALLOWED_EXTENSIONS:
-        raise InvalidRequestError(f"File type {file_ext} is not supported")
+        raise InvalidRequestError(
+            f"File type {file_ext} is not supported",
+            code="FILE_TYPE_UNSUPPORTED",
+            data={"filename": filename, "file_type": file_ext},
+        )
     if content_type:
         inferred_type, _ = mimetypes.guess_type(filename)
         if inferred_type and content_type != inferred_type:
@@ -203,11 +209,17 @@ def _validate_file_upload(
 ) -> tuple[str, None] | tuple[None, InvalidRequestError]:
     """Validate file upload (size, type, content). Returns (safe_filename, None) or (None, error)."""
     if len(content) == 0:
-        return None, InvalidRequestError("File cannot be empty")
+        return None, InvalidRequestError(
+            "File cannot be empty",
+            code="FILE_EMPTY",
+            data={"filename": filename},
+        )
 
     if len(content) > MAX_FILE_SIZE_BYTES:
         return None, InvalidRequestError(
-            f"File size exceeds maximum allowed size ({MAX_FILE_SIZE_BYTES / 1024 / 1024}MB)"
+            f"File size exceeds maximum allowed size ({MAX_FILE_SIZE_BYTES / 1024 / 1024}MB)",
+            code="FILE_TOO_LARGE",
+            data={"filename": filename, "max_size_bytes": MAX_FILE_SIZE_BYTES},
         )
 
     safe_filename = sanitize_filename(filename)
@@ -361,7 +373,11 @@ async def read_file(
                 content = await asyncio.to_thread(handle.adapter.raw_read, container_path)
 
             if content.startswith("[Error:") or content.startswith("Error:"):
-                raise NotFoundError("File not found")
+                raise NotFoundError(
+                    "File not found",
+                    code="FILE_NOT_FOUND",
+                    data={"filename": safe_filename},
+                )
 
             # raw_read returns text; encode back to bytes via latin-1 to preserve binary data
             content_bytes = content.encode("latin-1")
@@ -381,7 +397,11 @@ async def read_file(
             content = await asyncio.to_thread(handle.adapter.raw_read, container_path)
 
         if content.startswith("[Error:") or content.startswith("Error:"):
-            raise NotFoundError("File not found")
+            raise NotFoundError(
+                "File not found",
+                code="FILE_NOT_FOUND",
+                data={"filename": safe_filename},
+            )
 
         # raw_read returns text; for binary files it may be garbled
         is_binary = False
@@ -431,7 +451,11 @@ async def delete_file(request: Request, filename: str, current_user: CurrentUser
             ok = await asyncio.to_thread(handle.adapter.delete, container_path)
 
         if not ok:
-            raise NotFoundError(f"File not found: {filename}")
+            raise NotFoundError(
+                "File not found",
+                code="FILE_NOT_FOUND",
+                data={"filename": safe_filename},
+            )
 
         logger.info(f"File deleted: user={current_user.id}, filename={safe_filename}, ip={client_ip}")
 

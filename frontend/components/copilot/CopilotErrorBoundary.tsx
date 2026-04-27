@@ -4,6 +4,7 @@ import { AlertCircle } from 'lucide-react'
 import React, { Component, ErrorInfo, ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { ApiError } from '@/lib/api-client'
 
 interface Props {
   children: ReactNode
@@ -55,8 +56,11 @@ export class CopilotErrorBoundary extends Component<Props, State> {
       }
 
       const errorMessage = this.state.error?.message || 'An unexpected error occurred'
-      const isNetworkError = errorMessage.includes('fetch') || errorMessage.includes('network')
-      const isWebSocketError = errorMessage.includes('WebSocket') || errorMessage.includes('ws')
+      const errorCode =
+        this.state.error instanceof ApiError ? this.state.error.code : undefined
+      const isNetworkError = errorCode === 'NETWORK_ERROR' || errorCode === 'REQUEST_TIMEOUT'
+      const isWebSocketError =
+        errorCode === 'WEBSOCKET_CONNECTION_FAILED' || errorCode === 'WEBSOCKET_UNAVAILABLE'
 
       return (
         <div className="flex min-h-[200px] flex-col items-center justify-center p-8 text-center">

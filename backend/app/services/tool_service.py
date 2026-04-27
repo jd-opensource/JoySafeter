@@ -232,7 +232,11 @@ class ToolService(BaseService[McpServer]):
         server = await self._server_service.get(server_id, user_id)
 
         if not server.enabled:
-            raise InvalidRequestError("Cannot refresh tools for disabled server")
+            raise InvalidRequestError(
+                "Cannot refresh tools for disabled server",
+                code="MCP_SERVER_REFRESH_DISABLED",
+                data={"server_id": str(server_id)},
+            )
 
         return await self._sync_server_tools(server)
 

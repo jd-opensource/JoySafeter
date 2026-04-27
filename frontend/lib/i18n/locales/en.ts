@@ -772,6 +772,11 @@ const en = {
       oauthError: 'Authentication failed. Please try again.',
       oauthDenied: 'Authentication was cancelled.',
       oauthInvalidState: 'Invalid authentication state. Please try again.',
+      oauthProviderNotFound: 'The selected authentication provider is unavailable.',
+      oauthDiscoveryFailed: 'Failed to initialize the authentication provider. Please try again later.',
+      oauthAuthorizeUrlMissing: 'The authentication provider is not configured correctly.',
+      oauthTokenUrlMissing: 'The authentication token endpoint is not configured correctly.',
+      oauthUserinfoUrlMissing: 'The authentication user info endpoint is not configured correctly.',
       oauthFailed: 'Authentication failed. Please try again.',
     },
     workspace: {

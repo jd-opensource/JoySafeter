@@ -168,7 +168,11 @@ async def delete_memory(
     db = MemoryService(db_session)
     success = await db.delete_user_memory(memory_id=memory_id, user_id=str(current_user.id))
     if not success:
-        raise NotFoundError(f"Memory with ID {memory_id} not found")
+        raise NotFoundError(
+            "Memory not found",
+            code="MEMORY_NOT_FOUND",
+            data={"memory_id": memory_id},
+        )
     return None
 
 
@@ -193,7 +197,11 @@ async def delete_memories(
     current_user: User = Depends(get_current_user),
 ) -> None:
     if not request.memory_ids:
-        raise InvalidRequestError("memory_ids must not be empty")
+        raise InvalidRequestError(
+            "memory_ids must not be empty",
+            code="MEMORY_IDS_EMPTY",
+            data={"memory_ids": request.memory_ids},
+        )
     db = MemoryService(db_session)
     await db.delete_user_memories(memory_ids=request.memory_ids, user_id=str(current_user.id))
     return None
@@ -285,7 +293,11 @@ async def get_memory(
 
     user_memory = await db.get_user_memory(memory_id=memory_id, user_id=str(current_user.id), deserialize=False)
     if not user_memory:
-        raise NotFoundError(f"Memory with ID {memory_id} not found")
+        raise NotFoundError(
+            "Memory not found",
+            code="MEMORY_NOT_FOUND",
+            data={"memory_id": memory_id},
+        )
 
     return UserMemorySchema.from_dict(_normalize_memory_dict(user_memory))  # type: ignore
 
@@ -389,12 +401,15 @@ async def optimize_memories(
         if not request.model:
             raise InvalidRequestError(
                 "Model is required. Specify 'model' in format 'provider:model_name' (e.g., 'openai:gpt-4o-mini').",
+                code="MEMORY_OPTIMIZATION_MODEL_REQUIRED",
             )
 
         provider_name, model_name = parse_model_ref(request.model)
         if not model_name:
             raise InvalidRequestError(
                 "Invalid model format. Specify 'model' in format 'provider:model_name' (e.g., 'openai:gpt-4o-mini').",
+                code="MEMORY_OPTIMIZATION_MODEL_INVALID",
+                data={"model": request.model},
             )
 
         model_service = ModelService(db_session)
@@ -419,7 +434,11 @@ async def optimize_memories(
         user_id = request.user_id or str(current_user.id)
         memories_before = await memory_manager.aget_user_memories(user_id=user_id)
         if not memories_before:
-            raise NotFoundError(f"No memories found for user {user_id}")
+            raise NotFoundError(
+                "No memories found for user",
+                code="MEMORY_NOT_FOUND",
+                data={"user_id": user_id},
+            )
 
         # Count tokens before optimization
         strategy = SummarizeStrategy()

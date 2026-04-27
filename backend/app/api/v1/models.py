@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.app_errors import InvalidRequestError
 from app.common.dependencies import get_current_user
 from app.common.response import success_response
 from app.core.database import get_db
@@ -67,9 +68,11 @@ async def list_available_models(
     try:
         model_type_enum = ModelType(model_type)
     except ValueError:
-        from app.common.app_errors import InvalidRequestError
-
-        raise InvalidRequestError(f"Unsupported model type: {model_type}")
+        raise InvalidRequestError(
+            f"Unsupported model type: {model_type}",
+            code="MODEL_TYPE_UNSUPPORTED",
+            data={"model_type": model_type},
+        )
 
     service = ModelService(db)
     models = await service.get_available_models(model_type=model_type_enum, user_id=current_user.id)
@@ -86,9 +89,11 @@ async def create_model_instance(
     try:
         model_type_enum = ModelType(payload.model_type)
     except ValueError:
-        from app.common.app_errors import InvalidRequestError
-
-        raise InvalidRequestError(f"Unsupported model type: {payload.model_type}")
+        raise InvalidRequestError(
+            f"Unsupported model type: {payload.model_type}",
+            code="MODEL_TYPE_UNSUPPORTED",
+            data={"model_type": payload.model_type},
+        )
 
     service = ModelService(db)
     instance = await service.create_model_instance_config(

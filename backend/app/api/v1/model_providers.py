@@ -76,7 +76,11 @@ async def get_provider(
     if not provider:
         from app.common.app_errors import NotFoundError
 
-        raise NotFoundError(f"Provider not found: {provider_name}")
+        raise NotFoundError(
+            "Provider not found",
+            code="MODEL_PROVIDER_NOT_FOUND",
+            data={"provider_name": provider_name},
+        )
 
     return success_response(data=provider, message="Provider details retrieved")
 

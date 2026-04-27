@@ -40,6 +40,15 @@ class SkillService(BaseService[Skill]):
         self.repo = SkillRepository(db)
         self.file_repo = SkillFileRepository(db)
 
+    def _invalid_import_files_error(self, invalid_files: List[str]) -> InvalidRequestError:
+        invalid_list = "\n".join(f"  - {file_name}" for file_name in invalid_files)
+        return InvalidRequestError(
+            f"The following files cannot be imported (binary files or system files):\n{invalid_list}\n\n"
+            f"Skill import only supports text files (.py, .md, .json, .yaml, etc.)",
+            code="SKILL_IMPORT_FILES_INVALID",
+            data={"files": invalid_files},
+        )
+
     async def list_skills(
         self,
         current_user_id: Optional[str] = None,
@@ -276,11 +285,7 @@ class SkillService(BaseService[Skill]):
 
             # If there are invalid files, raise an error
             if invalid_files:
-                invalid_list = "\n".join(f"  - {f}" for f in invalid_files)
-                raise InvalidRequestError(
-                    f"The following files cannot be imported (binary files or system files):\n{invalid_list}\n\n"
-                    f"Skill import only supports text files (.py, .md, .json, .yaml, etc.)"
-                )
+                raise self._invalid_import_files_error(invalid_files)
 
         await self.db.commit()
         await self.db.refresh(skill)
@@ -467,11 +472,7 @@ class SkillService(BaseService[Skill]):
 
             # If there are invalid files, raise an error
             if invalid_files:
-                invalid_list = "\n".join(f"  - {f}" for f in invalid_files)
-                raise InvalidRequestError(
-                    f"The following files cannot be imported (binary files or system files):\n{invalid_list}\n\n"
-                    f"Skill import only supports text files (.py, .md, .json, .yaml, etc.)"
-                )
+                raise self._invalid_import_files_error(invalid_files)
 
         await self.db.commit()
         await self.db.refresh(skill)

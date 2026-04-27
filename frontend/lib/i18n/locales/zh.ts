@@ -766,6 +766,11 @@ const zh = {
       oauthError: '认证失败，请重试。',
       oauthDenied: '认证已取消。',
       oauthInvalidState: '认证状态无效，请重试。',
+      oauthProviderNotFound: '所选认证提供方当前不可用。',
+      oauthDiscoveryFailed: '认证提供方初始化失败，请稍后重试。',
+      oauthAuthorizeUrlMissing: '认证提供方配置不完整。',
+      oauthTokenUrlMissing: '认证令牌端点配置不完整。',
+      oauthUserinfoUrlMissing: '认证用户信息端点配置不完整。',
       oauthFailed: '认证失败，请重试。',
     },
     workspace: {
