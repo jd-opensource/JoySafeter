@@ -87,6 +87,32 @@ class DispatchService:
             model_name=model_name,
         )
 
+    async def dispatch_copilot_draft(
+        self,
+        agent_id: uuid.UUID,
+        version_id: uuid.UUID,
+        workspace_id: uuid.UUID,
+        prompt: str,
+        user_id: str,
+        graph_context: dict,
+        conversation_history: list | None = None,
+        mode: str = "deepagents",
+        provider_name: str | None = None,
+        model_name: str | None = None,
+    ) -> AgentRun:
+        return await self._orchestrator.dispatch_copilot_draft(
+            agent_id=agent_id,
+            version_id=version_id,
+            workspace_id=workspace_id,
+            prompt=prompt,
+            user_id=user_id,
+            graph_context=graph_context,
+            conversation_history=conversation_history,
+            mode=mode,
+            provider_name=provider_name,
+            model_name=model_name,
+        )
+
     async def cancel_run(self, run_id: uuid.UUID) -> AgentRun:
         return await self._orchestrator.cancel_run(run_id)
 

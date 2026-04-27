@@ -7,6 +7,7 @@ from app.common.dependencies import CurrentUser
 from app.core.database import get_db
 from app.schemas import BaseResponse
 from app.schemas.copilot import CopilotRunRequest, CopilotRunResponse
+from app.services.dispatch_service import DispatchService
 
 router = APIRouter(prefix="/v1/copilot", tags=["copilot"])
 
@@ -22,11 +23,11 @@ async def copilot_run(
     Returns run_id + execution_id. Subscribe to the execution WebSocket
     for real-time events (same as any other execution).
     """
-    from app.services.dispatch_service import DispatchService
-
     dispatch = DispatchService(db)
-    run = await dispatch.dispatch_copilot(
+    run = await dispatch.dispatch_copilot_draft(
         agent_id=body.agent_id,
+        version_id=body.version_id,
+        workspace_id=body.workspace_id,
         prompt=body.prompt,
         user_id=str(current_user.id),
         graph_context=body.graph_context,

@@ -7,6 +7,8 @@ from pydantic import BaseModel
 class CopilotRunRequest(BaseModel):
     """Dispatch a copilot interaction through the execution engine."""
     agent_id: uuid.UUID
+    version_id: uuid.UUID
+    workspace_id: uuid.UUID
     prompt: str
     graph_context: dict[str, Any]
     conversation_history: list[dict[str, Any]] = []
