@@ -377,7 +377,7 @@ class AuthService(BaseService):
     async def reset_password_for_current_user(self, user: AuthUser, new_password: str) -> bool:
         """Reset password for the current logged-in user (no old password required)."""
         if not user or not user.is_active:
-            raise InvalidRequestError("User not found or inactive")
+            raise InvalidRequestError("User not found or inactive", code="USER_INVALID")
         user.hashed_password = get_password_hash(new_password)
         await self.commit()
         return True

@@ -66,7 +66,11 @@ class OAuthService(BaseService):
         """
         provider = self.oauth_config.get_provider(provider_name)
         if not provider:
-            raise InvalidRequestError(f"OAuth provider '{provider_name}' not found or not enabled")
+            raise InvalidRequestError(
+                f"OAuth provider '{provider_name}' not found or not enabled",
+                code="OAUTH_PROVIDER_NOT_FOUND",
+                data={"provider_name": provider_name},
+            )
 
         # Generate or reuse state
         if not state:
@@ -167,7 +171,11 @@ class OAuthService(BaseService):
         """
         provider = self.oauth_config.get_provider(provider_name)
         if not provider:
-            raise InvalidRequestError(f"OAuth provider '{provider_name}' not found")
+            raise InvalidRequestError(
+                f"OAuth provider '{provider_name}' not found",
+                code="OAUTH_PROVIDER_NOT_FOUND",
+                data={"provider_name": provider_name},
+            )
 
         # Get token URL
         token_url: Optional[str] = provider.token_url or None
@@ -252,7 +260,11 @@ class OAuthService(BaseService):
         """
         provider = self.oauth_config.get_provider(provider_name)
         if not provider:
-            raise InvalidRequestError(f"OAuth provider '{provider_name}' not found")
+            raise InvalidRequestError(
+                f"OAuth provider '{provider_name}' not found",
+                code="OAUTH_PROVIDER_NOT_FOUND",
+                data={"provider_name": provider_name},
+            )
 
         # Get userinfo URL
         userinfo_url = provider.userinfo_url
@@ -341,7 +353,11 @@ class OAuthService(BaseService):
         """
         provider = self.oauth_config.get_provider(provider_name)
         if not provider:
-            raise InvalidRequestError(f"OAuth provider '{provider_name}' not found")
+            raise InvalidRequestError(
+                f"OAuth provider '{provider_name}' not found",
+                code="OAUTH_PROVIDER_NOT_FOUND",
+                data={"provider_name": provider_name},
+            )
 
         mapping = provider.user_mapping
 
@@ -419,11 +435,13 @@ class OAuthService(BaseService):
 
         # 3) Create new user
         if not oauth_settings.allow_registration:
-            raise AuthenticationError("Registration via OAuth is not allowed. Please sign up first.")
+            raise AuthenticationError("Registration via OAuth is not allowed. Please sign up first.", code="OAUTH_REGISTRATION_DISABLED")
 
         if not email:
             raise InvalidRequestError(
-                f"Email is required for registration. Please ensure your {provider_name} account has a verified email."
+                f"Email is required for registration. Please ensure your {provider_name} account has a verified email.",
+                code="OAUTH_EMAIL_REQUIRED",
+                data={"provider_name": provider_name},
             )
 
         # Create new user
@@ -556,7 +574,7 @@ class OAuthService(BaseService):
         # Ensure user can still sign in after unlink
         user = await self.user_repo.get_by_id(user_id)
         if not user:
-            raise InvalidRequestError("User not found")
+            raise InvalidRequestError("User not found", code="USER_NOT_FOUND", data={"user_id": user_id})
 
         # Get all user OAuth bindings
         oauth_accounts = await self.get_user_oauth_accounts(user_id)
@@ -570,7 +588,10 @@ class OAuthService(BaseService):
 
         # Disallow unlink when no password and only one OAuth binding
         if not user.hashed_password and len(oauth_accounts) == 1:
-            raise InvalidRequestError("Cannot unlink the only OAuth account. Please set a password first.")
+            raise InvalidRequestError(
+                "Cannot unlink the only OAuth account. Please set a password first.",
+                code="OAUTH_LAST_ACCOUNT_UNLINK_FORBIDDEN",
+            )
 
         await self._delete_oauth_account(target_account)
         logger.info(f"{LOG_PREFIX} Unlinked OAuth account: {provider_name} from user {user_id}")

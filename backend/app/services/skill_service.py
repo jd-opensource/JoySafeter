@@ -62,7 +62,7 @@ class SkillService(BaseService[Skill]):
         """Get Skill details"""
         skill = await self.repo.get_with_files(skill_id)
         if not skill or not isinstance(skill, Skill):
-            raise NotFoundError("Skill not found")
+            raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
 
         # Permission check: collaborator-aware
         if current_user_id:
@@ -73,7 +73,7 @@ class SkillService(BaseService[Skill]):
                 CollaboratorRole.viewer,
             )
         elif not skill.is_public:
-            raise AccessDeniedError("You don't have permission to access this skill")
+            raise AccessDeniedError("You don't have permission to access this skill", code="SKILL_ACCESS_DENIED")
 
         # Type assertion: get_with_files returns Optional[Skill], we've already checked it's not None
         skill = await self._attach_latest_version(skill)
@@ -313,7 +313,7 @@ class SkillService(BaseService[Skill]):
         """
         skill = await self.repo.get(skill_id)
         if not skill:
-            raise NotFoundError("Skill not found")
+            raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
 
         # Permission check: collaborator-aware (editor role)
         await check_skill_access(
@@ -486,11 +486,11 @@ class SkillService(BaseService[Skill]):
         """Delete Skill"""
         skill = await self.repo.get(skill_id)
         if not skill:
-            raise NotFoundError("Skill not found")
+            raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
 
         # Permission check: Only owner can delete
         if skill.owner_id != current_user_id:
-            raise AccessDeniedError("Only the owner can delete a skill")
+            raise AccessDeniedError("Only the owner can delete a skill", code="SKILL_DELETE_FORBIDDEN")
 
         # Delete associated files
         await self.file_repo.delete_by_skill(skill_id)
@@ -520,7 +520,7 @@ class SkillService(BaseService[Skill]):
         """Add file to Skill"""
         skill = await self.repo.get(skill_id)
         if not skill:
-            raise NotFoundError("Skill not found")
+            raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
 
         # Permission check: collaborator-aware (editor role)
         await check_skill_access(
@@ -532,14 +532,20 @@ class SkillService(BaseService[Skill]):
 
         # Check if it's a system file
         if is_system_file(path) or is_system_file(file_name):
-            raise InvalidRequestError(f"File '{path}' is a system file and cannot be imported")
+            raise InvalidRequestError(
+                f"File '{path}' is a system file and cannot be imported",
+                code="SKILL_SYSTEM_FILE_IMPORT_FORBIDDEN",
+                data={"path": path},
+            )
 
         # Validate content if provided
         if content is not None:
             is_valid, error_msg = is_valid_text_content(content)
             if not is_valid:
                 raise InvalidRequestError(
-                    f"File '{path}' {error_msg}. Skill import only supports text files (.py, .md, .json, .yaml, etc.)"
+                    f"File '{path}' {error_msg}. Skill import only supports text files (.py, .md, .json, .yaml, etc.)",
+                    code="SKILL_FILE_CONTENT_INVALID",
+                    data={"path": path},
                 )
 
         # Log warning for uncommon file extensions (but don't reject)
@@ -576,11 +582,11 @@ class SkillService(BaseService[Skill]):
         """Delete file"""
         file_obj = await self.file_repo.get(file_id)
         if not file_obj:
-            raise NotFoundError("Skill file not found")
+            raise NotFoundError("Skill file not found", code="SKILL_FILE_NOT_FOUND", data={"file_id": str(file_id)})
 
         skill = await self.repo.get(file_obj.skill_id)
         if not skill:
-            raise NotFoundError("Skill not found")
+            raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(file_obj.skill_id)})
 
         # Permission check: collaborator-aware (editor role)
         await check_skill_access(
@@ -604,11 +610,11 @@ class SkillService(BaseService[Skill]):
         """Update file content"""
         file_obj = await self.file_repo.get(file_id)
         if not file_obj:
-            raise NotFoundError("Skill file not found")
+            raise NotFoundError("Skill file not found", code="SKILL_FILE_NOT_FOUND", data={"file_id": str(file_id)})
 
         skill = await self.repo.get(file_obj.skill_id)
         if not skill:
-            raise NotFoundError("Skill not found")
+            raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(file_obj.skill_id)})
 
         # Permission check: collaborator-aware (editor role)
         await check_skill_access(
@@ -621,7 +627,11 @@ class SkillService(BaseService[Skill]):
         # Check if it's a system file (if path is being updated)
         if path is not None:
             if is_system_file(path) or is_system_file(file_obj.file_name):
-                raise InvalidRequestError(f"File '{path}' is a system file and cannot be imported")
+                raise InvalidRequestError(
+                    f"File '{path}' is a system file and cannot be imported",
+                    code="SKILL_SYSTEM_FILE_IMPORT_FORBIDDEN",
+                    data={"path": path},
+                )
 
             # Log warning for uncommon file extensions (but don't reject)
             is_common, warning = validate_file_extension(path)
@@ -633,7 +643,9 @@ class SkillService(BaseService[Skill]):
             is_valid, error_msg = is_valid_text_content(content)
             if not is_valid:
                 raise InvalidRequestError(
-                    f"File '{file_obj.path}' {error_msg}. Skill import only supports text files (.py, .md, .json, .yaml, etc.)"
+                    f"File '{file_obj.path}' {error_msg}. Skill import only supports text files (.py, .md, .json, .yaml, etc.)",
+                    code="SKILL_FILE_CONTENT_INVALID",
+                    data={"path": file_obj.path},
                 )
 
             file_obj.content = content

@@ -51,17 +51,25 @@ class SkillVersionService(BaseService[SkillVersion]):
         try:
             new_ver = semver.Version.parse(version_str)
         except ValueError:
-            raise InvalidRequestError(f"Invalid version format: '{version_str}'. Must be MAJOR.MINOR.PATCH")
+            raise InvalidRequestError(
+                f"Invalid version format: '{version_str}'. Must be MAJOR.MINOR.PATCH",
+                code="SKILL_VERSION_FORMAT_INVALID",
+                data={"version": version_str},
+            )
         # Reject pre-release / build metadata
         if new_ver.prerelease or new_ver.build:
-            raise InvalidRequestError("Pre-release and build metadata are not supported")
+            raise InvalidRequestError("Pre-release and build metadata are not supported", code="SKILL_VERSION_PRERELEASE_UNSUPPORTED")
 
         # Check > highest existing
         highest_str = await self.repo.get_highest_version_str(skill_id)
         if highest_str:
             highest = semver.Version.parse(highest_str)
             if new_ver <= highest:
-                raise InvalidRequestError(f"Version {version_str} must be greater than current highest {highest_str}")
+                raise InvalidRequestError(
+                    f"Version {version_str} must be greater than current highest {highest_str}",
+                    code="SKILL_VERSION_NOT_GREATER_THAN_LATEST",
+                    data={"version": version_str, "latest_version": highest_str},
+                )
 
         # Snapshot
         sv = SkillVersion(
@@ -141,7 +149,11 @@ class SkillVersionService(BaseService[SkillVersion]):
         )
         sv = await self.repo.get_by_version(skill_id, version_str)
         if not sv:
-            raise NotFoundError(f"Version {version_str} not found")
+            raise NotFoundError(
+                "Skill version not found",
+                code="SKILL_VERSION_NOT_FOUND",
+                data={"skill_id": str(skill_id), "version": version_str},
+            )
         return sv  # type: ignore[return-value,no-any-return]
 
     async def get_latest_version(
@@ -163,7 +175,7 @@ class SkillVersionService(BaseService[SkillVersion]):
         )
         sv = await self.repo.get_latest(skill_id)
         if not sv:
-            raise NotFoundError("No published versions found")
+            raise NotFoundError("No published versions found", code="SKILL_VERSION_NOT_FOUND", data={"skill_id": str(skill_id)})
         return sv  # type: ignore[return-value,no-any-return]
 
     async def delete_version(
@@ -186,7 +198,11 @@ class SkillVersionService(BaseService[SkillVersion]):
         )
         sv = await self.repo.get_by_version(skill_id, version_str)
         if not sv:
-            raise NotFoundError(f"Version {version_str} not found")
+            raise NotFoundError(
+                "Skill version not found",
+                code="SKILL_VERSION_NOT_FOUND",
+                data={"skill_id": str(skill_id), "version": version_str},
+            )
         await self.db.delete(sv)
         await self.db.commit()
 
@@ -210,7 +226,11 @@ class SkillVersionService(BaseService[SkillVersion]):
         )
         sv = await self.repo.get_by_version(skill_id, version_str)
         if not sv:
-            raise NotFoundError(f"Version {version_str} not found")
+            raise NotFoundError(
+                "Skill version not found",
+                code="SKILL_VERSION_NOT_FOUND",
+                data={"skill_id": str(skill_id), "version": version_str},
+            )
 
         # Overwrite draft
         skill.name = sv.skill_name
@@ -245,11 +265,11 @@ class SkillVersionService(BaseService[SkillVersion]):
     async def _get_skill_or_404(self, skill_id: uuid.UUID) -> Skill:
         skill = await self.skill_repo.get(skill_id)
         if not skill:
-            raise NotFoundError("Skill not found")
+            raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
         return skill  # type: ignore[return-value,no-any-return]
 
     async def _get_skill_with_files_or_404(self, skill_id: uuid.UUID) -> Skill:
         skill = await self.skill_repo.get_with_files(skill_id)
         if not skill:
-            raise NotFoundError("Skill not found")
+            raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
         return skill  # type: ignore[return-value,no-any-return]

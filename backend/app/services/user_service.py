@@ -123,7 +123,7 @@ class UserService(BaseService):
         """Delete a user."""
         user = await self.user_repo.get_by_id(user_id)
         if not user:
-            raise NotFoundError("User not found")
+            raise NotFoundError("User not found", code="USER_NOT_FOUND", data={"user_id": user_id})
 
         import uuid as uuid_lib
 
