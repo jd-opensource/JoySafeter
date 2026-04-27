@@ -5,6 +5,8 @@
  * executions, consistent with the rest of the execution flow.
  */
 
+import { createApiError, ApiError } from '@/lib/api-client'
+
 import { useExecutionStore } from '../stores/execution/executionStore'
 
 import { executionAdapter } from './executionAdapter'
@@ -33,14 +35,22 @@ export async function resumeWithCommand(
   const graphId = store.currentGraphId
 
   if (!graphId) {
-    throw new Error('No active graph for resume')
+    throw createApiError(400, 'Bad Request', {
+      code: 'EXECUTION_RESUME_GRAPH_MISSING',
+      message: 'No active graph for resume',
+      data: null,
+    })
   }
 
   const context = store.getContext(graphId)
   const runId = context.runId
 
   if (!runId) {
-    throw new Error('No active run to resume — runId not found in execution context')
+    throw createApiError(400, 'Bad Request', {
+      code: 'EXECUTION_RESUME_RUN_MISSING',
+      message: 'No active run to resume',
+      data: { graph_id: graphId },
+    })
   }
 
   try {
@@ -53,6 +63,13 @@ export async function resumeWithCommand(
       throw e
     }
     store.setExecuting(false)
-    throw new Error(`Resume failed: ${error?.message || String(e)}`)
+    if (e instanceof ApiError) {
+      throw e
+    }
+    throw createApiError(0, 'Resume Failed', {
+      code: 'EXECUTION_RESUME_FAILED',
+      message: error?.message || 'Resume failed',
+      data: { run_id: runId, graph_id: graphId },
+    })
   }
 }

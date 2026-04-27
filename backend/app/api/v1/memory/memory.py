@@ -142,7 +142,11 @@ async def create_memory(
     )
 
     if not user_memory:
-        raise InternalServiceError("Failed to create memory")
+        raise InternalServiceError(
+            "Failed to create memory",
+            code="MEMORY_CREATE_FAILED",
+            data={"user_id": payload.user_id},
+        )
 
     return UserMemorySchema.from_dict(_normalize_memory_dict(user_memory))  # type: ignore
 
@@ -363,7 +367,11 @@ async def update_memory(
         deserialize=False,
     )
     if not user_memory:
-        raise InternalServiceError("Failed to update memory")
+        raise InternalServiceError(
+            "Failed to update memory",
+            code="MEMORY_UPDATE_FAILED",
+            data={"memory_id": memory_id, "user_id": payload.user_id},
+        )
 
     return UserMemorySchema.from_dict(_normalize_memory_dict(user_memory))  # type: ignore
 
@@ -492,4 +500,8 @@ async def optimize_memories(
         raise
     except Exception as e:
         logger.error(f"Failed to optimize memories for user {request.user_id}: {str(e)}")
-        raise InternalServiceError(f"Failed to optimize memories: {str(e)}")
+        raise InternalServiceError(
+            "Failed to optimize memories",
+            code="MEMORY_OPTIMIZATION_FAILED",
+            data={"user_id": request.user_id or str(current_user.id)},
+        ) from e

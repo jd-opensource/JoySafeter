@@ -278,7 +278,11 @@ async def upload_file(
             await asyncio.to_thread(handle.adapter.mkdir, CONTAINER_UPLOADS_PATH)
             result = await asyncio.to_thread(handle.adapter.write_overwrite, container_path, content)
             if getattr(result, "error", None):
-                raise InternalServiceError(f"Failed to write file: {result.error}")
+                raise InternalServiceError(
+                    "Failed to write file",
+                    code="FILE_WRITE_FAILED",
+                    data={"filename": safe_filename, "error": str(result.error)},
+                )
 
         logger.info(
             f"File uploaded to sandbox: user={current_user.id}, "
@@ -303,7 +307,11 @@ async def upload_file(
             f"Failed to upload file: user={current_user.id}, filename={original_filename}, ip={client_ip}, error={e}",
             exc_info=True,
         )
-        raise InternalServiceError("Failed to upload file, please try again later") from e
+        raise InternalServiceError(
+            "Failed to upload file, please try again later",
+            code="FILE_UPLOAD_FAILED",
+            data={"filename": original_filename},
+        ) from e
 
 
 @router.get(
@@ -340,7 +348,11 @@ async def list_files(current_user: CurrentUser) -> BaseResponse[FileListResponse
         )
     except Exception as e:
         logger.error(f"Failed to list files: {e}", exc_info=True)
-        raise InternalServiceError("Failed to list files, please try again later") from e
+        raise InternalServiceError(
+            "Failed to list files, please try again later",
+            code="FILE_LIST_FAILED",
+            data={"user_id": str(current_user.id)},
+        ) from e
 
 
 @router.get(
@@ -426,7 +438,11 @@ async def read_file(
             f"Failed to read file: user={current_user.id}, filename={filename}, ip={client_ip}, error={e}",
             exc_info=True,
         )
-        raise InternalServiceError("Failed to read file, please try again later") from e
+        raise InternalServiceError(
+            "Failed to read file, please try again later",
+            code="FILE_READ_FAILED",
+            data={"filename": filename},
+        ) from e
 
 
 @router.delete(
@@ -472,7 +488,11 @@ async def delete_file(request: Request, filename: str, current_user: CurrentUser
             f"Failed to delete file: user={current_user.id}, filename={filename}, ip={client_ip}, error={e}",
             exc_info=True,
         )
-        raise InternalServiceError("Failed to delete file, please try again later") from e
+        raise InternalServiceError(
+            "Failed to delete file, please try again later",
+            code="FILE_DELETE_FAILED",
+            data={"filename": filename},
+        ) from e
 
 
 @router.delete(
@@ -506,4 +526,8 @@ async def clear_all_files(request: Request, current_user: CurrentUser) -> BaseRe
         raise
     except Exception as e:
         logger.error(f"Failed to clear files: user={current_user.id}, ip={client_ip}, error={e}", exc_info=True)
-        raise InternalServiceError("Failed to clear files, please try again later") from e
+        raise InternalServiceError(
+            "Failed to clear files, please try again later",
+            code="FILE_CLEAR_FAILED",
+            data={"user_id": str(current_user.id)},
+        ) from e

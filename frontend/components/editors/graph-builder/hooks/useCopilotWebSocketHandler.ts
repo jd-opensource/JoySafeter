@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import type { StageType } from '@/hooks/copilot/useCopilotStreaming'
 import { versionKeys } from '@/hooks/queries/agentVersions'
 import { useTranslation } from '@/lib/i18n'
+import type { AppErrorPayload } from '@/types/agent-run'
 import type { GraphAction } from '@/types/copilot'
 
 import { hasCurrentMessage } from '../utils/copilotUtils'
@@ -98,37 +99,40 @@ export function useCopilotWebSocketHandler({
         }
       },
 
-      onError: (error: string, code?: string) => {
+      onError: (error: AppErrorPayload) => {
         if (!refs.isMountedRef.current) return
         try {
           actions.clearStreaming()
-          let errorMessage = error
-          if (code === 'MODEL_NO_CREDENTIALS') {
+          let errorMessage = error.message
+          if (error.code === 'MODEL_NO_CREDENTIALS') {
             errorMessage = t('workspace.copilotError.credentialNotConfigured', {
               defaultValue: 'No model configured. Please set up your LLM credentials in settings.',
             })
-          } else if (code === 'BUILD_COPILOT_MODEL_REQUIRED') {
+          } else if (error.code === 'BUILD_COPILOT_MODEL_REQUIRED') {
             errorMessage = t('workspace.copilotError.buildCopilotModelRequired', {
               defaultValue: 'Build Copilot has no model configured. Select a model and try again.',
             })
-          } else if (code === 'MODEL_NOT_FOUND') {
+          } else if (error.code === 'MODEL_NOT_FOUND') {
             errorMessage = t('workspace.copilotError.modelNotFound', {
               defaultValue: 'Model not found. Please check your model configuration.',
             })
-          } else if (code === 'MODEL_NAME_REQUIRED') {
+          } else if (error.code === 'MODEL_NAME_REQUIRED') {
             errorMessage = t('workspace.copilotError.modelNameRequired', {
               defaultValue: 'No model selected. Please select a model first.',
             })
-          } else if (code === 'CREDENTIAL_ERROR') {
+          } else if (error.code === 'CREDENTIAL_ERROR') {
             errorMessage = t('workspace.copilotError.credential', {
               defaultValue: 'Authentication error. Please check API credentials.',
             })
-          } else if (error.includes('Connection') || error.includes('WebSocket')) {
+          } else if (
+            error.code === 'WEBSOCKET_CONNECTION_FAILED' ||
+            error.code === 'WEBSOCKET_UNAVAILABLE'
+          ) {
             errorMessage = t('workspace.copilotError.connection', {
               defaultValue: 'Connection error. Please check your network.',
             })
           } else {
-            errorMessage = `${t('workspace.systemError')}: ${error}`
+            errorMessage = `${t('workspace.systemError')}: ${error.message}`
           }
           actions.finalizeCurrentMessage(errorMessage)
         } finally {

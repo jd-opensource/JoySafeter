@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react'
 
-import { apiStream, createApiError, type ApiErrorPayload } from '@/lib/api-client'
+import { ApiError, apiStream, createApiError, type ApiErrorPayload } from '@/lib/api-client'
 import type {
   TestModelStreamMetrics,
   TestModelStreamRequest,
@@ -84,8 +84,8 @@ export function useTestModelStream() {
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') return
       const apiError =
-        err instanceof Error && 'code' in err
-          ? (err as ReturnType<typeof createApiError>)
+        err instanceof ApiError
+          ? err
           : err instanceof Error
             ? createApiError(0, 'Stream Error', {
                 code: 'MODEL_STREAM_CLIENT_ERROR',

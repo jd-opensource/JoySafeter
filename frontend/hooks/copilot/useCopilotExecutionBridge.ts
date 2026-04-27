@@ -21,7 +21,7 @@ interface CopilotCallbacks {
   onToolCall: (tool: string, input: Record<string, unknown>) => void
   onToolResult: (action: { type: string; payload: Record<string, unknown>; reasoning?: string }) => void
   onResult: (response: { message: string; actions?: GraphAction[] }) => Promise<void>
-  onError: (error: string, code?: string) => void
+  onError: (error: AppErrorPayload) => void
   onDone: () => Promise<void>
 }
 
@@ -99,10 +99,11 @@ export function useCopilotExecutionBridge({
           break
 
         case 'error':
-          cb.onError(
-            (payload.message as string) ?? 'Unknown error',
-            payload.code as string | undefined,
-          )
+          cb.onError({
+            code: (payload.code as string) ?? 'UNKNOWN_ERROR',
+            message: (payload.message as string) ?? 'Unknown error',
+            data: (payload.data as Record<string, unknown> | null) ?? null,
+          })
           break
       }
     }
@@ -114,7 +115,7 @@ export function useCopilotExecutionBridge({
     }
 
     const cb = callbacksRef.current
-    cb.onError(error.message, error.code)
+    cb.onError(error)
   }, [error])
 
   useEffect(() => {

@@ -1,6 +1,8 @@
 import { renderHook, act } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { AppErrorPayload } from '@/types/agent-run'
+
 const invalidateQueries = vi.fn()
 
 vi.mock('@tanstack/react-query', () => ({
@@ -70,7 +72,12 @@ describe('useCopilotWebSocketHandler', () => {
     )
 
     act(() => {
-      result.current.onError('Build Copilot has no model configured.', 'BUILD_COPILOT_MODEL_REQUIRED')
+      const error: AppErrorPayload = {
+        code: 'BUILD_COPILOT_MODEL_REQUIRED',
+        message: 'Build Copilot has no model configured.',
+        data: null,
+      }
+      result.current.onError(error)
     })
 
     expect(actions.finalizeCurrentMessage).toHaveBeenCalledWith(
