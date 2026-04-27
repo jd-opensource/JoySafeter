@@ -218,7 +218,7 @@ const zh = {
         visualAgent: 'Visual Agent',
         stageOverview: '当前阶段：{{activeStage}}。默认阶段：{{defaultStage}}',
         rightPanel: {
-          copilot: 'Copilot 构建助手',
+          copilot: '构建助手',
           inspector: '属性面板',
           edgeInspector: '连线属性',
         },
@@ -1041,10 +1041,10 @@ const zh = {
         docker_image: 'Docker 镜像',
       },
       // Copilot Panel
-      copilotSubtitle: 'AI打造生产级智能体',
-      copilotEmptyHeading: 'AI打造生产级智能体',
+      copilotSubtitle: '用于草稿工作流的构建助手',
+      copilotEmptyHeading: '为你的草稿智能体使用构建助手',
       copilotConnected:
-        '请给出具体任务（不是闲聊），我会直接修改画布。我已连接到核心系统，可修改图表结构。',
+        '请给出具体的构建任务，我会直接修改草稿画布。我已连接到图构建器，可修改当前草稿。',
       copilotStartWithBlueprint: '经典构建案例',
       copilotBlueprintRagTitle: 'UEM 告警研判系统',
       copilotBlueprintRagDesc:
@@ -1064,6 +1064,16 @@ const zh = {
       copilotModeDeepAgents: 'DeepAgents 模式',
       copilotStatusMode: '模式：生产级图构建',
       copilotStatusModelPlaceholder: '—',
+      copilotError: {
+        auth: '认证错误。请检查你的凭据。',
+        network: '网络错误。请检查连接后重试。',
+        credentialNotConfigured: '未配置模型。请先在设置中配置你的模型凭据。',
+        buildCopilotModelRequired: '构建助手未配置模型。请选择一个模型后再试。',
+        modelNotFound: '未找到模型。请检查模型配置。',
+        modelNameRequired: '未选择模型。请先选择一个模型。',
+        credential: '认证错误。请检查 API 凭据。',
+        connection: '连接错误。请检查网络。',
+      },
       // Copilot stage labels
       'copilot.stage.thinking': '思考中',
       'copilot.stage.processing': '处理中',
@@ -1540,7 +1550,7 @@ const zh = {
       clearAgent: '清除智能体',
       defaultAgent: '默认Agent',
       noDeployedAgents: '暂无已发布的Agent',
-      autoRedirectToCopilot: '自动构建智能体',
+      autoRedirectToCopilot: '打开构建助手',
       agentModeOn: '智能体自动编排',
       agentModeOff: '智能体自动编排',
       deepThinking: '深度思考',

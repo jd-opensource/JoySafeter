@@ -75,6 +75,12 @@ class CopilotService:
         Uses the same ModelResolver that graph execution uses,
         ensuring consistent credential handling across the system.
         """
+        if not self.provider_name or not self.model_name:
+            raise ModelConfigError(
+                ModelConfigError.BUILD_COPILOT_MODEL_REQUIRED,
+                "Build Copilot has no model configured. Select a model and try again.",
+            )
+
         from app.core.graph.deep_agents.model_resolver import ModelResolver
         from app.services.model_service import ModelService
 

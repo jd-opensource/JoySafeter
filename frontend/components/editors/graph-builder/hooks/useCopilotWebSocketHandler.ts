@@ -1,5 +1,5 @@
 /**
- * useCopilotWebSocketHandler - WebSocket event handler hook for Copilot
+ * useCopilotWebSocketHandler - WebSocket event handler hook for Build Copilot
  *
  * Architecture: Backend is the single writer for graph state. On "result" we only
  * do optimistic render (applyAIChanges, no save). On "done" we invalidate caches
@@ -104,23 +104,27 @@ export function useCopilotWebSocketHandler({
           actions.clearStreaming()
           let errorMessage = error
           if (code === 'MODEL_NO_CREDENTIALS') {
-            errorMessage = t('workspace.copilot.error.credentialNotConfigured', {
+            errorMessage = t('workspace.copilotError.credentialNotConfigured', {
               defaultValue: 'No model configured. Please set up your LLM credentials in settings.',
             })
+          } else if (code === 'BUILD_COPILOT_MODEL_REQUIRED') {
+            errorMessage = t('workspace.copilotError.buildCopilotModelRequired', {
+              defaultValue: 'Build Copilot has no model configured. Select a model and try again.',
+            })
           } else if (code === 'MODEL_NOT_FOUND') {
-            errorMessage = t('workspace.copilot.error.modelNotFound', {
+            errorMessage = t('workspace.copilotError.modelNotFound', {
               defaultValue: 'Model not found. Please check your model configuration.',
             })
           } else if (code === 'MODEL_NAME_REQUIRED') {
-            errorMessage = t('workspace.copilot.error.modelNameRequired', {
+            errorMessage = t('workspace.copilotError.modelNameRequired', {
               defaultValue: 'No model selected. Please select a model first.',
             })
           } else if (code === 'CREDENTIAL_ERROR') {
-            errorMessage = t('workspace.copilot.error.credential', {
+            errorMessage = t('workspace.copilotError.credential', {
               defaultValue: 'Authentication error. Please check API credentials.',
             })
           } else if (error.includes('Connection') || error.includes('WebSocket')) {
-            errorMessage = t('workspace.copilot.error.connection', {
+            errorMessage = t('workspace.copilotError.connection', {
               defaultValue: 'Connection error. Please check your network.',
             })
           } else {

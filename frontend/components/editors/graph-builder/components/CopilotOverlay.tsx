@@ -25,7 +25,7 @@ export function CopilotOverlay({ agentId, expanded, onToggle }: CopilotOverlayPr
         >
           <Sparkles className="h-4 w-4 shrink-0 text-[var(--skill-brand-600)]" />
           {t('graph.copilot.placeholder', {
-            defaultValue: 'Ask Copilot to build or modify your graph...',
+            defaultValue: 'Ask Build Copilot to build or modify your graph...',
           })}
         </button>
       </div>
@@ -37,7 +37,7 @@ export function CopilotOverlay({ agentId, expanded, onToggle }: CopilotOverlayPr
       <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-2">
         <span className="flex items-center gap-1.5 text-sm font-medium">
           <Sparkles className="h-3.5 w-3.5 text-[var(--skill-brand-600)]" />
-          Copilot
+          {t('agents.studio.rightPanel.copilot', { defaultValue: 'Build Copilot' })}
         </span>
         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onToggle}>
           <ChevronDown className="h-4 w-4" />

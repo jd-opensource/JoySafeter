@@ -9,7 +9,7 @@ import { useGraphStore } from '../stores/graphStore'
 
 import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotState'
 
-const logger = createLogger('CopilotEffects')
+const logger = createLogger('DraftCopilotEffects')
 
 interface CopilotSearchParams {
   get: (name: string) => string | null
@@ -67,7 +67,7 @@ export function useCopilotEffects({
           actions.setLoading(false)
         } else if (run.status === 'failed') {
           toast({
-            title: 'Copilot task failed',
+            title: 'Build Copilot task failed',
             description: run.result_summary || 'An error occurred during execution. Please retry.',
             variant: 'destructive',
           })
@@ -103,7 +103,12 @@ export function useCopilotEffects({
       if (lastRestoredSessionIdRef.current || !refs.isMountedRef.current) return
 
       agentRunService
-        .list({ agent_id: agentId, workspace_id: workspaceId, trigger_source: 'copilot', status: 'running' })
+        .list({
+          agent_id: agentId,
+          workspace_id: workspaceId,
+          trigger_source: 'draft_copilot',
+          status: 'running',
+        })
         .then((runs) => {
           if (!refs.isMountedRef.current || runs.length === 0) return
           if (lastRestoredSessionIdRef.current) return
@@ -113,7 +118,7 @@ export function useCopilotEffects({
           }
         })
         .catch((err) => {
-          logger.debug('Failed to check for active copilot run:', err)
+          logger.debug('Failed to check for active draft copilot run:', err)
         })
     }, 50)
 

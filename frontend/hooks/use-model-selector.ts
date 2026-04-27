@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useAvailableModels } from '@/hooks/queries/models'
 import { splitModelId } from '@/lib/utils'
@@ -67,6 +67,15 @@ export function useModelSelector() {
   )
 
   const selectedModel = selected ? `${selected.provider_name}:${selected.model_name}` : undefined
+
+  useEffect(() => {
+    if (selected || modelOptions.length === 0) return
+    const first = modelOptions[0]
+    setSelected({
+      provider_name: first.provider_name,
+      model_name: first.name,
+    })
+  }, [modelOptions, selected])
 
   const modelLabel = useMemo(() => {
     if (selectedModel) {

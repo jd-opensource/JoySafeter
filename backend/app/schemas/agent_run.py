@@ -17,7 +17,7 @@ TriggerSourceLiteral = Literal[
     "scheduler",
     "comment",
     "mention",
-    "copilot",
+    "draft_copilot",
     "draft_test",
 ]
 

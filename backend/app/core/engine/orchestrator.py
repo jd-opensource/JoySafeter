@@ -168,54 +168,6 @@ class ExecutionOrchestrator:
             input_payload=input_payload,
         )
 
-    async def dispatch_copilot(
-        self,
-        agent_id: uuid.UUID,
-        prompt: str,
-        user_id: str,
-        graph_context: dict,
-        conversation_history: list | None = None,
-        mode: str = "deepagents",
-        provider_name: str | None = None,
-        model_name: str | None = None,
-    ) -> AgentRun:
-        """Dispatch a copilot interaction through the execution engine.
-
-        Creates an AgentRun + Execution for the copilot session so that
-        copilot events are persisted as ExecutionEvents and broadcast
-        via WebSocket.
-        """
-        agent = await self._get_agent(agent_id)
-        if not agent.active_release_id:
-            raise BadRequestException(
-                f"Agent '{agent.name}' has no active release. "
-                "Publish a release first to use persistent copilot history."
-            )
-
-        copilot_payload = self._build_copilot_payload(
-            agent_id=agent_id,
-            user_id=user_id,
-            graph_context=graph_context,
-            conversation_history=conversation_history,
-            mode=mode,
-            provider_name=provider_name,
-            model_name=model_name,
-        )
-
-        return await self._create_and_fire(
-            agent=agent,
-            release_id=agent.active_release_id,
-            workspace_id=agent.workspace_id,
-            prompt=prompt,
-            trigger_source="copilot",
-            user_id=user_id,
-            input_payload=copilot_payload,
-            engine_kind_override="copilot",
-            definition_kind_override="copilot",
-            definition_payload_override=copilot_payload,
-            executor_kind_override="copilot",
-        )
-
     async def dispatch_copilot_draft(
         self,
         agent_id: uuid.UUID,
@@ -253,7 +205,7 @@ class ExecutionOrchestrator:
             version=version,
             workspace_id=workspace_id,
             prompt=prompt,
-            trigger_source="copilot",
+            trigger_source="draft_copilot",
             user_id=user_id,
             input_payload=copilot_payload,
             engine_kind_override="copilot",

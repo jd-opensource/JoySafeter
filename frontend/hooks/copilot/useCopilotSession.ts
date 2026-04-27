@@ -6,7 +6,9 @@ interface SessionData {
 }
 
 function readSession(graphId: string): SessionData | null {
-  const raw = localStorage.getItem(`copilot_run_${graphId}`)
+  const raw =
+    localStorage.getItem(`draft_copilot_run_${graphId}`) ??
+    localStorage.getItem(`copilot_run_${graphId}`)
   if (!raw) return null
   try {
     const parsed = JSON.parse(raw)
@@ -37,9 +39,10 @@ export function useCopilotSession(graphId?: string) {
       setSessionState({ runId, executionId })
       if (graphId) {
         localStorage.setItem(
-          `copilot_run_${graphId}`,
+          `draft_copilot_run_${graphId}`,
           JSON.stringify({ runId, executionId }),
         )
+        localStorage.removeItem(`copilot_run_${graphId}`)
       }
     },
     [graphId],
@@ -48,6 +51,7 @@ export function useCopilotSession(graphId?: string) {
   const clearSession = useCallback(() => {
     setSessionState(null)
     if (graphId) {
+      localStorage.removeItem(`draft_copilot_run_${graphId}`)
       localStorage.removeItem(`copilot_run_${graphId}`)
     }
   }, [graphId])

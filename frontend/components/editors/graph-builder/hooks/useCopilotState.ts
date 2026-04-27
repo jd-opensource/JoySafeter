@@ -1,5 +1,5 @@
 /**
- * useCopilotState - Unified state management hook for Copilot
+ * useCopilotState - Unified state management hook for Build Copilot
  *
  * Aggregates four sub-hooks (messages, streaming, actionExecutor, session) into:
  * - state: readonly snapshot (messages, streaming, session, local UI)

@@ -219,7 +219,7 @@ const en = {
         visualAgent: 'Visual Agent',
         stageOverview: 'Current stage: {{activeStage}}. Default stage: {{defaultStage}}',
         rightPanel: {
-          copilot: 'Copilot Builder',
+          copilot: 'Build Copilot',
           inspector: 'Inspector',
           edgeInspector: 'Edge Inspector',
         },
@@ -1054,10 +1054,10 @@ const en = {
         docker_image: 'Docker Image',
       },
       // Copilot Panel
-      copilotSubtitle: 'AI-powered Production-grade MultiAgent',
-      copilotEmptyHeading: 'AI-powered Production-grade Multiagent',
+      copilotSubtitle: 'Build Copilot for draft workflows',
+      copilotEmptyHeading: 'Build Copilot for your draft agent',
       copilotConnected:
-        "Give me a concrete task (not chitchat)—I'll update the canvas directly. I'm connected to the graph and can modify it.",
+        "Give me a concrete build task and I'll update the draft canvas directly. I'm connected to the graph builder and can modify the draft.",
       copilotStartWithBlueprint: 'Classic Build Cases',
       copilotBlueprintRagTitle: 'UEM Alert Analysis System',
       copilotBlueprintRagDesc:
@@ -1077,6 +1077,18 @@ const en = {
       copilotModeDeepAgents: 'DeepAgents',
       copilotStatusMode: 'Mode: Production Graph Builder',
       copilotStatusModelPlaceholder: '—',
+      copilotError: {
+        auth: 'Authentication error. Please check your credentials.',
+        network: 'Network error. Please check your connection and try again.',
+        credentialNotConfigured:
+          'No model configured. Please set up your LLM credentials in settings.',
+        buildCopilotModelRequired:
+          'Build Copilot has no model configured. Select a model and try again.',
+        modelNotFound: 'Model not found. Please check your model configuration.',
+        modelNameRequired: 'No model selected. Please select a model first.',
+        credential: 'Authentication error. Please check API credentials.',
+        connection: 'Connection error. Please check your network.',
+      },
       // Copilot stage labels
       'copilot.stage.thinking': 'Thinking',
       'copilot.stage.processing': 'Processing',
@@ -1564,7 +1576,7 @@ const en = {
       clearAgent: 'Clear Agent',
       defaultAgent: 'Default Agent',
       noDeployedAgents: 'No deployed agents available',
-      autoRedirectToCopilot: 'Auto build agent',
+      autoRedirectToCopilot: 'Open Build Copilot',
       agentModeOn: 'AGENT BUILDER',
       agentModeOff: 'AGENT BUILDER',
       deepThinking: 'Deep Thinking',
@@ -1794,7 +1806,7 @@ const en = {
     },
     graph: {
       copilot: {
-        placeholder: 'Ask Copilot to build or modify your graph...',
+        placeholder: 'Ask Build Copilot to build or modify your graph...',
       },
     },
   },

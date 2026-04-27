@@ -68,25 +68,6 @@ class DispatchService:
             input_payload=input_payload,
         )
 
-    async def dispatch_copilot(
-        self,
-        agent_id: uuid.UUID,
-        prompt: str,
-        user_id: str,
-        graph_context: dict,
-        conversation_history: list | None = None,
-        mode: str = "deepagents",
-        provider_name: str | None = None,
-        model_name: str | None = None,
-    ) -> AgentRun:
-        return await self._orchestrator.dispatch_copilot(
-            agent_id, prompt, user_id, graph_context,
-            conversation_history=conversation_history,
-            mode=mode,
-            provider_name=provider_name,
-            model_name=model_name,
-        )
-
     async def dispatch_copilot_draft(
         self,
         agent_id: uuid.UUID,

@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 
 import { useTranslation } from '@/lib/i18n'
 import { agentRunService } from '@/services/agentRunService'
-import { copilotService } from '@/services/copilotService'
+import { draftCopilotService } from '@/services/draftCopilotService'
 
 import { useGraphStore } from '../stores/graphStore'
 
@@ -63,11 +63,16 @@ export function useCopilotActions({
       const storeState = useGraphStore.getState()
       const storeGraphId = storeState.graphId
       const storeAgentId = storeState.agentId
+      const storeVersionId = storeState.versionId
+      const storeWorkspaceId = storeState.workspaceId
 
-      if (!storeGraphId || !storeAgentId) {
-        console.error('[CopilotPanel] No graphId or agentId in store')
+      if (!storeGraphId || !storeAgentId || !storeVersionId || !storeWorkspaceId) {
+        console.error('[CopilotPanel] Missing graph, agent, version, or workspace in store')
         if (refs.isMountedRef.current) {
           actions.setLoading(false)
+          actions.finalizeCurrentMessage(
+            `${t('workspace.systemError')}: ${t('workspace.couldNotProcessRequest')}`,
+          )
         }
         return
       }
@@ -76,8 +81,10 @@ export function useCopilotActions({
         actions.setCurrentStage({ stage: 'thinking', message: 'Connecting...' })
         actions.setThinkingMessage()
 
-        const { run_id, execution_id } = await copilotService.dispatchRun({
+        const { run_id, execution_id } = await draftCopilotService.dispatchRun({
           agentId: storeAgentId,
+          versionId: storeVersionId,
+          workspaceId: storeWorkspaceId,
           prompt: userText,
           graphContext,
           conversationHistory: state.messages,
@@ -93,7 +100,7 @@ export function useCopilotActions({
         // eslint-disable-next-line react-hooks/immutability
         refs.isCreatingSessionRef.current = false
       } catch (e: unknown) {
-        console.error('[CopilotPanel] Failed to dispatch copilot run:', e)
+        console.error('[DraftCopilotPanel] Failed to dispatch copilot run:', e)
 
         if (!refs.isMountedRef.current) return
 
@@ -105,11 +112,11 @@ export function useCopilotActions({
         if (e && typeof e === 'object') {
           const error = e as { response?: { status?: number }; message?: string }
           if (error.response?.status === 401 || error.response?.status === 403) {
-            errorMessage = t('workspace.copilot.error.auth', {
+            errorMessage = t('workspace.copilotError.auth', {
               defaultValue: 'Authentication error. Please check your credentials.',
             })
           } else if (error.message?.includes('fetch') || error.message?.includes('network')) {
-            errorMessage = t('workspace.copilot.error.network', {
+            errorMessage = t('workspace.copilotError.network', {
               defaultValue: 'Network error. Please check your connection and try again.',
             })
           }
