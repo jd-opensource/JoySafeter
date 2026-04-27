@@ -192,15 +192,15 @@ class ExecutionOrchestrator:
                 "Publish a release first to use persistent copilot history."
             )
 
-        copilot_payload = {
-            "graph_context": graph_context,
-            "conversation_history": conversation_history,
-            "mode": mode,
-            "provider_name": provider_name,
-            "model_name": model_name,
-            "user_id": user_id,
-            "graph_id": str(agent_id),
-        }
+        copilot_payload = self._build_copilot_payload(
+            agent_id=agent_id,
+            user_id=user_id,
+            graph_context=graph_context,
+            conversation_history=conversation_history,
+            mode=mode,
+            provider_name=provider_name,
+            model_name=model_name,
+        )
 
         return await self._create_and_fire(
             agent=agent,
@@ -238,15 +238,15 @@ class ExecutionOrchestrator:
         if agent.workspace_id != workspace_id:
             raise BadRequestException("Agent does not belong to this workspace")
 
-        copilot_payload = {
-            "graph_context": graph_context,
-            "conversation_history": conversation_history,
-            "mode": mode,
-            "provider_name": provider_name,
-            "model_name": model_name,
-            "user_id": user_id,
-            "graph_id": str(agent_id),
-        }
+        copilot_payload = self._build_copilot_payload(
+            agent_id=agent_id,
+            user_id=user_id,
+            graph_context=graph_context,
+            conversation_history=conversation_history,
+            mode=mode,
+            provider_name=provider_name,
+            model_name=model_name,
+        )
 
         return await self._create_and_fire_draft(
             agent=agent,
@@ -279,6 +279,27 @@ class ExecutionOrchestrator:
         if is_cli_definition_kind(version.definition_kind):
             return {"runtime_type": version.definition_kind}
         return {}
+
+    def _build_copilot_payload(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        user_id: str,
+        graph_context: dict,
+        conversation_history: list | None,
+        mode: str,
+        provider_name: str | None,
+        model_name: str | None,
+    ) -> dict:
+        return {
+            "graph_context": graph_context,
+            "conversation_history": conversation_history,
+            "mode": mode,
+            "provider_name": provider_name,
+            "model_name": model_name,
+            "user_id": user_id,
+            "graph_id": str(agent_id),
+        }
 
     # ------------------------------------------------------------------
     # Cancel / Retry / Message / Event helpers
@@ -521,6 +542,12 @@ class ExecutionOrchestrator:
         definition_payload_override: dict | None = None,
         executor_kind_override: str | None = None,
     ) -> AgentRun:
+        self._validate_draft_overrides(
+            engine_kind_override=engine_kind_override,
+            definition_kind_override=definition_kind_override,
+            definition_payload_override=definition_payload_override,
+            executor_kind_override=executor_kind_override,
+        )
         runtime_binding = self._build_draft_runtime_binding(version)
         engine_kind = self._resolve_draft_engine_kind(version)
 
@@ -587,6 +614,25 @@ class ExecutionOrchestrator:
             await self.db.refresh(run)
 
         return run
+
+    def _validate_draft_overrides(
+        self,
+        *,
+        engine_kind_override: str | None,
+        definition_kind_override: str | None,
+        definition_payload_override: dict | None,
+        executor_kind_override: str | None,
+    ) -> None:
+        override_presence = (
+            engine_kind_override is not None,
+            definition_kind_override is not None,
+            definition_payload_override is not None,
+            executor_kind_override is not None,
+        )
+        if any(override_presence) and not all(override_presence):
+            raise BadRequestException(
+                "Draft override parameters must be all absent or all present."
+            )
 
     async def _fire_engine(
         self,
