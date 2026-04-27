@@ -96,14 +96,11 @@ export class ApiError extends Error {
 }
 
 async function extractErrorFromResponse(response: Response): Promise<ApiError> {
-  let errorMessage = response.statusText
-  let errorCode: string | undefined
-  let errorDetail: string | undefined
   let descriptor: ApiErrorDescriptor | undefined
   try {
     const text = await response.text()
     const errorData = JSON.parse(text)
-    const structuredError =
+    descriptor =
       errorData &&
       typeof errorData === 'object' &&
       'error' in errorData &&
@@ -111,25 +108,14 @@ async function extractErrorFromResponse(response: Response): Promise<ApiError> {
       typeof errorData.error === 'object'
         ? (errorData.error as ApiErrorDescriptor)
         : undefined
-
-    if (structuredError) {
-      descriptor = structuredError
-      errorMessage = structuredError.message || errorMessage
-      errorDetail = structuredError.detail
-      errorCode = structuredError.code
-    } else {
-      errorMessage = errorData.detail || errorData.message || errorMessage
-      errorDetail = errorData.detail || errorData.message
-      errorCode = errorData.code
-    }
   } catch {
     /* not JSON or empty body */
   }
   return new ApiError(
     response.status,
     response.statusText,
-    errorDetail || errorMessage,
-    errorCode,
+    descriptor?.detail,
+    descriptor?.code,
     descriptor,
   )
 }
@@ -179,14 +165,6 @@ async function parseResponse<T>(response: Response): Promise<T> {
     }
 
     if (json && typeof json === 'object' && 'data' in json) {
-      if ('success' in json && !json.success) {
-        throw new ApiError(
-          response.status,
-          response.statusText,
-          json.message || 'API request failed',
-          json.code,
-        )
-      }
       return json.data
     }
 

@@ -380,7 +380,7 @@ async def request_validation_exception_handler(request: Request, exc: Exception)
 
 
 async def general_exception_handler(request: Request, exc: Exception) -> Response:
-    """Handle uncaught exceptions through the legacy HTTP error response path until Task 2."""
+    """Handle uncaught exceptions through the canonical HTTP error envelope."""
 
     # ValueError → 400 (or 404 if message says "not found")
     if isinstance(exc, ValueError):
