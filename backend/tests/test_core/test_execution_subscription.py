@@ -10,6 +10,9 @@ from unittest.mock import patch
 
 import pytest
 
+from app.core.events.envelope import ExecutionEventEnvelope
+from app.core.events.event_types import ExecutionEventType
+from app.core.events.subscribers.websocket import WebSocketSubscriber
 from app.websocket.execution_subscription_handler import ExecutionSubscriptionHandler
 from app.websocket.execution_subscription_manager import ExecutionSubscriptionManager
 
@@ -201,3 +204,39 @@ async def test_handler_subscribe_replays_events_with_payload_field_and_sequence_
         "payload": {"content": "hello"},
         "created_at": "2026-04-24T12:00:00+00:00",
     }
+
+
+@pytest.mark.asyncio
+async def test_websocket_subscriber_broadcasts_failed_completion_with_error_payload(monkeypatch) -> None:
+    broadcast = AsyncMock()
+    remove = MagicMock()
+    monkeypatch.setattr(
+        "app.core.events.subscribers.websocket.execution_subscription_manager.broadcast_event",
+        broadcast,
+    )
+    monkeypatch.setattr(
+        "app.core.events.subscribers.websocket.execution_subscription_manager.remove_execution",
+        remove,
+    )
+
+    envelope = ExecutionEventEnvelope(
+        execution_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        event_type=ExecutionEventType.EXECUTION_COMPLETED,
+        terminal_status="failed",
+        error={
+            "code": "NODE_MODEL_NOT_CONFIGURED",
+            "message": 'Node "JSON 抽取子智能体" has no model configured.',
+            "source": "node",
+            "retryable": False,
+        },
+    )
+
+    await WebSocketSubscriber().handle(envelope)
+
+    broadcast.assert_awaited_once()
+    payload = broadcast.await_args.args[1]
+    assert payload["type"] == "execution_completed"
+    assert payload["status"] == "failed"
+    assert payload["error"]["code"] == "NODE_MODEL_NOT_CONFIGURED"

@@ -28,12 +28,17 @@ class WebSocketSubscriber:
         eid = str(envelope.execution_id)
 
         if envelope.event_type == ExecutionEventType.EXECUTION_COMPLETED:
-            await execution_subscription_manager.broadcast_event(eid, {
+            payload = {
                 "type": "execution_completed",
                 "execution_id": eid,
                 "run_id": str(envelope.run_id),
                 "status": envelope.terminal_status,
-            })
+            }
+            if envelope.terminal_status == "failed":
+                if envelope.error is None:
+                    raise RuntimeError("failed execution_completed envelope missing error")
+                payload["error"] = envelope.error
+            await execution_subscription_manager.broadcast_event(eid, payload)
             execution_subscription_manager.remove_execution(eid)
         else:
             await execution_subscription_manager.broadcast_event(eid, {

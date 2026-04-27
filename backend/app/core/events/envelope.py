@@ -33,6 +33,7 @@ class ExecutionEventEnvelope:
     # Completion-only fields
     terminal_status: Optional[str] = None
     result_summary: Optional[str] = None
+    error: Optional[dict[str, Any]] = None
 
     # Status-change fields (used by execution_status_change events)
     target_status: Optional[str] = None

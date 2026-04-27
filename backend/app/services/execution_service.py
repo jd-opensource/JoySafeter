@@ -209,6 +209,7 @@ class ExecutionService:
         execution_id: uuid.UUID,
         terminal_status: str,
         result_summary: dict | None = None,
+        error: dict[str, Any] | None = None,
         error_message: str | None = None,
         session_id: str | None = None,
     ) -> None:
@@ -228,6 +229,7 @@ class ExecutionService:
             event_type=ExecutionEventType.EXECUTION_COMPLETED,
             payload={"status": terminal_status},
             terminal_status=terminal_status,
+            error=error,
             error_message=error_message,
             container_id=session_id,
             metrics=result_summary,
@@ -349,6 +351,12 @@ class ExecutionService:
                         event_type=ExecutionEventType.EXECUTION_COMPLETED,
                         payload={"status": "failed"},
                         terminal_status="failed",
+                        error={
+                            "code": "STALE_REAPED",
+                            "message": error_msg,
+                            "source": "system",
+                            "retryable": False,
+                        },
                         error_code="stale_reaped",
                         error_message=error_msg,
                         result_summary="Reaped: stale execution",

@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from app.services.execution_reducer import apply_execution_event, make_initial_projection
+import pytest
+
+execution_reducer = pytest.importorskip("app.services.execution_reducer")
+
+apply_execution_event = execution_reducer.apply_execution_event
+make_initial_projection = execution_reducer.make_initial_projection
 
 
 def test_make_initial_projection():

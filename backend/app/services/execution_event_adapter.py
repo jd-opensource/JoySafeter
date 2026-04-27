@@ -157,6 +157,7 @@ class ExecutionEventAdapter:
         execution_id: uuid.UUID,
         terminal_status: str,
         result_summary: Optional[dict[str, Any]] = None,
+        error: Optional[dict[str, Any]] = None,
         error_message: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> None:
@@ -172,6 +173,7 @@ class ExecutionEventAdapter:
             event_type=ExecutionEventType.EXECUTION_COMPLETED,
             payload={"status": terminal_status},
             terminal_status=terminal_status,
+            error=error,
             error_message=error_message,
             container_id=session_id,
             metrics=result_summary,

@@ -72,6 +72,7 @@ class ExecutionEventPort(Protocol):
         execution_id: uuid.UUID,
         terminal_status: str,
         result_summary: Optional[dict] = None,
+        error: Optional[dict[str, Any]] = None,
         error_message: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> None: ...
