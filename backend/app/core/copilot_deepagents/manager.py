@@ -22,6 +22,7 @@ from langchain_core.runnables import Runnable
 from loguru import logger
 
 from app.core.copilot.tools import connect_nodes, create_node, delete_node, update_config
+from app.core.settings import settings
 
 from .artifacts import ArtifactStore
 from .prompts import (
@@ -64,7 +65,7 @@ except ImportError:
 
 def get_artifacts_root() -> Path:
     """Return the artifacts root directory."""
-    root = os.environ.get("DEEPAGENTS_ARTIFACTS_DIR", "")
+    root = settings.deepagents_artifacts_dir or ""
     if not root:
         root = str(Path.home() / ".agent-platform" / "deepagents")
     return Path(root)

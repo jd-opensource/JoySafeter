@@ -16,6 +16,7 @@ from typing import Any
 
 from loguru import logger
 
+from app.core.settings import settings
 from app.utils.path_utils import sanitize_path_component
 
 MANIFEST_FILENAME = "_manifest.json"
@@ -26,7 +27,7 @@ def _default_artifacts_root() -> Path:
 
 
 def resolve_artifacts_root() -> Path:
-    env = os.getenv("AGENT_ARTIFACTS_ROOT", "").strip()
+    env = (settings.agent_artifacts_root or "").strip()
     if env:
         return Path(env).expanduser().resolve()
     return _default_artifacts_root().resolve()

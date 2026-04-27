@@ -22,10 +22,10 @@ async def copilot_run(
     Returns run_id + execution_id. Subscribe to the execution WebSocket
     for real-time events (same as any other execution).
     """
-    from app.core.engine.orchestrator import ExecutionOrchestrator
+    from app.services.dispatch_service import DispatchService
 
-    orchestrator = ExecutionOrchestrator(db)
-    run = await orchestrator.dispatch_copilot(
+    dispatch = DispatchService(db)
+    run = await dispatch.dispatch_copilot(
         agent_id=body.agent_id,
         prompt=body.prompt,
         user_id=str(current_user.id),

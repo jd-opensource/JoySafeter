@@ -13,6 +13,8 @@ from typing import Any
 
 from loguru import logger
 
+from app.core.settings import settings
+
 try:
     from langfuse.langchain import CallbackHandler as LangfuseCallbackHandler
 
@@ -60,9 +62,9 @@ def get_langfuse_callbacks(enabled: bool = True, **kwargs: Any) -> list[Any]:
         return []
 
     # Check if environment variables are set
-    public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
-    secret_key = os.getenv("LANGFUSE_SECRET_KEY")
-    host = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
+    public_key = settings.langfuse_public_key
+    secret_key = settings.langfuse_secret_key
+    host = settings.langfuse_host or "https://cloud.langfuse.com"
 
     # Print configuration (mask sensitive keys)
     def _mask_key(k):

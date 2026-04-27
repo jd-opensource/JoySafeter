@@ -75,18 +75,18 @@ async def create_activity(
 
     # Trigger executions via orchestrator
     if should_dispatch or mentioned_agent_ids:
-        from app.core.engine.orchestrator import ExecutionOrchestrator
+        from app.services.dispatch_service import DispatchService
 
-        orchestrator = ExecutionOrchestrator(db)
+        dispatch = DispatchService(db)
         if should_dispatch:
-            await orchestrator.dispatch_task(
+            await dispatch.dispatch_task(
                 task_id=task.id,
                 user_id=str(current_user.id),
                 prompt_override=activity.content,
             )
         if mentioned_agent_ids:
             # For mentioned agents, dispatch the same task
-            await orchestrator.dispatch_task(
+            await dispatch.dispatch_task(
                 task_id=task.id,
                 user_id=str(current_user.id),
             )

@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.dependencies import CurrentUser, require_workspace_role
 from app.common.exceptions import BadRequestException, ForbiddenException
 from app.core.database import get_db
-from app.core.engine.orchestrator import ExecutionOrchestrator
+from app.services.dispatch_service import DispatchService
 from app.models.agent_run import AgentRun
 from app.models.auth import AuthUser as User
 from app.models.execution import Artifact, Execution
@@ -144,8 +144,8 @@ async def chat(
         raise BadRequestException("Thread has an active run, please wait for it to complete")
 
     # 1. Create run + execution first (so we have execution_id for the event)
-    orchestrator = ExecutionOrchestrator(db)
-    run = await orchestrator.dispatch_chat(
+    dispatch = DispatchService(db)
+    run = await dispatch.dispatch_chat(
         thread_id=thread_id,
         message=request.message,
         user_id=str(current_user.id),
@@ -153,7 +153,7 @@ async def chat(
 
     # 2. Emit user_message as the first event in this execution.
     attachments = [att.model_dump() for att in request.attachments] if request.attachments else None
-    await orchestrator.emit_user_message(
+    await dispatch.emit_user_message(
         run=run,
         execution_id=run.current_execution_id,
         message=request.message,

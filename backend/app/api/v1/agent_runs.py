@@ -21,7 +21,7 @@ from app.schemas.agent_run import (
     CreateAgentRunRequest,
     CreateDraftAgentRunRequest,
 )
-from app.core.engine.orchestrator import ExecutionOrchestrator
+from app.services.dispatch_service import DispatchService
 from app.services.agent_run_service import AgentRunService
 from app.services.workspace_permission import check_workspace_access
 
@@ -93,8 +93,8 @@ async def create_run(
         raise ForbiddenException("Insufficient workspace permission")
     await _require_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.member)
 
-    orchestrator = ExecutionOrchestrator(db)
-    run = await orchestrator.dispatch_direct(
+    dispatch = DispatchService(db)
+    run = await dispatch.dispatch_direct(
         release_id=request.release_id,
         prompt=request.goal or "",
         user_id=str(current_user.id),
@@ -120,8 +120,8 @@ async def create_draft_run(
     """Create a Test Lab run against an agent draft version, not an active release."""
     await _require_workspace_access(db, request.workspace_id, current_user, WorkspaceMemberRole.member)
 
-    orchestrator = ExecutionOrchestrator(db)
-    run = await orchestrator.dispatch_draft(
+    dispatch = DispatchService(db)
+    run = await dispatch.dispatch_draft(
         agent_id=request.agent_id,
         version_id=request.version_id,
         prompt=request.goal or "",
@@ -166,8 +166,8 @@ async def cancel_run(
         WorkspaceMemberRole.member,
     )
 
-    orchestrator = ExecutionOrchestrator(db)
-    run = await orchestrator.cancel_run(run_id)
+    dispatch = DispatchService(db)
+    run = await dispatch.cancel_run(run_id)
     return BaseResponse(success=True, code=200, msg="Run cancelled", data=_to_response(run))
 
 
@@ -187,6 +187,6 @@ async def retry_run(
         WorkspaceMemberRole.member,
     )
 
-    orchestrator = ExecutionOrchestrator(db)
-    run = await orchestrator.retry_run(run_id, str(current_user.id))
+    dispatch = DispatchService(db)
+    run = await dispatch.retry_run(run_id, str(current_user.id))
     return BaseResponse(success=True, code=200, msg="Run retried", data=_to_response(run))

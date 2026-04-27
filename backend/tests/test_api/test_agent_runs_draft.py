@@ -58,7 +58,7 @@ def client():
 
 
 @patch("agent_runs_under_test.check_workspace_access", new_callable=AsyncMock)
-@patch("agent_runs_under_test.ExecutionOrchestrator")
+@patch("agent_runs_under_test.DispatchService")
 def test_create_draft_run_dispatches_agent_version_without_release(
     mock_orchestrator_cls,
     mock_check_workspace_access,
@@ -119,7 +119,7 @@ def test_create_draft_run_dispatches_agent_version_without_release(
 
 
 @patch("agent_runs_under_test.check_workspace_access", new_callable=AsyncMock)
-@patch("agent_runs_under_test.ExecutionOrchestrator")
+@patch("agent_runs_under_test.DispatchService")
 def test_create_release_run_authorizes_against_release_workspace(
     mock_orchestrator_cls,
     mock_check_workspace_access,
@@ -177,7 +177,7 @@ def test_create_release_run_authorizes_against_release_workspace(
 
 
 @patch("agent_runs_under_test.check_workspace_access", new_callable=AsyncMock)
-@patch("agent_runs_under_test.ExecutionOrchestrator")
+@patch("agent_runs_under_test.DispatchService")
 @patch("agent_runs_under_test.AgentRunService")
 def test_cancel_run_authorizes_against_run_workspace_without_workspace_query(
     mock_service_cls,

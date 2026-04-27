@@ -177,10 +177,10 @@ async def dispatch_task(
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[TaskSummary]:
-    from app.core.engine.orchestrator import ExecutionOrchestrator
+    from app.services.dispatch_service import DispatchService
 
-    orchestrator = ExecutionOrchestrator(db)
-    run = await orchestrator.dispatch_task(
+    dispatch = DispatchService(db)
+    run = await dispatch.dispatch_task(
         task_id=task_id,
         user_id=str(current_user.id),
     )
@@ -196,7 +196,7 @@ async def cancel_task(
     workspace_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[TaskSummary]:
-    from app.core.engine.orchestrator import ExecutionOrchestrator
+    from app.services.dispatch_service import DispatchService
 
     # Find the latest run for this task and cancel it
     service = TaskService(db)
@@ -206,9 +206,9 @@ async def cancel_task(
 
     if task.latest_run_id:
         # Cancel the run through the orchestrator, which will auto-sync task status
-        orchestrator = ExecutionOrchestrator(db)
+        dispatch = DispatchService(db)
         try:
-            await orchestrator.cancel_run(task.latest_run_id)
+            await dispatch.cancel_run(task.latest_run_id)
         except Exception:
             pass  # Run may already be in a terminal state
     else:

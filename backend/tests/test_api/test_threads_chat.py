@@ -43,7 +43,7 @@ def client():
 
 @patch("app.api.v1.threads.check_workspace_access", new_callable=AsyncMock)
 @patch("app.core.events.execution_event_bus.publish", new_callable=AsyncMock)
-@patch("app.api.v1.threads.ExecutionOrchestrator")
+@patch("app.api.v1.threads.DispatchService")
 def test_chat_publishes_user_message_event_without_direct_thread_write(
     mock_orchestrator_cls,
     mock_publish,
@@ -97,7 +97,7 @@ def test_chat_publishes_user_message_event_without_direct_thread_write(
 
 
 @patch("app.api.v1.threads.check_workspace_access", new_callable=AsyncMock)
-@patch("app.api.v1.threads.ExecutionOrchestrator")
+@patch("app.api.v1.threads.DispatchService")
 def test_chat_rejects_thread_with_running_run(
     mock_orchestrator_cls,
     mock_check_access,

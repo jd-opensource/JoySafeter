@@ -347,6 +347,26 @@ class Settings(BaseSettings):
         default=False, description="Enable Langfuse tracing (requires langfuse_public_key and langfuse_secret_key)"
     )
 
+    # Artifact Storage
+    agent_artifacts_root: Optional[str] = Field(
+        default=None,
+        description="Root directory for agent artifacts (default: ~/.agent-platform/agent-artifacts)",
+    )
+    deepagents_artifacts_dir: Optional[str] = Field(
+        default=None,
+        description="Root directory for DeepAgents artifacts",
+    )
+
+    # OpenClaw
+    openclaw_image: str = Field(
+        default="jdopensource/joysafeter-openclaw:latest",
+        description="Docker image for OpenClaw instances",
+    )
+    openclaw_network: str = Field(
+        default="joysafeter-network",
+        description="Docker network for OpenClaw instances",
+    )
+
     # UV Package Manager Configuration
     uv_index_url: str = Field(
         default="https://pypi.org/simple",

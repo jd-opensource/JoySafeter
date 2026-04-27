@@ -54,7 +54,7 @@ def client():
 
 
 @patch("executions_under_test.check_workspace_access", new_callable=AsyncMock)
-@patch("executions_under_test.ExecutionOrchestrator")
+@patch("executions_under_test.DispatchService")
 def test_inject_message_calls_send_message(
     mock_orchestrator_cls,
     mock_check_workspace_access,
@@ -90,7 +90,7 @@ def test_inject_message_calls_send_message(
     mock_orchestrator.send_message.assert_awaited_once_with(execution_id, "hello world")
 
 
-@patch("executions_under_test.ExecutionOrchestrator")
+@patch("executions_under_test.DispatchService")
 def test_inject_message_empty_body_returns_422(mock_orchestrator_cls, client: TestClient) -> None:
     """POST /{id}/message with missing message field should return 422 Unprocessable Entity."""
     execution_id = uuid.uuid4()

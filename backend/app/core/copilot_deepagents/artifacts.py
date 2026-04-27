@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from loguru import logger
 
+from app.core.settings import settings
 from app.utils.datetime import utc_now
 
 
@@ -32,7 +33,7 @@ def _default_artifacts_root() -> Path:
 
 
 def resolve_artifacts_root() -> Path:
-    env = os.getenv("DEEPAGENTS_ARTIFACTS_DIR", "").strip()
+    env = (settings.deepagents_artifacts_dir or "").strip()
     if env:
         return Path(env).expanduser()
     return _default_artifacts_root()

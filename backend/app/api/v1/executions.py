@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.dependencies import get_current_user, require_workspace_role
 from app.common.exceptions import ForbiddenException, NotFoundException
 from app.core.database import get_db
-from app.core.engine.orchestrator import ExecutionOrchestrator
+from app.services.dispatch_service import DispatchService
 from app.models.auth import AuthUser as User
 from app.models.agent_run import AgentRun
 from app.models.execution import Artifact, Execution
@@ -185,9 +185,9 @@ async def inject_message(
 
     await _require_execution_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.member)
 
-    orchestrator = ExecutionOrchestrator(db)
+    dispatch = DispatchService(db)
     try:
-        await orchestrator.send_message(execution_id, body.message)
+        await dispatch.send_message(execution_id, body.message)
     except NotImplementedError as exc:
         raise HTTPException(status_code=501, detail=str(exc))
     except RuntimeError as exc:

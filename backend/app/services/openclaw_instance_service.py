@@ -24,12 +24,13 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.agent.backends.docker_check import get_docker_client
+from app.core.settings import settings
 from app.models.enums import InstanceStatus
 from app.models.openclaw_instance import OpenClawInstance
 from app.services.base import BaseService
 
-OPENCLAW_IMAGE = os.environ.get("OPENCLAW_IMAGE", "jdopensource/joysafeter-openclaw:latest")
-OPENCLAW_NETWORK = os.environ.get("OPENCLAW_NETWORK", "joysafeter-network")
+OPENCLAW_IMAGE = settings.openclaw_image
+OPENCLAW_NETWORK = settings.openclaw_network
 PORT_RANGE_START = 19001
 PORT_RANGE_END = 19999
 GATEWAY_READY_TIMEOUT = 300
