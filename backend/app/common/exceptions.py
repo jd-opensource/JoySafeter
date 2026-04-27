@@ -17,15 +17,17 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError as PydanticValidationError
 
+from app.common.app_errors import AppError
 from app.common.error_contract import ErrorDescriptor, ErrorSource, UserAction
 from app.common.response import error_response
 
 
 class AppException(HTTPException):
-    """Base application exception (recommended for all business code)."""
+    """HTTP-facing adapter over the canonical AppError model."""
 
     code: int | str
     data: Any
+    app_error: AppError
 
     def __init__(
         self,
@@ -44,9 +46,15 @@ class AppException(HTTPException):
         super().__init__(status_code=status_code, detail=message, headers=headers)
         self.code = status_code if code is None else code
         self.data = data
-        self.error = ErrorDescriptor(
+        payload_data = data if isinstance(data, dict) else {} if data is None else {"value": data}
+        self.app_error = AppError(
             code=str(self.code),
             message=message,
+            data=payload_data,
+        )
+        self.error = ErrorDescriptor(
+            code=self.app_error.code,
+            message=self.app_error.message,
             source=source,
             retryable=retryable,
             detail=detail,
