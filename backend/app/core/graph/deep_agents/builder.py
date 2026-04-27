@@ -11,7 +11,7 @@ from typing import Any, List, Optional
 
 from loguru import logger
 
-from app.common.exceptions import AppException
+from app.common.app_errors import ServiceUnavailableError
 from app.core.agent.backends.constants import DOCKER_UNAVAILABLE_MSG
 from app.core.agent.backends.docker_check import is_docker_available
 from app.core.graph.deep_agents.agent_factory import (
@@ -113,8 +113,7 @@ async def build_deep_agents_graph(
                 for cfg in all_configs
                 if cfg.node_type == "code_agent" and cfg.executor_type == "docker"
             ]
-            raise AppException(
-                status_code=503,
+            raise ServiceUnavailableError(
                 message=(
                     f"{DOCKER_UNAVAILABLE_MSG} "
                     f'Agent "{graph_name}" requires Docker for node(s): {", ".join(docker_nodes)}.'

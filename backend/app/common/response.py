@@ -4,7 +4,6 @@ from typing import Any, Generic, List, Optional, TypeVar
 
 from pydantic import BaseModel
 
-from app.common.error_contract import ErrorDescriptor
 from app.utils.datetime import utc_now
 
 T = TypeVar("T")
@@ -50,13 +49,11 @@ def success_response(
     }
 
 
-def error_response(
-    error: ErrorDescriptor | dict[str, Any],
-) -> dict:
+def error_response(error: dict[str, Any]) -> dict:
     """Build an error response."""
     return {
         "success": False,
-        "error": error.to_dict() if isinstance(error, ErrorDescriptor) else error,
+        "error": error,
     }
 
 

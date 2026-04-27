@@ -134,10 +134,8 @@ class StateTransitionSubscriber:
     @staticmethod
     def _apply_metadata(execution: Execution, envelope: ExecutionEventEnvelope) -> None:
         """Write optional metadata fields from the envelope onto the execution row."""
-        if envelope.error_code is not None:
-            execution.error_code = envelope.error_code
-        if envelope.error_message is not None:
-            execution.error_message = envelope.error_message
+        if envelope.error is not None:
+            execution.error = envelope.error
         if envelope.container_id is not None:
             execution.runtime_session_ref = envelope.container_id
         if envelope.metrics is not None:

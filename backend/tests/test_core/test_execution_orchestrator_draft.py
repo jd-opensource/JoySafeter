@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.common.exceptions import BadRequestException
+from app.common.app_errors import InvalidRequestError
 from app.core.engine.orchestrator import ExecutionOrchestrator
 from app.models.agent_run import AgentRun
 from app.models.execution import Execution
@@ -239,7 +239,7 @@ async def test_create_and_fire_draft_rejects_partial_override_sets() -> None:
     version.id = uuid.uuid4()
     version.definition_kind = "graph"
 
-    with pytest.raises(BadRequestException, match="all absent or all present"):
+    with pytest.raises(InvalidRequestError, match="all absent or all present"):
         await orchestrator._create_and_fire_draft(
             agent=agent,
             version=version,

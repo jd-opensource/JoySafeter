@@ -8,7 +8,7 @@ from typing import List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import BadRequestException, NotFoundException
+from app.common.app_errors import InvalidRequestError, NotFoundError
 from app.models.auth import AuthUser as User
 from app.repositories.user import UserRepository
 
@@ -60,7 +60,11 @@ class UserService(BaseService):
         Note: does not include password setup; password operations live in AuthService.
         """
         if await self.user_repo.email_exists(email):
-            raise BadRequestException("Email already registered")
+            raise InvalidRequestError(
+                "Email already registered",
+                code="USER_ALREADY_EXISTS",
+                data={"email": email},
+            )
 
         user_data = {
             "name": name,
@@ -91,7 +95,11 @@ class UserService(BaseService):
             user.name = name
         if email is not None:
             if email != user.email and await self.user_repo.email_exists(email, exclude_id=user.id):
-                raise BadRequestException("Email already registered")
+                raise InvalidRequestError(
+                    "Email already registered",
+                    code="USER_ALREADY_EXISTS",
+                    data={"email": email},
+                )
             user.email = email
         if image is not None:
             user.image = image
@@ -115,7 +123,7 @@ class UserService(BaseService):
         """Delete a user."""
         user = await self.user_repo.get_by_id(user_id)
         if not user:
-            raise NotFoundException("User not found")
+            raise NotFoundError("User not found")
 
         import uuid as uuid_lib
 

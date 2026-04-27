@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.app_errors import AccessDeniedError, NotFoundError
 from app.common.dependencies import get_current_user
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
@@ -95,10 +96,14 @@ async def get_custom_tool(
     service = CustomToolService(db)
     tool = await service.repo.get(tool_id)
     if not tool:
-        return {"success": False, "error": "Not found"}
+        raise NotFoundError("Custom tool not found", code="CUSTOM_TOOL_NOT_FOUND", data={"tool_id": str(tool_id)})
     # verify ownership
     if tool.owner_id != current_user.id:
-        return {"success": False, "error": "Forbidden"}
+        raise AccessDeniedError(
+            "You can only view your own tools",
+            code="CUSTOM_TOOL_VIEW_FORBIDDEN",
+            data={"tool_id": str(tool_id)},
+        )
     return {"success": True, "data": _serialize(tool)}
 
 

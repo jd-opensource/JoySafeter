@@ -1,8 +1,12 @@
 from app.common.app_errors import (
     AppError,
+    AuthError,
+    ConflictError,
     DomainError,
     InfraError,
+    InternalError,
     PermissionDeniedError,
+    RateLimitError,
     ValidationError,
 )
 
@@ -29,7 +33,11 @@ def test_domain_error_is_an_app_error() -> None:
     )
 
     assert isinstance(err, AppError)
-    assert err.code == "NODE_MODEL_NOT_CONFIGURED"
+    assert err.to_payload() == {
+        "code": "NODE_MODEL_NOT_CONFIGURED",
+        "message": "节点未配置模型",
+        "data": {"node_id": "node-1"},
+    }
 
 
 def test_validation_error_keeps_structured_data() -> None:
@@ -40,3 +48,22 @@ def test_validation_error_keeps_structured_data() -> None:
     )
 
     assert err.to_payload()["data"] == {"field": "workspace_id"}
+
+
+def test_error_families_share_canonical_app_error_shape() -> None:
+    cases = [
+        AuthError(code="AUTH_REQUIRED", message="请先登录"),
+        ConflictError(code="AGENT_CONFLICT", message="资源冲突"),
+        InfraError(code="MODEL_PROVIDER_UNAVAILABLE", message="模型服务不可用"),
+        InternalError(code="INTERNAL_ERROR", message="内部错误"),
+        PermissionDeniedError(code="WORKSPACE_FORBIDDEN", message="没有权限"),
+        RateLimitError(code="RATE_LIMITED", message="请求过于频繁"),
+    ]
+
+    for err in cases:
+        assert isinstance(err, AppError)
+        assert err.to_payload() == {
+            "code": err.code,
+            "message": err.message,
+            "data": None,
+        }

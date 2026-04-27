@@ -7,7 +7,7 @@ from __future__ import annotations
 import uuid
 from typing import Dict, List, Optional
 
-from app.common.exceptions import BadRequestException, ForbiddenException, NotFoundException
+from app.common.app_errors import InvalidRequestError, AccessDeniedError, NotFoundError
 from app.models.custom_tool import CustomTool
 from app.repositories.custom_tool import CustomToolRepository
 
@@ -37,12 +37,20 @@ class CustomToolService(BaseService[CustomTool]):
         """Create a tool."""
         current_count = await self.repo.count_by_user(owner_id)
         if current_count >= MAX_TOOLS_PER_USER:
-            raise BadRequestException("User custom tool quota exceeded")
+            raise InvalidRequestError(
+                "User custom tool quota exceeded",
+                code="CUSTOM_TOOL_QUOTA_EXCEEDED",
+                data={"limit": MAX_TOOLS_PER_USER},
+            )
 
         # check if a tool with the same name exists
         existing = await self.repo.get_by(owner_id=owner_id, name=name)
         if existing:
-            raise BadRequestException("Tool name already exists for this user")
+            raise InvalidRequestError(
+                "Tool name already exists for this user",
+                code="CUSTOM_TOOL_NAME_ALREADY_EXISTS",
+                data={"name": name},
+            )
 
         tool = CustomTool(
             owner_id=owner_id,
@@ -71,16 +79,24 @@ class CustomToolService(BaseService[CustomTool]):
         """Update a tool."""
         tool = await self.repo.get(tool_id)
         if not tool:
-            raise NotFoundException("Custom tool not found")
+            raise NotFoundError("Custom tool not found", code="CUSTOM_TOOL_NOT_FOUND", data={"tool_id": str(tool_id)})
 
         # verify ownership
         if tool.owner_id != current_user_id:
-            raise ForbiddenException("You can only update your own tools")
+            raise AccessDeniedError(
+                "You can only update your own tools",
+                code="CUSTOM_TOOL_UPDATE_FORBIDDEN",
+                data={"tool_id": str(tool_id)},
+            )
 
         if name and name != tool.name:
             existing = await self.repo.get_by(owner_id=current_user_id, name=name)
             if existing:
-                raise BadRequestException("Tool name already exists for this user")
+                raise InvalidRequestError(
+                    "Tool name already exists for this user",
+                    code="CUSTOM_TOOL_NAME_ALREADY_EXISTS",
+                    data={"name": name},
+                )
             tool.name = name
         if code is not None:
             tool.code = code
@@ -99,11 +115,15 @@ class CustomToolService(BaseService[CustomTool]):
         """Delete a tool."""
         tool = await self.repo.get(tool_id)
         if not tool:
-            raise NotFoundException("Custom tool not found")
+            raise NotFoundError("Custom tool not found", code="CUSTOM_TOOL_NOT_FOUND", data={"tool_id": str(tool_id)})
 
         # verify ownership
         if tool.owner_id != current_user_id:
-            raise ForbiddenException("You can only delete your own tools")
+            raise AccessDeniedError(
+                "You can only delete your own tools",
+                code="CUSTOM_TOOL_DELETE_FORBIDDEN",
+                data={"tool_id": str(tool_id)},
+            )
 
         await self.repo.delete_by_id(tool_id)
         await self.db.commit()

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from loguru import logger
 
-from app.common.exceptions import ModelConfigError
+from app.common.app_errors import ModelConfigError
 from app.core.agent.cli_backends.base import CLIMessage, CLIResult, RuntimeSession, build_control_response
 from app.core.agent.cli_backends.container_pool import container_pool
 from app.core.agent.cli_backends.container_service import (
@@ -325,7 +325,6 @@ class ExecutionRunner:
             terminal_status=status,
             result_summary=result.usage,
             error=_build_completion_error(result.error),
-            error_message=result.error if result.error else None,
             session_id=result.session_id,
         )
 
@@ -350,7 +349,6 @@ class ExecutionRunner:
                 execution_id=execution_id,
                 terminal_status="failed",
                 error=_build_completion_error(error[:2000]),
-                error_message=error[:2000],
             )
         except Exception as exc:
             logger.error(f"Failed to mark execution {execution_id} as failed: {exc}")
@@ -421,12 +419,13 @@ def _build_completion_error(message: str | None) -> dict[str, Any] | None:
         return None
 
     code = "EXECUTION_FAILED"
+    data: dict[str, Any] | None = None
     if "has no model configured" in message:
         code = ModelConfigError.BUILD_COPILOT_MODEL_REQUIRED
+        data = {"reason": "model_not_configured"}
 
     return {
         "code": code,
         "message": message,
-        "source": "runtime",
-        "retryable": False,
+        "data": data,
     }

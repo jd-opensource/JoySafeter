@@ -7,6 +7,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.app_errors import NotFoundError
 from app.common.dependencies import require_workspace_role
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
@@ -131,7 +132,7 @@ async def update_activity(
     )
 
     if not activity:
-        return BaseResponse(success=False, code=404, msg="Activity not found", data=None)
+        raise NotFoundError("Activity not found", code="TASK_ACTIVITY_NOT_FOUND", data={"activity_id": str(activity_id)})
 
     return BaseResponse(
         success=True,
@@ -158,5 +159,5 @@ async def delete_activity(
     )
 
     if not deleted:
-        return BaseResponse(success=False, code=404, msg="Activity not found", data=None)
+        raise NotFoundError("Activity not found", code="TASK_ACTIVITY_NOT_FOUND", data={"activity_id": str(activity_id)})
     return BaseResponse(success=True, code=200, msg="Activity deleted", data=None)

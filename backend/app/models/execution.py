@@ -27,8 +27,7 @@ class Execution(Base):
         nullable=False,
         default="pending",
     )
-    error_code: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     metrics: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

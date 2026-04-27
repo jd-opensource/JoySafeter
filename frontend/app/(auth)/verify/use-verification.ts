@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
 
 import { client, useSession } from '@/lib/auth/auth-client'
+import { ApiError } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
 
 const logger = createLogger('useVerification')
@@ -168,7 +169,11 @@ export function useVerification({
         }, 1000)
       } else {
         logger.info('Setting invalid OTP state - API error response')
-        const message = 'Invalid verification code. Please check and try again.'
+        const code = response?.error?.code ?? ''
+        const message =
+          code === 'VERIFICATION_TOKEN_EXPIRED'
+            ? 'The verification code has expired. Please request a new one.'
+            : 'Invalid verification code. Please check and try again.'
         setIsInvalidOtp(true)
         setErrorMessage(message)
         logger.info('Error state after API error:', {
@@ -180,14 +185,12 @@ export function useVerification({
     } catch (error: unknown) {
       let message = 'Verification failed. Please check your code and try again.'
 
-      const errorMessage = error instanceof Error ? error.message : ''
-      if (errorMessage.includes('expired')) {
+      const errorCode = error instanceof ApiError ? error.code : ''
+      if (errorCode === 'VERIFICATION_TOKEN_EXPIRED') {
         message = 'The verification code has expired. Please request a new one.'
-      } else if (errorMessage.includes('invalid')) {
+      } else if (errorCode === 'VERIFICATION_TOKEN_INVALID') {
         logger.info('Setting invalid OTP state - caught error')
         message = 'Invalid verification code. Please check and try again.'
-      } else if (errorMessage.includes('attempts')) {
-        message = 'Too many failed attempts. Please request a new code.'
       }
 
       setIsInvalidOtp(true)

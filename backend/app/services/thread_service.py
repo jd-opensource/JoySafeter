@@ -10,7 +10,7 @@ from typing import List
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import NotFoundException
+from app.common.app_errors import NotFoundError
 from app.models.thread import Thread
 from app.repositories.thread import ThreadRepository
 from app.schemas.thread import CreateThreadRequest, UpdateThreadRequest
@@ -31,7 +31,7 @@ class ThreadService:
     async def get_thread(self, thread_id: uuid.UUID) -> Thread:
         thread = await self.thread_repo.get(thread_id)
         if not thread:
-            raise NotFoundException(f"Thread {thread_id} not found")
+            raise NotFoundError("Thread not found", code="THREAD_NOT_FOUND", data={"thread_id": str(thread_id)})
         return thread
 
     async def create_thread(
@@ -61,7 +61,7 @@ class ThreadService:
     ) -> Thread:
         thread = await self.thread_repo.get(thread_id)
         if not thread:
-            raise NotFoundException(f"Thread {thread_id} not found")
+            raise NotFoundError("Thread not found", code="THREAD_NOT_FOUND", data={"thread_id": str(thread_id)})
 
         update_data = data.model_dump(exclude_unset=True)
         if not update_data:
@@ -76,7 +76,7 @@ class ThreadService:
     async def archive_thread(self, thread_id: uuid.UUID) -> Thread:
         thread = await self.thread_repo.get(thread_id)
         if not thread:
-            raise NotFoundException(f"Thread {thread_id} not found")
+            raise NotFoundError("Thread not found", code="THREAD_NOT_FOUND", data={"thread_id": str(thread_id)})
 
         updated = await self.thread_repo.update(thread_id, {"status": "archived"})
         assert updated is not None
@@ -100,7 +100,7 @@ class ThreadService:
 
         thread = await self.thread_repo.get(thread_id)
         if not thread:
-            raise NotFoundException(f"Thread {thread_id} not found")
+            raise NotFoundError("Thread not found", code="THREAD_NOT_FOUND", data={"thread_id": str(thread_id)})
 
         base_filter = and_(
             AgentRun.thread_id == thread_id,

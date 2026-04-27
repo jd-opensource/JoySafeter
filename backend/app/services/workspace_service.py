@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Dict, List, Optional
 
-from app.common.exceptions import BadRequestException, ForbiddenException, NotFoundException
+from app.common.app_errors import InvalidRequestError, AccessDeniedError, NotFoundError
 from app.common.pagination import PageResult, PaginationParams
 from app.models.auth import AuthUser as User
 from app.models.workspace import Workspace, WorkspaceMemberRole, WorkspaceType
@@ -59,12 +59,16 @@ class WorkspaceService(BaseService[Workspace]):
     async def _ensure_member(self, workspace_id: uuid.UUID, current_user: User) -> WorkspaceMemberRole:
         workspace = await self.workspace_repo.get(workspace_id)
         if not workspace:
-            raise NotFoundException("Workspace not found")
+            raise NotFoundError(
+                "Workspace not found",
+                code="WORKSPACE_NOT_FOUND",
+                data={"workspace_id": str(workspace_id)},
+            )
         if current_user.is_superuser or workspace.owner_id == current_user.id:
             return WorkspaceMemberRole.owner
         member = await self.member_repo.get_member(workspace_id, current_user.id)
         if not member:
-            raise ForbiddenException("No access to workspace")
+            raise AccessDeniedError("No access to workspace", code="WORKSPACE_ACCESS_DENIED")
         return member.role  # type: ignore
 
     async def get_user_role(self, workspace_id: uuid.UUID, current_user: User) -> Optional[WorkspaceMemberRole]:
@@ -77,13 +81,13 @@ class WorkspaceService(BaseService[Workspace]):
         try:
             # reuse the existing _ensure_member method, which already handles all cases (superuser, owner, regular member)
             return await self._ensure_member(workspace_id, current_user)
-        except (NotFoundException, ForbiddenException):
+        except (NotFoundError, AccessDeniedError):
             # if the user is not a member, return None instead of raising (this is a query method, not a validation method)
             return None
 
     def _ensure_admin_role(self, role: WorkspaceMemberRole):
         if role not in {WorkspaceMemberRole.owner, WorkspaceMemberRole.admin}:
-            raise ForbiddenException("Admin permission required")
+            raise AccessDeniedError("Admin permission required", code="WORKSPACE_PERMISSION_DENIED")
 
     async def list_workspaces(self, current_user: User) -> List[Dict]:
         workspaces = await self.workspace_repo.list_for_user(current_user.id)
@@ -146,7 +150,11 @@ class WorkspaceService(BaseService[Workspace]):
     async def get_workspace(self, workspace_id: uuid.UUID, current_user: User) -> Dict:
         workspace = await self.workspace_repo.get(workspace_id)
         if not workspace:
-            raise NotFoundException("Workspace not found")
+            raise NotFoundError(
+                "Workspace not found",
+                code="WORKSPACE_NOT_FOUND",
+                data={"workspace_id": str(workspace_id)},
+            )
         await self._ensure_member(workspace_id, current_user)
         return await self._serialize_workspace(workspace, current_user)
 
@@ -164,7 +172,11 @@ class WorkspaceService(BaseService[Workspace]):
 
         workspace = await self.workspace_repo.get(workspace_id)
         if not workspace:
-            raise NotFoundException("Workspace not found")
+            raise NotFoundError(
+                "Workspace not found",
+                code="WORKSPACE_NOT_FOUND",
+                data={"workspace_id": str(workspace_id)},
+            )
 
         update_data: Dict[str, Any] = {}
         if name is not None:
@@ -202,10 +214,18 @@ class WorkspaceService(BaseService[Workspace]):
         # check if it's a personal workspace; personal workspaces cannot be deleted
         workspace = await self.workspace_repo.get(workspace_id)
         if not workspace:
-            raise NotFoundException("Workspace not found")
+            raise NotFoundError(
+                "Workspace not found",
+                code="WORKSPACE_NOT_FOUND",
+                data={"workspace_id": str(workspace_id)},
+            )
 
         if workspace.type == WorkspaceType.personal:
-            raise BadRequestException("Personal workspace cannot be deleted")
+            raise InvalidRequestError(
+                "Personal workspace cannot be deleted",
+                code="PERSONAL_WORKSPACE_DELETE_FORBIDDEN",
+                data={"workspace_id": str(workspace_id)},
+            )
 
         # Revoke all tokens bound to this workspace
         from app.services.platform_token_service import PlatformTokenService
@@ -229,14 +249,22 @@ class WorkspaceService(BaseService[Workspace]):
         # get source workspace
         source_workspace = await self.workspace_repo.get(workspace_id)
         if not source_workspace:
-            raise NotFoundException("Workspace not found")
+            raise NotFoundError(
+                "Workspace not found",
+                code="WORKSPACE_NOT_FOUND",
+                data={"workspace_id": str(workspace_id)},
+            )
 
         # ensure user has permission to access the source workspace
         await self._ensure_member(workspace_id, current_user)
 
         # check if it's a personal workspace; personal workspaces cannot be duplicated
         if source_workspace.type == WorkspaceType.personal:
-            raise BadRequestException("Personal workspace cannot be duplicated")
+            raise InvalidRequestError(
+                "Personal workspace cannot be duplicated",
+                code="PERSONAL_WORKSPACE_DUPLICATE_FORBIDDEN",
+                data={"workspace_id": str(workspace_id)},
+            )
 
         # generate new name
         new_name = name or f"{source_workspace.name} (Copy)"
@@ -276,18 +304,22 @@ class WorkspaceService(BaseService[Workspace]):
         self._ensure_admin_role(member_role)
 
         if role not in WorkspaceMemberRole._value2member_map_:
-            raise BadRequestException("Invalid role")
+            raise InvalidRequestError("Invalid role", code="WORKSPACE_MEMBER_ROLE_INVALID", data={"role": role})
 
         target_role = WorkspaceMemberRole(role)
 
         # owner role cannot be assigned via add member
         if target_role == WorkspaceMemberRole.owner:
-            raise BadRequestException("Cannot assign owner role")
+            raise InvalidRequestError("Cannot assign owner role", code="WORKSPACE_OWNER_ROLE_ASSIGNMENT_FORBIDDEN")
 
         # role hierarchy protection: non-owner cannot add a role >= their own
         if member_role != WorkspaceMemberRole.owner:
             if ROLE_RANK.get(target_role, 0) >= ROLE_RANK.get(member_role, 0):
-                raise ForbiddenException("Cannot add a member with a role equal to or higher than your own")
+                raise AccessDeniedError(
+                    "Cannot add a member with a role equal to or higher than your own",
+                    code="WORKSPACE_MEMBER_ROLE_TOO_HIGH",
+                    data={"role": target_role.value},
+                )
 
         from app.repositories.auth_user import AuthUserRepository
 
@@ -295,11 +327,15 @@ class WorkspaceService(BaseService[Workspace]):
         target_user = await user_repo.get_by_email(email.lower())
 
         if not target_user:
-            raise NotFoundException("User not found")
+            raise NotFoundError("User not found", code="USER_NOT_FOUND", data={"email": email})
 
         existing_member = await self.member_repo.get_member(workspace_id, target_user.id)
         if existing_member:
-            raise BadRequestException(f"User with email {email} is already a member of this workspace")
+            raise InvalidRequestError(
+                f"User with email {email} is already a member of this workspace",
+                code="WORKSPACE_MEMBER_ALREADY_EXISTS",
+                data={"email": email, "workspace_id": str(workspace_id)},
+            )
 
         await self.member_repo.create({"workspace_id": workspace_id, "user_id": target_user.id, "role": target_role})
         await self.commit()
@@ -328,7 +364,11 @@ class WorkspaceService(BaseService[Workspace]):
 
         workspace = await self.workspace_repo.get(workspace_id)
         if not workspace:
-            raise NotFoundException("Workspace not found")
+            raise NotFoundError(
+                "Workspace not found",
+                code="WORKSPACE_NOT_FOUND",
+                data={"workspace_id": str(workspace_id)},
+            )
 
         await self._ensure_member(workspace_id, current_user)
 
@@ -401,7 +441,11 @@ class WorkspaceService(BaseService[Workspace]):
         """Update member role."""
         workspace = await self.workspace_repo.get(workspace_id)
         if not workspace:
-            raise NotFoundException("Workspace not found")
+            raise NotFoundError(
+                "Workspace not found",
+                code="WORKSPACE_NOT_FOUND",
+                data={"workspace_id": str(workspace_id)},
+            )
 
         # ensure current user is admin
         current_role = await self._ensure_member(workspace_id, current_user)
@@ -410,28 +454,32 @@ class WorkspaceService(BaseService[Workspace]):
         # get target member
         target_member = await self.member_repo.get_member(workspace_id, target_user_id)
         if not target_member:
-            raise NotFoundException("User not found in workspace")
+            raise NotFoundError(
+                "User not found in workspace",
+                code="WORKSPACE_MEMBER_NOT_FOUND",
+                data={"user_id": str(target_user_id), "workspace_id": str(workspace_id)},
+            )
 
         # cannot modify the owner's role
         if workspace.owner_id == target_user_id:
-            raise BadRequestException("Cannot change owner role")
+            raise InvalidRequestError("Cannot change owner role", code="WORKSPACE_OWNER_ROLE_CHANGE_FORBIDDEN")
 
         # owner role cannot be assigned via role update
         if new_role == WorkspaceMemberRole.owner:
-            raise BadRequestException("Cannot assign owner role")
+            raise InvalidRequestError("Cannot assign owner role", code="WORKSPACE_OWNER_ROLE_ASSIGNMENT_FORBIDDEN")
 
         # role hierarchy protection: non-owner cannot modify members >= their own level
         if current_role != WorkspaceMemberRole.owner:
             if ROLE_RANK.get(target_member.role, 0) >= ROLE_RANK.get(current_role, 0):
-                raise ForbiddenException("Cannot modify a member with equal or higher role")
+                raise AccessDeniedError("Cannot modify a member with equal or higher role", code="WORKSPACE_MEMBER_ROLE_TOO_HIGH")
             if ROLE_RANK.get(new_role, 0) >= ROLE_RANK.get(current_role, 0):
-                raise ForbiddenException("Cannot assign a role equal to or higher than your own")
+                raise AccessDeniedError("Cannot assign a role equal to or higher than your own", code="WORKSPACE_MEMBER_ROLE_TOO_HIGH")
 
         # if modifying an admin, check if they are the last admin
         if target_member.role in {WorkspaceMemberRole.owner, WorkspaceMemberRole.admin}:
             admin_count = await self.member_repo.count_admins(workspace_id)
             if admin_count <= 1 and new_role not in {WorkspaceMemberRole.owner, WorkspaceMemberRole.admin}:
-                raise BadRequestException("Cannot remove the last admin from a workspace")
+                raise InvalidRequestError("Cannot remove the last admin from a workspace", code="WORKSPACE_LAST_ADMIN_REMOVE_FORBIDDEN")
 
         # update role
         updated_member = await self.member_repo.update_member_role(workspace_id, target_user_id, new_role)
@@ -474,16 +522,24 @@ class WorkspaceService(BaseService[Workspace]):
         """
         workspace = await self.workspace_repo.get(workspace_id)
         if not workspace:
-            raise NotFoundException("Workspace not found")
+            raise NotFoundError(
+                "Workspace not found",
+                code="WORKSPACE_NOT_FOUND",
+                data={"workspace_id": str(workspace_id)},
+            )
 
         # get target user's member record
         target_member = await self.member_repo.get_member(workspace_id, str(target_user_id))
         if not target_member:
-            raise NotFoundException("User not found in workspace")
+            raise NotFoundError(
+                "User not found in workspace",
+                code="WORKSPACE_MEMBER_NOT_FOUND",
+                data={"user_id": str(target_user_id), "workspace_id": str(workspace_id)},
+            )
 
         # cannot remove the workspace owner
         if str(workspace.owner_id) == str(target_user_id):
-            raise BadRequestException("Cannot remove workspace owner")
+            raise InvalidRequestError("Cannot remove workspace owner", code="WORKSPACE_OWNER_REMOVE_FORBIDDEN")
 
         # get current user's role
         current_role = await self._get_role(workspace, current_user)
@@ -491,19 +547,19 @@ class WorkspaceService(BaseService[Workspace]):
         is_self = str(target_user_id) == current_user.id
 
         if not is_admin and not is_self:
-            raise ForbiddenException("Insufficient permissions")
+            raise AccessDeniedError("Insufficient permissions", code="WORKSPACE_PERMISSION_DENIED")
 
         # role hierarchy protection: non-owner cannot remove members >= their own level
         if is_admin and not is_self and current_role != WorkspaceMemberRole.owner:
             assert isinstance(current_role, WorkspaceMemberRole)
             if ROLE_RANK.get(target_member.role, 0) >= ROLE_RANK.get(current_role, 0):
-                raise ForbiddenException("Cannot remove a member with equal or higher role")
+                raise AccessDeniedError("Cannot remove a member with equal or higher role", code="WORKSPACE_MEMBER_ROLE_TOO_HIGH")
 
         # if removing an admin/owner role member, check if they are the last admin
         if target_member.role in {WorkspaceMemberRole.owner, WorkspaceMemberRole.admin}:
             admin_count = await self.member_repo.count_admins(workspace_id)
             if admin_count <= 1:
-                raise BadRequestException("Cannot remove the last admin from a workspace")
+                raise InvalidRequestError("Cannot remove the last admin from a workspace", code="WORKSPACE_LAST_ADMIN_REMOVE_FORBIDDEN")
 
         # execute deletion
         await self.member_repo.delete_member(workspace_id, str(target_user_id))

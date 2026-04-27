@@ -13,7 +13,7 @@ from typing import Dict, List, Optional
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import BadRequestException, NotFoundException
+from app.common.app_errors import InvalidRequestError, NotFoundError
 from app.models.enums import McpConnectionStatus
 from app.models.mcp import McpServer
 from app.repositories.mcp_server import McpServerRepository
@@ -61,7 +61,11 @@ class McpServerService(BaseService[McpServer]):
         existing = await self.repo.get_by_name(user_id, data.name)
         if existing:
             logger.warning(f"[McpServerService] Duplicate name: {data.name} for user {user_id}")
-            raise BadRequestException(f"MCP server with name '{data.name}' already exists")
+            raise InvalidRequestError(
+                f"MCP server with name '{data.name}' already exists",
+                code="MCP_SERVER_NAME_ALREADY_EXISTS",
+                data={"name": data.name},
+            )
 
         server = await self.repo.create(
             {
@@ -106,7 +110,11 @@ class McpServerService(BaseService[McpServer]):
         if data.name and data.name != server.name:
             existing = await self.repo.get_by_name(user_id, data.name)
             if existing:
-                raise BadRequestException(f"MCP server with name '{data.name}' already exists")
+                raise InvalidRequestError(
+                    f"MCP server with name '{data.name}' already exists",
+                    code="MCP_SERVER_NAME_ALREADY_EXISTS",
+                    data={"name": data.name},
+                )
 
         # Build update dict
         update_data = {}
@@ -298,15 +306,15 @@ class McpServerService(BaseService[McpServer]):
             MCP server
 
         Raises:
-            NotFoundException: server does not exist or no permission
+            NotFoundError: server does not exist or no permission
         """
         server = await self.repo.get(server_id)
 
         if not server or server.deleted_at:
-            raise NotFoundException("MCP server not found")
+            raise NotFoundError("MCP server not found", code="MCP_SERVER_NOT_FOUND", data={"server_id": str(server_id)})
 
         if server.user_id != user_id:
-            raise NotFoundException("MCP server not found")  # Security: don't reveal existence
+            raise NotFoundError("MCP server not found", code="MCP_SERVER_NOT_FOUND", data={"server_id": str(server_id)})  # Security: don't reveal existence
 
         return server
 

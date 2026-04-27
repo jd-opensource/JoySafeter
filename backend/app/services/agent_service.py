@@ -12,7 +12,7 @@ from loguru import logger
 from sqlalchemy import delete, exists, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import ConflictException, NotFoundException
+from app.common.app_errors import ResourceConflictError, NotFoundError
 from app.core.model.utils import encrypt_credentials
 from app.models.agent import Agent, AgentRelease, AgentVersion
 from app.models.agent_run import AgentRun
@@ -51,7 +51,7 @@ class AgentService(BaseService):
             relations=self.RESPONSE_RELATIONS,
         )
         if not agent:
-            raise NotFoundException(f"Agent {agent_id} not found")
+            raise NotFoundError("Agent not found", code="AGENT_NOT_FOUND", data={"agent_id": str(agent_id)})
         return agent
 
     async def create_agent(
@@ -112,7 +112,7 @@ class AgentService(BaseService):
     ) -> Agent:
         agent = await self.agent_repo.get(agent_id)
         if not agent:
-            raise NotFoundException(f"Agent {agent_id} not found")
+            raise NotFoundError("Agent not found", code="AGENT_NOT_FOUND", data={"agent_id": str(agent_id)})
 
         update_data = data.model_dump(exclude_unset=True)
         if not update_data:
@@ -142,7 +142,7 @@ class AgentService(BaseService):
         """
         agent = await self.agent_repo.get(agent_id)
         if not agent:
-            raise NotFoundException(f"Agent {agent_id} not found")
+            raise NotFoundError("Agent not found", code="AGENT_NOT_FOUND", data={"agent_id": str(agent_id)})
 
         db = self.db
 
@@ -150,7 +150,11 @@ class AgentService(BaseService):
             select(exists().where(Task.agent_id == agent_id))
         )).scalar()
         if has_tasks:
-            raise ConflictException("Cannot delete agent: tasks still reference it")
+            raise ResourceConflictError(
+                "Cannot delete agent: tasks still reference it",
+                code="AGENT_DELETE_TASK_REFERENCE_CONFLICT",
+                data={"agent_id": str(agent_id)},
+            )
 
         version_ids = (await db.execute(
             select(AgentVersion.id).where(AgentVersion.agent_id == agent_id)

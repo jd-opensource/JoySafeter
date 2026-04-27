@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser
-from app.common.exceptions import ForbiddenException
+from app.common.app_errors import AccessDeniedError, NotFoundError
 from app.core.database import get_db
 from app.schemas import BaseResponse
 from app.services.trace_service import TraceService
@@ -181,7 +181,7 @@ async def list_traces(
 
         has_access = await check_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.viewer)
         if not has_access:
-            raise ForbiddenException("No access to workspace traces")
+            raise AccessDeniedError("No access to workspace traces", code="WORKSPACE_TRACE_ACCESS_DENIED")
 
     total = await service.count_traces(graph_id=graph_id, workspace_id=workspace_id, thread_id=thread_id)
     traces = await service.list_traces(
@@ -220,7 +220,7 @@ async def get_trace_detail(
 
     trace = await service.get_trace(trace_id)
     if trace is None:
-        return BaseResponse(success=False, code=404, msg="Trace not found", data=None)
+        raise NotFoundError("Trace not found", code="TRACE_NOT_FOUND", data={"trace_id": str(trace_id)})
 
     if trace.workspace_id:
         from app.models.workspace import WorkspaceMemberRole
@@ -228,7 +228,7 @@ async def get_trace_detail(
 
         has_access = await check_workspace_access(db, trace.workspace_id, current_user, WorkspaceMemberRole.viewer)
         if not has_access:
-            raise ForbiddenException("No access to workspace traces")
+            raise AccessDeniedError("No access to workspace traces", code="WORKSPACE_TRACE_ACCESS_DENIED")
 
     observations = await service.get_observations_for_trace(trace_id)
 
@@ -258,7 +258,7 @@ async def get_trace_observations(
 
     trace = await service.get_trace(trace_id)
     if trace is None:
-        return BaseResponse(success=False, code=404, msg="Trace not found", data=None)
+        raise NotFoundError("Trace not found", code="TRACE_NOT_FOUND", data={"trace_id": str(trace_id)})
 
     if trace.workspace_id:
         from app.models.workspace import WorkspaceMemberRole
@@ -266,7 +266,7 @@ async def get_trace_observations(
 
         has_access = await check_workspace_access(db, trace.workspace_id, current_user, WorkspaceMemberRole.viewer)
         if not has_access:
-            raise ForbiddenException("No access to workspace traces")
+            raise AccessDeniedError("No access to workspace traces", code="WORKSPACE_TRACE_ACCESS_DENIED")
 
     observations = await service.get_observations_for_trace(trace_id)
 

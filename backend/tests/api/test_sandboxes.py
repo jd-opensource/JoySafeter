@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.v1.sandboxes import router
+from app.common.exceptions import register_exception_handlers
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 
@@ -34,6 +35,7 @@ def client():
     # Create a fresh app for each test to avoid pollution
     test_app = FastAPI()
     test_app.include_router(router)
+    register_exception_handlers(test_app)
 
     # Import the exact dependency function object to override
     from app.common.dependencies import get_current_user
@@ -119,6 +121,14 @@ def test_stop_sandbox_not_found(mock_service_cls, client):
 
     # Verify
     assert response.status_code == 404
+    assert response.json() == {
+        "success": False,
+        "error": {
+            "code": "SANDBOX_STOP_TARGET_NOT_FOUND",
+            "message": "Sandbox not found or already stopped",
+            "data": {"sandbox_id": "sb-unknown"},
+        },
+    }
 
 
 @patch("app.api.v1.sandboxes.SandboxManagerService")
@@ -136,6 +146,14 @@ def test_rebuild_sandbox_not_found(mock_service_cls, client):
     mock_service.rebuild_sandbox = AsyncMock(return_value=False)
     response = client.post("/v1/sandboxes/sb-unknown/rebuild")
     assert response.status_code == 404
+    assert response.json() == {
+        "success": False,
+        "error": {
+            "code": "SANDBOX_NOT_FOUND",
+            "message": "Sandbox not found",
+            "data": {"sandbox_id": "sb-unknown"},
+        },
+    }
 
 
 @patch("app.api.v1.sandboxes.SandboxManagerService")
@@ -153,6 +171,28 @@ def test_update_sandbox_not_found(mock_service_cls, client):
     mock_service.update_sandbox_config = AsyncMock(return_value=False)
     response = client.patch("/v1/sandboxes/sb-unknown", json={"image": "python:3.11-slim"})
     assert response.status_code == 404
+    assert response.json() == {
+        "success": False,
+        "error": {
+            "code": "SANDBOX_NOT_FOUND",
+            "message": "Sandbox not found",
+            "data": {"sandbox_id": "sb-unknown"},
+        },
+    }
+
+
+def test_update_sandbox_rejects_empty_image(client):
+    response = client.patch("/v1/sandboxes/sb-1", json={"image": "   "})
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "success": False,
+        "error": {
+            "code": "SANDBOX_IMAGE_EMPTY",
+            "message": "image cannot be empty",
+            "data": None,
+        },
+    }
 
 
 @patch("app.api.v1.sandboxes.SandboxManagerService")

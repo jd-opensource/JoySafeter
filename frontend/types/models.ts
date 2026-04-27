@@ -218,6 +218,7 @@ export interface TestModelStreamMetrics {
 export interface TestModelStreamState {
   output: string
   metrics: TestModelStreamMetrics | null
-  error: string | null
+  error: ApiErrorPayload | null
   isStreaming: boolean
 }
+import type { ApiErrorPayload } from '@/lib/api-client'

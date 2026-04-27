@@ -8,7 +8,7 @@ import type {
   ExecutionEventFrame,
   ExecutionSnapshotFrame,
 } from '@/lib/ws/executions/types'
-import type { ExecutionEvent } from '@/types/agent-run'
+import type { AppErrorPayload, ExecutionEvent } from '@/types/agent-run'
 
 interface UseExecutionStreamOptions {
   executionId: string
@@ -18,6 +18,7 @@ interface UseExecutionStreamOptions {
 interface UseExecutionStreamResult {
   events: ExecutionEvent[]
   status: string | null
+  error: AppErrorPayload | null
   isConnected: boolean
   /** True if WS failed and we should fall back to polling */
   wsFailed: boolean
@@ -34,6 +35,7 @@ export function useExecutionStream({
 }: UseExecutionStreamOptions): UseExecutionStreamResult {
   const [events, setEvents] = useState<ExecutionEvent[]>([])
   const [status, setStatus] = useState<string | null>(null)
+  const [error, setError] = useState<AppErrorPayload | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [wsFailed, setWsFailed] = useState(false)
   const seqRef = useRef(0)
@@ -45,6 +47,7 @@ export function useExecutionStream({
     seqRef.current = frame.last_seq
     setStatus(frame.status)
     setEvents(frame.events ?? [])
+    setError(null)
     failCountRef.current = 0
   }, [])
 
@@ -68,11 +71,13 @@ export function useExecutionStream({
   const handleCompleted = useCallback((frame: ExecutionCompletedFrame) => {
     if (!mountedRef.current) return
     setStatus(frame.status)
+    setError(frame.error ?? null)
   }, [])
 
-  const handleError = useCallback((message: string) => {
+  const handleError = useCallback((wsError: AppErrorPayload) => {
     if (!mountedRef.current) return
-    console.warn('[ExecStream] WS error:', message)
+    console.warn('[ExecStream] WS error:', wsError)
+    setError(wsError)
     failCountRef.current += 1
     if (failCountRef.current >= 3) {
       setWsFailed(true)
@@ -107,5 +112,5 @@ export function useExecutionStream({
     }
   }, [executionId, enabled, handleSnapshot, handleEvent, handleCompleted, handleError])
 
-  return { events, status, isConnected, wsFailed }
+  return { events, status, error, isConnected, wsFailed }
 }

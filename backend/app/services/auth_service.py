@@ -7,7 +7,13 @@ from typing import Any, Dict, Optional
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import BadRequestException, UnauthorizedException
+from app.common.app_errors import (
+    AccessDeniedError,
+    AuthenticationError,
+    InternalServiceError,
+    InvalidRequestError,
+    ServiceUnavailableError,
+)
 from app.core.security import (
     generate_email_verify_token,
     generate_password_reset_token,
@@ -182,10 +188,14 @@ class AuthService(BaseService):
             JWT login response dict containing user info and tokens.
 
         Raises:
-            BadRequestException: If the email is already registered.
+            InvalidRequestError: If the email is already registered.
         """
         if await self.user_repo.get_by_email(email):
-            raise BadRequestException("Email already registered")
+            raise InvalidRequestError(
+                "Email already registered",
+                code="USER_ALREADY_EXISTS",
+                data={"email": email},
+            )
 
         user = await self.user_repo.create(
             {
@@ -248,33 +258,33 @@ class AuthService(BaseService):
             JWT login response dict containing user info and tokens.
 
         Raises:
-            UnauthorizedException: If credentials are invalid, the account is
+            AuthenticationError: If credentials are invalid, the account is
                 inactive, or email verification is required but not completed.
         """
         user = await self.user_repo.get_by_email(email)
         if not user:
-            raise UnauthorizedException("Incorrect email or password")
+            raise AuthenticationError("Incorrect email or password", code="INVALID_CREDENTIALS")
 
         login_success = False
         if not skip_password_check:
             if not user.hashed_password:
-                raise UnauthorizedException("Incorrect email or password")
+                raise AuthenticationError("Incorrect email or password", code="INVALID_CREDENTIALS")
 
             if not password:
-                raise UnauthorizedException("Incorrect email or password")
+                raise AuthenticationError("Incorrect email or password", code="MISSING_CREDENTIALS")
 
             # Validate password format (client-side hashed password)
             password = password.strip().lower()
             if len(password) != 64 or not all(c in "0123456789abcdef" for c in password):
                 # Log the specific error internally without exposing to user
                 logger.warning(f"Invalid password format received for login attempt: email={email}")
-                raise UnauthorizedException("Incorrect email or password")
+                raise AuthenticationError("Incorrect email or password", code="INVALID_CREDENTIALS")
 
             stored_password = user.hashed_password.strip().lower()
             if len(stored_password) != 64 or not all(c in "0123456789abcdef" for c in stored_password):
                 # Log the internal error but don't expose to user
                 logger.error(f"Invalid stored password format for user: {user.id}")
-                raise UnauthorizedException("Incorrect email or password")
+                raise AuthenticationError("Incorrect email or password", code="INVALID_CREDENTIALS")
 
             password_match = verify_password(password, stored_password)
 
@@ -294,15 +304,15 @@ class AuthService(BaseService):
                     logger.debug("Failed to log login failure audit event", exc_info=True)
 
                 await self.commit()
-                raise UnauthorizedException("Incorrect email or password")
+                raise AuthenticationError("Incorrect email or password", code="INVALID_CREDENTIALS")
         else:
             login_success = True
 
         if not user.is_active:
-            raise UnauthorizedException("Inactive user")
+            raise AuthenticationError("Inactive user", code="USER_INACTIVE")
 
         if settings.require_email_verification and not user.email_verified:
-            raise UnauthorizedException("Email not verified. Please verify your email before logging in.", code=403)
+            raise AccessDeniedError("Email not verified. Please verify your email before logging in.", code="EMAIL_NOT_VERIFIED")
 
         if login_success:
             from app.services.login_init import run_post_login_init
@@ -351,13 +361,13 @@ class AuthService(BaseService):
             True on success.
 
         Raises:
-            BadRequestException: If the token is invalid or expired.
+            InvalidRequestError: If the token is invalid or expired.
         """
         user = await self.user_repo.get_by_reset_token(token)
         if not user:
-            raise BadRequestException("Invalid or expired reset token")
+            raise InvalidRequestError("Invalid or expired reset token", code="RESET_TOKEN_INVALID")
         if user.password_reset_expires and user.password_reset_expires < datetime.now(timezone.utc):
-            raise BadRequestException("Reset token has expired")
+            raise InvalidRequestError("Reset token has expired", code="RESET_TOKEN_EXPIRED")
         user.hashed_password = get_password_hash(new_password)
         user.password_reset_token = None
         user.password_reset_expires = None
@@ -367,7 +377,7 @@ class AuthService(BaseService):
     async def reset_password_for_current_user(self, user: AuthUser, new_password: str) -> bool:
         """Reset password for the current logged-in user (no old password required)."""
         if not user or not user.is_active:
-            raise BadRequestException("User not found or inactive")
+            raise InvalidRequestError("User not found or inactive")
         user.hashed_password = get_password_hash(new_password)
         await self.commit()
         return True
@@ -383,13 +393,13 @@ class AuthService(BaseService):
             True on success.
 
         Raises:
-            BadRequestException: If the token is invalid or expired.
+            InvalidRequestError: If the token is invalid or expired.
         """
         user = await self.user_repo.get_by_verify_token(token)
         if not user:
-            raise BadRequestException("Invalid or expired verification token")
+            raise InvalidRequestError("Invalid or expired verification token", code="VERIFICATION_TOKEN_INVALID")
         if user.email_verify_expires and user.email_verify_expires < datetime.now(timezone.utc):
-            raise BadRequestException("Verification token has expired")
+            raise InvalidRequestError("Verification token has expired", code="VERIFICATION_TOKEN_EXPIRED")
         user.email_verified = True
         user.email_verify_token = None
         user.email_verify_expires = None
@@ -406,10 +416,10 @@ class AuthService(BaseService):
             True on success.
 
         Raises:
-            BadRequestException: If the email is already verified.
+            InvalidRequestError: If the email is already verified.
         """
         if user.email_verified:
-            raise BadRequestException("Email already verified")
+            raise InvalidRequestError("Email already verified", code="EMAIL_ALREADY_VERIFIED")
         token, expires = generate_email_verify_token()
         user.email_verify_token = token
         user.email_verify_expires = expires
@@ -427,25 +437,25 @@ class AuthService(BaseService):
         from app.core.redis import RedisClient
 
         if not RedisClient.is_available():
-            raise UnauthorizedException("Token refresh service unavailable. Please login again.", code=503)
+            raise ServiceUnavailableError("Token refresh service unavailable. Please login again.")
 
         redis_client = RedisClient.get_client()
         if not redis_client:
-            raise UnauthorizedException("Token refresh service unavailable. Please login again.", code=503)
+            raise ServiceUnavailableError("Token refresh service unavailable. Please login again.")
 
         try:
             refresh_token_key = f"refresh_token:{refresh_token}"
             user_id = await redis_client.get(refresh_token_key)
 
             if not user_id:
-                raise UnauthorizedException("Invalid or expired refresh token")
+                raise AuthenticationError("Invalid or expired refresh token", code="REFRESH_TOKEN_INVALID")
 
             # user_id from redis is a string, but AuthUser.id is also string
             # Use get_by method with id parameter
             user = await self.user_repo.get_by(id=user_id)  # type: ignore[arg-type]
             if not user or not user.is_active:
                 await self._delete_refresh_token(refresh_token, user_id)
-                raise UnauthorizedException("Invalid user")
+                raise AuthenticationError("Invalid user", code="USER_INVALID")
 
             access_token, new_refresh_token, csrf_token, access_expires, refresh_expires = await self._issue_jwt_tokens(
                 user.id
@@ -456,10 +466,10 @@ class AuthService(BaseService):
             return self._build_jwt_login_response(
                 user, access_token, new_refresh_token, csrf_token, access_expires, refresh_expires
             )
-        except UnauthorizedException:
+        except AuthenticationError:
             raise
         except Exception:
-            raise UnauthorizedException("Token refresh failed. Please login again.", code=500)
+            raise InternalServiceError("Token refresh failed. Please login again.")
 
     # ---------------------------------------------------------------- misc
     async def get_user_by_id(self, user_id: str) -> Optional[AuthUser]:

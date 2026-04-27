@@ -86,7 +86,9 @@ try {
   if (error instanceof ApiError) {
     console.log(error.status) // HTTP 状态码
     console.log(error.statusText) // 状态文本
-    console.log(error.detail) // 详细错误信息
+    console.log(error.code) // 业务错误码
+    console.log(error.message) // 错误消息
+    console.log(error.data) // 结构化错误数据
   }
 }
 ```

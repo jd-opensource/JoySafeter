@@ -5,12 +5,12 @@ from __future__ import annotations
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user, require_workspace_role
-from app.common.exceptions import ForbiddenException, NotFoundException
+from app.common.app_errors import AccessDeniedError, InvalidRequestError, NotFoundError
 from app.core.database import get_db
 from app.services.dispatch_service import DispatchService
 from app.models.auth import AuthUser as User
@@ -62,7 +62,7 @@ async def _require_execution_workspace_access(
 ) -> None:
     has_access = await check_workspace_access(db, workspace_id, current_user, role)
     if not has_access:
-        raise ForbiddenException("Insufficient workspace permission")
+        raise AccessDeniedError("Insufficient workspace permission", code="WORKSPACE_PERMISSION_DENIED")
 
 
 @router.get("", response_model=BaseResponse[List[ExecutionResponse]])
@@ -74,7 +74,7 @@ async def list_executions(
     """List all executions for a run."""
     workspace_id = await _get_run_workspace_id(db, run_id)
     if not workspace_id:
-        raise NotFoundException(f"Run {run_id} not found")
+        raise NotFoundError("Run not found", code="RUN_NOT_FOUND", data={"run_id": str(run_id)})
     await _require_execution_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.viewer)
 
     service = ExecutionService(db)
@@ -96,7 +96,11 @@ async def get_execution(
     """Get an execution by ID."""
     workspace_id = await _get_execution_workspace_id(db, execution_id)
     if not workspace_id:
-        raise NotFoundException(f"Execution {execution_id} not found")
+        raise NotFoundError(
+            "Execution not found",
+            code="EXECUTION_NOT_FOUND",
+            data={"execution_id": str(execution_id)},
+        )
     await _require_execution_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.viewer)
 
     service = ExecutionService(db)
@@ -114,7 +118,11 @@ async def list_execution_events(
     """List execution events after a sequence number."""
     workspace_id = await _get_execution_workspace_id(db, execution_id)
     if not workspace_id:
-        raise NotFoundException(f"Execution {execution_id} not found")
+        raise NotFoundError(
+            "Execution not found",
+            code="EXECUTION_NOT_FOUND",
+            data={"execution_id": str(execution_id)},
+        )
     await _require_execution_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.viewer)
 
     service = ExecutionService(db)
@@ -156,7 +164,11 @@ async def list_artifacts(
     """List all artifacts for an execution."""
     workspace_id = await _get_execution_workspace_id(db, execution_id)
     if not workspace_id:
-        raise NotFoundException(f"Execution {execution_id} not found")
+        raise NotFoundError(
+            "Execution not found",
+            code="EXECUTION_NOT_FOUND",
+            data={"execution_id": str(execution_id)},
+        )
     await _require_execution_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.viewer)
 
     result = await db.execute(
@@ -181,7 +193,11 @@ async def inject_message(
     """Inject a message into a running execution."""
     workspace_id = await _get_execution_workspace_id(db, execution_id)
     if not workspace_id:
-        raise NotFoundException(f"Execution {execution_id} not found")
+        raise NotFoundError(
+            "Execution not found",
+            code="EXECUTION_NOT_FOUND",
+            data={"execution_id": str(execution_id)},
+        )
 
     await _require_execution_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.member)
 
@@ -189,7 +205,7 @@ async def inject_message(
     try:
         await dispatch.send_message(execution_id, body.message)
     except NotImplementedError as exc:
-        raise HTTPException(status_code=501, detail=str(exc))
+        raise InvalidRequestError(str(exc), code="EXECUTION_MESSAGE_UNSUPPORTED")
     except RuntimeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise InvalidRequestError(str(exc), code="EXECUTION_MESSAGE_REJECTED")
     return BaseResponse(success=True, code=200, msg="ok", data={"status": "sent"})

@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react'
 
-import { apiStream } from '@/lib/api-client'
+import { apiStream, createApiError, type ApiErrorPayload } from '@/lib/api-client'
 import type {
   TestModelStreamMetrics,
   TestModelStreamRequest,
@@ -50,7 +50,7 @@ export function useTestModelStream() {
           if (!eventMatch) continue
 
           const [, eventType, dataStr] = eventMatch
-          let data: any
+          let data: unknown
           try {
             data = JSON.parse(dataStr)
           } catch {
@@ -58,13 +58,15 @@ export function useTestModelStream() {
           }
 
           if (eventType === 'token') {
-            setState((prev) => ({ ...prev, output: prev.output + (data.token ?? '') }))
+            const tokenData = data as { token?: string }
+            setState((prev) => ({ ...prev, output: prev.output + (tokenData.token ?? '') }))
           } else if (eventType === 'metrics') {
             setState((prev) => ({ ...prev, metrics: data as TestModelStreamMetrics }))
           } else if (eventType === 'error') {
+            const errorPayload = data as ApiErrorPayload
             setState((prev) => ({
               ...prev,
-              error: data.error ?? 'Unknown error',
+              error: errorPayload,
               isStreaming: false,
             }))
             return
@@ -75,9 +77,24 @@ export function useTestModelStream() {
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') return
+      const apiError = err instanceof Error
+        ? createApiError(0, 'Stream Error', {
+            code: 'MODEL_STREAM_CLIENT_ERROR',
+            message: err.message,
+            data: null,
+          })
+        : createApiError(0, 'Stream Error', {
+            code: 'MODEL_STREAM_CLIENT_ERROR',
+            message: 'Request failed',
+            data: null,
+          })
       setState((prev) => ({
         ...prev,
-        error: err instanceof Error ? err.message : 'Request failed',
+        error: {
+          code: apiError.code || 'MODEL_STREAM_CLIENT_ERROR',
+          message: apiError.message,
+          data: apiError.data,
+        },
         isStreaming: false,
       }))
       return

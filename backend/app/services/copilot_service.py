@@ -10,7 +10,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from loguru import logger
 
-from app.common.exceptions import ModelConfigError
+from app.common.app_errors import ModelConfigError
 from app.core.copilot.action_applier import apply_actions_to_graph_state
 from app.core.copilot.action_types import (
     CopilotResponse,
@@ -356,9 +356,9 @@ class CopilotService:
         except ModelConfigError as e:
             yield {
                 "type": "error",
-                "message": str(e.detail),
-                "code": e.error_code,
-                "params": e.params,
+                "message": e.message,
+                "code": e.code,
+                "data": e.data,
             }
         except KeyboardInterrupt:
             logger.warning("[CopilotService] Stream interrupted by user")

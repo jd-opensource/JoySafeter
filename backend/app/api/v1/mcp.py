@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user
-from app.common.exceptions import BadRequestException, NotFoundException
+from app.common.app_errors import InvalidRequestError, NotFoundError
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.services.mcp_client_service import McpConnectionConfig, get_mcp_client
@@ -387,7 +387,7 @@ async def execute_tool(
 
     if not tool:
         # get_mcp_tool_with_instance already logs detailed warnings
-        raise NotFoundException(
+        raise NotFoundError(
             f"MCP tool '{request.toolName}' not found on server '{request.serverName}' or server is not accessible"
         )
 
@@ -405,4 +405,4 @@ async def execute_tool(
             f"toolName={request.toolName}, error={str(e)}",
             exc_info=True,
         )
-        raise BadRequestException(f"Tool execution failed: {str(e)}")
+        raise InvalidRequestError(f"Tool execution failed: {str(e)}")

@@ -226,39 +226,26 @@ export default function LoginPage() {
             const errorCode = typeof ctx.error.code === 'string' ? ctx.error.code : ''
             const errorMessage = typeof ctx.error.message === 'string' ? ctx.error.message : ''
 
-            if (errorCode.includes('EMAIL_NOT_VERIFIED')) {
+            if (errorCode === 'EMAIL_NOT_VERIFIED') {
               return
             }
 
             let displayMessage = t('auth.invalidCredentials')
 
-            if (
-              errorCode.includes('BAD_REQUEST') ||
-              errorMessage.includes('Email and password sign in is not enabled')
-            ) {
-              displayMessage = t('auth.emailSignInDisabled')
-            } else if (
-              errorCode.includes('INVALID_CREDENTIALS') ||
-              errorMessage.includes('invalid password') ||
-              errorMessage.includes('Incorrect email or password')
-            ) {
+            if (errorCode === 'INVALID_CREDENTIALS') {
               displayMessage = t('auth.invalidCredentials')
-            } else if (errorCode.includes('USER_NOT_FOUND') || errorMessage.includes('not found')) {
+            } else if (errorCode === 'USER_NOT_FOUND') {
               displayMessage = t('auth.userNotFound')
-            } else if (errorCode.includes('MISSING_CREDENTIALS')) {
+            } else if (errorCode === 'MISSING_CREDENTIALS') {
               displayMessage = t('auth.invalidCredentials')
-            } else if (errorCode.includes('EMAIL_PASSWORD_DISABLED')) {
+            } else if (errorCode === 'EMAIL_PASSWORD_DISABLED') {
               displayMessage = t('auth.emailSignInDisabled')
-            } else if (errorCode.includes('FAILED_TO_CREATE_SESSION')) {
+            } else if (errorCode === 'FAILED_TO_CREATE_SESSION') {
               displayMessage = t('auth.invalidCredentials')
-            } else if (errorCode.includes('too many attempts')) {
+            } else if (errorCode === 'RATE_LIMITED') {
               displayMessage = t('auth.tooManyAttempts')
-            } else if (errorCode.includes('account locked')) {
-              displayMessage = t('auth.accountLocked')
-            } else if (errorCode.includes('network') || errorMessage.includes('network')) {
+            } else if (errorCode === 'network' || errorMessage.includes('network')) {
               displayMessage = t('auth.networkError')
-            } else if (errorMessage.includes('rate limit')) {
-              displayMessage = t('auth.rateLimitError')
             } else if (errorMessage) {
               displayMessage = errorMessage
             }
@@ -285,22 +272,14 @@ export default function LoginPage() {
 
           let displayMessage = t('auth.invalidCredentials')
 
-          if (
-            errorCode.includes('INVALID_CREDENTIALS') ||
-            errorMsg.includes('invalid password') ||
-            errorMsg.includes('Incorrect email or password')
-          ) {
+          if (errorCode === 'INVALID_CREDENTIALS') {
             displayMessage = t('auth.invalidCredentials')
-          } else if (errorCode.includes('USER_NOT_FOUND') || errorMsg.includes('not found')) {
+          } else if (errorCode === 'USER_NOT_FOUND') {
             displayMessage = t('auth.userNotFound')
-          } else if (errorCode.includes('too many attempts')) {
+          } else if (errorCode === 'RATE_LIMITED') {
             displayMessage = t('auth.tooManyAttempts')
-          } else if (errorCode.includes('account locked')) {
-            displayMessage = t('auth.accountLocked')
-          } else if (errorCode.includes('network') || errorMsg.includes('network')) {
+          } else if (errorCode === 'network' || errorMsg.includes('network')) {
             displayMessage = t('auth.networkError')
-          } else if (errorMsg.includes('rate limit')) {
-            displayMessage = t('auth.rateLimitError')
           } else if (errorMsg) {
             displayMessage = errorMsg
           }

@@ -10,7 +10,7 @@ from typing import Any, List, Optional
 
 from loguru import logger
 
-from app.common.exceptions import ModelConfigError
+from app.common.app_errors import ModelConfigError
 from app.core.graph.deep_agents import format_node_ctx
 
 

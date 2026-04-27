@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser, get_current_user, require_workspace_role
-from app.common.exceptions import ForbiddenException
+from app.common.app_errors import AccessDeniedError
 from app.core.database import get_db
 from app.models.agent import Agent, AgentRelease, AgentVersion
 from app.models.auth import AuthUser as User
@@ -49,7 +49,7 @@ async def _require_workspace_access(
 ) -> None:
     has_access = await check_workspace_access(db, workspace_id, current_user, role)
     if not has_access:
-        raise ForbiddenException("Insufficient workspace permission")
+        raise AccessDeniedError("Insufficient workspace permission")
 
 
 @router.get("", response_model=BaseResponse[List[AgentRunResponse]])
@@ -90,7 +90,7 @@ async def create_run(
     """Create a new agent run via the unified orchestrator."""
     workspace_id = await _get_release_workspace_id(db, request.release_id)
     if not workspace_id:
-        raise ForbiddenException("Insufficient workspace permission")
+        raise AccessDeniedError("Insufficient workspace permission")
     await _require_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.member)
 
     dispatch = DispatchService(db)

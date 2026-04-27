@@ -42,7 +42,6 @@ export const API_BASE = `${API_BASE_URL}/${API_VERSION}`
 export const API_ENDPOINTS = {
   auth: 'auth',
   workspaces: 'workspaces',
-  folders: 'folders',
   workflows: 'workflows',
   agents: 'agents',
   graphs: 'graphs',
@@ -66,58 +65,61 @@ export interface ApiResponse<T> {
   timestamp?: string
 }
 
-export interface ApiErrorDescriptor {
+export interface ApiErrorPayload {
   code: string
   message: string
-  detail?: string
-  source: string
-  retryable: boolean
-  user_action?: string
-  context?: Record<string, unknown>
+  data?: Record<string, unknown> | null
+}
+
+export function createApiError(
+  status: number,
+  statusText: string,
+  payload?: ApiErrorPayload,
+): ApiError {
+  const normalizedPayload: ApiErrorPayload = payload ?? {
+    code: status > 0 ? `HTTP_${status}` : 'UNKNOWN_ERROR',
+    message: statusText || `API Error: ${status}`,
+    data: null,
+  }
+  return new ApiError(status, statusText, normalizedPayload)
 }
 
 export class ApiError extends Error {
   /** Error code, used to identify specific error types (e.g., 'EMAIL_NOT_VERIFIED', 'BAD_REQUEST') */
-  public readonly code?: string
-  public readonly descriptor?: ApiErrorDescriptor
+  public readonly code: string
+  public readonly payload: ApiErrorPayload
+  public readonly data?: Record<string, unknown> | null
 
   constructor(
     public readonly status: number,
     public readonly statusText: string,
-    public readonly detail?: string,
-    code?: string,
-    descriptor?: ApiErrorDescriptor,
+    payload: ApiErrorPayload,
   ) {
-    super(descriptor?.message || detail || statusText || `API Error: ${status}`)
+    super(payload.message || statusText || `API Error: ${status}`)
     this.name = 'ApiError'
-    this.code = descriptor?.code || code || statusText
-    this.descriptor = descriptor
+    this.code = payload.code
+    this.payload = payload
+    this.data = payload.data ?? null
   }
 }
 
 async function extractErrorFromResponse(response: Response): Promise<ApiError> {
-  let descriptor: ApiErrorDescriptor | undefined
+  let payload: ApiErrorPayload | undefined
   try {
     const text = await response.text()
     const errorData = JSON.parse(text)
-    descriptor =
+    payload =
       errorData &&
       typeof errorData === 'object' &&
       'error' in errorData &&
       errorData.error &&
       typeof errorData.error === 'object'
-        ? (errorData.error as ApiErrorDescriptor)
+        ? (errorData.error as ApiErrorPayload)
         : undefined
   } catch {
     /* not JSON or empty body */
   }
-  return new ApiError(
-    response.status,
-    response.statusText,
-    descriptor?.detail,
-    descriptor?.code,
-    descriptor,
-  )
+  return createApiError(response.status, response.statusText, payload)
 }
 
 export interface ApiRequestOptions extends Omit<RequestInit, 'body'> {
@@ -153,15 +155,9 @@ async function parseResponse<T>(response: Response): Promise<T> {
     // Auto-unwrap `data` whether or not `success` is present,
     // so callers always receive the inner payload directly.
     if (json && typeof json === 'object' && 'success' in json && !json.success && 'error' in json) {
-      const descriptor =
-        json.error && typeof json.error === 'object' ? (json.error as ApiErrorDescriptor) : undefined
-      throw new ApiError(
-        response.status,
-        response.statusText,
-        descriptor?.detail || descriptor?.message || 'API request failed',
-        descriptor?.code,
-        descriptor,
-      )
+      const payload =
+        json.error && typeof json.error === 'object' ? (json.error as ApiErrorPayload) : undefined
+      throw createApiError(response.status, response.statusText, payload)
     }
 
     if (json && typeof json === 'object' && 'data' in json) {
@@ -288,11 +284,23 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
       if (e instanceof ApiError) throw e
       if (e instanceof Error) {
         if (e.name === 'AbortError') {
-          throw new ApiError(408, 'Request Timeout', 'Request timed out')
+          throw createApiError(408, 'Request Timeout', {
+            code: 'REQUEST_TIMEOUT',
+            message: 'Request timed out',
+            data: null,
+          })
         }
-        throw new ApiError(0, 'Network Error', e.message)
+        throw createApiError(0, 'Network Error', {
+          code: 'NETWORK_ERROR',
+          message: e.message,
+          data: null,
+        })
       }
-      throw new ApiError(0, 'Unknown Error', String(e))
+      throw createApiError(0, 'Unknown Error', {
+        code: 'UNKNOWN_ERROR',
+        message: String(e),
+        data: null,
+      })
     } finally {
       clearTimeout(timeoutId)
     }

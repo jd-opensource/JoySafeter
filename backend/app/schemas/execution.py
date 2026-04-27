@@ -10,6 +10,12 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+
+class AppErrorPayload(BaseModel):
+    code: str
+    message: str
+    data: dict | None = None
+
 # ---------------------------------------------------------------------------
 # Execution (Phase 4 - new schema)
 # ---------------------------------------------------------------------------
@@ -23,8 +29,7 @@ class ExecutionResponse(BaseModel):
     executor_kind: str
     runtime_session_ref: Optional[str]
     status: str
-    error_code: Optional[str]
-    error_message: Optional[str]
+    error: Optional[AppErrorPayload]
     metrics: Optional[dict]
     started_at: Optional[datetime]
     ended_at: Optional[datetime]

@@ -14,7 +14,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser
-from app.common.exceptions import AppException, BadRequestException, InternalServerException, NotFoundException
+from app.common.app_errors import AppError, InvalidRequestError, InternalServiceError, NotFoundError
 from app.common.response import success_response
 from app.core.agent.artifacts import ArtifactResolver, FileInfo, RunInfo
 from app.core.database import get_db
@@ -91,7 +91,11 @@ async def download_artifact_file(
     """Download or preview a file from the run. Returns file with appropriate Content-Type."""
     path = resolver.get_file_path(str(current_user.id), thread_id, run_id, file_path)
     if path is None:
-        raise NotFoundException("File not found or path invalid")
+        raise NotFoundError(
+            "File not found or path invalid",
+            code="ARTIFACT_FILE_NOT_FOUND",
+            data={"thread_id": thread_id, "run_id": run_id, "file_path": file_path},
+        )
     filename = path.name
     media_type, _ = mimetypes.guess_type(str(path))
     return FileResponse(
@@ -115,7 +119,7 @@ async def live_read_file(
     user_id = str(current_user.id)
     record = await service.get_user_sandbox_record(user_id)
     if not record:
-        raise NotFoundException("No sandbox found")
+        raise NotFoundError("No sandbox found", code="SANDBOX_NOT_FOUND", data={"user_id": user_id})
 
     handle = None
     adapter = await _sandbox_pool.get(record.id)
@@ -129,7 +133,7 @@ async def live_read_file(
             adapter = handle.adapter
         except Exception as e:
             logger.warning(f"Sandbox reconnect failed for user {user_id}: {e}", exc_info=True)
-            raise NotFoundException("Sandbox not running")
+            raise NotFoundError("Sandbox not running", code="SANDBOX_NOT_RUNNING", data={"user_id": user_id})
 
     try:
         raw_read = getattr(adapter, "raw_read", None)
@@ -138,13 +142,17 @@ async def live_read_file(
         else:
             content = adapter.read(file_path)
         if content.startswith("[Error:") or content.startswith("Error:"):
-            raise NotFoundException(content)
+            raise NotFoundError(
+                content,
+                code="ARTIFACT_FILE_NOT_FOUND",
+                data={"thread_id": thread_id, "file_path": file_path},
+            )
         return PlainTextResponse(content)
-    except AppException:
+    except AppError:
         raise
     except Exception as e:
         logger.warning(f"Live read failed for {file_path}: {e}")
-        raise InternalServerException(f"Failed to read file: {e}")
+        raise InternalServiceError(f"Failed to read file: {e}")
     finally:
         if handle:
             await handle.release()
@@ -162,5 +170,9 @@ async def delete_artifact_run(
     """Delete all artifacts for the given run."""
     ok = resolver.delete_run(str(current_user.id), thread_id, run_id)
     if not ok:
-        raise BadRequestException("Delete failed or path invalid")
+        raise InvalidRequestError(
+            "Delete failed or path invalid",
+            code="ARTIFACT_RUN_DELETE_FAILED",
+            data={"thread_id": thread_id, "run_id": run_id},
+        )
     return success_response(message="Run artifacts deleted", data={"run_id": run_id})

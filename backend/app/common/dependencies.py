@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.cookie_auth import extract_token_from_cookies
-from app.common.exceptions import ForbiddenException, NotFoundException, UnauthorizedException
+from app.common.app_errors import AccessDeniedError, NotFoundError, AuthenticationError
 from app.core.database import get_db
 from app.core.security import decode_token
 from app.models.auth import AuthUser as User
@@ -45,7 +45,7 @@ async def get_current_user(
         logger.debug("Failed to read auth token from cookies", exc_info=True)
     token = token or cookie_token
     if not token:
-        raise UnauthorizedException("Missing credentials")
+        raise AuthenticationError("Missing credentials", code="MISSING_CREDENTIALS")
 
     # try JWT token first (JWT mode)
     payload = decode_token(token)
@@ -54,9 +54,9 @@ async def get_current_user(
         result = await db.execute(select(User).where(User.id == str(user_id)))
         user = result.scalar_one_or_none()
         if user is None:
-            raise UnauthorizedException("User not found")
+            raise AuthenticationError("User not found", code="USER_NOT_FOUND")
         if not user.is_active:
-            raise UnauthorizedException("User is inactive")
+            raise AuthenticationError("User is inactive", code="USER_INACTIVE")
         return user
 
     # if JWT validation fails, try as session token (backward-compatible)
@@ -66,12 +66,12 @@ async def get_current_user(
         result = await db.execute(select(User).where(User.id == session.user_id))
         user = result.scalar_one_or_none()
         if user is None:
-            raise UnauthorizedException("User not found")
+            raise AuthenticationError("User not found", code="USER_NOT_FOUND")
         if not user.is_active:
-            raise UnauthorizedException("User is inactive")
+            raise AuthenticationError("User is inactive", code="USER_INACTIVE")
         return user
 
-    raise UnauthorizedException("Could not validate credentials")
+    raise AuthenticationError("Could not validate credentials", code="CREDENTIALS_INVALID")
 
 
 async def get_current_user_optional(
@@ -148,17 +148,17 @@ def require_workspace_role(min_role: WorkspaceMemberRole):
 
         workspace = await ws_repo.get(workspace_id)
         if not workspace:
-            raise NotFoundException("Workspace not found")
+            raise NotFoundError("Workspace not found", code="WORKSPACE_NOT_FOUND")
 
         if workspace.owner_id == current_user.id:
             return current_user
 
         member = await member_repo.get_member(workspace_id, current_user.id)
         if not member:
-            raise ForbiddenException("No access to workspace")
+            raise AccessDeniedError("No access to workspace", code="WORKSPACE_ACCESS_DENIED")
 
         if _role_rank(member.role) < _role_rank(min_role):
-            raise ForbiddenException("Insufficient workspace permission")
+            raise AccessDeniedError("Insufficient workspace permission", code="WORKSPACE_PERMISSION_DENIED")
 
         return current_user
 
@@ -195,9 +195,9 @@ def require_org_role(min_role: OrgRole):
         )
         member = result.scalar_one_or_none()
         if not member:
-            raise ForbiddenException("No access to organization")
+            raise AccessDeniedError("No access to organization", code="ORGANIZATION_ACCESS_DENIED")
         if _rank(member.role) < _rank(min_role):
-            raise ForbiddenException("Insufficient organization permission")
+            raise AccessDeniedError("Insufficient organization permission", code="ORGANIZATION_PERMISSION_DENIED")
         return current_user
 
     return Depends(checker)

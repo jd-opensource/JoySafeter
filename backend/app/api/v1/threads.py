@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser, require_workspace_role
-from app.common.exceptions import BadRequestException, ForbiddenException
+from app.common.app_errors import InvalidRequestError, AccessDeniedError
 from app.core.database import get_db
 from app.services.dispatch_service import DispatchService
 from app.models.agent_run import AgentRun
@@ -66,7 +66,7 @@ async def create_thread(
 ) -> BaseResponse[ThreadResponse]:
     has_access = await check_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.member)
     if not has_access:
-        raise ForbiddenException("No access to workspace")
+        raise AccessDeniedError("No access to workspace", code="WORKSPACE_ACCESS_DENIED")
 
     service = ThreadService(db)
     thread = await service.create_thread(workspace_id, str(current_user.id), request)
@@ -132,7 +132,7 @@ async def chat(
         db, workspace_id, current_user, WorkspaceMemberRole.member,
     )
     if not has_access:
-        raise ForbiddenException("No access to workspace")
+        raise AccessDeniedError("No access to workspace", code="WORKSPACE_ACCESS_DENIED")
 
     active_run = (await db.execute(
         select(AgentRun).where(
@@ -141,7 +141,11 @@ async def chat(
         )
     )).scalar_one_or_none()
     if active_run:
-        raise BadRequestException("Thread has an active run, please wait for it to complete")
+        raise InvalidRequestError(
+            "Thread has an active run, please wait for it to complete",
+            code="THREAD_ACTIVE_RUN_EXISTS",
+            data={"thread_id": str(thread_id)},
+        )
 
     # 1. Create run + execution first (so we have execution_id for the event)
     dispatch = DispatchService(db)

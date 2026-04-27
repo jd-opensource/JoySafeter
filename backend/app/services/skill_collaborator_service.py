@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import List
 
-from app.common.exceptions import BadRequestException, ForbiddenException, NotFoundException
+from app.common.app_errors import InvalidRequestError, AccessDeniedError, NotFoundError
 from app.common.skill_permissions import check_skill_access
 from app.models.skill import Skill
 from app.models.skill_collaborator import CollaboratorRole, SkillCollaborator
@@ -56,11 +56,15 @@ class SkillCollaboratorService(BaseService[SkillCollaborator]):
         )
 
         if target_user_id == skill.owner_id:
-            raise BadRequestException("Cannot add the owner as a collaborator")
+            raise InvalidRequestError("Cannot add the owner as a collaborator", code="SKILL_OWNER_COLLABORATOR_FORBIDDEN")
 
         existing = await self.repo.get_by_skill_and_user(skill_id, target_user_id)
         if existing:
-            raise BadRequestException("User is already a collaborator")
+            raise InvalidRequestError(
+                "User is already a collaborator",
+                code="SKILL_COLLABORATOR_ALREADY_EXISTS",
+                data={"user_id": target_user_id},
+            )
 
         collab = SkillCollaborator(
             skill_id=skill_id,
@@ -92,7 +96,11 @@ class SkillCollaboratorService(BaseService[SkillCollaborator]):
 
         collab = await self.repo.get_by_skill_and_user(skill_id, target_user_id)
         if not collab:
-            raise NotFoundException("Collaborator not found")
+            raise NotFoundError(
+                "Collaborator not found",
+                code="SKILL_COLLABORATOR_NOT_FOUND",
+                data={"user_id": target_user_id},
+            )
 
         collab.role = new_role
         await self.db.commit()
@@ -117,7 +125,11 @@ class SkillCollaboratorService(BaseService[SkillCollaborator]):
 
         deleted = await self.repo.delete_by_skill_and_user(skill_id, target_user_id)
         if not deleted:
-            raise NotFoundException("Collaborator not found")
+            raise NotFoundError(
+                "Collaborator not found",
+                code="SKILL_COLLABORATOR_NOT_FOUND",
+                data={"user_id": target_user_id},
+            )
         await self.db.commit()
 
     async def transfer_ownership(
@@ -130,12 +142,16 @@ class SkillCollaboratorService(BaseService[SkillCollaborator]):
         skill = await self._get_skill_or_404(skill_id)
 
         if skill.owner_id != current_user_id:
-            raise ForbiddenException("Only the owner can transfer ownership")
+            raise AccessDeniedError("Only the owner can transfer ownership", code="SKILL_OWNER_TRANSFER_FORBIDDEN")
 
         # Check new owner doesn't have a skill with the same name
         existing = await self.skill_repo.get_by_name_and_owner(skill.name, new_owner_id)
         if existing:
-            raise BadRequestException(f"New owner already has a skill named '{skill.name}'")
+            raise InvalidRequestError(
+                f"New owner already has a skill named '{skill.name}'",
+                code="SKILL_NAME_ALREADY_EXISTS",
+                data={"name": skill.name, "owner_id": new_owner_id},
+            )
 
         # Remove new owner from collaborators if present
         await self.repo.delete_by_skill_and_user(skill_id, new_owner_id)
@@ -161,5 +177,5 @@ class SkillCollaboratorService(BaseService[SkillCollaborator]):
     async def _get_skill_or_404(self, skill_id: uuid.UUID) -> Skill:
         skill = await self.skill_repo.get(skill_id)
         if not skill:
-            raise NotFoundException("Skill not found")
+            raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
         return skill  # type: ignore[return-value,no-any-return]

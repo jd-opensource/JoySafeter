@@ -270,25 +270,17 @@ function SignupFormContent() {
             const errorCode = typeof ctx.error.code === 'string' ? ctx.error.code : ''
             const errorMessage = typeof ctx.error.message === 'string' ? ctx.error.message : ''
 
-            if (
-              errorCode.includes('USER_ALREADY_EXISTS') ||
-              errorMessage.includes('already registered')
-            ) {
+            if (errorCode === 'USER_ALREADY_EXISTS') {
               toastError(t('auth.userAlreadyExists'))
-            } else if (
-              errorCode.includes('BAD_REQUEST') ||
-              errorMessage.includes('Email and password sign up is not enabled')
-            ) {
-              toastError(t('auth.emailSignInDisabled'))
-            } else if (errorCode.includes('INVALID_EMAIL')) {
+            } else if (errorCode === 'INVALID_EMAIL') {
               toastError(t('auth.emailInvalid'))
-            } else if (errorCode.includes('PASSWORD_TOO_SHORT')) {
+            } else if (errorCode === 'PASSWORD_TOO_SHORT') {
               toastError(t('auth.passwordMinLength'))
-            } else if (errorCode.includes('PASSWORD_TOO_LONG')) {
+            } else if (errorCode === 'PASSWORD_TOO_LONG') {
               toastError(t('auth.passwordMaxLength'))
-            } else if (errorCode.includes('network')) {
+            } else if (errorCode === 'network') {
               toastError(t('auth.networkError'))
-            } else if (errorCode.includes('rate limit')) {
+            } else if (errorCode === 'RATE_LIMITED') {
               toastError(t('auth.rateLimitError'))
             } else {
               toastError(errorMessage || t('auth.invalidCredentials'))

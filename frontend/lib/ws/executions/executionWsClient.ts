@@ -34,7 +34,7 @@ class SharedExecutionWsClient extends BaseWsClient<ExecutionConnectionState> {
 
   protected handleMessage(frame: IncomingExecutionWsFrame): void {
     if (frame.type === 'ws_error') {
-      this.subscriptions.forEach(({ callbacks }) => callbacks.onError?.(frame.message))
+      this.subscriptions.forEach(({ callbacks }) => callbacks.onError?.(frame.error))
       return
     }
 

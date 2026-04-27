@@ -134,12 +134,17 @@ export interface Execution {
   executor_kind: string
   runtime_session_ref: string | null
   status: ExecutionStatus
-  error_code: string | null
-  error_message: string | null
+  error: AppErrorPayload | null
   metrics: Record<string, unknown> | null
   started_at: string | null
   ended_at: string | null
   created_at: string
+}
+
+export interface AppErrorPayload {
+  code: string
+  message: string
+  data: Record<string, unknown> | null
 }
 
 export interface ExecutionEvent {

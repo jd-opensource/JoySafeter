@@ -74,9 +74,9 @@ async def get_provider(
     provider = await service.get_provider(provider_name)
 
     if not provider:
-        from app.common.exceptions import NotFoundException
+        from app.common.app_errors import NotFoundError
 
-        raise NotFoundException(f"Provider not found: {provider_name}")
+        raise NotFoundError(f"Provider not found: {provider_name}")
 
     return success_response(data=provider, message="Provider details retrieved")
 

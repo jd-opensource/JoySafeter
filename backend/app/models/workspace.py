@@ -6,7 +6,7 @@ import uuid
 from enum import Enum as PyEnum
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Enum, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -115,45 +115,3 @@ class WorkspaceMember(BaseModel):
     )
 
     __table_args__ = (UniqueConstraint("workspace_id", "user_id", name="uq_workspace_member"),)
-
-
-class WorkspaceFolder(BaseModel, SoftDeleteMixin):
-    """Workspace folder."""
-
-    __tablename__ = "workspace_folder"
-
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    user_id: Mapped[str] = mapped_column(
-        String(255),
-        ForeignKey("user.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("workspaces.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    parent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("workspace_folder.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-
-    color: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, default="#6B7280")
-    is_expanded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-
-    user: Mapped["AuthUser"] = relationship("AuthUser", lazy="selectin")
-    workspace: Mapped["Workspace"] = relationship("Workspace", lazy="selectin")
-    parent: Mapped[Optional["WorkspaceFolder"]] = relationship(
-        "WorkspaceFolder",
-        remote_side="WorkspaceFolder.id",
-        lazy="selectin",
-    )
-
-    __table_args__ = (
-        Index("workspace_folder_user_idx", "user_id"),
-        Index("workspace_folder_workspace_parent_idx", "workspace_id", "parent_id"),
-        Index("workspace_folder_parent_sort_idx", "parent_id", "sort_order"),
-        Index("workspace_folder_deleted_at_idx", "deleted_at"),
-    )

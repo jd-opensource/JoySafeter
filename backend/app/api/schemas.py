@@ -4,54 +4,47 @@ from typing import Generic, List, Optional, TypeVar
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class BadRequestResponse(BaseModel):
-    model_config = ConfigDict(json_schema_extra={"example": {"detail": "Bad request", "error_code": "BAD_REQUEST"}})
-
-    detail: str = Field(..., description="Error detail message")
-    error_code: Optional[str] = Field(None, description="Error code for categorization")
-
-
-class NotFoundResponse(BaseModel):
-    model_config = ConfigDict(json_schema_extra={"example": {"detail": "Not found", "error_code": "NOT_FOUND"}})
-
-    detail: str = Field(..., description="Error detail message")
-    error_code: Optional[str] = Field(None, description="Error code for categorization")
-
-
-class UnauthorizedResponse(BaseModel):
+class AppErrorPayloadSchema(BaseModel):
     model_config = ConfigDict(
-        json_schema_extra={"example": {"detail": "Unauthorized access", "error_code": "UNAUTHORIZED"}}
+        json_schema_extra={
+            "example": {
+                "code": "BAD_REQUEST",
+                "message": "请求错误",
+                "data": {"detail": "Bad request"},
+            }
+        }
     )
 
-    detail: str = Field(..., description="Error detail message")
-    error_code: Optional[str] = Field(None, description="Error code for categorization")
+    code: str = Field(..., description="Stable application error code")
+    message: str = Field(..., description="User-facing error summary")
+    data: Optional[dict] = Field(None, description="Structured error metadata")
 
 
-class UnauthenticatedResponse(BaseModel):
+class ErrorEnvelopeResponse(BaseModel):
     model_config = ConfigDict(
-        json_schema_extra={"example": {"detail": "Unauthenticated access", "error_code": "UNAUTHENTICATED"}}
+        json_schema_extra={
+            "example": {
+                "success": False,
+                "error": {
+                    "code": "NOT_FOUND",
+                    "message": "资源不存在",
+                    "data": None,
+                },
+            }
+        }
     )
 
-    detail: str = Field(..., description="Error detail message")
-    error_code: Optional[str] = Field(None, description="Error code for categorization")
+    success: bool = Field(False, description="Always false for error envelopes")
+    error: AppErrorPayloadSchema = Field(..., description="Canonical application error payload")
 
 
-class ValidationErrorResponse(BaseModel):
-    model_config = ConfigDict(
-        json_schema_extra={"example": {"detail": "Validation error", "error_code": "VALIDATION_ERROR"}}
-    )
+BadRequestResponse = ErrorEnvelopeResponse
+NotFoundResponse = ErrorEnvelopeResponse
+UnauthorizedResponse = ErrorEnvelopeResponse
+UnauthenticatedResponse = ErrorEnvelopeResponse
+ValidationErrorResponse = ErrorEnvelopeResponse
+InternalServerErrorResponse = ErrorEnvelopeResponse
 
-    detail: str = Field(..., description="Error detail message")
-    error_code: Optional[str] = Field(None, description="Error code for categorization")
-
-
-class InternalServerErrorResponse(BaseModel):
-    model_config = ConfigDict(
-        json_schema_extra={"example": {"detail": "Internal server error", "error_code": "INTERNAL_SERVER_ERROR"}}
-    )
-
-    detail: str = Field(..., description="Error detail message")
-    error_code: Optional[str] = Field(None, description="Error code for categorization")
 
 
 class HealthResponse(BaseModel):

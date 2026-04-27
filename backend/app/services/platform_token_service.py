@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional, Tuple
 
-from app.common.exceptions import BadRequestException, ForbiddenException, NotFoundException
+from app.common.app_errors import InvalidRequestError, AccessDeniedError, NotFoundError
 from app.common.permissions import VALID_SCOPES
 from app.models.enums import OrgRole
 from app.models.platform_token import PlatformToken
@@ -40,19 +40,32 @@ class PlatformTokenService(BaseService[PlatformToken]):
         # Check limit
         active_count = await self.repo.count_active_by_user(user_id)
         if active_count >= MAX_ACTIVE_TOKENS_PER_USER:
-            raise BadRequestException(f"Maximum of {MAX_ACTIVE_TOKENS_PER_USER} active tokens reached")
+            raise InvalidRequestError(
+                f"Maximum of {MAX_ACTIVE_TOKENS_PER_USER} active tokens reached",
+                code="PLATFORM_TOKEN_LIMIT_EXCEEDED",
+                data={"limit": MAX_ACTIVE_TOKENS_PER_USER},
+            )
 
         # Validate scopes
         invalid = set(scopes) - set(VALID_SCOPES)
         if invalid:
-            raise BadRequestException(f"Invalid scopes: {invalid}")
+            raise InvalidRequestError(
+                f"Invalid scopes: {invalid}",
+                code="PLATFORM_TOKEN_SCOPES_INVALID",
+                data={"scopes": sorted(invalid)},
+            )
 
         # Validate resource_type/resource_id pair
         if (resource_type is None) != (resource_id is None):
-            raise BadRequestException("resource_type and resource_id must both be provided or both be null")
+            raise InvalidRequestError(
+                "resource_type and resource_id must both be provided or both be null",
+                code="PLATFORM_TOKEN_RESOURCE_BINDING_INVALID",
+            )
         if resource_type is not None and resource_type not in self.VALID_RESOURCE_TYPES:
-            raise BadRequestException(
-                f"Invalid resource_type: {resource_type}. Must be one of {self.VALID_RESOURCE_TYPES}"
+            raise InvalidRequestError(
+                f"Invalid resource_type: {resource_type}. Must be one of {self.VALID_RESOURCE_TYPES}",
+                code="PLATFORM_TOKEN_RESOURCE_TYPE_INVALID",
+                data={"resource_type": resource_type},
             )
 
         # Validate resource exists and user has permission
@@ -65,11 +78,19 @@ class PlatformTokenService(BaseService[PlatformToken]):
                 skill_repo = SkillRepository(self.db)
                 skill = await skill_repo.get(resource_id)
                 if not skill:
-                    raise NotFoundException(f"Skill {resource_id} not found")
+                    raise NotFoundError(
+                        "Skill not found",
+                        code="SKILL_NOT_FOUND",
+                        data={"skill_id": str(resource_id)},
+                    )
                 try:
                     await check_skill_access(self.db, skill, user_id, CollaboratorRole.editor)
-                except ForbiddenException:
-                    raise ForbiddenException("No permission to create token for this skill")
+                except AccessDeniedError:
+                    raise AccessDeniedError(
+                        "No permission to create token for this skill",
+                        code="PLATFORM_TOKEN_SKILL_ACCESS_DENIED",
+                        data={"skill_id": str(resource_id)},
+                    )
             elif resource_type == "graph":
                 from app.repositories.workspace import WorkspaceMemberRepository, WorkspaceRepository
 
@@ -77,20 +98,36 @@ class PlatformTokenService(BaseService[PlatformToken]):
                 member_repo = WorkspaceMemberRepository(self.db)
                 workspace = await workspace_repo.get(resource_id)
                 if not workspace:
-                    raise NotFoundException(f"Workspace {resource_id} not found")
+                    raise NotFoundError(
+                        "Workspace not found",
+                        code="WORKSPACE_NOT_FOUND",
+                        data={"workspace_id": str(resource_id)},
+                    )
                 if workspace.owner_id != user_id:
                     member = await member_repo.get_member(resource_id, user_id)
                     if not member or member.role not in {OrgRole.ADMIN, OrgRole.OWNER}:
-                        raise ForbiddenException("No permission to create token for this workspace")
+                        raise AccessDeniedError(
+                            "No permission to create token for this workspace",
+                            code="PLATFORM_TOKEN_WORKSPACE_ACCESS_DENIED",
+                            data={"workspace_id": str(resource_id)},
+                        )
             elif resource_type == "tool":
                 from app.repositories.tool import ToolRepository
 
                 tool_repo = ToolRepository(self.db)
                 tool = await tool_repo.get(resource_id)
                 if not tool:
-                    raise NotFoundException(f"Tool {resource_id} not found")
+                    raise NotFoundError(
+                        "Tool not found",
+                        code="TOOL_NOT_FOUND",
+                        data={"tool_id": str(resource_id)},
+                    )
                 if tool.owner_id != user_id:
-                    raise ForbiddenException("No permission to create token for this tool")
+                    raise AccessDeniedError(
+                        "No permission to create token for this tool",
+                        code="PLATFORM_TOKEN_TOOL_ACCESS_DENIED",
+                        data={"tool_id": str(resource_id)},
+                    )
 
         # Generate token
         raw_secret = secrets.token_urlsafe(36)
@@ -133,8 +170,12 @@ class PlatformTokenService(BaseService[PlatformToken]):
     ) -> None:
         pt = await self.repo.get(token_id)
         if not pt:
-            raise NotFoundException("Token not found")
+            raise NotFoundError("Token not found", code="PLATFORM_TOKEN_NOT_FOUND", data={"token_id": str(token_id)})
         if pt.user_id != user_id:
-            raise ForbiddenException("You can only revoke your own tokens")
+            raise AccessDeniedError(
+                "You can only revoke your own tokens",
+                code="PLATFORM_TOKEN_REVOKE_FORBIDDEN",
+                data={"token_id": str(token_id)},
+            )
         pt.is_active = False
         await self.db.commit()

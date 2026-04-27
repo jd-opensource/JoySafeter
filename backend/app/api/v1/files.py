@@ -40,7 +40,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from app.common.dependencies import CurrentUser
-from app.common.exceptions import AppException, BadRequestException, InternalServerException, NotFoundException
+from app.common.app_errors import AppError, InvalidRequestError, InternalServiceError, NotFoundError
 from app.core.agent.backends.constants import (
     DEFAULT_WORKING_DIR,
     SANDBOX_UPLOADS_SUBDIR,
@@ -168,7 +168,7 @@ def _validate_file_content(filename: str, content: bytes) -> None:
     content_start = content[: max(len(sig) for sig in expected_signatures)]
     if not any(content_start.startswith(sig) for sig in expected_signatures):
         logger.warning(f"File content validation failed for {filename}: got {content_start[:16].hex()}")
-        raise BadRequestException(
+        raise InvalidRequestError(
             f"File content does not match declared type: {file_ext}",
         )
 
@@ -177,7 +177,7 @@ def _validate_file_type(filename: str, content_type: str | None) -> None:
     """Validate file type (extension and MIME type)."""
     file_ext = Path(filename).suffix.lower()
     if file_ext and file_ext not in ALLOWED_EXTENSIONS:
-        raise BadRequestException(f"File type {file_ext} is not supported")
+        raise InvalidRequestError(f"File type {file_ext} is not supported")
     if content_type:
         inferred_type, _ = mimetypes.guess_type(filename)
         if inferred_type and content_type != inferred_type:
@@ -200,13 +200,13 @@ def _validate_file_upload(
     filename: str,
     content: bytes,
     content_type: str | None,
-) -> tuple[str, None] | tuple[None, BadRequestException]:
+) -> tuple[str, None] | tuple[None, InvalidRequestError]:
     """Validate file upload (size, type, content). Returns (safe_filename, None) or (None, error)."""
     if len(content) == 0:
-        return None, BadRequestException("File cannot be empty")
+        return None, InvalidRequestError("File cannot be empty")
 
     if len(content) > MAX_FILE_SIZE_BYTES:
-        return None, BadRequestException(
+        return None, InvalidRequestError(
             f"File size exceeds maximum allowed size ({MAX_FILE_SIZE_BYTES / 1024 / 1024}MB)"
         )
 
@@ -214,12 +214,12 @@ def _validate_file_upload(
 
     try:
         _validate_file_type(safe_filename, content_type)
-    except BadRequestException as e:
+    except InvalidRequestError as e:
         return None, e
 
     try:
         _validate_file_content(safe_filename, content)
-    except BadRequestException as e:
+    except InvalidRequestError as e:
         return None, e
 
     return safe_filename, None
@@ -266,7 +266,7 @@ async def upload_file(
             await asyncio.to_thread(handle.adapter.mkdir, CONTAINER_UPLOADS_PATH)
             result = await asyncio.to_thread(handle.adapter.write_overwrite, container_path, content)
             if getattr(result, "error", None):
-                raise InternalServerException(f"Failed to write file: {result.error}")
+                raise InternalServiceError(f"Failed to write file: {result.error}")
 
         logger.info(
             f"File uploaded to sandbox: user={current_user.id}, "
@@ -284,14 +284,14 @@ async def upload_file(
                 message=f"File {safe_filename} has been uploaded to your working directory",
             ),
         )
-    except AppException:
+    except AppError:
         raise
     except Exception as e:
         logger.error(
             f"Failed to upload file: user={current_user.id}, filename={original_filename}, ip={client_ip}, error={e}",
             exc_info=True,
         )
-        raise InternalServerException("Failed to upload file, please try again later") from e
+        raise InternalServiceError("Failed to upload file, please try again later") from e
 
 
 @router.get(
@@ -328,7 +328,7 @@ async def list_files(current_user: CurrentUser) -> BaseResponse[FileListResponse
         )
     except Exception as e:
         logger.error(f"Failed to list files: {e}", exc_info=True)
-        raise InternalServerException("Failed to list files, please try again later") from e
+        raise InternalServiceError("Failed to list files, please try again later") from e
 
 
 @router.get(
@@ -361,7 +361,7 @@ async def read_file(
                 content = await asyncio.to_thread(handle.adapter.raw_read, container_path)
 
             if content.startswith("[Error:") or content.startswith("Error:"):
-                raise NotFoundException("File not found")
+                raise NotFoundError("File not found")
 
             # raw_read returns text; encode back to bytes via latin-1 to preserve binary data
             content_bytes = content.encode("latin-1")
@@ -381,7 +381,7 @@ async def read_file(
             content = await asyncio.to_thread(handle.adapter.raw_read, container_path)
 
         if content.startswith("[Error:") or content.startswith("Error:"):
-            raise NotFoundException("File not found")
+            raise NotFoundError("File not found")
 
         # raw_read returns text; for binary files it may be garbled
         is_binary = False
@@ -399,14 +399,14 @@ async def read_file(
             msg="Read file successfully",
             data={"filename": safe_filename, "content": content, "is_binary": is_binary},
         )
-    except AppException:
+    except AppError:
         raise
     except Exception as e:
         logger.error(
             f"Failed to read file: user={current_user.id}, filename={filename}, ip={client_ip}, error={e}",
             exc_info=True,
         )
-        raise InternalServerException("Failed to read file, please try again later") from e
+        raise InternalServiceError("Failed to read file, please try again later") from e
 
 
 @router.delete(
@@ -431,7 +431,7 @@ async def delete_file(request: Request, filename: str, current_user: CurrentUser
             ok = await asyncio.to_thread(handle.adapter.delete, container_path)
 
         if not ok:
-            raise NotFoundException(f"File not found: {filename}")
+            raise NotFoundError(f"File not found: {filename}")
 
         logger.info(f"File deleted: user={current_user.id}, filename={safe_filename}, ip={client_ip}")
 
@@ -441,14 +441,14 @@ async def delete_file(request: Request, filename: str, current_user: CurrentUser
             msg="File deleted successfully",
             data={"filename": safe_filename, "message": f"File {safe_filename} has been deleted"},
         )
-    except AppException:
+    except AppError:
         raise
     except Exception as e:
         logger.error(
             f"Failed to delete file: user={current_user.id}, filename={filename}, ip={client_ip}, error={e}",
             exc_info=True,
         )
-        raise InternalServerException("Failed to delete file, please try again later") from e
+        raise InternalServiceError("Failed to delete file, please try again later") from e
 
 
 @router.delete(
@@ -478,8 +478,8 @@ async def clear_all_files(request: Request, current_user: CurrentUser) -> BaseRe
             msg="Cleared files successfully",
             data={"message": "Cleared working directory"},
         )
-    except AppException:
+    except AppError:
         raise
     except Exception as e:
         logger.error(f"Failed to clear files: user={current_user.id}, ip={client_ip}, error={e}", exc_info=True)
-        raise InternalServerException("Failed to clear files, please try again later") from e
+        raise InternalServiceError("Failed to clear files, please try again later") from e

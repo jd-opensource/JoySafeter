@@ -7,7 +7,7 @@ from typing import List, Optional
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import ForbiddenException
+from app.common.app_errors import AccessDeniedError
 from app.common.permissions import check_token_permission
 from app.models.skill import Skill
 from app.models.skill_collaborator import CollaboratorRole, SkillCollaborator
@@ -44,7 +44,7 @@ async def check_skill_access(
     """
     Unified permission check.
 
-    Raises ForbiddenException if the user lacks sufficient access.
+    Raises AccessDeniedError if the user lacks sufficient access.
     """
     # 1. Superuser bypass
     if is_superuser:
@@ -67,7 +67,7 @@ async def check_skill_access(
         _check_token_scope(token_scopes, required_scope, str(skill.id), token_resource_type, token_resource_id)
         return
 
-    raise ForbiddenException("You don't have permission to access this skill")
+    raise AccessDeniedError("You don't have permission to access this skill")
 
 
 def _check_token_scope(
@@ -88,4 +88,4 @@ def _check_token_scope(
             token_resource_id=str(token_resource_id) if token_resource_id else None,
         )
         if not has_permission:
-            raise ForbiddenException(f"Token missing required scope or resource binding: {required_scope}")
+            raise AccessDeniedError(f"Token missing required scope or resource binding: {required_scope}")

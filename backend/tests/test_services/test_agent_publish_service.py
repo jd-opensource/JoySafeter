@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.common.exceptions import BadRequestException
+from app.common.app_errors import InvalidRequestError, NotFoundError
 from app.services.agent_publish_service import AgentPublishService
 from app.services.agent_release_service import AgentReleaseService
 
@@ -26,7 +26,7 @@ class TestInferRuntimeKind:
 
     @pytest.mark.parametrize("definition_kind", ["prompt", "hybrid", "cli", "copilot", "whatever"])
     def test_unsupported_definition_kind_is_rejected(self, definition_kind: str):
-        with pytest.raises(BadRequestException):
+        with pytest.raises(InvalidRequestError):
             AgentPublishService._infer_runtime_kind(definition_kind)
 
 
@@ -87,6 +87,32 @@ class TestPublishRuntimeBinding:
         request = svc.release_svc.publish_release.await_args.args[2]
         assert request.runtime_kind == "graph"
         assert request.runtime_binding == {}
+
+    @pytest.mark.asyncio
+    async def test_publish_missing_agent_has_canonical_code(self):
+        svc = self._make_service()
+        agent_id = uuid.uuid4()
+
+        svc.agent_repo.get = AsyncMock(return_value=None)
+
+        with pytest.raises(NotFoundError) as exc_info:
+            await svc.publish(agent_id, "user-1")
+
+        assert exc_info.value.code == "AGENT_NOT_FOUND"
+        assert exc_info.value.data == {"agent_id": str(agent_id)}
+
+    @pytest.mark.asyncio
+    async def test_publish_missing_draft_version_has_canonical_code(self):
+        svc = self._make_service()
+        agent_id = uuid.uuid4()
+        agent = SimpleNamespace(id=agent_id, current_draft_version_id=None)
+
+        svc.agent_repo.get = AsyncMock(return_value=agent)
+
+        with pytest.raises(InvalidRequestError) as exc_info:
+            await svc.publish(agent_id, "user-1")
+
+        assert exc_info.value.code == "AGENT_DRAFT_VERSION_MISSING"
 
 
 class TestRetireStatusSync:
@@ -172,3 +198,44 @@ class TestRetireStatusSync:
         await svc.retire_release(agent_id, other_release_id)
 
         svc.agent_repo.update.assert_not_called()
+
+
+class TestAgentReleaseServiceErrors:
+    def _make_service(self) -> AgentReleaseService:
+        db = AsyncMock()
+        svc = AgentReleaseService.__new__(AgentReleaseService)
+        svc.db = db
+        svc.release_repo = AsyncMock()
+        svc.version_repo = AsyncMock()
+        svc.agent_repo = AsyncMock()
+        return svc
+
+    @pytest.mark.asyncio
+    async def test_publish_release_rejects_unfrozen_version_with_canonical_code(self):
+        svc = self._make_service()
+        agent_id = uuid.uuid4()
+        version_id = uuid.uuid4()
+        svc.version_repo.get = AsyncMock(return_value=SimpleNamespace(id=version_id, agent_id=agent_id, status="draft"))
+
+        with pytest.raises(InvalidRequestError) as exc_info:
+            await svc.publish_release(
+                agent_id,
+                "user-1",
+                SimpleNamespace(agent_version_id=version_id, runtime_kind="graph", builder_kind=None, runtime_binding={}),
+            )
+
+        assert exc_info.value.code == "AGENT_VERSION_NOT_FROZEN"
+
+    @pytest.mark.asyncio
+    async def test_activate_release_missing_agent_has_canonical_code(self):
+        svc = self._make_service()
+        agent_id = uuid.uuid4()
+        release_id = uuid.uuid4()
+        svc.release_repo.get = AsyncMock(return_value=SimpleNamespace(id=release_id, status="ready"))
+        svc.agent_repo.get = AsyncMock(return_value=None)
+
+        with pytest.raises(NotFoundError) as exc_info:
+            await svc.activate_release(agent_id, release_id)
+
+        assert exc_info.value.code == "AGENT_NOT_FOUND"
+        assert exc_info.value.data == {"agent_id": str(agent_id)}

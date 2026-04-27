@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import Any, Mapping, Optional, Protocol, runtime_checkable
 
 from app.core.events.event_types import ExecutionEventType
 
@@ -46,8 +46,7 @@ class ExecutionEventPort(Protocol):
         status: str,
         container_id: Optional[str] = None,
         session_id: Optional[str] = None,
-        error_code: Optional[str] = None,
-        error_message: Optional[str] = None,
+        error: Mapping[str, Any] | None = None,
         result_summary: Optional[dict[str, Any]] = None,
     ) -> Any: ...
 
@@ -72,8 +71,7 @@ class ExecutionEventPort(Protocol):
         execution_id: uuid.UUID,
         terminal_status: str,
         result_summary: Optional[dict] = None,
-        error: Optional[dict[str, Any]] = None,
-        error_message: Optional[str] = None,
+        error: Mapping[str, Any] | None = None,
         session_id: Optional[str] = None,
     ) -> None: ...
 

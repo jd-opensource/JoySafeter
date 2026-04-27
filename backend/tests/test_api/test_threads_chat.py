@@ -71,6 +71,7 @@ def test_chat_publishes_user_message_event_without_direct_thread_write(
     run.id = run_id
     run.current_execution_id = execution_id
     mock_orchestrator_cls.return_value.dispatch_chat = AsyncMock(return_value=run)
+    mock_orchestrator_cls.return_value.emit_user_message = AsyncMock()
 
     response = client.post(
         f"/v1/threads/{thread_id}/chat?workspace_id={workspace_id}",
@@ -88,12 +89,13 @@ def test_chat_publishes_user_message_event_without_direct_thread_write(
         message="hello from chat",
         user_id="user-123",
     )
-    mock_publish.assert_awaited_once()
-    published_envelope = mock_publish.await_args.args[0]
-    assert published_envelope.event_type == "user_message"
-    assert published_envelope.thread_id == thread_id
-    assert published_envelope.execution_id == execution_id
-    assert published_envelope.payload == {"text": "hello from chat"}
+    mock_orchestrator_cls.return_value.emit_user_message.assert_awaited_once_with(
+        run=run,
+        execution_id=execution_id,
+        message="hello from chat",
+        attachments=None,
+    )
+    mock_publish.assert_not_awaited()
 
 
 @patch("app.api.v1.threads.check_workspace_access", new_callable=AsyncMock)
@@ -127,5 +129,5 @@ def test_chat_rejects_thread_with_running_run(
     )
 
     assert response.status_code == 400
-    assert "active run" in response.json()["message"]
+    assert "active run" in response.json()["error"]["message"]
     mock_orchestrator_cls.return_value.dispatch_chat.assert_not_called()

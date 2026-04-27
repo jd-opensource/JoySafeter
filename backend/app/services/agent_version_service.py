@@ -10,7 +10,7 @@ from typing import List
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import BadRequestException, NotFoundException
+from app.common.app_errors import InvalidRequestError, NotFoundError
 from app.core.state_machines import VERSION_SM
 from app.models.agent import AgentVersion
 from app.repositories.agent import AgentRepository, AgentVersionRepository
@@ -34,7 +34,11 @@ class AgentVersionService(BaseService):
     async def get_version(self, version_id: uuid.UUID) -> AgentVersion:
         version = await self.version_repo.get(version_id)
         if not version:
-            raise NotFoundException(f"AgentVersion {version_id} not found")
+            raise NotFoundError(
+                "Agent version not found",
+                code="AGENT_VERSION_NOT_FOUND",
+                data={"version_id": str(version_id)},
+            )
         return version
 
     async def create_version(
@@ -75,10 +79,14 @@ class AgentVersionService(BaseService):
     ) -> AgentVersion:
         version = await self.version_repo.get(version_id)
         if not version:
-            raise NotFoundException(f"AgentVersion {version_id} not found")
+            raise NotFoundError(
+                "Agent version not found",
+                code="AGENT_VERSION_NOT_FOUND",
+                data={"version_id": str(version_id)},
+            )
 
         if version.status == "frozen":
-            raise BadRequestException("Cannot update a frozen version")
+            raise InvalidRequestError("Cannot update a frozen version", code="AGENT_VERSION_FROZEN")
 
         update_data = data.model_dump(exclude_unset=True)
         if not update_data:
@@ -92,7 +100,11 @@ class AgentVersionService(BaseService):
     async def freeze_version(self, version_id: uuid.UUID) -> AgentVersion:
         version = await self.version_repo.get(version_id)
         if not version:
-            raise NotFoundException(f"AgentVersion {version_id} not found")
+            raise NotFoundError(
+                "Agent version not found",
+                code="AGENT_VERSION_NOT_FOUND",
+                data={"version_id": str(version_id)},
+            )
 
         VERSION_SM.validate(version.status, "frozen")
         updated = await self.version_repo.update(version_id, {"status": "frozen"})

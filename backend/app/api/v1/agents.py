@@ -10,7 +10,7 @@ from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser, require_workspace_role
-from app.common.exceptions import ForbiddenException
+from app.common.app_errors import AccessDeniedError
 from app.core.database import get_db
 from app.models.agent import Agent, AgentRelease, AgentVersion
 from app.models.auth import AuthUser as User
@@ -114,7 +114,7 @@ async def create_agent(
 ) -> BaseResponse[AgentResponse]:
     has_access = await check_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.member)
     if not has_access:
-        raise ForbiddenException("No access to workspace")
+        raise AccessDeniedError("No access to workspace", code="WORKSPACE_ACCESS_DENIED")
 
     service = AgentService(db)
     agent = await service.create_agent(workspace_id, str(current_user.id), request)
@@ -190,7 +190,7 @@ async def create_version(
 ) -> BaseResponse[AgentVersionResponse]:
     has_access = await check_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.member)
     if not has_access:
-        raise ForbiddenException("No access to workspace")
+        raise AccessDeniedError("No access to workspace", code="WORKSPACE_ACCESS_DENIED")
 
     service = AgentVersionService(db)
     version = await service.create_version(agent_id, str(current_user.id), request)

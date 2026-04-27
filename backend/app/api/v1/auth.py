@@ -10,7 +10,7 @@ from loguru import logger
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import AppException, UnauthorizedException
+from app.common.app_errors import AppError, AuthenticationError
 from app.common.response import success_response
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.rate_limit import auth_rate_limit, strict_rate_limit
@@ -217,7 +217,7 @@ async def logout(
         try:
             current_user = await _get_current_auth_user(token, db, request)
             user_id = current_user.id
-        except AppException:
+        except AppError:
             logger.debug("Failed to resolve current user during logout", exc_info=True)
 
         if refresh_token and user_id:
@@ -357,7 +357,7 @@ async def get_session(
         # Pass request to read token from Cookie
         current_user = await _get_current_auth_user(token, db, request)
         return success_response(data={"user": _user_to_response(current_user)})
-    except AppException:
+    except AppError:
         # Return null user when unauthenticated
         return success_response(data={"user": None})
 
@@ -429,7 +429,7 @@ async def refresh_token(
         except Exception:
             logger.debug("Failed to refresh token via cookie refresh_token", exc_info=True)
 
-    raise UnauthorizedException("Invalid or expired refresh token")
+    raise AuthenticationError("Invalid or expired refresh token", code="REFRESH_TOKEN_INVALID")
 
 
 # Helpers
@@ -437,7 +437,7 @@ async def refresh_token(
 
 def _extract_bearer(auth_header: Optional[str]) -> str:
     if not auth_header or not auth_header.lower().startswith("bearer "):
-        raise UnauthorizedException("Missing bearer token")
+        raise AuthenticationError("Missing bearer token", code="BEARER_TOKEN_MISSING")
     return auth_header.split(" ", 1)[1]
 
 
@@ -450,7 +450,7 @@ async def _get_current_auth_user(
     if auth_header:
         try:
             token = _extract_bearer(auth_header)
-        except UnauthorizedException:
+        except AuthenticationError:
             logger.debug("Failed to extract bearer token from Authorization header", exc_info=True)
 
     if not token and request:
@@ -462,7 +462,7 @@ async def _get_current_auth_user(
             logger.debug("Failed to read token from cookies", exc_info=True)
 
     if not token:
-        raise UnauthorizedException("Missing credentials")
+        raise AuthenticationError("Missing credentials", code="MISSING_CREDENTIALS")
 
     user_service = AuthService(db)
 
@@ -472,7 +472,7 @@ async def _get_current_auth_user(
         user = await user_service.get_user_by_id(str(user_id))
         if user and user.is_active:
             return user
-        raise UnauthorizedException("User not found or inactive")
+        raise AuthenticationError("User not found or inactive", code="USER_INVALID")
 
     session_service = AuthSessionService(db)
     session = await session_service.get_session_by_token(token)
@@ -480,9 +480,9 @@ async def _get_current_auth_user(
         user = await user_service.user_repo.get(uuid.UUID(session.user_id))
         if user and user.is_active:
             return user
-        raise UnauthorizedException("User not found or inactive")
+        raise AuthenticationError("User not found or inactive", code="USER_INVALID")
 
-    raise UnauthorizedException("Invalid or expired token")
+    raise AuthenticationError("Invalid or expired token", code="TOKEN_INVALID")
 
 
 def _user_to_response(user: AuthUser) -> UserResponse:

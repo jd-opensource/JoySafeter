@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.v1.artifacts import router
+from app.common.exceptions import register_exception_handlers
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 
@@ -23,6 +24,7 @@ async def mock_get_db():
 def client():
     test_app = FastAPI()
     test_app.include_router(router)
+    register_exception_handlers(test_app)
 
     from app.common.dependencies import get_current_user
 
@@ -57,3 +59,21 @@ def test_live_read_file_returns_raw_content_for_ui(mock_service_cls, mock_pool, 
     adapter.raw_read.assert_called_once_with("skills/demo/SKILL.md")
     adapter.read.assert_not_called()
     mock_pool.release.assert_awaited_once_with("sandbox-1")
+
+
+@patch("app.services.sandbox_manager.SandboxManagerService")
+def test_live_read_file_returns_canonical_sandbox_not_found(mock_service_cls, client: TestClient) -> None:
+    mock_service = mock_service_cls.return_value
+    mock_service.get_user_sandbox_record = AsyncMock(return_value=None)
+
+    response = client.get("/v1/artifacts/thread-1/live/skills/demo/SKILL.md")
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "success": False,
+        "error": {
+            "code": "SANDBOX_NOT_FOUND",
+            "message": "No sandbox found",
+            "data": {"user_id": "user-123"},
+        },
+    }

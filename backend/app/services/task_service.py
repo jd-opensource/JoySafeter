@@ -12,7 +12,7 @@ from typing import Any, Optional
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import BadRequestException, NotFoundException
+from app.common.app_errors import InvalidRequestError, NotFoundError
 from app.core.state_machines import TASK_SM
 from app.core.state_machines.engine import InvalidTransition
 from app.core.state_machines.transitions import transition_task
@@ -106,13 +106,23 @@ class TaskService:
             try:
                 new_status = TaskStatus(new_status)
             except ValueError:
-                raise BadRequestException(f"Invalid status: {new_status}")
+                raise InvalidRequestError(
+                    f"Invalid status: {new_status}",
+                    code="TASK_STATUS_INVALID",
+                    data={"status": str(new_status)},
+                )
 
             if new_status != task.status:
                 try:
                     await transition_task(task, new_status, self.db)
                 except InvalidTransition:
-                    raise BadRequestException(f"Cannot transition from '{task.status}' to '{new_status}'")
+                    from_status = task.status.value if hasattr(task.status, "value") else str(task.status)
+                    to_status = new_status.value if hasattr(new_status, "value") else str(new_status)
+                    raise InvalidRequestError(
+                        f"Cannot transition from '{task.status}' to '{new_status}'",
+                        code="TASK_STATUS_TRANSITION_INVALID",
+                        data={"from_status": from_status, "to_status": to_status},
+                    )
 
         allowed = {
             "title",
@@ -150,7 +160,7 @@ class TaskService:
 
         task = await self.repo.get_for_update(task_id, workspace_id)
         if not task:
-            raise NotFoundException(f"Task not found: {task_id}")
+            raise NotFoundError("Task not found", code="TASK_NOT_FOUND", data={"task_id": str(task_id)})
 
         task.agent_id = agent_id
         # Only auto-transition to IN_PROGRESS from dispatchable states.
@@ -162,4 +172,3 @@ class TaskService:
         await self.db.refresh(task)
         logger.info(f"Assigned task {task_id} to agent {agent_id}")
         return task
-

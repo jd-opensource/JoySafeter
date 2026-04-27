@@ -132,7 +132,7 @@ Model Layer (models/skill.py)
 **权限检查逻辑：**
 ```python
 if skill.owner_id and skill.owner_id != current_user_id and not skill.is_public:
-    raise ForbiddenException("You don't have permission to access this skill")
+    raise AccessDeniedError("You don't have permission to access this skill")
 ```
 
 ### 3. 创建技能
@@ -335,9 +335,9 @@ if skill.owner_id and skill.owner_id != current_user_id and not skill.is_public:
 
 技能模块使用以下自定义异常：
 
-- `NotFoundException`: 资源不存在（如技能或文件不存在）
-- `ForbiddenException`: 权限不足（如非拥有者尝试修改技能）
-- `BadRequestException`: 请求参数错误（如同名技能已存在）
+- `NotFoundError`: 资源不存在（如技能或文件不存在）
+- `AccessDeniedError`: 权限不足（如非拥有者尝试修改技能）
+- `InvalidRequestError`: 请求参数错误（如同名技能已存在）
 
 所有异常都在 `SkillService` 层抛出，由 API 层的全局异常处理器统一处理。
 

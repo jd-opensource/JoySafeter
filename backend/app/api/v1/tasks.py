@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser, require_workspace_role
-from app.common.exceptions import BadRequestException, ForbiddenException
+from app.common.app_errors import InvalidRequestError, AccessDeniedError, NotFoundError
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.models.task import Task, TaskPriority
@@ -87,11 +87,15 @@ async def create_task(
     try:
         priority = TaskPriority(request.priority)
     except ValueError:
-        raise BadRequestException(f"Invalid priority: {request.priority}")
+        raise InvalidRequestError(
+            f"Invalid priority: {request.priority}",
+            code="TASK_PRIORITY_INVALID",
+            data={"priority": request.priority},
+        )
 
     has_access = await check_workspace_access(db, request.workspace_id, current_user, WorkspaceMemberRole.member)
     if not has_access:
-        raise ForbiddenException("No access to workspace")
+        raise AccessDeniedError("No access to workspace", code="WORKSPACE_ACCESS_DENIED")
 
     task = await service.create_task(
         workspace_id=request.workspace_id,
@@ -132,7 +136,7 @@ async def get_task(
     service = TaskService(db)
     task = await service.get_task(task_id, workspace_id)
     if not task:
-        return BaseResponse(success=False, code=404, msg="Task not found", data=None)
+        raise NotFoundError("Task not found", code="TASK_NOT_FOUND", data={"task_id": str(task_id)})
     return BaseResponse(success=True, code=200, msg="ok", data=_to_summary(task))
 
 
@@ -148,7 +152,7 @@ async def update_task(
     updates = request.model_dump(exclude_unset=True)
     task = await service.update_task(task_id, workspace_id, **updates)
     if not task:
-        return BaseResponse(success=False, code=404, msg="Task not found", data=None)
+        raise NotFoundError("Task not found", code="TASK_NOT_FOUND", data={"task_id": str(task_id)})
     return BaseResponse(success=True, code=200, msg="Task updated", data=_to_summary(task))
 
 
@@ -202,7 +206,7 @@ async def cancel_task(
     service = TaskService(db)
     task = await service.get_task(task_id, workspace_id)
     if not task:
-        return BaseResponse(success=False, code=404, msg="Task not found", data=None)
+        raise NotFoundError("Task not found", code="TASK_NOT_FOUND", data={"task_id": str(task_id)})
 
     if task.latest_run_id:
         # Cancel the run through the orchestrator, which will auto-sync task status

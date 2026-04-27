@@ -9,7 +9,7 @@ from typing import Callable, Optional
 
 from fastapi import Request
 
-from app.common.exceptions import AppException
+from app.common.app_errors import RateLimitExceededError
 
 
 class RateLimiter:
@@ -135,13 +135,14 @@ def rate_limit(max_requests: int = 5, window_seconds: int = 60, key_func: Option
             # check rate limit
             if not _rate_limiter.is_allowed(rate_limit_key, max_requests, window_seconds):
                 remaining = _rate_limiter.get_remaining(rate_limit_key, max_requests, window_seconds)
-                raise AppException(
-                    status_code=429,
+                raise RateLimitExceededError(
                     message=f"Rate limit exceeded. Try again in {window_seconds} seconds.",
-                    headers={
-                        "X-RateLimit-Limit": str(max_requests),
-                        "X-RateLimit-Remaining": str(remaining),
-                        "X-RateLimit-Reset": str(int(time.time() + window_seconds)),
+                    data={
+                        "headers": {
+                            "X-RateLimit-Limit": str(max_requests),
+                            "X-RateLimit-Remaining": str(remaining),
+                            "X-RateLimit-Reset": str(int(time.time() + window_seconds)),
+                        }
                     },
                 )
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from app.common.exceptions import BadRequestException
+from app.common.app_errors import InvalidRequestError
 
 DefinitionKindLiteral = Literal["graph", "code", "claude_code", "codex", "openclaw"]
 RuntimeKindLiteral = Literal["graph", "code", "sandbox"]
@@ -24,7 +24,7 @@ DEFINITION_RUNTIME_KIND: dict[str, str] = {
 def infer_runtime_kind(definition_kind: str) -> str:
     runtime_kind = DEFINITION_RUNTIME_KIND.get(definition_kind)
     if not runtime_kind:
-        raise BadRequestException(f"Unsupported definition_kind={definition_kind}")
+        raise InvalidRequestError(f"Unsupported definition_kind={definition_kind}")
     return runtime_kind
 
 

@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import NotFoundException
+from app.common.app_errors import InvalidRequestError, NotFoundError
 from app.core.model import validate_provider_credentials
 from app.core.model.utils import decrypt_credentials, encrypt_credentials
 from app.repositories.model_credential import ModelCredentialRepository
@@ -95,7 +95,11 @@ class ModelCredentialService(BaseService):
         """
         provider = await self.provider_repo.get_by_name(provider_name)
         if not provider:
-            raise NotFoundException(f"Provider not found: {provider_name}")
+            raise NotFoundError(
+                "Provider not found",
+                code="MODEL_PROVIDER_NOT_FOUND",
+                data={"provider_name": provider_name},
+            )
 
         is_valid = False
         validation_error = None
@@ -131,9 +135,17 @@ class ModelCredentialService(BaseService):
         """Re-validate an existing credential. Look up by ID, decrypt, call API to validate."""
         credential = await self.repo.get(credential_id, relations=["provider"])
         if not credential:
-            raise NotFoundException("Credential not found")
+            raise NotFoundError(
+                "Credential not found",
+                code="MODEL_CREDENTIAL_NOT_FOUND",
+                data={"credential_id": str(credential_id)},
+            )
         if not credential.provider:
-            raise NotFoundException("Credential's associated provider not found")
+            raise NotFoundError(
+                "Credential's associated provider not found",
+                code="MODEL_PROVIDER_NOT_FOUND",
+                data={"credential_id": str(credential_id)},
+            )
 
         decrypted = decrypt_credentials(credential.credentials)
         is_valid, error = await self._validate_for_provider(credential.provider, decrypted, credential.provider_id)
@@ -153,7 +165,11 @@ class ModelCredentialService(BaseService):
         """Get credential details."""
         credential = await self.repo.get(credential_id, relations=["provider"])
         if not credential:
-            raise NotFoundException("Credential not found")
+            raise NotFoundError(
+                "Credential not found",
+                code="MODEL_CREDENTIAL_NOT_FOUND",
+                data={"credential_id": str(credential_id)},
+            )
 
         pname = credential.provider.name if credential.provider else ""
         pdisplay = credential.provider.display_name if credential.provider else ""
@@ -186,19 +202,23 @@ class ModelCredentialService(BaseService):
 
     async def delete_credential(self, credential_id: uuid.UUID) -> None:
         """Delete a built-in provider's credential. Custom provider credentials cannot be deleted separately."""
-        from app.common.exceptions import BadRequestException
-
         credential = await self.repo.get(credential_id, relations=["provider"])
         if not credential:
-            raise NotFoundException("Credential not found")
+            raise NotFoundError(
+                "Credential not found",
+                code="MODEL_CREDENTIAL_NOT_FOUND",
+                data={"credential_id": str(credential_id)},
+            )
 
         if (
             credential.provider
             and credential.provider.provider_type == "custom"
             and not credential.provider.is_template
         ):
-            raise BadRequestException(
-                f"Cannot delete credentials for custom provider separately. Use DELETE /model-providers/{credential.provider.name} to remove the entire provider."
+            raise InvalidRequestError(
+                f"Cannot delete credentials for custom provider separately. Use DELETE /model-providers/{credential.provider.name} to remove the entire provider.",
+                code="MODEL_CREDENTIAL_CUSTOM_DELETE_FORBIDDEN",
+                data={"provider_name": credential.provider.name},
             )
 
         await self.repo.delete(credential_id)

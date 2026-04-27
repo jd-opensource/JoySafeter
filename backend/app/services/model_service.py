@@ -9,7 +9,8 @@ from typing import Any, AsyncGenerator, Dict, List, NoReturn, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import BadRequestException, ModelConfigError, NotFoundException
+from app.common.app_errors import InvalidRequestError, ModelConfigError, NotFoundError
+from app.common.stream_errors import stream_error_event
 from app.core.model import ModelType, create_model_instance
 from app.core.model.factory import get_factory
 from app.models.enums import ModelUsageSource
@@ -261,7 +262,11 @@ class ModelService(BaseService):
         """Update model instance parameters."""
         instance = await self.repo.get(instance_id)
         if not instance:
-            raise NotFoundException(f"Model instance not found: {instance_id}")
+            raise NotFoundError(
+                "Model instance not found",
+                code="MODEL_INSTANCE_NOT_FOUND",
+                data={"instance_id": str(instance_id)},
+            )
 
         updates: Dict[str, Any] = {}
         if model_parameters is not None:
@@ -324,7 +329,10 @@ class ModelService(BaseService):
         implementation_name: Optional[str] = None
         model_parameters: Dict[str, Any] = {}
         if not provider_name or not model_name:
-            raise BadRequestException("provider_name and model_name are required")
+            raise InvalidRequestError(
+                "provider_name and model_name are required",
+                code="MODEL_PROVIDER_OR_NAME_REQUIRED",
+            )
 
         provider = await self.provider_repo.get_by_name(provider_name)
         if not provider:
@@ -524,12 +532,11 @@ class ModelService(BaseService):
         """
         instance = await self.repo.get_by_name(model_name)
         if not instance:
-            err_data = {
-                "error_code": MODEL_NOT_FOUND,
-                "message": f'Model "{model_name}" is not registered.',
-                "params": {"model": model_name or ""},
-            }
-            yield f"event: error\ndata: {json.dumps(err_data)}\n\n"
+            yield stream_error_event(
+                code=MODEL_NOT_FOUND,
+                message=f'Model "{model_name}" is not registered.',
+                data={"model": model_name or ""},
+            )
             return
 
         provider_name = instance.resolved_provider_name
@@ -539,12 +546,11 @@ class ModelService(BaseService):
         credentials = await self.credential_service.get_decrypted_credentials(provider_name)
 
         if not credentials:
-            err_data = {
-                "error_code": MODEL_NO_CREDENTIALS,
-                "message": f'No valid API key for provider "{provider_name}".',
-                "params": {"model": model_name or "", "provider": provider_name or ""},
-            }
-            yield f"event: error\ndata: {json.dumps(err_data)}\n\n"
+            yield stream_error_event(
+                code=MODEL_NO_CREDENTIALS,
+                message=f'No valid API key for provider "{provider_name}".',
+                data={"model": model_name or "", "provider": provider_name or ""},
+            )
             return
 
         effective_params = {**(instance.model_parameters or {})}
@@ -560,7 +566,11 @@ class ModelService(BaseService):
                 effective_params,
             )
         except Exception as e:
-            yield f"event: error\ndata: {json.dumps({'error': f'Failed to create model instance: {str(e)}'})}\n\n"
+            yield stream_error_event(
+                code="MODEL_INSTANCE_CREATE_FAILED",
+                message="Failed to create model instance.",
+                data={"detail": str(e)},
+            )
             return
 
         start_time = time.monotonic()
@@ -617,4 +627,8 @@ class ModelService(BaseService):
                 user_id=user_id,
                 source=ModelUsageSource.PLAYGROUND,
             )
-            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+            yield stream_error_event(
+                code="MODEL_STREAM_ERROR",
+                message="Model streaming failed.",
+                data={"detail": str(e)},
+            )

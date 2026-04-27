@@ -6,13 +6,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
-from typing import Any, List, Optional
+from typing import Any, List, Mapping, Optional
 
 from loguru import logger
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import NotFoundException
+from app.common.app_errors import NotFoundError
 from app.core.events import ExecutionEventEnvelope, execution_event_bus
 from app.core.events.event_types import ExecutionEventType
 from app.core.ports.execution import EventContext
@@ -48,12 +48,16 @@ class ExecutionService:
     async def get_execution(self, execution_id: uuid.UUID, user_id: Optional[str] = None) -> Optional[Execution]:
         """Get execution by ID (user_id kept for API compatibility; no row-level auth here).
 
-        Raises NotFoundException when called without user_id (API path) so callers get a clean 404.
+        Raises NotFoundError when called without user_id (API path) so callers get a clean 404.
         When user_id is provided (WebSocket path) returns None on miss.
         """
         execution = await self.get_execution_internal(execution_id)
         if execution is None and user_id is None:
-            raise NotFoundException(f"Execution {execution_id} not found")
+            raise NotFoundError(
+                "Execution not found",
+                code="EXECUTION_NOT_FOUND",
+                data={"execution_id": str(execution_id)},
+            )
         return execution
 
     async def list_events_after(
@@ -80,8 +84,7 @@ class ExecutionService:
         status: str,
         container_id: Optional[str] = None,
         session_id: Optional[str] = None,
-        error_code: Optional[str] = None,
-        error_message: Optional[str] = None,
+        error: Mapping[str, Any] | None = None,
         result_summary: Optional[dict[str, Any]] = None,
     ) -> Optional[Execution]:
         """Publish a status-change event through the bus.
@@ -119,8 +122,7 @@ class ExecutionService:
             thread_id=ctx.thread_id,
             task_id=ctx.task_id,
             target_status=status,
-            error_code=error_code,
-            error_message=error_message,
+            error=dict(error) if error is not None else None,
             container_id=container_id or session_id,
             metrics=result_summary,
         )
@@ -209,8 +211,7 @@ class ExecutionService:
         execution_id: uuid.UUID,
         terminal_status: str,
         result_summary: dict | None = None,
-        error: dict[str, Any] | None = None,
-        error_message: str | None = None,
+        error: Mapping[str, Any] | None = None,
         session_id: str | None = None,
     ) -> None:
         """Publish a single EXECUTION_COMPLETED event with full metadata.
@@ -227,10 +228,13 @@ class ExecutionService:
             run_id=self._event_ctx.run_id,
             workspace_id=self._event_ctx.workspace_id,
             event_type=ExecutionEventType.EXECUTION_COMPLETED,
-            payload={"status": terminal_status},
+            payload={
+                "status": terminal_status,
+                "error": dict(error) if error is not None else None,
+                "result_summary": result_summary,
+            },
             terminal_status=terminal_status,
-            error=error,
-            error_message=error_message,
+            error=dict(error) if error is not None else None,
             container_id=session_id,
             metrics=result_summary,
             trigger_source=self._event_ctx.trigger_source,
@@ -276,6 +280,7 @@ class ExecutionService:
             "status": execution.status if isinstance(execution.status, str) else execution.status.value,
             "started_at": execution.started_at.isoformat() if execution.started_at else None,
             "ended_at": execution.ended_at.isoformat() if execution.ended_at else None,
+            "error": execution.error,
         }
         return snap
 
@@ -349,16 +354,25 @@ class ExecutionService:
                         run_id=execution.run_id,
                         workspace_id=run.workspace_id if run else uuid.UUID(int=0),
                         event_type=ExecutionEventType.EXECUTION_COMPLETED,
-                        payload={"status": "failed"},
+                        payload={
+                            "status": "failed",
+                            "error": {
+                                "code": "STALE_REAPED",
+                                "message": error_msg,
+                                "data": {
+                                    "reason": "stale_execution",
+                                },
+                            },
+                            "result_summary": "Reaped: stale execution",
+                        },
                         terminal_status="failed",
                         error={
                             "code": "STALE_REAPED",
                             "message": error_msg,
-                            "source": "system",
-                            "retryable": False,
+                            "data": {
+                                "reason": "stale_execution",
+                            },
                         },
-                        error_code="stale_reaped",
-                        error_message=error_msg,
                         result_summary="Reaped: stale execution",
                         trigger_source=run.trigger_source if run else None,
                         thread_id=run.thread_id if run else None,

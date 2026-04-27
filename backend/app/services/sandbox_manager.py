@@ -12,7 +12,7 @@ from loguru import logger
 from sqlalchemy import CursorResult, delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import AppException
+from app.common.app_errors import ServiceUnavailableError
 from app.core.agent.backends.constants import (
     DEFAULT_USER_SANDBOX_AUTO_REMOVE,
     DEFAULT_USER_SANDBOX_CPU_LIMIT,
@@ -240,10 +240,7 @@ class SandboxManagerService:
         except Exception as e:
             logger.error(f"Failed to start sandbox for user {user_id}: {e}")
             await self._update_status(sandbox_record.id, InstanceStatus.FAILED, error_message=str(e))
-            raise AppException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=_classify_sandbox_error(e),
-            )
+            raise ServiceUnavailableError(message=_classify_sandbox_error(e))
 
     @staticmethod
     def _force_remove_container(container_id: str) -> None:

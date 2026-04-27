@@ -156,6 +156,7 @@ async def test_handler_subscribe_sends_snapshot_with_status_and_events_contract(
         "execution_id": str(execution_id),
         "last_seq": 3,
         "status": "running",
+        "error": None,
         "events": [],
     }
 
@@ -228,8 +229,9 @@ async def test_websocket_subscriber_broadcasts_failed_completion_with_error_payl
         error={
             "code": "NODE_MODEL_NOT_CONFIGURED",
             "message": 'Node "JSON 抽取子智能体" has no model configured.',
-            "source": "node",
-            "retryable": False,
+            "data": {
+                "node_name": "JSON 抽取子智能体",
+            },
         },
     )
 
@@ -239,4 +241,10 @@ async def test_websocket_subscriber_broadcasts_failed_completion_with_error_payl
     payload = broadcast.await_args.args[1]
     assert payload["type"] == "execution_completed"
     assert payload["status"] == "failed"
-    assert payload["error"]["code"] == "NODE_MODEL_NOT_CONFIGURED"
+    assert payload["error"] == {
+        "code": "NODE_MODEL_NOT_CONFIGURED",
+        "message": 'Node "JSON 抽取子智能体" has no model configured.',
+        "data": {
+            "node_name": "JSON 抽取子智能体",
+        },
+    }

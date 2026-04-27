@@ -41,8 +41,8 @@ class TestSkillVersionServicePublish:
 
     @pytest.mark.asyncio
     async def test_publish_validates_semver_format(self):
-        """Invalid semver should raise BadRequestException."""
-        from app.common.exceptions import BadRequestException
+        """Invalid semver should raise InvalidRequestError."""
+        from app.common.app_errors import InvalidRequestError
 
         db = _mock_db()
         skill = _mock_skill()
@@ -56,7 +56,7 @@ class TestSkillVersionServicePublish:
             service.skill_file_repo = MagicMock()
 
             with patch("app.services.skill_version_service.check_skill_access", new_callable=AsyncMock):
-                with pytest.raises(BadRequestException, match="Invalid version"):
+                with pytest.raises(InvalidRequestError, match="Invalid version"):
                     await service.publish_version(
                         skill_id=skill.id,
                         current_user_id="user-1",
@@ -67,7 +67,7 @@ class TestSkillVersionServicePublish:
     @pytest.mark.asyncio
     async def test_publish_rejects_lower_version(self):
         """New version must be greater than existing highest."""
-        from app.common.exceptions import BadRequestException
+        from app.common.app_errors import InvalidRequestError
 
         db = _mock_db()
         skill = _mock_skill()
@@ -83,7 +83,7 @@ class TestSkillVersionServicePublish:
             service.skill_file_repo = MagicMock()
 
             with patch("app.services.skill_version_service.check_skill_access", new_callable=AsyncMock):
-                with pytest.raises(BadRequestException, match="greater"):
+                with pytest.raises(InvalidRequestError, match="greater"):
                     await service.publish_version(
                         skill_id=skill.id,
                         current_user_id="user-1",

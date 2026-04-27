@@ -39,8 +39,8 @@ class TestPlatformTokenServiceCreate:
 
     @pytest.mark.asyncio
     async def test_create_rejects_when_limit_exceeded(self):
-        """Should raise BadRequestException when user has 50 active tokens."""
-        from app.common.exceptions import BadRequestException
+        """Should raise InvalidRequestError when user has 50 active tokens."""
+        from app.common.app_errors import InvalidRequestError
 
         db = _mock_db()
         with patch("app.services.platform_token_service.PlatformTokenRepository") as MockRepo:
@@ -48,17 +48,19 @@ class TestPlatformTokenServiceCreate:
             from app.services.platform_token_service import PlatformTokenService
 
             service = PlatformTokenService(db)
-            with pytest.raises(BadRequestException, match="50"):
+            with pytest.raises(InvalidRequestError) as exc_info:
                 await service.create_token(
                     user_id="user-1",
                     name="test",
                     scopes=["skills:read"],
                 )
+            assert exc_info.value.code == "PLATFORM_TOKEN_LIMIT_EXCEEDED"
+            assert exc_info.value.data == {"limit": 50}
 
     @pytest.mark.asyncio
     async def test_create_rejects_invalid_scope(self):
-        """Should raise BadRequestException when passing invalid scope."""
-        from app.common.exceptions import BadRequestException
+        """Should raise InvalidRequestError when passing invalid scope."""
+        from app.common.app_errors import InvalidRequestError
 
         db = _mock_db()
         with patch("app.services.platform_token_service.PlatformTokenRepository") as MockRepo:
@@ -66,12 +68,14 @@ class TestPlatformTokenServiceCreate:
             from app.services.platform_token_service import PlatformTokenService
 
             service = PlatformTokenService(db)
-            with pytest.raises(BadRequestException, match="Invalid scopes"):
+            with pytest.raises(InvalidRequestError) as exc_info:
                 await service.create_token(
                     user_id="user-1",
                     name="test",
                     scopes=["invalid:scope"],
                 )
+            assert exc_info.value.code == "PLATFORM_TOKEN_SCOPES_INVALID"
+            assert exc_info.value.data == {"scopes": ["invalid:scope"]}
 
 
 class TestPlatformTokenServiceRevoke:
@@ -95,8 +99,8 @@ class TestPlatformTokenServiceRevoke:
 
     @pytest.mark.asyncio
     async def test_revoke_wrong_user_denied(self):
-        """Should raise ForbiddenException when revoking another user's token."""
-        from app.common.exceptions import ForbiddenException
+        """Should raise AccessDeniedError when revoking another user's token."""
+        from app.common.app_errors import AccessDeniedError
 
         db = _mock_db()
         token = MagicMock()
@@ -108,8 +112,10 @@ class TestPlatformTokenServiceRevoke:
             from app.services.platform_token_service import PlatformTokenService
 
             service = PlatformTokenService(db)
-            with pytest.raises(ForbiddenException):
+            with pytest.raises(AccessDeniedError) as exc_info:
                 await service.revoke_token(token_id=token.id, user_id="user-2")
+            assert exc_info.value.code == "PLATFORM_TOKEN_REVOKE_FORBIDDEN"
+            assert exc_info.value.data == {"token_id": str(token.id)}
 
 
 class TestPlatformTokenServiceList:
@@ -171,7 +177,7 @@ class TestPlatformTokenServiceValidation:
     @pytest.mark.asyncio
     async def test_create_rejects_resource_type_without_resource_id(self):
         """Should reject when resource_type is set but resource_id is None."""
-        from app.common.exceptions import BadRequestException
+        from app.common.app_errors import InvalidRequestError
 
         db = _mock_db()
         with patch("app.services.platform_token_service.PlatformTokenRepository") as MockRepo:
@@ -179,7 +185,7 @@ class TestPlatformTokenServiceValidation:
             from app.services.platform_token_service import PlatformTokenService
 
             service = PlatformTokenService(db)
-            with pytest.raises(BadRequestException, match="must both be provided"):
+            with pytest.raises(InvalidRequestError) as exc_info:
                 await service.create_token(
                     user_id="user-1",
                     name="test",
@@ -187,11 +193,12 @@ class TestPlatformTokenServiceValidation:
                     resource_type="skill",
                     resource_id=None,
                 )
+            assert exc_info.value.code == "PLATFORM_TOKEN_RESOURCE_BINDING_INVALID"
 
     @pytest.mark.asyncio
     async def test_create_rejects_resource_id_without_resource_type(self):
         """Should reject when resource_id is set but resource_type is None."""
-        from app.common.exceptions import BadRequestException
+        from app.common.app_errors import InvalidRequestError
 
         db = _mock_db()
         with patch("app.services.platform_token_service.PlatformTokenRepository") as MockRepo:
@@ -199,7 +206,7 @@ class TestPlatformTokenServiceValidation:
             from app.services.platform_token_service import PlatformTokenService
 
             service = PlatformTokenService(db)
-            with pytest.raises(BadRequestException, match="must both be provided"):
+            with pytest.raises(InvalidRequestError) as exc_info:
                 await service.create_token(
                     user_id="user-1",
                     name="test",
@@ -207,11 +214,12 @@ class TestPlatformTokenServiceValidation:
                     resource_type=None,
                     resource_id=uuid.uuid4(),
                 )
+            assert exc_info.value.code == "PLATFORM_TOKEN_RESOURCE_BINDING_INVALID"
 
     @pytest.mark.asyncio
     async def test_create_rejects_invalid_resource_type(self):
         """Should reject unknown resource_type."""
-        from app.common.exceptions import BadRequestException
+        from app.common.app_errors import InvalidRequestError
 
         db = _mock_db()
         with patch("app.services.platform_token_service.PlatformTokenRepository") as MockRepo:
@@ -219,7 +227,7 @@ class TestPlatformTokenServiceValidation:
             from app.services.platform_token_service import PlatformTokenService
 
             service = PlatformTokenService(db)
-            with pytest.raises(BadRequestException, match="Invalid resource_type"):
+            with pytest.raises(InvalidRequestError) as exc_info:
                 await service.create_token(
                     user_id="user-1",
                     name="test",
@@ -227,6 +235,8 @@ class TestPlatformTokenServiceValidation:
                     resource_type="unknown",
                     resource_id=uuid.uuid4(),
                 )
+            assert exc_info.value.code == "PLATFORM_TOKEN_RESOURCE_TYPE_INVALID"
+            assert exc_info.value.data == {"resource_type": "unknown"}
 
     @pytest.mark.asyncio
     async def test_create_accepts_valid_resource_binding(self):

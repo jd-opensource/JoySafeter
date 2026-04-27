@@ -1,4 +1,5 @@
 import type { ExecutionEvent, ExecutionEventType } from '@/types/agent-run'
+import type { AppErrorPayload } from '@/types/agent-run'
 
 export interface ExecutionConnectionState {
   isConnected: boolean
@@ -11,6 +12,7 @@ export interface ExecutionSnapshotFrame {
   last_seq: number
   status: string
   events: ExecutionEvent[]
+  error?: AppErrorPayload | null
 }
 
 export interface ExecutionEventFrame {
@@ -27,6 +29,7 @@ export interface ExecutionCompletedFrame {
   execution_id: string
   run_id: string
   status: string
+  error?: AppErrorPayload
 }
 
 export interface ExecutionReplayDoneFrame {
@@ -37,7 +40,7 @@ export interface ExecutionReplayDoneFrame {
 
 export interface ExecutionWsErrorFrame {
   type: 'ws_error'
-  message: string
+  error: AppErrorPayload
 }
 
 export type IncomingExecutionWsFrame =
@@ -52,5 +55,5 @@ export interface ExecutionSubscriptionCallbacks {
   onEvent?: (frame: ExecutionEventFrame) => void
   onCompleted?: (frame: ExecutionCompletedFrame) => void
   onReplayDone?: (frame: ExecutionReplayDoneFrame) => void
-  onError?: (message: string) => void
+  onError?: (error: AppErrorPayload) => void
 }

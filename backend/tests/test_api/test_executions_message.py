@@ -12,6 +12,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.common.exceptions import register_exception_handlers
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 
@@ -43,6 +44,7 @@ async def mock_get_db():
 def client():
     test_app = FastAPI()
     test_app.include_router(router)
+    register_exception_handlers(test_app)
 
     from app.common.dependencies import get_current_user
 
@@ -102,6 +104,47 @@ def test_inject_message_empty_body_returns_422(mock_orchestrator_cls, client: Te
 
     assert response.status_code == 422
     mock_orchestrator_cls.return_value.send_message.assert_not_called()
+
+
+@patch("executions_under_test.check_workspace_access", new_callable=AsyncMock)
+@patch("executions_under_test.DispatchService")
+def test_inject_message_unsupported_returns_canonical_error(
+    mock_dispatch_service_cls,
+    mock_check_workspace_access,
+    client: TestClient,
+) -> None:
+    execution_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    mock_dispatch = mock_dispatch_service_cls.return_value
+    mock_dispatch.send_message = AsyncMock(
+        side_effect=NotImplementedError("Message injection is not supported for code executions")
+    )
+    mock_check_workspace_access.return_value = True
+
+    exec_result = MagicMock()
+    exec_result.scalar_one_or_none.return_value = workspace_id
+    mock_db = AsyncMock()
+    mock_db.execute.return_value = exec_result
+
+    async def override_db():
+        yield mock_db
+
+    client.app.dependency_overrides[get_db] = override_db
+
+    response = client.post(
+        f"/v1/executions/{execution_id}/message",
+        json={"message": "hello world"},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "success": False,
+        "error": {
+            "code": "EXECUTION_MESSAGE_UNSUPPORTED",
+            "message": "Message injection is not supported for code executions",
+            "data": None,
+        },
+    }
 
 
 @patch("executions_under_test.check_workspace_access", new_callable=AsyncMock)

@@ -1,5 +1,4 @@
 // Export all query hooks for convenient importing
-export * from './folders'
 export * from './workspaces'
 export * from './workspace'
 export * from './models'

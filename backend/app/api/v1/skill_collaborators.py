@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user
-from app.common.exceptions import NotFoundException
+from app.common.app_errors import NotFoundError
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.schemas.skill_collaborator import (
@@ -75,11 +75,11 @@ async def add_collaborator(
         user_service = UserService(db)
         user = await user_service.get_user_by_email(payload.email.strip())
         if not user:
-            raise NotFoundException("User not found")
+            raise NotFoundError("User not found")
         target_user_id = user.id
 
     if not target_user_id:
-        raise NotFoundException("User not found")
+        raise NotFoundError("User not found")
 
     service = SkillCollaboratorService(db)
     collaborator = await service.add_collaborator(

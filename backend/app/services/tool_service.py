@@ -20,7 +20,7 @@ from typing import List, Optional
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import BadRequestException
+from app.common.app_errors import InvalidRequestError
 from app.core.tools.tool import EnhancedTool, ToolFilter, ToolSourceType
 from app.core.tools.tool_registry import ToolRegistry, get_global_registry
 from app.models.enums import McpConnectionStatus
@@ -232,7 +232,7 @@ class ToolService(BaseService[McpServer]):
         server = await self._server_service.get(server_id, user_id)
 
         if not server.enabled:
-            raise BadRequestException("Cannot refresh tools for disabled server")
+            raise InvalidRequestError("Cannot refresh tools for disabled server")
 
         return await self._sync_server_tools(server)
 

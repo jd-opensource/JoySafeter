@@ -16,7 +16,7 @@ from langchain_core.runnables import Runnable
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
-from app.common.exceptions import ModelConfigError
+from app.common.app_errors import ModelConfigError
 from app.core.agent.backends.filesystem_sandbox import FilesystemSandboxBackend
 from app.core.agent.middleware import LoggingMiddleware
 

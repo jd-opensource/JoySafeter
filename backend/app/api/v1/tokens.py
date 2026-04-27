@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user
-from app.common.exceptions import BadRequestException
+from app.common.app_errors import InvalidRequestError
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.schemas.platform_token import (
@@ -68,7 +68,7 @@ async def list_tokens(
     parsed_resource_id = None
     if resource_id is not None:
         if not is_valid_uuid(resource_id):
-            raise BadRequestException("Invalid resource_id: must be a valid UUID")
+            raise InvalidRequestError("Invalid resource_id: must be a valid UUID")
         parsed_resource_id = uuid.UUID(resource_id)
 
     service = PlatformTokenService(db)

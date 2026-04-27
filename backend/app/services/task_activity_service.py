@@ -11,7 +11,7 @@ from typing import Optional
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import NotFoundException
+from app.common.app_errors import NotFoundError
 from app.models.task import Task, TaskStatus
 from app.models.task_activity import ActivityAuthorType, ActivityType, TaskActivity
 from app.repositories.task import TaskRepository
@@ -40,7 +40,7 @@ class TaskActivityService:
         """Returns (activity, task, should_dispatch_agent, mentioned_agent_ids)."""
         task = await self.task_repo.get_by_id_and_workspace(task_id, workspace_id)
         if not task:
-            raise NotFoundException(f"Task not found: {task_id}")
+            raise NotFoundError("Task not found", code="TASK_NOT_FOUND", data={"task_id": str(task_id)})
 
         if parent_activity_id is not None:
             parent = await self.repo.get(parent_activity_id)
@@ -88,7 +88,7 @@ class TaskActivityService:
         """Return (activities, has_more, next_cursor)."""
         task = await self.task_repo.get_by_id_and_workspace(task_id, workspace_id)
         if not task:
-            raise NotFoundException(f"Task not found: {task_id}")
+            raise NotFoundError("Task not found", code="TASK_NOT_FOUND", data={"task_id": str(task_id)})
 
         cursor_dt = None
         if cursor:

@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import BadRequestException, NotFoundException
+from app.common.app_errors import InvalidRequestError, NotFoundError
 from app.core.model import get_factory
 from app.repositories.model_credential import ModelCredentialRepository
 from app.repositories.model_instance import ModelInstanceRepository
@@ -174,18 +174,26 @@ class ModelProviderService(BaseService):
             Updated provider info
 
         Raises:
-            NotFoundException: provider does not exist
+            NotFoundError: provider does not exist
         """
         db_provider = await self.repo.get_by_name(provider_name)
         if not db_provider:
-            raise NotFoundException(f"Provider not found: {provider_name}")
+            raise NotFoundError(
+                "Provider not found",
+                code="MODEL_PROVIDER_NOT_FOUND",
+                data={"provider_name": provider_name},
+            )
 
         await self.repo.update_default_parameters(provider_name, default_parameters)
         await self.commit()
 
         result = await self.get_provider(provider_name)
         if not result:
-            raise NotFoundException(f"Provider not found: {provider_name}")
+            raise NotFoundError(
+                "Provider not found",
+                code="MODEL_PROVIDER_NOT_FOUND",
+                data={"provider_name": provider_name},
+            )
         return result
 
     async def _create_derived_provider(self, template: Any, name: str, display_name: str, template_name: str) -> Any:
@@ -221,7 +229,11 @@ class ModelProviderService(BaseService):
 
         template = self.factory.get_provider("custom")
         if not template:
-            raise NotFoundException("Provider not found: custom")
+            raise NotFoundError(
+                "Provider not found",
+                code="MODEL_PROVIDER_NOT_FOUND",
+                data={"provider_name": "custom"},
+            )
 
         is_valid = False
         validation_error = None
@@ -284,11 +296,23 @@ class ModelProviderService(BaseService):
         if not provider:
             factory_provider = self.factory.get_provider(provider_name)
             if factory_provider:
-                raise BadRequestException(f"Built-in provider cannot be deleted: {provider_name}")
-            raise NotFoundException(f"Provider not found: {provider_name}")
+                raise InvalidRequestError(
+                    f"Built-in provider cannot be deleted: {provider_name}",
+                    code="MODEL_PROVIDER_BUILTIN_DELETE_FORBIDDEN",
+                    data={"provider_name": provider_name},
+                )
+            raise NotFoundError(
+                "Provider not found",
+                code="MODEL_PROVIDER_NOT_FOUND",
+                data={"provider_name": provider_name},
+            )
 
         if provider.provider_type != "custom":
-            raise BadRequestException(f"Only custom providers can be deleted: {provider_name}")
+            raise InvalidRequestError(
+                f"Only custom providers can be deleted: {provider_name}",
+                code="MODEL_PROVIDER_DELETE_FORBIDDEN",
+                data={"provider_name": provider_name},
+            )
 
         await self.repo.delete(provider.id)
         logger.info(f"Deleted custom provider: {provider_name}")

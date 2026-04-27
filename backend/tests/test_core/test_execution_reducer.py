@@ -210,11 +210,23 @@ def test_execution_completed():
     proj = apply_execution_event(
         proj,
         event_type="execution_completed",
-        payload={"result_summary": {"files_changed": 3}},
+        payload={
+            "result_summary": {"files_changed": 3},
+            "error": {
+                "code": "NODE_MODEL_NOT_CONFIGURED",
+                "message": "Node model is missing.",
+                "data": {"node_id": "node-1"},
+            },
+        },
         status="completed",
     )
     assert proj["meta"]["completed"] is True
     assert proj["meta"]["result_summary"]["files_changed"] == 3
+    assert proj["meta"]["error"] == {
+        "code": "NODE_MODEL_NOT_CONFIGURED",
+        "message": "Node model is missing.",
+        "data": {"node_id": "node-1"},
+    }
 
 
 def test_heartbeat_is_noop():

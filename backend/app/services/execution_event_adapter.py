@@ -7,7 +7,7 @@ Bridges core/ execution runners to the event bus without core/ importing service
 from __future__ import annotations
 
 import uuid
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,8 +35,7 @@ class ExecutionEventAdapter:
         status: str,
         container_id: Optional[str] = None,
         session_id: Optional[str] = None,
-        error_code: Optional[str] = None,
-        error_message: Optional[str] = None,
+        error: Mapping[str, Any] | None = None,
         result_summary: Optional[dict[str, Any]] = None,
     ) -> Optional[Execution]:
         ctx = self._event_ctx
@@ -69,8 +68,7 @@ class ExecutionEventAdapter:
             thread_id=ctx.thread_id,
             task_id=ctx.task_id,
             target_status=status,
-            error_code=error_code,
-            error_message=error_message,
+            error=dict(error) if error is not None else None,
             container_id=container_id or session_id,
             metrics=result_summary,
         )
@@ -157,8 +155,7 @@ class ExecutionEventAdapter:
         execution_id: uuid.UUID,
         terminal_status: str,
         result_summary: Optional[dict[str, Any]] = None,
-        error: Optional[dict[str, Any]] = None,
-        error_message: Optional[str] = None,
+        error: Mapping[str, Any] | None = None,
         session_id: Optional[str] = None,
     ) -> None:
         if self._event_ctx is None:
@@ -171,10 +168,13 @@ class ExecutionEventAdapter:
             run_id=self._event_ctx.run_id,
             workspace_id=self._event_ctx.workspace_id,
             event_type=ExecutionEventType.EXECUTION_COMPLETED,
-            payload={"status": terminal_status},
+            payload={
+                "status": terminal_status,
+                "error": dict(error) if error is not None else None,
+                "result_summary": result_summary,
+            },
             terminal_status=terminal_status,
-            error=error,
-            error_message=error_message,
+            error=dict(error) if error is not None else None,
             container_id=session_id,
             metrics=result_summary,
             trigger_source=self._event_ctx.trigger_source,

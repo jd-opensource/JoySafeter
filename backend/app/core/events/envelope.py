@@ -37,7 +37,5 @@ class ExecutionEventEnvelope:
 
     # Status-change fields (used by execution_status_change events)
     target_status: Optional[str] = None
-    error_code: Optional[str] = None
-    error_message: Optional[str] = None
     container_id: Optional[str] = None
     metrics: Optional[dict[str, Any]] = None

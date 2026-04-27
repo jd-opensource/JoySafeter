@@ -20,7 +20,7 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import BadRequestException, UnauthorizedException
+from app.common.app_errors import InvalidRequestError, AuthenticationError
 from app.core.oauth import get_oauth_config
 from app.core.redis import RedisClient
 from app.models.auth import AuthUser
@@ -62,11 +62,11 @@ class OAuthService(BaseService):
             Tuple of (authorization_url, state)
 
         Raises:
-            BadRequestException: Provider not found or disabled
+            InvalidRequestError: Provider not found or disabled
         """
         provider = self.oauth_config.get_provider(provider_name)
         if not provider:
-            raise BadRequestException(f"OAuth provider '{provider_name}' not found or not enabled")
+            raise InvalidRequestError(f"OAuth provider '{provider_name}' not found or not enabled")
 
         # Generate or reuse state
         if not state:
@@ -96,10 +96,10 @@ class OAuthService(BaseService):
                 authorize_url = cast(Optional[str], oidc_config.get("authorization_endpoint"))
             except Exception as e:
                 logger.error(f"{LOG_PREFIX} OIDC Discovery failed: {e}")
-                raise BadRequestException(f"Failed to discover OAuth endpoints for {provider_name}")
+                raise InvalidRequestError(f"Failed to discover OAuth endpoints for {provider_name}")
 
         if not authorize_url:
-            raise BadRequestException(f"No authorization URL configured for {provider_name}")
+            raise InvalidRequestError(f"No authorization URL configured for {provider_name}")
 
         # Build authorization URL params
         params = {
@@ -167,7 +167,7 @@ class OAuthService(BaseService):
         """
         provider = self.oauth_config.get_provider(provider_name)
         if not provider:
-            raise BadRequestException(f"OAuth provider '{provider_name}' not found")
+            raise InvalidRequestError(f"OAuth provider '{provider_name}' not found")
 
         # Get token URL
         token_url: Optional[str] = provider.token_url or None
@@ -177,10 +177,10 @@ class OAuthService(BaseService):
                 token_url = cast(Optional[str], oidc_config.get("token_endpoint"))
             except Exception as e:
                 logger.error(f"{LOG_PREFIX} OIDC Discovery failed: {e}")
-                raise BadRequestException(f"Failed to discover token endpoint for {provider_name}")
+                raise InvalidRequestError(f"Failed to discover token endpoint for {provider_name}")
 
         if not token_url:
-            raise BadRequestException(f"No token URL configured for {provider_name}")
+            raise InvalidRequestError(f"No token URL configured for {provider_name}")
 
         # Build request
         data = {
@@ -228,10 +228,10 @@ class OAuthService(BaseService):
 
         except httpx.HTTPStatusError as e:
             logger.error(f"{LOG_PREFIX} Token exchange failed: {e.response.text}")
-            raise BadRequestException("Failed to exchange code for tokens")
+            raise InvalidRequestError("Failed to exchange code for tokens")
         except Exception as e:
             logger.error(f"{LOG_PREFIX} Token exchange error: {e}")
-            raise BadRequestException("Token exchange failed")
+            raise InvalidRequestError("Token exchange failed")
 
     # ==================== User Info ====================
 
@@ -252,7 +252,7 @@ class OAuthService(BaseService):
         """
         provider = self.oauth_config.get_provider(provider_name)
         if not provider:
-            raise BadRequestException(f"OAuth provider '{provider_name}' not found")
+            raise InvalidRequestError(f"OAuth provider '{provider_name}' not found")
 
         # Get userinfo URL
         userinfo_url = provider.userinfo_url
@@ -264,7 +264,7 @@ class OAuthService(BaseService):
                 logger.error(f"{LOG_PREFIX} OIDC Discovery failed: {e}")
 
         if not userinfo_url:
-            raise BadRequestException(f"No userinfo URL configured for {provider_name}")
+            raise InvalidRequestError(f"No userinfo URL configured for {provider_name}")
 
         headers = {
             "Authorization": f"Bearer {access_token}",
@@ -288,10 +288,10 @@ class OAuthService(BaseService):
 
         except httpx.HTTPStatusError as e:
             logger.error(f"{LOG_PREFIX} Failed to fetch userinfo: {e.response.text}")
-            raise BadRequestException("Failed to fetch user info")
+            raise InvalidRequestError("Failed to fetch user info")
         except Exception as e:
             logger.error(f"{LOG_PREFIX} Userinfo fetch error: {e}")
-            raise BadRequestException("Failed to fetch user info")
+            raise InvalidRequestError("Failed to fetch user info")
 
     async def _fetch_github_email(self, access_token: str) -> Optional[str]:
         """Get GitHub primary email."""
@@ -341,7 +341,7 @@ class OAuthService(BaseService):
         """
         provider = self.oauth_config.get_provider(provider_name)
         if not provider:
-            raise BadRequestException(f"OAuth provider '{provider_name}' not found")
+            raise InvalidRequestError(f"OAuth provider '{provider_name}' not found")
 
         mapping = provider.user_mapping
 
@@ -383,7 +383,7 @@ class OAuthService(BaseService):
             Tuple of (user, is_new_user)
 
         Raises:
-            UnauthorizedException: User missing and registration disabled
+            AuthenticationError: User missing and registration disabled
         """
         oauth_settings = self.oauth_config.settings
 
@@ -419,10 +419,10 @@ class OAuthService(BaseService):
 
         # 3) Create new user
         if not oauth_settings.allow_registration:
-            raise UnauthorizedException("Registration via OAuth is not allowed. Please sign up first.")
+            raise AuthenticationError("Registration via OAuth is not allowed. Please sign up first.")
 
         if not email:
-            raise BadRequestException(
+            raise InvalidRequestError(
                 f"Email is required for registration. Please ensure your {provider_name} account has a verified email."
             )
 
@@ -551,12 +551,12 @@ class OAuthService(BaseService):
             Whether unlink succeeded
 
         Raises:
-            BadRequestException: User would be unable to sign in
+            InvalidRequestError: User would be unable to sign in
         """
         # Ensure user can still sign in after unlink
         user = await self.user_repo.get_by_id(user_id)
         if not user:
-            raise BadRequestException("User not found")
+            raise InvalidRequestError("User not found")
 
         # Get all user OAuth bindings
         oauth_accounts = await self.get_user_oauth_accounts(user_id)
@@ -570,7 +570,7 @@ class OAuthService(BaseService):
 
         # Disallow unlink when no password and only one OAuth binding
         if not user.hashed_password and len(oauth_accounts) == 1:
-            raise BadRequestException("Cannot unlink the only OAuth account. Please set a password first.")
+            raise InvalidRequestError("Cannot unlink the only OAuth account. Please set a password first.")
 
         await self._delete_oauth_account(target_account)
         logger.info(f"{LOG_PREFIX} Unlinked OAuth account: {provider_name} from user {user_id}")

@@ -39,8 +39,6 @@ from .tools import router as tools_router
 from .traces import router as traces_router
 from .users import router as users_router
 from .version import router as version_router
-from .workspace_files import router as workspace_files_router
-from .workspace_folders import router as workspace_folders_router
 from .workspaces import router as workspaces_router
 
 ROUTERS = [
@@ -54,8 +52,6 @@ ROUTERS = [
     agent_runs_router,
     copilot_router,
     workspaces_router,
-    workspace_folders_router,
-    workspace_files_router,
     custom_tools_router,
     tools_router,
     mcp_router,

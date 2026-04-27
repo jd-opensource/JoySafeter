@@ -11,7 +11,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import BadRequestException, NotFoundException
+from app.common.app_errors import InvalidRequestError, NotFoundError
 from app.core.agent_kinds import infer_runtime_kind, is_cli_definition_kind
 from app.models.agent import AgentRelease, AgentVersion
 from app.repositories.agent import AgentRepository, AgentVersionRepository
@@ -34,7 +34,7 @@ class AgentPublishService(BaseService):
     async def publish(self, agent_id: uuid.UUID, user_id: str) -> dict:
         agent = await self.agent_repo.get(agent_id)
         if not agent:
-            raise NotFoundException(f"Agent {agent_id} not found")
+            raise NotFoundError("Agent not found", code="AGENT_NOT_FOUND", data={"agent_id": str(agent_id)})
 
         version = await self._resolve_current_draft(agent)
 
@@ -80,10 +80,14 @@ class AgentPublishService(BaseService):
 
     async def _resolve_current_draft(self, agent) -> AgentVersion:
         if not agent.current_draft_version_id:
-            raise BadRequestException("Agent has no draft version")
+            raise InvalidRequestError("Agent has no draft version", code="AGENT_DRAFT_VERSION_MISSING")
         version = await self.version_repo.get(agent.current_draft_version_id)
         if not version:
-            raise NotFoundException("Draft version not found")
+            raise NotFoundError(
+                "Draft version not found",
+                code="AGENT_DRAFT_VERSION_NOT_FOUND",
+                data={"version_id": str(agent.current_draft_version_id)},
+            )
         return version
 
     @staticmethod

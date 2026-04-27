@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.app_errors import InvalidRequestError, ServiceUnavailableError
 from app.common.dependencies import get_current_user
 from app.core.agent.backends.docker_check import get_docker_client
 from app.core.database import get_db
@@ -56,7 +57,7 @@ async def list_devices(
     """List devices paired with the user's OpenClaw instance."""
     instance = await _get_running_instance(db, str(current_user.id))
     if not instance:
-        return {"success": True, "data": []}
+        raise InvalidRequestError("No running instance", code="OPENCLAW_INSTANCE_NOT_RUNNING")
 
     try:
         output = await _docker_exec(instance.container_id, ["openclaw", "devices", "list", "--json"])
@@ -64,7 +65,7 @@ async def list_devices(
         return {"success": True, "data": devices}
     except Exception as e:
         logger.warning(f"Failed to list devices for user {current_user.id}: {e}")
-        return {"success": True, "data": [], "warning": str(e)}
+        raise ServiceUnavailableError(str(e), code="OPENCLAW_DEVICE_LIST_FAILED")
 
 
 @router.post("/{device_id}/approve")
@@ -76,13 +77,13 @@ async def approve_device(
     """Approve a specific device pairing request."""
     instance = await _get_running_instance(db, str(current_user.id))
     if not instance:
-        return {"success": False, "error": "No running instance"}
+        raise InvalidRequestError("No running instance", code="OPENCLAW_INSTANCE_NOT_RUNNING")
 
     try:
         await _docker_exec(instance.container_id, ["openclaw", "devices", "approve", device_id])
         return {"success": True}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        raise ServiceUnavailableError(str(e), code="OPENCLAW_DEVICE_APPROVE_FAILED")
 
 
 @router.post("/approve-all")
@@ -93,7 +94,7 @@ async def approve_all_devices(
     """Approve all pending device pairing requests."""
     instance = await _get_running_instance(db, str(current_user.id))
     if not instance:
-        return {"success": False, "error": "No running instance"}
+        raise InvalidRequestError("No running instance", code="OPENCLAW_INSTANCE_NOT_RUNNING")
 
     try:
         output = await _docker_exec(instance.container_id, ["openclaw", "devices", "list", "--json"])
@@ -105,4 +106,4 @@ async def approve_all_devices(
                 await _docker_exec(instance.container_id, ["openclaw", "devices", "approve", device_id])
         return {"success": True}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        raise ServiceUnavailableError(str(e), code="OPENCLAW_DEVICE_APPROVE_ALL_FAILED")

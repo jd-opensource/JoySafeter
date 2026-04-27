@@ -10,13 +10,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user
-from app.common.exceptions import ForbiddenException, NotFoundException
+from app.common.app_errors import AccessDeniedError, NotFoundError
 from app.common.response import success_response
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.models.settings import Settings
 from app.services.user_service import UserService
-from app.services.workspace_file_service import WorkspaceFileService
 
 router = APIRouter(prefix="/v1/users", tags=["Users"])
 
@@ -192,21 +191,6 @@ async def update_settings(
     }
 
 
-@router.get("/me/usage-limits")
-async def get_usage_limits(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Get current user's storage usage (workspace files)."""
-    service = WorkspaceFileService(db)
-    storage = await service.get_user_storage_usage(current_user)
-    usage = {"plan": "standard"}
-    base = success_response(
-        data={"storage": storage, "usage": usage},
-        message="Fetched storage usage",
-    )
-    return {**base, "storage": storage, "usage": usage}
-
 
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(
@@ -216,12 +200,12 @@ async def get_user(
 ):
     """Get user by ID (requires superuser permission)."""
     if not current_user.is_superuser:
-        raise ForbiddenException("Forbidden")
+        raise AccessDeniedError("Forbidden", code="SUPERUSER_REQUIRED")
 
     service = UserService(db)
     user = await service.get_user_by_id(user_id)
     if not user:
-        raise NotFoundException("User not found")
+        raise NotFoundError("User not found", code="USER_NOT_FOUND", data={"user_id": user_id})
 
     return success_response(
         data=_user_to_response(user),
@@ -238,7 +222,7 @@ async def list_users(
 ):
     """Search/list users (requires superuser permission)."""
     if not current_user.is_superuser:
-        raise ForbiddenException("Forbidden")
+        raise AccessDeniedError("Forbidden", code="SUPERUSER_REQUIRED")
 
     service = UserService(db)
     if keyword:
@@ -260,7 +244,7 @@ async def create_user(
 ):
     """Create a new user (requires superuser permission)."""
     if not current_user.is_superuser:
-        raise ForbiddenException("Forbidden")
+        raise AccessDeniedError("Forbidden", code="SUPERUSER_REQUIRED")
 
     service = UserService(db)
     user = await service.create_user(
@@ -286,12 +270,12 @@ async def update_user(
 ):
     """Update user info (requires superuser permission)."""
     if not current_user.is_superuser:
-        raise ForbiddenException("Forbidden")
+        raise AccessDeniedError("Forbidden", code="SUPERUSER_REQUIRED")
 
     service = UserService(db)
     user = await service.get_user_by_id(user_id)
     if not user:
-        raise NotFoundException("User not found")
+        raise NotFoundError("User not found", code="USER_NOT_FOUND", data={"user_id": user_id})
 
     updated_user = await service.update_user(
         user,
@@ -317,7 +301,7 @@ async def delete_user(
 ):
     """Delete a user (requires superuser permission)."""
     if not current_user.is_superuser:
-        raise ForbiddenException("Forbidden")
+        raise AccessDeniedError("Forbidden", code="SUPERUSER_REQUIRED")
 
     service = UserService(db)
     await service.delete_user(user_id)

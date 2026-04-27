@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.app_errors import InvalidRequestError, NotFoundError, ServiceUnavailableError
 from app.common.dependencies import get_current_user
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
@@ -71,7 +72,7 @@ async def start_instance(
         instance = await service.ensure_instance_running(str(current_user.id))
         return {"success": True, "data": _serialize_instance(instance)}
     except RuntimeError as exc:
-        return {"success": False, "error": str(exc)}
+        raise ServiceUnavailableError(str(exc), code="OPENCLAW_INSTANCE_START_FAILED")
 
 
 @router.post("/stop")
@@ -83,7 +84,7 @@ async def stop_instance(
     service = OpenClawInstanceService(db)
     instance = await service.stop_instance(str(current_user.id))
     if not instance:
-        return {"success": False, "error": "No instance found"}
+        raise NotFoundError("No instance found", code="OPENCLAW_INSTANCE_NOT_FOUND")
     return {"success": True, "data": _serialize_instance(instance)}
 
 
@@ -98,7 +99,7 @@ async def restart_instance(
         instance = await service.restart_instance(str(current_user.id))
         return {"success": True, "data": _serialize_instance(instance)}
     except RuntimeError as exc:
-        return {"success": False, "error": str(exc)}
+        raise ServiceUnavailableError(str(exc), code="OPENCLAW_INSTANCE_RESTART_FAILED")
 
 
 @router.delete("")
@@ -110,7 +111,7 @@ async def delete_instance(
     service = OpenClawInstanceService(db)
     deleted = await service.delete_instance(str(current_user.id))
     if not deleted:
-        return {"success": False, "error": "No instance found"}
+        raise NotFoundError("No instance found", code="OPENCLAW_INSTANCE_NOT_FOUND")
     return {"success": True}
 
 
@@ -124,11 +125,11 @@ async def sync_skills(
     instance = await service.get_instance_by_user(str(current_user.id))
 
     if not instance or not instance.container_id or instance.status != InstanceStatus.RUNNING:
-        return {"success": False, "error": "Instance is not running"}
+        raise InvalidRequestError("Instance is not running", code="OPENCLAW_INSTANCE_NOT_RUNNING")
 
     synced_count = await service.sync_skills_to_container(str(current_user.id), instance.container_id)
 
     if synced_count < 0:
-        return {"success": False, "error": "Failed to sync skills"}
+        raise ServiceUnavailableError("Failed to sync skills", code="OPENCLAW_SKILL_SYNC_FAILED")
 
     return {"success": True, "data": {"syncedCount": synced_count}}

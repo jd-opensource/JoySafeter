@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user
-from app.common.exceptions import UnauthorizedException
+from app.common.app_errors import AuthenticationError
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.models.platform_token import PlatformToken
@@ -67,9 +67,9 @@ async def get_current_user_or_token(
 
     # Fall through to existing session/JWT auth
     if request is None:
-        from app.common.exceptions import UnauthorizedException
+        from app.common.app_errors import AuthenticationError
 
-        raise UnauthorizedException("Authentication required")
+        raise AuthenticationError("Authentication required", code="AUTH_REQUIRED")
     user = await get_current_user(token=token, request=request, db=db)
     return AuthContext(user=user, token_scopes=None)
 
@@ -85,13 +85,13 @@ async def _authenticate_platform_token(
     pt = result.scalar_one_or_none()
 
     if not pt:
-        raise UnauthorizedException("Invalid API token")
+        raise AuthenticationError("Invalid API token", code="API_TOKEN_INVALID")
 
     if not pt.is_active:
-        raise UnauthorizedException("API token has been revoked")
+        raise AuthenticationError("API token has been revoked", code="API_TOKEN_REVOKED")
 
     if pt.expires_at and pt.expires_at < datetime.now(timezone.utc):
-        raise UnauthorizedException("API token has expired")
+        raise AuthenticationError("API token has expired", code="API_TOKEN_EXPIRED")
 
     # Debounce last_used_at update
     now = datetime.now(timezone.utc)
@@ -105,7 +105,7 @@ async def _authenticate_platform_token(
         user_result = await db.execute(select(User).where(User.id == pt.user_id))
         user = user_result.scalar_one_or_none()
     if not user or not user.is_active:
-        raise UnauthorizedException("Token owner account is inactive")
+        raise AuthenticationError("Token owner account is inactive", code="API_TOKEN_OWNER_INACTIVE")
 
     return AuthContext(
         user=user,

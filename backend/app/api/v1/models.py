@@ -67,9 +67,9 @@ async def list_available_models(
     try:
         model_type_enum = ModelType(model_type)
     except ValueError:
-        from app.common.exceptions import BadRequestException
+        from app.common.app_errors import InvalidRequestError
 
-        raise BadRequestException(f"Unsupported model type: {model_type}")
+        raise InvalidRequestError(f"Unsupported model type: {model_type}")
 
     service = ModelService(db)
     models = await service.get_available_models(model_type=model_type_enum, user_id=current_user.id)
@@ -86,9 +86,9 @@ async def create_model_instance(
     try:
         model_type_enum = ModelType(payload.model_type)
     except ValueError:
-        from app.common.exceptions import BadRequestException
+        from app.common.app_errors import InvalidRequestError
 
-        raise BadRequestException(f"Unsupported model type: {payload.model_type}")
+        raise InvalidRequestError(f"Unsupported model type: {payload.model_type}")
 
     service = ModelService(db)
     instance = await service.create_model_instance_config(

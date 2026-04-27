@@ -211,11 +211,11 @@ export default function ExecutionDetailPage() {
                         </dd>
                       </div>
                     )}
-                    {execution.error_message && (
+                    {execution.error && (
                       <div className="lg:col-span-2">
                         <dt className="text-xs text-[var(--text-muted)]">Error</dt>
                         <dd className="mt-1 text-sm text-[var(--status-error)]">
-                          {execution.error_message}
+                          {execution.error.message}
                         </dd>
                       </div>
                     )}

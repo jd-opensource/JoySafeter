@@ -135,10 +135,10 @@ def test_patch_instance_updates_parameters(mock_cls, client: TestClient):
 
 @patch("app.api.v1.models.ModelService")
 def test_patch_instance_not_found_returns_404(mock_cls, client: TestClient):
-    from app.common.exceptions import NotFoundException
+    from app.common.app_errors import NotFoundError
 
     mock_svc = mock_cls.return_value
-    mock_svc.update_model_instance = AsyncMock(side_effect=NotFoundException("Model instance not found"))
+    mock_svc.update_model_instance = AsyncMock(side_effect=NotFoundError("Model instance not found"))
 
     resp = client.patch(
         f"/v1/models/instances/{uuid.uuid4()}",

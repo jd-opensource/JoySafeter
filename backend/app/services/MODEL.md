@@ -325,7 +325,7 @@ Service 负责事务管理，通过 `commit()` 方法提交事务。
 
 ### 4. 错误处理
 
-Service 层处理业务逻辑错误，抛出适当的异常（如 `NotFoundException`、`BadRequestException`）。
+Service 层处理业务逻辑错误，抛出适当的异常（如 `NotFoundError`、`InvalidRequestError`）。
 
 ## 数据流
 

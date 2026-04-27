@@ -1,122 +1,70 @@
-"""
-Copilot-specific exceptions for better error handling.
+from typing import Any, Mapping
 
-Provides specialized exception classes for Copilot operations,
-enabling better error categorization and user-friendly error messages.
-"""
-
-from typing import Any
-
-from fastapi import status
-
-from app.common.exceptions import AppException, BadRequestException
+from app.common.app_errors import AuthenticationError, InfraError, InternalServiceError, InvalidRequestError
 
 
-class CopilotException(AppException):
-    """Base exception for Copilot operations."""
-
-    def __init__(
-        self,
-        message: str = "Copilot operation failed",
-        *,
-        code: int | None = 5001,
-        data: Any = None,
-        status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR,
-    ):
-        super().__init__(status_code=status_code, message=message, code=code, data=data)
+def _with_original_error(data: Mapping[str, Any] | None, original_error: Exception | None) -> dict[str, Any] | None:
+    payload = dict(data) if data else None
+    if original_error is None:
+        return payload
+    merged = payload or {}
+    merged["error_type"] = type(original_error).__name__
+    merged["error_message"] = str(original_error)
+    return merged
 
 
-class CopilotLLMError(CopilotException):
-    """LLM-related errors (API failures, rate limits, etc.)."""
-
+class CopilotLLMError(InfraError):
     def __init__(
         self,
         message: str = "LLM service error",
         *,
-        code: int | None = 5101,
-        data: Any = None,
+        code: str = "COPILOT_LLM_ERROR",
+        data: Mapping[str, Any] | None = None,
         original_error: Exception | None = None,
-    ):
-        if original_error:
-            message = f"{message}: {str(original_error)}"
-            if data is None:
-                data = {"error_type": type(original_error).__name__}
-        super().__init__(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            message=message,
-            code=code,
-            data=data,
-        )
+    ) -> None:
+        super().__init__(code=code, message=message, data=_with_original_error(data, original_error))
 
 
-class CopilotValidationError(BadRequestException):
-    """Action validation errors."""
-
+class CopilotValidationError(InvalidRequestError):
     def __init__(
         self,
         message: str = "Action validation failed",
         *,
-        code: int | None = 5102,
-        data: Any = None,
-    ):
+        code: str = "COPILOT_VALIDATION_ERROR",
+        data: Mapping[str, Any] | None = None,
+    ) -> None:
         super().__init__(message=message, code=code, data=data)
 
 
-class CopilotSessionError(CopilotException):
-    """Session management errors (Redis unavailable, session not found, etc.)."""
-
+class CopilotSessionError(InfraError):
     def __init__(
         self,
         message: str = "Session management error",
         *,
-        code: int | None = 5103,
-        data: Any = None,
-        status_code: int = status.HTTP_503_SERVICE_UNAVAILABLE,
-    ):
-        super().__init__(
-            status_code=status_code,
-            message=message,
-            code=code,
-            data=data,
-        )
+        code: str = "COPILOT_SESSION_ERROR",
+        data: Mapping[str, Any] | None = None,
+    ) -> None:
+        super().__init__(code=code, message=message, data=dict(data) if data else None)
 
 
-class CopilotCredentialError(CopilotException):
-    """Credential-related errors (missing API key, invalid credentials, etc.)."""
-
+class CopilotCredentialError(AuthenticationError):
     def __init__(
         self,
         message: str = "Credential error",
         *,
-        code: int | None = 5105,
-        data: Any = None,
-    ):
-        super().__init__(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            message=message,
-            code=code,
-            data=data,
-        )
+        code: str = "COPILOT_CREDENTIAL_ERROR",
+        data: Mapping[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message=message, code=code, data=data)
 
 
-class CopilotAgentError(CopilotException):
-    """Agent execution errors (tool failures, recursion limits, etc.)."""
-
+class CopilotAgentError(InternalServiceError):
     def __init__(
         self,
         message: str = "Agent execution error",
         *,
-        code: int | None = 5106,
-        data: Any = None,
+        code: str = "COPILOT_AGENT_ERROR",
+        data: Mapping[str, Any] | None = None,
         original_error: Exception | None = None,
-    ):
-        if original_error:
-            message = f"{message}: {str(original_error)}"
-            if data is None:
-                data = {"error_type": type(original_error).__name__}
-        super().__init__(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=message,
-            code=code,
-            data=data,
-        )
+    ) -> None:
+        super().__init__(message=message, code=code, data=_with_original_error(data, original_error))

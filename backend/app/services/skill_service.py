@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from loguru import logger
 
-from app.common.exceptions import BadRequestException, ForbiddenException, NotFoundException
+from app.common.app_errors import InvalidRequestError, AccessDeniedError, NotFoundError
 from app.common.skill_permissions import check_skill_access
 from app.core.skill.validators import (
     truncate_compatibility,
@@ -62,7 +62,7 @@ class SkillService(BaseService[Skill]):
         """Get Skill details"""
         skill = await self.repo.get_with_files(skill_id)
         if not skill or not isinstance(skill, Skill):
-            raise NotFoundException("Skill not found")
+            raise NotFoundError("Skill not found")
 
         # Permission check: collaborator-aware
         if current_user_id:
@@ -73,7 +73,7 @@ class SkillService(BaseService[Skill]):
                 CollaboratorRole.viewer,
             )
         elif not skill.is_public:
-            raise ForbiddenException("You don't have permission to access this skill")
+            raise AccessDeniedError("You don't have permission to access this skill")
 
         # Type assertion: get_with_files returns Optional[Skill], we've already checked it's not None
         skill = await self._attach_latest_version(skill)
@@ -183,7 +183,11 @@ class SkillService(BaseService[Skill]):
         is_valid, error = validate_skill_name(name)
         if not is_valid:
             logger.warning(f"Invalid skill name rejected: {name!r} — {error}")
-            raise BadRequestException(f"Invalid skill name: {error}")
+            raise InvalidRequestError(
+                f"Invalid skill name: {error}",
+                code="SKILL_NAME_INVALID",
+                data={"validation_error": error, "name": name},
+            )
 
         # Validate and truncate description per Agent Skills specification
         is_valid, error = validate_skill_description(description)
@@ -203,7 +207,11 @@ class SkillService(BaseService[Skill]):
         # Check if Skill with same name exists (same owner)
         existing = await self.repo.get_by_name_and_owner(name, owner_id)
         if existing:
-            raise BadRequestException(f"Skill name '{name}' already exists for this owner")
+            raise InvalidRequestError(
+                f"Skill name '{name}' already exists for this owner",
+                code="SKILL_NAME_ALREADY_EXISTS",
+                data={"name": name},
+            )
 
         skill = Skill(
             name=name,
@@ -269,7 +277,7 @@ class SkillService(BaseService[Skill]):
             # If there are invalid files, raise an error
             if invalid_files:
                 invalid_list = "\n".join(f"  - {f}" for f in invalid_files)
-                raise BadRequestException(
+                raise InvalidRequestError(
                     f"The following files cannot be imported (binary files or system files):\n{invalid_list}\n\n"
                     f"Skill import only supports text files (.py, .md, .json, .yaml, etc.)"
                 )
@@ -305,7 +313,7 @@ class SkillService(BaseService[Skill]):
         """
         skill = await self.repo.get(skill_id)
         if not skill:
-            raise NotFoundException("Skill not found")
+            raise NotFoundError("Skill not found")
 
         # Permission check: collaborator-aware (editor role)
         await check_skill_access(
@@ -358,10 +366,18 @@ class SkillService(BaseService[Skill]):
             is_valid, error = validate_skill_name(name)
             if not is_valid:
                 logger.warning(f"Invalid skill name rejected: {name!r} — {error}")
-                raise BadRequestException(f"Invalid skill name: {error}")
+                raise InvalidRequestError(
+                    f"Invalid skill name: {error}",
+                    code="SKILL_NAME_INVALID",
+                    data={"validation_error": error, "name": name},
+                )
             existing = await self.repo.get_by_name_and_owner(name, skill.owner_id)
             if existing:
-                raise BadRequestException(f"Skill name '{name}' already exists for this owner")
+                raise InvalidRequestError(
+                    f"Skill name '{name}' already exists for this owner",
+                    code="SKILL_NAME_ALREADY_EXISTS",
+                    data={"name": name},
+                )
             skill.name = name
 
         # Validate and update description if provided
@@ -452,7 +468,7 @@ class SkillService(BaseService[Skill]):
             # If there are invalid files, raise an error
             if invalid_files:
                 invalid_list = "\n".join(f"  - {f}" for f in invalid_files)
-                raise BadRequestException(
+                raise InvalidRequestError(
                     f"The following files cannot be imported (binary files or system files):\n{invalid_list}\n\n"
                     f"Skill import only supports text files (.py, .md, .json, .yaml, etc.)"
                 )
@@ -470,11 +486,11 @@ class SkillService(BaseService[Skill]):
         """Delete Skill"""
         skill = await self.repo.get(skill_id)
         if not skill:
-            raise NotFoundException("Skill not found")
+            raise NotFoundError("Skill not found")
 
         # Permission check: Only owner can delete
         if skill.owner_id != current_user_id:
-            raise ForbiddenException("Only the owner can delete a skill")
+            raise AccessDeniedError("Only the owner can delete a skill")
 
         # Delete associated files
         await self.file_repo.delete_by_skill(skill_id)
@@ -504,7 +520,7 @@ class SkillService(BaseService[Skill]):
         """Add file to Skill"""
         skill = await self.repo.get(skill_id)
         if not skill:
-            raise NotFoundException("Skill not found")
+            raise NotFoundError("Skill not found")
 
         # Permission check: collaborator-aware (editor role)
         await check_skill_access(
@@ -516,13 +532,13 @@ class SkillService(BaseService[Skill]):
 
         # Check if it's a system file
         if is_system_file(path) or is_system_file(file_name):
-            raise BadRequestException(f"File '{path}' is a system file and cannot be imported")
+            raise InvalidRequestError(f"File '{path}' is a system file and cannot be imported")
 
         # Validate content if provided
         if content is not None:
             is_valid, error_msg = is_valid_text_content(content)
             if not is_valid:
-                raise BadRequestException(
+                raise InvalidRequestError(
                     f"File '{path}' {error_msg}. Skill import only supports text files (.py, .md, .json, .yaml, etc.)"
                 )
 
@@ -560,11 +576,11 @@ class SkillService(BaseService[Skill]):
         """Delete file"""
         file_obj = await self.file_repo.get(file_id)
         if not file_obj:
-            raise NotFoundException("Skill file not found")
+            raise NotFoundError("Skill file not found")
 
         skill = await self.repo.get(file_obj.skill_id)
         if not skill:
-            raise NotFoundException("Skill not found")
+            raise NotFoundError("Skill not found")
 
         # Permission check: collaborator-aware (editor role)
         await check_skill_access(
@@ -588,11 +604,11 @@ class SkillService(BaseService[Skill]):
         """Update file content"""
         file_obj = await self.file_repo.get(file_id)
         if not file_obj:
-            raise NotFoundException("Skill file not found")
+            raise NotFoundError("Skill file not found")
 
         skill = await self.repo.get(file_obj.skill_id)
         if not skill:
-            raise NotFoundException("Skill not found")
+            raise NotFoundError("Skill not found")
 
         # Permission check: collaborator-aware (editor role)
         await check_skill_access(
@@ -605,7 +621,7 @@ class SkillService(BaseService[Skill]):
         # Check if it's a system file (if path is being updated)
         if path is not None:
             if is_system_file(path) or is_system_file(file_obj.file_name):
-                raise BadRequestException(f"File '{path}' is a system file and cannot be imported")
+                raise InvalidRequestError(f"File '{path}' is a system file and cannot be imported")
 
             # Log warning for uncommon file extensions (but don't reject)
             is_common, warning = validate_file_extension(path)
@@ -616,7 +632,7 @@ class SkillService(BaseService[Skill]):
             # Validate content
             is_valid, error_msg = is_valid_text_content(content)
             if not is_valid:
-                raise BadRequestException(
+                raise InvalidRequestError(
                     f"File '{file_obj.path}' {error_msg}. Skill import only supports text files (.py, .md, .json, .yaml, etc.)"
                 )
 

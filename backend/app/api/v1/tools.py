@@ -9,6 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.app_errors import NotFoundError
 from app.common.dependencies import get_current_user
 from app.common.response import success_response
 from app.core.database import get_db
@@ -97,7 +98,7 @@ async def get_tool(
     tool = service.get_tool_by_key(tool_id)
 
     if not tool:
-        return success_response(data=None, message="Tool not found")
+        raise NotFoundError("Tool not found", code="TOOL_NOT_FOUND", data={"tool_id": tool_id})
 
     return success_response(
         data=tool.to_response(),

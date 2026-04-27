@@ -19,6 +19,7 @@ import type {
   ExecutionCompletedFrame,
   ExecutionSnapshotFrame,
 } from '@/lib/ws/executions/types'
+import type { AppErrorPayload } from '@/types/agent-run'
 import type { ExecutionStep, ExecutionTreeNode } from '@/types'
 
 import { buildExecutionTree } from '../../lib/tree-building'
@@ -736,12 +737,25 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
                 endTime: now,
                 duration: now - (workflowStep?.startTime || now),
               })
+              if (frame.error) {
+                store.addStep({
+                  id: generateId('error'),
+                  nodeId: 'system',
+                  nodeLabel: 'Error',
+                  stepType: 'system_log',
+                  title: frame.error.code,
+                  status: 'error',
+                  startTime: now,
+                  content: frame.error.message,
+                  data: { ...frame.error },
+                })
+              }
               resolve()
             },
 
-            onError: (message: string) => {
+            onError: (error: AppErrorPayload) => {
               abortController.signal.removeEventListener('abort', onAbort)
-              reject(new Error(`Execution WebSocket error: ${message}`))
+              reject(new Error(`Execution WebSocket error: ${error.message}`))
             },
           }).catch((err) => {
             abortController.signal.removeEventListener('abort', onAbort)

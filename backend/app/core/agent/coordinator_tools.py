@@ -206,6 +206,7 @@ async def get_agent_result(execution_id: str, *, user_id: str) -> dict:
                 output = execution.metrics.get("output", "")
             return {"status": "succeeded", "output": output}
         elif status == EXECUTION_STATUS_FAILED:
-            return {"status": "failed", "output": execution.error_message or "Unknown error"}
+            error = execution.error or {}
+            return {"status": "failed", "output": error.get("message") or "Unknown error"}
         else:
             return {"status": status, "output": f"Agent is still {status}"}

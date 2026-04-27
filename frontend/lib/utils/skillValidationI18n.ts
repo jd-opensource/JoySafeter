@@ -30,48 +30,42 @@ function extractNameMatchDirectory(detail: string): { name: string; directory: s
  * @returns Localized message, or empty string if not a skill validation error / no detail
  */
 export function getSkillValidationMessage(error: unknown, t: TFunction): string {
-  if (!(error instanceof ApiError) || !error.detail) {
+  if (!(error instanceof ApiError)) {
     return ''
   }
 
-  const d = error.detail
+  const code = error.code
+  const validationError =
+    typeof error.data?.validation_error === 'string' ? error.data.validation_error : null
 
-  if (d.includes('name is required')) {
+  if (code === 'SKILL_NAME_ALREADY_EXISTS') {
+    return t('skills.validationErrors.nameExists')
+  }
+
+  if (code !== 'SKILL_NAME_INVALID' || !validationError) {
+    return code ? t('skills.validationErrors.generic') : ''
+  }
+
+  if (validationError.includes('name is required')) {
     return t('skills.validationErrors.nameRequired')
   }
 
-  if (d.includes('name exceeds 64 characters')) {
-    const name = extractGot(d) ?? '?'
+  if (validationError.includes('name exceeds 64 characters')) {
+    const name = extractGot(validationError) ?? '?'
     return t('skills.validationErrors.nameTooLong', { max: 64, name })
   }
 
-  if (d.includes('name must be lowercase alphanumeric')) {
-    const name = extractGot(d) ?? '?'
+  if (validationError.includes('name must be lowercase alphanumeric')) {
+    const name = extractGot(validationError) ?? '?'
     return t('skills.validationErrors.nameFormat', { name })
   }
 
-  const nm = extractNameMatchDirectory(d)
+  const nm = extractNameMatchDirectory(validationError)
   if (nm) {
     return t('skills.validationErrors.nameMatchDirectory', {
       name: nm.name,
       directory: nm.directory,
     })
-  }
-
-  if (d.includes('description is required')) {
-    return t('skills.validationErrors.descriptionRequired')
-  }
-
-  if (d.includes('description exceeds 1024 characters')) {
-    return t('skills.validationErrors.descriptionTooLong', { max: 1024 })
-  }
-
-  if (d.includes('compatibility exceeds 500 characters')) {
-    return t('skills.validationErrors.compatibilityTooLong', { max: 500 })
-  }
-
-  if (d.includes('already exists for this owner')) {
-    return t('skills.validationErrors.nameExists')
   }
 
   return t('skills.validationErrors.generic')

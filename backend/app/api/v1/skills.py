@@ -178,12 +178,12 @@ async def delete_skill(
     service = SkillService(db)
 
     # get the skill name before deletion
-    from app.common.exceptions import NotFoundException
+    from app.common.app_errors import NotFoundError
 
     try:
         skill = await service.get_skill(skill_id, current_user.id)
         skill_name = skill.name
-    except NotFoundException:
+    except NotFoundError:
         skill_name = None
 
     await service.delete_skill(skill_id, current_user.id)

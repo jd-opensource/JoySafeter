@@ -10,7 +10,7 @@ from typing import List
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import BadRequestException, NotFoundException
+from app.common.app_errors import InvalidRequestError, NotFoundError
 from app.core.state_machines import AGENT_SM, RELEASE_SM
 from app.models.agent import AgentRelease
 from app.repositories.agent import AgentRepository, AgentVersionRepository
@@ -37,7 +37,11 @@ class AgentReleaseService(BaseService):
     async def get_release(self, release_id: uuid.UUID) -> AgentRelease:
         release = await self.release_repo.get(release_id)
         if not release:
-            raise NotFoundException(f"AgentRelease {release_id} not found")
+            raise NotFoundError(
+                "Agent release not found",
+                code="AGENT_RELEASE_NOT_FOUND",
+                data={"release_id": str(release_id)},
+            )
         return release
 
     async def publish_release(
@@ -49,11 +53,23 @@ class AgentReleaseService(BaseService):
         # Verify the version exists and belongs to this agent
         version = await self.version_repo.get(data.agent_version_id)
         if not version:
-            raise NotFoundException(f"AgentVersion {data.agent_version_id} not found")
+            raise NotFoundError(
+                "Agent version not found",
+                code="AGENT_VERSION_NOT_FOUND",
+                data={"version_id": str(data.agent_version_id)},
+            )
         if version.agent_id != agent_id:
-            raise BadRequestException("Version does not belong to this agent")
+            raise InvalidRequestError(
+                "Version does not belong to this agent",
+                code="AGENT_VERSION_AGENT_MISMATCH",
+                data={"agent_id": str(agent_id), "version_id": str(data.agent_version_id)},
+            )
         if version.status != "frozen":
-            raise BadRequestException("Version must be frozen before publishing a release")
+            raise InvalidRequestError(
+                "Version must be frozen before publishing a release",
+                code="AGENT_VERSION_NOT_FROZEN",
+                data={"version_id": str(data.agent_version_id), "status": version.status},
+            )
 
         # Auto-increment release_number per agent_version_id
         max_num = await self.release_repo.get_max_release_number(data.agent_version_id)
@@ -82,14 +98,22 @@ class AgentReleaseService(BaseService):
     ) -> AgentRelease:
         release = await self.release_repo.get(release_id)
         if not release:
-            raise NotFoundException(f"AgentRelease {release_id} not found")
+            raise NotFoundError(
+                "Agent release not found",
+                code="AGENT_RELEASE_NOT_FOUND",
+                data={"release_id": str(release_id)},
+            )
         if release.status != "ready":
-            raise BadRequestException("Only releases with status 'ready' can be activated")
+            raise InvalidRequestError(
+                "Only releases with status 'ready' can be activated",
+                code="AGENT_RELEASE_NOT_READY",
+                data={"release_id": str(release_id), "status": release.status},
+            )
 
         # Set agent.active_release_id
         agent = await self.agent_repo.get(agent_id)
         if not agent:
-            raise NotFoundException(f"Agent {agent_id} not found")
+            raise NotFoundError("Agent not found", code="AGENT_NOT_FOUND", data={"agent_id": str(agent_id)})
 
         update_data: dict = {"active_release_id": release_id}
         if agent.status != "active":
@@ -105,7 +129,11 @@ class AgentReleaseService(BaseService):
     ) -> AgentRelease:
         release = await self.release_repo.get(release_id)
         if not release:
-            raise NotFoundException(f"AgentRelease {release_id} not found")
+            raise NotFoundError(
+                "Agent release not found",
+                code="AGENT_RELEASE_NOT_FOUND",
+                data={"release_id": str(release_id)},
+            )
 
         RELEASE_SM.validate(release.status, "retired")
         updated = await self.release_repo.update(

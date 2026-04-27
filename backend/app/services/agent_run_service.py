@@ -12,7 +12,7 @@ from typing import List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import BadRequestException, NotFoundException
+from app.common.app_errors import InvalidRequestError, NotFoundError
 from app.models.agent_run import AgentRun
 from app.repositories.agent_run import AgentRunRepository
 
@@ -36,7 +36,11 @@ class AgentRunService:
         """List runs filtered by parameters."""
         if agent_id:
             if not workspace_id:
-                raise BadRequestException("workspace_id is required when filtering by agent_id")
+                raise InvalidRequestError(
+                    "workspace_id is required when filtering by agent_id",
+                    code="AGENT_RUN_WORKSPACE_REQUIRED",
+                    data={"filter": "agent_id"},
+                )
             return await self.run_repo.find_by_agent_and_trigger(
                 agent_id=agent_id,
                 workspace_id=workspace_id,
@@ -45,21 +49,31 @@ class AgentRunService:
             )
         elif task_id:
             if not workspace_id:
-                raise BadRequestException("workspace_id is required when filtering by task_id")
+                raise InvalidRequestError(
+                    "workspace_id is required when filtering by task_id",
+                    code="AGENT_RUN_WORKSPACE_REQUIRED",
+                    data={"filter": "task_id"},
+                )
             return await self.run_repo.list_by_task(task_id, workspace_id)
         elif release_id:
             if not workspace_id:
-                raise BadRequestException("workspace_id is required when filtering by release_id")
+                raise InvalidRequestError(
+                    "workspace_id is required when filtering by release_id",
+                    code="AGENT_RUN_WORKSPACE_REQUIRED",
+                    data={"filter": "release_id"},
+                )
             return await self.run_repo.list_by_release(release_id, workspace_id)
         elif workspace_id:
             return await self.run_repo.list_by_workspace(workspace_id)
         else:
-            raise BadRequestException("Must provide workspace_id, release_id, task_id, or agent_id")
+            raise InvalidRequestError(
+                "Must provide workspace_id, release_id, task_id, or agent_id",
+                code="AGENT_RUN_FILTER_REQUIRED",
+            )
 
     async def get_run(self, run_id: uuid.UUID) -> AgentRun:
         """Get a run by ID."""
         run = await self.run_repo.get(run_id)
         if not run:
-            raise NotFoundException(f"AgentRun {run_id} not found")
+            raise NotFoundError("Agent run not found", code="AGENT_RUN_NOT_FOUND", data={"run_id": str(run_id)})
         return run
-

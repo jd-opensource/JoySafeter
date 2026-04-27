@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.common.exceptions import ForbiddenException
+from app.common.app_errors import AccessDeniedError
 from app.common.skill_permissions import check_skill_access
 from app.models.skill_collaborator import CollaboratorRole
 
@@ -49,7 +49,7 @@ async def test_collaborator_with_insufficient_role():
     mock_collab = MagicMock()
     mock_collab.role = CollaboratorRole.viewer
     with patch("app.common.skill_permissions._get_collaborator", return_value=mock_collab):
-        with pytest.raises(ForbiddenException):
+        with pytest.raises(AccessDeniedError):
             await check_skill_access(db, skill, "user-1", CollaboratorRole.editor)
 
 
@@ -66,7 +66,7 @@ async def test_public_skill_editor_access_denied():
     skill = _make_skill(owner_id="other", is_public=True)
     db = AsyncMock()
     with patch("app.common.skill_permissions._get_collaborator", return_value=None):
-        with pytest.raises(ForbiddenException):
+        with pytest.raises(AccessDeniedError):
             await check_skill_access(db, skill, "user-1", CollaboratorRole.editor)
 
 
@@ -88,7 +88,7 @@ async def test_token_scope_check_passes():
 async def test_token_scope_check_fails():
     skill = _make_skill(owner_id="owner-1")
     db = AsyncMock()
-    with pytest.raises(ForbiddenException):
+    with pytest.raises(AccessDeniedError):
         await check_skill_access(
             db,
             skill,

@@ -49,6 +49,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useToast } from '@/hooks/use-toast'
 import { useUserPermissions } from '@/hooks/use-user-permissions'
 import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
+import { ApiError } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
 import { workspaceService, type PaginatedMembersResponse } from '@/services/workspaceService'
@@ -130,24 +131,17 @@ export default function WorkspaceMembersPage() {
       refetch()
     },
     onError: (error: any) => {
-      const rawMessage = error?.message || error?.detail || String(error) || ''
-      const errorMessage = rawMessage.toLowerCase()
+      const apiError = error instanceof ApiError ? error : null
 
-      const isAlreadyMember =
-        errorMessage.includes('already a member') || errorMessage.includes('is already a member')
-
-      const isUserNotFound =
-        errorMessage.includes('user not found') || errorMessage.includes('not found')
-
-      if (isAlreadyMember) {
+      if (apiError?.code === 'WORKSPACE_MEMBER_ALREADY_EXISTS') {
         toastError(
           t('workspace.userAlreadyMemberDescription', { email: inviteEmail }),
           t('workspace.userAlreadyMember'),
         )
-      } else if (isUserNotFound) {
+      } else if (apiError?.code === 'USER_NOT_FOUND') {
         toastError(t('workspace.userNotFoundDescription'), t('workspace.userNotFound'))
       } else {
-        toastError(rawMessage || t('workspace.addMemberFailed'), t('workspace.addMemberFailed'))
+        toastError(apiError?.message || t('workspace.addMemberFailed'), t('workspace.addMemberFailed'))
       }
     },
   })
@@ -168,8 +162,8 @@ export default function WorkspaceMembersPage() {
       refetch()
     },
     onError: (error: any) => {
-      const status = error?.status || error?.response?.status
-      if (status === 403) {
+      const apiError = error instanceof ApiError ? error : null
+      if (apiError?.status === 403) {
         toast({
           title: t('workspace.updateFailed'),
           description: t('workspace.insufficientPermission'),
@@ -180,7 +174,7 @@ export default function WorkspaceMembersPage() {
       }
       toast({
         title: t('workspace.updateFailed'),
-        description: error.message,
+        description: apiError?.message || t('workspace.updateFailed'),
         variant: 'destructive',
       })
     },
@@ -201,8 +195,8 @@ export default function WorkspaceMembersPage() {
       refetch()
     },
     onError: (error: any) => {
-      const status = error?.status || error?.response?.status
-      if (status === 403) {
+      const apiError = error instanceof ApiError ? error : null
+      if (apiError?.status === 403) {
         toast({
           title: t('workspace.removeFailed'),
           description: t('workspace.insufficientPermission'),
@@ -213,7 +207,7 @@ export default function WorkspaceMembersPage() {
       }
       toast({
         title: t('workspace.removeFailed'),
-        description: error.message,
+        description: apiError?.message || t('workspace.removeFailed'),
         variant: 'destructive',
       })
     },

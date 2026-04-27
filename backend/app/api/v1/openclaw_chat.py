@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.stream_errors import stream_error_event
 from app.common.dependencies import get_current_user
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
@@ -89,7 +90,11 @@ async def _stream_sse(url: str, headers: dict, body: dict):
                     else:
                         yield "\n"
     except Exception as e:
-        yield f"data: {{'error': '{str(e)}'}}\n\n"
+        yield stream_error_event(
+            code="OPENCLAW_STREAM_ERROR",
+            message="OpenClaw stream failed.",
+            data={"detail": str(e)},
+        )
 
 
 @router.post("/tools/invoke")

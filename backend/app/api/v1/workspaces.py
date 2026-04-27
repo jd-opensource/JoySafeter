@@ -8,7 +8,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user, require_workspace_role
-from app.common.exceptions import BadRequestException, ForbiddenException
+from app.common.app_errors import InvalidRequestError, AccessDeniedError
 from app.common.pagination import PaginationParams
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
@@ -74,7 +74,11 @@ async def create_workspace(
         try:
             workspace_type = WorkspaceType(payload.type)
         except ValueError:
-            raise BadRequestException(f"Invalid workspace type: {payload.type}. Must be 'personal' or 'team'")
+            raise InvalidRequestError(
+                f"Invalid workspace type: {payload.type}. Must be 'personal' or 'team'",
+                code="WORKSPACE_TYPE_INVALID",
+                data={"workspace_type": payload.type},
+            )
 
     service = WorkspaceService(db)
     workspace = await service.create_workspace(
@@ -220,7 +224,7 @@ async def get_my_permission(
     role = await service.get_user_role(workspace_id, current_user)
 
     if not role:
-        raise ForbiddenException("No access to workspace")
+        raise AccessDeniedError("No access to workspace", code="WORKSPACE_ACCESS_DENIED")
 
     # reuse the frontend's role-to-permission mapping for consistency
     role_to_permission = {
@@ -293,12 +297,16 @@ async def update_member_role(
         WorkspaceMemberRole.admin,
     )
     if not has_access:
-        raise ForbiddenException("Insufficient workspace permission")
+        raise AccessDeniedError("Insufficient workspace permission", code="WORKSPACE_PERMISSION_DENIED")
 
     try:
         new_role = WorkspaceMemberRole(payload.role)
     except ValueError:
-        raise BadRequestException(f"Invalid role: {payload.role}")
+        raise InvalidRequestError(
+            f"Invalid role: {payload.role}",
+            code="WORKSPACE_MEMBER_ROLE_INVALID",
+            data={"role": payload.role},
+        )
 
     service = WorkspaceService(db)
     member = await service.update_member_role(
@@ -329,7 +337,7 @@ async def remove_member(
             WorkspaceMemberRole.admin,
         )
         if not has_access:
-            raise ForbiddenException("Insufficient workspace permission")
+            raise AccessDeniedError("Insufficient workspace permission", code="WORKSPACE_PERMISSION_DENIED")
 
     service = WorkspaceService(db)
     await service.remove_member(

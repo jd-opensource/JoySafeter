@@ -23,7 +23,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_db
-from app.common.exceptions import BadRequestException
+from app.common.app_errors import InvalidRequestError
 from app.core.oauth import get_oauth_config, get_protocol_handler
 from app.core.redis import RedisClient
 from app.core.security import create_access_token, create_csrf_token, generate_refresh_token
@@ -115,7 +115,7 @@ async def oauth_authorize(
         )
     except Exception as e:
         logger.error(f"{LOG_PREFIX} Failed to generate authorization URL: {e}")
-        raise BadRequestException(f"Failed to initiate OAuth flow: {str(e)}")
+        raise InvalidRequestError(f"Failed to initiate OAuth flow: {str(e)}")
 
     logger.info(f"{LOG_PREFIX} Redirecting to {provider} authorization")
     return RedirectResponse(url=authorization_url, status_code=302)
@@ -236,7 +236,7 @@ async def oauth_callback(
 
         return response
 
-    except BadRequestException:
+    except InvalidRequestError:
         raise
     except ValueError as e:
         # Validation error raised by protocol handler

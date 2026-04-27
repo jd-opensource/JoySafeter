@@ -5,7 +5,7 @@
  */
 import CryptoJS from 'crypto-js'
 
-import { apiGet, apiPost, ApiError, refreshAccessTokenOrRelogin } from '@/lib/api-client'
+import { apiGet, apiPost, ApiError, createApiError, refreshAccessTokenOrRelogin } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
 
 import { setCsrfToken, getCsrfToken, clearCsrfToken } from './csrf'
@@ -262,7 +262,11 @@ export const signIn = {
       return { data: result, error: null }
     } catch (error) {
       const apiError =
-        error instanceof ApiError ? error : new ApiError(0, 'Unknown Error', String(error))
+        error instanceof ApiError ? error : createApiError(0, 'Unknown Error', {
+          code: 'UNKNOWN_ERROR',
+          message: String(error),
+          data: null,
+        })
       options?.onError?.({ error: apiError })
       return { data: null, error: apiError }
     }
@@ -276,7 +280,11 @@ export const signIn = {
       return { data: result, error: null }
     } catch (error) {
       const apiError =
-        error instanceof ApiError ? error : new ApiError(0, 'Unknown Error', String(error))
+        error instanceof ApiError ? error : createApiError(0, 'Unknown Error', {
+          code: 'UNKNOWN_ERROR',
+          message: String(error),
+          data: null,
+        })
       options?.onError?.({ error: apiError })
       return { data: null, error: apiError }
     }
@@ -293,7 +301,11 @@ export const signUp = {
       return { data: result, error: null }
     } catch (error) {
       const apiError =
-        error instanceof ApiError ? error : new ApiError(0, 'Unknown Error', String(error))
+        error instanceof ApiError ? error : createApiError(0, 'Unknown Error', {
+          code: 'UNKNOWN_ERROR',
+          message: String(error),
+          data: null,
+        })
       options?.onError?.({ error: apiError })
       return { data: null, error: apiError }
     }

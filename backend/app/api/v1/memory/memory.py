@@ -25,12 +25,12 @@ from app.api.v1.memory.schemas import (
     UserMemorySchema,
 )
 from app.common.dependencies import get_current_user
-from app.common.exceptions import (
-    AppException,
-    BadRequestException,
-    InternalServerException,
-    NotFoundException,
-    ValidationException,
+from app.common.app_errors import (
+    AppError,
+    InvalidRequestError,
+    InternalServiceError,
+    NotFoundError,
+    RequestValidationAppError,
 )
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
@@ -87,7 +87,7 @@ def parse_topics(
         return [topic.strip() for topic in topics.split(",") if topic.strip()]
 
     except Exception as e:
-        raise ValidationException(f"Invalid topics format: {e}")
+        raise RequestValidationAppError(f"Invalid topics format: {e}")
 
 
 @router.post(
@@ -142,7 +142,7 @@ async def create_memory(
     )
 
     if not user_memory:
-        raise InternalServerException("Failed to create memory")
+        raise InternalServiceError("Failed to create memory")
 
     return UserMemorySchema.from_dict(_normalize_memory_dict(user_memory))  # type: ignore
 
@@ -168,7 +168,7 @@ async def delete_memory(
     db = MemoryService(db_session)
     success = await db.delete_user_memory(memory_id=memory_id, user_id=str(current_user.id))
     if not success:
-        raise NotFoundException(f"Memory with ID {memory_id} not found")
+        raise NotFoundError(f"Memory with ID {memory_id} not found")
     return None
 
 
@@ -193,7 +193,7 @@ async def delete_memories(
     current_user: User = Depends(get_current_user),
 ) -> None:
     if not request.memory_ids:
-        raise BadRequestException("memory_ids must not be empty")
+        raise InvalidRequestError("memory_ids must not be empty")
     db = MemoryService(db_session)
     await db.delete_user_memories(memory_ids=request.memory_ids, user_id=str(current_user.id))
     return None
@@ -285,7 +285,7 @@ async def get_memory(
 
     user_memory = await db.get_user_memory(memory_id=memory_id, user_id=str(current_user.id), deserialize=False)
     if not user_memory:
-        raise NotFoundException(f"Memory with ID {memory_id} not found")
+        raise NotFoundError(f"Memory with ID {memory_id} not found")
 
     return UserMemorySchema.from_dict(_normalize_memory_dict(user_memory))  # type: ignore
 
@@ -351,7 +351,7 @@ async def update_memory(
         deserialize=False,
     )
     if not user_memory:
-        raise InternalServerException("Failed to update memory")
+        raise InternalServiceError("Failed to update memory")
 
     return UserMemorySchema.from_dict(_normalize_memory_dict(user_memory))  # type: ignore
 
@@ -387,13 +387,13 @@ async def optimize_memories(
         from app.services.model_service import ModelService
 
         if not request.model:
-            raise BadRequestException(
+            raise InvalidRequestError(
                 "Model is required. Specify 'model' in format 'provider:model_name' (e.g., 'openai:gpt-4o-mini').",
             )
 
         provider_name, model_name = parse_model_ref(request.model)
         if not model_name:
-            raise BadRequestException(
+            raise InvalidRequestError(
                 "Invalid model format. Specify 'model' in format 'provider:model_name' (e.g., 'openai:gpt-4o-mini').",
             )
 
@@ -419,7 +419,7 @@ async def optimize_memories(
         user_id = request.user_id or str(current_user.id)
         memories_before = await memory_manager.aget_user_memories(user_id=user_id)
         if not memories_before:
-            raise NotFoundException(f"No memories found for user {user_id}")
+            raise NotFoundError(f"No memories found for user {user_id}")
 
         # Count tokens before optimization
         strategy = SummarizeStrategy()
@@ -469,8 +469,8 @@ async def optimize_memories(
             reduction_percentage=reduction_percentage,
         )
 
-    except AppException:
+    except AppError:
         raise
     except Exception as e:
         logger.error(f"Failed to optimize memories for user {request.user_id}: {str(e)}")
-        raise InternalServerException(f"Failed to optimize memories: {str(e)}")
+        raise InternalServiceError(f"Failed to optimize memories: {str(e)}")

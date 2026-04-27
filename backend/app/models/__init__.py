@@ -44,8 +44,7 @@ from .skill import Skill, SkillFile
 from .skill_collaborator import CollaboratorRole, SkillCollaborator
 from .skill_version import SkillVersion, SkillVersionFile
 from .user_sandbox import UserSandbox
-from .workspace import Workspace, WorkspaceFolder, WorkspaceMember, WorkspaceMemberRole, WorkspaceStatus
-from .workspace_files import WorkspaceFile, WorkspaceStoredFile
+from .workspace import Workspace, WorkspaceMember, WorkspaceMemberRole, WorkspaceStatus
 
 __all__ = [
     "BaseModel",
@@ -61,7 +60,6 @@ __all__ = [
     "WorkspaceMember",
     "WorkspaceStatus",
     "WorkspaceMemberRole",
-    "WorkspaceFolder",
     "UserSandbox",
     "Chat",
     "Organization",
@@ -73,8 +71,6 @@ __all__ = [
     "Environment",
     "WorkspaceEnvironment",
     "Settings",
-    "WorkspaceFile",
-    "WorkspaceStoredFile",
     "CustomTool",
     "McpServer",
     "ModelProvider",

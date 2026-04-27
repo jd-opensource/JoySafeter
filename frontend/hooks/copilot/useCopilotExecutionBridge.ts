@@ -11,7 +11,7 @@ import { useEffect, useRef } from 'react'
 
 import { useExecutionStream } from '@/hooks/use-execution-stream'
 import { TERMINAL_EXECUTION_STATUSES } from '@/types/agent-run'
-import type { ExecutionEvent } from '@/types/agent-run'
+import type { AppErrorPayload, ExecutionEvent } from '@/types/agent-run'
 import type { GraphAction } from '@/types/copilot'
 
 interface CopilotCallbacks {
@@ -40,7 +40,7 @@ export function useCopilotExecutionBridge({
   const callbacksRef = useRef(callbacks)
   callbacksRef.current = callbacks
 
-  const { status, events } = useExecutionStream({
+  const { status, events, error } = useExecutionStream({
     executionId: executionId || '',
     enabled: Boolean(executionId),
   })
@@ -104,13 +104,26 @@ export function useCopilotExecutionBridge({
             payload.code as string | undefined,
           )
           break
-
-        case 'execution_completed':
-          cb.onDone()
-          break
       }
     }
   }, [events])
+
+  useEffect(() => {
+    if (!error) {
+      return
+    }
+
+    const cb = callbacksRef.current
+    cb.onError(error.message, error.code)
+  }, [error])
+
+  useEffect(() => {
+    if (!executionId || !status || !TERMINAL_EXECUTION_STATUSES.includes(status as never)) {
+      return
+    }
+
+    void callbacksRef.current.onDone()
+  }, [executionId, status])
 
   // Reset processed seq when execution changes
   useEffect(() => {

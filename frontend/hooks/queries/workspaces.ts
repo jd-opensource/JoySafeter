@@ -11,6 +11,7 @@ import { apiGet, apiPost, apiPut, apiDelete, API_ENDPOINTS } from '@/lib/api-cli
 import i18n from '@/lib/i18n/config'
 import { createLogger } from '@/lib/logs/console/logger'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
+import { ApiError } from '@/lib/api-client'
 
 import { STALE_TIME } from './constants'
 
@@ -260,13 +261,13 @@ export function useDeleteWorkspace() {
 
       // Show error message to user
       let errorMessage = 'Failed to delete workspace'
-      if (error instanceof Error) {
+      if (error instanceof ApiError) {
+        errorMessage =
+          error.code === 'PERSONAL_WORKSPACE_DELETE_FORBIDDEN'
+            ? i18n.t('workspace.personalSpaceCannotBeDeleted')
+            : error.message
+      } else if (error instanceof Error) {
         errorMessage = error.message
-        // Check if it's a personal space deletion error (backend returns Chinese message)
-        if (errorMessage.includes('Personal workspace cannot be deleted')) {
-          // Use i18n to get translated message
-          errorMessage = i18n.t('workspace.personalSpaceCannotBeDeleted')
-        }
       }
 
       toastError(errorMessage)
@@ -302,16 +303,15 @@ export function useDuplicateWorkspace() {
     onError: (error) => {
       logger.error('Failed to duplicate workspace', { error })
 
-      // Show error message to user
       let errorMessage = 'Failed to duplicate workspace'
-      if (error instanceof Error) {
+      if (error instanceof ApiError) {
+        errorMessage =
+          error.code === 'PERSONAL_WORKSPACE_DUPLICATE_FORBIDDEN'
+            ? i18n.t('workspace.personalSpaceCannotBeDuplicated') ||
+              'Personal space cannot be duplicated'
+            : error.message
+      } else if (error instanceof Error) {
         errorMessage = error.message
-        // Check if it's a personal space duplication error
-        if (errorMessage.includes('Personal workspace cannot be duplicated')) {
-          errorMessage =
-            i18n.t('workspace.personalSpaceCannotBeDuplicated') ||
-            'Personal space cannot be duplicated'
-        }
       }
       toastError(errorMessage)
     },
