@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.events.envelope import ExecutionEventEnvelope
 from app.core.events.event_types import ExecutionEventType
 from app.core.events.subscriber import SubscriberPhase
+from app.core.state_machines.definitions import EXECUTION_TERMINAL
 from app.core.state_machines.engine import InvalidTransition
 from app.core.state_machines.transitions import transition_execution, transition_run
 from app.models.agent_run import AgentRun
@@ -60,6 +61,12 @@ class StateTransitionSubscriber:
         if not envelope.target_status:
             raise RuntimeError("execution_status_change envelope missing target_status")
 
+        if envelope.target_status in EXECUTION_TERMINAL:
+            raise RuntimeError(
+                f"Terminal status '{envelope.target_status}' must use "
+                f"EXECUTION_COMPLETED, not EXECUTION_STATUS_CHANGE"
+            )
+
         execution = (await db.execute(
             select(Execution).where(Execution.id == envelope.execution_id)
         )).scalar_one()
@@ -91,6 +98,7 @@ class StateTransitionSubscriber:
             logger.warning(
                 f"[StateTransition] Skipping execution {execution.id}: already {execution.status}"
             )
+            return
 
         self._apply_metadata(execution, envelope)
 

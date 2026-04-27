@@ -349,28 +349,28 @@ class ExecutionService:
                     if session:
                         await session.cancel()
 
-                    # 2. Mark execution failed (via bus → StateTransitionSubscriber)
-                    await self.mark_status(
-                        execution_id=execution.id,
-                        status="failed",
-                        error_code="stale_reaped",
-                        error_message=(
-                            f"No heartbeat for {int(threshold.total_seconds() // 60)}+ minutes"
-                        ),
-                    )
-
-                    # 3. Transition parent run to failed via EventBus
-                    from app.core.engine.orchestrator import ExecutionOrchestrator
+                    # 2. Load run for envelope metadata
                     run = (await self.db.execute(
                         select(AgentRun).where(AgentRun.id == execution.run_id)
                     )).scalar_one_or_none()
-                    if run and run.status not in ("succeeded", "failed", "cancelled"):
-                        await ExecutionOrchestrator.publish_run_status_change(
-                            self.db, run,
-                            execution_id=execution.id,
-                            target_status="failed",
-                            result_summary="Reaped: stale execution",
-                        )
+
+                    # 3. Atomically mark execution + run as failed
+                    error_msg = f"No heartbeat for {int(threshold.total_seconds() // 60)}+ minutes"
+                    envelope = ExecutionEventEnvelope(
+                        execution_id=execution.id,
+                        run_id=execution.run_id,
+                        workspace_id=run.workspace_id if run else uuid.UUID(int=0),
+                        event_type=ExecutionEventType.EXECUTION_COMPLETED,
+                        payload={"status": "failed"},
+                        terminal_status="failed",
+                        error_code="stale_reaped",
+                        error_message=error_msg,
+                        result_summary="Reaped: stale execution",
+                        trigger_source=run.trigger_source if run else None,
+                        thread_id=run.thread_id if run else None,
+                        task_id=run.task_id if run else None,
+                    )
+                    await execution_event_bus.publish(envelope, self.db)
 
                     total += 1
                     logger.info(

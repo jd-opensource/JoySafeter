@@ -7,7 +7,6 @@ Supports: Claude Code, Codex, OpenClaw
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from typing import Any
 
@@ -23,7 +22,6 @@ class CLIEngine:
     engine_kind = "sandbox"
 
     def __init__(self) -> None:
-        # Track running sessions for cancel/message injection
         self._sessions: dict[uuid.UUID, Any] = {}
 
     async def start(
@@ -35,7 +33,12 @@ class CLIEngine:
         definition_payload: dict[str, Any],
         prompt: str,
     ) -> None:
-        """Start a CLI agent execution in a Docker container."""
+        """Start a CLI agent execution in a Docker container.
+
+        ExecutionRunner manages its own lifecycle: _finalize on success,
+        _mark_failed on error. If runner.run() itself throws (extreme case),
+        _fire_engine._run_engine provides the last-resort safety net.
+        """
         from app.core.agent.cli_backends.execution_runner import ExecutionRunner
         from app.core.database import AsyncSessionLocal
 
@@ -50,27 +53,19 @@ class CLIEngine:
             "runtime_type": runtime_type,
         })
 
-        try:
-            async with AsyncSessionLocal() as db:
-                runner = ExecutionRunner(db)
-                await runner.run(
-                    execution_id=execution_id,
-                    prompt=prompt,
-                    credentials=context.credentials or None,
-                )
-
-        except asyncio.CancelledError:
-            await context.complete("cancelled")
-            raise
-        except Exception as exc:
-            logger.error(f"[CLIEngine] Execution {execution_id} failed: {exc}")
-            await context.complete("failed", str(exc)[:2000])
+        async with AsyncSessionLocal() as db:
+            runner = ExecutionRunner(db)
+            await runner.run(
+                execution_id=execution_id,
+                prompt=prompt,
+                credentials=context.credentials or None,
+            )
 
     async def cancel(self, execution_id: uuid.UUID) -> None:
         """Cancel a running CLI execution."""
         from app.core.agent.cli_backends.session_registry import session_registry
 
-        session = session_registry.get(str(execution_id))
+        session = session_registry.get(execution_id)
         if session:
             await session.cancel()
             logger.info(f"[CLIEngine] Cancelled execution {execution_id}")
@@ -79,6 +74,6 @@ class CLIEngine:
         """Inject a message into a running CLI execution."""
         from app.core.agent.cli_backends.session_registry import session_registry
 
-        session = session_registry.get(str(execution_id))
+        session = session_registry.get(execution_id)
         if session:
             await session.inject_message(message)

@@ -124,3 +124,30 @@ class TestAllStateMachinesCoherent:
         for terminal in sm._terminal:
             assert sm._transitions.get(terminal, set()) == set(), \
                 f"{sm.name}: terminal state '{terminal}' has outbound transitions"
+
+
+class TestTerminalStateGuard:
+    """Verify StateTransitionSubscriber rejects terminal statuses via STATUS_CHANGE."""
+
+    def test_status_change_rejects_terminal_statuses(self):
+        import asyncio
+        import uuid
+        from app.core.events.envelope import ExecutionEventEnvelope
+        from app.core.events.event_types import ExecutionEventType
+        from app.core.events.subscribers.state_transition import StateTransitionSubscriber
+        from unittest.mock import AsyncMock
+
+        sub = StateTransitionSubscriber()
+        db = AsyncMock()
+
+        for terminal in ("succeeded", "failed", "cancelled"):
+            envelope = ExecutionEventEnvelope(
+                execution_id=uuid.uuid4(),
+                run_id=uuid.uuid4(),
+                workspace_id=uuid.uuid4(),
+                event_type=ExecutionEventType.EXECUTION_STATUS_CHANGE,
+                payload={"status": terminal},
+                target_status=terminal,
+            )
+            with pytest.raises(RuntimeError, match="must use EXECUTION_COMPLETED"):
+                asyncio.get_event_loop().run_until_complete(sub.handle(envelope, db=db))

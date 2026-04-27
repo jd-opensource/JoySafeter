@@ -19,9 +19,7 @@ from app.core.engine.protocol import ExecutionContext
 from app.core.engine.registry import engine_registry
 from app.core.events import ExecutionEventEnvelope, execution_event_bus
 from app.core.events.event_types import ExecutionEventType
-from app.core.state_machines.transitions import (
-    sync_task_from_run, transition_task,
-)
+from app.core.state_machines.transitions import transition_task
 from app.models.agent import Agent, AgentRelease, AgentVersion
 from app.models.agent_run import AgentRun
 from app.models.execution import Execution
@@ -278,6 +276,8 @@ class ExecutionOrchestrator:
         if run.status in ("succeeded", "failed", "cancelled"):
             raise BadRequestException(f"Cannot cancel run in status {run.status}")
 
+        execution_id = run.current_execution_id or uuid.UUID(int=0)
+
         if run.current_execution_id:
             execution = (await self.db.execute(
                 select(Execution).where(Execution.id == run.current_execution_id)
@@ -292,24 +292,19 @@ class ExecutionOrchestrator:
                 else:
                     raise BadRequestException("Run has neither release_id nor agent_version_id")
                 await engine.cancel(execution.id)
-                cancel_envelope = ExecutionEventEnvelope(
-                    execution_id=execution.id,
-                    run_id=run.id,
-                    workspace_id=run.workspace_id,
-                    event_type=ExecutionEventType.EXECUTION_STATUS_CHANGE,
-                    payload={"status": "cancelled"},
-                    target_status="cancelled",
-                )
-                await execution_event_bus.publish(cancel_envelope, self.db)
 
-        await self.publish_run_status_change(
-            self.db, run,
-            execution_id=run.current_execution_id or uuid.UUID(int=0),
-            target_status="cancelled",
+        await execution_event_bus.publish(
+            ExecutionEventEnvelope(
+                execution_id=execution_id,
+                run_id=run.id,
+                workspace_id=run.workspace_id,
+                event_type=ExecutionEventType.EXECUTION_COMPLETED,
+                payload={"status": "cancelled"},
+                terminal_status="cancelled",
+            ),
+            self.db,
         )
         await self.db.refresh(run)
-
-        await sync_task_from_run(run, self.db)
         return run
 
     async def retry_run(self, run_id: uuid.UUID, user_id: str) -> AgentRun:
@@ -529,23 +524,18 @@ class ExecutionOrchestrator:
             )
         except Exception as exc:
             logger.error(f"[Orchestrator] _fire_engine failed for draft run: {exc}")
-            fail_envelope = ExecutionEventEnvelope(
-                execution_id=execution.id,
-                run_id=run.id,
-                workspace_id=workspace_id,
-                event_type=ExecutionEventType.EXECUTION_STATUS_CHANGE,
-                payload={"status": "failed"},
-                target_status="failed",
-                error_message=str(exc)[:2000],
-            )
-            await execution_event_bus.publish(fail_envelope, self.db)
-            await self.publish_run_status_change(
+            await execution_event_bus.publish(
+                ExecutionEventEnvelope(
+                    execution_id=execution.id,
+                    run_id=run.id,
+                    workspace_id=workspace_id,
+                    event_type=ExecutionEventType.EXECUTION_COMPLETED,
+                    payload={"status": "failed"},
+                    terminal_status="failed",
+                    error_message=str(exc)[:2000],
+                    result_summary=str(exc)[:2000],
+                ),
                 self.db,
-                execution_id=execution.id,
-                run_id=run.id,
-                workspace_id=workspace_id,
-                target_status="failed",
-                result_summary=str(exc)[:2000],
             )
             await self.db.refresh(run)
 
@@ -663,7 +653,7 @@ class ExecutionOrchestrator:
                 **overrides,
             )
 
-        async def _emit(event_type: str, payload: dict) -> None:
+        async def _emit(event_type: ExecutionEventType, payload: dict) -> None:
             await execution_event_bus.publish(
                 _envelope(event_type=event_type, payload=payload), ctx.db,
             )

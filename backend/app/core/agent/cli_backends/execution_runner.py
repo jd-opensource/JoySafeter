@@ -375,7 +375,11 @@ class ExecutionRunner:
                 event_type=ExecutionEventType.ERROR,
                 payload={"message": error},
             )
-            await self.execution_service.mark_status(execution_id=execution_id, status="failed", error_message=error[:2000])
+            await self.execution_service.complete_execution(
+                execution_id=execution_id,
+                terminal_status="failed",
+                error_message=error[:2000],
+            )
         except Exception as exc:
             logger.error(f"Failed to mark execution {execution_id} as failed: {exc}")
 
