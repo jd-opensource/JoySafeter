@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from textwrap import dedent
-from typing import Any, Callable, Dict, List, Literal, Optional, Type, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Optional, Type, Union
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages.chat import ChatMessage as Message
@@ -17,10 +19,17 @@ from app.core.agent.memory.strategies import (
 from app.core.constants import DEFAULT_USER_ID
 from app.core.tools.tool import EnhancedTool
 from app.schemas.memory import UserMemory
-from app.services.memory_service import MemoryService
 from app.utils.datetime import utc_now
 from app.utils.prompts import get_json_output_prompt
 from app.utils.string import parse_response_model_str
+
+if TYPE_CHECKING:
+    from app.services.memory_service import MemoryService
+
+
+def _is_memory_service(obj: Any) -> bool:
+    from app.services.memory_service import MemoryService as _MS  # cached by Python's import system
+    return isinstance(obj, _MS)
 
 
 class MemorySearchResponse(BaseModel):
@@ -140,7 +149,7 @@ class MemoryManager:
 
     async def aread_from_db(self, user_id: Optional[str] = None):
         if self.db:
-            if isinstance(self.db, MemoryService):
+            if _is_memory_service(self.db):
                 # If no user_id is provided, read all memories
                 if user_id is None:
                     all_memories: List[UserMemory] = await self.db.get_user_memories()  # type: ignore
@@ -431,7 +440,7 @@ class MemoryManager:
             logger.warning("Memory DB not provided.")
             return
 
-        if isinstance(self.db, MemoryService):
+        if _is_memory_service(self.db):
             raise ValueError(
                 "clear_user_memories() is not supported with an async DB. Please use aclear_user_memories() instead."
             )
@@ -463,7 +472,7 @@ class MemoryManager:
             logger.warning("Memory DB not provided.")
             return
 
-        if isinstance(self.db, MemoryService):
+        if _is_memory_service(self.db):
             memories = await self.aget_user_memories(user_id=user_id)
         else:
             memories = self.get_user_memories(user_id=user_id)
@@ -477,7 +486,7 @@ class MemoryManager:
 
         if memory_ids:
             # Delete all memories in a single batch operation
-            if isinstance(self.db, MemoryService):
+            if _is_memory_service(self.db):
                 await self.db.delete_user_memories(memory_ids=memory_ids, user_id=user_id)
             else:
                 self.db.delete_user_memories(memory_ids=memory_ids, user_id=user_id)
@@ -499,7 +508,7 @@ class MemoryManager:
             logger.warning("MemoryDb not provided.")
             return "Please provide a db to store memories"
 
-        if isinstance(self.db, MemoryService):
+        if _is_memory_service(self.db):
             raise ValueError(
                 "create_user_memories() is not supported with an async DB. Please use acreate_user_memories() instead."
             )
@@ -567,7 +576,7 @@ class MemoryManager:
         if user_id is None:
             user_id = "default"
 
-        if isinstance(self.db, MemoryService):
+        if _is_memory_service(self.db):
             memories = await self.aread_from_db(user_id=user_id)
         else:
             memories = self.read_from_db(user_id=user_id)
@@ -589,7 +598,7 @@ class MemoryManager:
         )
 
         # We refresh from the DB
-        if isinstance(self.db, MemoryService):
+        if _is_memory_service(self.db):
             memories = await self.aread_from_db(user_id=user_id)
         else:
             memories = self.read_from_db(user_id=user_id)
@@ -603,7 +612,7 @@ class MemoryManager:
             logger.warning("MemoryDb not provided.")
             return "Please provide a db to store memories"
 
-        if not isinstance(self.db, MemoryService):
+        if not _is_memory_service(self.db):
             raise ValueError(
                 "update_memory_task() is not supported with an async DB. Please use aupdate_memory_task() instead."
             )
@@ -645,7 +654,7 @@ class MemoryManager:
         if user_id is None:
             user_id = "default"
 
-        if isinstance(self.db, MemoryService):
+        if _is_memory_service(self.db):
             memories = await self.aread_from_db(user_id=user_id)
         else:
             memories = self.read_from_db(user_id=user_id)
@@ -668,7 +677,7 @@ class MemoryManager:
         )
 
         # We refresh from the DB
-        if isinstance(self.db, MemoryService):
+        if _is_memory_service(self.db):
             await self.aread_from_db(user_id=user_id)
         else:
             self.read_from_db(user_id=user_id)
@@ -1104,7 +1113,7 @@ class MemoryManager:
         if user_id is None:
             user_id = "default"
 
-        if isinstance(self.db, MemoryService):
+        if _is_memory_service(self.db):
             raise ValueError(
                 "optimize_memories() is not supported with an async DB. Please use aoptimize_memories() instead."
             )
@@ -1176,7 +1185,7 @@ class MemoryManager:
             user_id = "default"
 
         # Get user memories - handle both sync and async DBs
-        if isinstance(self.db, MemoryService):
+        if _is_memory_service(self.db):
             memories = await self.aget_user_memories(user_id=user_id)
         else:
             memories = self.get_user_memories(user_id=user_id)
@@ -1215,9 +1224,9 @@ class MemoryManager:
 
                     opt_mem.memory_id = str(uuid4())
 
-                if isinstance(self.db, MemoryService):
+                if _is_memory_service(self.db):
                     await self.db.upsert_user_memory(memory=opt_mem)
-                elif isinstance(self.db, MemoryService):
+                else:
                     self.db.upsert_user_memory(memory=opt_mem)
 
         optimized_tokens = strategy_instance.count_tokens(optimized_memories)
@@ -1458,7 +1467,7 @@ class MemoryManager:
         # and LangChain models are thread-safe
         model_copy = self.model
         # Update the Model (set defaults, add logit etc.)
-        if isinstance(db, MemoryService):
+        if _is_memory_service(db):
             _tools = self.determine_tools_for_model(
                 await self._aget_db_tools(
                     user_id,
@@ -1668,7 +1677,7 @@ class MemoryManager:
         # and LangChain models are thread-safe
         model_copy = self.model
         # Update the Model (set defaults, add logit etc.)
-        if isinstance(db, MemoryService):
+        if _is_memory_service(db):
             _tools = self.determine_tools_for_model(
                 await self._aget_db_tools(
                     user_id,
@@ -1952,7 +1961,7 @@ class MemoryManager:
 
             try:
                 memory_id = str(uuid4())
-                if isinstance(db, MemoryService):
+                if _is_memory_service(db):
                     await db.upsert_user_memory(
                         UserMemory(
                             memory_id=memory_id,
@@ -1997,7 +2006,7 @@ class MemoryManager:
                 return "Can't update memory with empty string. Use the delete memory function if available."
 
             try:
-                if isinstance(db, MemoryService):
+                if _is_memory_service(db):
                     await db.upsert_user_memory(
                         UserMemory(
                             memory_id=memory_id,
@@ -2029,7 +2038,7 @@ class MemoryManager:
                 str: A message indicating if the memory was deleted successfully or not.
             """
             try:
-                if isinstance(db, MemoryService):
+                if _is_memory_service(db):
                     await db.delete_user_memory(memory_id=memory_id, user_id=user_id)
                 else:
                     db.delete_user_memory(memory_id=memory_id, user_id=user_id)
@@ -2045,7 +2054,7 @@ class MemoryManager:
             Returns:
                 str: A message indicating if the memory was cleared successfully or not.
             """
-            if isinstance(db, MemoryService):
+            if _is_memory_service(db):
                 await db.clear_memories()
             else:
                 db.clear_memories()

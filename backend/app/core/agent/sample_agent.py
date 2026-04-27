@@ -19,7 +19,6 @@ from pydantic import SecretStr
 from app.common.exceptions import ModelConfigError
 from app.core.agent.backends.filesystem_sandbox import FilesystemSandboxBackend
 from app.core.agent.middleware import LoggingMiddleware
-from app.services.model_service import MODEL_NAME_REQUIRED, MODEL_NO_CREDENTIALS
 
 load_dotenv()
 
@@ -52,7 +51,7 @@ def get_default_model(
 
     if not llm_model:
         raise ModelConfigError(
-            MODEL_NAME_REQUIRED,
+            ModelConfigError.MODEL_NAME_REQUIRED,
             "Model name is required but was not specified.",
         )
 
@@ -60,7 +59,7 @@ def get_default_model(
 
     if not api_key_value:
         raise ModelConfigError(
-            MODEL_NO_CREDENTIALS,
+            ModelConfigError.MODEL_NO_CREDENTIALS,
             f'No valid API key provided for model "{model_name}".',
             params={"model": model_name},
         )

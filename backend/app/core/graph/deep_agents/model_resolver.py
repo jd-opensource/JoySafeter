@@ -12,7 +12,6 @@ from loguru import logger
 
 from app.common.exceptions import ModelConfigError
 from app.core.graph.deep_agents import format_node_ctx
-from app.services.model_service import MODEL_NOT_FOUND
 
 
 class ModelResolver:
@@ -78,7 +77,7 @@ class ModelResolver:
         available = await self._list_available_model_names()
         ctx = format_node_ctx(node_label, graph_name)
         raise ModelConfigError(
-            MODEL_NOT_FOUND,
+            ModelConfigError.MODEL_NOT_FOUND,
             f'Model "{model_name}" is not available ({ctx}).',
             params={
                 "model": model_name or "",

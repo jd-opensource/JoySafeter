@@ -13,8 +13,6 @@ from datetime import timedelta
 from loguru import logger
 
 from app.core.database import AsyncSessionLocal
-from app.core.engine.orchestrator import ExecutionOrchestrator
-from app.services.execution_service import ExecutionService
 
 _DISPATCH_INTERVAL = 30
 _REAPER_INTERVAL = 30
@@ -55,8 +53,9 @@ async def task_dispatcher_loop() -> None:
                 count = 0
                 for task in tasks:
                     try:
-                        orchestrator = ExecutionOrchestrator(db)
-                        await orchestrator.dispatch_task(task.id, task.creator_id)
+                        from app.services.dispatch_service import DispatchService
+                        dispatch = DispatchService(db)
+                        await dispatch.dispatch_task(task.id, task.creator_id)
                         count += 1
                     except Exception as task_exc:
                         logger.warning(f"Auto-dispatch failed for task {task.id}: {task_exc}")
@@ -98,6 +97,7 @@ async def _reap_stale_executions() -> int:
     so the scheduler only decides *when* to run and *what thresholds* to use.
     """
     async with AsyncSessionLocal() as db:
+        from app.services.execution_service import ExecutionService
         svc = ExecutionService(db)
         return await svc.reap_stale_executions(_STALE_THRESHOLDS)
 

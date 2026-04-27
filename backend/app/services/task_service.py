@@ -133,6 +133,11 @@ class TaskService:
         await self.db.refresh(task)
         return task
 
+    async def cancel_task(self, task: Task) -> None:
+        """Cancel a task that has no active run."""
+        await transition_task(task, "cancelled", self.db)
+        await self.db.commit()
+
     async def assign_to_agent(
         self,
         *,

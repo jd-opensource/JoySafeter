@@ -9,11 +9,9 @@ from loguru import logger
 from sqlalchemy import select
 
 from app.core.agent.cli_backends.base import CLIResult
-from app.core.agent.cli_backends.execution_runner import ExecutionRunner
 from app.core.database import async_session_factory
 from app.core.engine.orchestrator import ExecutionOrchestrator
 from app.models.execution import Execution
-from app.services.execution_service import ExecutionService
 from app.utils.safe_task import safe_create_task
 
 # Execution source and status string literals
@@ -80,6 +78,7 @@ async def spawn_agent(
         db.add(run)
         await db.flush()
 
+        from app.services.execution_service import ExecutionService
         svc = ExecutionService(db)
         execution = await svc.create_execution(
             run_id=run.id,
@@ -122,7 +121,9 @@ async def _run_and_wait(
     """Run the execution synchronously and return the result."""
     try:
         async with async_session_factory() as db:
-            runner = ExecutionRunner(db)
+            from app.services.runner_factory import create_execution_runner
+
+            runner = create_execution_runner(db)
             result: CLIResult = await asyncio.wait_for(
                 runner.run(
                     execution_id=exec_id,
@@ -165,7 +166,9 @@ def _fire_and_forget(
 
     async def _background():
         async with async_session_factory() as db:
-            runner = ExecutionRunner(db)
+            from app.services.runner_factory import create_execution_runner
+
+            runner = create_execution_runner(db)
             await runner.run(execution_id=exec_id, prompt=prompt, model=model)
 
     safe_create_task(
@@ -188,6 +191,7 @@ async def get_agent_result(execution_id: str, *, user_id: str) -> dict:
     exec_id = uuid.UUID(execution_id)
 
     async with async_session_factory() as db:
+        from app.services.execution_service import ExecutionService
         svc = ExecutionService(db)
         execution = await svc.get_execution(exec_id, user_id)
 

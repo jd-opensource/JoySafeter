@@ -5,7 +5,6 @@ Service layer for CLI agent executions.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, List, Optional
 
@@ -16,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.exceptions import NotFoundException
 from app.core.events import ExecutionEventEnvelope, execution_event_bus
 from app.core.events.event_types import ExecutionEventType
+from app.core.ports.execution import EventContext
 from app.core.state_machines.definitions import EXECUTION_TERMINAL
 from app.models.execution import (
     Execution,
@@ -25,20 +25,6 @@ from app.repositories.execution import ExecutionRepository, ExecutionEventReposi
 from app.utils.datetime import utc_now
 
 TERMINAL_EXECUTION_STATUSES = EXECUTION_TERMINAL
-
-
-@dataclass
-class EventContext:
-    """Run-level metadata injected by the caller (e.g. ExecutionRunner).
-
-    Allows append_event to construct a complete ExecutionEventEnvelope
-    without querying the DB for run metadata on every event.
-    """
-    run_id: uuid.UUID
-    workspace_id: uuid.UUID
-    trigger_source: Optional[str] = None
-    thread_id: Optional[uuid.UUID] = None
-    task_id: Optional[uuid.UUID] = None
 
 
 class ExecutionService:

@@ -14,11 +14,9 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from loguru import logger
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.agent.cli_backends.base import CLIMessage, CLIResult, RuntimeSession, build_control_response
 from app.core.agent.cli_backends.container_pool import container_pool
@@ -35,11 +33,10 @@ from app.core.agent.cli_backends.registry import runtime_registry
 from app.core.agent.cli_backends.runner_callbacks import RunnerCallbacks
 from app.core.agent.cli_backends.session_registry import session_registry
 from app.core.events.event_types import ExecutionEventType
-from app.models.agent import AgentRelease
-from app.models.agent_run import AgentRun
-from app.models.execution import Execution
-from app.models.task import Task
-from app.services.execution_service import ExecutionService
+from app.core.ports.execution import EventContext, ExecutionEventPort, ExecutionReaderPort
+
+if TYPE_CHECKING:
+    from app.models.agent import AgentRelease
 
 
 class ExecutionRunner:
@@ -47,12 +44,13 @@ class ExecutionRunner:
 
     def __init__(
         self,
-        db: AsyncSession,
+        event_port: ExecutionEventPort,
+        reader_port: ExecutionReaderPort,
         container_service: Optional[CLIContainerService] = None,
         callbacks: Optional[RunnerCallbacks] = None,
     ):
-        self.db = db
-        self.execution_service = ExecutionService(db)
+        self._events = event_port
+        self._reader = reader_port
         self.container_service = container_service or CLIContainerService()
         self.callbacks = callbacks
         self._auto_approve: bool = True
@@ -74,14 +72,13 @@ class ExecutionRunner:
         Returns the final CLIResult after the agent completes or fails.
         """
         container: Optional[ContainerInfo] = None
-        execution = await self._get_execution(execution_id)
-        run = await self._get_run(execution)
-        release = await self._get_release(run)
+        execution = await self._reader.get_execution(execution_id)
+        run = await self._reader.get_run_for_execution(execution_id)
+        release = await self._reader.get_release_for_run(run.id)
         pooled = False  # whether the container came from the pool
 
-        # Inject run metadata so execution_service routes events through the bus
-        from app.services.execution_service import EventContext
-        self.execution_service.set_event_context(EventContext(
+        # Inject run metadata so events route through the bus
+        self._events.set_event_context(EventContext(
             run_id=run.id,
             workspace_id=run.workspace_id,
             trigger_source=run.trigger_source,
@@ -97,7 +94,7 @@ class ExecutionRunner:
 
         try:
             # 1. Mark as dispatched
-            await self.execution_service.mark_status(execution_id=execution_id, status="dispatched")
+            await self._events.mark_status(execution_id=execution_id, status="dispatched")
 
             # 2. Get or create container
             prior_session_id: Optional[str] = None
@@ -144,7 +141,7 @@ class ExecutionRunner:
                     f"{container.container_id[:12]} with session {prior_session_id}"
                 )
 
-            await self.execution_service.mark_status(execution_id=execution_id, status="running", container_id=container.container_id)
+            await self._events.mark_status(execution_id=execution_id, status="running", container_id=container.container_id)
 
             # 3. Inject skills and config (idempotent — safe to re-run on reuse)
             await self._inject(
@@ -155,7 +152,7 @@ class ExecutionRunner:
             )
 
             # 4. Record execution_started event
-            await self.execution_service.append_event(
+            await self._events.append_event(
                 execution_id=execution_id,
                 event_type=ExecutionEventType.EXECUTION_STARTED,
                 payload={
@@ -169,7 +166,10 @@ class ExecutionRunner:
             provider = runtime_registry.get(execution.executor_kind)
 
             # Determine auto_approve from task settings
-            self._auto_approve = await self._get_auto_approve(execution, run)
+            if run.task_id:
+                self._auto_approve = await self._reader.get_task_auto_approve(run.task_id)
+            else:
+                self._auto_approve = True
 
             session = await provider.execute(
                 prompt,
@@ -219,43 +219,12 @@ class ExecutionRunner:
                     f"[exec:{execution_id}] Destroyed container {container.container_id[:12]} (no release)"
                 )
 
-    async def _get_execution(self, execution_id: uuid.UUID) -> Execution:
-        result = await self.db.execute(select(Execution).where(Execution.id == execution_id))
-        execution = result.scalar_one_or_none()
-        if not execution:
-            raise ValueError(f"Execution not found: {execution_id}")
-        return execution
-
-    async def _get_run(self, execution: Execution) -> AgentRun:
-        result = await self.db.execute(select(AgentRun).where(AgentRun.id == execution.run_id))
-        run = result.scalar_one_or_none()
-        if not run:
-            raise ValueError(f"AgentRun not found for execution: {execution.id}")
-        return run
-
-    async def _get_release(self, run: AgentRun) -> AgentRelease | None:
-        if not run.release_id:
-            return None
-
-        result = await self.db.execute(select(AgentRelease).where(AgentRelease.id == run.release_id))
-        release = result.scalar_one_or_none()
-        if not release:
-            raise ValueError(f"AgentRelease not found for run: {run.id}")
-        return release
-
-    async def _get_auto_approve(self, execution: Execution, run: AgentRun) -> bool:
-        if not run.task_id:
-            return True
-        result = await self.db.execute(select(Task.auto_approve).where(Task.id == run.task_id))
-        val = result.scalar_one_or_none()
-        return val if val is not None else True
-
     async def _inject(
         self,
         *,
         container_id: str,
         skills: Optional[list[dict[str, Any]]],
-        release: AgentRelease | None,
+        release: Optional[AgentRelease],
         working_dir: str,
     ) -> None:
         skill_injector = CLISkillInjector(self.container_service)
@@ -321,7 +290,7 @@ class ExecutionRunner:
         pending: list[tuple[CLIMessage, str, dict[str, Any]]],
     ) -> None:
         try:
-            await self.execution_service.batch_append_events(
+            await self._events.batch_append_events(
                 execution_id=execution_id,
                 events=[{"event_type": event_type, "payload": payload} for _, event_type, payload in pending],
             )
@@ -331,13 +300,13 @@ class ExecutionRunner:
                         request_id = payload.get("request_id", "")
                         assert self._session is not None
                         await self._session.inject_message(build_control_response(request_id, "allow"))
-                        await self.execution_service.append_event(
+                        await self._events.append_event(
                             execution_id=execution_id,
                             event_type=ExecutionEventType.APPROVAL_RESOLVED,
                             payload={"decision": "auto_approved", "request_id": request_id},
                         )
                     else:
-                        await self.execution_service.mark_status(execution_id=execution_id, status="approval_wait")
+                        await self._events.mark_status(execution_id=execution_id, status="approval_wait")
                     break
         except Exception as exc:
             logger.warning(f"Failed to flush {len(pending)} events for {execution_id}: {exc}")
@@ -346,11 +315,11 @@ class ExecutionRunner:
         self,
         execution_id: uuid.UUID,
         result: CLIResult,
-        release: AgentRelease | None,
+        release: Optional[AgentRelease],
     ) -> None:
         status = "succeeded" if result.status == "completed" else "failed"
 
-        await self.execution_service.complete_execution(
+        await self._events.complete_execution(
             execution_id=execution_id,
             terminal_status=status,
             result_summary=result.usage,
@@ -370,12 +339,12 @@ class ExecutionRunner:
         error: str,
     ) -> None:
         try:
-            await self.execution_service.append_event(
+            await self._events.append_event(
                 execution_id=execution_id,
                 event_type=ExecutionEventType.ERROR,
                 payload={"message": error},
             )
-            await self.execution_service.complete_execution(
+            await self._events.complete_execution(
                 execution_id=execution_id,
                 terminal_status="failed",
                 error_message=error[:2000],

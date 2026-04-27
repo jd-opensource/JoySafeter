@@ -5,9 +5,10 @@ core/ modules depend on these Protocols (dependency inversion).
 services/ modules provide concrete implementations.
 """
 
-from app.core.ports.execution import ExecutionEventPort, ExecutionReaderPort
+from app.core.ports.execution import EventContext, ExecutionEventPort, ExecutionReaderPort
 
 __all__ = [
+    "EventContext",
     "ExecutionEventPort",
     "ExecutionReaderPort",
 ]

@@ -8,20 +8,36 @@ services/ modules provide the implementations.
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from typing import Any, Optional, Protocol, runtime_checkable
 
 from app.core.events.event_types import ExecutionEventType
+
+
+@dataclass
+class EventContext:
+    """Run-level metadata injected by the caller (e.g. ExecutionRunner).
+
+    Allows event publishing to construct complete envelopes
+    without querying the DB for run metadata on every event.
+    """
+
+    run_id: uuid.UUID
+    workspace_id: uuid.UUID
+    trigger_source: Optional[str] = None
+    thread_id: Optional[uuid.UUID] = None
+    task_id: Optional[uuid.UUID] = None
 
 
 @runtime_checkable
 class ExecutionEventPort(Protocol):
     """Port for publishing execution events through the event bus.
 
-    Implemented by: services/execution_event_adapter.py (Phase 2)
+    Implemented by: services/execution_event_adapter.py
     Used by: core/agent/cli_backends/execution_runner.py
     """
 
-    async def set_event_context(self, ctx: Any) -> None: ...
+    def set_event_context(self, ctx: EventContext) -> None: ...
 
     async def mark_status(
         self,

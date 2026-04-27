@@ -16,7 +16,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.tools.tool import EnhancedTool
 from app.core.tools.tool_registry import MCP_TOOL_KEY_SEPARATOR, get_global_registry
 from app.models.mcp import McpServer
-from app.services.mcp_server_service import McpServerService
 
 
 def _assert_not_uuid(server_identifier: str, context: str = "") -> None:
@@ -104,6 +103,7 @@ async def resolve_mcp_server_instance(server_name: str, user_id: str, db: AsyncS
     _assert_not_uuid(server_name, f"resolve_mcp_server_instance(user_id={user_id})")
 
     try:
+        from app.services.mcp_server_service import McpServerService
         service = McpServerService(db)
         server = await service.repo.get_by_name(user_id, server_name)
 
