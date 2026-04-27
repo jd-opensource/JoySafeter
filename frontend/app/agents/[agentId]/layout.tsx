@@ -2,7 +2,9 @@
 
 import { ArrowLeft, Bot, Loader2, MessageSquare, Settings } from 'lucide-react'
 import Link from 'next/link'
-import { useParams, useSearchParams } from 'next/navigation'
+import { useParams, useSearchParams, useRouter } from 'next/navigation'
+import { BUILD_STAGES, isBuildStageId, type BuildStageId } from '@/components/agents/agent-build/agent-build-types'
+import { BuildStepper } from '@/components/agents/agent-build/build-stepper'
 
 import { AgentStatusIndicator } from '@/components/agents/agent-status'
 import { Button } from '@/components/ui/button'
@@ -15,10 +17,19 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
   const { t } = useTranslation()
   const params = useParams()
   const searchParams = useSearchParams()
+  const router = useRouter()
   const agentId = params.agentId as string
   const { workspaceId } = useCurrentWorkspace()
   const { data: agent, isLoading } = useAgent(agentId, workspaceId)
   const currentTab = searchParams.get('tab')
+
+  const activeStageId = searchParams.get('stage') as BuildStageId | null
+
+  const navigateToStage = (stageId: BuildStageId) => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('stage', stageId)
+    router.replace(`/agents/${agentId}?${params.toString()}`, { scroll: false })
+  }
 
   if (isLoading) {
     return (
@@ -56,6 +67,17 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
           </h1>
           <AgentStatusIndicator status={agent.status} className="shrink-0 scale-75 origin-left" />
         </div>
+
+        {/* Center: Build Stepper (only in builder mode) */}
+        {!currentTab && (
+          <div className="hidden lg:block">
+            <BuildStepper
+              stages={BUILD_STAGES}
+              activeStage={activeStageId && isBuildStageId(activeStageId) ? activeStageId : 'brief'}
+              onNavigate={navigateToStage}
+            />
+          </div>
+        )}
 
         {/* Right: Chat + Settings */}
         <div className="flex items-center gap-1">

@@ -59,6 +59,57 @@ class _EdgeShim:
         self.target_node_id = d.get("target_node_id") or d.get("target")
 
 
+def _extract_message_contents_from_stream_chunk(chunk: Any) -> list[str]:
+    """Extract assistant text from LangGraph update chunks.
+
+    DeepAgents middleware can emit ``messages=Overwrite([...])`` to replace state.
+    That is a state update, not a new assistant message, and it is not iterable.
+    """
+    if not isinstance(chunk, dict):
+        return []
+
+    contents: list[str] = []
+    for node_output in chunk.values():
+        if not isinstance(node_output, dict):
+            continue
+
+        messages = node_output.get("messages", [])
+        for msg in _iter_stream_messages(messages):
+            if not _is_assistant_message(msg):
+                continue
+
+            content = getattr(msg, "content", None) or (msg.get("content") if isinstance(msg, dict) else None)
+            if content:
+                contents.append(str(content))
+
+    return contents
+
+
+def _iter_stream_messages(messages: Any) -> list[Any]:
+    if _is_overwrite_update(messages):
+        return []
+    if isinstance(messages, list | tuple):
+        return list(messages)
+    if isinstance(messages, dict):
+        return [messages] if "content" in messages else []
+    if hasattr(messages, "content"):
+        return [messages]
+    return []
+
+
+def _is_overwrite_update(value: Any) -> bool:
+    if value.__class__.__name__ == "Overwrite" and hasattr(value, "value"):
+        return True
+    return isinstance(value, dict) and set(value.keys()) == {"__overwrite__"}
+
+
+def _is_assistant_message(message: Any) -> bool:
+    if isinstance(message, dict):
+        role = message.get("role") or message.get("type")
+        return role in {"assistant", "ai"}
+    return getattr(message, "type", None) == "ai" or getattr(message, "role", None) == "assistant"
+
+
 # ---------------------------------------------------------------------------
 # Engine
 # ---------------------------------------------------------------------------
@@ -169,15 +220,9 @@ class GraphEngine:
                     return
 
                 # deepagents yields dicts keyed by node name; extract text chunks
-                for node_output in chunk.values():
-                    messages = node_output.get("messages", []) if isinstance(node_output, dict) else []
-                    for msg in messages:
-                        content = getattr(msg, "content", None) or (
-                            msg.get("content") if isinstance(msg, dict) else None
-                        )
-                        if content:
-                            result_text = str(content)
-                            await context.emit(ExecutionEventType.ASSISTANT_TEXT, {"content": result_text})
+                for content in _extract_message_contents_from_stream_chunk(chunk):
+                    result_text = content
+                    await context.emit(ExecutionEventType.ASSISTANT_TEXT, {"content": result_text})
 
             # ------------------------------------------------------------------
             # Cleanup sandbox if the compiled agent holds one

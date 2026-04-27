@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 import { useTranslation } from '@/lib/i18n'
@@ -22,15 +22,24 @@ export function AgentBuildShell({ agent, version }: AgentBuildShellProps) {
   const searchParams = useSearchParams()
   const surface = useBuilderSurface()
   const { workspaceId } = useCurrentWorkspace()
-  const [activeStageId, setActiveStageId] = useState<BuildStageId>(() => {
+  const activeStageId = (() => {
     const urlStage = searchParams.get('stage')
     if (urlStage && isBuildStageId(urlStage)) return urlStage
     return resolveDefaultStage(agent, version)
-  })
+  })()
+
+  useEffect(() => {
+    const urlStage = searchParams.get('stage')
+    if (!urlStage) {
+      const defaultStage = resolveDefaultStage(agent, version)
+      const params = new URLSearchParams(searchParams.toString())
+      params.set('stage', defaultStage)
+      router.replace(`/agents/${agent.id}?${params.toString()}`, { scroll: false })
+    }
+  }, [agent.id, router, searchParams, version])
 
   const navigateToStage = useCallback(
     (stageId: BuildStageId) => {
-      setActiveStageId(stageId)
       const params = new URLSearchParams(searchParams.toString())
       params.set('stage', stageId)
       router.replace(`/agents/${agent.id}?${params.toString()}`, { scroll: false })
@@ -47,13 +56,6 @@ export function AgentBuildShell({ agent, version }: AgentBuildShellProps) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center border-b border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-1">
-        <BuildStepper
-          stages={BUILD_STAGES}
-          activeStage={activeStageId}
-          onNavigate={navigateToStage}
-        />
-      </header>
       <main className="min-h-0 flex-1 overflow-hidden">
         <StageRenderer
           stageId={activeStageId}

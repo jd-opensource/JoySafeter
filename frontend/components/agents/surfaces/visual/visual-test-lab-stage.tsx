@@ -42,16 +42,13 @@ export function VisualTestLabStage({ agent, version, workspaceId, navigateToStag
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--surface-1)]">
-      <div className="shrink-0 border-b border-[var(--border)] px-6 py-4">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--text-muted)]">
-              {t('agents.studio.testLab.kicker', { defaultValue: 'Draft validation' })}
-            </p>
-            <h2 className="mt-1 text-xl font-semibold">
+      <div className="shrink-0 border-b border-[var(--border)] px-6 py-2">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col gap-0.5">
+            <h2 className="text-sm font-semibold text-[var(--text-primary)]">
               {t('agents.studio.testLab.title', { defaultValue: 'Test the current draft' })}
             </h2>
-            <p className="mt-1 text-sm text-[var(--text-muted)]">
+            <p className="text-xs text-[var(--text-muted)] truncate max-w-xl">
               {t('agents.studio.testLab.subtitle', {
                 defaultValue:
                   'Run draft behavior before publishing. These tests do not affect the active release.',
@@ -59,10 +56,10 @@ export function VisualTestLabStage({ agent, version, workspaceId, navigateToStag
             </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => navigateToStage('build')}>
+            <Button variant="outline" size="sm" onClick={() => navigateToStage('build')} className="h-8 text-xs">
               {t('agents.studio.testLab.backToCanvas', { defaultValue: 'Back to Build' })}
             </Button>
-            <Button variant="outline" onClick={() => navigateToStage('release')}>
+            <Button variant="outline" size="sm" onClick={() => navigateToStage('release')} className="h-8 text-xs">
               {t('agents.studio.testLab.openRelease', { defaultValue: 'Open Release' })}
             </Button>
           </div>
