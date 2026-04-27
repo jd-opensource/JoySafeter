@@ -1,5 +1,7 @@
 'use client'
 
+import { createApiError } from '@/lib/api-client'
+
 import { HEARTBEAT, RECONNECT, UNRECOVERABLE_CLOSE_CODES, WS_CLOSE_CODE } from '../constants'
 
 export interface BaseConnectionState {
@@ -206,7 +208,13 @@ export abstract class BaseWsClient<TState extends BaseConnectionState = BaseConn
   protected onUnexpectedClose(): void {}
   protected onParseError(): void {}
   protected createConnectionError(message: string): Error {
-    return new Error(message)
+    const code =
+      message === 'WebSocket not connected' ? 'WEBSOCKET_UNAVAILABLE' : 'WEBSOCKET_CONNECTION_FAILED'
+    return createApiError(0, 'WebSocket Error', {
+      code,
+      message,
+      data: null,
+    })
   }
 
   // === Private internals ===

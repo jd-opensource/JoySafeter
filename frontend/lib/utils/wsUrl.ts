@@ -1,5 +1,7 @@
 import { env as runtimeEnv } from 'next-runtime-env'
 
+import { apiGet, createApiError } from '@/lib/api-client'
+
 /**
  * Returns the WebSocket base URL derived from NEXT_PUBLIC_API_URL (preferred)
  * or the current window origin as a fallback for co-hosted deployments.
@@ -20,16 +22,15 @@ export function getWsBaseUrl(): string {
 
 /** Fetch a short-lived WS token from the backend and return a ready-to-use WS URL for the given path. */
 async function getWsTokenUrl(path: string): Promise<string> {
-  const apiUrl =
-    runtimeEnv('NEXT_PUBLIC_API_URL') ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    'http://localhost:8000/api'
-  const base = apiUrl.replace(/\/api\/?$/, '')
-  const res = await fetch(`${base}/api/v1/auth/ws-token`, { credentials: 'include' })
-  if (!res.ok) throw new Error('Failed to obtain WS token')
-  const json = await res.json()
-  const token: string = json?.data?.token
-  if (!token) throw new Error('No WS token in response')
+  const response = await apiGet<{ token?: string }>('auth/ws-token')
+  const token = response?.token
+  if (!token) {
+    throw createApiError(500, 'Invalid WebSocket Token Response', {
+      code: 'WEBSOCKET_TOKEN_MISSING',
+      message: 'No WebSocket token in response',
+      data: { path },
+    })
+  }
   return `${getWsBaseUrl()}${path}?token=${encodeURIComponent(token)}`
 }
 
