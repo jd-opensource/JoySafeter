@@ -13,6 +13,7 @@ from typing import Optional, Tuple
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.app_errors import AccessDeniedError, InvalidRequestError, NotFoundError, ServiceUnavailableError
 from app.core.tools.tool import EnhancedTool
 from app.core.tools.tool_registry import MCP_TOOL_KEY_SEPARATOR, get_global_registry
 from app.models.mcp import McpServer
@@ -21,7 +22,7 @@ from app.models.mcp import McpServer
 def _assert_not_uuid(server_identifier: str, context: str = "") -> None:
     """Assert that server_identifier is not a UUID.
 
-    Raise AssertionError if server_identifier is a valid UUID,
+    Raise InvalidRequestError if server_identifier is a valid UUID,
     ensuring we always use server names rather than UUIDs.
 
     Args:
@@ -29,18 +30,17 @@ def _assert_not_uuid(server_identifier: str, context: str = "") -> None:
         context: Context info for the error message.
 
     Raises:
-        AssertionError: If server_identifier is a UUID.
+        InvalidRequestError: If server_identifier is a UUID.
     """
     if not server_identifier:
         return
 
     try:
         uuid.UUID(server_identifier)
-        # valid UUID — raise assertion error
-        context_msg = f" in {context}" if context else ""
-        raise AssertionError(
-            f"Server identifier must be a server name, not UUID{context_msg}: {server_identifier}. "
-            f"Please use the server name (e.g., 'my_server') instead of UUID."
+        raise InvalidRequestError(
+            "Server identifier must use the MCP server name instead of UUID",
+            code="MCP_SERVER_IDENTIFIER_INVALID",
+            data={"server_identifier": server_identifier, "context": context or None},
         )
     except (ValueError, AttributeError, TypeError):
         # not a UUID — passes the check
@@ -92,7 +92,7 @@ async def resolve_mcp_server_instance(server_name: str, user_id: str, db: AsyncS
         McpServer instance, or None if not found or deleted.
 
     Raises:
-        AssertionError: If server_name is a UUID.
+        InvalidRequestError: If server_name is a UUID.
     """
     if not server_name or not user_id:
         logger.warning(
@@ -111,12 +111,20 @@ async def resolve_mcp_server_instance(server_name: str, user_id: str, db: AsyncS
         if not server:
             error_msg = f"MCP server not found by name: server_name={server_name}, user_id={user_id}"
             logger.error(f"[resolve_mcp_server_instance] {error_msg}")
-            raise RuntimeError(f"MCP server '{server_name}' not found.")
+            raise NotFoundError(
+                "MCP server not found",
+                code="MCP_SERVER_NOT_FOUND",
+                data={"server_name": server_name, "user_id": user_id},
+            )
 
         if server.deleted_at:
             error_msg = f"MCP server is deleted: server_name={server_name}, user_id={user_id}"
             logger.error(f"[resolve_mcp_server_instance] {error_msg}")
-            raise RuntimeError(f"MCP server '{server_name}' has been deleted.")
+            raise NotFoundError(
+                "MCP server has been deleted",
+                code="MCP_SERVER_NOT_FOUND",
+                data={"server_name": server_name, "user_id": user_id},
+            )
 
         logger.debug(
             f"[resolve_mcp_server_instance] Found server: "
@@ -124,11 +132,15 @@ async def resolve_mcp_server_instance(server_name: str, user_id: str, db: AsyncS
         )
         return server
 
-    except RuntimeError:
+    except (NotFoundError, InvalidRequestError, AccessDeniedError, ServiceUnavailableError):
         raise
     except Exception as e:
         logger.error(f"[resolve_mcp_server_instance] Error resolving MCP server instance: {e}", exc_info=True)
-        raise RuntimeError(f"Error resolving MCP server '{server_name}': {str(e)}")
+        raise ServiceUnavailableError(
+            "Failed to resolve MCP server instance",
+            code="MCP_SERVER_RESOLVE_FAILED",
+            data={"server_name": server_name, "user_id": user_id, "detail": str(e)},
+        )
 
 
 async def validate_mcp_server_for_tool(server: McpServer, user_id: str) -> bool:
@@ -142,22 +154,30 @@ async def validate_mcp_server_for_tool(server: McpServer, user_id: str) -> bool:
         True if the server is usable.
 
     Raises:
-        RuntimeError: If validation fails.
+        AccessDeniedError | InvalidRequestError: If validation fails.
     """
     if not server:
-        raise RuntimeError("MCP server instance is None.")
+        raise NotFoundError("MCP server instance not found", code="MCP_SERVER_NOT_FOUND", data=None)
 
     # verify user ownership
     if server.user_id != user_id:
         error_msg = f"User {user_id} does not own server {server.name}"
         logger.error(f"[validate_mcp_server_for_tool] {error_msg}")
-        raise RuntimeError(f"Permission denied: You do not own MCP server '{server.name}'.")
+        raise AccessDeniedError(
+            "You do not own this MCP server",
+            code="MCP_SERVER_ACCESS_DENIED",
+            data={"server_name": server.name, "user_id": user_id},
+        )
 
     # verify server is enabled
     if not server.enabled:
         error_msg = f"Server {server.name} is disabled"
         logger.warning(f"[validate_mcp_server_for_tool] {error_msg}")
-        raise RuntimeError(f"MCP server '{server.name}' is disabled.")
+        raise InvalidRequestError(
+            "MCP server is disabled",
+            code="MCP_SERVER_DISABLED",
+            data={"server_name": server.name},
+        )
 
     return True
 
@@ -182,14 +202,16 @@ async def get_mcp_tool_with_instance(
         EnhancedTool instance.
 
     Raises:
-        RuntimeError: If any validation step fails.
+        AppError: If any validation step fails.
     """
     # 1. resolve MCP server instance
     server = await resolve_mcp_server_instance(server_name, user_id, db)
     if not server:
-        # resolve_mcp_server_instance now raises RuntimeError, so this branch might be unreachable
-        # but kept for robustness if resolve_mcp_server_instance returns None
-        raise RuntimeError(f"MCP server '{server_name}' not found.")
+        raise NotFoundError(
+            "MCP server not found",
+            code="MCP_SERVER_NOT_FOUND",
+            data={"server_name": server_name, "user_id": user_id},
+        )
 
     # 2. validate server instance
     await validate_mcp_server_for_tool(server, user_id)
@@ -201,7 +223,11 @@ async def get_mcp_tool_with_instance(
     if not tool:
         error_msg = f"Tool not found in registry: server_name={server_name}, tool_name={tool_name}"
         logger.error(f"[get_mcp_tool_with_instance] {error_msg}")
-        raise RuntimeError(f"MCP tool '{tool_name}' not found on server '{server_name}'.")
+        raise NotFoundError(
+            "MCP tool not found",
+            code="MCP_TOOL_NOT_FOUND",
+            data={"server_name": server_name, "tool_name": tool_name},
+        )
 
     logger.debug(
         f"[get_mcp_tool_with_instance] Successfully retrieved tool: server_name={server_name}, tool_name={tool_name}"

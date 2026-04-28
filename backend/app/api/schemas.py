@@ -20,30 +20,12 @@ class AppErrorPayloadSchema(BaseModel):
     data: Optional[dict] = Field(None, description="Structured error metadata")
 
 
-class ErrorEnvelopeResponse(BaseModel):
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "success": False,
-                "error": {
-                    "code": "NOT_FOUND",
-                    "message": "资源不存在",
-                    "data": None,
-                },
-            }
-        }
-    )
-
-    success: bool = Field(False, description="Always false for error envelopes")
-    error: AppErrorPayloadSchema = Field(..., description="Canonical application error payload")
-
-
-BadRequestResponse = ErrorEnvelopeResponse
-NotFoundResponse = ErrorEnvelopeResponse
-UnauthorizedResponse = ErrorEnvelopeResponse
-UnauthenticatedResponse = ErrorEnvelopeResponse
-ValidationErrorResponse = ErrorEnvelopeResponse
-InternalServerErrorResponse = ErrorEnvelopeResponse
+BadRequestResponse = AppErrorPayloadSchema
+NotFoundResponse = AppErrorPayloadSchema
+UnauthorizedResponse = AppErrorPayloadSchema
+UnauthenticatedResponse = AppErrorPayloadSchema
+ValidationErrorResponse = AppErrorPayloadSchema
+InternalServerErrorResponse = AppErrorPayloadSchema
 
 
 class HealthResponse(BaseModel):

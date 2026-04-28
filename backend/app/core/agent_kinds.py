@@ -24,7 +24,11 @@ DEFINITION_RUNTIME_KIND: dict[str, str] = {
 def infer_runtime_kind(definition_kind: str) -> str:
     runtime_kind = DEFINITION_RUNTIME_KIND.get(definition_kind)
     if not runtime_kind:
-        raise InvalidRequestError(f"Unsupported definition_kind={definition_kind}")
+        raise InvalidRequestError(
+            f"Unsupported definition_kind={definition_kind}",
+            code="AGENT_DEFINITION_KIND_UNSUPPORTED",
+            data={"definition_kind": definition_kind},
+        )
     return runtime_kind
 
 

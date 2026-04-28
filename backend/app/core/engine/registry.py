@@ -4,6 +4,7 @@ Engine registry — maps runtime_kind to ExecutionEngine instances.
 
 from __future__ import annotations
 
+from app.common.app_errors import NotFoundError
 from app.core.engine.protocol import ExecutionEngine
 
 
@@ -23,7 +24,11 @@ class EngineRegistry:
         engine = self._engines.get(runtime_kind)
         if not engine:
             available = ", ".join(self._engines.keys()) or "(none)"
-            raise ValueError(f"No engine registered for runtime_kind={runtime_kind!r}. " f"Available: {available}")
+            raise NotFoundError(
+                "Execution runtime engine is not registered",
+                code="EXECUTION_ENGINE_NOT_REGISTERED",
+                data={"runtime_kind": runtime_kind, "available_runtime_kinds": available},
+            )
         return engine
 
     def list_kinds(self) -> list[str]:

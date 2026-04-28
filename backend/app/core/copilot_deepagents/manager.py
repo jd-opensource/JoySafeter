@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 from langchain_core.runnables import Runnable
 from loguru import logger
 
+from app.common.app_errors import ServiceUnavailableError
 from app.core.copilot.tools import connect_nodes, create_node, delete_node, update_config
 from app.core.settings import settings
 
@@ -145,7 +146,11 @@ def create_copilot_manager(
         (manager_agent, artifact_store)
     """
     if not DEEPAGENTS_AVAILABLE or create_deep_agent is None or FilesystemBackend is None:
-        raise RuntimeError("deepagents library not available. Install with: pip install deepagents")
+        raise ServiceUnavailableError(
+            "deepagents library is not available",
+            code="DEEPAGENTS_UNAVAILABLE",
+            data={"install_hint": "pip install deepagents"},
+        )
     assert create_deep_agent is not None and FilesystemBackend is not None  # narrow types for mypy
 
     # generate run_id

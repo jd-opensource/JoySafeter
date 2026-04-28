@@ -12,7 +12,7 @@ from loguru import logger
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.app_errors import NotFoundError
+from app.common.app_errors import InternalServiceError, NotFoundError
 from app.core.events import ExecutionEventEnvelope, execution_event_bus
 from app.core.events.event_types import ExecutionEventType
 from app.core.ports.execution import EventContext
@@ -146,7 +146,11 @@ class ExecutionService:
         payload: dict[str, Any],
     ) -> ExecutionEvent:
         if self._event_ctx is None:
-            raise RuntimeError("EventContext not set. Call set_event_context() before appending events.")
+            raise InternalServiceError(
+                "Execution event context is not initialized",
+                code="EXECUTION_EVENT_CONTEXT_MISSING",
+                data={"execution_id": str(execution_id)},
+            )
 
         envelope = ExecutionEventEnvelope(
             execution_id=execution_id,
@@ -175,7 +179,11 @@ class ExecutionService:
     ) -> list[ExecutionEvent]:
         """Append multiple events in a single transaction via the event bus."""
         if self._event_ctx is None:
-            raise RuntimeError("EventContext not set. Call set_event_context() before appending events.")
+            raise InternalServiceError(
+                "Execution event context is not initialized",
+                code="EXECUTION_EVENT_CONTEXT_MISSING",
+                data={"execution_id": str(execution_id)},
+            )
 
         envelopes = [
             ExecutionEventEnvelope(
@@ -216,7 +224,11 @@ class ExecutionService:
         StateTransitionSubscriber handles Execution + Run terminal transitions.
         """
         if self._event_ctx is None:
-            raise RuntimeError("EventContext not set. Call set_event_context() before completing.")
+            raise InternalServiceError(
+                "Execution event context is not initialized",
+                code="EXECUTION_EVENT_CONTEXT_MISSING",
+                data={"execution_id": str(execution_id)},
+            )
 
         envelope = ExecutionEventEnvelope(
             execution_id=execution_id,

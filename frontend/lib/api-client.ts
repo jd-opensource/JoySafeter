@@ -111,10 +111,9 @@ async function extractErrorFromResponse(response: Response): Promise<ApiError> {
     payload =
       errorData &&
       typeof errorData === 'object' &&
-      'error' in errorData &&
-      errorData.error &&
-      typeof errorData.error === 'object'
-        ? (errorData.error as ApiErrorPayload)
+      'code' in errorData &&
+      'message' in errorData
+        ? (errorData as ApiErrorPayload)
         : undefined
   } catch {
     /* not JSON or empty body */
@@ -151,13 +150,8 @@ async function parseResponse<T>(response: Response): Promise<T> {
   try {
     const json = JSON.parse(text)
 
-    // Standard API response format: { success?, data }
-    // Auto-unwrap `data` whether or not `success` is present,
-    // so callers always receive the inner payload directly.
-    if (json && typeof json === 'object' && 'success' in json && !json.success && 'error' in json) {
-      const payload =
-        json.error && typeof json.error === 'object' ? (json.error as ApiErrorPayload) : undefined
-      throw createApiError(response.status, response.statusText, payload)
+    if (json && typeof json === 'object' && 'code' in json && 'message' in json && !('success' in json)) {
+      throw createApiError(response.status, response.statusText, json as ApiErrorPayload)
     }
 
     if (json && typeof json === 'object' && 'data' in json) {

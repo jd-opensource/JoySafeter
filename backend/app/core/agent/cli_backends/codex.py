@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import Any
 
 from loguru import logger
 
+from app.common.app_errors import InternalServiceError
 from app.utils.safe_task import safe_create_task
 
 from .base import CLIMessage, CLIResult, RuntimeSession
@@ -266,7 +268,11 @@ class CodexProvider:
                     handle_line(line)
 
                 if not thread_id:
-                    raise RuntimeError("codex thread/start returned no thread ID")
+                    raise InternalServiceError(
+                        "Codex thread start returned no thread ID",
+                        code="CODEX_THREAD_START_INVALID",
+                        data=None,
+                    )
 
                 logger.info(f"codex thread started: {thread_id}")
 
@@ -374,6 +380,9 @@ class CodexProvider:
         # Raw v2 item notifications
         if method.startswith("item/"):
             return self._parse_item_notification(method, params)
+
+        if method == "turn/error":
+            return [CLIMessage(type="error", content=_extract_codex_error_payload(params)["message"], error_payload=_extract_codex_error_payload(params))]
 
         return []
 
@@ -487,3 +496,18 @@ def _nested_str(m: dict, *keys: str) -> str:
             return ""
         current = current.get(key, {})
     return current if isinstance(current, str) else ""
+
+
+def _extract_codex_error_payload(params: dict[str, Any]) -> dict[str, Any]:
+    error = params.get("error")
+    if isinstance(error, dict):
+        return {
+            "code": str(error.get("code") or "CODEX_RUNTIME_ERROR"),
+            "message": str(error.get("message") or "Codex runtime error"),
+            "data": error.get("data") if isinstance(error.get("data"), dict) else None,
+        }
+    return {
+        "code": "CODEX_RUNTIME_ERROR",
+        "message": str(params.get("message") or "Codex runtime error"),
+        "data": None,
+    }

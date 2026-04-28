@@ -13,6 +13,7 @@ from typing import Any, Callable, Optional
 
 from loguru import logger
 
+from app.common.app_errors import ServiceUnavailableError
 from .base import CodeOutput, PythonExecutor
 
 
@@ -103,13 +104,18 @@ class DockerPythonExecutor(PythonExecutor):
 
             except ImportError as e:
                 logger.error(f"Failed to import PydanticSandboxAdapter: {e}")
-                raise RuntimeError(
-                    "PydanticSandboxAdapter is required for DockerPythonExecutor. "
-                    "Please ensure pydantic-ai-backend[docker] is installed."
+                raise ServiceUnavailableError(
+                    "PydanticSandboxAdapter is required for DockerPythonExecutor",
+                    code="DOCKER_EXECUTOR_DEPENDENCY_MISSING",
+                    data={"dependency": "pydantic-ai-backend[docker]"},
                 ) from e
             except Exception as e:
                 logger.error(f"Failed to create PydanticSandboxAdapter: {e}")
-                raise RuntimeError(f"Failed to initialize Docker backend: {e}") from e
+                raise ServiceUnavailableError(
+                    "Failed to initialize Docker backend",
+                    code="DOCKER_EXECUTOR_INIT_FAILED",
+                    data={"detail": str(e)},
+                ) from e
 
         return self._backend
 

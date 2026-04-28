@@ -20,7 +20,7 @@ from typing import List, Optional
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.app_errors import InvalidRequestError
+from app.common.app_errors import InvalidRequestError, ServiceUnavailableError
 from app.core.tools.tool import EnhancedTool, ToolFilter, ToolSourceType
 from app.core.tools.tool_registry import ToolRegistry, get_global_registry
 from app.models.enums import McpConnectionStatus
@@ -373,7 +373,11 @@ class ToolService(BaseService[McpServer]):
 
             if not result.success:
                 await self._server_service.update_connection_status(server.id, McpConnectionStatus.ERROR, result.error)
-                raise Exception(result.error)
+                raise ServiceUnavailableError(
+                    "Failed to connect to MCP server",
+                    code="MCP_SERVER_CONNECTION_FAILED",
+                    data={"server_id": str(server.id), "server_name": server.name, "detail": result.error},
+                )
 
             # Unregister old tools
             await self._unregister_server_tools(server)
@@ -598,7 +602,11 @@ async def initialize_mcp_tools_on_startup(
                             f"{result.error}"
                         )
                         if not allow_partial_failure:
-                            raise Exception(f"Failed to load tools from MCP server {server.name}: {result.error}")
+                            raise ServiceUnavailableError(
+                                "Failed to load tools from MCP server during startup",
+                                code="MCP_STARTUP_SYNC_FAILED",
+                                data={"server_id": str(server.id), "server_name": server.name, "detail": result.error},
+                            )
                         break
 
             except Exception as e:

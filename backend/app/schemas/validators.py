@@ -146,16 +146,17 @@ def validate_max_tokens(tokens: int) -> int:
 def create_validation_error_response(errors: list) -> dict[str, Any]:
     """Create a validation error response."""
     return {
-        "success": False,
-        "code": 422,
+        "code": "REQUEST_VALIDATION_ERROR",
         "message": "Request parameter validation failed",
-        "errors": [
-            ValidationErrorDetail(
-                field=error["loc"][0] if error["loc"] else "unknown",
-                message=error["msg"],
-                value=error.get("input"),
-                type=error["type"],
-            ).model_dump()
-            for error in errors
-        ],
+        "data": {
+            "errors": [
+                ValidationErrorDetail(
+                    field=error["loc"][0] if error["loc"] else "unknown",
+                    message=error["msg"],
+                    value=error.get("input"),
+                    type=error["type"],
+                ).model_dump()
+                for error in errors
+            ]
+        },
     }

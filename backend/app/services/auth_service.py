@@ -313,7 +313,9 @@ class AuthService(BaseService):
 
         if settings.require_email_verification and not user.email_verified:
             raise AccessDeniedError(
-                "Email not verified. Please verify your email before logging in.", code="EMAIL_NOT_VERIFIED"
+                "Email not verified. Please verify your email before logging in.",
+                code="EMAIL_NOT_VERIFIED",
+                data={"user_id": user.id, "email": user.email},
             )
 
         if login_success:
@@ -439,11 +441,17 @@ class AuthService(BaseService):
         from app.core.redis import RedisClient
 
         if not RedisClient.is_available():
-            raise ServiceUnavailableError("Token refresh service unavailable. Please login again.")
+            raise ServiceUnavailableError(
+                "Token refresh service unavailable. Please login again.",
+                code="TOKEN_REFRESH_UNAVAILABLE",
+            )
 
         redis_client = RedisClient.get_client()
         if not redis_client:
-            raise ServiceUnavailableError("Token refresh service unavailable. Please login again.")
+            raise ServiceUnavailableError(
+                "Token refresh service unavailable. Please login again.",
+                code="TOKEN_REFRESH_UNAVAILABLE",
+            )
 
         try:
             refresh_token_key = f"refresh_token:{refresh_token}"

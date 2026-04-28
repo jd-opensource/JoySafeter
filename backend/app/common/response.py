@@ -50,11 +50,8 @@ def success_response(
 
 
 def error_response(error: dict[str, Any]) -> dict:
-    """Build an error response."""
-    return {
-        "success": False,
-        "error": error,
-    }
+    """Build a canonical error response."""
+    return dict(error)
 
 
 def paginated_response(

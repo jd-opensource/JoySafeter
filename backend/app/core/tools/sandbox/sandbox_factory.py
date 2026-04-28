@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Callable, ContextManager
 from deepagents.backends.protocol import SandboxBackendProtocol
 from loguru import logger
 
+from app.common.app_errors import InvalidRequestError, ServiceUnavailableError
+
 if TYPE_CHECKING:
     from app.core.agent.backends.pydantic_adapter import RuntimeConfig
 
@@ -43,8 +45,11 @@ def _run_sandbox_setup(backend: SandboxBackendProtocol, setup_script_path: str) 
     if result.exit_code != 0:
         logger.info(f"[red]❌ Setup script failed (exit {result.exit_code}):[/red]")
         logger.info(f"[dim]{result.output}[/dim]")
-        msg = "Setup failed - aborting"
-        raise RuntimeError(msg)
+        raise ServiceUnavailableError(
+            "Sandbox setup script failed",
+            code="SANDBOX_SETUP_FAILED",
+            data={"setup_script_path": setup_script_path, "exit_code": result.exit_code, "output": result.output},
+        )
 
     logger.info("[green]✓ Setup complete[/green]")
 
@@ -88,8 +93,11 @@ def create_modal_sandbox(
             # Poll until running (Modal requires this)
             for _ in range(90):  # 180s timeout (90 * 2s)
                 if sandbox.poll() is not None:  # Sandbox terminated unexpectedly
-                    msg = "Modal sandbox terminated unexpectedly during startup"
-                    raise RuntimeError(msg)
+                    raise ServiceUnavailableError(
+                        "Modal sandbox terminated unexpectedly during startup",
+                        code="MODAL_SANDBOX_STARTUP_FAILED",
+                        data={"sandbox_id": sandbox_id},
+                    )
                 # Check if sandbox is ready by attempting a simple command
                 try:
                     process = sandbox.exec("echo", "ready", timeout=5)
@@ -102,8 +110,11 @@ def create_modal_sandbox(
             else:
                 # Timeout - cleanup and fail
                 sandbox.terminate()
-                msg = "Modal sandbox failed to start within 180 seconds"
-                raise RuntimeError(msg)
+                raise ServiceUnavailableError(
+                    "Modal sandbox failed to start within timeout",
+                    code="MODAL_SANDBOX_STARTUP_TIMEOUT",
+                    data={"sandbox_id": sandbox_id, "timeout_seconds": 180},
+                )
 
         backend = ModalBackend(sandbox)
         logger.info(f"[green]✓ Modal sandbox ready: {backend.id}[/green]")
@@ -149,8 +160,11 @@ def create_runloop_sandbox(
 
     bearer_token = os.environ.get("RUNLOOP_API_KEY")
     if not bearer_token:
-        msg = "RUNLOOP_API_KEY environment variable not set"
-        raise ValueError(msg)
+        raise InvalidRequestError(
+            "RUNLOOP_API_KEY environment variable is required",
+            code="RUNLOOP_API_KEY_MISSING",
+            data=None,
+        )
 
     client = Runloop(bearer_token=bearer_token)
 
@@ -173,8 +187,11 @@ def create_runloop_sandbox(
         else:
             # Timeout - cleanup and fail
             client.devboxes.shutdown(id=devbox.id)
-            msg = "Devbox failed to start within 180 seconds"
-            raise RuntimeError(msg)
+            raise ServiceUnavailableError(
+                "Runloop devbox failed to start within timeout",
+                code="RUNLOOP_DEVBOX_STARTUP_TIMEOUT",
+                data={"sandbox_id": sandbox_id, "timeout_seconds": 180},
+            )
 
     logger.info(f"[green]✓ Runloop devbox ready: {sandbox_id}[/green]")
 
@@ -350,8 +367,11 @@ def create_sandbox(
         SandboxBackend instance
     """
     if provider not in _SANDBOX_PROVIDERS:
-        msg = f"Unknown sandbox provider: {provider}. Available providers: {', '.join(get_available_sandbox_types())}"
-        raise ValueError(msg)
+        raise InvalidRequestError(
+            "Unknown sandbox provider",
+            code="SANDBOX_PROVIDER_UNKNOWN",
+            data={"provider": provider, "available_providers": get_available_sandbox_types()},
+        )
 
     sandbox_provider = _SANDBOX_PROVIDERS[provider]
 
@@ -382,8 +402,11 @@ def get_default_working_dir(provider: str) -> str:
     """
     if provider in _PROVIDER_TO_WORKING_DIR:
         return _PROVIDER_TO_WORKING_DIR[provider]
-    msg = f"Unknown sandbox provider: {provider}"
-    raise ValueError(msg)
+    raise InvalidRequestError(
+        "Unknown sandbox provider",
+        code="SANDBOX_PROVIDER_UNKNOWN",
+        data={"provider": provider, "available_providers": list(_PROVIDER_TO_WORKING_DIR.keys())},
+    )
 
 
 __all__ = [

@@ -26,6 +26,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.app_errors import InvalidRequestError
 from app.core.database import AsyncSessionLocal, engine
 from app.models.memory import Memory
 from app.schemas.memory import UserMemory
@@ -74,7 +75,11 @@ class MemoryService:
     async def _get_table(self, table_type: str = "memories") -> sa.Table:
         # Currently only supports the 'memories' table
         if table_type != "memories":
-            raise ValueError(f"Unsupported table_type: {table_type}")
+            raise InvalidRequestError(
+                "Unsupported memory table type",
+                code="MEMORY_TABLE_TYPE_UNSUPPORTED",
+                data={"table_type": table_type},
+            )
         table: sa.Table = Memory.__table__  # type: ignore[assignment]
         return table
 

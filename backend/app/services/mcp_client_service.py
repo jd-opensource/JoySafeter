@@ -13,6 +13,7 @@ from typing import List, Optional, Protocol, runtime_checkable
 
 from loguru import logger
 
+from app.common.app_errors import InternalServiceError, InvalidRequestError
 from app.core.tools.tool import EnhancedTool
 from app.models.mcp import McpServer
 
@@ -168,7 +169,11 @@ class McpClientService:
 
         # Get tool definitions (MCPTool objects)
         if not toolkit.session:
-            raise RuntimeError(f"Toolkit session not initialized for server: {server.name}")
+            raise InternalServiceError(
+                "Toolkit session is not initialized",
+                code="MCP_TOOLKIT_SESSION_MISSING",
+                data={"server_name": server.name},
+            )
 
         available_tools = await toolkit.session.list_tools()  # type: ignore
         mcp_tool_definitions = available_tools.tools
@@ -197,7 +202,11 @@ class McpClientService:
             McpConnectionConfig
         """
         if not server.url:
-            raise ValueError("Server URL is required")
+            raise InvalidRequestError(
+                "Server URL is required",
+                code="MCP_SERVER_URL_REQUIRED",
+                data={"server_id": str(server.id) if getattr(server, "id", None) else None, "name": server.name},
+            )
         return McpConnectionConfig(
             url=server.url,
             transport=server.transport or "streamable-http",

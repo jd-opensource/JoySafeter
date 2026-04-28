@@ -18,6 +18,8 @@ from typing import TypeVar
 
 from loguru import logger
 
+from app.common.app_errors import InternalServiceError
+
 __all__ = [
     "RateLimiter",
     "Retrying",
@@ -328,7 +330,11 @@ class Retrying:
         # Should not reach here, but just in case
         if last_exception:
             raise last_exception
-        raise RuntimeError("Unexpected state in retry logic")
+        raise InternalServiceError(
+            "Unexpected state in async retry logic",
+            code="RETRY_STATE_INVALID",
+            data={"mode": "async"},
+        )
 
     def call_sync(
         self,
@@ -376,7 +382,11 @@ class Retrying:
 
         if last_exception:
             raise last_exception
-        raise RuntimeError("Unexpected state in retry logic")
+        raise InternalServiceError(
+            "Unexpected state in sync retry logic",
+            code="RETRY_STATE_INVALID",
+            data={"mode": "sync"},
+        )
 
     def wrap(self, func: Callable[..., T]) -> Callable[..., T]:
         """

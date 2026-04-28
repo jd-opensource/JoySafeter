@@ -67,7 +67,11 @@ async def check_skill_access(
         _check_token_scope(token_scopes, required_scope, str(skill.id), token_resource_type, token_resource_id)
         return
 
-    raise AccessDeniedError("You don't have permission to access this skill")
+    raise AccessDeniedError(
+        "You don't have permission to access this skill",
+        code="SKILL_ACCESS_DENIED",
+        data={"skill_id": str(skill.id), "user_id": user_id, "min_role": min_role.value},
+    )
 
 
 def _check_token_scope(
@@ -88,4 +92,8 @@ def _check_token_scope(
             token_resource_id=str(token_resource_id) if token_resource_id else None,
         )
         if not has_permission:
-            raise AccessDeniedError(f"Token missing required scope or resource binding: {required_scope}")
+            raise AccessDeniedError(
+                f"Token missing required scope or resource binding: {required_scope}",
+                code="SKILL_TOKEN_SCOPE_FORBIDDEN",
+                data={"skill_id": skill_id, "required_scope": required_scope},
+            )

@@ -29,6 +29,7 @@ from deepagents.backends.utils import format_read_response
 from loguru import logger
 from pydantic_ai_backends import DockerSandbox
 
+from app.common.app_errors import ServiceUnavailableError
 from app.core.agent.backends.constants import (
     DEFAULT_AUTO_REMOVE,
     DEFAULT_COMMAND_TIMEOUT,
@@ -235,7 +236,11 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
             logger.info(f"DockerSandbox created: id={self._id}, image={self.image}")
         except Exception as e:
             logger.error(f"Failed to create DockerSandbox for adapter {self._id}: {e}", exc_info=True)
-            raise RuntimeError(f"Failed to create DockerSandbox: {e}") from e
+            raise ServiceUnavailableError(
+                "Failed to create Docker sandbox",
+                code="DOCKER_SANDBOX_CREATE_FAILED",
+                data={"sandbox_id": self._id, "image": self.image, "detail": str(e)},
+            ) from e
 
         # Start the sandbox
         logger.debug(f"Starting sandbox {self._id}...")
@@ -367,7 +372,11 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
             logger.info(f"Sandbox {self._id} started (image={self.image})")
         except Exception as e:
             logger.error(f"Failed to start sandbox {self._id}: {e}")
-            raise RuntimeError(f"Failed to start sandbox {self._id}: {e}") from e
+            raise ServiceUnavailableError(
+                "Failed to start Docker sandbox",
+                code="DOCKER_SANDBOX_START_FAILED",
+                data={"sandbox_id": self._id, "image": self.image, "detail": str(e)},
+            ) from e
 
     def _exec_command(self, command: str) -> tuple[str, int]:
         """Execute command in sandbox with safety checks.

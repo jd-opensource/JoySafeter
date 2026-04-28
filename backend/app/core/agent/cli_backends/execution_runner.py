@@ -409,7 +409,11 @@ class ExecutionRunner:
                 "output": msg.output,
             }
         if msg.type == "error":
-            return {"message": msg.content}
+            return msg.error_payload or {
+                "code": "EXECUTION_FAILED",
+                "message": msg.content,
+                "data": None,
+            }
         if msg.type == "artifact":
             return {"artifact": {"content": msg.content}}
         if msg.type == "approval_request":

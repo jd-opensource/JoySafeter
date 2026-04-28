@@ -12,6 +12,7 @@ from typing import Any, Mapping, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.app_errors import InternalServiceError
 from app.core.events import ExecutionEventEnvelope, execution_event_bus
 from app.core.events.event_types import ExecutionEventType
 from app.core.ports.execution import EventContext
@@ -90,7 +91,11 @@ class ExecutionEventAdapter:
         payload: dict[str, Any],
     ) -> ExecutionEvent:
         if self._event_ctx is None:
-            raise RuntimeError("EventContext not set. Call set_event_context() before appending events.")
+            raise InternalServiceError(
+                "Execution event context is not initialized",
+                code="EXECUTION_EVENT_CONTEXT_MISSING",
+                data={"execution_id": str(execution_id)},
+            )
 
         envelope = ExecutionEventEnvelope(
             execution_id=execution_id,
@@ -118,7 +123,11 @@ class ExecutionEventAdapter:
         events: list[dict[str, Any]],
     ) -> list[ExecutionEvent]:
         if self._event_ctx is None:
-            raise RuntimeError("EventContext not set. Call set_event_context() before appending events.")
+            raise InternalServiceError(
+                "Execution event context is not initialized",
+                code="EXECUTION_EVENT_CONTEXT_MISSING",
+                data={"execution_id": str(execution_id)},
+            )
 
         envelopes = [
             ExecutionEventEnvelope(
@@ -155,7 +164,11 @@ class ExecutionEventAdapter:
         session_id: Optional[str] = None,
     ) -> None:
         if self._event_ctx is None:
-            raise RuntimeError("EventContext not set. Call set_event_context() before completing.")
+            raise InternalServiceError(
+                "Execution event context is not initialized",
+                code="EXECUTION_EVENT_CONTEXT_MISSING",
+                data={"execution_id": str(execution_id)},
+            )
 
         envelope = ExecutionEventEnvelope(
             execution_id=execution_id,

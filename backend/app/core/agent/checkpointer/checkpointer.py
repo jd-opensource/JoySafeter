@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Optional
 from loguru import logger
 from psycopg_pool import AsyncConnectionPool
 
+from app.common.app_errors import InternalServiceError, ServiceUnavailableError
+
 if TYPE_CHECKING:
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
@@ -104,7 +106,11 @@ class CheckpointerManager:
             Exception: If table creation fails.
         """
         if not cls._pool:
-            raise RuntimeError("Pool not initialized. Call initialize() first.")
+            raise InternalServiceError(
+                "Checkpointer pool is not initialized",
+                code="CHECKPOINTER_POOL_UNINITIALIZED",
+                data={"operation": "setup"},
+            )
 
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
@@ -123,8 +129,10 @@ class CheckpointerManager:
             RuntimeError: If CheckpointerManager is not initialized.
         """
         if not cls._pool:
-            raise RuntimeError(
-                "CheckpointerManager not initialized. Call CheckpointerManager.initialize() at application startup."
+            raise InternalServiceError(
+                "Checkpointer manager is not initialized",
+                code="CHECKPOINTER_MANAGER_UNINITIALIZED",
+                data={"operation": "get_pool"},
             )
         return cls._pool
 
@@ -194,7 +202,11 @@ async def delete_thread_checkpoints(thread_id: str) -> None:
     """
     checkpointer = get_checkpointer()
     if checkpointer is None:
-        raise RuntimeError("Checkpoint is not enabled. Enable checkpoint in settings to use this function.")
+        raise ServiceUnavailableError(
+            "Checkpoint is not enabled",
+            code="CHECKPOINTER_DISABLED",
+            data=None,
+        )
 
     try:
         await checkpointer.adelete_thread(thread_id)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from loguru import logger
 
+from app.common.app_errors import NotFoundError
 from .base import RuntimeProvider
 
 
@@ -15,7 +16,11 @@ class RuntimeProviderRegistry:
 
     def get(self, provider_type: str) -> RuntimeProvider:
         if provider_type not in self._providers:
-            raise ValueError(f"Unknown runtime provider: {provider_type}")
+            raise NotFoundError(
+                "Runtime provider not found",
+                code="RUNTIME_PROVIDER_NOT_FOUND",
+                data={"provider_type": provider_type, "available_providers": list(self._providers.keys())},
+            )
         return self._providers[provider_type]
 
     def list_providers(self) -> list[str]:

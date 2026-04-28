@@ -17,6 +17,7 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.app_errors import InternalServiceError
 from app.core.events.envelope import ExecutionEventEnvelope
 from app.core.events.event_types import ExecutionEventType
 from app.core.events.subscriber import SubscriberPhase
@@ -46,7 +47,11 @@ class StateTransitionSubscriber:
             return
 
         if db is None:
-            raise RuntimeError("StateTransitionSubscriber requires a db session")
+            raise InternalServiceError(
+                "State transition subscriber requires a database session",
+                code="EVENT_SUBSCRIBER_DB_SESSION_MISSING",
+                data={"subscriber": self.name},
+            )
 
         if envelope.event_type == ExecutionEventType.EXECUTION_STATUS_CHANGE:
             await self._handle_status_change(envelope, db)
@@ -57,12 +62,21 @@ class StateTransitionSubscriber:
 
     async def _handle_status_change(self, envelope: ExecutionEventEnvelope, db: AsyncSession) -> None:
         if not envelope.target_status:
-            raise RuntimeError("execution_status_change envelope missing target_status")
+            raise InternalServiceError(
+                "Execution status change event is missing target status",
+                code="EVENT_TARGET_STATUS_MISSING",
+                data={"event_type": str(envelope.event_type), "execution_id": str(envelope.execution_id)},
+            )
 
         if envelope.target_status in EXECUTION_TERMINAL:
-            raise RuntimeError(
-                f"Terminal status '{envelope.target_status}' must use "
-                f"EXECUTION_COMPLETED, not EXECUTION_STATUS_CHANGE"
+            raise InternalServiceError(
+                "Terminal execution status must use execution completed events",
+                code="EVENT_TERMINAL_STATUS_INVALID",
+                data={
+                    "event_type": str(envelope.event_type),
+                    "execution_id": str(envelope.execution_id),
+                    "target_status": envelope.target_status,
+                },
             )
 
         execution = (await db.execute(select(Execution).where(Execution.id == envelope.execution_id))).scalar_one()
@@ -78,7 +92,11 @@ class StateTransitionSubscriber:
 
     async def _handle_completed(self, envelope: ExecutionEventEnvelope, db: AsyncSession) -> None:
         if not envelope.terminal_status:
-            raise RuntimeError("execution_completed envelope missing terminal_status")
+            raise InternalServiceError(
+                "Execution completed event is missing terminal status",
+                code="EVENT_TERMINAL_STATUS_MISSING",
+                data={"event_type": str(envelope.event_type), "execution_id": str(envelope.execution_id)},
+            )
 
         execution = (await db.execute(select(Execution).where(Execution.id == envelope.execution_id))).scalar_one()
         try:
@@ -99,7 +117,11 @@ class StateTransitionSubscriber:
 
     async def _handle_run_status_change(self, envelope: ExecutionEventEnvelope, db: AsyncSession) -> None:
         if not envelope.target_status:
-            raise RuntimeError("run_status_change envelope missing target_status")
+            raise InternalServiceError(
+                "Run status change event is missing target status",
+                code="EVENT_TARGET_STATUS_MISSING",
+                data={"event_type": str(envelope.event_type), "run_id": str(envelope.run_id)},
+            )
 
         run = (await db.execute(select(AgentRun).where(AgentRun.id == envelope.run_id))).scalar_one()
 

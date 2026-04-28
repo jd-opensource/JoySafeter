@@ -13,7 +13,7 @@ from typing import Dict, List, Optional
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.app_errors import InvalidRequestError, NotFoundError
+from app.common.app_errors import InternalServiceError, InvalidRequestError, NotFoundError
 from app.models.enums import McpConnectionStatus
 from app.models.mcp import McpServer
 from app.repositories.mcp_server import McpServerRepository
@@ -128,7 +128,11 @@ class McpServerService(BaseService[McpServer]):
 
         updated_server = await self.repo.update(server_id, update_data)
         if updated_server is None:
-            raise ValueError(f"MCP server {server_id} not found")
+            raise InternalServiceError(
+                "MCP server update failed because the server record disappeared",
+                code="MCP_SERVER_UPDATE_TARGET_MISSING",
+                data={"server_id": str(server_id)},
+            )
         await self.commit()
         logger.info(f"Updated MCP server: {updated_server.name}")
         return updated_server
@@ -243,7 +247,11 @@ class McpServerService(BaseService[McpServer]):
 
         updated_server = await self.repo.toggle_enabled(server_id, enabled)
         if updated_server is None:
-            raise ValueError(f"MCP server {server_id} not found")
+            raise InternalServiceError(
+                "MCP server enable state update failed because the server record disappeared",
+                code="MCP_SERVER_TOGGLE_TARGET_MISSING",
+                data={"server_id": str(server_id), "enabled": enabled},
+            )
         await self.commit()
         logger.info(f"MCP server {updated_server.name} {'enabled' if enabled else 'disabled'}")
         return updated_server

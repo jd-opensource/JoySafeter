@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.app_errors import InvalidRequestError, ServiceUnavailableError
+from app.common.app_errors import InvalidRequestError, NotFoundError, ServiceUnavailableError
 from app.common.dependencies import get_current_user
 from app.core.agent.backends.docker_check import get_docker_client
 from app.core.database import get_db
@@ -43,10 +43,18 @@ async def _docker_exec(container_id: str, cmd: list[str]) -> str:
         exit_code, output = await asyncio.to_thread(container.exec_run, cmd=cmd)
         output_str = output.decode("utf-8") if isinstance(output, bytes) else str(output)
         if exit_code != 0:
-            raise RuntimeError(f"Command failed with exit code {exit_code}: {output_str.strip()}")
+            raise ServiceUnavailableError(
+                "OpenClaw device command failed",
+                code="OPENCLAW_DEVICE_COMMAND_FAILED",
+                data={"container_id": container_id, "command": cmd, "exit_code": exit_code, "detail": output_str.strip()},
+            )
         return output_str.strip()
     except docker.errors.NotFound:
-        raise RuntimeError(f"Container {container_id} not found")
+        raise NotFoundError(
+            "OpenClaw container not found",
+            code="OPENCLAW_CONTAINER_NOT_FOUND",
+            data={"container_id": container_id},
+        )
 
 
 @router.get("")

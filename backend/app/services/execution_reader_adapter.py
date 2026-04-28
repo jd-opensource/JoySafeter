@@ -13,6 +13,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.app_errors import NotFoundError
 from app.models.agent import AgentRelease
 from app.models.agent_run import AgentRun
 from app.models.execution import Execution
@@ -29,7 +30,11 @@ class ExecutionReaderAdapter:
         result = await self.db.execute(select(Execution).where(Execution.id == execution_id))
         execution = result.scalar_one_or_none()
         if not execution:
-            raise ValueError(f"Execution not found: {execution_id}")
+            raise NotFoundError(
+                "Execution not found",
+                code="EXECUTION_NOT_FOUND",
+                data={"execution_id": str(execution_id)},
+            )
         return execution
 
     async def get_run_for_execution(self, execution_id: uuid.UUID) -> AgentRun:
@@ -38,7 +43,11 @@ class ExecutionReaderAdapter:
         )
         run = result.scalar_one_or_none()
         if not run:
-            raise ValueError(f"AgentRun not found for execution: {execution_id}")
+            raise NotFoundError(
+                "Agent run not found for execution",
+                code="AGENT_RUN_NOT_FOUND",
+                data={"execution_id": str(execution_id)},
+            )
         return run
 
     async def get_release_for_run(self, run_id: uuid.UUID) -> Optional[AgentRelease]:

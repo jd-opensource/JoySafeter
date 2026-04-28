@@ -13,6 +13,8 @@ from typing import Optional
 
 from loguru import logger
 
+from app.common.app_errors import ServiceUnavailableError
+
 
 @dataclass
 class ContainerConfig:
@@ -146,5 +148,9 @@ class CLIContainerService:
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
-            raise RuntimeError(f"Docker command failed (exit {proc.returncode}): {stderr.decode()[:1000]}")
+            raise ServiceUnavailableError(
+                "Docker command failed",
+                code="DOCKER_COMMAND_FAILED",
+                data={"command": cmd, "exit_code": proc.returncode, "detail": stderr.decode()[:1000]},
+            )
         return stdout.decode()

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, refreshAccessTokenOrRelogin } from '../api-client'
+import { ApiError, apiFetch, refreshAccessTokenOrRelogin } from '../api-client'
 
 describe('refreshAccessTokenOrRelogin', () => {
   beforeEach(() => {
@@ -35,6 +35,32 @@ describe('refreshAccessTokenOrRelogin', () => {
       code: 'REQUEST_TIMEOUT',
       message: 'Token refresh timed out',
       status: 408,
+    })
+  })
+
+  it('parses canonical error payloads without an error envelope', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            code: 'USER_NOT_FOUND',
+            message: '用户不存在',
+            data: null,
+          }),
+          {
+            status: 404,
+            statusText: 'Not Found',
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      ),
+    )
+
+    await expect(apiFetch('users/1', { withAuth: false })).rejects.toMatchObject<ApiError>({
+      code: 'USER_NOT_FOUND',
+      message: '用户不存在',
+      status: 404,
     })
   })
 })

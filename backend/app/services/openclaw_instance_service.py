@@ -23,6 +23,7 @@ from loguru import logger
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.app_errors import InvalidRequestError, NotFoundError, ServiceUnavailableError, normalize_app_error
 from app.core.agent.backends.docker_check import get_docker_client
 from app.core.settings import settings
 from app.models.enums import InstanceStatus
@@ -95,7 +96,11 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             for p in range(PORT_RANGE_START, PORT_RANGE_END + 1):
                 if p not in used_ports:
                     return p
-            raise RuntimeError("No available ports for OpenClaw instances")
+            raise ServiceUnavailableError(
+                "No available ports for OpenClaw instances",
+                code="OPENCLAW_PORT_POOL_EXHAUSTED",
+                data={"port_range_start": PORT_RANGE_START, "port_range_end": PORT_RANGE_END},
+            )
         return next_port
 
     async def ensure_instance_running(self, user_id: str) -> OpenClawInstance:
@@ -140,10 +145,16 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             await self.db.refresh(instance)
             return instance
         except Exception as e:
-            logger.error(f"Failed to start OpenClaw instance for user {user_id}: {e}")
-            await self._update_status(instance.id, InstanceStatus.FAILED, error_message=str(e))
+            app_error = normalize_app_error(
+                e,
+                default_code="OPENCLAW_INSTANCE_START_FAILED",
+                default_message="Failed to start OpenClaw instance",
+                default_data={"user_id": user_id, "instance_id": instance.id},
+            )
+            logger.error(f"Failed to start OpenClaw instance for user {user_id}: {app_error}")
+            await self._update_status(instance.id, InstanceStatus.FAILED, error_message=app_error.message)
             await self.db.refresh(instance)
-            raise RuntimeError(f"Failed to start OpenClaw instance: {e}")
+            raise app_error
 
     async def _create_container(self, instance: OpenClawInstance, recreate: bool = False) -> str:
         """Create and start a Docker container for the instance, or start an existing one."""
@@ -157,7 +168,11 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
         try:
             client = get_docker_client()
         except Exception as e:
-            raise RuntimeError(f"Failed to connect to Docker daemon: {e}")
+            raise ServiceUnavailableError(
+                "Failed to connect to Docker daemon",
+                code="DOCKER_DAEMON_UNAVAILABLE",
+                data={"detail": str(e)},
+            )
 
         # Try to find and start existing container
         if not recreate:
@@ -233,7 +248,16 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
         has_anthropic = all(k in env_vars for k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_MODEL"))
 
         if not (has_ai_gw or has_anthropic):
-            raise ValueError("Missing required environment variables for AI Gateway (need AI_GATEWAY_* or ANTHROPIC_*)")
+            raise InvalidRequestError(
+                "Missing required environment variables for AI Gateway",
+                code="OPENCLAW_GATEWAY_ENV_MISSING",
+                data={
+                    "required_any_of": [
+                        ["AI_GATEWAY_BASE_URL", "AI_GATEWAY_API_KEY", "AI_GATEWAY_MODEL"],
+                        ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_MODEL"],
+                    ]
+                },
+            )
 
         # Also pass config overrides
         if instance.config_json:
@@ -269,7 +293,11 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
                 restart_policy={"Name": "unless-stopped"},
             )
         except Exception as e:
-            raise RuntimeError(f"docker run failed: {str(e)}")
+            raise ServiceUnavailableError(
+                "Failed to create OpenClaw container",
+                code="OPENCLAW_CONTAINER_CREATE_FAILED",
+                data={"container_name": container_name, "detail": str(e)},
+            )
 
         container_id = str(container.id)[:12]
         logger.info(
@@ -302,13 +330,25 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             if container.status != "running":
                 logs = await asyncio.to_thread(container.logs, tail=30)
                 logs_str = logs.decode("utf-8") if isinstance(logs, bytes) else str(logs)
-                raise RuntimeError(f"Container died during startup. Logs:\n{logs_str}")
+                raise ServiceUnavailableError(
+                    "OpenClaw container exited during startup",
+                    code="OPENCLAW_CONTAINER_STARTUP_FAILED",
+                    data={"container_id": instance.container_id, "detail": logs_str},
+                )
         except docker.errors.NotFound:
-            raise RuntimeError("Container was removed during startup.")
+            raise NotFoundError(
+                "OpenClaw container was removed during startup",
+                code="OPENCLAW_CONTAINER_NOT_FOUND",
+                data={"container_id": instance.container_id},
+            )
         except Exception as e:
             logger.warning(f"Failed to check container status: {e}")
 
-        raise RuntimeError(f"Gateway not ready within {GATEWAY_READY_TIMEOUT}s")
+        raise ServiceUnavailableError(
+            "OpenClaw gateway did not become ready in time",
+            code="OPENCLAW_GATEWAY_TIMEOUT",
+            data={"gateway_port": instance.gateway_port, "timeout_seconds": GATEWAY_READY_TIMEOUT},
+        )
 
     async def _health_check(self, instance: OpenClawInstance) -> bool:
         """Quick health check via HTTP OPTIONS to the gateway."""

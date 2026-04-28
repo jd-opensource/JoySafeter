@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import Any
 
 from loguru import logger
 
@@ -262,5 +263,22 @@ class ClaudeCodeProvider:
                     content=request.get("subtype", ""),
                 )
             )
+        elif event_type == "system" and event.get("subtype") == "error":
+            error_payload = _extract_claude_error_payload(event)
+            messages.append(
+                CLIMessage(
+                    type="error",
+                    content=error_payload["message"],
+                    error_payload=error_payload,
+                )
+            )
 
         return messages
+
+
+def _extract_claude_error_payload(event: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "code": str(event.get("code") or "CLAUDE_CODE_RUNTIME_ERROR"),
+        "message": str(event.get("message") or "Claude Code runtime error"),
+        "data": event.get("data") if isinstance(event.get("data"), dict) else None,
+    }

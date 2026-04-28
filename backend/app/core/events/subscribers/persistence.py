@@ -13,6 +13,7 @@ from typing import Optional
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.app_errors import InternalServiceError
 from app.core.events.envelope import ExecutionEventEnvelope
 from app.core.events.event_types import ExecutionEventType
 from app.core.events.subscriber import SubscriberPhase
@@ -34,7 +35,11 @@ class PersistenceSubscriber:
         db: Optional[AsyncSession] = None,
     ) -> None:
         if db is None:
-            raise RuntimeError("PersistenceSubscriber requires a db session")
+            raise InternalServiceError(
+                "Persistence subscriber requires a database session",
+                code="EVENT_SUBSCRIBER_DB_SESSION_MISSING",
+                data={"subscriber": self.name},
+            )
 
         eid = str(envelope.execution_id)
 
