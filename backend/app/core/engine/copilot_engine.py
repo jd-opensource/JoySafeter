@@ -9,6 +9,7 @@ for persistence and WebSocket broadcast.
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from typing import Any
 
@@ -56,6 +57,17 @@ class CopilotEngine:
             await context.update_status("running")
             await context.emit(ExecutionEventType.EXECUTION_STARTED, {"engine": "copilot", "mode": mode})
 
+            # ------------------------------------------------------------------
+            # Observation: create copilot extractor if collector set
+            # ------------------------------------------------------------------
+            copilot_extractor = None
+            obs_start: float = 0.0
+            if context.collector and model_name:
+                from app.core.observation.instrumentation.copilot_extractor import CopilotObservationExtractor
+
+                copilot_extractor = CopilotObservationExtractor(context.collector, model_name)
+                obs_start = time.monotonic()
+
             from app.services.copilot_service import CopilotService
 
             service = CopilotService(
@@ -91,12 +103,15 @@ class CopilotEngine:
                     )
 
                 elif event_type == "content":
+                    content_text = event.get("content", "")
                     await context.emit(
                         ExecutionEventType.COPILOT_CONTENT,
                         {
-                            "content": event.get("content", ""),
+                            "content": content_text,
                         },
                     )
+                    if copilot_extractor and content_text:
+                        copilot_extractor.accumulate(content_text)
 
                 elif event_type == "thought_step":
                     await context.emit(
@@ -163,6 +178,18 @@ class CopilotEngine:
 
                 elif event_type == "done":
                     pass  # handled by complete() below
+
+            # Observation: flush accumulated content
+            if copilot_extractor:
+                try:
+                    elapsed_ms = (time.monotonic() - obs_start) * 1000
+                    await copilot_extractor.flush(
+                        prompt=prompt,
+                        mode=mode,
+                        elapsed_ms=elapsed_ms,
+                    )
+                except Exception as obs_exc:
+                    logger.debug(f"[CopilotEngine] Observation flush error: {obs_exc}")
 
             await context.complete(
                 "succeeded",

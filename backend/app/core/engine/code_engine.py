@@ -64,6 +64,17 @@ class CodeEngine:
         cancel_event = asyncio.Event()
         self._running[execution_id] = cancel_event
 
+        # ------------------------------------------------------------------
+        # Observation: create root span + callback handler if collector set
+        # ------------------------------------------------------------------
+        root_span = None
+        obs_handler = None
+        if context.collector:
+            from app.core.observation.instrumentation.langchain_handler import ObservationCallbackHandler
+
+            root_span = await context.collector.start_agent(name="code_executor")
+            obs_handler = ObservationCallbackHandler(context.collector, root_span)
+
         try:
             await context.update_status("running")
             await context.emit(
@@ -96,10 +107,16 @@ class CodeEngine:
             await context.emit(ExecutionEventType.ASSISTANT_TEXT, {"content": "Graph extracted, compiling..."})
             compiled = state_graph.compile()
 
+            stream_config: dict[str, Any] = {
+                "configurable": {"thread_id": thread_id or str(execution_id)},
+            }
+            if obs_handler:
+                stream_config["callbacks"] = [obs_handler]
+
             result_text: str = ""
             async for chunk in compiled.astream(
                 {"messages": [{"role": "user", "content": prompt}]},
-                {"configurable": {"thread_id": thread_id or str(execution_id)}},
+                stream_config,
             ):
                 if cancel_event.is_set():
                     await context.complete("cancelled", "Execution cancelled by user")
@@ -139,6 +156,11 @@ class CodeEngine:
             await context.complete("failed", app_error.message[:2000], app_error)
         finally:
             self._running.pop(execution_id, None)
+            if root_span:
+                try:
+                    await root_span.end(output={"status": "completed"})
+                except Exception:
+                    pass
 
     async def cancel(self, execution_id: uuid.UUID) -> None:
         event = self._running.get(execution_id)

@@ -63,6 +63,7 @@ class CLIEngine:
                 execution_id=execution_id,
                 prompt=prompt,
                 credentials=context.credentials or None,
+                collector=context.collector,
             )
 
     async def cancel(self, execution_id: uuid.UUID) -> None:

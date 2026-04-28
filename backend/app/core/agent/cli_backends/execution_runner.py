@@ -67,6 +67,7 @@ class ExecutionRunner:
         container_config: Optional[ContainerConfig] = None,
         model: Optional[str] = None,
         timeout: int = 7200,
+        collector: Any = None,
     ) -> CLIResult:
         """Run a full execution lifecycle.
 
@@ -192,7 +193,7 @@ class ExecutionRunner:
             self._session = session
 
             # 6. Drain messages → events
-            await self._drain_to_events(execution_id)
+            await self._drain_to_events(execution_id, collector=collector, executor_kind=execution.executor_kind)
 
             # 7. Await final result
             result = await session.result
@@ -261,11 +262,23 @@ class ExecutionRunner:
     async def _drain_to_events(
         self,
         execution_id: uuid.UUID,
+        *,
+        collector: Any = None,
+        executor_kind: str = "cli",
     ) -> None:
         assert self._session is not None, "_drain_to_events called before session was set"
         pending: list[tuple[CLIMessage, str, dict[str, Any]]] = []
         logger.info(f"[exec:{execution_id}] _drain_to_events started")
         queue = self._session.messages
+
+        # Observation: set up root span + extractor if collector is set
+        root_span = None
+        extractor = None
+        if collector:
+            from app.core.observation.instrumentation.cli_extractor import CLIObservationExtractor
+
+            root_span = await collector.start_agent(name=f"cli:{executor_kind}")
+            extractor = CLIObservationExtractor(collector, root_span)
 
         while True:
             try:
@@ -280,6 +293,13 @@ class ExecutionRunner:
             if msg is None:
                 break
 
+            # Observation: process message through extractor
+            if extractor:
+                try:
+                    await extractor.process_message(msg)
+                except Exception as obs_exc:
+                    logger.debug(f"[exec:{execution_id}] Observation extractor error: {obs_exc}")
+
             event_type = self._msg_to_event_type(msg)
             payload = self._msg_to_payload(msg)
             pending.append((msg, event_type, payload))
@@ -291,6 +311,19 @@ class ExecutionRunner:
 
         if pending:
             await self._flush_pending(execution_id, pending)
+
+        # Observation: flush pending and close root span
+        if extractor:
+            try:
+                await extractor.flush_pending()
+            except Exception as obs_exc:
+                logger.debug(f"[exec:{execution_id}] Observation extractor flush error: {obs_exc}")
+        if root_span:
+            try:
+                await root_span.end(output={"status": "completed"})
+            except Exception:
+                pass
+
         logger.info(f"[exec:{execution_id}] _drain_to_events finished")
 
     async def _flush_pending(
