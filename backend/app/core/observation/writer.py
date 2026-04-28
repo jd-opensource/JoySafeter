@@ -1,4 +1,3 @@
-# backend/app/core/observation/writer.py
 """Batched persistence writer for Observation rows."""
 from __future__ import annotations
 
@@ -7,6 +6,7 @@ import uuid
 from typing import Any, Callable, Coroutine
 
 import sqlalchemy as sa
+from loguru import logger
 
 from app.core.observation.model import Observation
 
@@ -50,13 +50,19 @@ class ObservationWriter:
         if self._buffer_size >= self._max_batch:
             self._cancel_delayed()
             await self._do_flush()
-        elif self._flush_task is None:
+        elif self._flush_task is None or self._flush_task.done():
             self._flush_task = asyncio.create_task(self._delayed_flush())
 
     async def _delayed_flush(self) -> None:
-        await asyncio.sleep(self._max_wait_ms / 1000)
-        await self._do_flush()
-        self._flush_task = None
+        try:
+            await asyncio.sleep(self._max_wait_ms / 1000)
+            await self._do_flush()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.opt(exception=True).debug("observation writer delayed flush failed")
+        finally:
+            self._flush_task = None
 
     def _cancel_delayed(self) -> None:
         if self._flush_task and not self._flush_task.done():
@@ -72,13 +78,18 @@ class ObservationWriter:
         self._insert_buffer.clear()
         self._update_buffer.clear()
 
-        session = await self._db_session_factory()
-        if inserts:
-            session.add_all(inserts)
-        for obs_id, fields in updates:
-            await session.execute(
-                sa.update(Observation)
-                .where(Observation.id == obs_id)
-                .values(**fields)
-            )
-        await session.commit()
+        try:
+            session = await self._db_session_factory()
+            if inserts:
+                session.add_all(inserts)
+            for obs_id, fields in updates:
+                await session.execute(
+                    sa.update(Observation)
+                    .where(Observation.id == obs_id)
+                    .values(**fields)
+                )
+            await session.commit()
+        except Exception:
+            logger.opt(exception=True).debug("observation writer flush failed, re-buffering")
+            self._insert_buffer.extend(inserts)
+            self._update_buffer.extend(updates)

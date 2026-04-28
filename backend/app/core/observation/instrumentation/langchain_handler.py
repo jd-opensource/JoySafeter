@@ -37,7 +37,7 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
         span = self._active_spans.pop(run_id, None)
         if span:
             output = {}
-            if hasattr(response, "generations") and response.generations:
+            if hasattr(response, "generations") and response.generations and response.generations[0]:
                 output["completion"] = response.generations[0][0].text
             if hasattr(response, "llm_output") and response.llm_output:
                 output["usage_details"] = response.llm_output.get("token_usage")
