@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
-from typing import AsyncIterator, Awaitable, Callable, Protocol
+from typing import Any, AsyncIterator, Awaitable, Callable, Protocol
 
 
 @dataclass
@@ -14,6 +14,7 @@ class CLIMessage:
     call_id: str = ""
     input: dict | None = None
     output: str = ""
+    error_payload: dict[str, Any] | None = None
 
 
 def build_control_response(request_id: str, behavior: str) -> str:
@@ -34,6 +35,7 @@ class CLIResult:
     status: str  # "completed" | "failed" | "timeout" | "blocked"
     output: str = ""
     error: str = ""
+    error_payload: dict[str, Any] | None = None
     session_id: str = ""
     branch_name: str = ""
     usage: dict | None = None

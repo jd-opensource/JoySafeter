@@ -141,3 +141,24 @@ class ModelConfigError(DomainError):
 
     def __init__(self, code: str, message: str = "模型配置错误", *, params: Mapping[str, Any] | None = None):
         super().__init__(code=code, message=message, data=_normalize_data(params))
+
+
+def normalize_app_error(
+    exc: Exception,
+    *,
+    default_code: str = "INTERNAL_ERROR",
+    default_message: str = "内部错误",
+    default_data: Mapping[str, Any] | None = None,
+) -> AppError:
+    if isinstance(exc, AppError):
+        return exc
+    return InternalServiceError(
+        default_message,
+        code=default_code,
+        data={
+            **(dict(default_data) if default_data is not None else {}),
+            "detail": str(exc),
+        }
+        if str(exc)
+        else (dict(default_data) if default_data is not None else None),
+    )

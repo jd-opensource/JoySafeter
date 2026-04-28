@@ -15,6 +15,7 @@ from typing import Any
 from loguru import logger
 from sqlalchemy import select
 
+from app.common.app_errors import InvalidRequestError, InternalServiceError, normalize_app_error
 from app.core.engine.protocol import ExecutionContext
 from app.core.events.event_types import ExecutionEventType
 
@@ -41,12 +42,21 @@ class CodeEngine:
         execution_id = context.execution_id
 
         if definition_kind != "code":
-            await context.complete("failed", f"CodeEngine cannot handle definition_kind={definition_kind}")
+            error = InvalidRequestError(
+                f"CodeEngine cannot handle definition_kind={definition_kind}",
+                code="CODE_DEFINITION_KIND_UNSUPPORTED",
+                data={"definition_kind": definition_kind},
+            )
+            await context.complete("failed", error.message, error)
             return
 
         code = definition_payload.get("code", "")
         if not code or not code.strip():
-            await context.complete("failed", "No code provided in definition_payload")
+            error = InvalidRequestError(
+                "No code provided in definition_payload",
+                code="CODE_DEFINITION_EMPTY",
+            )
+            await context.complete("failed", error.message, error)
             return
 
         logger.info(f"[CodeEngine] Starting execution {execution_id} ({len(code)} chars of code)")
@@ -109,12 +119,24 @@ class CodeEngine:
 
         except (ValueError, ImportError, TimeoutError) as exc:
             logger.warning(f"[CodeEngine] Code execution error {execution_id}: {exc}")
-            await context.emit(ExecutionEventType.ERROR, {"message": str(exc)})
-            await context.complete("failed", str(exc)[:2000])
+            app_error = normalize_app_error(
+                exc,
+                default_code="CODE_EXECUTION_INVALID",
+                default_message="Code execution failed",
+                default_data={"execution_id": str(execution_id)},
+            )
+            await context.emit(ExecutionEventType.ERROR, app_error.to_payload())
+            await context.complete("failed", app_error.message[:2000], app_error)
         except Exception as exc:
             logger.error(f"[CodeEngine] Execution {execution_id} failed: {exc}")
-            await context.emit(ExecutionEventType.ERROR, {"message": str(exc)})
-            await context.complete("failed", str(exc)[:2000])
+            app_error = normalize_app_error(
+                exc,
+                default_code="CODE_EXECUTION_FAILED",
+                default_message="Code execution failed",
+                default_data={"execution_id": str(execution_id)},
+            )
+            await context.emit(ExecutionEventType.ERROR, app_error.to_payload())
+            await context.complete("failed", app_error.message[:2000], app_error)
         finally:
             self._running.pop(execution_id, None)
 
@@ -126,5 +148,13 @@ class CodeEngine:
 
     async def send_message(self, execution_id: uuid.UUID, message: str) -> None:
         if execution_id not in self._running:
-            raise RuntimeError(f"No running code execution for {execution_id}")
-        raise NotImplementedError("Message injection is not supported for code executions")
+            raise InternalServiceError(
+                "No running code execution",
+                code="CODE_EXECUTION_NOT_RUNNING",
+                data={"execution_id": str(execution_id)},
+            )
+        raise InvalidRequestError(
+            code="CODE_EXECUTION_MESSAGE_UNSUPPORTED",
+            message="Message injection is not supported for code executions",
+            data={"execution_id": str(execution_id)},
+        )

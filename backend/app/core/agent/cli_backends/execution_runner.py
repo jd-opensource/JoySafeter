@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from loguru import logger
 
-from app.common.app_errors import ModelConfigError
+from app.common.app_errors import normalize_app_error
 from app.core.agent.cli_backends.base import CLIMessage, CLIResult, RuntimeSession, build_control_response
 from app.core.agent.cli_backends.container_pool import container_pool
 from app.core.agent.cli_backends.container_service import (
@@ -210,7 +210,13 @@ class ExecutionRunner:
         except Exception as exc:
             logger.error(f"[exec:{execution_id}] ExecutionRunner error: {exc}")
             await self._mark_failed(execution_id, str(exc))
-            return CLIResult(status="failed", error=str(exc))
+            app_error = normalize_app_error(
+                exc,
+                default_code="CLI_EXECUTION_RUNNER_FAILED",
+                default_message="CLI execution runner failed",
+                default_data={"execution_id": str(execution_id)},
+            )
+            return CLIResult(status="failed", error=app_error.message, error_payload=app_error.to_payload())
 
         finally:
             # 10. Unregister session; release container back to pool
@@ -326,7 +332,7 @@ class ExecutionRunner:
             execution_id=execution_id,
             terminal_status=status,
             result_summary=result.usage,
-            error=_build_completion_error(result.error),
+            error=result.error_payload or _build_completion_error(result.error),
             session_id=result.session_id,
         )
 
@@ -342,15 +348,16 @@ class ExecutionRunner:
         error: str,
     ) -> None:
         try:
+            error_payload = _build_completion_error(error[:2000])
             await self._events.append_event(
                 execution_id=execution_id,
                 event_type=ExecutionEventType.ERROR,
-                payload={"message": error},
+                payload=error_payload or {"code": "EXECUTION_FAILED", "message": error, "data": None},
             )
             await self._events.complete_execution(
                 execution_id=execution_id,
                 terminal_status="failed",
-                error=_build_completion_error(error[:2000]),
+                error=error_payload,
             )
         except Exception as exc:
             logger.error(f"Failed to mark execution {execution_id} as failed: {exc}")
@@ -420,14 +427,8 @@ def _build_completion_error(message: str | None) -> dict[str, Any] | None:
     if not message:
         return None
 
-    code = "EXECUTION_FAILED"
-    data: dict[str, Any] | None = None
-    if "has no model configured" in message:
-        code = ModelConfigError.BUILD_COPILOT_MODEL_REQUIRED
-        data = {"reason": "model_not_configured"}
-
     return {
-        "code": code,
+        "code": "EXECUTION_FAILED",
         "message": message,
-        "data": data,
+        "data": None,
     }

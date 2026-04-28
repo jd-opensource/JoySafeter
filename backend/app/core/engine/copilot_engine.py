@@ -14,6 +14,7 @@ from typing import Any
 
 from loguru import logger
 
+from app.common.app_errors import InvalidRequestError, normalize_app_error
 from app.core.engine.protocol import ExecutionContext
 from app.core.events.event_types import ExecutionEventType
 
@@ -137,13 +138,28 @@ class CopilotEngine:
                     )
 
                 elif event_type == "error":
+                    code = event.get("code") or "COPILOT_EXECUTION_FAILED"
+                    message = event.get("message", "Unknown error")
+                    data = event.get("data")
                     await context.emit(
                         ExecutionEventType.ERROR,
                         {
-                            "message": event.get("message", "Unknown error"),
-                            "code": event.get("code"),
+                            "message": message,
+                            "code": code,
+                            "data": data,
                         },
                     )
+                    await context.complete(
+                        "failed",
+                        str(message)[:2000],
+                        normalize_app_error(
+                            Exception(str(message)),
+                            default_code=str(code),
+                            default_message=str(message),
+                            default_data=data if isinstance(data, dict) else None,
+                        ),
+                    )
+                    return
 
                 elif event_type == "done":
                     pass  # handled by complete() below
@@ -155,8 +171,14 @@ class CopilotEngine:
 
         except Exception as exc:
             logger.error(f"[CopilotEngine] Execution {execution_id} failed: {exc}")
-            await context.emit(ExecutionEventType.ERROR, {"message": str(exc)})
-            await context.complete("failed", str(exc)[:2000])
+            app_error = normalize_app_error(
+                exc,
+                default_code="COPILOT_EXECUTION_FAILED",
+                default_message="Copilot execution failed",
+                default_data={"execution_id": str(execution_id)},
+            )
+            await context.emit(ExecutionEventType.ERROR, app_error.to_payload())
+            await context.complete("failed", app_error.message[:2000], app_error)
         finally:
             self._running.pop(execution_id, None)
 
@@ -169,4 +191,8 @@ class CopilotEngine:
 
     async def send_message(self, execution_id: uuid.UUID, message: str) -> None:
         """Copilot executions don't support message injection."""
-        raise NotImplementedError("Message injection is not supported for copilot executions")
+        raise InvalidRequestError(
+            "Message injection is not supported for copilot executions",
+            code="COPILOT_EXECUTION_MESSAGE_UNSUPPORTED",
+            data={"execution_id": str(execution_id)},
+        )

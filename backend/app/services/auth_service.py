@@ -471,7 +471,10 @@ class AuthService(BaseService):
         except AuthenticationError:
             raise
         except Exception:
-            raise InternalServiceError("Token refresh failed. Please login again.")
+            raise InternalServiceError(
+                "Token refresh failed. Please login again.",
+                code="TOKEN_REFRESH_FAILED",
+            )
 
     # ---------------------------------------------------------------- misc
     async def get_user_by_id(self, user_id: str) -> Optional[AuthUser]:

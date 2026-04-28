@@ -21,6 +21,7 @@ from app.common.app_errors import (
     RateLimitError,
     RequestValidationAppError,
     ValidationError,
+    normalize_app_error,
 )
 from app.common.response import error_response
 
@@ -134,6 +135,4 @@ def register_exception_handlers(app: Any) -> None:
 
 
 def normalize_exception(exc: Exception) -> AppError:
-    if isinstance(exc, AppError):
-        return exc
-    return InternalServiceError()
+    return normalize_app_error(exc)

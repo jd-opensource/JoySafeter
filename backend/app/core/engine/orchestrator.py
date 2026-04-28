@@ -14,7 +14,7 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.app_errors import InvalidRequestError, NotFoundError
+from app.common.app_errors import AppError, InvalidRequestError, NotFoundError, normalize_app_error
 from app.core.agent_kinds import infer_runtime_kind, is_cli_definition_kind
 from app.core.engine.protocol import ExecutionContext
 from app.core.engine.registry import engine_registry
@@ -56,17 +56,31 @@ class ExecutionOrchestrator:
         """Dispatch a Task → creates Run + Execution, fires engine."""
         task = await self._get_task(task_id)
         if task.status == "in_progress" and task.latest_run_id:
-            raise InvalidRequestError("Task already has an active run. Cancel it first.")
+            raise InvalidRequestError(
+                "Task already has an active run. Cancel it first.",
+                code="TASK_RUN_ALREADY_ACTIVE",
+                data={"task_id": str(task_id), "run_id": str(task.latest_run_id)},
+            )
         if task.status not in self.DISPATCHABLE_STATUSES and task.status != "in_progress":
             raise InvalidRequestError(
-                f"Cannot dispatch task in '{task.status}' status. " "Move the task back to backlog first."
+                f"Cannot dispatch task in '{task.status}' status. Move the task back to backlog first.",
+                code="TASK_STATUS_NOT_DISPATCHABLE",
+                data={"task_id": str(task_id), "status": task.status},
             )
         if not task.agent_id:
-            raise InvalidRequestError("Task has no assigned agent")
+            raise InvalidRequestError(
+                "Task has no assigned agent",
+                code="TASK_AGENT_MISSING",
+                data={"task_id": str(task_id)},
+            )
 
         agent = await self._get_agent(task.agent_id)
         if not agent.active_release_id:
-            raise InvalidRequestError(f"Agent '{agent.name}' has no active release")
+            raise InvalidRequestError(
+                f"Agent '{agent.name}' has no active release",
+                code="AGENT_ACTIVE_RELEASE_MISSING",
+                data={"agent_id": str(agent.id), "agent_name": agent.name},
+            )
 
         prompt = prompt_override or task.goal or task.title
         run = await self._create_and_fire(
@@ -94,11 +108,15 @@ class ExecutionOrchestrator:
         """Dispatch from a Thread conversation → creates Run + Execution."""
         thread = (await self.db.execute(select(Thread).where(Thread.id == thread_id))).scalar_one_or_none()
         if not thread:
-            raise NotFoundError(f"Thread {thread_id} not found")
+            raise NotFoundError("Thread not found", code="THREAD_NOT_FOUND", data={"thread_id": str(thread_id)})
 
         agent = await self._get_agent(thread.agent_id)
         if not agent.active_release_id:
-            raise InvalidRequestError(f"Agent '{agent.name}' has no active release")
+            raise InvalidRequestError(
+                f"Agent '{agent.name}' has no active release",
+                code="AGENT_ACTIVE_RELEASE_MISSING",
+                data={"agent_id": str(agent.id), "agent_name": agent.name},
+            )
 
         return await self._create_and_fire(
             agent=agent,
@@ -149,11 +167,19 @@ class ExecutionOrchestrator:
         """Dispatch a Test Lab run against a draft AgentVersion."""
         version = await self._get_version(version_id)
         if version.agent_id != agent_id:
-            raise InvalidRequestError("Version does not belong to this agent")
+            raise InvalidRequestError(
+                "Version does not belong to this agent",
+                code="AGENT_VERSION_AGENT_MISMATCH",
+                data={"agent_id": str(agent_id), "version_id": str(version_id)},
+            )
 
         agent = await self._get_agent(agent_id)
         if agent.workspace_id != workspace_id:
-            raise InvalidRequestError("Agent does not belong to this workspace")
+            raise InvalidRequestError(
+                "Agent does not belong to this workspace",
+                code="AGENT_WORKSPACE_MISMATCH",
+                data={"agent_id": str(agent_id), "workspace_id": str(workspace_id)},
+            )
 
         return await self._create_and_fire_draft(
             agent=agent,
@@ -181,11 +207,19 @@ class ExecutionOrchestrator:
         """Dispatch a copilot interaction against a draft AgentVersion."""
         version = await self._get_version(version_id)
         if version.agent_id != agent_id:
-            raise InvalidRequestError("Version does not belong to this agent")
+            raise InvalidRequestError(
+                "Version does not belong to this agent",
+                code="AGENT_VERSION_AGENT_MISMATCH",
+                data={"agent_id": str(agent_id), "version_id": str(version_id)},
+            )
 
         agent = await self._get_agent(agent_id)
         if agent.workspace_id != workspace_id:
-            raise InvalidRequestError("Agent does not belong to this workspace")
+            raise InvalidRequestError(
+                "Agent does not belong to this workspace",
+                code="AGENT_WORKSPACE_MISMATCH",
+                data={"agent_id": str(agent_id), "workspace_id": str(workspace_id)},
+            )
 
         copilot_payload = self._build_copilot_payload(
             agent_id=agent_id,
@@ -283,7 +317,11 @@ class ExecutionOrchestrator:
         """Cancel a running execution."""
         run = await self._get_run(run_id)
         if run.status in ("succeeded", "failed", "cancelled"):
-            raise InvalidRequestError(f"Cannot cancel run in status {run.status}")
+            raise InvalidRequestError(
+                f"Cannot cancel run in status {run.status}",
+                code="RUN_CANCEL_STATUS_INVALID",
+                data={"run_id": str(run_id), "status": run.status},
+            )
 
         execution_id = run.current_execution_id or uuid.UUID(int=0)
 
@@ -299,7 +337,11 @@ class ExecutionOrchestrator:
                     version = await self._get_version(run.agent_version_id)
                     engine = engine_registry.get(self._resolve_draft_engine_kind(version))
                 else:
-                    raise InvalidRequestError("Run has neither release_id nor agent_version_id")
+                    raise InvalidRequestError(
+                        "Run has neither release_id nor agent_version_id",
+                        code="RUN_BINDING_INVALID",
+                        data={"run_id": str(run_id)},
+                    )
                 await engine.cancel(execution.id)
 
         await execution_event_bus.publish(
@@ -320,9 +362,17 @@ class ExecutionOrchestrator:
         """Retry a failed/cancelled run with a new Execution attempt."""
         run = await self._get_run(run_id)
         if run.status not in ("failed", "cancelled"):
-            raise InvalidRequestError("Can only retry failed or cancelled runs")
+            raise InvalidRequestError(
+                "Can only retry failed or cancelled runs",
+                code="RUN_RETRY_STATUS_INVALID",
+                data={"run_id": str(run_id), "status": run.status},
+            )
         if not run.release_id:
-            raise InvalidRequestError("Draft Test Lab runs cannot be retried")
+            raise InvalidRequestError(
+                "Draft Test Lab runs cannot be retried",
+                code="RUN_RETRY_DRAFT_FORBIDDEN",
+                data={"run_id": str(run_id)},
+            )
 
         release = await self._get_release(run.release_id)
         version = await self._get_version(release.agent_version_id)
@@ -374,7 +424,11 @@ class ExecutionOrchestrator:
         """Inject a message into a running execution."""
         execution = (await self.db.execute(select(Execution).where(Execution.id == execution_id))).scalar_one_or_none()
         if not execution:
-            raise NotFoundError(f"Execution {execution_id} not found")
+            raise NotFoundError(
+                "Execution not found",
+                code="EXECUTION_NOT_FOUND",
+                data={"execution_id": str(execution_id)},
+            )
 
         run = await self._get_run(execution.run_id)
         if run.release_id:
@@ -384,7 +438,11 @@ class ExecutionOrchestrator:
             version = await self._get_version(run.agent_version_id)
             engine = engine_registry.get(self._resolve_draft_engine_kind(version))
         else:
-            raise InvalidRequestError("Run has neither release_id nor agent_version_id")
+            raise InvalidRequestError(
+                "Run has neither release_id nor agent_version_id",
+                code="RUN_BINDING_INVALID",
+                data={"run_id": str(run.id)},
+            )
         await engine.send_message(execution_id, message)
 
     # ------------------------------------------------------------------
@@ -614,7 +672,16 @@ class ExecutionOrchestrator:
             executor_kind_override is not None,
         )
         if any(override_presence) and not all(override_presence):
-            raise InvalidRequestError("Draft override parameters must be all absent or all present.")
+            raise InvalidRequestError(
+                "Draft override parameters must be all absent or all present.",
+                code="DRAFT_OVERRIDE_PARAMETERS_INVALID",
+                data={
+                    "engine_kind_override": engine_kind_override is not None,
+                    "definition_kind_override": definition_kind_override is not None,
+                    "definition_payload_override": definition_payload_override is not None,
+                    "executor_kind_override": executor_kind_override is not None,
+                },
+            )
 
     async def _fire_engine(
         self,
@@ -662,7 +729,11 @@ class ExecutionOrchestrator:
         runtime_binding = release_runtime_binding or (release.runtime_binding if release else {})
         resolved_runtime_kind = runtime_kind or (release.runtime_kind if release else None)
         if not resolved_runtime_kind:
-            raise InvalidRequestError("No runtime kind available for execution")
+            raise InvalidRequestError(
+                "No runtime kind available for execution",
+                code="EXECUTION_RUNTIME_KIND_MISSING",
+                data={"execution_id": str(execution.id), "run_id": str(run.id)},
+            )
 
         engine = engine_registry.get(engine_kind_override or resolved_runtime_kind)
         _def_kind = definition_kind_override or version.definition_kind
@@ -694,7 +765,13 @@ class ExecutionOrchestrator:
             except Exception as exc:
                 logger.error(f"[Orchestrator] Engine failed for execution {execution.id}: {exc}")
                 try:
-                    await ctx._complete_fn("failed", f"Engine error: {str(exc)[:2000]}")
+                    app_error = normalize_app_error(
+                        exc,
+                        default_code="EXECUTION_ENGINE_FAILED",
+                        default_message="Engine execution failed",
+                        default_data={"execution_id": str(execution.id), "run_id": str(run.id)},
+                    )
+                    await ctx._complete_fn("failed", app_error.message[:2000], app_error)
                 except Exception as cleanup_exc:
                     logger.error(f"[Orchestrator] Failed to mark execution as failed: {cleanup_exc}")
 
@@ -741,12 +818,20 @@ class ExecutionOrchestrator:
                 ctx.db,
             )
 
-        async def _complete(status: str, result_summary: str | None = None) -> None:
+        async def _complete(
+            status: str,
+            result_summary: str | None = None,
+            error: AppError | None = None,
+        ) -> None:
             await execution_event_bus.publish(
                 _envelope(
                     event_type=ExecutionEventType.EXECUTION_COMPLETED,
-                    payload={"status": status},
+                    payload={
+                        "status": status,
+                        "error": error.to_payload() if error is not None else None,
+                    },
                     terminal_status=status,
+                    error=error.to_payload() if error is not None else None,
                     result_summary=result_summary,
                 ),
                 ctx.db,
@@ -789,29 +874,37 @@ class ExecutionOrchestrator:
     async def _get_task(self, task_id: uuid.UUID) -> Task:
         result = (await self.db.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
         if not result:
-            raise NotFoundError(f"Task {task_id} not found")
+            raise NotFoundError("Task not found", code="TASK_NOT_FOUND", data={"task_id": str(task_id)})
         return result
 
     async def _get_agent(self, agent_id: uuid.UUID) -> Agent:
         result = (await self.db.execute(select(Agent).where(Agent.id == agent_id))).scalar_one_or_none()
         if not result:
-            raise NotFoundError(f"Agent {agent_id} not found")
+            raise NotFoundError("Agent not found", code="AGENT_NOT_FOUND", data={"agent_id": str(agent_id)})
         return result
 
     async def _get_release(self, release_id: uuid.UUID) -> AgentRelease:
         result = (await self.db.execute(select(AgentRelease).where(AgentRelease.id == release_id))).scalar_one_or_none()
         if not result:
-            raise NotFoundError(f"AgentRelease {release_id} not found")
+            raise NotFoundError(
+                "Agent release not found",
+                code="AGENT_RELEASE_NOT_FOUND",
+                data={"release_id": str(release_id)},
+            )
         return result
 
     async def _get_version(self, version_id: uuid.UUID) -> AgentVersion:
         result = (await self.db.execute(select(AgentVersion).where(AgentVersion.id == version_id))).scalar_one_or_none()
         if not result:
-            raise NotFoundError(f"AgentVersion {version_id} not found")
+            raise NotFoundError(
+                "Agent version not found",
+                code="AGENT_VERSION_NOT_FOUND",
+                data={"version_id": str(version_id)},
+            )
         return result
 
     async def _get_run(self, run_id: uuid.UUID) -> AgentRun:
         result = (await self.db.execute(select(AgentRun).where(AgentRun.id == run_id))).scalar_one_or_none()
         if not result:
-            raise NotFoundError(f"AgentRun {run_id} not found")
+            raise NotFoundError("Agent run not found", code="AGENT_RUN_NOT_FOUND", data={"run_id": str(run_id)})
         return result

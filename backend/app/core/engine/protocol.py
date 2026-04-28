@@ -11,6 +11,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+from app.common.app_errors import AppError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events.event_types import ExecutionEventType
@@ -37,7 +38,7 @@ class ExecutionContext:
     # ---- set by orchestrator after construction ----
     _emit_fn: Any = None  # async (event_type, payload) -> None
     _status_fn: Any = None  # async (status) -> None
-    _complete_fn: Any = None  # async (status, result_summary) -> None
+    _complete_fn: Any = None  # async (status, result_summary, error) -> None
 
     async def emit(self, event_type: ExecutionEventType, payload: dict | None = None) -> None:
         """Emit an execution event → persisted + broadcast."""
@@ -49,10 +50,15 @@ class ExecutionContext:
         if self._status_fn:
             await self._status_fn(status)
 
-    async def complete(self, status: str, result_summary: str | None = None) -> None:
+    async def complete(
+        self,
+        status: str,
+        result_summary: str | None = None,
+        error: AppError | None = None,
+    ) -> None:
         """Mark execution as terminal → updates Run + Task status."""
         if self._complete_fn:
-            await self._complete_fn(status, result_summary)
+            await self._complete_fn(status, result_summary, error)
 
 
 @runtime_checkable

@@ -146,11 +146,31 @@ class ClaudeCodeProvider:
 
         except TimeoutError:
             if not result_future.done():
-                result_future.set_result(CLIResult(status="timeout", error="Agent timed out"))
+                result_future.set_result(
+                    CLIResult(
+                        status="timeout",
+                        error="Agent timed out",
+                        error_payload={
+                            "code": "CLAUDE_CODE_TIMEOUT",
+                            "message": "Agent timed out",
+                            "data": None,
+                        },
+                    )
+                )
         except Exception as e:
             logger.error(f"Claude drain error: {e}")
             if not result_future.done():
-                result_future.set_result(CLIResult(status="failed", error=str(e)))
+                result_future.set_result(
+                    CLIResult(
+                        status="failed",
+                        error=str(e),
+                        error_payload={
+                            "code": "CLAUDE_CODE_DRAIN_FAILED",
+                            "message": str(e),
+                            "data": None,
+                        },
+                    )
+                )
         finally:
             if not result_future.done():
                 exit_code = await process.wait()
@@ -160,6 +180,11 @@ class ClaudeCodeProvider:
                             status="failed",
                             output="\n".join(accumulated_text),
                             error="\n".join(accumulated_text) or "Claude Code reported an error",
+                            error_payload={
+                                "code": "CLAUDE_CODE_EXECUTION_FAILED",
+                                "message": "\n".join(accumulated_text) or "Claude Code reported an error",
+                                "data": None,
+                            },
                             session_id=session_id,
                             usage=usage,
                         )
@@ -179,6 +204,11 @@ class ClaudeCodeProvider:
                         CLIResult(
                             status="failed",
                             error=f"Exit code {exit_code}: {stderr_bytes.decode()[:2000]}",
+                            error_payload={
+                                "code": "CLAUDE_CODE_EXIT_FAILED",
+                                "message": f"Exit code {exit_code}: {stderr_bytes.decode()[:2000]}",
+                                "data": {"exit_code": exit_code},
+                            },
                             usage=usage,
                         )
                     )

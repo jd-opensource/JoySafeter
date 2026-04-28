@@ -8,6 +8,8 @@
  * UI presentation types are defined inline where used (e.g. in CopilotStreaming).
  */
 
+import type { AppErrorPayload } from '@/types/agent-run'
+
 export type GraphActionType =
   | 'CREATE_NODE'
   | 'CONNECT_NODES'
@@ -48,7 +50,7 @@ export interface ConversationMessage {
 export interface StreamGraphActionsCallbacks {
   onStatus: (stage: string, message: string) => void
   onResult: (response: CopilotResponse) => void
-  onError: (error: string) => void
+  onError: (error: AppErrorPayload) => void
   onThoughtStep: (step: { index: number; content: string }) => void
   onContent: (content: string) => void
   onToolCall: (tool: string, input: Record<string, unknown>) => void

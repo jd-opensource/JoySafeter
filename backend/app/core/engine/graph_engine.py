@@ -14,6 +14,7 @@ from typing import Any
 from loguru import logger
 from sqlalchemy import select
 
+from app.common.app_errors import InternalServiceError, InvalidRequestError, normalize_app_error
 from app.core.engine.protocol import ExecutionContext
 from app.core.events.event_types import ExecutionEventType
 
@@ -136,7 +137,12 @@ class GraphEngine:
         execution_id = context.execution_id
 
         if definition_kind != "graph":
-            await context.complete("failed", f"GraphEngine cannot handle definition_kind={definition_kind}")
+            error = InvalidRequestError(
+                f"GraphEngine cannot handle definition_kind={definition_kind}",
+                code="GRAPH_DEFINITION_KIND_UNSUPPORTED",
+                data={"definition_kind": definition_kind},
+            )
+            await context.complete("failed", error.message, error)
             return
 
         raw_nodes = definition_payload.get("nodes", [])
@@ -144,7 +150,11 @@ class GraphEngine:
         variables = definition_payload.get("variables", {}) or {}
 
         if not raw_nodes:
-            await context.complete("failed", "Graph definition has no nodes")
+            error = InvalidRequestError(
+                "Graph definition has no nodes",
+                code="GRAPH_DEFINITION_NODES_EMPTY",
+            )
+            await context.complete("failed", error.message, error)
             return
 
         logger.info(f"[GraphEngine] Starting execution {execution_id} with {len(raw_nodes)} nodes")
@@ -239,7 +249,14 @@ class GraphEngine:
 
         except Exception as exc:
             logger.error(f"[GraphEngine] Execution {execution_id} failed: {exc}")
-            await context.complete("failed", str(exc)[:2000])
+            app_error = normalize_app_error(
+                exc,
+                default_code="GRAPH_EXECUTION_FAILED",
+                default_message="Graph execution failed",
+                default_data={"execution_id": str(execution_id)},
+            )
+            await context.emit(ExecutionEventType.ERROR, app_error.to_payload())
+            await context.complete("failed", app_error.message[:2000], app_error)
         finally:
             self._running.pop(execution_id, None)
 
@@ -253,5 +270,13 @@ class GraphEngine:
     async def send_message(self, execution_id: uuid.UUID, message: str) -> None:
         """Graph executions don't support message injection (yet)."""
         if execution_id not in self._running:
-            raise RuntimeError(f"No running graph execution for {execution_id}")
-        raise NotImplementedError("Message injection is not yet supported for graph executions")
+            raise InternalServiceError(
+                "No running graph execution",
+                code="GRAPH_EXECUTION_NOT_RUNNING",
+                data={"execution_id": str(execution_id)},
+            )
+        raise InvalidRequestError(
+            "Message injection is not yet supported for graph executions",
+            code="GRAPH_EXECUTION_MESSAGE_UNSUPPORTED",
+            data={"execution_id": str(execution_id)},
+        )

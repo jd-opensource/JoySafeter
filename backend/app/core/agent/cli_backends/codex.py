@@ -292,11 +292,31 @@ class CodexProvider:
 
         except TimeoutError:
             if not result_future.done():
-                result_future.set_result(CLIResult(status="timeout", error="Codex agent timed out"))
+                result_future.set_result(
+                    CLIResult(
+                        status="timeout",
+                        error="Codex agent timed out",
+                        error_payload={
+                            "code": "CODEX_TIMEOUT",
+                            "message": "Codex agent timed out",
+                            "data": None,
+                        },
+                    )
+                )
         except Exception as e:
             logger.error(f"Codex drain error: {e}")
             if not result_future.done():
-                result_future.set_result(CLIResult(status="failed", error=str(e)))
+                result_future.set_result(
+                    CLIResult(
+                        status="failed",
+                        error=str(e),
+                        error_payload={
+                            "code": "CODEX_DRAIN_FAILED",
+                            "message": str(e),
+                            "data": None,
+                        },
+                    )
+                )
         finally:
             if not result_future.done():
                 exit_code = await process.wait()
@@ -307,6 +327,11 @@ class CodexProvider:
                             status="failed",
                             output="\n".join(accumulated_text),
                             error="Turn was aborted",
+                            error_payload={
+                                "code": "CODEX_TURN_ABORTED",
+                                "message": "Turn was aborted",
+                                "data": None,
+                            },
                         )
                     )
                 elif exit_code == 0 or accumulated_text:
@@ -322,6 +347,11 @@ class CodexProvider:
                         CLIResult(
                             status="failed",
                             error=f"Exit code {exit_code}: {stderr_bytes.decode()[:2000]}",
+                            error_payload={
+                                "code": "CODEX_EXIT_FAILED",
+                                "message": f"Exit code {exit_code}: {stderr_bytes.decode()[:2000]}",
+                                "data": {"exit_code": exit_code},
+                            },
                         )
                     )
             await queue.put(None)

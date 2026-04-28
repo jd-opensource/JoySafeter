@@ -152,7 +152,11 @@ async def live_read_file(
         raise
     except Exception as e:
         logger.warning(f"Live read failed for {file_path}: {e}")
-        raise InternalServiceError(f"Failed to read file: {e}")
+        raise InternalServiceError(
+            "Failed to read file",
+            code="ARTIFACT_FILE_READ_FAILED",
+            data={"thread_id": thread_id, "file_path": file_path},
+        ) from e
     finally:
         if handle:
             await handle.release()

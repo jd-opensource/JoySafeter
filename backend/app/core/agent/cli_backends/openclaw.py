@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from typing import Any
 
 from loguru import logger
 
@@ -100,6 +101,7 @@ class OpenClawProvider:
         accumulated_text: list[str] = []
         final_status = "completed"
         final_error = ""
+        final_error_payload: dict[str, Any] | None = None
 
         try:
             async with asyncio.timeout(timeout):
@@ -116,17 +118,23 @@ class OpenClawProvider:
                         if msg.type == "error":
                             final_status = "failed"
                             final_error = msg.content
+                            final_error_payload = msg.error_payload
                         await queue.put(msg)
 
         except TimeoutError:
             if not result_future.done():
-                result_future.set_result(
-                    CLIResult(
-                        status="timeout",
-                        error="OpenClaw agent timed out",
-                        session_id=session_id,
+                    result_future.set_result(
+                        CLIResult(
+                            status="timeout",
+                            error="OpenClaw agent timed out",
+                            error_payload={
+                                "code": "OPENCLAW_AGENT_TIMEOUT",
+                                "message": "OpenClaw agent timed out",
+                                "data": {"session_id": session_id},
+                            },
+                            session_id=session_id,
+                        )
                     )
-                )
         except Exception as e:
             logger.error(f"OpenClaw drain error: {e}")
             if not result_future.done():
@@ -134,6 +142,11 @@ class OpenClawProvider:
                     CLIResult(
                         status="failed",
                         error=str(e),
+                        error_payload={
+                            "code": "OPENCLAW_AGENT_DRAIN_FAILED",
+                            "message": str(e),
+                            "data": {"session_id": session_id},
+                        },
                         session_id=session_id,
                     )
                 )
@@ -146,6 +159,7 @@ class OpenClawProvider:
                             status="failed",
                             output="\n".join(accumulated_text),
                             error=final_error,
+                            error_payload=final_error_payload,
                             session_id=session_id,
                         )
                     )
@@ -163,6 +177,11 @@ class OpenClawProvider:
                         CLIResult(
                             status="failed",
                             error=f"Exit code {exit_code}: {stdout_bytes.decode()[:2000]}",
+                            error_payload={
+                                "code": "OPENCLAW_AGENT_EXIT_FAILED",
+                                "message": f"Exit code {exit_code}: {stdout_bytes.decode()[:2000]}",
+                                "data": {"session_id": session_id, "exit_code": exit_code},
+                            },
                             session_id=session_id,
                         )
                     )
@@ -225,14 +244,14 @@ class OpenClawProvider:
             ]
 
         if event_type == "error":
-            error_msg = _extract_error_message(event)
-            return [CLIMessage(type="error", content=error_msg)]
+            error_payload = _extract_error_payload(event)
+            return [CLIMessage(type="error", content=error_payload["message"], error_payload=error_payload)]
 
         if event_type == "lifecycle":
             phase = event.get("phase", "")
             if phase in ("error", "failed", "cancelled"):
-                error_msg = _extract_error_message(event)
-                return [CLIMessage(type="error", content=error_msg)]
+                error_payload = _extract_error_payload(event)
+                return [CLIMessage(type="error", content=error_payload["message"], error_payload=error_payload)]
             return []
 
         if event_type == "step_start":
@@ -245,23 +264,34 @@ class OpenClawProvider:
         return []
 
 
-def _extract_error_message(event: dict) -> str:
-    """Extract a human-readable error from an OpenClaw event."""
-    # Structured error object
+def _extract_error_payload(event: dict) -> dict[str, Any]:
+    """Extract canonical error payload from an OpenClaw event."""
     err_obj = event.get("error")
     if isinstance(err_obj, dict):
-        data = err_obj.get("data")
-        if isinstance(data, dict) and data.get("message"):
-            return str(data["message"])
+        code = err_obj.get("code") or event.get("code") or "OPENCLAW_AGENT_ERROR"
+        data = err_obj.get("data") if isinstance(err_obj.get("data"), dict) else None
         if err_obj.get("message"):
-            return str(err_obj["message"])
+            return {"code": str(code), "message": str(err_obj["message"]), "data": data}
+        if isinstance(data, dict) and data.get("message"):
+            return {"code": str(code), "message": str(data["message"]), "data": data}
         if err_obj.get("name"):
-            return str(err_obj["name"])
+            return {"code": str(code), "message": str(err_obj["name"]), "data": data}
 
-    # Flat fields
     if event.get("text"):
-        return str(event["text"])
+        return {
+            "code": str(event.get("code") or "OPENCLAW_AGENT_ERROR"),
+            "message": str(event["text"]),
+            "data": None,
+        }
     if event.get("message"):
-        return str(event["message"])
+        return {
+            "code": str(event.get("code") or "OPENCLAW_AGENT_ERROR"),
+            "message": str(event["message"]),
+            "data": None,
+        }
 
-    return "unknown openclaw error"
+    return {
+        "code": str(event.get("code") or "OPENCLAW_AGENT_ERROR"),
+        "message": "unknown openclaw error",
+        "data": None,
+    }
