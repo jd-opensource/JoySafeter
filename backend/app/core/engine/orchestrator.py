@@ -245,6 +245,66 @@ class ExecutionOrchestrator:
             executor_kind_override="copilot",
         )
 
+    async def dispatch_debug(
+        self,
+        agent_id: uuid.UUID,
+        version_id: uuid.UUID,
+        prompt: str,
+        user_id: str,
+        workspace_id: uuid.UUID,
+        variables: dict | None = None,
+    ) -> AgentRun:
+        """Dispatch a debug run with observation tracing."""
+        version = await self._get_version(version_id)
+        if version.agent_id != agent_id:
+            raise InvalidRequestError(
+                "Version does not belong to this agent",
+                code="AGENT_VERSION_AGENT_MISMATCH",
+                data={"agent_id": str(agent_id), "version_id": str(version_id)},
+            )
+
+        agent = await self._get_agent(agent_id)
+        if agent.workspace_id != workspace_id:
+            raise InvalidRequestError(
+                "Agent does not belong to this workspace",
+                code="AGENT_WORKSPACE_MISMATCH",
+                data={"agent_id": str(agent_id), "workspace_id": str(workspace_id)},
+            )
+
+        run = await self._create_and_fire_draft(
+            agent=agent,
+            version=version,
+            workspace_id=workspace_id,
+            prompt=prompt,
+            trigger_source="debug",
+            user_id=user_id,
+            input_payload={"debug": True, "variables": variables or {}},
+            debug=True,
+        )
+
+        # Create Trace record for observation tracking
+        from datetime import datetime, timezone
+
+        from app.core.observation.model import Trace
+
+        if run.current_execution_id:
+            trace = Trace(
+                id=run.current_execution_id,
+                name=agent.name,
+                workspace_id=workspace_id,
+                start_time=datetime.now(timezone.utc),
+                status="running",
+                execution_id=run.current_execution_id,
+                agent_version_id=version_id,
+                user_id=uuid.UUID(user_id) if isinstance(user_id, str) else user_id,
+                session_id=f"debug-{user_id}-{version_id}-{datetime.now(timezone.utc).date()}",
+                input={"prompt": prompt, "variables": variables or {}},
+            )
+            self.db.add(trace)
+            await self.db.commit()
+
+        return run
+
     def _resolve_engine(self, execution: Execution, release: AgentRelease):
         """Resolve the correct engine for an execution.
 
@@ -562,6 +622,7 @@ class ExecutionOrchestrator:
         user_id: str,
         input_payload: dict | None = None,
         *,
+        debug: bool = False,
         engine_kind_override: str | None = None,
         definition_kind_override: str | None = None,
         definition_payload_override: dict | None = None,
@@ -621,6 +682,7 @@ class ExecutionOrchestrator:
                 engine_kind_override=engine_kind_override,
                 definition_kind_override=definition_kind_override,
                 definition_payload_override=definition_payload_override,
+                debug=debug,
             )
         except Exception as exc:
             logger.error(f"[Orchestrator] _fire_engine failed for draft run: {exc}")
@@ -697,6 +759,7 @@ class ExecutionOrchestrator:
         engine_kind_override: str | None = None,
         definition_kind_override: str | None = None,
         definition_payload_override: dict | None = None,
+        debug: bool = False,
     ) -> None:
         """Build context and fire engine in a background task."""
         credentials = build_agent_credentials(agent)
@@ -755,13 +818,47 @@ class ExecutionOrchestrator:
                     )
                     self._wire_context(ctx, **_run_meta)
 
-                    await engine.start(
-                        ctx,
-                        release_runtime_binding=runtime_binding,
-                        definition_kind=_def_kind,
-                        definition_payload=_def_payload,
-                        prompt=prompt,
-                    )
+                    collector = None
+                    if debug:
+                        from app.core.observation import (
+                            ObservationBroadcaster,
+                            ObservationCollector,
+                            ObservationWriter,
+                        )
+                        from app.core.observation.types import ObservationLevel
+
+                        async def _db_factory():
+                            return db
+
+                        collector = ObservationCollector(
+                            trace_id=execution.id,
+                            execution_id=execution.id,
+                            workspace_id=workspace_id,
+                            writer=ObservationWriter(_db_factory),
+                            broadcaster=ObservationBroadcaster(execution.id),
+                        )
+                        ctx.debug = True
+                        ctx.collector = collector
+
+                    try:
+                        await engine.start(
+                            ctx,
+                            release_runtime_binding=runtime_binding,
+                            definition_kind=_def_kind,
+                            definition_payload=_def_payload,
+                            prompt=prompt,
+                        )
+                    except Exception as exc:
+                        if collector:
+                            await collector.record_event(
+                                f"error:{type(exc).__name__}",
+                                input={"message": str(exc)},
+                                level=ObservationLevel.ERROR,
+                            )
+                        raise
+                    finally:
+                        if collector:
+                            await collector.finalize()
             except Exception as exc:
                 logger.error(f"[Orchestrator] Engine failed for execution {execution.id}: {exc}")
                 try:
