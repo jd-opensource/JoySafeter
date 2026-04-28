@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import uuid
-from typing import List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.app_errors import AccessDeniedError, InvalidRequestError, NotFoundError
-from app.common.dependencies import get_current_user
+from app.common.dependencies import CurrentUser, get_current_user
 from app.core.database import get_db
 from app.models.agent_run import AgentRun
 from app.models.auth import AuthUser as User
@@ -29,7 +30,50 @@ from app.services.dispatch_service import DispatchService
 from app.services.execution_service import ExecutionService
 from app.services.workspace_permission import check_workspace_access
 
+
+class DebugRunRequest(BaseModel):
+    agent_version_id: uuid.UUID
+    agent_id: uuid.UUID
+    prompt: str
+    workspace_id: uuid.UUID
+    variables: Optional[Dict[str, Any]] = None
+
 router = APIRouter(prefix="/v1/executions", tags=["Executions"])
+
+
+@router.post("/debug", response_model=BaseResponse)
+async def dispatch_debug_run(
+    body: DebugRunRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> BaseResponse:
+    """Start a debug run with observation tracing enabled."""
+    from app.core.engine.orchestrator import ExecutionOrchestrator
+
+    has_access = await check_workspace_access(db, body.workspace_id, current_user, WorkspaceMemberRole.member)
+    if not has_access:
+        raise AccessDeniedError("Insufficient workspace permission", code="WORKSPACE_PERMISSION_DENIED")
+
+    orchestrator = ExecutionOrchestrator(db)
+    run = await orchestrator.dispatch_debug(
+        agent_id=body.agent_id,
+        version_id=body.agent_version_id,
+        prompt=body.prompt,
+        user_id=str(current_user.id),
+        workspace_id=body.workspace_id,
+        variables=body.variables,
+    )
+
+    execution_id = run.current_execution_id
+    return BaseResponse(
+        success=True,
+        code=200,
+        msg="ok",
+        data={
+            "execution_id": str(execution_id),
+            "ws_topic": f"execution:{execution_id}",
+        },
+    )
 
 
 def _to_response(execution) -> ExecutionResponse:
