@@ -41,7 +41,7 @@ function DebugPanelInner({
     queryKey: ['traces', agentVersionId, workspaceId],
     queryFn: async () => {
       const data = await apiGet<Array<{ id: string; created_at: string }>>(
-        `/v1/traces?workspace_id=${workspaceId}&agent_version_id=${agentVersionId}&page_size=20`,
+        `/traces?workspace_id=${workspaceId}&agent_version_id=${agentVersionId}&page_size=20`,
       )
       return data.map((t) => ({ id: t.id, createdAt: t.created_at }))
     },
@@ -52,7 +52,7 @@ function DebugPanelInner({
     queryKey: ['trace-observations', replayTraceId],
     queryFn: async () => {
       const rawList = await apiGet<Record<string, unknown>[]>(
-        `/v1/traces/${replayTraceId}/observations`,
+        `/traces/${replayTraceId}/observations`,
       )
       return rawList.map(normalizeObservation)
     },
@@ -75,7 +75,7 @@ function DebugPanelInner({
       dispatch({ type: 'RESET' })
       try {
         const data = await apiPost<{ execution_id: string }>(
-          '/v1/executions/debug',
+          '/executions/debug',
           {
             agent_id: agentId,
             agent_version_id: agentVersionId,
@@ -94,7 +94,7 @@ function DebugPanelInner({
 
   const handleStop = useCallback(async () => {
     if (!executionId) return
-    await apiPost(`/v1/executions/${executionId}/stop`)
+    await apiPost(`/executions/${executionId}/stop`)
   }, [executionId])
 
   const handleSelectTrace = useCallback(
