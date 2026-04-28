@@ -22,13 +22,13 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
             return self._active_spans[parent_run_id]
         return self._root_span
 
-    async def on_llm_start(self, serialized: dict, prompts: list[str], *,
+    async def on_llm_start(self, serialized: dict | None, prompts: list[str], *,
                            run_id: uuid.UUID, parent_run_id: uuid.UUID | None = None,
                            **kwargs: Any) -> None:
         parent = self._resolve_parent(parent_run_id)
         span = await parent.child_span(
             ObservationType.GENERATION,
-            name=serialized.get("name", "llm"),
+            name=(serialized or {}).get("name", "") or kwargs.get("name", "llm"),
             input={"messages": prompts},
         )
         self._active_spans[run_id] = span
@@ -44,13 +44,13 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
                 output["model"] = response.llm_output.get("model_name")
             await span.end(output=output)
 
-    async def on_tool_start(self, serialized: dict, input_str: str, *,
+    async def on_tool_start(self, serialized: dict | None, input_str: str, *,
                             run_id: uuid.UUID, parent_run_id: uuid.UUID | None = None,
                             **kwargs: Any) -> None:
         parent = self._resolve_parent(parent_run_id)
         span = await parent.child_span(
             ObservationType.TOOL,
-            name=serialized.get("name", "tool"),
+            name=(serialized or {}).get("name", "") or kwargs.get("name", "tool"),
             input={"arguments": input_str},
         )
         self._active_spans[run_id] = span
@@ -60,10 +60,10 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
         if span:
             await span.end(output={"result": output})
 
-    async def on_chain_start(self, serialized: dict, inputs: dict, *,
+    async def on_chain_start(self, serialized: dict | None, inputs: dict, *,
                              run_id: uuid.UUID, parent_run_id: uuid.UUID | None = None,
                              **kwargs: Any) -> None:
-        name = serialized.get("name", "")
+        name = (serialized or {}).get("name", "") or kwargs.get("name", "chain")
         parent = self._resolve_parent(parent_run_id)
         obs_type = ObservationType.AGENT if self._is_worker_dispatch(name) else ObservationType.CHAIN
         span = await parent.child_span(obs_type, name=name, input=inputs)
