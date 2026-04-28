@@ -34,6 +34,8 @@ class ExecutionContext:
     credentials: dict[str, str] = field(default_factory=dict)
     auto_approve: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
+    debug: bool = False
+    collector: Any = None  # ObservationCollector | None — import avoided for no circular deps
 
     # ---- set by orchestrator after construction ----
     _emit_fn: Any = None  # async (event_type, payload) -> None
