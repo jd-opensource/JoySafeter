@@ -1,5 +1,8 @@
 """Trace context propagation via contextvars.
 
+DEPRECATED: Use ObservationCollector.trace_id instead for new code.
+Retained because logging.py, a2a/client.py, and stream_event_handler.py still import it.
+
 Provides a single trace_id that flows through the entire async call chain:
 HTTP middleware / WS handler → StreamState → LangGraph → tools → persistence.
 """
