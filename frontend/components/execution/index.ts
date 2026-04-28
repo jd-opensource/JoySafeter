@@ -1,7 +1,6 @@
 export { ExecutionTree } from './ExecutionTree'
 export { ExecutionTimelineView as ExecutionTimeline } from './ExecutionTimeline'
 export { ExecutionDetailPanel } from './ExecutionDetailPanel'
-export { ExecutionPanelNew } from './ExecutionPanelNew'
 export { JsonView } from './JsonView'
 export { MetadataTab } from './MetadataTab'
 export { OutputTab } from './OutputTab'

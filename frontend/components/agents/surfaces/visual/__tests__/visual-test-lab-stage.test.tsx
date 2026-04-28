@@ -6,19 +6,8 @@ vi.mock('@/lib/i18n', () => ({
     t: (_key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? _key,
   }),
 }))
-vi.mock('@/components/editors/graph-builder/stores/graphStore', () => ({
-  useGraphStore: { setState: vi.fn() },
-}))
-vi.mock('@/components/editors/graph-builder/stores/execution/executionStore', () => ({
-  useExecutionStore: () => ({
-    isExecuting: false,
-    setCurrentGraphId: vi.fn(),
-    startDraftExecution: vi.fn(),
-    stopExecution: vi.fn(),
-  }),
-}))
-vi.mock('@/components/execution/ExecutionPanelNew', () => ({
-  ExecutionPanelNew: () => <div data-testid="execution-panel">Execution</div>,
+vi.mock('@/components/observation/components/DebugPanel', () => ({
+  DebugPanel: () => <div data-testid="debug-panel">DebugPanel</div>,
 }))
 
 import { VisualTestLabStage } from '../visual-test-lab-stage'
@@ -31,15 +20,19 @@ const baseProps = {
 }
 
 describe('VisualTestLabStage', () => {
-  it('renders test input and run button', () => {
+  it('renders header with title and subtitle', () => {
     render(<VisualTestLabStage {...baseProps} />)
-    expect(screen.getByPlaceholderText(/enter a sample request/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /run draft/i })).toBeInTheDocument()
+    expect(screen.getByText('Test the current draft')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Run draft behavior before publishing. These tests do not affect the active release.',
+      ),
+    ).toBeInTheDocument()
   })
 
-  it('renders execution panel', () => {
+  it('renders DebugPanel', () => {
     render(<VisualTestLabStage {...baseProps} />)
-    expect(screen.getByTestId('execution-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('debug-panel')).toBeInTheDocument()
   })
 
   it('has navigation buttons using navigateToStage', () => {

@@ -21,7 +21,7 @@ import { cn } from '@/lib/utils'
 import { CodeEditor } from './components/CodeEditor'
 import { useCodeEditorStore } from './stores/codeEditorStore'
 import { useExecutionStore } from './stores/execution/executionStore'
-import { ExecutionPanelNew as ExecutionPanel } from '@/components/execution/ExecutionPanelNew'
+import { DebugPanel } from '@/components/observation/components/DebugPanel'
 import { RunInputModal } from './components/RunInputModal'
 import { usePublishAgent } from '@/hooks/queries/agentPublish'
 import { useAgent } from '@/hooks/queries/agents'
@@ -41,6 +41,7 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
   const save = useCodeEditorStore((s) => s.save)
   const graphName = useCodeEditorStore((s) => s.graphName)
   const setGraphName = useCodeEditorStore((s) => s.setGraphName)
+  const versionId = useCodeEditorStore((s) => s.versionId)
 
   const publishAgent = usePublishAgent()
   const { data: agent } = useAgent(graphId, workspaceId)
@@ -180,7 +181,13 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
         onClose={() => setIsRunModalOpen(false)}
       />
 
-      {showExecutionPanel && <ExecutionPanel />}
+      {showExecutionPanel && (
+        <DebugPanel
+          agentId={graphId}
+          agentVersionId={versionId ?? ''}
+          workspaceId={workspaceId}
+        />
+      )}
     </div>
   )
 }
