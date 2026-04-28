@@ -826,16 +826,20 @@ class ExecutionOrchestrator:
                             ObservationWriter,
                         )
                         from app.core.observation.types import ObservationLevel
+                        from app.websocket.execution_subscription_manager import execution_subscription_manager
 
                         async def _db_factory():
                             return db
+
+                        async def _broadcast(exec_id: Any, message: dict) -> None:
+                            await execution_subscription_manager.broadcast_event(str(exec_id), message)
 
                         collector = ObservationCollector(
                             trace_id=execution.id,
                             execution_id=execution.id,
                             workspace_id=workspace_id,
                             writer=ObservationWriter(_db_factory),
-                            broadcaster=ObservationBroadcaster(execution.id),
+                            broadcaster=ObservationBroadcaster(execution.id, broadcast_fn=_broadcast),
                         )
                         ctx.debug = True
                         ctx.collector = collector
