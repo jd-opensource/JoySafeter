@@ -15,6 +15,10 @@ class CLIMessage:
     input: dict | None = None
     output: str = ""
     error_payload: dict[str, Any] | None = None
+    # Observation/instrumentation fields — used by CLIObservationExtractor
+    tool_name: str | None = None
+    tool_input: dict | None = None
+    usage: dict | None = None
 
 
 def build_control_response(request_id: str, behavior: str) -> str:
