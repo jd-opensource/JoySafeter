@@ -66,7 +66,9 @@ class Trace(Base):
 
     input: dict | None                     # 用户的调试 prompt
     output: dict | None                    # 最终输出摘要
-    metadata: dict | None                  # agent_version_id, definition_kind, etc.
+    meta: dict | None                      # agent_version_id, definition_kind, etc.
+                                           # 属性名用 meta 避免与 SQLAlchemy Base.metadata 冲突
+                                           # 数据库列名仍为 "metadata"：Column("metadata", JSONB)
 
     environment: str = "debug"             # 调试运行恒为 "debug"
     tags: list[str] = []
@@ -112,7 +114,7 @@ class Observation(Base):
 
     input: dict | None
     output: dict | None
-    metadata: dict | None
+    meta: dict | None                      # 属性名用 meta，列名仍为 "metadata"
 
     # GENERATION 专用
     model: str | None
@@ -216,16 +218,21 @@ class SpanHandle:
 class ObservationWriter:
     async def insert(self, observation: Observation) -> None
     async def update(self, observation_id: uuid.UUID, fields: dict) -> None
-    async def finalize(self) -> None  # 清空所有 buffer
+    async def flush(self) -> None          # collector.flush() 委托到此方法
+    async def finalize(self) -> None       # flush + 清空所有 buffer + 关闭资源
 ```
 
 ### 4.5 ObservationBroadcaster
 
 复用现有 WebSocket 连接。不走 EventBus，直接调用 ws_manager。
+持有每 trace 单调递增的 `seq` 计数器（前端用于消息去重和顺序校验）。
 
 ```python
 class ObservationBroadcaster:
-    def __init__(self, execution_id: uuid.UUID): ...
+    def __init__(self, execution_id: uuid.UUID):
+        self._execution_id = execution_id
+        self._seq = 0                      # 每 trace 单调递增
+
     async def emit(self, event: str, observation: dict) -> None
     # event: span_open / span_update / span_close / record / trace_complete
 ```
@@ -261,6 +268,9 @@ async def _dispatch(self, context, ...):
     finally:
         if collector:
             await collector.finalize()
+            # finalize 自动关闭未关闭的 span 时，已记录 ERROR 级 event 的 trace
+            # 状态置为 "error"；未记录 ERROR 的置为 "completed"。
+            # 自动关闭的 span 标记 level=WARNING，不会覆盖已存在的 ERROR 标记。
 ```
 
 ExecutionContext 扩展:
@@ -341,7 +351,7 @@ if collector:
         output={"completion": accumulated_text},
         model=model_name,
         usage_details=extracted_usage,
-        cost_details=None,
+        cost_details=None,                 # v1 Copilot 不计算 cost
         latency_ms=elapsed_ms,
     )
 ```
@@ -392,7 +402,7 @@ if collector:
 | event | 含义 | 触发时机 |
 |---|---|---|
 | `span_open` | 新 span 开始 | start_span / start_agent / start_chain |
-| `span_update` | span 中间更新（流式 token 追加等） | 可选，用于 GENERATION 流式场景 |
+| `span_update` | span 中间更新（流式 token 追加等） | v1 仅 CopilotEngine 在流式 GENERATION 时发射（可选） |
 | `span_close` | span 结束 | end_span，填入 end_time + output |
 | `record` | 瞬时事件 | record_event / record_generation / record_tool（已完成的） |
 | `trace_complete` | 整个 trace 结束 | collector.finalize() |
@@ -550,7 +560,7 @@ backend/migrations/versions/xxxx_add_traces_observations.py
 | 文件 | 原因 |
 |---|---|
 | `core/agent/langfuse_callback.py` | 被 `observation/instrumentation/langchain_handler.py` 替代 |
-| `core/trace_context.py` | ContextVar 传播被 collector trace_id 替代（如有外部依赖则标记 deprecated） |
+| `core/trace_context.py` | 被 collector trace_id 替代；删除前需 grep 确认无外部调用者（如有则标记 deprecated 保留） |
 
 ## 10. 数据库迁移
 
