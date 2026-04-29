@@ -1,310 +1,187 @@
-"""Central ObservationCollector — all engines call this to emit trace observations."""
+"""ObservationCollector — OTel-backed central API for observation tracing."""
 from __future__ import annotations
 
+import asyncio
 import uuid
-from typing import Any
+from typing import Any, Callable, Coroutine
 
-from app.core.observation.model import Observation
-from app.core.observation.types import ObservationLevel, ObservationType, SpanHandle
+import sqlalchemy as sa
+from loguru import logger
+from opentelemetry import trace
+
+from app.core.observation.instrumentation.langchain_handler import (
+    ObservationCallbackHandler,
+)
+from app.core.observation.model import Trace
+from app.core.observation.otel.provider import ObservationTracerProvider
+from app.core.observation.otel.span_wrapper import ObservationSpan
+from app.core.observation.types import ObservationLevel, ObservationType
 from app.utils.datetime import utc_now
 
 
 class ObservationCollector:
-    """Creates, tracks, and finalises observation spans for a single trace."""
-
     def __init__(
         self,
-        *,
         trace_id: uuid.UUID,
         execution_id: uuid.UUID,
         workspace_id: uuid.UUID,
-        writer: Any,
-        broadcaster: Any,
+        db_session_factory: Callable[..., Coroutine[Any, Any, Any]],
+        broadcast_fn: Callable[..., Coroutine[Any, Any, None]] | None = None,
     ) -> None:
+        self._loop = asyncio.get_running_loop()
+        self._provider = ObservationTracerProvider(
+            execution_id=execution_id,
+            trace_id=trace_id,
+            workspace_id=workspace_id,
+            db_session_factory=db_session_factory,
+            broadcast_fn=broadcast_fn,
+            event_loop=self._loop,
+        )
+        self._tracer = self._provider.get_tracer()
         self._trace_id = trace_id
         self._execution_id = execution_id
-        self._workspace_id = workspace_id
-        self._writer = writer
-        self._broadcaster = broadcaster
+        self._db_session_factory = db_session_factory
 
-        self._open_spans: dict[uuid.UUID, Observation] = {}
-        self._has_error = False
-        self._total_tokens = 0
-        self._total_cost = 0.0
-
-    # ------------------------------------------------------------------
-    # Span lifecycle
-    # ------------------------------------------------------------------
-
-    async def start_span(
+    def start_span(
         self,
-        observation_type: ObservationType,
+        obs_type: ObservationType,
         name: str,
         *,
-        parent_id: uuid.UUID | None = None,
-        input: dict | None = None,
+        parent: ObservationSpan | None = None,
+        input: Any = None,
         metadata: dict | None = None,
         level: ObservationLevel = ObservationLevel.DEFAULT,
-    ) -> SpanHandle:
-        obs = Observation(
-            id=uuid.uuid4(),
-            trace_id=self._trace_id,
-            execution_id=self._execution_id,
-            workspace_id=self._workspace_id,
-            parent_observation_id=parent_id,
-            type=observation_type,
-            name=name,
-            level=level,
-            start_time=utc_now(),
-            input=input,
-            meta=metadata,
+    ) -> ObservationSpan:
+        obs_id = uuid.uuid4()
+
+        parent_ctx = None
+        if parent:
+            parent_ctx = trace.set_span_in_context(parent._span)
+
+        otel_span = self._tracer.start_span(
+            name,
+            context=parent_ctx,
+            attributes={
+                "observation.id": str(obs_id),
+                "observation.type": obs_type.value,
+                "observation.level": level.value,
+            },
         )
-        await self._writer.insert(obs)
-        self._open_spans[obs.id] = obs
-        await self._broadcaster.emit("span_open", self._obs_to_dict(obs))
-        return SpanHandle(observation_id=obs.id, collector=self)
 
-    async def end_span(
-        self,
-        span: SpanHandle,
-        *,
-        output: dict | None = None,
-        level: ObservationLevel | None = None,
-    ) -> None:
-        end_time = utc_now()
-        fields: dict[str, Any] = {"end_time": end_time}
-        if output is not None:
-            fields["output"] = output
-        if level is not None:
-            fields["level"] = level.value
+        obs = ObservationSpan(otel_span, obs_id, self._provider)
 
-        await self._writer.update(span.observation_id, fields)
+        if input is not None:
+            obs.set_input(input)
+        if metadata:
+            obs.set_metadata(metadata)
 
-        obs = self._open_spans.pop(span.observation_id, None)
-        if obs:
-            obs.end_time = end_time
-            if output is not None:
-                obs.output = output
-            if level is not None:
-                obs.level = level.value
-            await self._broadcaster.emit("span_close", self._obs_to_dict(obs))
-        else:
-            await self._broadcaster.emit("span_close", {
-                "id": str(span.observation_id),
-                "end_time": end_time.isoformat(),
-                **({"output": output} if output is not None else {}),
-            })
-
-    # ------------------------------------------------------------------
-    # Convenience: instant (complete) observations
-    # ------------------------------------------------------------------
-
-    async def _record_instant(
-        self,
-        observation_type: ObservationType,
-        name: str,
-        *,
-        parent_id: uuid.UUID | None = None,
-        input: dict | None = None,
-        output: dict | None = None,
-        metadata: dict | None = None,
-        level: ObservationLevel = ObservationLevel.DEFAULT,
-        model: str | None = None,
-        usage_details: dict | None = None,
-        cost_details: dict | None = None,
-        has_end_time: bool = True,
-    ) -> Observation:
-        now = utc_now()
-        obs = Observation(
-            id=uuid.uuid4(),
-            trace_id=self._trace_id,
-            execution_id=self._execution_id,
-            workspace_id=self._workspace_id,
-            parent_observation_id=parent_id,
-            type=observation_type,
-            name=name,
-            level=level,
-            start_time=now,
-            end_time=now if has_end_time else None,
-            input=input,
-            output=output,
-            model=model,
-            usage_details=usage_details,
-            cost_details=cost_details,
-            meta=metadata,
-        )
-        await self._writer.insert(obs)
-        await self._broadcaster.emit("record", self._obs_to_dict(obs))
         return obs
 
-    async def record_generation(
+    def start_agent(self, name: str, **kw: Any) -> ObservationSpan:
+        return self.start_span(ObservationType.AGENT, name, **kw)
+
+    def child_span(
+        self,
+        parent: ObservationSpan,
+        obs_type: ObservationType,
+        name: str,
+        *,
+        input: Any = None,
+        **kw: Any,
+    ) -> ObservationSpan:
+        return self.start_span(obs_type, name, parent=parent, input=input, **kw)
+
+    def record_generation(
         self,
         name: str,
         *,
-        parent_id: uuid.UUID | None = None,
-        input: dict | None = None,
-        output: dict | None = None,
+        parent: ObservationSpan | None = None,
+        input: Any = None,
+        output: Any = None,
         model: str | None = None,
         usage_details: dict | None = None,
         cost_details: dict | None = None,
-        latency_ms: int | None = None,
         metadata: dict | None = None,
         level: ObservationLevel = ObservationLevel.DEFAULT,
-    ) -> uuid.UUID:
-        obs = await self._record_instant(
+        **kw: Any,
+    ) -> ObservationSpan:
+        span = self.start_span(
             ObservationType.GENERATION, name,
-            parent_id=parent_id, input=input, output=output, metadata=metadata,
-            level=level, model=model, usage_details=usage_details, cost_details=cost_details,
+            parent=parent, input=input, metadata=metadata, level=level,
         )
-        if usage_details and "total" in usage_details:
-            self._total_tokens += usage_details["total"]
-        if cost_details and "total" in cost_details:
-            self._total_cost += cost_details["total"]
-        return obs.id
+        if output is not None:
+            span.set_output(output)
+        if model:
+            span.set_model(model)
+        if usage_details:
+            span.set_usage(usage_details)
+        if cost_details:
+            span.set_cost(cost_details)
+        span.end()
+        return span
 
-    async def record_tool(
+    def record_tool(
         self,
         name: str,
         *,
-        parent_id: uuid.UUID | None = None,
-        input: dict | None = None,
-        output: dict | None = None,
-        latency_ms: int | None = None,
+        parent: ObservationSpan | None = None,
+        input: Any = None,
+        output: Any = None,
         metadata: dict | None = None,
         level: ObservationLevel = ObservationLevel.DEFAULT,
-    ) -> uuid.UUID:
-        obs = await self._record_instant(
+        **kw: Any,
+    ) -> ObservationSpan:
+        span = self.start_span(
             ObservationType.TOOL, name,
-            parent_id=parent_id, input=input, output=output,
-            metadata=metadata, level=level,
+            parent=parent, input=input, metadata=metadata, level=level,
         )
-        return obs.id
+        if output is not None:
+            span.set_output(output)
+        span.end()
+        return span
 
-    async def record_event(
+    def record_event(
         self,
         name: str,
         *,
-        parent_id: uuid.UUID | None = None,
-        input: dict | None = None,
+        parent: ObservationSpan | None = None,
+        input: Any = None,
         metadata: dict | None = None,
         level: ObservationLevel = ObservationLevel.DEFAULT,
-    ) -> uuid.UUID:
-        obs = await self._record_instant(
+        **kw: Any,
+    ) -> ObservationSpan:
+        span = self.start_span(
             ObservationType.EVENT, name,
-            parent_id=parent_id, input=input, metadata=metadata,
-            level=level, has_end_time=False,
+            parent=parent, input=input, metadata=metadata, level=level,
         )
-        if level == ObservationLevel.ERROR:
-            self._has_error = True
-        return obs.id
+        span.end()
+        return span
 
-    # ------------------------------------------------------------------
-    # Convenience: named span starters
-    # ------------------------------------------------------------------
+    def create_langchain_handler(self) -> ObservationCallbackHandler:
+        return ObservationCallbackHandler(self._tracer, self._provider)
 
-    async def start_agent(self, name: str, **kwargs: Any) -> SpanHandle:
-        return await self.start_span(ObservationType.AGENT, name, **kwargs)
+    async def finalize(self, status: str = "complete") -> None:
+        agg = self._provider.get_persistence_aggregates()
+        final_status = "error" if agg["has_error"] else status
+        self._provider.broadcast_trace_complete(final_status, agg)
+        await self._provider.shutdown()
+        await self._update_trace_row(final_status, agg)
 
-    async def start_chain(self, name: str, **kwargs: Any) -> SpanHandle:
-        return await self.start_span(ObservationType.CHAIN, name, **kwargs)
-
-    # ------------------------------------------------------------------
-    # Convenience: additional instant records
-    # ------------------------------------------------------------------
-
-    async def record_retriever(
-        self,
-        name: str,
-        *,
-        parent_id: uuid.UUID | None = None,
-        input: dict | None = None,
-        output: dict | None = None,
-        latency_ms: int | None = None,
-        metadata: dict | None = None,
-        level: ObservationLevel = ObservationLevel.DEFAULT,
-    ) -> uuid.UUID:
-        obs = await self._record_instant(
-            ObservationType.RETRIEVER, name,
-            parent_id=parent_id, input=input, output=output,
-            metadata=metadata, level=level,
-        )
-        return obs.id
-
-    async def record_embedding(
-        self,
-        name: str,
-        *,
-        parent_id: uuid.UUID | None = None,
-        input: dict | None = None,
-        output: dict | None = None,
-        model: str | None = None,
-        usage_details: dict | None = None,
-        cost_details: dict | None = None,
-        latency_ms: int | None = None,
-        metadata: dict | None = None,
-        level: ObservationLevel = ObservationLevel.DEFAULT,
-    ) -> uuid.UUID:
-        obs = await self._record_instant(
-            ObservationType.EMBEDDING, name,
-            parent_id=parent_id, input=input, output=output,
-            metadata=metadata, level=level, model=model,
-            usage_details=usage_details, cost_details=cost_details,
-        )
-        return obs.id
-
-    # ------------------------------------------------------------------
-    # Flush / Finalize
-    # ------------------------------------------------------------------
-
-    async def flush(self) -> None:
-        await self._writer.flush()
-
-    async def finalize(self) -> None:
-        now = utc_now()
-        for obs_id in list(self._open_spans):
-            await self._writer.update(obs_id, {
-                "end_time": now,
-                "level": ObservationLevel.WARNING.value,
-            })
-        self._open_spans.clear()
-        await self._writer.finalize()
-
-        status = "error" if self._has_error else "complete"
-        await self._broadcaster.emit("trace_complete", {
-            "trace_id": str(self._trace_id),
-            "execution_id": str(self._execution_id),
-            "status": status,
-            "total_tokens": self._total_tokens,
-            "total_cost": self._total_cost,
-        })
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _fmt_dt(dt: Any) -> str | None:
-        return dt.isoformat() if dt else None
-
-    @staticmethod
-    def _obs_to_dict(obs: Observation) -> dict[str, Any]:
-        fmt = ObservationCollector._fmt_dt
-        return {
-            "id": str(obs.id),
-            "trace_id": str(obs.trace_id),
-            "parent_observation_id": str(obs.parent_observation_id) if obs.parent_observation_id else None,
-            "type": obs.type,
-            "name": obs.name,
-            "level": obs.level,
-            "start_time": fmt(obs.start_time),
-            "end_time": fmt(obs.end_time),
-            "completion_start_time": fmt(obs.completion_start_time),
-            "input": obs.input,
-            "output": obs.output,
-            "metadata": obs.meta,
-            "model": obs.model,
-            "usage_details": obs.usage_details,
-            "cost_details": obs.cost_details,
-            "tool_calls": obs.tool_calls,
-            "tool_call_names": obs.tool_call_names,
-        }
+    async def _update_trace_row(self, status: str, agg: dict) -> None:
+        try:
+            session = await self._db_session_factory()
+            now = utc_now()
+            await session.execute(
+                sa.update(Trace)
+                .where(Trace.id == self._trace_id)
+                .values(
+                    status=status,
+                    end_time=now,
+                    total_observations=agg["total_observations"],
+                    total_tokens=agg["total_tokens"],
+                    total_cost=agg["total_cost"],
+                )
+            )
+            await session.commit()
+        except Exception:
+            logger.opt(exception=True).warning("Failed to update Trace row")
