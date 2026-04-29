@@ -2,13 +2,17 @@
 from __future__ import annotations
 
 from app.core.observation.collector import ObservationCollector
-from app.core.observation.types import SpanHandle
+from app.core.observation.otel.span_wrapper import ObservationSpan
 
 
 class FileOperationTracker:
-    def __init__(self, collector: ObservationCollector, parent_span: SpanHandle | None = None):
+    def __init__(
+        self,
+        collector: ObservationCollector,
+        parent_span: ObservationSpan | None = None,
+    ):
         self._collector = collector
-        self._parent_id = parent_span.observation_id if parent_span else None
+        self._parent_span = parent_span
 
     async def track_write(self, path: str, content: bytes | str) -> None:
         size, preview = self._byte_len(content), None
@@ -24,9 +28,9 @@ class FileOperationTracker:
     async def _track(self, path: str, operation: str, size: int, **extra: str | None) -> None:
         meta: dict = {"file.path": path, "file.operation": operation, "file.size_bytes": size}
         meta.update({k: v for k, v in extra.items() if v is not None})
-        await self._collector.record_event(
+        self._collector.record_event(
             f"file:{operation} {path}",
-            parent_id=self._parent_id,
+            parent=self._parent_span,
             metadata=meta,
         )
 

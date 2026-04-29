@@ -1,10 +1,10 @@
-# backend/app/core/observation/instrumentation/cli_extractor.py
 """CLI message stream → observation extractor for CLI engines."""
 from __future__ import annotations
 
 from app.core.agent.cli_backends.base import CLIMessage
 from app.core.observation.collector import ObservationCollector
-from app.core.observation.types import ObservationType, SpanHandle
+from app.core.observation.otel.span_wrapper import ObservationSpan
+from app.core.observation.types import ObservationType
 
 
 FILE_TOOLS = frozenset({
@@ -14,11 +14,11 @@ FILE_TOOLS = frozenset({
 
 
 class CLIObservationExtractor:
-    def __init__(self, collector: ObservationCollector, root_span: SpanHandle):
+    def __init__(self, collector: ObservationCollector, root_span: ObservationSpan):
         self._collector = collector
         self._root = root_span
         self._text_buffer: list[str] = []
-        self._current_tool_span: SpanHandle | None = None
+        self._current_tool_span: ObservationSpan | None = None
         self._current_usage: dict | None = None
 
     async def process_message(self, msg: CLIMessage) -> None:
@@ -30,8 +30,8 @@ class CLIObservationExtractor:
                 await self._flush_generation()
                 tool_name = msg.tool_name or msg.tool or msg.content or "tool"
                 tool_input = msg.tool_input or msg.input or {}
-                self._current_tool_span = await self._root.child_span(
-                    ObservationType.TOOL, name=tool_name,
+                self._current_tool_span = self._collector.child_span(
+                    self._root, ObservationType.TOOL, name=tool_name,
                     input={"arguments": tool_input},
                 )
                 if tool_name in FILE_TOOLS:
@@ -41,16 +41,16 @@ class CLIObservationExtractor:
                         if "read" in tool_name.lower() or tool_name in ("Read", "Glob", "Grep")
                         else "write"
                     )
-                    await self._current_tool_span.record_event(
+                    self._collector.record_event(
                         f"file:{op} {path}",
+                        parent=self._current_tool_span,
                         metadata={"file.path": path, "file.operation": op},
                     )
 
             case "tool_result":
                 if self._current_tool_span:
-                    await self._current_tool_span.end(
-                        output={"result": msg.content}
-                    )
+                    self._current_tool_span.set_output({"result": msg.content})
+                    self._current_tool_span.end()
                     self._current_tool_span = None
 
             case "usage":
@@ -67,13 +67,12 @@ class CLIObservationExtractor:
         usage = self._current_usage or {}
         self._current_usage = None
 
-        await self._collector.record_generation(
+        self._collector.record_generation(
             "cli-generation",
-            parent_id=self._root.observation_id,
+            parent=self._root,
             input=None,
             output={"completion": text},
             model=None,
             usage_details=usage if usage else None,
             cost_details=None,
-            latency_ms=0,
         )
