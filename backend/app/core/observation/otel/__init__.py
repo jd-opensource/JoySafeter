@@ -1,0 +1,1 @@
+"""OpenTelemetry-backed observation pipeline."""
