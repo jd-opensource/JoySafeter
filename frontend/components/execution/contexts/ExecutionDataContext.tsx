@@ -13,7 +13,7 @@ import React, { createContext, useContext, useMemo } from 'react'
 
 import type { ExecutionStep, ExecutionTreeNode, ExecutionTreeFlatItem } from '@/types'
 
-import { flattenTree } from '@/components/editors/graph-builder/lib/tree-building'
+import { flattenTree } from '@/components/editors/graph-builder/lib/execution-tree-building'
 
 interface ExecutionDataContextValue {
   steps: ExecutionStep[]

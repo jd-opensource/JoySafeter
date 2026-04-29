@@ -15,11 +15,14 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.app_errors import NotFoundError
-from app.common.dependencies import CurrentUser
+from app.common.app_errors import AccessDeniedError, NotFoundError
+from app.common.dependencies import CurrentUser, require_workspace_role
 from app.core.database import get_db
 from app.core.observation.model import Observation, Trace
+from app.models.auth import AuthUser as User
+from app.models.workspace import WorkspaceMemberRole
 from app.schemas import BaseResponse
+from app.services.workspace_permission import check_workspace_access
 
 router = APIRouter(prefix="/v1/traces", tags=["Traces"])
 
@@ -39,7 +42,7 @@ class TraceSchema(BaseResponse):
 
 @router.get("", response_model=BaseResponse)
 async def list_traces(
-    current_user: CurrentUser,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
     workspace_id: uuid.UUID = Query(..., description="Filter by Workspace ID (required)"),
     agent_version_id: Optional[uuid.UUID] = Query(None, description="Filter by Agent Version ID"),
     page: int = Query(1, ge=1, description="Page number (1-based)"),
@@ -79,6 +82,9 @@ async def get_trace(
     if trace is None:
         raise NotFoundError("Trace not found", code="TRACE_NOT_FOUND", data={"trace_id": str(trace_id)})
 
+    if not await check_workspace_access(db, trace.workspace_id, current_user, WorkspaceMemberRole.viewer):
+        raise AccessDeniedError("Insufficient workspace permission", code="WORKSPACE_PERMISSION_DENIED")
+
     return BaseResponse(
         success=True,
         code=200,
@@ -98,6 +104,9 @@ async def get_trace_observations(
     trace = (await db.execute(select(Trace).where(Trace.id == trace_id))).scalar_one_or_none()
     if trace is None:
         raise NotFoundError("Trace not found", code="TRACE_NOT_FOUND", data={"trace_id": str(trace_id)})
+
+    if not await check_workspace_access(db, trace.workspace_id, current_user, WorkspaceMemberRole.viewer):
+        raise AccessDeniedError("Insufficient workspace permission", code="WORKSPACE_PERMISSION_DENIED")
 
     stmt = (
         select(Observation)
@@ -132,15 +141,20 @@ def _trace_to_dict(trace: Trace) -> dict[str, Any]:
         "status": trace.status,
         "input": trace.input,
         "output": trace.output,
+        "metadata": trace.meta,
         "start_time": trace.start_time.isoformat() if trace.start_time else None,
         "end_time": trace.end_time.isoformat() if trace.end_time else None,
         "duration_ms": trace.duration_ms,
+        "total_observations": trace.total_observations,
         "total_tokens": trace.total_tokens,
         "total_cost": float(trace.total_cost) if trace.total_cost is not None else None,
         "tags": trace.tags,
         "session_id": trace.session_id,
         "environment": trace.environment,
+        "release": trace.release,
+        "version": trace.version,
         "bookmarked": trace.bookmarked,
+        "public": trace.public,
         "created_at": trace.created_at.isoformat() if trace.created_at else None,
     }
 
@@ -154,6 +168,7 @@ def _observation_to_dict(obs: Observation) -> dict[str, Any]:
         "name": obs.name,
         "level": obs.level,
         "status_message": obs.status_message,
+        "environment": obs.environment,
         "start_time": obs.start_time.isoformat() if obs.start_time else None,
         "end_time": obs.end_time.isoformat() if obs.end_time else None,
         "completion_start_time": obs.completion_start_time.isoformat() if obs.completion_start_time else None,
@@ -164,8 +179,10 @@ def _observation_to_dict(obs: Observation) -> dict[str, Any]:
         "model_parameters": obs.model_parameters,
         "usage_details": obs.usage_details,
         "cost_details": obs.cost_details,
+        "prompt_name": obs.prompt_name,
+        "prompt_version": obs.prompt_version,
+        "tool_definitions": obs.tool_definitions,
         "tool_calls": obs.tool_calls,
-        "tool_call_names": obs.tool_call_names,
         "execution_id": str(obs.execution_id),
         "workspace_id": str(obs.workspace_id),
         "created_at": obs.created_at.isoformat() if obs.created_at else None,

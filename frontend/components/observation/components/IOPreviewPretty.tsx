@@ -1,10 +1,11 @@
 import { useMemo } from 'react'
 import { ChatMessage } from './ChatMessage'
+import { PrettyJsonView } from './PrettyJsonView'
 
 interface IOPreviewPrettyProps {
   input: unknown
   output: unknown
-  observationName?: string
+  metadata?: Record<string, unknown> | null
 }
 
 interface ChatMlMessage {
@@ -35,9 +36,10 @@ function normalizeOutput(output: unknown): { success: boolean; messages: ChatMlM
     typeof output === 'object' &&
     output !== null &&
     'choices' in output &&
-    Array.isArray((output as any).choices)
+    Array.isArray((output as Record<string, unknown>).choices)
   ) {
-    const msg = (output as any).choices[0]?.message
+    const msg = ((output as Record<string, unknown>).choices as Record<string, unknown>[])[0]
+      ?.message
     if (msg) return { success: true, messages: [msg as ChatMlMessage] }
   }
   if (typeof output === 'string') {
@@ -46,7 +48,7 @@ function normalizeOutput(output: unknown): { success: boolean; messages: ChatMlM
   return { success: false, messages: [] }
 }
 
-export function IOPreviewPretty({ input, output, observationName }: IOPreviewPrettyProps) {
+export function IOPreviewPretty({ input, output, metadata }: IOPreviewPrettyProps) {
   const { canDisplayAsChat, messages } = useMemo(() => {
     const inResult = normalizeInput(input)
     const outResult = normalizeOutput(output)
@@ -58,34 +60,32 @@ export function IOPreviewPretty({ input, output, observationName }: IOPreviewPre
     }
   }, [input, output])
 
-  if (!canDisplayAsChat) {
+  if (canDisplayAsChat) {
     return (
-      <div className="space-y-4 p-4">
-        {input != null && (
-          <div>
-            <div className="mb-1 text-xs font-medium text-muted-foreground">Input</div>
-            <pre className="overflow-auto rounded bg-muted p-2 text-xs">
-              {JSON.stringify(input, null, 2)}
-            </pre>
-          </div>
-        )}
-        {output != null && (
-          <div>
-            <div className="mb-1 text-xs font-medium text-muted-foreground">Output</div>
-            <pre className="overflow-auto rounded bg-muted p-2 text-xs">
-              {JSON.stringify(output, null, 2)}
-            </pre>
-          </div>
+      <div>
+        <div className="space-y-3 p-4">
+          {messages.map((msg, i) => (
+            <ChatMessage key={i} message={msg} />
+          ))}
+        </div>
+        {metadata != null && Object.keys(metadata).length > 0 && (
+          <PrettyJsonView data={metadata} title="Metadata" section="metadata" />
         )}
       </div>
     )
   }
 
   return (
-    <div className="space-y-3 p-4">
-      {messages.map((msg, i) => (
-        <ChatMessage key={i} message={msg} />
-      ))}
+    <div>
+      {input != null && (
+        <PrettyJsonView data={input} title="Input" section="input" />
+      )}
+      {output != null && (
+        <PrettyJsonView data={output} title="Output" section="output" />
+      )}
+      {metadata != null && Object.keys(metadata).length > 0 && (
+        <PrettyJsonView data={metadata} title="Metadata" section="metadata" />
+      )}
     </div>
   )
 }

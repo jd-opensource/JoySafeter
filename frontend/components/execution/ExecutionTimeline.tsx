@@ -17,7 +17,7 @@ import { useRef, useMemo, useEffect } from 'react'
 
 import { cn } from '@/lib/utils'
 
-import { getTraceDuration } from '@/components/editors/graph-builder/lib/tree-building'
+import { getTraceDuration } from '@/components/editors/graph-builder/lib/execution-tree-building'
 
 import { useExecutionData } from './contexts/ExecutionDataContext'
 import { useExecutionSelection } from './contexts/ExecutionSelectionContext'

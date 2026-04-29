@@ -21,12 +21,14 @@ export interface ObservationNode {
   metadata: Record<string, unknown> | null
 
   model?: string
+  modelParameters?: Record<string, unknown> | null
   usageDetails?: Record<string, number>
-  costDetails?: Record<string, number>
   calculatedInputCost?: number | null
   calculatedOutputCost?: number | null
   calculatedTotalCost?: number | null
-  toolCalls?: Array<{ id: string; name: string; arguments: unknown }>
+  environment?: string | null
+  promptName?: string | null
+  promptVersion?: number | null
 
   children: ObservationNode[]
   depth: number
@@ -98,9 +100,13 @@ export interface RawObservation {
   output: unknown
   metadata: Record<string, unknown> | null
   model?: string
+  modelParameters?: Record<string, unknown> | null
   usageDetails?: Record<string, number>
   costDetails?: Record<string, number>
   calculatedInputCost?: number | null
   calculatedOutputCost?: number | null
   calculatedTotalCost?: number | null
+  environment?: string | null
+  promptName?: string | null
+  promptVersion?: number | null
 }

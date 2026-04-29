@@ -54,6 +54,10 @@ class BroadcastProcessor(LiveSpanProcessor):
             "output": parse_json_attr(attrs.get("observation.output")) if include_end else None,
             "metadata": parse_json_attr(attrs.get("observation.metadata")),
             "model": attrs.get("llm.model"),
+            "model_parameters": parse_json_attr(attrs.get("llm.parameters")),
+            "completion_start_time": attrs.get("llm.completion_start_time"),
+            "prompt_name": attrs.get("llm.prompt.name"),
+            "prompt_version": attrs.get("llm.prompt.version"),
             "usage_details": build_usage(attrs) if include_end else None,
             "cost_details": build_cost(attrs) if include_end else None,
         }

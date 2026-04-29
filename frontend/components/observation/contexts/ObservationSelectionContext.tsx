@@ -85,7 +85,14 @@ export function ObservationSelectionProvider({ children }: { children: React.Rea
   }, [])
 
   const [selectedTab, setSelectedTab] = useState<'preview' | 'scores'>('preview')
-  const [viewPref, setViewPref] = useState<'formatted' | 'json'>('formatted')
+  const [viewPref, _setViewPref] = useState<'formatted' | 'json'>(() => {
+    if (typeof window === 'undefined') return 'formatted'
+    return (localStorage.getItem('obs-view-pref') as 'formatted' | 'json') ?? 'formatted'
+  })
+  const setViewPref = useCallback((v: 'formatted' | 'json') => {
+    localStorage.setItem('obs-view-pref', v)
+    _setViewPref(v)
+  }, [])
 
   const value = useMemo(
     () => ({

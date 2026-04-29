@@ -4,12 +4,12 @@ import { cn } from '@/lib/utils'
 import { useObservationData } from '../contexts/ObservationDataContext'
 import { useObservationSelection } from '../contexts/ObservationSelectionContext'
 import { useStreamingText } from '../contexts/StreamingTextContext'
-import { ItemBadge } from './ItemBadge'
+import { ObservationDetailHeader } from './ObservationDetailHeader'
 import { IOPreview } from './IOPreview'
+import { PrettyJsonView } from './PrettyJsonView'
 import {
   formatIntervalSeconds,
   usdFormatter,
-  formatTokenCounts,
 } from '../lib/helpers'
 import type { ObservationNode } from '../lib/types'
 
@@ -40,52 +40,6 @@ function TraceSummaryView() {
   )
 }
 
-function ObservationHeader({ node }: { node: ObservationNode }) {
-  return (
-    <div className="space-y-2 border-b px-4 py-3">
-      <div className="flex items-center gap-2">
-        <ItemBadge type={node.type} showLabel />
-        <span className="truncate text-sm font-medium">{node.name}</span>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {node.latency != null && (
-          <span className="rounded bg-muted px-2 py-0.5 text-xs">
-            {formatIntervalSeconds(node.latency)}
-          </span>
-        )}
-        {node.totalCost > 0 && (
-          <span className="rounded bg-muted px-2 py-0.5 text-xs" title="Total cost (including children)">
-            {node.children.length > 0 ? '∑ ' : ''}
-            {usdFormatter(node.totalCost)}
-          </span>
-        )}
-        {(node.totalUsage ?? node.inputUsage ?? node.outputUsage) != null && (
-          <span className="rounded bg-muted px-2 py-0.5 text-xs">
-            {formatTokenCounts(node.inputUsage, node.outputUsage, node.totalUsage)}
-          </span>
-        )}
-        {node.model && (
-          <span className="rounded bg-muted px-2 py-0.5 text-xs">
-            {node.model}
-          </span>
-        )}
-        {node.level !== 'DEFAULT' && (
-          <span
-            className={cn(
-              'rounded px-2 py-0.5 text-xs',
-              node.level === 'ERROR' && 'bg-red-100 text-red-700',
-              node.level === 'WARNING' && 'bg-yellow-100 text-yellow-700',
-              node.level === 'DEBUG' && 'bg-gray-100 text-gray-600',
-            )}
-          >
-            {node.level}
-          </span>
-        )}
-      </div>
-    </div>
-  )
-}
-
 function StreamingTextView({ text }: { text: string }) {
   return (
     <div className="space-y-2 px-4 py-3">
@@ -101,25 +55,64 @@ function StreamingTextView({ text }: { text: string }) {
   )
 }
 
+function ViewPrefToggle() {
+  const { viewPref, setViewPref } = useObservationSelection()
+
+  return (
+    <div className="ml-auto flex items-center gap-0.5 rounded-md bg-muted p-0.5">
+      <button
+        className={cn(
+          'rounded px-2 py-0.5 text-xs transition-colors',
+          viewPref === 'formatted' && 'bg-background shadow-sm',
+        )}
+        onClick={() => setViewPref('formatted')}
+      >
+        Formatted
+      </button>
+      <button
+        className={cn(
+          'rounded px-2 py-0.5 text-xs transition-colors',
+          viewPref === 'json' && 'bg-background shadow-sm',
+        )}
+        onClick={() => setViewPref('json')}
+      >
+        JSON
+      </button>
+    </div>
+  )
+}
+
 function ObservationDetail({ node }: { node: ObservationNode }) {
   const { viewPref } = useObservationSelection()
   const streamingText = useStreamingText(node.id)
   const isStreaming = streamingText !== undefined && node.endTime === null
 
   return (
-    <div className="h-full overflow-auto">
-      <ObservationHeader node={node} />
-      {isStreaming ? (
-        <StreamingTextView text={streamingText ?? ''} />
-      ) : (
-        <IOPreview
-          input={node.input}
-          output={node.output}
-          metadata={node.metadata}
-          observationName={node.name}
-          currentView={viewPref === 'formatted' ? 'pretty' : 'json'}
-        />
-      )}
+    <div className="flex h-full flex-col overflow-hidden">
+      <ObservationDetailHeader node={node} />
+
+      <div className="flex h-9 shrink-0 items-center border-b px-3">
+        <span className="text-xs font-medium text-foreground">Preview</span>
+        <ViewPrefToggle />
+      </div>
+
+      <div className="flex-1 overflow-auto">
+        {isStreaming ? (
+          <>
+            {node.input != null && (
+              <PrettyJsonView data={node.input} title="Input" section="input" />
+            )}
+            <StreamingTextView text={streamingText ?? ''} />
+          </>
+        ) : (
+          <IOPreview
+            input={node.input}
+            output={node.output}
+            metadata={node.metadata}
+            currentView={viewPref === 'formatted' ? 'pretty' : 'json'}
+          />
+        )}
+      </div>
     </div>
   )
 }

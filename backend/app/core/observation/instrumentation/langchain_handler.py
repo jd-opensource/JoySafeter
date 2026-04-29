@@ -32,9 +32,9 @@ def _safe_json(obj: Any) -> Any:
     if isinstance(obj, (list, tuple)):
         return [_safe_json(v) for v in obj]
     if hasattr(obj, "model_dump"):
-        return obj.model_dump()
+        return _safe_json(obj.model_dump())
     if hasattr(obj, "dict"):
-        return obj.dict()
+        return _safe_json(obj.dict())
     try:
         json.dumps(obj)
         return obj
@@ -54,6 +54,26 @@ class RootRunState:
 
 
 _FLUSH_INTERVAL_S = 0.1
+
+_MODEL_PARAMETER_KEYS = (
+    "temperature",
+    "max_tokens",
+    "max_completion_tokens",
+    "top_p",
+    "frequency_penalty",
+    "presence_penalty",
+    "request_timeout",
+    "stop",
+    "stop_sequences",
+)
+
+
+def _parse_model_parameters(kwargs: dict[str, Any]) -> dict[str, Any] | None:
+    inv = kwargs.get("invocation_params")
+    if not inv or not isinstance(inv, dict):
+        return None
+    params = {k: inv[k] for k in _MODEL_PARAMETER_KEYS if inv.get(k) is not None}
+    return params or None
 
 
 class _TokenBuffer:
@@ -214,6 +234,40 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
 
     # --- LLM hooks ---
 
+    def _apply_llm_attributes(
+        self,
+        obs: ObservationSpan,
+        run_id: uuid.UUID,
+        parent_run_id: uuid.UUID | None,
+        *,
+        serialized: dict[str, Any] | None,
+        metadata: dict[str, Any] | None,
+        kwargs: dict[str, Any],
+    ) -> None:
+        model = extract_model_name(
+            metadata=metadata,
+            serialized=serialized,
+            kwargs=kwargs,
+            response=None,
+        )
+        if model:
+            obs.set_model(model)
+
+        model_params = _parse_model_parameters(kwargs)
+        if model_params:
+            obs.set_model_parameters(model_params)
+
+        inv_params = kwargs.get("invocation_params")
+        if inv_params and isinstance(inv_params, dict):
+            tools = inv_params.get("tools")
+            if tools and isinstance(tools, list):
+                obs.set_tool_definitions(_safe_json(tools))
+
+        if metadata:
+            obs.set_metadata(metadata)
+
+        self._maybe_link_prompt(run_id, parent_run_id, obs)
+
     async def on_chat_model_start(
         self,
         serialized: dict[str, Any] | None,
@@ -238,23 +292,10 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
             )
             obs.set_input({"messages": input_msgs})
 
-            model = extract_model_name(
-                metadata=metadata,
-                serialized=serialized,
-                kwargs=kwargs,
-                response=None,
+            self._apply_llm_attributes(
+                obs, run_id, parent_run_id,
+                serialized=serialized, metadata=metadata, kwargs=kwargs,
             )
-            if model:
-                obs.set_model(model)
-
-            inv_params = kwargs.get("invocation_params")
-            if inv_params:
-                obs.set_model_parameters(inv_params)
-
-            if metadata:
-                obs.set_metadata(metadata)
-
-            self._maybe_link_prompt(run_id, parent_run_id, obs)
         except Exception:
             logger.opt(exception=True).debug("on_chat_model_start failed")
 
@@ -277,19 +318,10 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
             )
             obs.set_input({"prompts": prompts})
 
-            model = extract_model_name(
-                metadata=metadata,
-                serialized=serialized or {},
-                kwargs=kwargs,
-                response=None,
+            self._apply_llm_attributes(
+                obs, run_id, parent_run_id,
+                serialized=serialized or {}, metadata=metadata, kwargs=kwargs,
             )
-            if model:
-                obs.set_model(model)
-
-            if metadata:
-                obs.set_metadata(metadata)
-
-            self._maybe_link_prompt(run_id, parent_run_id, obs)
         except Exception:
             logger.opt(exception=True).debug("on_llm_start failed")
 
@@ -318,6 +350,10 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
                     gen = gen_list[0]
                     if hasattr(gen, "message"):
                         output = serialize_message(gen.message)
+                        msg = gen.message
+                        tool_calls = getattr(msg, "tool_calls", None)
+                        if tool_calls:
+                            obs.set_tool_calls(_safe_json(tool_calls))
                     elif hasattr(gen, "text"):
                         output = {"completion": gen.text}
 

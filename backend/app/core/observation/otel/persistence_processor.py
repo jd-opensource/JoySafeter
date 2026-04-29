@@ -99,6 +99,7 @@ class PersistenceProcessor(SpanProcessor):
             type=str(attrs.get("observation.type", ObservationType.SPAN.value)),
             name=span.name,
             level=str(attrs.get("observation.level", ObservationLevel.DEFAULT.value)),
+            status_message=attrs.get("observation.status_message"),  # type: ignore[arg-type]
             start_time=ns_to_datetime(span.start_time),
             end_time=ns_to_datetime(span.end_time),
             input=parse_json_attr(attrs.get("observation.input")),

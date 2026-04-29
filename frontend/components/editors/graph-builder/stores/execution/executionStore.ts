@@ -22,7 +22,7 @@ import type {
 import type { AppErrorPayload } from '@/types/agent-run'
 import type { ExecutionStep, ExecutionTreeNode } from '@/types'
 
-import { buildExecutionTree } from '../../lib/tree-building'
+import { buildExecutionTree } from '../../lib/execution-tree-building'
 import type { GraphState, TraceStep } from './types'
 import { generateId } from './utils'
 

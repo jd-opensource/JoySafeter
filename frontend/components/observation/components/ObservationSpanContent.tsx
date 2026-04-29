@@ -24,7 +24,16 @@ export function ObservationSpanContent({
 
   return (
     <div className="flex min-w-0 items-center gap-2">
+      {node.endTime === null && (
+        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-green-500" />
+      )}
       <span className="truncate text-sm">{node.name}</span>
+
+      {node.model && (
+        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-2xs text-muted-foreground">
+          {node.model}
+        </span>
+      )}
 
       {showDuration && node.latency != null && (
         <span

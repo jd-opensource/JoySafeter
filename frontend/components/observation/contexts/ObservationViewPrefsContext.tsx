@@ -6,11 +6,9 @@ interface ObservationViewPrefsValue {
   showDuration: boolean
   showCostTokens: boolean
   colorCodeMetrics: boolean
-  jsonViewPreference: 'pretty' | 'json'
   setShowDuration: (v: boolean) => void
   setShowCostTokens: (v: boolean) => void
   setColorCodeMetrics: (v: boolean) => void
-  setJsonViewPreference: (v: 'pretty' | 'json') => void
 }
 
 const ObservationViewPrefsCtx = createContext<ObservationViewPrefsValue | null>(null)
@@ -21,18 +19,10 @@ function readBool(key: string, fallback: boolean): boolean {
   return v === null ? fallback : v === 'true'
 }
 
-function readString<T extends string>(key: string, fallback: T): T {
-  if (typeof window === 'undefined') return fallback
-  return (localStorage.getItem(key) as T) ?? fallback
-}
-
 export function ObservationViewPrefsProvider({ children }: { children: React.ReactNode }) {
   const [showDuration, _setShowDuration] = useState(() => readBool('obs-show-duration', true))
   const [showCostTokens, _setShowCostTokens] = useState(() => readBool('obs-show-cost-tokens', true))
   const [colorCodeMetrics, _setColorCodeMetrics] = useState(() => readBool('obs-color-code-metrics', true))
-  const [jsonViewPreference, _setJsonViewPreference] = useState<'pretty' | 'json'>(() =>
-    readString('obs-json-view-pref', 'pretty'),
-  )
 
   const setShowDuration = useCallback((v: boolean) => {
     localStorage.setItem('obs-show-duration', String(v))
@@ -46,18 +36,14 @@ export function ObservationViewPrefsProvider({ children }: { children: React.Rea
     localStorage.setItem('obs-color-code-metrics', String(v))
     _setColorCodeMetrics(v)
   }, [])
-  const setJsonViewPreference = useCallback((v: 'pretty' | 'json') => {
-    localStorage.setItem('obs-json-view-pref', v)
-    _setJsonViewPreference(v)
-  }, [])
 
   const value = useMemo(
     () => ({
-      showDuration, showCostTokens, colorCodeMetrics, jsonViewPreference,
-      setShowDuration, setShowCostTokens, setColorCodeMetrics, setJsonViewPreference,
+      showDuration, showCostTokens, colorCodeMetrics,
+      setShowDuration, setShowCostTokens, setColorCodeMetrics,
     }),
-    [showDuration, showCostTokens, colorCodeMetrics, jsonViewPreference,
-     setShowDuration, setShowCostTokens, setColorCodeMetrics, setJsonViewPreference],
+    [showDuration, showCostTokens, colorCodeMetrics,
+     setShowDuration, setShowCostTokens, setColorCodeMetrics],
   )
 
   return (

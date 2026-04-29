@@ -53,18 +53,24 @@ function parseRawToNode(
     output: raw.output ?? null,
     metadata: raw.metadata ?? null,
     model: raw.model,
+    modelParameters: raw.modelParameters ?? null,
     usageDetails: raw.usageDetails,
-    costDetails: raw.costDetails,
     calculatedInputCost: raw.calculatedInputCost ?? null,
     calculatedOutputCost: raw.calculatedOutputCost ?? null,
     calculatedTotalCost: raw.calculatedTotalCost ?? null,
+    environment: raw.environment ?? null,
+    promptName: raw.promptName ?? null,
+    promptVersion: raw.promptVersion ?? null,
     children: [],
     depth: parentNode ? parentNode.depth + 1 : 0,
     childrenDepth: 0,
     totalCost: raw.calculatedTotalCost ?? 0,
     inputUsage: raw.usageDetails?.input ?? null,
     outputUsage: raw.usageDetails?.output ?? null,
-    totalUsage: raw.usageDetails?.total ?? null,
+    totalUsage: raw.usageDetails?.total
+      ?? (raw.usageDetails?.input != null || raw.usageDetails?.output != null
+        ? (raw.usageDetails?.input ?? 0) + (raw.usageDetails?.output ?? 0)
+        : null),
     latency: endTime ? (endTime.getTime() - startTime.getTime()) / 1000 : null,
     startTimeSinceTrace: startTime.getTime() - traceStartTime.getTime(),
     startTimeSinceParentStart: parentNode
@@ -164,14 +170,31 @@ function reducer(state: ObservationDataState, action: ObservationAction): Observ
       const updated = { ...existing }
       if (action.observation.endTime)
         updated.endTime = new Date(action.observation.endTime)
+      if (action.observation.completionStartTime)
+        updated.completionStartTime = new Date(action.observation.completionStartTime)
+      if (action.observation.input !== undefined) updated.input = action.observation.input
       if (action.observation.output !== undefined) updated.output = action.observation.output
+      if (action.observation.model !== undefined) updated.model = action.observation.model
+      if (action.observation.metadata !== undefined) updated.metadata = action.observation.metadata
+      if (action.observation.statusMessage !== undefined) updated.statusMessage = action.observation.statusMessage
+      if (action.observation.modelParameters !== undefined) updated.modelParameters = action.observation.modelParameters
+      if (action.observation.environment !== undefined) updated.environment = action.observation.environment
+      if (action.observation.promptName !== undefined) updated.promptName = action.observation.promptName
+      if (action.observation.promptVersion !== undefined) updated.promptVersion = action.observation.promptVersion
       if (action.observation.calculatedTotalCost !== undefined)
         updated.calculatedTotalCost = action.observation.calculatedTotalCost as number
+      if (action.observation.calculatedInputCost !== undefined)
+        updated.calculatedInputCost = action.observation.calculatedInputCost as number
+      if (action.observation.calculatedOutputCost !== undefined)
+        updated.calculatedOutputCost = action.observation.calculatedOutputCost as number
       if (action.observation.usageDetails !== undefined) {
         updated.usageDetails = action.observation.usageDetails
         updated.inputUsage = updated.usageDetails?.input ?? null
         updated.outputUsage = updated.usageDetails?.output ?? null
-        updated.totalUsage = updated.usageDetails?.total ?? null
+        updated.totalUsage = updated.usageDetails?.total
+          ?? (updated.inputUsage != null || updated.outputUsage != null
+            ? (updated.inputUsage ?? 0) + (updated.outputUsage ?? 0)
+            : null)
       }
       updated.latency = updated.endTime
         ? (updated.endTime.getTime() - updated.startTime.getTime()) / 1000

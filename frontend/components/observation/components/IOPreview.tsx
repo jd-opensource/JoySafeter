@@ -5,7 +5,6 @@ interface IOPreviewProps {
   input: unknown
   output: unknown
   metadata?: Record<string, unknown> | null
-  observationName?: string
   currentView: 'pretty' | 'json'
 }
 
@@ -13,7 +12,6 @@ export function IOPreview({
   input,
   output,
   metadata,
-  observationName,
   currentView,
 }: IOPreviewProps) {
   if (currentView === 'json') {
@@ -23,7 +21,7 @@ export function IOPreview({
     <IOPreviewPretty
       input={input}
       output={output}
-      observationName={observationName}
+      metadata={metadata}
     />
   )
 }

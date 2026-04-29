@@ -18,10 +18,14 @@ export function normalizeObservation(raw: Record<string, unknown>): RawObservati
     output: raw.output ?? null,
     metadata: (raw.metadata ?? raw.meta ?? null) as Record<string, unknown> | null,
     model: raw.model as string | undefined,
+    modelParameters: (raw.model_parameters ?? raw.modelParameters ?? null) as Record<string, unknown> | null,
     usageDetails: (raw.usage_details ?? raw.usageDetails) as Record<string, number> | undefined,
     costDetails,
     calculatedInputCost: (raw.calculatedInputCost ?? costDetails?.input ?? null) as number | null,
     calculatedOutputCost: (raw.calculatedOutputCost ?? costDetails?.output ?? null) as number | null,
     calculatedTotalCost: (raw.calculatedTotalCost ?? costDetails?.total ?? null) as number | null,
+    environment: (raw.environment ?? null) as string | null,
+    promptName: (raw.prompt_name ?? raw.promptName ?? null) as string | null,
+    promptVersion: (raw.prompt_version ?? raw.promptVersion ?? null) as number | null,
   }
 }

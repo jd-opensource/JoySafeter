@@ -91,7 +91,6 @@ class Observation(Base):
 
     tool_definitions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     tool_calls: Mapped[list | None] = mapped_column(JSONB, nullable=True)
-    tool_call_names: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
 
     execution_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
