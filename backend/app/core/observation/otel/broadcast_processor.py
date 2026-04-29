@@ -76,9 +76,11 @@ class BroadcastProcessor(LiveSpanProcessor):
         self, span: ObservationSpan, event_name: str, attributes: dict
     ) -> None:
         parent_obs_id: str | None = None
-        if hasattr(span, "_span") and span._span.parent:
+        raw_span = getattr(span, "_span", None)
+        parent = getattr(raw_span, "parent", None)
+        if parent is not None:
             parent_obs_id = self._otel_span_id_to_observation_id.get(
-                span._span.parent.span_id
+                parent.span_id
             )
         self._emit(event_name, {
             "observation_id": str(span.observation_id),

@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 import asyncio
-import itertools
 import uuid
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import MagicMock
 
 import pytest
 

@@ -207,12 +207,15 @@ class PersistenceProcessor(SpanProcessor):
         """Write a batch of Observation rows to PG."""
         if not buffer:
             return
+        session = await self._db_session_factory()
         try:
-            session = await self._db_session_factory()
             session.add_all(buffer)
             await session.commit()
         except Exception:
             logger.opt(exception=True).warning("PersistenceProcessor flush failed")
+            await session.rollback()
+        finally:
+            await session.close()
 
     # ---- Helpers ----
 
