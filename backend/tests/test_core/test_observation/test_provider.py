@@ -39,9 +39,9 @@ async def test_dispatch_live_event_routes_to_broadcast():
     mock_span = MagicMock()
     # Patch the BroadcastProcessor's on_event to verify dispatch
     provider._live_processors[0].on_event = MagicMock()
-    provider.dispatch_live_event(mock_span, "llm_token", {"token": "Hi"})
+    provider.dispatch_live_event(mock_span, "streaming_text", {"text": "Hi"})
     provider._live_processors[0].on_event.assert_called_once_with(
-        mock_span, "llm_token", {"token": "Hi"}
+        mock_span, "streaming_text", {"text": "Hi"}
     )
 
 

@@ -113,7 +113,7 @@ async def test_stream_events_skipped_in_on_end():
         event_loop=loop,
     )
     stream_event = MagicMock()
-    stream_event.name = "stream.llm_token"
+    stream_event.name = "stream.intermediate_update"
     persist_event = MagicMock()
     persist_event.name = "retry"
     persist_event.attributes = {"attempt": 1}

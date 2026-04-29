@@ -1,15 +1,13 @@
 'use client'
 
-import { Suspense } from 'react'
 import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels'
 import { Search, TreePine, GanttChart, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { ObservationViewPrefsProvider } from './contexts/ObservationViewPrefsContext'
-import { ObservationDataProvider, useObservationData } from './contexts/ObservationDataContext'
-import { ObservationSelectionProvider, useObservationSelection } from './contexts/ObservationSelectionContext'
-import { ObservationJsonExpansionProvider } from './contexts/ObservationJsonExpansionContext'
+import { useObservationData } from './contexts/ObservationDataContext'
+import { useObservationSelection } from './contexts/ObservationSelectionContext'
 import { ObservationNavigation } from './components/ObservationNavigation'
 import { ObservationDetailPanel } from './components/ObservationDetailPanel'
+import { ObservationProviders } from './components/ObservationProviders'
 import { usdFormatter, formatTokenCounts } from './lib/helpers'
 
 export function Toolbar() {
@@ -106,16 +104,8 @@ function ObservationPanelContent() {
 
 export function ObservationPanel() {
   return (
-    <ObservationViewPrefsProvider>
-      <ObservationDataProvider>
-        <Suspense fallback={null}>
-          <ObservationSelectionProvider>
-            <ObservationJsonExpansionProvider>
-              <ObservationPanelContent />
-            </ObservationJsonExpansionProvider>
-          </ObservationSelectionProvider>
-        </Suspense>
-      </ObservationDataProvider>
-    </ObservationViewPrefsProvider>
+    <ObservationProviders>
+      <ObservationPanelContent />
+    </ObservationProviders>
   )
 }

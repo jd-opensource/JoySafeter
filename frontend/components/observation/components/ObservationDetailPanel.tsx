@@ -3,6 +3,7 @@
 import { cn } from '@/lib/utils'
 import { useObservationData } from '../contexts/ObservationDataContext'
 import { useObservationSelection } from '../contexts/ObservationSelectionContext'
+import { useStreamingText } from '../contexts/StreamingTextContext'
 import { ItemBadge } from './ItemBadge'
 import { IOPreview } from './IOPreview'
 import {
@@ -85,19 +86,40 @@ function ObservationHeader({ node }: { node: ObservationNode }) {
   )
 }
 
+function StreamingTextView({ text }: { text: string }) {
+  return (
+    <div className="space-y-2 px-4 py-3">
+      <div className="flex items-center gap-2">
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
+        <span className="text-xs font-medium text-muted-foreground">Streaming</span>
+      </div>
+      <div className="whitespace-pre-wrap rounded-sm bg-muted/30 p-3 font-mono text-xs leading-relaxed">
+        {text}
+        <span className="ml-0.5 inline-block h-3 w-1.5 animate-pulse bg-foreground align-middle" />
+      </div>
+    </div>
+  )
+}
+
 function ObservationDetail({ node }: { node: ObservationNode }) {
   const { viewPref } = useObservationSelection()
+  const streamingText = useStreamingText(node.id)
+  const isStreaming = streamingText !== undefined && node.endTime === null
 
   return (
     <div className="h-full overflow-auto">
       <ObservationHeader node={node} />
-      <IOPreview
-        input={node.input}
-        output={node.output}
-        metadata={node.metadata}
-        observationName={node.name}
-        currentView={viewPref === 'formatted' ? 'pretty' : 'json'}
-      />
+      {isStreaming ? (
+        <StreamingTextView text={streamingText ?? ''} />
+      ) : (
+        <IOPreview
+          input={node.input}
+          output={node.output}
+          metadata={node.metadata}
+          observationName={node.name}
+          currentView={viewPref === 'formatted' ? 'pretty' : 'json'}
+        />
+      )}
     </div>
   )
 }

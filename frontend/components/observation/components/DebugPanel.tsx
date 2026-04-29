@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels'
 import { useObservationData } from '../contexts/ObservationDataContext'
@@ -8,14 +8,10 @@ import { useObservationStream } from '../hooks/useObservationStream'
 import { DebugToolbar } from './DebugToolbar'
 import { ObservationNavigation } from './ObservationNavigation'
 import { ObservationDetailPanel } from './ObservationDetailPanel'
-import { ObservationViewPrefsProvider } from '../contexts/ObservationViewPrefsContext'
-import { ObservationDataProvider } from '../contexts/ObservationDataContext'
-import { ObservationSelectionProvider } from '../contexts/ObservationSelectionContext'
-import { ObservationJsonExpansionProvider } from '../contexts/ObservationJsonExpansionContext'
+import { ObservationProviders } from './ObservationProviders'
 import { normalizeObservation } from '../lib/normalize'
 import { Toolbar } from '../ObservationPanel'
 import { apiGet, apiPost } from '@/lib/api-client'
-import type { RawObservation } from '../lib/types'
 
 interface DebugPanelProps {
   agentId: string
@@ -136,16 +132,8 @@ function DebugPanelInner({
 
 export function DebugPanel(props: DebugPanelProps) {
   return (
-    <ObservationViewPrefsProvider>
-      <ObservationDataProvider>
-        <Suspense fallback={null}>
-          <ObservationSelectionProvider>
-            <ObservationJsonExpansionProvider>
-              <DebugPanelInner {...props} />
-            </ObservationJsonExpansionProvider>
-          </ObservationSelectionProvider>
-        </Suspense>
-      </ObservationDataProvider>
-    </ObservationViewPrefsProvider>
+    <ObservationProviders>
+      <DebugPanelInner {...props} />
+    </ObservationProviders>
   )
 }

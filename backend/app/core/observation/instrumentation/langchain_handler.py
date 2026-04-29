@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -52,6 +53,38 @@ class RootRunState:
     run_ids: set[uuid.UUID] = field(default_factory=set)
 
 
+_FLUSH_INTERVAL_S = 0.1
+
+
+class _TokenBuffer:
+    __slots__ = ("_parts", "_accumulated", "_last_flush", "_dirty")
+
+    def __init__(self) -> None:
+        self._parts: list[str] = []
+        self._accumulated = ""
+        self._last_flush = time.monotonic()
+        self._dirty = False
+
+    def append(self, token: str) -> str | None:
+        self._parts.append(token)
+        self._dirty = True
+        now = time.monotonic()
+        if now - self._last_flush >= _FLUSH_INTERVAL_S:
+            self._last_flush = now
+            self._accumulated = self._accumulated + "".join(self._parts)
+            self._parts.clear()
+            return self._accumulated
+        return None
+
+    def drain(self) -> str | None:
+        if not self._dirty:
+            return None
+        if self._parts:
+            self._accumulated = self._accumulated + "".join(self._parts)
+            self._parts.clear()
+        return self._accumulated
+
+
 class ObservationCallbackHandler(AsyncCallbackHandler):
     def __init__(self, tracer: Tracer, provider: ObservationTracerProvider) -> None:
         self._tracer = tracer
@@ -60,6 +93,7 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
         self._run_states: dict[uuid.UUID, RunState] = {}
         self._root_run_states: dict[uuid.UUID, RootRunState] = {}
         self._completion_start_memo: set[uuid.UUID] = set()
+        self._token_buffers: dict[uuid.UUID, _TokenBuffer] = {}
         self._prompt_to_parent: dict[uuid.UUID, Any] = {}
 
     # --- run tree ---
@@ -267,9 +301,15 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
         **kwargs: Any,
     ) -> None:
         try:
+            buf = self._token_buffers.pop(run_id, None)
             obs = self._detach_span(run_id)
             if not obs:
                 return
+
+            if buf:
+                final_text = buf.drain()
+                if final_text is not None:
+                    obs.flush_streaming_text(final_text)
 
             output: dict[str, Any] = {}
             if hasattr(response, "generations") and response.generations:
@@ -304,6 +344,7 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
         **kwargs: Any,
     ) -> None:
         try:
+            self._token_buffers.pop(run_id, None)
             obs = self._detach_span(run_id)
             if obs:
                 obs.set_level(ObservationLevel.ERROR)
@@ -328,6 +369,13 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
             if run_id not in self._completion_start_memo:
                 self._completion_start_memo.add(run_id)
                 obs.set_completion_start_time(datetime.now(tz=timezone.utc))
+            buf = self._token_buffers.get(run_id)
+            if buf is None:
+                buf = _TokenBuffer()
+                self._token_buffers[run_id] = buf
+            text = buf.append(token)
+            if text is not None:
+                obs.flush_streaming_text(text)
         except Exception:
             logger.opt(exception=True).debug("on_llm_new_token failed")
 

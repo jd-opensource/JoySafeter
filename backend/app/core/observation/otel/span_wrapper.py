@@ -87,6 +87,11 @@ class ObservationSpan:
 
     # --- streaming events ---
 
+    def flush_streaming_text(self, text: str) -> None:
+        self._provider.dispatch_live_event(
+            self, "streaming_text", {"text": text}
+        )
+
     def add_intermediate_update(self, payload: dict) -> None:
         self._span.add_event("stream.intermediate_update", {
             "payload_json": json.dumps(payload, default=str),

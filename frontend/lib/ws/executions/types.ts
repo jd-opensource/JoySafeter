@@ -46,7 +46,7 @@ export interface ExecutionWsErrorFrame {
 export interface ExecutionObservationFrame {
   type: 'observation'
   execution_id: string
-  event: 'span_open' | 'span_close' | 'span_update' | 'trace_complete'
+  event: 'span_open' | 'span_close' | 'span_update' | 'trace_complete' | 'streaming_text'
   observation: Record<string, unknown> | null
   data: Record<string, unknown>
   timestamp: string
