@@ -160,13 +160,24 @@ class PersistenceProcessor(SpanProcessor):
             "has_error": self._has_error,
         }
 
-    async def shutdown(self) -> None:  # type: ignore[override]
-        """Signal the drain loop to exit and wait for it to finish.
+    def shutdown(self, timeout_millis: int = 10000) -> None:
+        """Signal the drain loop to exit and wait for completion.
 
-        Note: returns a coroutine, intentionally diverging from the sync
-        SpanProcessor.shutdown contract -- callers in this codebase always
-        await it. OTel's own shutdown path is not used.
+        Sync to satisfy the SpanProcessor contract (OTel calls this from GC).
+        Our own ObservationTracerProvider.shutdown() calls async_shutdown()
+        for proper async waiting.
         """
+        try:
+            self._loop.call_soon_threadsafe(self._queue.put_nowait, _SENTINEL)
+        except RuntimeError:
+            return
+        try:
+            self._drain_future.result(timeout=timeout_millis / 1000)
+        except Exception:
+            pass
+
+    async def async_shutdown(self) -> None:
+        """Async variant used by ObservationTracerProvider.shutdown()."""
         self._queue.put_nowait(_SENTINEL)
         try:
             await asyncio.wait_for(

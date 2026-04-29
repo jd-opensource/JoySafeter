@@ -7,7 +7,7 @@ from typing import Any, Callable, Coroutine
 
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace import Tracer
+from opentelemetry.trace import Tracer
 
 from app.core.observation.otel.broadcast_processor import BroadcastProcessor
 from app.core.observation.otel.persistence_processor import PersistenceProcessor
@@ -62,5 +62,5 @@ class ObservationTracerProvider:
         })
 
     async def shutdown(self) -> None:
-        await self._persistence.shutdown()
+        await self._persistence.async_shutdown()
         self._broadcast.shutdown()

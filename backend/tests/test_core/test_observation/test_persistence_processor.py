@@ -76,7 +76,7 @@ async def test_on_start_stashes_span_id_mapping():
     proc.on_start(span, parent_context=None)
     obs_id_str = span.attributes["observation.id"]
     assert proc._otel_span_id_to_observation_id[span.context.span_id] == uuid.UUID(obs_id_str)
-    await proc.shutdown()
+    await proc.async_shutdown()
 
 
 @pytest.mark.asyncio
@@ -98,7 +98,7 @@ async def test_get_aggregates_accumulates():
     assert agg["total_tokens"] == 45  # (10+5) + (20+10)
     assert agg["total_observations"] == 2
     assert agg["has_error"] is True
-    await proc.shutdown()
+    await proc.async_shutdown()
 
 
 @pytest.mark.asyncio
@@ -122,4 +122,4 @@ async def test_stream_events_skipped_in_on_end():
     span.events = [stream_event, persist_event]
     proc.on_end(span)
     assert proc.get_aggregates()["total_observations"] == 1
-    await proc.shutdown()
+    await proc.async_shutdown()
