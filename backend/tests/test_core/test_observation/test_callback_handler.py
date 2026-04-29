@@ -1,21 +1,17 @@
 """ObservationCallbackHandler — full rewrite with all 18 LangChain hooks."""
 from __future__ import annotations
 
-import asyncio
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.outputs import ChatGeneration, LLMResult
+from langchain_core.messages import HumanMessage
 
 from app.core.observation.instrumentation.langchain_handler import (
     ObservationCallbackHandler,
     RunState,
-    RootRunState,
 )
 from app.core.observation.otel.span_wrapper import ObservationSpan
-from app.core.observation.types import ObservationType
 
 
 def _make_handler():

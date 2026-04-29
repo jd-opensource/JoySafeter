@@ -11,7 +11,7 @@ from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.messages import BaseMessage
 from loguru import logger
 from opentelemetry import context, trace
-from opentelemetry.sdk.trace import Tracer
+from opentelemetry.trace import Tracer
 
 from app.core.observation.instrumentation.langchain_utils import (
     _classify_chain,
@@ -196,7 +196,7 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
 
     async def on_chat_model_start(
         self,
-        serialized: dict[str, Any],
+        serialized: dict[str, Any] | None,
         messages: list[list[BaseMessage]],
         *,
         run_id: uuid.UUID,
