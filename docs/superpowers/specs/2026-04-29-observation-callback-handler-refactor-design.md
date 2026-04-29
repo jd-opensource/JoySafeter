@@ -136,6 +136,18 @@ class ObservationTracerProvider:
         for p in self._live_processors:
             p.on_event(span, event_name, attributes)
 
+    def get_persistence_aggregates(self) -> dict:
+        """Passthrough to PersistenceProcessor.get_aggregates()."""
+        return self._persistence.get_aggregates()
+
+    def broadcast_trace_complete(self, status: str, aggregates: dict):
+        """Emit trace_complete via BroadcastProcessor. Called BEFORE shutdown."""
+        self._broadcast._emit("trace_complete", {
+            "observation_id": None,
+            "parent_observation_id": None,
+            "data": {"status": status, **aggregates},
+        })
+
     async def shutdown(self): ...
 ```
 
@@ -217,18 +229,20 @@ class PersistenceProcessor(SpanProcessor):
         self._observation_count = 0
         self._has_error = False
         # Start drain task on the event loop
-        self._drain_task = asyncio.run_coroutine_threadsafe(self._drain_loop(), self._loop)
+        # NOTE: run_coroutine_threadsafe returns concurrent.futures.Future (not asyncio.Task)
+        # shutdown() must use self._drain_future.result(timeout=...) not await
+        self._drain_future = asyncio.run_coroutine_threadsafe(self._drain_loop(), self._loop)
 
     def on_start(self, span: ReadableSpan, parent_context):
         obs = self._build_observation(span, parent_context)
         self._loop.call_soon_threadsafe(self._queue.put_nowait, ("insert", obs))
 
     def on_end(self, span: ReadableSpan):
-        updates = self._extract_updates(span)
+        # NOTE: This sketch is superseded by section 2.10 — INSERT is deferred
+        # to on_end (no separate UPDATE path), and Observation row is built
+        # from final span attributes using span.attributes["observation.id"]
+        # as the primary key. See section 2.10 for the authoritative behavior.
         events_to_persist = [e for e in span.events if not e.name.startswith("stream.")]
-        self._loop.call_soon_threadsafe(
-            self._queue.put_nowait, ("update", span_observation_id, updates)
-        )
         # Accumulate token/cost totals from usage attrs
         usage = self._extract_usage(span)
         if usage:
@@ -277,7 +291,7 @@ class BroadcastProcessor(LiveSpanProcessor):
         self._execution_id = execution_id
         self._broadcast_fn = broadcast_fn  # async callable
         self._loop = event_loop
-        self._seq = 0
+        self._seq = itertools.count(1)  # thread-safe monotonic counter
 
     def on_start(self, span, parent_context):
         self._emit("span_open", self._serialize_span_open(span))
@@ -295,11 +309,11 @@ class BroadcastProcessor(LiveSpanProcessor):
     def _emit(self, event: str, payload: dict):
         if not self._broadcast_fn:
             return
-        self._seq += 1
+        seq = next(self._seq)
         message = {
             "channel": "observation",
             "trace_id": str(self._execution_id),
-            "seq": self._seq,
+            "seq": seq,
             "event": event,
             "timestamp": datetime.utcnow().isoformat() + "Z",
             **payload,
@@ -378,7 +392,8 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
 def _track_run(self, run_id: UUID, parent_run_id: UUID | None):
     if run_id in self._run_states:
         return
-    if parent_run_id is None:
+    if parent_run_id is None or parent_run_id not in self._run_states:
+        # Either a true root, or parent fired out-of-order (unlikely but defensive)
         root = run_id
         self._root_run_states[root] = RootRunState()
     else:
@@ -504,6 +519,7 @@ metadata["ls_model_name"]
 2. Root span end/error uses `finally: self._reset(root_run_id)` — guarantees state cleanup
 3. All `on_*_error` callbacks uniformly set `ObservationLevel.ERROR`
 4. `_reset(root_run_id)` clears `_run_states` and `_root_run_states` entries; `_runs` and `_context_tokens` are popped per-run by `_detach_span()` in each `on_*_end`/`on_*_error` callback (not by `_reset`). The root run's `_detach_span` MUST be called before `_reset`.
+5. **OTel context across async boundaries**: `context.attach()` sets a `ContextVar` for the current task. LangChain's `AsyncCallbackHandler` hooks fire from the same task that invokes `astream()` / `ainvoke()` (LangChain does not spawn separate tasks for callback delivery). If this assumption is violated in future LangChain versions, we may need to propagate context explicitly using `copy_context()`. To be verified during implementation with an integration test.
 
 ### 2.9 CHAIN vs AGENT Classification
 
@@ -546,16 +562,26 @@ def on_start(self, span, parent_context):
     pass  # OTel still tracks span lifecycle in its own internal state
 
 def on_end(self, span):
-    obs = self._build_observation(span, parent_context=None)  # uses span.parent
+    obs = self._build_observation(span)
+    # Parent observation_id recovery: OTel span.parent gives the parent's
+    # OTel SpanContext (with its span_id). To map to our observation UUID,
+    # PersistenceProcessor maintains _otel_span_id_to_observation_id: dict[int, UUID]
+    # populated when each span is stashed at on_start time.
+    parent_otel_id = span.parent.span_id if span.parent else None
+    obs.parent_observation_id = self._otel_span_id_to_observation_id.get(parent_otel_id)
     self._loop.call_soon_threadsafe(self._queue.put_nowait, ("insert", obs))
     # ... persist non-stream events as before
 ```
 
-Implication: an Observation row only appears in the DB after its span ends. For long-running spans, this delays visibility in DB queries. **The WebSocket pipeline (BroadcastProcessor) is NOT affected** — it still emits `span_open` immediately. Frontend gets real-time updates; DB is the system-of-record after-the-fact.
+Implication: an Observation row only appears in the DB after its span ends. For long-running spans, this delays visibility in DB queries — `GET /api/v1/traces/{traceId}/observations` returns an incomplete tree during streaming. **The WebSocket pipeline (BroadcastProcessor) is NOT affected** — it still emits `span_open` immediately. Frontend gets real-time updates via WS; DB is the system-of-record after-the-fact. REST API consumers see the final tree once the execution completes.
 
 ## Section 3: ObservationCollector Rewrite
 
 ### 3.1 New Collector
+
+**Event-loop sourcing**: collector MUST be constructed from within a running asyncio loop. `__init__` calls `asyncio.get_running_loop()` and passes the loop to the provider. This works because the current orchestrator constructs it inside `async def dispatch_debug()`.
+
+**Sync vs async**: `start_span` and `start_agent` are **sync** (because OTel `tracer.start_span()` is sync). All existing call sites using `await collector.start_span(...)` must remove `await`. `finalize()` remains async.
 
 ```python
 class ObservationCollector:
@@ -567,20 +593,31 @@ class ObservationCollector:
         db_session_factory: Callable,
         broadcast_fn: Callable | None = None,
     ):
+        self._loop = asyncio.get_running_loop()
         self._provider = ObservationTracerProvider(
             execution_id, trace_id, workspace_id,
-            db_session_factory, broadcast_fn,
+            db_session_factory, broadcast_fn, self._loop,
         )
         self._tracer = self._provider.get_tracer()
         self._trace_id = trace_id
         self._execution_id = execution_id
+        self._db_session_factory = db_session_factory
 
     def start_span(self, type: ObservationType, name: str, *,
                    parent: ObservationSpan | None = None,
                    input: Any = None, metadata: dict | None = None,
-                   level: ObservationLevel = ObservationLevel.DEFAULT) -> ObservationSpan: ...
+                   level: ObservationLevel = ObservationLevel.DEFAULT) -> ObservationSpan:
+        """Sync. OTel tracer.start_span is sync."""
+        ...
 
     def start_agent(self, name: str, **kw) -> ObservationSpan: ...
+
+    # ---- convenience methods for extractors (replaces SpanHandle API) ----
+    def child_span(self, parent: ObservationSpan, type: ObservationType,
+                   name: str, *, input: Any = None, **kw) -> ObservationSpan:
+        """Replaces SpanHandle.child_span(). Creates a child span under parent."""
+        return self.start_span(type, name, parent=parent, input=input, **kw)
+
     def record_generation(self, *, parent: ObservationSpan, **kw): ...
     def record_tool(self, *, parent: ObservationSpan, **kw): ...
     def record_event(self, *, parent: ObservationSpan, **kw): ...
@@ -589,7 +626,14 @@ class ObservationCollector:
         return ObservationCallbackHandler(self._tracer, self._provider)
 
     async def finalize(self, status: str = "complete"):
+        # 1. Broadcast trace_complete BEFORE shutting down processors
+        agg = self._provider.get_persistence_aggregates()
+        final_status = "error" if agg["has_error"] else status
+        self._provider.broadcast_trace_complete(final_status, agg)
+        # 2. Shutdown processors (flushes PersistenceProcessor drain loop)
         await self._provider.shutdown()
+        # 3. UPDATE Trace row with final aggregates
+        await self._update_trace_row(final_status, agg)
 ```
 
 ### 3.2 Orchestrator Integration
@@ -620,11 +664,17 @@ await collector.finalize()
 
 ### 3.3 Other Instrumentation Adaptation
 
-| Component | Changes |
-|---|---|
-| CLIObservationExtractor | Constructor receives `ObservationCollector` + `ObservationSpan` (replacing old SpanHandle) |
-| CopilotObservationExtractor | Same. `flush()` now passes `parent=parent_span` to fix all generations landing at root |
-| FileOperationTracker | Minimal: `record_event()` signature adaptation |
+Extractors currently use `SpanHandle` methods (`child_span`, `record_event`, `end`). `ObservationSpan` does NOT replicate the `SpanHandle` API — instead, extractors switch to using `ObservationCollector` methods that accept an explicit `parent: ObservationSpan` parameter.
+
+| Extractor | Current call | New call |
+|---|---|---|
+| CLIObservationExtractor | `await self._root.child_span(TOOL, name=...)` | `self._collector.child_span(self._root, TOOL, name=...)` (sync) |
+| CLIObservationExtractor | `await self._span.record_event(...)` | `self._collector.record_event(parent=self._span, ...)` (sync) |
+| CLIObservationExtractor | `await self._span.end(output=...)` | `self._span.set_output(output); self._span.end()` (sync) |
+| CopilotObservationExtractor | `self._collector.record_generation(...)` | `self._collector.record_generation(parent=self._parent_span, ...)` (sync, fixes root-level nesting bug) |
+| FileOperationTracker | `await self._parent.record_event(...)` | `self._collector.record_event(parent=self._parent, ...)` (sync) |
+
+Note: all calls become sync (remove `await`) because OTel span operations are sync. DB persistence happens asynchronously via the PersistenceProcessor drain loop.
 
 ### 3.4 Observation ORM — No Schema Changes
 
@@ -639,40 +689,40 @@ Trace table: no changes.
 
 ### 3.5 Trace Row Lifecycle
 
-The current system creates and updates the `Trace` ORM row directly in the collector/orchestrator. In the new design, `ObservationCollector` remains responsible for Trace-level state:
+**The orchestrator pre-creates the Trace row** (as it does today). `ObservationCollector` does NOT create the Trace row — it only updates it at finalization. The Trace row requires NOT NULL fields (`name`, `agent_version_id`, `user_id`) that are only available at the orchestrator level. This is preserved from the current design.
 
+Orchestrator responsibility (unchanged):
 ```python
-class ObservationCollector:
-    async def _create_trace_row(self):
-        """Called during __init__. Creates the Trace row with status='running'."""
-        trace = Trace(
-            id=self._trace_id,
-            execution_id=self._execution_id,
-            workspace_id=self._workspace_id,
-            status="running",
-            start_time=utc_now(),
-        )
-        await self._db_session_factory().add(trace)
-        ...
+# orchestrator creates Trace row BEFORE constructing collector
+trace = Trace(
+    id=execution.id, workspace_id=..., execution_id=execution.id,
+    name=graph_name, agent_version_id=..., user_id=...,
+    status="running", start_time=utc_now(),
+)
+await session.add(trace)
+# then constructs collector, which references trace_id=execution.id
+```
 
-    async def finalize(self, status: str = "complete"):
-        """
-        1. Await provider.shutdown() — flushes PersistenceProcessor drain loop
-        2. Read aggregates from PersistenceProcessor.get_aggregates()
-        3. UPDATE Trace row: total_tokens, total_cost, total_observations,
-           status ('error' if has_error else status), end_time, duration_ms
-        4. BroadcastProcessor emits trace_complete with aggregates
-        """
-        await self._provider.shutdown()
-        agg = self._provider.get_persistence_aggregates()
-        final_status = "error" if agg["has_error"] else status
-        await self._update_trace_row(final_status, agg)
-        self._provider.broadcast_trace_complete(final_status, agg)
+Collector's `finalize()` responsibility:
+```python
+async def finalize(self, status: str = "complete"):
+    """
+    1. Read aggregates from PersistenceProcessor.get_aggregates()
+    2. Broadcast trace_complete BEFORE shutdown (so BroadcastProcessor is still alive)
+    3. Shutdown providers (flushes PersistenceProcessor drain loop)
+    4. UPDATE Trace row: total_tokens, total_cost, total_observations,
+       status ('error' if has_error else status), end_time, duration_ms
+    """
+    agg = self._provider.get_persistence_aggregates()
+    final_status = "error" if agg["has_error"] else status
+    self._provider.broadcast_trace_complete(final_status, agg)
+    await self._provider.shutdown()
+    await self._update_trace_row(final_status, agg)
 ```
 
 This preserves the current behavior where:
-- Trace row is created at execution start
-- Aggregates (total_tokens, total_cost) are accumulated during span processing
+- Trace row is created at execution start (by orchestrator)
+- Aggregates (total_tokens, total_cost) are accumulated during span processing (by PersistenceProcessor)
 - `finalize()` writes the final state — including `has_error` detection from ERROR-level spans
 
 ## Section 4: WebSocket Protocol
@@ -814,6 +864,12 @@ All examples below are the full message including envelope fields from 4.1.
 | — | `span_update` | New: intermediate state including type mutations from `on_agent_action` |
 
 Backend and frontend must land together; no compatibility shim is provided.
+
+**Required frontend changes** (update `frontend/components/observation/` and companion spec `docs/superpowers/specs/2026-04-28-frontend-observation-viewer-design.md`):
+1. Update `ObservationEvent` type: delete `"record"`, add `"llm_token"` and `"span_update"`
+2. Update message envelope: change `observation: {...}` to `observation_id: string` + `parent_observation_id: string | null` + `data: {...}`
+3. Add `llm_token` event handler in WS consumer (append token to stream buffer, requestAnimationFrame batch render)
+4. Add `span_update` event handler (update observation node attributes, e.g. type mutation from CHAIN to AGENT)
 
 ### 4.4 Frontend Consumption Model
 
