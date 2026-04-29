@@ -7,7 +7,6 @@ from typing import Any, Callable, Coroutine
 
 import sqlalchemy as sa
 from loguru import logger
-from opentelemetry import trace
 
 from app.core.observation.instrumentation.langchain_handler import (
     ObservationCallbackHandler,
@@ -28,18 +27,17 @@ class ObservationCollector:
         db_session_factory: Callable[..., Coroutine[Any, Any, Any]],
         broadcast_fn: Callable[..., Coroutine[Any, Any, None]] | None = None,
     ) -> None:
-        self._loop = asyncio.get_running_loop()
+        loop = asyncio.get_running_loop()
         self._provider = ObservationTracerProvider(
             execution_id=execution_id,
             trace_id=trace_id,
             workspace_id=workspace_id,
             db_session_factory=db_session_factory,
             broadcast_fn=broadcast_fn,
-            event_loop=self._loop,
+            event_loop=loop,
         )
         self._tracer = self._provider.get_tracer()
         self._trace_id = trace_id
-        self._execution_id = execution_id
         self._db_session_factory = db_session_factory
 
     def start_span(
@@ -56,7 +54,7 @@ class ObservationCollector:
 
         parent_ctx = None
         if parent:
-            parent_ctx = trace.set_span_in_context(parent._span)
+            parent_ctx = parent.get_context()
 
         otel_span = self._tracer.start_span(
             name,
@@ -103,7 +101,6 @@ class ObservationCollector:
         cost_details: dict | None = None,
         metadata: dict | None = None,
         level: ObservationLevel = ObservationLevel.DEFAULT,
-        **kw: Any,
     ) -> ObservationSpan:
         span = self.start_span(
             ObservationType.GENERATION, name,
@@ -129,7 +126,6 @@ class ObservationCollector:
         output: Any = None,
         metadata: dict | None = None,
         level: ObservationLevel = ObservationLevel.DEFAULT,
-        **kw: Any,
     ) -> ObservationSpan:
         span = self.start_span(
             ObservationType.TOOL, name,
@@ -148,7 +144,6 @@ class ObservationCollector:
         input: Any = None,
         metadata: dict | None = None,
         level: ObservationLevel = ObservationLevel.DEFAULT,
-        **kw: Any,
     ) -> ObservationSpan:
         span = self.start_span(
             ObservationType.EVENT, name,

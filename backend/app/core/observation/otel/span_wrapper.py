@@ -94,11 +94,19 @@ class ObservationSpan:
         })
         self._provider.dispatch_live_event(self, "span_update", payload)
 
+    def add_event(self, name: str, attributes: dict[str, str] | None = None) -> None:
+        self._span.add_event(name, attributes or {})
+
     # --- lifecycle ---
 
     def record_error(self, exc: Exception, level: ObservationLevel) -> None:
         self._span.set_attribute("observation.level", level.value)
         self._span.set_attribute("observation.status_message", str(exc))
+
+    def get_context(self) -> Any:
+        """Return an OTel Context with this span set as current."""
+        from opentelemetry import trace as _trace
+        return _trace.set_span_in_context(self._span)
 
     def end(self) -> None:
         self._span.end()

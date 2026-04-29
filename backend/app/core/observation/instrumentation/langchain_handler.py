@@ -15,10 +15,10 @@ from opentelemetry.trace import Tracer
 
 from app.core.observation.instrumentation.langchain_utils import (
     _classify_chain,
-    convert_message_to_dict,
     extract_model_name,
-    normalize_usage,
 )
+from app.utils.message_serializer import serialize_message
+from app.utils.token_usage import extract_usage_from_llm_result
 from app.core.observation.otel.provider import ObservationTracerProvider
 from app.core.observation.otel.span_wrapper import ObservationSpan
 from app.core.observation.types import ObservationLevel, ObservationType
@@ -92,11 +92,10 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
     ) -> ObservationSpan:
         obs_id = uuid.uuid4()
 
-        # Resolve OTel parent context
         parent_ctx = None
         if parent_run_id and parent_run_id in self._runs:
             parent_span = self._runs[parent_run_id]
-            parent_ctx = trace.set_span_in_context(parent_span._span)
+            parent_ctx = parent_span.get_context()
 
         otel_span = self._tracer.start_span(
             name, context=parent_ctx,
@@ -211,7 +210,7 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
 
             input_msgs = []
             for msg_list in messages:
-                input_msgs.extend(convert_message_to_dict(m) for m in msg_list)
+                input_msgs.extend(serialize_message(m) for m in msg_list)
 
             obs = self._start_obs_span(
                 run_id, name, ObservationType.GENERATION, parent_run_id
@@ -287,23 +286,20 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
 
             output: dict[str, Any] = {}
             if hasattr(response, "generations") and response.generations:
-                gen_list = response.generations[0] if response.generations else []
+                gen_list = response.generations[0]
                 if gen_list:
                     gen = gen_list[0]
                     if hasattr(gen, "message"):
-                        output = convert_message_to_dict(gen.message)
+                        output = serialize_message(gen.message)
                     elif hasattr(gen, "text"):
                         output = {"completion": gen.text}
 
-            if hasattr(response, "llm_output") and response.llm_output:
-                llm_out = response.llm_output
-                token_usage = llm_out.get("token_usage")
-                if token_usage:
-                    usage = normalize_usage(token_usage)
-                    if usage:
-                        obs.set_usage(usage)
+            usage = extract_usage_from_llm_result(response)
+            if usage:
+                obs.set_usage(usage)
 
-                model_from_response = llm_out.get("model_name")
+            if hasattr(response, "llm_output") and response.llm_output:
+                model_from_response = response.llm_output.get("model_name")
                 if model_from_response:
                     obs.set_model(model_from_response)
 
@@ -477,7 +473,7 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
             if obs:
                 obs.set_observation_type(ObservationType.AGENT)
                 log = _safe_json(getattr(action, "log", str(action)))
-                obs.add_intermediate_update({"type": "AGENT", "action_log": log})
+                obs.add_intermediate_update({"type": ObservationType.AGENT.value, "action_log": log})
         except Exception:
             logger.opt(exception=True).debug("on_agent_action failed")
 
@@ -510,7 +506,7 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
         try:
             obs = self._runs.get(run_id)
             if obs:
-                obs._span.add_event("retry", {
+                obs.add_event("retry", {
                     "attempt": str(getattr(retry_state, "attempt_number", "?")),
                     "error": str(getattr(retry_state, "outcome", "")),
                 })
