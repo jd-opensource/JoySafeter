@@ -1,18 +1,15 @@
 """Observation tracing — Langfuse-aligned trace tree for in-product agent debugging."""
 
-from app.core.observation.broadcaster import ObservationBroadcaster
 from app.core.observation.collector import ObservationCollector
 from app.core.observation.model import Observation, Trace
-from app.core.observation.types import ObservationLevel, ObservationType, SpanHandle
-from app.core.observation.writer import ObservationWriter
+from app.core.observation.otel.span_wrapper import ObservationSpan
+from app.core.observation.types import ObservationLevel, ObservationType
 
 __all__ = [
     "Observation",
-    "ObservationBroadcaster",
     "ObservationCollector",
     "ObservationLevel",
+    "ObservationSpan",
     "ObservationType",
-    "ObservationWriter",
-    "SpanHandle",
     "Trace",
 ]
