@@ -277,7 +277,7 @@ class ExecutionRunner:
         if collector:
             from app.core.observation.instrumentation.cli_extractor import CLIObservationExtractor
 
-            root_span = await collector.start_agent(name=f"cli:{executor_kind}")
+            root_span = collector.start_agent(name=f"cli:{executor_kind}")
             extractor = CLIObservationExtractor(collector, root_span)
 
         while True:
