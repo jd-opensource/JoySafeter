@@ -12,6 +12,7 @@ import {
   publishKeys,
   useRollbackAgent,
   useRetireRelease,
+  useUnpublishAgent,
 } from '@/hooks/queries/agentPublish'
 import { STALE_TIME } from '@/hooks/queries/constants'
 import { useGraphStore } from '../stores/graphStore'
@@ -87,8 +88,8 @@ export function useDeploymentHistory(
         name: undefined,
         created_at: r.published_at ?? '',
         createdAt: r.published_at ?? '',
-        isActive: r.status === 'ready',
-        is_current: r.status === 'ready',
+        isActive: r.status === 'active',
+        is_current: r.status === 'active',
         agentVersionId: r.agent_version_id,
       })),
     [rawReleases],
@@ -223,6 +224,7 @@ export function useDeploymentHistory(
 
   const rollbackMutation = useRollbackAgent()
   const retireMutation = useRetireRelease()
+  const unpublishMutation = useUnpublishAgent()
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -343,16 +345,8 @@ export function useDeploymentHistory(
   const handleConfirmUndeploy = async () => {
     if (!agentId || !workspaceId) return
 
-    // Find the currently active release and retire it
-    const activeRelease = versions.find((v) => v.isActive)
-    const releaseId = activeRelease?.releaseId
-    if (!releaseId) {
-      setUndeployConfirmOpen(false)
-      return
-    }
-
     try {
-      await retireMutation.mutateAsync({ agentId: agentId!, releaseId, workspaceId: workspaceId! })
+      await unpublishMutation.mutateAsync({ agentId: agentId!, workspaceId: workspaceId! })
 
       toast({
         title: t('workspace.undeploySuccess'),
@@ -401,7 +395,7 @@ export function useDeploymentHistory(
 
   const isReverting = rollbackMutation.isPending
   const isDeleting = retireMutation.isPending
-  const isUndeploying = retireMutation.isPending
+  const isUndeploying = unpublishMutation.isPending
 
   return {
     t,

@@ -1,8 +1,9 @@
 'use client'
 
-import { ChevronDown, ChevronRight, Loader2, MoreHorizontal, Pencil, Save, Undo2 } from 'lucide-react'
+import { Archive, ChevronDown, ChevronRight, Loader2, MoreHorizontal, Pencil, Save, Undo2 } from 'lucide-react'
 import { useState } from 'react'
 
+import { ReleaseStatusBadge } from '@/components/agents/release-status-badge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -20,6 +21,7 @@ import { useVersion } from '@/hooks/queries/agentVersions'
 import { useTranslation } from '@/lib/i18n'
 import { useCurrentWorkspace } from '@/providers/workspace-provider'
 import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
+import { canRetire, canRollback } from '@/types/agent-release'
 
 interface AgentSettingsTabProps {
   agentId: string
@@ -221,7 +223,8 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
             ) : (
               <div className="space-y-2">
                 {releases.map((rel) => {
-                  const isActive = agent.active_release_id === rel.id
+                  const isActive = rel.status === 'active'
+
                   return (
                     <div
                       key={rel.id}
@@ -246,14 +249,10 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
                               })
                             : '-'}
                         </span>
-                        {isActive && (
-                          <Badge variant="default" className="bg-[var(--status-success)] text-white">
-                            {t('workspace.active')}
-                          </Badge>
-                        )}
+                        <ReleaseStatusBadge status={rel.status} />
                       </div>
                       <div className="flex items-center gap-2">
-                        {!isActive && rel.status === 'ready' && canAdmin && (
+                        {!isActive && canRollback(rel.status) && canAdmin && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -272,7 +271,7 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
                             })}
                           </Button>
                         )}
-                        {canAdmin && (
+                        {canAdmin && canRetire(rel.status) && (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
@@ -288,7 +287,9 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
                                     workspaceId,
                                   })
                                 }
+                                className="text-destructive"
                               >
+                                <Archive className="mr-2 h-4 w-4" />
                                 {t('agents.detail.retireRelease', {
                                   defaultValue: 'Retire',
                                 })}

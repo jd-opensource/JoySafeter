@@ -33,7 +33,9 @@ VERSION_TERMINAL: set[str] = set()
 # AgentRelease
 # ---------------------------------------------------------------------------
 RELEASE_STATES: dict[str, set[str]] = {
-    "ready": {"retired"},
+    "ready": {"active", "retired"},
+    "active": {"superseded"},
+    "superseded": {"active", "retired"},
     "failed": {"retired"},
     "retired": set(),
 }

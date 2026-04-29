@@ -74,3 +74,15 @@ export function useRetireRelease() {
     },
   })
 }
+
+export function useUnpublishAgent() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ agentId, workspaceId }: { agentId: string; workspaceId: string }) =>
+      agentPublishService.unpublish(agentId, workspaceId),
+    onSuccess: (_, { agentId, workspaceId }) => {
+      qc.invalidateQueries({ queryKey: publishKeys.all(agentId) })
+      qc.invalidateQueries({ queryKey: agentKeys.detail(agentId, workspaceId) })
+    },
+  })
+}

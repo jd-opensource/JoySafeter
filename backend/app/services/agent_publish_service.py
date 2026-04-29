@@ -68,6 +68,15 @@ class AgentPublishService(BaseService):
         )
         return {"agent": agent}
 
+    async def unpublish(self, agent_id: uuid.UUID) -> dict:
+        release = await self.release_svc.unpublish_release(agent_id)
+        await self.safe_commit()
+        agent = await self.agent_repo.get(
+            agent_id,
+            relations=["current_draft_version", "active_release"],
+        )
+        return {"agent": agent, "release": release}
+
     async def retire(self, agent_id: uuid.UUID, release_id: uuid.UUID) -> dict:
         release = await self.release_svc.retire_release(agent_id, release_id)
         await self.safe_commit()

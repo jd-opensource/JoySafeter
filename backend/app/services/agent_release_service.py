@@ -43,6 +43,22 @@ class AgentReleaseService(BaseService):
             )
         return release
 
+    async def _get_release_for_agent(self, agent_id: uuid.UUID, release_id: uuid.UUID) -> AgentRelease:
+        release = await self.release_repo.get(release_id, relations=["version"])
+        if not release:
+            raise NotFoundError(
+                "Agent release not found",
+                code="AGENT_RELEASE_NOT_FOUND",
+                data={"release_id": str(release_id)},
+            )
+        if release.version.agent_id != agent_id:
+            raise InvalidRequestError(
+                "Release does not belong to this agent",
+                code="AGENT_RELEASE_AGENT_MISMATCH",
+                data={"agent_id": str(agent_id), "release_id": str(release_id)},
+            )
+        return release
+
     async def publish_release(
         self,
         agent_id: uuid.UUID,
@@ -90,41 +106,52 @@ class AgentReleaseService(BaseService):
         logger.info(f"Published release {release.id} (r{next_num}) for agent {agent_id}")
         return release
 
+    async def _supersede_current_active(self, agent) -> None:
+        """Transition the agent's currently active release to 'superseded'."""
+        if not agent.active_release_id:
+            return
+        current = await self.release_repo.get(agent.active_release_id)
+        if current and current.status == "active":
+            RELEASE_SM.validate(current.status, "superseded")
+            await self.release_repo.update(current.id, {"status": "superseded"})
+
     async def activate_release(self, agent_id: uuid.UUID, release_id: uuid.UUID) -> AgentRelease:
-        release = await self.release_repo.get(release_id)
-        if not release:
-            raise NotFoundError(
-                "Agent release not found",
-                code="AGENT_RELEASE_NOT_FOUND",
-                data={"release_id": str(release_id)},
-            )
-        if release.status != "ready":
+        release = await self._get_release_for_agent(agent_id, release_id)
+        if release.status not in ("ready", "superseded"):
             raise InvalidRequestError(
-                "Only releases with status 'ready' can be activated",
-                code="AGENT_RELEASE_NOT_READY",
+                "Only 'ready' or 'superseded' releases can be activated",
+                code="AGENT_RELEASE_NOT_ACTIVATABLE",
                 data={"release_id": str(release_id), "status": release.status},
             )
 
-        # Set agent.active_release_id
         agent = await self.agent_repo.get(agent_id)
         if not agent:
             raise NotFoundError("Agent not found", code="AGENT_NOT_FOUND", data={"agent_id": str(agent_id)})
+
+        if agent.active_release_id != release_id:
+            await self._supersede_current_active(agent)
+
+        RELEASE_SM.validate(release.status, "active")
+        updated = await self.release_repo.update(release_id, {"status": "active"})
+        assert updated is not None
 
         update_data: dict = {"active_release_id": release_id}
         if agent.status != "active":
             AGENT_SM.validate(agent.status, "active")
             update_data["status"] = "active"
-
         await self.agent_repo.update(agent_id, update_data)
         logger.info(f"Activated release {release_id} for agent {agent_id}")
-        return release
+        return updated
 
     async def retire_release(self, agent_id: uuid.UUID, release_id: uuid.UUID) -> AgentRelease:
-        release = await self.release_repo.get(release_id)
-        if not release:
-            raise NotFoundError(
-                "Agent release not found",
-                code="AGENT_RELEASE_NOT_FOUND",
+        release = await self._get_release_for_agent(agent_id, release_id)
+
+        if release.status == "retired":
+            return release
+        if release.status == "active":
+            raise InvalidRequestError(
+                "Cannot retire an active release; unpublish first",
+                code="AGENT_RELEASE_ACTIVE_CANNOT_RETIRE",
                 data={"release_id": str(release_id)},
             )
 
@@ -132,14 +159,28 @@ class AgentReleaseService(BaseService):
         updated = await self.release_repo.update(release_id, {"status": "retired", "retired_at": utc_now()})
         assert updated is not None
 
-        # If this was the active release, clear it and revert status
-        agent = await self.agent_repo.get(agent_id)
-        if agent and agent.active_release_id == release_id:
-            update_data: dict = {"active_release_id": None}
-            if agent.status == "active":
-                AGENT_SM.validate(agent.status, "draft")
-                update_data["status"] = "draft"
-            await self.agent_repo.update(agent_id, update_data)
-
         logger.info(f"Retired release {release_id} for agent {agent_id}")
         return updated
+
+    async def unpublish_release(self, agent_id: uuid.UUID) -> AgentRelease | None:
+        agent = await self.agent_repo.get(agent_id)
+        if not agent:
+            raise NotFoundError("Agent not found", code="AGENT_NOT_FOUND", data={"agent_id": str(agent_id)})
+        if not agent.active_release_id:
+            raise InvalidRequestError(
+                "Agent has no active release to unpublish",
+                code="AGENT_NOT_PUBLISHED",
+                data={"agent_id": str(agent_id)},
+            )
+
+        await self._supersede_current_active(agent)
+        release = await self.release_repo.get(agent.active_release_id)
+
+        update_data: dict = {"active_release_id": None}
+        if agent.status == "active":
+            AGENT_SM.validate(agent.status, "draft")
+            update_data["status"] = "draft"
+        await self.agent_repo.update(agent_id, update_data)
+
+        logger.info(f"Unpublished agent {agent_id}")
+        return release

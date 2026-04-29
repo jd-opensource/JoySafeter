@@ -26,6 +26,13 @@ export const agentPublishService = {
     return res
   },
 
+  async unpublish(agentId: string, workspaceId: string) {
+    const res = await apiPost<{ agent: any; release: AgentRelease | null }>(
+      `agents/${agentId}/unpublish?workspace_id=${workspaceId}`,
+    )
+    return res
+  },
+
   async list(agentId: string, workspaceId: string): Promise<AgentRelease[]> {
     const res = await apiGet<AgentRelease[]>(
       `agents/${agentId}/releases?workspace_id=${workspaceId}`,

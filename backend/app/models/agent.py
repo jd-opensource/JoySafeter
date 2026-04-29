@@ -123,7 +123,7 @@ class AgentRelease(Base):
     )
     release_number: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(
-        Enum("ready", "failed", "retired", name="agent_release_status"),
+        Enum("ready", "active", "superseded", "failed", "retired", name="agent_release_status"),
         nullable=False,
         default="ready",
     )

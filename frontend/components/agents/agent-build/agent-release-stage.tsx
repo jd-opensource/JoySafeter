@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
+  Archive,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -9,8 +10,10 @@ import {
   MoreHorizontal,
   Rocket,
   Undo2,
+  XCircle,
 } from 'lucide-react'
 
+import { ReleaseStatusBadge } from '@/components/agents/release-status-badge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -25,18 +28,16 @@ import {
   useReleaseHistory,
   useRetireRelease,
   useRollbackAgent,
+  useUnpublishAgent,
 } from '@/hooks/queries/agentPublish'
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
 import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
 import type { AgentRelease } from '@/types/agent-release'
+import { canRetire, canRollback } from '@/types/agent-release'
 
 import { hasVersionContent } from './agent-build-types'
 import type { StageProps } from './agent-build-types'
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function formatDate(iso: string | null): string {
   if (!iso) return '-'
@@ -47,11 +48,6 @@ function formatDate(iso: string | null): string {
   })
 }
 
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
-/** Hero shown when the agent has never been published. */
 function UnpublishedHero({
   onPublish,
   canPublish,
@@ -90,18 +86,23 @@ function UnpublishedHero({
   )
 }
 
-/** Green status card shown when the agent is published. */
 function PublishedCard({
   activeRelease,
   onPublishNew,
+  onUnpublish,
   canPublish,
-  isPending,
+  canAdmin,
+  isPublishing,
+  isUnpublishing,
   t,
 }: {
   activeRelease: AgentRelease | undefined
   onPublishNew: () => void
+  onUnpublish: () => void
   canPublish: boolean
-  isPending: boolean
+  canAdmin: boolean
+  isPublishing: boolean
+  isUnpublishing: boolean
   t: (key: string, opts?: Record<string, string>) => string
 }) {
   return (
@@ -120,24 +121,38 @@ function PublishedCard({
             )}
           </div>
         </div>
-        <Button onClick={onPublishNew} disabled={!canPublish || isPending}>
-          {isPending ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Rocket className="mr-2 h-4 w-4" />
+        <div className="flex items-center gap-2">
+          {canAdmin && (
+            <Button
+              variant="outline"
+              onClick={onUnpublish}
+              disabled={isUnpublishing}
+            >
+              {isUnpublishing ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <XCircle className="mr-2 h-4 w-4" />
+              )}
+              {t('agents.build.release.unpublish', { defaultValue: 'Unpublish' })}
+            </Button>
           )}
-          {t('agents.build.release.publishNew', { defaultValue: 'Publish new version' })}
-        </Button>
+          <Button onClick={onPublishNew} disabled={!canPublish || isPublishing}>
+            {isPublishing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Rocket className="mr-2 h-4 w-4" />
+            )}
+            {t('agents.build.release.publishNew', { defaultValue: 'Publish new version' })}
+          </Button>
+        </div>
       </div>
     </Card>
   )
 }
 
-/** A single row in the release history list. */
 function ReleaseRow({
   release,
-  isActive,
-  canAdmin,
+  isAdmin,
   onRollback,
   isRollingBack,
   onRetire,
@@ -145,14 +160,15 @@ function ReleaseRow({
   t,
 }: {
   release: AgentRelease
-  isActive: boolean
-  canAdmin: boolean
+  isAdmin: boolean
   onRollback: (releaseId: string) => void
   isRollingBack: boolean
   onRetire: (releaseId: string) => void
   isRetiring: boolean
   t: (key: string, opts?: Record<string, string>) => string
 }) {
+  const isActive = release.status === 'active'
+
   return (
     <div
       className={`flex flex-col gap-3 rounded-xl border p-3 md:flex-row md:items-center md:justify-between ${
@@ -171,15 +187,11 @@ function ReleaseRow({
         <span className="text-xs text-[var(--text-muted)]">
           {`· ${t('agents.build.release.publishedAt', { defaultValue: 'Published' })} ${formatDate(release.published_at)}`}
         </span>
-        {isActive && (
-          <Badge className="bg-green-600 text-white hover:bg-green-700">
-            {t('agents.build.release.currentActive', { defaultValue: 'Currently published' })}
-          </Badge>
-        )}
+        <ReleaseStatusBadge status={release.status} />
       </div>
 
       <div className="flex items-center gap-2">
-        {!isActive && release.status === 'ready' && canAdmin && (
+        {!isActive && canRollback(release.status) && isAdmin && (
           <Button
             size="sm"
             variant="outline"
@@ -195,7 +207,7 @@ function ReleaseRow({
           </Button>
         )}
 
-        {canAdmin && (
+        {isAdmin && canRetire(release.status) && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button size="sm" variant="ghost" className="h-8 w-8 p-0">
@@ -210,7 +222,9 @@ function ReleaseRow({
               >
                 {isRetiring ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : null}
+                ) : (
+                  <Archive className="mr-2 h-4 w-4" />
+                )}
                 {t('agents.build.release.retireRelease', { defaultValue: 'Retire' })}
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -221,23 +235,20 @@ function ReleaseRow({
   )
 }
 
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
-
 export function AgentReleaseStage({ agent, version, workspaceId }: StageProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
   const { canAdmin } = useUserPermissionsContext()
 
   const canPublishDraft = version ? hasVersionContent(version) : false
-  const canPublish = canAdmin && canPublishDraft
+  const canPublishFlag = canAdmin && canPublishDraft
 
   const isPublished = Boolean(agent.active_release_id)
 
   const publishAgent = usePublishAgent()
   const rollbackAgent = useRollbackAgent()
   const retireRelease = useRetireRelease()
+  const unpublishAgent = useUnpublishAgent()
   const { data: releases = [], isLoading: isLoadingHistory } = useReleaseHistory(
     agent.id,
     workspaceId,
@@ -245,10 +256,18 @@ export function AgentReleaseStage({ agent, version, workspaceId }: StageProps) {
   )
 
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
   const [pendingRollbackId, setPendingRollbackId] = useState<string | null>(null)
   const [pendingRetireId, setPendingRetireId] = useState<string | null>(null)
 
-  const activeRelease = releases.find((r) => r.id === agent.active_release_id)
+  const activeRelease = useMemo(() => releases.find((r) => r.status === 'active'), [releases])
+  const { visibleReleases, archivedCount } = useMemo(() => {
+    const archived = releases.filter((r) => r.status === 'retired')
+    return {
+      visibleReleases: showArchived ? releases : releases.filter((r) => r.status !== 'retired'),
+      archivedCount: archived.length,
+    }
+  }, [releases, showArchived])
 
   const handlePublish = () => {
     publishAgent.mutate(
@@ -276,68 +295,67 @@ export function AgentReleaseStage({ agent, version, workspaceId }: StageProps) {
     )
   }
 
+  const handleUnpublish = () => {
+    unpublishAgent.mutate({ agentId: agent.id, workspaceId })
+  }
+
   return (
     <div className="h-full overflow-y-auto bg-[var(--surface-1)] p-6">
       <div className="mx-auto max-w-3xl space-y-5">
-        {/* State 1: Unpublished — hero with centered publish button */}
         {!isPublished && (
           <UnpublishedHero
             onPublish={handlePublish}
-            canPublish={canPublish}
+            canPublish={canPublishFlag}
             isPending={publishAgent.isPending}
             t={t}
           />
         )}
 
-        {/* State 2: Published — green status card + publish new version */}
         {isPublished && (
-          <>
-            <PublishedCard
-              activeRelease={activeRelease}
-              onPublishNew={handlePublish}
-              canPublish={canPublish}
-              isPending={publishAgent.isPending}
-              t={t}
-            />
+          <PublishedCard
+            activeRelease={activeRelease}
+            onPublishNew={handlePublish}
+            onUnpublish={handleUnpublish}
+            canPublish={canPublishFlag}
+            canAdmin={canAdmin}
+            isPublishing={publishAgent.isPending}
+            isUnpublishing={unpublishAgent.isPending}
+            t={t}
+          />
+        )}
 
-            {/* Collapsible release history */}
-            <div>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 py-2 text-sm font-semibold text-[var(--text-primary)] hover:text-[var(--text-secondary)]"
-                onClick={() => setHistoryOpen((prev) => !prev)}
-              >
-                {historyOpen ? (
-                  <ChevronDown className="h-4 w-4" />
+        {releases.length > 0 && (
+          <div>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 py-2 text-sm font-semibold text-[var(--text-primary)] hover:text-[var(--text-secondary)]"
+              onClick={() => setHistoryOpen((prev) => !prev)}
+            >
+              {historyOpen ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+              {t('agents.build.release.history', { defaultValue: 'Version history' })}
+              <Badge variant="outline" className="ml-1 text-xs">
+                {releases.length}
+              </Badge>
+            </button>
+
+            {historyOpen && (
+              <div className="mt-2 space-y-2">
+                {isLoadingHistory ? (
+                  <div className="flex items-center gap-2 py-4 text-sm text-[var(--text-muted)]">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {t('common.loading', { defaultValue: 'Loading...' })}
+                  </div>
                 ) : (
-                  <ChevronRight className="h-4 w-4" />
-                )}
-                {t('agents.build.release.history', { defaultValue: 'Version history' })}
-                {releases.length > 0 && (
-                  <Badge variant="outline" className="ml-1 text-xs">
-                    {releases.length}
-                  </Badge>
-                )}
-              </button>
-
-              {historyOpen && (
-                <div className="mt-2 space-y-2">
-                  {isLoadingHistory ? (
-                    <div className="flex items-center gap-2 py-4 text-sm text-[var(--text-muted)]">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      {t('common.loading', { defaultValue: 'Loading...' })}
-                    </div>
-                  ) : releases.length === 0 ? (
-                    <p className="py-4 text-center text-sm text-[var(--text-muted)]">
-                      {t('agents.build.release.empty', { defaultValue: 'No releases yet.' })}
-                    </p>
-                  ) : (
-                    releases.map((release) => (
+                  <>
+                    {visibleReleases.map((release) => (
                       <ReleaseRow
                         key={release.id}
                         release={release}
-                        isActive={agent.active_release_id === release.id}
-                        canAdmin={canAdmin}
+                        isAdmin={canAdmin}
                         onRollback={(releaseId) => {
                           setPendingRollbackId(releaseId)
                           rollbackAgent.mutate(
@@ -356,12 +374,27 @@ export function AgentReleaseStage({ agent, version, workspaceId }: StageProps) {
                         isRetiring={pendingRetireId === release.id}
                         t={t}
                       />
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-          </>
+                    ))}
+
+                    {archivedCount > 0 && (
+                      <button
+                        type="button"
+                        className="mt-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                        onClick={() => setShowArchived((prev) => !prev)}
+                      >
+                        {showArchived
+                          ? t('agents.build.release.hideArchived', { defaultValue: 'Hide archived' })
+                          : t('agents.build.release.showArchived', {
+                              defaultValue: `Show ${archivedCount} archived`,
+                              num: String(archivedCount),
+                            })}
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

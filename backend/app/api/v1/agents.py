@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel as PydanticBaseModel
@@ -50,6 +50,11 @@ class PublishAgentResponse(PydanticBaseModel):
 
 class RollbackAgentResponse(PydanticBaseModel):
     agent: AgentResponse
+
+
+class UnpublishAgentResponse(PydanticBaseModel):
+    agent: AgentResponse
+    release: Optional[AgentReleaseResponse] = None
 
 
 router = APIRouter(prefix="/v1/agents", tags=["Agents"])
@@ -269,7 +274,7 @@ async def retire_release(
 ) -> BaseResponse[AgentReleaseResponse]:
     service = AgentPublishService(db)
     result = await service.retire(agent_id, release_id)
-    return BaseResponse(data=_release_to_response(result["release"]))
+    return BaseResponse(success=True, code=200, msg="ok", data=_release_to_response(result["release"]))
 
 
 @router.post("/{agent_id}/publish", response_model=BaseResponse[PublishAgentResponse])
@@ -282,10 +287,11 @@ async def publish_agent(
     service = AgentPublishService(db)
     result = await service.publish(agent_id, current_user.id)
     return BaseResponse(
+        success=True, code=200, msg="ok",
         data=PublishAgentResponse(
             agent=_to_response(result["agent"]),
             release=_release_to_response(result["release"]),
-        )
+        ),
     )
 
 
@@ -300,7 +306,26 @@ async def rollback_agent(
     service = AgentPublishService(db)
     result = await service.rollback(agent_id, body.release_id)
     return BaseResponse(
+        success=True, code=200, msg="ok",
         data=RollbackAgentResponse(
             agent=_to_response(result["agent"]),
-        )
+        ),
+    )
+
+
+@router.post("/{agent_id}/unpublish", response_model=BaseResponse[UnpublishAgentResponse])
+async def unpublish_agent(
+    agent_id: uuid.UUID,
+    current_user: User = require_workspace_role(WorkspaceMemberRole.admin),
+    workspace_id: uuid.UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+) -> BaseResponse[UnpublishAgentResponse]:
+    service = AgentPublishService(db)
+    result = await service.unpublish(agent_id)
+    return BaseResponse(
+        success=True, code=200, msg="ok",
+        data=UnpublishAgentResponse(
+            agent=_to_response(result["agent"]),
+            release=_release_to_response(result["release"]) if result["release"] else None,
+        ),
     )
