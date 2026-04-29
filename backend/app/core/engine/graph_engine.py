@@ -206,11 +206,9 @@ class GraphEngine:
         root_span = None
         obs_handler = None
         if context.collector:
-            from app.core.observation.instrumentation.langchain_handler import ObservationCallbackHandler
-
             graph_name = definition_payload.get("name", "graph")
-            root_span = await context.collector.start_agent(name=f"root:{graph_name}")
-            obs_handler = ObservationCallbackHandler(context.collector, root_span)
+            root_span = context.collector.start_agent(name=f"root:{graph_name}")
+            obs_handler = context.collector.create_langchain_handler()
 
         try:
             # ------------------------------------------------------------------
@@ -279,7 +277,8 @@ class GraphEngine:
             self._running.pop(execution_id, None)
             if root_span:
                 try:
-                    await root_span.end(output={"status": "completed"})
+                    root_span.set_output({"status": "completed"})
+                    root_span.end()
                 except Exception:
                     pass
 

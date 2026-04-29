@@ -820,11 +820,7 @@ class ExecutionOrchestrator:
 
                     collector = None
                     if debug:
-                        from app.core.observation import (
-                            ObservationBroadcaster,
-                            ObservationCollector,
-                            ObservationWriter,
-                        )
+                        from app.core.observation import ObservationCollector
                         from app.core.observation.types import ObservationLevel
                         from app.websocket.execution_subscription_manager import execution_subscription_manager
 
@@ -838,8 +834,8 @@ class ExecutionOrchestrator:
                             trace_id=execution.id,
                             execution_id=execution.id,
                             workspace_id=workspace_id,
-                            writer=ObservationWriter(_db_factory),
-                            broadcaster=ObservationBroadcaster(execution.id, broadcast_fn=_broadcast),
+                            db_session_factory=_db_factory,
+                            broadcast_fn=_broadcast,
                         )
                         ctx.debug = True
                         ctx.collector = collector
@@ -854,7 +850,7 @@ class ExecutionOrchestrator:
                         )
                     except Exception as exc:
                         if collector:
-                            await collector.record_event(
+                            collector.record_event(
                                 f"error:{type(exc).__name__}",
                                 input={"message": str(exc)},
                                 level=ObservationLevel.ERROR,
