@@ -31,6 +31,7 @@ export interface GraphState {
 export interface SaveManagerCallbacks {
   onSaveSuccess: (hash: string, savedGraphId: string) => void
   onSaveError: (error: string) => void
+  onVersionForked?: (oldVersionId: string, newVersionId: string) => void
 }
 
 export class SaveManager {
@@ -62,13 +63,17 @@ export class SaveManager {
         return true
       })
 
-      await graphDataAdapter.save(state.agentId, state.versionId, state.workspaceId, {
+      const result = await graphDataAdapter.save(state.agentId, state.versionId, state.workspaceId, {
         nodes: state.nodes,
         edges: deduplicatedEdges,
         viewport: state.viewport,
         graphStateFields: state.graphStateFields,
         fallbackNodeId: state.fallbackNodeId,
       })
+
+      if (result.versionId !== state.versionId) {
+        this.callbacks.onVersionForked?.(state.versionId, result.versionId)
+      }
 
       const savedHash = computeGraphStateHash(
         state.nodes,

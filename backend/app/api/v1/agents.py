@@ -225,7 +225,7 @@ async def update_version(
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[AgentVersionResponse]:
     service = AgentVersionService(db)
-    version = await service.update_version(version_id, request)
+    version = await service.update_version(version_id, request, user_id=current_user.id)
     return BaseResponse(success=True, code=200, msg="Version updated", data=_version_to_response(version))
 
 

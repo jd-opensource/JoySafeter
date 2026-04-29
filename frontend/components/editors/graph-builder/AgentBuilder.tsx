@@ -12,12 +12,14 @@ import { useTranslation } from '@/lib/i18n'
 import { computeGraphStateHash } from '@/lib/utils/graphStateHash'
 import { useCurrentWorkspace } from '@/providers/workspace-provider'
 
+import { useQueryClient } from '@tanstack/react-query'
+
 import { CodeEditorPage } from './CodeEditorPage'
 import { GraphBuilderShell } from './GraphBuilderShell'
 import { graphDataAdapter } from './services/graphDataAdapter'
 import { agentService } from './services/agentService'
 import { useGraphStore } from './stores/graphStore'
-import { useSaveStore } from './stores/saveStore'
+import { useSaveStore, setSaveStoreQueryClient } from './stores/saveStore'
 import { useCodeEditorStore } from './stores/codeEditorStore'
 import { useExecutionStore } from './stores/execution/executionStore'
 import type { StateField } from './types/graph'
@@ -49,6 +51,8 @@ function AgentBuilderInit({
 }: AgentBuilderProps) {
   const { t } = useTranslation()
   const { workspaceId: currentWorkspaceId } = useCurrentWorkspace()
+  const queryClient = useQueryClient()
+  setSaveStoreQueryClient(queryClient)
 
   const workspaceId = workspaceIdProp || currentWorkspaceId
   const agentId = agentIdProp && isValidUUID(agentIdProp) ? agentIdProp : null

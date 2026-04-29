@@ -52,6 +52,9 @@ class AgentPublishService(BaseService):
 
         await self.release_svc.activate_release(agent_id, release.id)
 
+        # Fork a fresh draft so the editor has a writable version after publish.
+        await self.version_svc.fork_draft_from(version, user_id)
+
         await self.safe_commit()
         reloaded_agent = await self.agent_repo.get(
             agent_id,

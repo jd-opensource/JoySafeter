@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { SaveManager } from '../saveManager'
 
-const mockGraphDataAdapterSave = vi.fn().mockResolvedValue(undefined)
+const mockGraphDataAdapterSave = vi.fn().mockResolvedValue({ versionId: 'version-1' })
 
 vi.mock('../../services/graphDataAdapter', () => ({
   graphDataAdapter: { save: (...args: any[]) => mockGraphDataAdapterSave(...args) },

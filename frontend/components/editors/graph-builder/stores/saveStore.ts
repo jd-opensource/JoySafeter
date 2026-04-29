@@ -1,11 +1,18 @@
 'use client'
 
+import { QueryClient } from '@tanstack/react-query'
 import { create } from 'zustand'
 
 import { computeGraphStateHash } from '@/lib/utils/graphStateHash'
+import { agentKeys } from '@/hooks/queries/agents'
 
 import { SaveManager, type GraphState as SaveManagerGraphState } from '../utils/saveManager'
 import { useGraphStore, setAutoSaveTrigger } from './graphStore'
+
+let _queryClient: QueryClient | null = null
+export function setSaveStoreQueryClient(qc: QueryClient) {
+  _queryClient = qc
+}
 
 interface SaveState {
   isSaving: boolean
@@ -57,6 +64,16 @@ export const useSaveStore = create<SaveState>((set, get) => {
         saveRetryCount: s.saveRetryCount + 1,
         lastSaveError: error,
       }))
+    },
+    onVersionForked: (oldVersionId, newVersionId) => {
+      const gs = useGraphStore.getState()
+      if (gs.versionId !== oldVersionId) return
+      useGraphStore.setState({ versionId: newVersionId })
+      if (_queryClient && gs.agentId && gs.workspaceId) {
+        _queryClient.invalidateQueries({
+          queryKey: agentKeys.detail(gs.agentId, gs.workspaceId),
+        })
+      }
     },
   })
 

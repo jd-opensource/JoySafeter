@@ -28,10 +28,11 @@ export const graphDataAdapter = {
     versionId: string,
     workspaceId: string,
     graphState: Partial<GraphState>,
-  ): Promise<void> {
-    await agentVersionService.update(agentId, versionId, workspaceId, {
+  ): Promise<{ versionId: string }> {
+    const updated = await agentVersionService.update(agentId, versionId, workspaceId, {
       definition_payload: graphState,
     })
+    return { versionId: updated.id }
   },
 
   sendBeaconSave(
