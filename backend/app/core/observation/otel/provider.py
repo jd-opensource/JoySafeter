@@ -36,7 +36,10 @@ class ObservationTracerProvider:
         self._persistence = PersistenceProcessor(
             execution_id, trace_id, workspace_id, db_session_factory, event_loop
         )
-        self._broadcast = BroadcastProcessor(execution_id, broadcast_fn, event_loop)
+        self._trace_id = trace_id
+        self._broadcast = BroadcastProcessor(
+            execution_id, trace_id, broadcast_fn, event_loop
+        )
         self._provider.add_span_processor(self._persistence)
         self._provider.add_span_processor(self._broadcast)
         self._tracer = self._provider.get_tracer("joysafeter.observation")
@@ -55,11 +58,7 @@ class ObservationTracerProvider:
         return self._persistence.get_aggregates()
 
     def broadcast_trace_complete(self, status: str, aggregates: dict) -> None:
-        self._broadcast._emit("trace_complete", {
-            "observation_id": None,
-            "parent_observation_id": None,
-            "data": {"status": status, **aggregates},
-        })
+        self._broadcast.emit_trace_complete(status, str(self._trace_id), aggregates)
 
     async def shutdown(self) -> None:
         await self._persistence.async_shutdown()

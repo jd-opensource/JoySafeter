@@ -71,6 +71,7 @@ async def dispatch_debug_run(
         msg="ok",
         data={
             "execution_id": str(execution_id),
+            "run_id": str(run.id),
             "ws_topic": f"execution:{execution_id}",
         },
     )

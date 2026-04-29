@@ -8,5 +8,4 @@ export type {
   ObservationType,
   ObservationLevel,
   RawObservation,
-  TraceSummary,
 } from './lib/types'

@@ -27,7 +27,6 @@ export interface ObservationNode {
   calculatedOutputCost?: number | null
   calculatedTotalCost?: number | null
   toolCalls?: Array<{ id: string; name: string; arguments: unknown }>
-  toolCallNames?: string[]
 
   children: ObservationNode[]
   depth: number
@@ -70,14 +69,6 @@ export interface SearchItem {
   observationId: string
 }
 
-export interface TraceSummary {
-  traceId: string
-  status: 'running' | 'complete' | 'error'
-  totalTokens: number
-  totalCost: number
-  durationMs: number | null
-}
-
 export interface ProcessingNode {
   observation: RawObservation
   childrenIds: string[]
@@ -90,14 +81,6 @@ export interface TraceTreeResult {
   roots: ObservationNode[]
   nodeMap: Map<string, ObservationNode>
   searchItems: SearchItem[]
-}
-
-export interface WsObservationFrame {
-  channel: 'observation'
-  trace_id: string
-  seq: number
-  event: 'span_open' | 'span_close' | 'span_update' | 'record' | 'trace_complete'
-  observation: Record<string, unknown>
 }
 
 export interface RawObservation {

@@ -29,6 +29,7 @@ function DebugPanelInner({
   workspaceId,
 }: DebugPanelProps) {
   const [executionId, setExecutionId] = useState<string | null>(null)
+  const [runId, setRunId] = useState<string | null>(null)
   const [mode, setMode] = useState<'idle' | 'live' | 'replay'>('idle')
   const [replayTraceId, setReplayTraceId] = useState<string | null>(null)
 
@@ -74,7 +75,7 @@ function DebugPanelInner({
     async (prompt: string) => {
       dispatch({ type: 'RESET' })
       try {
-        const data = await apiPost<{ execution_id: string }>(
+        const data = await apiPost<{ execution_id: string; run_id: string }>(
           '/executions/debug',
           {
             agent_id: agentId,
@@ -84,6 +85,7 @@ function DebugPanelInner({
           },
         )
         setExecutionId(data.execution_id)
+        setRunId(data.run_id)
         setMode('live')
       } catch (err) {
         console.error('Debug start failed:', err)
@@ -93,9 +95,9 @@ function DebugPanelInner({
   )
 
   const handleStop = useCallback(async () => {
-    if (!executionId) return
-    await apiPost(`/executions/${executionId}/stop`)
-  }, [executionId])
+    if (!runId) return
+    await apiPost(`/agent-runs/${runId}/cancel`)
+  }, [runId])
 
   const handleSelectTrace = useCallback(
     (traceId: string) => {

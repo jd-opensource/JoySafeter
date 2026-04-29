@@ -43,17 +43,28 @@ export interface ExecutionWsErrorFrame {
   error: AppErrorPayload
 }
 
+export interface ExecutionObservationFrame {
+  type: 'observation'
+  execution_id: string
+  event: 'span_open' | 'span_close' | 'span_update' | 'trace_complete'
+  observation: Record<string, unknown> | null
+  data: Record<string, unknown>
+  timestamp: string
+}
+
 export type IncomingExecutionWsFrame =
   | ExecutionSnapshotFrame
   | ExecutionEventFrame
   | ExecutionCompletedFrame
   | ExecutionReplayDoneFrame
   | ExecutionWsErrorFrame
+  | ExecutionObservationFrame
 
 export interface ExecutionSubscriptionCallbacks {
   onSnapshot?: (frame: ExecutionSnapshotFrame) => void
   onEvent?: (frame: ExecutionEventFrame) => void
   onCompleted?: (frame: ExecutionCompletedFrame) => void
   onReplayDone?: (frame: ExecutionReplayDoneFrame) => void
+  onObservation?: (frame: ExecutionObservationFrame) => void
   onError?: (error: AppErrorPayload) => void
 }

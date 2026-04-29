@@ -5,14 +5,13 @@ import React, {
 } from 'react'
 import { buildTraceTree } from '../lib/tree-building'
 import type {
-  ObservationNode, RawObservation, SearchItem, TraceSummary, TraceTreeResult,
+  ObservationNode, RawObservation, SearchItem, TraceTreeResult,
 } from '../lib/types'
 
 interface ObservationDataState {
   nodeMap: Map<string, ObservationNode>
   roots: ObservationNode[]
   searchItems: SearchItem[]
-  traceSummary: TraceSummary | null
   traceStartTime: Date | null
 }
 
@@ -20,14 +19,13 @@ const initialState: ObservationDataState = {
   nodeMap: new Map(),
   roots: [],
   searchItems: [],
-  traceSummary: null,
   traceStartTime: null,
 }
 
 type ObservationAction =
   | { type: 'SET_TREE'; result: TraceTreeResult; traceStartTime: Date }
   | { type: 'INSERT_NODE'; observation: RawObservation }
-  | { type: 'UPDATE_NODE'; observation: RawObservation }
+  | { type: 'UPDATE_NODE'; observation: RawObservation; data?: Record<string, unknown> }
   | { type: 'CLOSE_NODE'; observation: RawObservation }
   | { type: 'RESET' }
 
@@ -148,6 +146,14 @@ function reducer(state: ObservationDataState, action: ObservationAction): Observ
       const updated = { ...existing }
       if (action.observation.model !== undefined) updated.model = action.observation.model
       if (action.observation.metadata !== undefined) updated.metadata = action.observation.metadata
+      if (action.data && Object.keys(action.data).length > 0) {
+        const prev = (updated.metadata as Record<string, unknown>) ?? {}
+        const prevUpdates = (prev._intermediateUpdates as unknown[]) ?? []
+        updated.metadata = {
+          ...prev,
+          _intermediateUpdates: [...prevUpdates, action.data],
+        }
+      }
       const newMap = new Map(state.nodeMap)
       newMap.set(updated.id, updated)
       return { ...state, nodeMap: newMap }
@@ -186,7 +192,6 @@ interface ObservationDataContextValue {
   roots: ObservationNode[]
   nodeMap: Map<string, ObservationNode>
   searchItems: SearchItem[]
-  traceSummary: TraceSummary | null
   isExecuting: boolean
   traceStartTime: Date | null
   dispatch: React.Dispatch<ObservationAction>

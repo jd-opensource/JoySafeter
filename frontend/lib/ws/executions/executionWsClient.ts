@@ -61,6 +61,9 @@ class SharedExecutionWsClient extends BaseWsClient<ExecutionConnectionState> {
         subscription.afterSeq = Math.max(subscription.afterSeq, frame.last_seq)
         callbacks.onReplayDone?.(frame)
         break
+      case 'observation':
+        callbacks.onObservation?.(frame)
+        break
     }
   }
 

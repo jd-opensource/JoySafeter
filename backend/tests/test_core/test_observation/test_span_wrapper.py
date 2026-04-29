@@ -62,15 +62,17 @@ def test_set_level():
     span.set_attribute.assert_any_call("observation.level", "ERROR")
 
 
-def test_add_llm_token_fires_span_event_and_live_dispatch():
-    obs, span, provider, _ = _make_span_and_provider()
-    obs.add_llm_token("Hello", 0)
-    span.add_event.assert_called_once_with(
-        "stream.llm_token", {"token": "Hello", "index": 0}
-    )
-    provider.dispatch_live_event.assert_called_once_with(
-        obs, "llm_token", {"token": "Hello", "index": 0}
-    )
+def test_get_parent_span_id_returns_parent_when_present():
+    obs, span, _, _ = _make_span_and_provider()
+    span.parent = MagicMock()
+    span.parent.span_id = 12345
+    assert obs.get_parent_span_id() == 12345
+
+
+def test_get_parent_span_id_returns_none_when_absent():
+    obs, span, _, _ = _make_span_and_provider()
+    span.parent = None
+    assert obs.get_parent_span_id() is None
 
 
 def test_add_intermediate_update_serializes_payload():

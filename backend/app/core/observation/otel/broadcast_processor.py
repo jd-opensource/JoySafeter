@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import itertools
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine
@@ -24,13 +23,14 @@ class BroadcastProcessor(LiveSpanProcessor):
     def __init__(
         self,
         execution_id: uuid.UUID,
+        trace_id: uuid.UUID,
         broadcast_fn: Callable[..., Coroutine[Any, Any, None]] | None,
         event_loop: asyncio.AbstractEventLoop,
     ) -> None:
         self._execution_id = execution_id
+        self._trace_id = trace_id
         self._broadcast_fn = broadcast_fn
         self._loop = event_loop
-        self._seq = itertools.count(1)
         self._otel_span_id_to_observation_id: dict[int, str] = {}
 
     def _resolve_parent_obs_id(self, span: Any) -> str | None:
@@ -38,39 +38,36 @@ class BroadcastProcessor(LiveSpanProcessor):
             return self._otel_span_id_to_observation_id.get(span.parent.span_id)
         return None
 
+    def _build_observation(self, span: Any, *, include_end: bool = False) -> dict:
+        attrs = span.attributes or {}
+        obs: dict = {
+            "id": str(attrs.get("observation.id", "")),
+            "trace_id": str(self._trace_id),
+            "parent_observation_id": self._resolve_parent_obs_id(span),
+            "type": attrs.get("observation.type", ObservationType.SPAN.value),
+            "name": span.name,
+            "level": attrs.get("observation.level", ObservationLevel.DEFAULT.value),
+            "status_message": attrs.get("observation.status_message"),
+            "start_time": ns_to_iso(span.start_time),
+            "end_time": ns_to_iso(span.end_time) if include_end else None,
+            "input": parse_json_attr(attrs.get("observation.input")),
+            "output": parse_json_attr(attrs.get("observation.output")) if include_end else None,
+            "metadata": parse_json_attr(attrs.get("observation.metadata")),
+            "model": attrs.get("llm.model"),
+            "usage_details": build_usage(attrs) if include_end else None,
+            "cost_details": build_cost(attrs) if include_end else None,
+        }
+        return obs
+
     def on_start(self, span: Any, parent_context: Any = None) -> None:
         attrs = span.attributes or {}
         obs_id = str(attrs.get("observation.id", ""))
         if obs_id and hasattr(span, "context"):
             self._otel_span_id_to_observation_id[span.context.span_id] = obs_id
-        self._emit("span_open", {
-            "observation_id": obs_id,
-            "parent_observation_id": self._resolve_parent_obs_id(span),
-            "data": {
-                "name": span.name,
-                "type": attrs.get("observation.type", ObservationType.SPAN.value),
-                "level": attrs.get("observation.level", ObservationLevel.DEFAULT.value),
-                "input": parse_json_attr(attrs.get("observation.input")),
-                "metadata": parse_json_attr(attrs.get("observation.metadata")),
-                "model": attrs.get("llm.model"),
-                "start_time": ns_to_iso(span.start_time),
-            },
-        })
+        self._emit("span_open", self._build_observation(span))
 
     def on_end(self, span: Any) -> None:
-        attrs = span.attributes or {}
-        self._emit("span_close", {
-            "observation_id": str(attrs.get("observation.id", "")),
-            "parent_observation_id": self._resolve_parent_obs_id(span),
-            "data": {
-                "output": parse_json_attr(attrs.get("observation.output")),
-                "level": attrs.get("observation.level", ObservationLevel.DEFAULT.value),
-                "end_time": ns_to_iso(span.end_time),
-                "usage": build_usage(attrs),
-                "cost": build_cost(attrs),
-                "status_message": attrs.get("observation.status_message"),
-            },
-        })
+        self._emit("span_close", self._build_observation(span, include_end=True))
 
         if hasattr(span, "context") and span.context:
             self._otel_span_id_to_observation_id.pop(span.context.span_id, None)
@@ -79,29 +76,37 @@ class BroadcastProcessor(LiveSpanProcessor):
         self, span: ObservationSpan, event_name: str, attributes: dict
     ) -> None:
         parent_obs_id: str | None = None
-        raw_span = getattr(span, "_span", None)
-        parent = getattr(raw_span, "parent", None)
-        if parent is not None:
-            parent_obs_id = self._otel_span_id_to_observation_id.get(
-                parent.span_id
-            )
+        parent_span_id = span.get_parent_span_id()
+        if parent_span_id is not None:
+            parent_obs_id = self._otel_span_id_to_observation_id.get(parent_span_id)
         self._emit(event_name, {
-            "observation_id": str(span.observation_id),
+            "id": str(span.observation_id),
+            "trace_id": str(self._trace_id),
             "parent_observation_id": parent_obs_id,
-            "data": dict(attributes),
-        })
+        }, data=dict(attributes))
 
-    def _emit(self, event: str, payload: dict) -> None:
+    def emit_trace_complete(self, status: str, trace_id: str, aggregates: dict) -> None:
+        self._emit(
+            "trace_complete",
+            observation=None,
+            data={"status": status, "trace_id": trace_id, **aggregates},
+        )
+
+    def _emit(
+        self,
+        event: str,
+        observation: dict | None,
+        data: dict | None = None,
+    ) -> None:
         if not self._broadcast_fn:
             return
-        seq = next(self._seq)
         message = {
-            "channel": "observation",
-            "trace_id": str(self._execution_id),
-            "seq": seq,
+            "type": "observation",
+            "execution_id": str(self._execution_id),
             "event": event,
+            "observation": observation,
+            "data": data or {},
             "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-            **payload,
         }
         try:
             future = asyncio.run_coroutine_threadsafe(

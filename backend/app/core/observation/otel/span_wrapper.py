@@ -81,12 +81,11 @@ class ObservationSpan:
     def set_completion_start_time(self, ts: datetime) -> None:
         self._span.set_attribute("llm.completion_start_time", ts.isoformat())
 
-    # --- streaming events ---
+    def get_parent_span_id(self) -> int | None:
+        parent = getattr(self._span, "parent", None)
+        return parent.span_id if parent else None
 
-    def add_llm_token(self, token: str, index: int) -> None:
-        attrs = {"token": token, "index": index}
-        self._span.add_event("stream.llm_token", attrs)
-        self._provider.dispatch_live_event(self, "llm_token", attrs)
+    # --- streaming events ---
 
     def add_intermediate_update(self, payload: dict) -> None:
         self._span.add_event("stream.intermediate_update", {

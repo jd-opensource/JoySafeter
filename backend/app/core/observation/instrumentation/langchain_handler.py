@@ -328,8 +328,6 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
             if run_id not in self._completion_start_memo:
                 self._completion_start_memo.add(run_id)
                 obs.set_completion_start_time(datetime.now(tz=timezone.utc))
-            idx = kwargs.get("index", 0)
-            obs.add_llm_token(token, idx)
         except Exception:
             logger.opt(exception=True).debug("on_llm_new_token failed")
 
