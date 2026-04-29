@@ -10,7 +10,6 @@ from typing import Any, Sequence
 from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.messages import BaseMessage
 from loguru import logger
-from opentelemetry import context, trace
 from opentelemetry.trace import Tracer
 
 from app.core.observation.instrumentation.langchain_utils import (
@@ -58,7 +57,6 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
         self._tracer = tracer
         self._provider = provider
         self._runs: dict[uuid.UUID, ObservationSpan] = {}
-        self._context_tokens: dict[uuid.UUID, Any] = {}
         self._run_states: dict[uuid.UUID, RunState] = {}
         self._root_run_states: dict[uuid.UUID, RootRunState] = {}
         self._completion_start_memo: set[uuid.UUID] = set()
@@ -106,21 +104,10 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
             },
         )
         obs = ObservationSpan(otel_span, obs_id, self._provider)
-
-        # Attach context
-        ctx = trace.set_span_in_context(otel_span)
-        token = context.attach(ctx)
         self._runs[run_id] = obs
-        self._context_tokens[run_id] = token
         return obs
 
     def _detach_span(self, run_id: uuid.UUID) -> ObservationSpan | None:
-        token = self._context_tokens.pop(run_id, None)
-        if token:
-            try:
-                context.detach(token)
-            except Exception:
-                pass
         return self._runs.pop(run_id, None)
 
     def _reset(self, root_run_id: uuid.UUID) -> None:
