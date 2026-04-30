@@ -1,8 +1,7 @@
-"""
-CLI Execution Engine — wraps the existing ExecutionRunner for Docker + CLI agents.
+"""Claude Code Execution Engine.
 
-runtime_kind: "sandbox"
-Supports: Claude Code, Codex, OpenClaw
+engine_kind: "claude_code"
+Docker + Claude Code CLI agent runtime.
 """
 
 from __future__ import annotations
@@ -16,10 +15,10 @@ from app.core.engine.protocol import EngineCapabilities, ExecutionContext
 from app.core.events.event_types import ExecutionEventType
 
 
-class CLIEngine:
-    """Docker container + CLI agent execution engine."""
+class ClaudeCodeEngine:
+    """Claude Code CLI execution engine."""
 
-    engine_kind = "sandbox"
+    engine_kind = "claude_code"
     capabilities = EngineCapabilities(
         supports_cancel=True,
         supports_message_injection=True,
@@ -28,38 +27,24 @@ class CLIEngine:
         supports_approval=True,
     )
 
-    def __init__(self) -> None:
-        self._sessions: dict[uuid.UUID, Any] = {}
-
     async def start(
         self,
         context: ExecutionContext,
         *,
         release_runtime_binding: dict[str, Any],
-        definition_kind: str,
+        engine_kind: str,
         definition_payload: dict[str, Any],
         prompt: str,
     ) -> None:
-        """Start a CLI agent execution in a Docker container.
-
-        ExecutionRunner manages its own lifecycle: _finalize on success,
-        _mark_failed on error. If runner.run() itself throws (extreme case),
-        _fire_engine._run_engine provides the last-resort safety net.
-        """
         from app.core.database import AsyncSessionLocal
 
         execution_id = context.execution_id
-        runtime_type = release_runtime_binding.get("runtime_type", "claude_code")
-
-        logger.info(f"[CLIEngine] Starting execution {execution_id} with {runtime_type}")
+        logger.info(f"[ClaudeCodeEngine] Starting execution {execution_id}")
 
         await context.update_status("running")
         await context.emit(
             ExecutionEventType.EXECUTION_STARTED,
-            {
-                "engine": "cli",
-                "runtime_type": runtime_type,
-            },
+            {"engine": "claude_code"},
         )
 
         async with AsyncSessionLocal() as db:
@@ -74,16 +59,14 @@ class CLIEngine:
             )
 
     async def cancel(self, execution_id: uuid.UUID) -> None:
-        """Cancel a running CLI execution."""
         from app.core.agent.cli_backends.session_registry import session_registry
 
         session = session_registry.get(execution_id)
         if session:
             await session.cancel()
-            logger.info(f"[CLIEngine] Cancelled execution {execution_id}")
+            logger.info(f"[ClaudeCodeEngine] Cancelled execution {execution_id}")
 
     async def send_message(self, execution_id: uuid.UUID, message: str) -> None:
-        """Inject a message into a running CLI execution."""
         from app.core.agent.cli_backends.session_registry import session_registry
 
         session = session_registry.get(execution_id)
