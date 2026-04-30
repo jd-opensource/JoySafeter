@@ -8,10 +8,6 @@ export interface Task {
   priority: TaskPriority
   /** Backend primary field for assigned agent */
   agent_id?: string | null
-  /** Legacy alias kept for backward compatibility */
-  assignee_type?: 'member' | 'agent' | null
-  /** Legacy alias kept for backward compatibility; prefer agent_id */
-  assignee_id?: string | null
   creator_id: string
   /** ID of the most recent AgentRun for this task */
   latest_run_id?: string | null
@@ -49,8 +45,6 @@ export interface UpdateTaskRequest {
   position?: number
   tags?: string[]
   due_date?: string | null
-  assignee_type?: string | null
-  assignee_id?: string | null
   auto_approve?: boolean
 }
 
@@ -70,9 +64,6 @@ export const TASK_STATUS_ORDER: TaskStatus[] = [
 /** Statuses treated as "inactive" in UI (hide dispatch button, etc.).
  *  Note: Backend allows reopening these via backlog transition — they are NOT truly terminal. */
 export const INACTIVE_TASK_STATUSES: readonly TaskStatus[] = ['done', 'cancelled'] as const
-
-/** @deprecated Use INACTIVE_TASK_STATUSES — done/cancelled can be reopened via backlog */
-export const TERMINAL_TASK_STATUSES = INACTIVE_TASK_STATUSES
 
 export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   backlog: '待处理',
