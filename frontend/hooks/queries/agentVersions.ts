@@ -7,6 +7,10 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import type { Node, Edge } from 'reactflow'
 
 import { agentVersionService } from '@/services/agentVersionService'
+import {
+  visualDefinitionAdapter,
+  type LoadedVersionGraphState,
+} from '@/components/editors/graph-builder/services/visualDefinitionAdapter'
 import type {
   AgentVersion,
   CreateAgentVersionRequest,
@@ -126,8 +130,11 @@ export interface VersionGraphState {
   versionStatus?: 'draft' | 'frozen'
 }
 
-function toVersionGraphState(payload: Record<string, unknown>): VersionGraphState {
-  const edges = (payload.edges as Edge[]) ?? []
+function toVersionGraphState({
+  graphState,
+  rawPayload,
+}: LoadedVersionGraphState): VersionGraphState {
+  const edges = graphState.edges ?? []
   const seenEdges = new Set<string>()
   const deduplicatedEdges = edges.filter((edge) => {
     const key = `${edge.source}-${edge.target}`
@@ -137,15 +144,15 @@ function toVersionGraphState(payload: Record<string, unknown>): VersionGraphStat
   })
 
   return {
-    nodes: (payload.nodes as Node[]) ?? [],
+    nodes: graphState.nodes ?? [],
     edges: deduplicatedEdges,
-    viewport: (payload.viewport as { x: number; y: number; zoom: number }) ?? undefined,
+    viewport: graphState.viewport,
     variables: {
-      state_fields: payload.graphStateFields ?? payload.state_fields,
-      fallback_node_id: payload.fallbackNodeId ?? payload.fallback_node_id,
-      graph_mode: payload.graph_mode,
-      code_content: payload.code_content,
-      context: payload.context,
+      state_fields: graphState.graphStateFields ?? rawPayload.state_fields,
+      fallback_node_id: graphState.fallbackNodeId ?? rawPayload.fallback_node_id,
+      graph_mode: rawPayload.graph_mode,
+      code_content: rawPayload.code_content,
+      context: rawPayload.context,
     },
   }
 }
@@ -167,11 +174,15 @@ export function useVersionGraphState(
   return useQuery({
     queryKey: versionKeys.graphState(agentId || '', versionId || '', workspaceId || ''),
     queryFn: async (): Promise<VersionGraphState> => {
-      const version = await agentVersionService.get(agentId!, versionId!, workspaceId!)
+      const versionState = await visualDefinitionAdapter.loadVersionGraphState(
+        agentId!,
+        versionId!,
+        workspaceId!,
+      )
       return {
-        ...toVersionGraphState(version.definition_payload),
-        definitionKind: version.definition_kind,
-        versionStatus: version.status as 'draft' | 'frozen',
+        ...toVersionGraphState(versionState),
+        definitionKind: versionState.definitionKind,
+        versionStatus: versionState.versionStatus,
       }
     },
     enabled:

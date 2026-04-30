@@ -1,6 +1,14 @@
 import { agentVersionService } from '@/services/agentVersionService'
 import { API_BASE } from '@/lib/api-client'
+import type { DefinitionKind } from '@/types/agent'
 import type { GraphState } from '../utils/saveManager'
+
+export interface LoadedVersionGraphState {
+  graphState: GraphState
+  definitionKind: DefinitionKind
+  versionStatus: 'draft' | 'frozen'
+  rawPayload: Record<string, unknown>
+}
 
 function toGraphState(
   payload: Record<string, unknown> | null | undefined,
@@ -34,14 +42,35 @@ export const visualDefinitionAdapter = {
     return toGraphState(version.definition_payload, agentId, versionId, workspaceId)
   },
 
+  async loadVersionGraphState(
+    agentId: string,
+    versionId: string,
+    workspaceId: string,
+  ): Promise<LoadedVersionGraphState> {
+    const version = await agentVersionService.get(agentId, versionId, workspaceId)
+    const rawPayload = version.definition_payload ?? {}
+
+    return {
+      graphState: toGraphState(rawPayload, agentId, versionId, workspaceId),
+      definitionKind: version.definition_kind,
+      versionStatus: version.status,
+      rawPayload,
+    }
+  },
+
   async save(
     agentId: string,
     versionId: string,
     workspaceId: string,
     graphState: Partial<GraphState>,
   ): Promise<{ versionId: string }> {
+    const current = await agentVersionService.get(agentId, versionId, workspaceId)
+    const mergedPayload = {
+      ...(current.definition_payload ?? {}),
+      ...graphState,
+    }
     const updated = await agentVersionService.update(agentId, versionId, workspaceId, {
-      definition_payload: graphState,
+      definition_payload: mergedPayload,
     })
     return { versionId: updated.id }
   },
