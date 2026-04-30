@@ -1,50 +1,57 @@
-"""Canonical Agent definition/runtime kind contract values."""
+"""Canonical Agent engine/runtime kind contract values."""
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Union
 
 from app.common.app_errors import InvalidRequestError
 
-DefinitionKindLiteral = Literal["graph", "code", "claude_code", "codex", "openclaw"]
-RuntimeKindLiteral = Literal["graph", "code", "sandbox"]
+EngineKind = Literal[
+    "langgraph_visual",
+    "langgraph_code",
+    "claude_code",
+    "codex",
+    "openclaw",
+]
+ENGINE_KINDS: set[str] = {"langgraph_visual", "langgraph_code", "claude_code", "codex", "openclaw"}
 
-DEFINITION_KINDS: set[str] = {"graph", "code", "claude_code", "codex", "openclaw"}
-CLI_DEFINITION_KINDS: set[str] = {"claude_code", "codex", "openclaw"}
-RUNTIME_KINDS: set[str] = {"graph", "code", "sandbox"}
-
-# Internal engine kinds — platform tools that reuse the execution pipeline
-# but are NOT user-facing agent runtimes.  E.g. the Graph Builder Copilot.
+InternalEngineKind = Literal["build_copilot"]
 INTERNAL_ENGINE_KINDS: set[str] = {"build_copilot"}
 
-# All registered engine kinds (agent runtimes + internal).
-ALL_ENGINE_KINDS: set[str] = RUNTIME_KINDS | INTERNAL_ENGINE_KINDS
-DEFINITION_RUNTIME_KIND: dict[str, str] = {
-    "graph": "graph",
-    "code": "code",
+AllEngineKind = Union[EngineKind, InternalEngineKind]
+ALL_ENGINE_KINDS: set[str] = ENGINE_KINDS | INTERNAL_ENGINE_KINDS
+
+RuntimeKind = Literal["sandbox", "server"]
+RUNTIME_KINDS: set[str] = {"sandbox", "server"}
+
+ENGINE_RUNTIME_MAP: dict[str, str] = {
+    "langgraph_visual": "server",
+    "langgraph_code": "server",
     "claude_code": "sandbox",
     "codex": "sandbox",
     "openclaw": "sandbox",
 }
 
+CLI_ENGINE_KINDS: set[str] = {"claude_code", "codex", "openclaw"}
 
-def infer_runtime_kind(definition_kind: str) -> str:
-    runtime_kind = DEFINITION_RUNTIME_KIND.get(definition_kind)
+
+def infer_runtime_kind(engine_kind: str) -> str:
+    runtime_kind = ENGINE_RUNTIME_MAP.get(engine_kind)
     if not runtime_kind:
         raise InvalidRequestError(
-            f"Unsupported definition_kind={definition_kind}",
-            code="AGENT_DEFINITION_KIND_UNSUPPORTED",
-            data={"definition_kind": definition_kind},
+            f"Unsupported engine_kind={engine_kind}",
+            code="AGENT_ENGINE_KIND_UNSUPPORTED",
+            data={"engine_kind": engine_kind},
         )
     return runtime_kind
 
 
-def is_cli_definition_kind(definition_kind: str) -> bool:
-    return definition_kind in CLI_DEFINITION_KINDS
+def is_cli_engine_kind(engine_kind: str) -> bool:
+    return engine_kind in CLI_ENGINE_KINDS
 
 
-def normalize_definition_kind(definition_kind: str | None) -> str | None:
-    return definition_kind if definition_kind in DEFINITION_KINDS else None
+def normalize_engine_kind(engine_kind: str | None) -> str | None:
+    return engine_kind if engine_kind in ENGINE_KINDS else None
 
 
 def normalize_runtime_kind(runtime_kind: str | None) -> str | None:
