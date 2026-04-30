@@ -13,22 +13,24 @@ flowchart TB
             direction TB
             Canvas["DeepAgents Canvas<br/>ReactFlow"]
             CodeEditor["Code Editor<br/>CodeMirror"]
-            Trace["Execution Trace<br/>SSE Stream"]
+            Trace["Execution Trace<br/>Execution WebSocket"]
             Workspace["Workspace Manager<br/>RBAC"]
             Copilot["Copilot AI<br/>Graph Assistant"]
         end
 
         subgraph API["API Layer (FastAPI)"]
             direction TB
-            REST["REST APIs<br/>Auth/Graphs/Chat/Skills"]
-            WS["WebSocket<br/>Chat/Copilot/Runs"]
-            SSE["SSE Stream<br/>Real-time Events"]
+            REST["REST APIs<br/>Auth/Agents/Versions/Releases/Tasks/Threads"]
+            WS["WebSocket<br/>Executions/Notifications/OpenClaw"]
+            ExecWS["Execution WebSocket<br/>/ws/executions"]
             CodeAPI["Code API<br/>Save/Run"]
         end
 
         subgraph Services["Service Layer"]
             direction TB
-            GraphSvc["GraphService"]
+            DispatchSvc["DispatchService"]
+            Orchestrator["ExecutionOrchestrator<br/>service layer"]
+            EngineRegistry["EngineRegistry<br/>runtime_kind -> engine"]
             SkillSvc["SkillService"]
             MemorySvc["MemoryService"]
             McpSvc["McpClient<br/>Service"]
@@ -69,16 +71,18 @@ flowchart TB
 
     Canvas --> REST
     CodeEditor --> CodeAPI
-    Trace --> SSE
+    Trace --> ExecWS
     Workspace --> REST
     Copilot --> WS
 
     REST --> Services
     WS --> Services
-    SSE --> Services
+    ExecWS --> Services
     CodeAPI --> Services
 
-    Services --> Engine
+    DispatchSvc --> Orchestrator
+    Orchestrator --> EngineRegistry
+    EngineRegistry --> Engine
     Engine --> Runtime
     Runtime --> Data
     Runtime --> MCP
@@ -106,13 +110,20 @@ The system supports two graph building modes:
 
 ```mermaid
 flowchart LR
-    Service[GraphService] -->|graph_mode = code| CodeExec[Code Executor<br/>exec → StateGraph.compile]
-    Service -->|canvas mode| DeepBuilder[DeepAgents Builder<br/>Manager-Worker topology]
+    Version[AgentVersion.definition_payload] -->|definition_kind = code| CodeExec[Code Executor<br/>exec → StateGraph.compile]
+    Version -->|definition_kind = graph| DeepBuilder[DeepAgents Builder<br/>Manager-Worker topology]
+    Dispatch[DispatchService] --> Orchestrator[ExecutionOrchestrator]
+    Orchestrator --> Registry[EngineRegistry<br/>runtime_kind -> engine]
+    Registry --> CodeExec
+    Registry --> DeepBuilder
 
     CodeExec --> LangGraph[LangGraph Runtime]
     DeepBuilder --> LangGraph
 
-    style Service fill:#e1f5ff
+    style Version fill:#e1f5ff
+    style Dispatch fill:#e1f5ff
+    style Orchestrator fill:#fff3e0
+    style Registry fill:#fff3e0
     style CodeExec fill:#fff3e0
     style DeepBuilder fill:#e8f5e8
 ```
@@ -244,70 +255,74 @@ sequenceDiagram
 
 ### Core Workflows
 
-#### Graph Building Flow
+#### Agent Definition and Execution Flow
 
 ```mermaid
 sequenceDiagram
     participant Frontend as Frontend
     participant API as REST API
-    participant Service as GraphService
-    participant Builder as DeepAgentsBuilder / CodeExecutor
-    participant Runtime as LangGraph Runtime
+    participant Dispatch as DispatchService
+    participant Orchestrator as ExecutionOrchestrator
+    participant Registry as EngineRegistry
+    participant Engine as ExecutionEngine
 
-    Frontend->>API: Save graph (nodes/edges or code)
-    API->>Service: build graph
-    Service->>Service: Detect mode (code vs canvas)
+    Frontend->>API: Save agent version definition_payload
+    API->>Dispatch: start execution
+    Dispatch->>Orchestrator: create run/execution
+    Orchestrator->>Registry: resolve runtime_kind
 
-    alt Code Mode
-        Service->>Builder: execute_code(code)
-        Builder->>Runtime: StateGraph.compile()
-    else Canvas Mode (DeepAgents)
-        Service->>Builder: build_deep_agents_graph(nodes, edges)
-        Builder->>Runtime: create_deep_agent() → compile()
+    alt Code-backed definition
+        Registry->>Engine: code execution engine
+    else Graph definition
+        Registry->>Engine: graph execution engine
+    else CLI-backed definition
+        Registry->>Engine: CLI execution engine
     end
 
-    Runtime-->>Service: CompiledStateGraph
-    Service-->>API: Compiled graph
+    Engine-->>Orchestrator: execution result and events
+    Orchestrator-->>API: execution status
     API-->>Frontend: Ready
 ```
 
-#### Graph Execution Flow
+AgentVersion.definition_payload stores visual graph, code, or CLI-backed definitions. Execution starts through `DispatchService -> ExecutionOrchestrator -> EngineRegistry -> ExecutionEngine`.
+
+#### Execution Event Flow
 
 ```mermaid
 sequenceDiagram
     participant Frontend as Frontend
-    participant API as API (WebSocket)
-    participant Service as GraphService
-    participant Runtime as LangGraph Runtime
+    participant ExecWS as Execution WebSocket
+    participant Orchestrator as ExecutionOrchestrator
+    participant Context as ExecutionContext
+    participant DB as execution_events
 
-    Frontend->>API: WS /ws/chat (WebSocket)
-    API->>Service: Load and compile graph
-    Service-->>Runtime: CompiledStateGraph
-    Service->>Runtime: ainvoke({"messages": [...]})
+    Frontend->>ExecWS: WS /ws/executions
+    ExecWS->>DB: Replay persisted events
+    DB-->>ExecWS: Snapshots and events
+    ExecWS-->>Frontend: Observation frames
 
-    loop Each Node
-        Runtime->>Runtime: Execute node
-        Runtime->>API: Push event (node_start/node_end)
-        API-->>Frontend: Stream update via WebSocket
+    loop During execution
+        Orchestrator->>Context: Run engine step
+        Context->>DB: emit(event)
+        DB-->>ExecWS: Live event
+        ExecWS-->>Frontend: Observation frame
     end
-
-    Runtime-->>Service: Final result
-    Service-->>API: End event
-    API-->>Frontend: Stream complete
 ```
 
 ### Data Flow
 
 **Frontend ↔ Backend:**
-- **REST API**: Graph configuration, skill management, tool management, workspace operations
+- **REST API**: Agents, versions, releases, tasks, threads, skill management, tool management, workspace operations
 - **WebSocket (`/ws/chat`)**: Shared chat protocol for Chat, Copilot, and Skill Creator turns; Copilot sends `extension: { kind: "copilot" }` through the same WS
-- **WebSocket (`/ws/runs`)**: Real-time run observation — event replay and status updates for active agent runs
+- **WebSocket (`/ws/executions`)**: Execution snapshot, replay, live events, and observation frames.
 - **Code API**: Save and run user LangGraph code
-- **SSE Stream**: Real-time execution status, streaming output, node execution events
+- **Execution events**: All engines emit through `ExecutionContext.emit()` into `execution_events`; WebSocket subscribers receive persisted and live events from the same source.
 
 **Backend Internal:**
+- **Agent Definitions**: `AgentVersion.definition_payload` stores visual graph, code, or CLI-backed definitions
+- **Execution Dispatch**: `DispatchService` → `ExecutionOrchestrator` → `EngineRegistry` → `ExecutionEngine`
 - **Code Mode**: `code_executor.execute_code()` → `StateGraph.compile()` → `ainvoke()`
-- **Canvas Mode**: `build_deep_agents_graph()` → `create_deep_agent()` → `compile()` → `ainvoke()`
+- **Graph Mode**: `build_deep_agents_graph()` → `create_deep_agent()` → `compile()` → `ainvoke()`
 - **Copilot Turn**: `execute_copilot_turn()` → `CopilotService._get_copilot_stream()` → events persisted to `agent_run_events` via Run Center
 - **LangGraph Runtime → MCP Servers → Tools**: Tool invocation and execution
 - **Middleware → Agent → Model**: Request processing pipeline

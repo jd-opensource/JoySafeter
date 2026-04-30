@@ -13,22 +13,24 @@ flowchart TB
             direction TB
             Canvas["DeepAgents 画布<br/>ReactFlow"]
             CodeEditor["代码编辑器<br/>CodeMirror"]
-            Trace["执行追踪<br/>SSE Stream"]
+            Trace["执行追踪<br/>执行 WebSocket"]
             Workspace["工作空间管理<br/>RBAC"]
             Copilot["Copilot AI<br/>图构建助手"]
         end
 
         subgraph API["API 层 (FastAPI)"]
             direction TB
-            REST["REST APIs<br/>Auth/Graphs/Chat/Skills"]
-            WS["WebSocket<br/>Chat/Copilot/Runs"]
-            SSE["SSE Stream<br/>实时事件"]
+            REST["REST APIs<br/>Auth/Agents/Versions/Releases/Tasks/Threads"]
+            WS["WebSocket<br/>Executions/Notifications/OpenClaw"]
+            ExecWS["执行 WebSocket<br/>/ws/executions"]
             CodeAPI["Code API<br/>保存/运行"]
         end
 
         subgraph Services["服务层"]
             direction TB
-            GraphSvc["GraphService"]
+            DispatchSvc["DispatchService"]
+            Orchestrator["ExecutionOrchestrator<br/>服务层编排"]
+            EngineRegistry["EngineRegistry<br/>runtime_kind -> engine"]
             SkillSvc["SkillService"]
             MemorySvc["MemoryService"]
             McpSvc["McpClient<br/>Service"]
@@ -69,16 +71,18 @@ flowchart TB
 
     Canvas --> REST
     CodeEditor --> CodeAPI
-    Trace --> SSE
+    Trace --> ExecWS
     Workspace --> REST
     Copilot --> WS
 
     REST --> Services
     WS --> Services
-    SSE --> Services
+    ExecWS --> Services
     CodeAPI --> Services
 
-    Services --> Engine
+    DispatchSvc --> Orchestrator
+    Orchestrator --> EngineRegistry
+    EngineRegistry --> Engine
     Engine --> Runtime
     Runtime --> Data
     Runtime --> MCP
@@ -105,16 +109,25 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    Service[GraphService] -->|graph_mode = code| CodeExec[代码执行器<br/>exec → StateGraph.compile]
-    Service -->|画布模式| DeepBuilder[DeepAgents 构建器<br/>Manager-Worker 拓扑]
+    Version[AgentVersion.definition_payload] -->|definition_kind = code| CodeExec[代码执行器<br/>exec → StateGraph.compile]
+    Version -->|definition_kind = graph| DeepBuilder[DeepAgents 构建器<br/>Manager-Worker 拓扑]
+    Dispatch[DispatchService] --> Orchestrator[ExecutionOrchestrator]
+    Orchestrator --> Registry[EngineRegistry<br/>runtime_kind -> engine]
+    Registry --> CodeExec
+    Registry --> DeepBuilder
 
     CodeExec --> LangGraph[LangGraph Runtime]
     DeepBuilder --> LangGraph
 
-    style Service fill:#e1f5ff
+    style Version fill:#e1f5ff
+    style Dispatch fill:#e1f5ff
+    style Orchestrator fill:#fff3e0
+    style Registry fill:#fff3e0
     style CodeExec fill:#fff3e0
     style DeepBuilder fill:#e8f5e8
 ```
+
+Graph 现在只是 `AgentVersion.definition_kind = "graph"` 的一种 definition payload，不再是顶层产品模型。
 
 **Code 模式：**
 - 用户在浏览器编辑器中编写标准 LangGraph Python 代码
@@ -231,15 +244,17 @@ sequenceDiagram
 ### 数据流
 
 **前端 ↔ 后端：**
-- **REST API**：图配置、技能管理、工具管理、工作空间操作
+- **REST API**：Agents、Versions、Releases、Tasks、Threads、技能管理、工具管理、工作空间操作
 - **WebSocket (`/ws/chat`)**：共享聊天协议，用于 Chat、Copilot 和 Skill Creator 会话；Copilot 通过 `extension: { kind: "copilot" }` 复用同一 WS 连接
-- **WebSocket (`/ws/runs`)**：实时运行观测 — 活跃 agent run 的事件回放和状态更新
+- **WebSocket (`/ws/executions`)**：执行快照、事件回放、实时事件和 observation 帧。
 - **Code API**：保存和运行用户 LangGraph 代码
-- **SSE Stream**：实时执行状态、流式输出、节点执行事件
+- **执行事件**：所有引擎通过 `ExecutionContext.emit()` 写入 `execution_events`；WebSocket 订阅者从同一来源接收历史和实时事件。
 
 **后端内部：**
+- **Agent Definitions**：`AgentVersion.definition_payload` 存储可视化图、代码或 CLI-backed definitions
+- **执行调度**：`DispatchService` → `ExecutionOrchestrator` → `EngineRegistry` → `ExecutionEngine`
 - **Code 模式**：`code_executor.execute_code()` → `StateGraph.compile()` → `ainvoke()`
-- **画布模式**：`build_deep_agents_graph()` → `create_deep_agent()` → `compile()` → `ainvoke()`
+- **Graph 模式**：`build_deep_agents_graph()` → `create_deep_agent()` → `compile()` → `ainvoke()`
 - **Copilot 回合**：`execute_copilot_turn()` → `CopilotService._get_copilot_stream()` → 事件通过 Run Center 持久化到 `agent_run_events`
 - **LangGraph Runtime → MCP Servers → Tools**：工具调用和执行
 - **Middleware → Agent → Model**：请求处理管道

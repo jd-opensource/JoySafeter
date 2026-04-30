@@ -43,7 +43,7 @@ graph TB
         subgraph WS_LAYER["Unified WebSocket Layer"]
             BASE_WS["BaseWsClient\n(lifecycle · auth · reconnect)"]
             CHAT_WS["ChatWsClient\n/ws/chat"]
-            RUN_WS["RunWsClient\n/ws/runs"]
+            EXEC_WS["ExecutionWsClient\n/ws/executions"]
             NOTIF_WS["NotificationWsClient\n/ws/notifications"]
         end
     end
@@ -52,17 +52,18 @@ graph TB
         direction TB
 
         subgraph API["REST + WebSocket API"]
-            REST["/v1  REST Endpoints\nChat · Runs · Graphs · Skills\nModels · Tools · Workspaces"]
+            REST["/v1 REST Endpoints\nAgents · Versions · Releases\nTasks · Threads · Runs · Executions"]
             WS_HANDLER["ChatWsHandler\nUnified WS Protocol\nchat · copilot · skill_creator"]
-            RUN_WS_HANDLER["RunWsHandler\nEvent Streaming\n& Replay"]
+            EXEC_WS_HANDLER["ExecutionWsHandler\nSnapshot · Events\n& Replay"]
         end
 
         subgraph SERVICES["Service Layer"]
             MODEL_SVC["ModelService\nUnified Resolution\n(provider_name, model_name)"]
-            RUN_SVC["RunService\nEvent Sourcing\nRun · Event · Snapshot"]
+            DISPATCH_SVC["DispatchService\nAPI-facing execution entry"]
+            ORCH_SVC["ExecutionOrchestrator\nRun · Execution · Engine dispatch"]
+            ENGINE_REG["EngineRegistry\nruntime_kind -> engine"]
             SANDBOX_SVC["SandboxService\nRAII Handle\nPer-User Isolation"]
             SKILL_SVC["SkillService\nVersioning\n& Collaboration"]
-            GRAPH_SVC["GraphService\nTemplate · Deploy\n& Lookup"]
         end
 
         subgraph CORE["Core Engine"]
@@ -103,28 +104,30 @@ graph TB
 
     %% WebSocket hierarchy
     BASE_WS --> CHAT_WS
-    BASE_WS --> RUN_WS
+    BASE_WS --> EXEC_WS
     BASE_WS --> NOTIF_WS
 
     %% Frontend → Backend
     CHAT_WS -->|"ws-token auth"| WS_HANDLER
-    RUN_WS -->|"event subscribe"| RUN_WS_HANDLER
+    EXEC_WS -->|"execution subscribe"| EXEC_WS_HANDLER
     TANSTACK -->|"REST"| REST
 
     %% API → Services
-    WS_HANDLER --> RUN_SVC
+    WS_HANDLER --> DISPATCH_SVC
     WS_HANDLER --> MODEL_SVC
-    RUN_WS_HANDLER --> RUN_SVC
-    REST --> GRAPH_SVC
+    EXEC_WS_HANDLER --> ORCH_SVC
+    REST --> DISPATCH_SVC
     REST --> SKILL_SVC
     REST --> MODEL_SVC
     REST --> SANDBOX_SVC
 
     %% Services → Core
     MODEL_SVC --> MODEL_FACTORY
-    RUN_SVC --> DEEP_AGENTS
-    RUN_SVC --> LANGGRAPH
-    GRAPH_SVC --> COPILOT
+    DISPATCH_SVC --> ORCH_SVC
+    ORCH_SVC --> ENGINE_REG
+    ENGINE_REG --> DEEP_AGENTS
+    ENGINE_REG --> LANGGRAPH
+    DISPATCH_SVC --> COPILOT
     SKILL_SVC --> SKILL_LOADER
 
     %% Core internals
