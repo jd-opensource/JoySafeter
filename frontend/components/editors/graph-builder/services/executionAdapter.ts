@@ -28,7 +28,8 @@ export const executionAdapter = {
       release_id: params.releaseId,
       goal: params.prompt,
       workspace_id: params.workspaceId,
-      trigger_source: 'api',
+      trigger_medium: 'api',
+      run_purpose: 'production',
       thread_id: params.threadId,
       task_id: params.taskId,
     })

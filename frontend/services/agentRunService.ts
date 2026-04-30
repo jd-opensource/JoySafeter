@@ -7,7 +7,8 @@ import type {
   Execution,
   ExecutionEvent,
   ExecutionEventsPage,
-  TriggerSource,
+  TriggerMedium,
+  RunPurpose,
 } from '@/types/agent-run'
 
 export const agentRunService = {
@@ -16,7 +17,8 @@ export const agentRunService = {
     release_id?: string
     task_id?: string
     agent_id?: string
-    trigger_source?: TriggerSource
+    trigger_medium?: TriggerMedium
+    run_purpose?: RunPurpose
     status?: string
   }): Promise<AgentRun[]> => {
     const searchParams = new URLSearchParams()
@@ -24,7 +26,8 @@ export const agentRunService = {
     if (params.release_id) searchParams.set('release_id', params.release_id)
     if (params.task_id) searchParams.set('task_id', params.task_id)
     if (params.agent_id) searchParams.set('agent_id', params.agent_id)
-    if (params.trigger_source) searchParams.set('trigger_source', params.trigger_source)
+    if (params.trigger_medium) searchParams.set('trigger_medium', params.trigger_medium)
+    if (params.run_purpose) searchParams.set('run_purpose', params.run_purpose)
     if (params.status) searchParams.set('status', params.status)
     const res = await apiGet<AgentRun[]>(`runs?${searchParams}`)
     return res ?? []

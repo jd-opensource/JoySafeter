@@ -14,8 +14,7 @@ from app.services.execution_orchestrator import ExecutionOrchestrator
 from app.models.execution import Execution
 from app.utils.safe_task import safe_create_task
 
-# Execution source and status string literals
-EXECUTION_SOURCE_COORDINATOR = "coordinator"
+# Execution status string literals
 EXECUTION_STATUS_COMPLETED = "succeeded"
 EXECUTION_STATUS_FAILED = "failed"
 
@@ -72,7 +71,8 @@ async def spawn_agent(
             release_id=parent_release,
             agent_version_id=parent_version,
             workspace_id=ws_id,
-            trigger_source=EXECUTION_SOURCE_COORDINATOR,
+            trigger_medium="system",
+            run_purpose="production",
             goal=f"[Sub] {agent_name}: {prompt[:80]}",
             status="pending",
             created_by=user_id,

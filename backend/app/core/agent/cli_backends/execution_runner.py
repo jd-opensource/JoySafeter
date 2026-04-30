@@ -84,7 +84,8 @@ class ExecutionRunner:
             EventContext(
                 run_id=run.id,
                 workspace_id=run.workspace_id,
-                trigger_source=run.trigger_source,
+                trigger_medium=run.trigger_medium,
+                run_purpose=run.run_purpose,
                 thread_id=run.thread_id,
                 task_id=run.task_id,
             )

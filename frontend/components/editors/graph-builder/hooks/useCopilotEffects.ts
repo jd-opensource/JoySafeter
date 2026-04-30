@@ -106,7 +106,8 @@ export function useCopilotEffects({
         .list({
           agent_id: agentId,
           workspace_id: workspaceId,
-          trigger_source: 'draft_copilot',
+          trigger_medium: 'ui',
+          run_purpose: 'internal_builder',
           status: 'running',
         })
         .then((runs) => {

@@ -32,7 +32,8 @@ describe('executionAdapter', () => {
         release_id: 'rel1',
         goal: 'test input',
         workspace_id: 'w1',
-        trigger_source: 'api',
+        trigger_medium: 'api',
+        run_purpose: 'production',
       }),
     )
     expect(result.id).toBe('run1')
