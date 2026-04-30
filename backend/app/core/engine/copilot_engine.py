@@ -45,7 +45,7 @@ class CopilotEngine:
         context: ExecutionContext,
         *,
         release_runtime_binding: dict[str, Any],
-        definition_kind: str,
+        engine_kind: str,
         definition_payload: dict[str, Any],
         prompt: str,
     ) -> None:

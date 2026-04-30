@@ -1,7 +1,7 @@
 """
-Graph Execution Engine — DeepAgents-based executor.
+LangGraph Visual Execution Engine — DeepAgents-based executor.
 
-runtime_kind: "graph"
+engine_kind: "langgraph_visual"
 Compiles AgentVersion.definition_payload (nodes/edges) into a DeepAgents graph and executes it.
 """
 
@@ -115,10 +115,10 @@ def _is_assistant_message(message: Any) -> bool:
 # ---------------------------------------------------------------------------
 
 
-class GraphEngine:
+class LangGraphVisualEngine:
     """DeepAgents compiler + executor engine."""
 
-    engine_kind = "graph"
+    engine_kind = "langgraph_visual"
     capabilities = EngineCapabilities(
         supports_cancel=True,
         supports_message_injection=False,
@@ -135,7 +135,7 @@ class GraphEngine:
         context: ExecutionContext,
         *,
         release_runtime_binding: dict[str, Any],
-        definition_kind: str,
+        engine_kind: str,
         definition_payload: dict[str, Any],
         prompt: str,
     ) -> None:
@@ -143,11 +143,11 @@ class GraphEngine:
 
         execution_id = context.execution_id
 
-        if definition_kind != "graph":
+        if engine_kind != "langgraph_visual":
             error = InvalidRequestError(
-                f"GraphEngine cannot handle definition_kind={definition_kind}",
-                code="GRAPH_DEFINITION_KIND_UNSUPPORTED",
-                data={"definition_kind": definition_kind},
+                f"LangGraphVisualEngine cannot handle engine_kind={engine_kind}",
+                code="LANGGRAPH_VISUAL_ENGINE_KIND_MISMATCH",
+                data={"engine_kind": engine_kind},
             )
             await context.complete("failed", error.message, error)
             return
@@ -164,7 +164,7 @@ class GraphEngine:
             await context.complete("failed", error.message, error)
             return
 
-        logger.info(f"[GraphEngine] Starting execution {execution_id} with {len(raw_nodes)} nodes")
+        logger.info(f"[LangGraphVisualEngine] Starting execution {execution_id} with {len(raw_nodes)} nodes")
 
         cancel_event = asyncio.Event()
         self._running[execution_id] = cancel_event
@@ -173,7 +173,7 @@ class GraphEngine:
         await context.emit(
             ExecutionEventType.EXECUTION_STARTED,
             {
-                "engine": "graph",
+                "engine": "langgraph_visual",
                 "node_count": len(raw_nodes),
                 "edge_count": len(raw_edges),
             },
@@ -193,7 +193,7 @@ class GraphEngine:
                 user_id = run.created_by
                 thread_id = str(run.thread_id) if run.thread_id else None
         except Exception as lookup_exc:  # pragma: no cover
-            logger.warning(f"[GraphEngine] Could not resolve user_id/thread_id: {lookup_exc}")
+            logger.warning(f"[LangGraphVisualEngine] Could not resolve user_id/thread_id: {lookup_exc}")
 
         # ------------------------------------------------------------------
         # Wrap plain dicts into duck-typed shim objects
@@ -266,12 +266,12 @@ class GraphEngine:
                 try:
                     await sandbox_handle.release()
                 except Exception as cleanup_exc:  # pragma: no cover
-                    logger.warning(f"[GraphEngine] Sandbox cleanup failed: {cleanup_exc}")
+                    logger.warning(f"[LangGraphVisualEngine] Sandbox cleanup failed: {cleanup_exc}")
 
             await context.complete("succeeded", result_text[:2000] if result_text else None)
 
         except Exception as exc:
-            logger.error(f"[GraphEngine] Execution {execution_id} failed: {exc}")
+            logger.error(f"[LangGraphVisualEngine] Execution {execution_id} failed: {exc}")
             app_error = normalize_app_error(
                 exc,
                 default_code="GRAPH_EXECUTION_FAILED",
@@ -295,7 +295,7 @@ class GraphEngine:
         event = self._running.get(execution_id)
         if event:
             event.set()
-            logger.info(f"[GraphEngine] Cancelled execution {execution_id}")
+            logger.info(f"[LangGraphVisualEngine] Cancelled execution {execution_id}")
 
     async def send_message(self, execution_id: uuid.UUID, message: str) -> None:
         """Graph executions don't support message injection (yet)."""

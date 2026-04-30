@@ -1,5 +1,5 @@
 """
-Engine registry — maps runtime_kind to ExecutionEngine instances.
+Engine registry — maps engine_kind to ExecutionEngine instances.
 """
 
 from __future__ import annotations
@@ -9,25 +9,25 @@ from app.core.engine.protocol import ExecutionEngine
 
 
 class EngineRegistry:
-    """Singleton registry: runtime_kind → ExecutionEngine."""
+    """Singleton registry: engine_kind → ExecutionEngine."""
 
     def __init__(self) -> None:
         self._engines: dict[str, ExecutionEngine] = {}
 
-    def register(self, runtime_kind: str, engine: ExecutionEngine) -> None:
-        self._engines[runtime_kind] = engine
+    def register(self, engine_kind: str, engine: ExecutionEngine) -> None:
+        self._engines[engine_kind] = engine
 
-    def has(self, runtime_kind: str) -> bool:
-        return runtime_kind in self._engines
+    def has(self, engine_kind: str) -> bool:
+        return engine_kind in self._engines
 
-    def get(self, runtime_kind: str) -> ExecutionEngine:
-        engine = self._engines.get(runtime_kind)
+    def get(self, engine_kind: str) -> ExecutionEngine:
+        engine = self._engines.get(engine_kind)
         if not engine:
             available = ", ".join(self._engines.keys()) or "(none)"
             raise NotFoundError(
-                "Execution runtime engine is not registered",
+                "Execution engine is not registered",
                 code="EXECUTION_ENGINE_NOT_REGISTERED",
-                data={"runtime_kind": runtime_kind, "available_runtime_kinds": available},
+                data={"engine_kind": engine_kind, "available_engine_kinds": available},
             )
         return engine
 

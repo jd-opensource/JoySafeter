@@ -1,7 +1,7 @@
 """
 Execution engine protocol — the stable abstraction layer.
 
-All execution engines (sandbox, graph, code, future engines) implement this protocol.
+All execution engines implement this protocol.
 The orchestrator dispatches to engines via the registry; engines emit events via context.
 """
 
@@ -77,13 +77,15 @@ class ExecutionEngine(Protocol):
     """
     Stable interface for all execution engines.
 
-    Agent runtime engines (user-facing):
-      - CLIEngine     (runtime_kind: sandbox) — Docker + CLI-backed agent runtime
-      - GraphEngine   (runtime_kind: graph)   — LangGraph compiler
-      - CodeEngine    (runtime_kind: code)    — in-process code agent runtime
+    User-facing engines:
+      - LangGraphVisualEngine  (engine_kind: langgraph_visual)
+      - LangGraphCodeEngine    (engine_kind: langgraph_code)
+      - ClaudeCodeEngine       (engine_kind: claude_code)
+      - CodexEngine            (engine_kind: codex)
+      - OpenClawEngine         (engine_kind: openclaw)
 
-    Internal platform engines (not user-facing agent runtimes):
-      - CopilotEngine (engine_kind: build_copilot) — Graph Builder AI assistant
+    Internal platform engines:
+      - CopilotEngine          (engine_kind: build_copilot)
     """
 
     engine_kind: str
@@ -94,7 +96,7 @@ class ExecutionEngine(Protocol):
         context: ExecutionContext,
         *,
         release_runtime_binding: dict[str, Any],
-        definition_kind: str,
+        engine_kind: str,
         definition_payload: dict[str, Any],
         prompt: str,
     ) -> None:
@@ -104,7 +106,7 @@ class ExecutionEngine(Protocol):
         Args:
             context: execution context with emit/status/complete callbacks
             release_runtime_binding: from AgentRelease.runtime_binding
-            definition_kind: "graph" | "code" | "claude_code" | "codex" | "openclaw"
+            engine_kind: "langgraph_visual" | "langgraph_code" | "claude_code" | "codex" | "openclaw"
             definition_payload: from AgentVersion.definition_payload
             prompt: the user prompt or task goal
         """

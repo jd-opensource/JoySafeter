@@ -1,7 +1,7 @@
 """
-Code Execution Engine — sandboxed user-code executor.
+LangGraph Code Execution Engine — sandboxed user-code executor.
 
-runtime_kind: "code"
+engine_kind: "langgraph_code"
 Extracts a StateGraph from user Python code via execute_code(),
 compiles it, and executes it with streaming events.
 """
@@ -20,10 +20,10 @@ from app.core.engine.protocol import EngineCapabilities, ExecutionContext
 from app.core.events.event_types import ExecutionEventType
 
 
-class CodeEngine:
+class LangGraphCodeEngine:
     """Sandboxed code executor engine."""
 
-    engine_kind = "code"
+    engine_kind = "langgraph_code"
     capabilities = EngineCapabilities(
         supports_cancel=True,
         supports_message_injection=False,
@@ -40,7 +40,7 @@ class CodeEngine:
         context: ExecutionContext,
         *,
         release_runtime_binding: dict[str, Any],
-        definition_kind: str,
+        engine_kind: str,
         definition_payload: dict[str, Any],
         prompt: str,
     ) -> None:
@@ -48,11 +48,11 @@ class CodeEngine:
 
         execution_id = context.execution_id
 
-        if definition_kind != "code":
+        if engine_kind != "langgraph_code":
             error = InvalidRequestError(
-                f"CodeEngine cannot handle definition_kind={definition_kind}",
-                code="CODE_DEFINITION_KIND_UNSUPPORTED",
-                data={"definition_kind": definition_kind},
+                f"LangGraphCodeEngine cannot handle engine_kind={engine_kind}",
+                code="LANGGRAPH_CODE_ENGINE_KIND_MISMATCH",
+                data={"engine_kind": engine_kind},
             )
             await context.complete("failed", error.message, error)
             return
@@ -66,7 +66,7 @@ class CodeEngine:
             await context.complete("failed", error.message, error)
             return
 
-        logger.info(f"[CodeEngine] Starting execution {execution_id} ({len(code)} chars of code)")
+        logger.info(f"[LangGraphCodeEngine] Starting execution {execution_id} ({len(code)} chars of code)")
 
         cancel_event = asyncio.Event()
         self._running[execution_id] = cancel_event
@@ -85,7 +85,7 @@ class CodeEngine:
             await context.emit(
                 ExecutionEventType.EXECUTION_STARTED,
                 {
-                    "engine": "code",
+                    "engine": "langgraph_code",
                     "code_length": len(code),
                 },
             )
@@ -102,7 +102,7 @@ class CodeEngine:
                     user_id = run.created_by
                     thread_id = str(run.thread_id) if run.thread_id else None
             except Exception as lookup_exc:
-                logger.warning(f"[CodeEngine] Could not resolve user_id/thread_id: {lookup_exc}")
+                logger.warning(f"[LangGraphCodeEngine] Could not resolve user_id/thread_id: {lookup_exc}")
 
             from app.core.code_executor import execute_code
 
@@ -140,7 +140,7 @@ class CodeEngine:
             await context.complete("succeeded", result_text[:2000] if result_text else None)
 
         except (ValueError, ImportError, TimeoutError) as exc:
-            logger.warning(f"[CodeEngine] Code execution error {execution_id}: {exc}")
+            logger.warning(f"[LangGraphCodeEngine] Code execution error {execution_id}: {exc}")
             app_error = normalize_app_error(
                 exc,
                 default_code="CODE_EXECUTION_INVALID",
@@ -151,7 +151,7 @@ class CodeEngine:
             await context.emit(ExecutionEventType.ERROR, app_error.to_payload())
             await context.complete("failed", app_error.message[:2000], app_error)
         except Exception as exc:
-            logger.error(f"[CodeEngine] Execution {execution_id} failed: {exc}")
+            logger.error(f"[LangGraphCodeEngine] Execution {execution_id} failed: {exc}")
             app_error = normalize_app_error(
                 exc,
                 default_code="CODE_EXECUTION_FAILED",
@@ -174,7 +174,7 @@ class CodeEngine:
         event = self._running.get(execution_id)
         if event:
             event.set()
-            logger.info(f"[CodeEngine] Cancelled execution {execution_id}")
+            logger.info(f"[LangGraphCodeEngine] Cancelled execution {execution_id}")
 
     async def send_message(self, execution_id: uuid.UUID, message: str) -> None:
         if execution_id not in self._running:
