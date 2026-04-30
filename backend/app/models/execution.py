@@ -25,7 +25,7 @@ class Execution(Base):
         UUID(as_uuid=True), ForeignKey("executions.id"), nullable=True
     )
     attempt_index: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    executor_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    engine_kind: Mapped[str] = mapped_column(String(20), nullable=False)
     runtime_session_ref: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(
         Enum(

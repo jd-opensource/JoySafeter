@@ -8,7 +8,7 @@ from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text,
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.agent_kinds import normalize_definition_kind, normalize_runtime_kind
+from app.core.contracts.agent import normalize_engine_kind, normalize_runtime_kind
 from app.core.database import Base
 from app.utils.datetime import utc_now
 
@@ -52,10 +52,10 @@ class Agent(BaseModel):
         return self.encrypted_custom_env is not None
 
     @property
-    def definition_kind(self) -> Optional[str]:
+    def engine_kind(self) -> Optional[str]:
         if not self.current_draft_version:
             return None
-        return normalize_definition_kind(self.current_draft_version.definition_kind)
+        return normalize_engine_kind(self.current_draft_version.engine_kind)
 
     @property
     def runtime_kind(self) -> Optional[str]:
@@ -94,7 +94,7 @@ class AgentVersion(Base):
         Enum("draft", "frozen", name="agent_version_status"), nullable=False, default="draft"
     )
     source_kind: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
-    definition_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    engine_kind: Mapped[str] = mapped_column(String(20), nullable=False)
     definition_payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     capability_manifest: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     changelog: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
