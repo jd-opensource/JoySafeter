@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import get_args
 
 from app.core.contracts.agent import (
@@ -83,3 +84,9 @@ def test_registered_engines_declare_message_injection_capabilities() -> None:
         "code": False,
         "copilot": False,
     }
+
+
+def test_persistence_subscriber_documents_single_process_sequence_cache() -> None:
+    source = Path("backend/app/core/events/subscribers/persistence.py").read_text()
+    assert "single-process sequence cache" in source
+    assert "distributed event sequencing" in source

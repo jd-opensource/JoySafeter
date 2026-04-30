@@ -25,8 +25,11 @@ class PersistenceSubscriber:
     phase = SubscriberPhase.PERSIST
 
     def __init__(self) -> None:
-        # In-memory seq counter per execution — avoids MAX() query on every event.
-        # Seeded lazily on first event for each execution_id.
+        # single-process sequence cache:
+        # This in-memory counter avoids a MAX() query on every event and is safe
+        # only when one backend process owns event writes for an execution. Multi-
+        # worker or multi-instance deployments need distributed event sequencing
+        # before this cache can be treated as globally safe.
         self._seq_cache: dict[str, int] = defaultdict(int)
 
     async def handle(
