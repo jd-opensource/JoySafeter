@@ -1,0 +1,53 @@
+"""Canonical backend contract values."""
+
+from app.core.contracts.agent import (
+    CLI_DEFINITION_KINDS,
+    DEFINITION_KINDS,
+    DEFINITION_RUNTIME_KIND,
+    RUNTIME_KINDS,
+    DefinitionKindLiteral,
+    RuntimeKindLiteral,
+    infer_runtime_kind,
+    is_cli_definition_kind,
+    normalize_definition_kind,
+    normalize_runtime_kind,
+)
+from app.core.contracts.execution import (
+    ACTIVE_EXECUTION_STATUSES,
+    ACTIVE_RUN_STATUSES,
+    EXECUTION_STATUSES,
+    RELEASE_STATUSES,
+    RUN_STATUSES,
+    TERMINAL_EXECUTION_STATUSES,
+    TERMINAL_RUN_STATUSES,
+    TRIGGER_SOURCES,
+    ExecutionStatusLiteral,
+    ReleaseStatusLiteral,
+    RunStatusLiteral,
+    TriggerSourceLiteral,
+)
+
+__all__ = [
+    "ACTIVE_EXECUTION_STATUSES",
+    "ACTIVE_RUN_STATUSES",
+    "CLI_DEFINITION_KINDS",
+    "DEFINITION_KINDS",
+    "DEFINITION_RUNTIME_KIND",
+    "EXECUTION_STATUSES",
+    "ExecutionStatusLiteral",
+    "DefinitionKindLiteral",
+    "RELEASE_STATUSES",
+    "RUN_STATUSES",
+    "RUNTIME_KINDS",
+    "ReleaseStatusLiteral",
+    "RunStatusLiteral",
+    "RuntimeKindLiteral",
+    "TERMINAL_EXECUTION_STATUSES",
+    "TERMINAL_RUN_STATUSES",
+    "TRIGGER_SOURCES",
+    "TriggerSourceLiteral",
+    "infer_runtime_kind",
+    "is_cli_definition_kind",
+    "normalize_definition_kind",
+    "normalize_runtime_kind",
+]

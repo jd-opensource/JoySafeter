@@ -6,20 +6,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Optional
 
 from pydantic import BaseModel
 
-TriggerSourceLiteral = Literal[
-    "task",
-    "chat",
-    "api",
-    "scheduler",
-    "comment",
-    "mention",
-    "draft_copilot",
-    "draft_test",
-]
+from app.core.contracts.execution import TriggerSourceLiteral
 
 
 class CreateAgentRunRequest(BaseModel):

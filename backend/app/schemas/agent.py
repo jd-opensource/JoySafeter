@@ -10,7 +10,7 @@ from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from app.core.agent_kinds import DefinitionKindLiteral, RuntimeKindLiteral
+from app.core.contracts.agent import DefinitionKindLiteral, RuntimeKindLiteral
 
 # ---------------------------------------------------------------------------
 # Literals

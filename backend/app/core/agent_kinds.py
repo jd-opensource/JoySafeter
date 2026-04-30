@@ -1,44 +1,34 @@
-"""Canonical Agent definition and runtime kind values."""
+"""Compatibility facade for Agent definition/runtime kind values."""
 
 from __future__ import annotations
 
-from typing import Literal
+from app.core.contracts.agent import (
+    CLI_DEFINITION_KINDS,
+    DEFINITION_KINDS,
+    DEFINITION_RUNTIME_KIND,
+    RUNTIME_KINDS,
+    DefinitionKindLiteral,
+    RuntimeKindLiteral,
+    infer_runtime_kind,
+    is_cli_definition_kind,
+    normalize_definition_kind,
+    normalize_runtime_kind,
+)
 
-from app.common.app_errors import InvalidRequestError
+SUPPORTED_DEFINITION_KINDS = DEFINITION_KINDS
+SUPPORTED_RUNTIME_KINDS = RUNTIME_KINDS
 
-DefinitionKindLiteral = Literal["graph", "code", "claude_code", "codex", "openclaw"]
-RuntimeKindLiteral = Literal["graph", "code", "sandbox"]
-
-CLI_DEFINITION_KINDS = frozenset({"claude_code", "codex", "openclaw"})
-SUPPORTED_DEFINITION_KINDS = frozenset({"graph", "code", *CLI_DEFINITION_KINDS})
-SUPPORTED_RUNTIME_KINDS = frozenset({"graph", "code", "sandbox"})
-DEFINITION_RUNTIME_KIND: dict[str, str] = {
-    "graph": "graph",
-    "code": "code",
-    "claude_code": "sandbox",
-    "codex": "sandbox",
-    "openclaw": "sandbox",
-}
-
-
-def infer_runtime_kind(definition_kind: str) -> str:
-    runtime_kind = DEFINITION_RUNTIME_KIND.get(definition_kind)
-    if not runtime_kind:
-        raise InvalidRequestError(
-            f"Unsupported definition_kind={definition_kind}",
-            code="AGENT_DEFINITION_KIND_UNSUPPORTED",
-            data={"definition_kind": definition_kind},
-        )
-    return runtime_kind
-
-
-def is_cli_definition_kind(definition_kind: str) -> bool:
-    return definition_kind in CLI_DEFINITION_KINDS
-
-
-def normalize_definition_kind(definition_kind: str | None) -> str | None:
-    return definition_kind if definition_kind in SUPPORTED_DEFINITION_KINDS else None
-
-
-def normalize_runtime_kind(runtime_kind: str | None) -> str | None:
-    return runtime_kind if runtime_kind in SUPPORTED_RUNTIME_KINDS else None
+__all__ = [
+    "CLI_DEFINITION_KINDS",
+    "DEFINITION_KINDS",
+    "DEFINITION_RUNTIME_KIND",
+    "DefinitionKindLiteral",
+    "RUNTIME_KINDS",
+    "RuntimeKindLiteral",
+    "SUPPORTED_DEFINITION_KINDS",
+    "SUPPORTED_RUNTIME_KINDS",
+    "infer_runtime_kind",
+    "is_cli_definition_kind",
+    "normalize_definition_kind",
+    "normalize_runtime_kind",
+]

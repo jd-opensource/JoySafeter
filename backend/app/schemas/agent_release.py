@@ -6,13 +6,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Optional
 
 from pydantic import BaseModel
 
-from app.core.agent_kinds import RuntimeKindLiteral
-
-ReleaseStatusLiteral = Literal["ready", "active", "superseded", "failed", "retired"]
+from app.core.contracts.agent import RuntimeKindLiteral
+from app.core.contracts.execution import ReleaseStatusLiteral
 
 # ---------------------------------------------------------------------------
 # Request schemas
