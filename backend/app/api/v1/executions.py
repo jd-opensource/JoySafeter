@@ -48,7 +48,7 @@ async def dispatch_debug_run(
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse:
     """Start a debug run with observation tracing enabled."""
-    from app.core.engine.orchestrator import ExecutionOrchestrator
+    from app.services.execution_orchestrator import ExecutionOrchestrator
 
     has_access = await check_workspace_access(db, body.workspace_id, current_user, WorkspaceMemberRole.member)
     if not has_access:

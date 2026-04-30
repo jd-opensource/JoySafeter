@@ -1,8 +1,8 @@
 """
-Execution Orchestrator — the single entry point for all execution dispatch.
+Execution Orchestrator — service-layer entry point for execution dispatch.
 
 Layer 2: sits between API/triggers (Layer 1) and engines (Layer 3).
-Creates AgentRun + Execution, resolves the engine, builds context, fires.
+Creates AgentRun + Execution, resolves the engine, builds context, and starts execution.
 """
 
 from __future__ import annotations
