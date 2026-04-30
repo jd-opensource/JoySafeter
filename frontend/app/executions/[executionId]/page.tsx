@@ -115,7 +115,7 @@ export default function ExecutionDetailPage() {
                   <span className="text-sm font-medium text-[var(--text-secondary)]">Executor</span>
                 </div>
                 <div className="text-sm text-[var(--text-primary)]">
-                  {execution.executor_kind}
+                  {execution.engine_kind}
                 </div>
               </Card>
             </div>
@@ -193,9 +193,9 @@ export default function ExecutionDetailPage() {
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-xs text-[var(--text-muted)]">Executor Kind</dt>
+                      <dt className="text-xs text-[var(--text-muted)]">Engine Kind</dt>
                       <dd className="mt-1 text-sm text-[var(--text-primary)]">
-                        {execution.executor_kind}
+                        {execution.engine_kind}
                       </dd>
                     </div>
                     {execution.parent_execution_id && (

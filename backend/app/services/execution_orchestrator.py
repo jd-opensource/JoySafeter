@@ -247,7 +247,6 @@ class ExecutionOrchestrator:
             engine_kind_override="build_copilot",
             definition_kind_override="build_copilot",
             definition_payload_override=copilot_payload,
-            executor_kind_override="build_copilot",
         )
 
     async def dispatch_debug(
@@ -533,7 +532,6 @@ class ExecutionOrchestrator:
         engine_kind_override: str | None = None,
         definition_kind_override: str | None = None,
         definition_payload_override: dict | None = None,
-        executor_kind_override: str | None = None,
     ) -> AgentRun:
         release = await self._get_release(release_id)
         version = await self._get_version(release.agent_version_id)
@@ -557,7 +555,7 @@ class ExecutionOrchestrator:
         execution = Execution(
             run_id=run.id,
             attempt_index=1,
-            engine_kind=executor_kind_override or version.engine_kind,
+            engine_kind=engine_kind_override or version.engine_kind,
             status="pending",
         )
         self.db.add(execution)
@@ -628,13 +626,11 @@ class ExecutionOrchestrator:
         engine_kind_override: str | None = None,
         definition_kind_override: str | None = None,
         definition_payload_override: dict | None = None,
-        executor_kind_override: str | None = None,
     ) -> AgentRun:
         self._validate_draft_overrides(
             engine_kind_override=engine_kind_override,
             definition_kind_override=definition_kind_override,
             definition_payload_override=definition_payload_override,
-            executor_kind_override=executor_kind_override,
         )
         runtime_binding = self._build_draft_runtime_binding(version)
         engine_kind = self._resolve_draft_engine_kind(version)
@@ -656,7 +652,7 @@ class ExecutionOrchestrator:
         execution = Execution(
             run_id=run.id,
             attempt_index=1,
-            engine_kind=executor_kind_override or version.engine_kind,
+            engine_kind=engine_kind_override or version.engine_kind,
             status="pending",
         )
         self.db.add(execution)
@@ -718,13 +714,11 @@ class ExecutionOrchestrator:
         engine_kind_override: str | None,
         definition_kind_override: str | None,
         definition_payload_override: dict | None,
-        executor_kind_override: str | None,
     ) -> None:
         override_presence = (
             engine_kind_override is not None,
             definition_kind_override is not None,
             definition_payload_override is not None,
-            executor_kind_override is not None,
         )
         if any(override_presence) and not all(override_presence):
             raise InvalidRequestError(
@@ -734,7 +728,6 @@ class ExecutionOrchestrator:
                     "engine_kind_override": engine_kind_override is not None,
                     "definition_kind_override": definition_kind_override is not None,
                     "definition_payload_override": definition_payload_override is not None,
-                    "executor_kind_override": executor_kind_override is not None,
                 },
             )
 

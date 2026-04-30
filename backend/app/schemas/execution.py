@@ -31,7 +31,7 @@ class ExecutionResponse(BaseModel):
     run_id: uuid.UUID
     parent_execution_id: Optional[uuid.UUID]
     attempt_index: int
-    executor_kind: str
+    engine_kind: str
     runtime_session_ref: Optional[str]
     status: str
     error: Optional[AppErrorPayload]

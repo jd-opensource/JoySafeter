@@ -303,7 +303,7 @@ class ExecutionService:
         execution = Execution(
             run_id=run_id,
             attempt_index=max_attempt + 1,
-            executor_kind=runtime_type,
+            engine_kind=runtime_type,
             status="pending",
             parent_execution_id=parent_execution_id,
         )

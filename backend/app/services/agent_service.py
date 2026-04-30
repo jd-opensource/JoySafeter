@@ -88,7 +88,7 @@ class AgentService(BaseService):
                 "version_number": 1,
                 "status": "draft",
                 "source_kind": "manual",
-                "definition_kind": data.definition_kind,
+                "engine_kind": data.engine_kind,
                 "definition_payload": data.definition_payload or {},
                 "capability_manifest": data.capability_manifest or {},
                 "created_by": user_id,
