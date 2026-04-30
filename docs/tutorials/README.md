@@ -61,7 +61,6 @@
 ## 相关文档
 
 - [系统架构](../ARCHITECTURE.md)
-- [MCP 工具分析](../mcp-tools-analysis.md)
 
 ---
 

@@ -19,7 +19,3 @@ export interface ToolCall {
   startTime?: number
   endTime?: number
 }
-
-export function generateId(): string {
-  return crypto.randomUUID()
-}

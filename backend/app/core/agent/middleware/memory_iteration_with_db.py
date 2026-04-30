@@ -10,7 +10,7 @@ After model call:
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any, List, Literal, Optional
+from typing import Any, List, Literal, Optional
 
 from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, HumanMessage
@@ -19,9 +19,6 @@ from typing_extensions import NotRequired
 
 from app.core.agent.memory.manager import MemoryManager
 from app.schemas.memory import UserMemory
-
-if TYPE_CHECKING:
-    pass
 
 
 class AgenticMemoryState(AgentState):

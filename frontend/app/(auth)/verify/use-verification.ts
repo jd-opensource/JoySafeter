@@ -76,7 +76,7 @@ export function useVerification({
       }
 
       // Whitelist check: only allow specific paths
-      const allowedPaths = ['/chat', '/workspace', '/dashboard']
+      const allowedPaths = ['/dashboard', '/workspace', '/agents']
       const isAllowed = allowedPaths.some((path) => url.startsWith(path))
 
       if (!isAllowed) {
@@ -164,7 +164,7 @@ export function useVerification({
           if (isInviteFlow && redirectUrl) {
             window.location.href = redirectUrl
           } else {
-            window.location.href = '/chat'
+            window.location.href = '/dashboard'
           }
         }, 1000)
       } else {
@@ -260,7 +260,7 @@ export function useVerification({
           if (isInviteFlow && redirectUrl) {
             window.location.href = redirectUrl
           } else {
-            router.push('/chat')
+            router.push('/dashboard')
           }
         }
 

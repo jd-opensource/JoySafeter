@@ -1,44 +1,3 @@
-export interface Position {
-  x: number
-  y: number
-}
-
-export interface Viewport {
-  x: number
-  y: number
-  zoom: number
-}
-
-export enum NodeType {
-  USER = 'USER',
-  AI = 'AI',
-}
-
-export interface Message {
-  id: string
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  timestamp: number
-  tool_calls?: ToolCall[]
-  isStreaming?: boolean
-  metadata?: {
-    lastNode?: string
-    lastRunId?: string
-    lastUpdate?: number
-    [key: string]: unknown
-  }
-}
-
-export interface ToolCall {
-  id: string
-  name: string
-  args: Record<string, unknown>
-  status: 'running' | 'completed' | 'failed'
-  result?: string | Record<string, unknown>
-  startTime: number
-  endTime?: number
-}
-
 // File extensions that are commonly used and safe
 export const COMMON_EXTENSIONS = new Set([
   '.md',
@@ -158,32 +117,6 @@ export interface Skill {
   sourceUrl?: string
   updatedAt?: number
 }
-
-export interface CanvasNode {
-  id: string
-  parentId: string | null
-  type: NodeType
-  content: string
-  position: Position
-  width: number
-  isStreaming?: boolean
-  createdAt: number
-  toolCalls?: ToolCall[]
-  data?: Record<string, unknown>
-}
-
-export interface Edge {
-  id: string
-  source: string
-  target: string
-}
-
-export interface ChatMessage {
-  role: 'user' | 'model'
-  parts: { text: string }[]
-}
-
-export type ViewMode = 'chat' | 'builder' | 'skills'
 
 // Execution Panel Types
 export type ExecutionStepType =

@@ -120,7 +120,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isButtonHovered, setIsButtonHovered] = useState(false)
 
-  const [callbackUrl, setCallbackUrl] = useState('/chat')
+  const [callbackUrl, setCallbackUrl] = useState('/dashboard')
   const [isInviteFlow, setIsInviteFlow] = useState(false)
 
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false)
@@ -257,7 +257,7 @@ export default function LoginPage() {
     }
 
     try {
-      const safeCallbackUrl = validateCallbackUrl(callbackUrl) ? callbackUrl : '/chat'
+      const safeCallbackUrl = validateCallbackUrl(callbackUrl) ? callbackUrl : '/dashboard'
 
       logger.info('Attempting login with email:', email)
       const result = await client.signIn.email(

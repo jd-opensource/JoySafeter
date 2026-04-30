@@ -6,10 +6,7 @@ import time
 import traceback
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
-
-if TYPE_CHECKING:
-    pass
+from typing import Any, Dict, List, Optional
 
 from deepagents.backends.protocol import BackendProtocol
 from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
@@ -631,17 +628,6 @@ class LoggingMiddleware(AgentMiddleware):
             }
         except Exception:
             return {"error": "Failed to generate error summary"}
-
-    def cleanup_old_logs(self, days_to_keep: int = 30) -> None:
-        """Clean up old log files."""
-        time.time() - (days_to_keep * 24 * 60 * 60)
-
-        try:
-            # concrete cleanup logic needs to be implemented here;
-            # limited by BackendProtocol, this is a placeholder
-            pass
-        except Exception as e:
-            logger.warning(f"Failed to cleanup old logs: {e}")
 
 
 # (no additional imports needed)
