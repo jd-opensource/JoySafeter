@@ -58,7 +58,7 @@ flowchart TB
 
         subgraph Data["Data Layer"]
             direction TB
-            PG["PostgreSQL<br/>Graphs/Skills/Memory"]
+            PG["PostgreSQL<br/>Agent Definitions/Versions/Executions<br/>Skills/Memory"]
             Redis["Redis<br/>Cache/Sessions"]
         end
 
@@ -323,12 +323,12 @@ sequenceDiagram
 - **Execution Dispatch**: `DispatchService` → `ExecutionOrchestrator` → `EngineRegistry` → `ExecutionEngine`
 - **Code Mode**: `code_executor.execute_code()` → `StateGraph.compile()` → `ainvoke()`
 - **Graph Mode**: `build_deep_agents_graph()` → `create_deep_agent()` → `compile()` → `ainvoke()`
-- **Copilot Turn**: `execute_copilot_turn()` → `CopilotService._get_copilot_stream()` → events persisted to `agent_run_events` via Run Center
+- **Copilot Turn**: `execute_copilot_turn()` → `CopilotService._get_copilot_stream()` → events emitted into `execution_events`
 - **LangGraph Runtime → MCP Servers → Tools**: Tool invocation and execution
 - **Middleware → Agent → Model**: Request processing pipeline
 
 **Backend ↔ Data Layer:**
-- **PostgreSQL**: Graph configurations, skills, memories, sessions, workspaces, agent runs/events/snapshots (Run Center)
+- **PostgreSQL**: Agent definitions, versions, releases, skills, memories, sessions, workspaces, runs, executions, execution events, and snapshots
 - **Redis**: Cache, rate limiting, temporary data
 
 ### Backend File Structure (Graph Module)

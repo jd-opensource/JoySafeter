@@ -58,7 +58,7 @@ flowchart TB
 
         subgraph Data["数据层"]
             direction TB
-            PG["PostgreSQL<br/>图/技能/记忆"]
+            PG["PostgreSQL<br/>Agent 定义/版本/执行<br/>技能/记忆"]
             Redis["Redis<br/>缓存/会话"]
         end
 
@@ -241,6 +241,64 @@ sequenceDiagram
     Manager->>DB: 保存记忆
 ```
 
+### 核心工作流
+
+#### Agent 定义和执行流程
+
+```mermaid
+sequenceDiagram
+    participant Frontend as 前端
+    participant API as REST API
+    participant Dispatch as DispatchService
+    participant Orchestrator as ExecutionOrchestrator
+    participant Registry as EngineRegistry
+    participant Engine as ExecutionEngine
+
+    Frontend->>API: 保存 agent version definition_payload
+    API->>Dispatch: 启动执行
+    Dispatch->>Orchestrator: 创建 run/execution
+    Orchestrator->>Registry: 解析 runtime_kind
+
+    alt 代码定义
+        Registry->>Engine: code execution engine
+    else Graph 定义
+        Registry->>Engine: graph execution engine
+    else CLI-backed 定义
+        Registry->>Engine: CLI execution engine
+    end
+
+    Engine-->>Orchestrator: 执行结果和事件
+    Orchestrator-->>API: 执行状态
+    API-->>Frontend: Ready
+```
+
+`AgentVersion.definition_payload` 存储可视化 graph、代码或 CLI-backed definitions。执行入口是 `DispatchService -> ExecutionOrchestrator -> EngineRegistry -> ExecutionEngine`。
+
+#### 执行事件流程
+
+```mermaid
+sequenceDiagram
+    participant Frontend as 前端
+    participant ExecWS as 执行 WebSocket
+    participant Orchestrator as ExecutionOrchestrator
+    participant Context as ExecutionContext
+    participant DB as execution_events
+
+    Frontend->>ExecWS: WS /ws/executions
+    ExecWS->>DB: 回放已持久化事件
+    DB-->>ExecWS: 快照和事件
+    ExecWS-->>Frontend: Observation frames
+
+    loop 执行过程中
+        Orchestrator->>Context: 运行 engine step
+        Context->>DB: emit(event)
+        DB-->>ExecWS: 实时事件
+        ExecWS-->>Frontend: Observation frame
+    end
+```
+
+所有执行引擎通过 `ExecutionContext.emit()` 写入 `execution_events`。`/ws/executions` 订阅者先接收同一来源的历史回放，再接收实时事件。
+
 ### 数据流
 
 **前端 ↔ 后端：**
@@ -255,12 +313,12 @@ sequenceDiagram
 - **执行调度**：`DispatchService` → `ExecutionOrchestrator` → `EngineRegistry` → `ExecutionEngine`
 - **Code 模式**：`code_executor.execute_code()` → `StateGraph.compile()` → `ainvoke()`
 - **Graph 模式**：`build_deep_agents_graph()` → `create_deep_agent()` → `compile()` → `ainvoke()`
-- **Copilot 回合**：`execute_copilot_turn()` → `CopilotService._get_copilot_stream()` → 事件通过 Run Center 持久化到 `agent_run_events`
+- **Copilot 回合**：`execute_copilot_turn()` → `CopilotService._get_copilot_stream()` → 事件写入 `execution_events`
 - **LangGraph Runtime → MCP Servers → Tools**：工具调用和执行
 - **Middleware → Agent → Model**：请求处理管道
 
 **后端 ↔ 数据层：**
-- **PostgreSQL**：图配置、技能、记忆、会话、工作空间、agent runs/events/snapshots（Run Center）
+- **PostgreSQL**：Agent 定义、版本、发布、技能、记忆、会话、工作空间、runs、executions、execution events 和 snapshots
 - **Redis**：缓存、限流、临时数据
 
 ### 后端文件结构（图模块）
