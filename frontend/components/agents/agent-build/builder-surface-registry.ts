@@ -1,8 +1,10 @@
 import { cliSurface } from '@/components/agents/surfaces/cli'
 import { codeSurface } from '@/components/agents/surfaces/code'
 import { visualSurface } from '@/components/agents/surfaces/visual'
+import { BUILDER_DEFINITION_KINDS } from '@/types/agent'
 
 import type { BuilderSurface } from './agent-build-types'
+import type { DefinitionKind } from '@/types/agent'
 
 export type BuilderSurfaceKind = 'visual' | 'cli' | 'code'
 
@@ -12,7 +14,7 @@ const SURFACE_MAP: Record<BuilderSurfaceKind, BuilderSurface> = {
   code:   codeSurface,
 }
 
-const DEFINITION_TO_SURFACE: Record<string, BuilderSurfaceKind> = {
+const DEFINITION_TO_SURFACE: Record<DefinitionKind, BuilderSurfaceKind> = {
   graph:       'visual',
   code:        'code',
   claude_code: 'cli',
@@ -21,6 +23,13 @@ const DEFINITION_TO_SURFACE: Record<string, BuilderSurfaceKind> = {
 }
 
 export function resolveBuilderSurface(definitionKind: string | null | undefined): BuilderSurface {
-  const surfaceKind = DEFINITION_TO_SURFACE[definitionKind ?? ''] ?? 'visual'
+  const surfaceKind = isDefinitionKind(definitionKind)
+    ? DEFINITION_TO_SURFACE[definitionKind]
+    : 'visual'
+
   return SURFACE_MAP[surfaceKind]
+}
+
+function isDefinitionKind(definitionKind: string | null | undefined): definitionKind is DefinitionKind {
+  return BUILDER_DEFINITION_KINDS.includes(definitionKind as DefinitionKind)
 }
