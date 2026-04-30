@@ -316,9 +316,6 @@ class ExecutionOrchestrator:
     def _resolve_draft_engine_kind(self, version: AgentVersion) -> str:
         return version.engine_kind
 
-    def _build_draft_runtime_binding(self, version: AgentVersion) -> dict:
-        return {}
-
     def _build_copilot_payload(
         self,
         *,
@@ -632,8 +629,7 @@ class ExecutionOrchestrator:
             definition_kind_override=definition_kind_override,
             definition_payload_override=definition_payload_override,
         )
-        runtime_binding = self._build_draft_runtime_binding(version)
-        engine_kind = self._resolve_draft_engine_kind(version)
+        runtime_binding: dict = {}
 
         run = AgentRun(
             release_id=None,

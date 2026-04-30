@@ -22,17 +22,25 @@ def upgrade():
     op.alter_column('agent_versions', 'definition_kind', new_column_name='engine_kind')
     op.execute("UPDATE agent_versions SET engine_kind = 'langgraph_visual' WHERE engine_kind = 'graph'")
     op.execute("UPDATE agent_versions SET engine_kind = 'langgraph_code' WHERE engine_kind = 'code'")
-    # sandbox_cli -> split by runtime_binding from linked releases
+    # sandbox_cli -> split by runtime_binding from linked releases (UPDATE FROM avoids correlated subquery)
     op.execute("""
         UPDATE agent_versions av
-        SET engine_kind = COALESCE(
-            (SELECT ar.runtime_binding->>'runtime_type'
-             FROM agent_releases ar
-             WHERE ar.agent_version_id = av.id
-             LIMIT 1),
-            'claude_code'
-        )
-        WHERE av.engine_kind = 'sandbox_cli'
+        SET engine_kind = COALESCE(ar.runtime_type, 'claude_code')
+        FROM (
+            SELECT DISTINCT ON (agent_version_id)
+                agent_version_id,
+                runtime_binding->>'runtime_type' AS runtime_type
+            FROM agent_releases
+            ORDER BY agent_version_id, created_at DESC
+        ) ar
+        WHERE ar.agent_version_id = av.id
+          AND av.engine_kind = 'sandbox_cli'
+    """)
+    # Any sandbox_cli rows with no releases default to claude_code
+    op.execute("""
+        UPDATE agent_versions
+        SET engine_kind = 'claude_code'
+        WHERE engine_kind = 'sandbox_cli'
     """)
 
     # 2. agent_releases: remap runtime_kind values

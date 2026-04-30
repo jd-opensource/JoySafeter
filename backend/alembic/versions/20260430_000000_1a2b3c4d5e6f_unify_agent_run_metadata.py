@@ -20,40 +20,32 @@ def upgrade():
     op.add_column('agent_runs', sa.Column('trigger_medium', sa.String(length=20), nullable=True))
     op.add_column('agent_runs', sa.Column('run_purpose', sa.String(length=20), nullable=True))
 
-    # 2. Data Migration: Map old trigger_source to new medium and purpose
+    # 2. Data Migration: single-pass CASE to map old trigger_source → new axes
     op.execute("""
-        UPDATE agent_runs 
-        SET trigger_medium = 'system', run_purpose = 'production' 
-        WHERE trigger_source = 'task'
+        UPDATE agent_runs SET
+            trigger_medium = CASE trigger_source
+                WHEN 'task' THEN 'system'
+                WHEN 'chat' THEN 'api'
+                WHEN 'api' THEN 'api'
+                WHEN 'scheduler' THEN 'scheduler'
+                WHEN 'draft_test' THEN 'ui'
+                WHEN 'draft_copilot' THEN 'ui'
+                WHEN 'copilot' THEN 'ui'
+                WHEN 'debug' THEN 'ui'
+                ELSE 'api'
+            END,
+            run_purpose = CASE trigger_source
+                WHEN 'task' THEN 'production'
+                WHEN 'chat' THEN 'production'
+                WHEN 'api' THEN 'production'
+                WHEN 'scheduler' THEN 'production'
+                WHEN 'draft_test' THEN 'draft_test'
+                WHEN 'draft_copilot' THEN 'internal_builder'
+                WHEN 'copilot' THEN 'internal_builder'
+                WHEN 'debug' THEN 'debug'
+                ELSE 'production'
+            END
     """)
-    op.execute("""
-        UPDATE agent_runs 
-        SET trigger_medium = 'api', run_purpose = 'production' 
-        WHERE trigger_source IN ('chat', 'api')
-    """)
-    op.execute("""
-        UPDATE agent_runs 
-        SET trigger_medium = 'scheduler', run_purpose = 'production' 
-        WHERE trigger_source = 'scheduler'
-    """)
-    op.execute("""
-        UPDATE agent_runs 
-        SET trigger_medium = 'ui', run_purpose = 'draft_test' 
-        WHERE trigger_source = 'draft_test'
-    """)
-    op.execute("""
-        UPDATE agent_runs 
-        SET trigger_medium = 'ui', run_purpose = 'internal_builder' 
-        WHERE trigger_source IN ('draft_copilot', 'copilot')
-    """)
-    op.execute("""
-        UPDATE agent_runs 
-        SET trigger_medium = 'ui', run_purpose = 'debug' 
-        WHERE trigger_source = 'debug'
-    """)
-    
-    # Set default for any remaining nulls (safety catch)
-    op.execute("UPDATE agent_runs SET trigger_medium = 'api', run_purpose = 'production' WHERE trigger_medium IS NULL")
 
     # 3. Make new columns non-nullable
     op.alter_column('agent_runs', 'trigger_medium', existing_type=sa.String(length=20), nullable=False)
@@ -71,36 +63,18 @@ def downgrade():
     # 1. Add old column
     op.add_column('agent_runs', sa.Column('trigger_source', sa.String(length=20), nullable=True))
 
-    # 2. Revert Data Migration
+    # 2. Revert Data Migration: single-pass CASE
     op.execute("""
-        UPDATE agent_runs 
-        SET trigger_source = 'task' 
-        WHERE trigger_medium = 'system' AND run_purpose = 'production'
-    """)
-    op.execute("""
-        UPDATE agent_runs 
-        SET trigger_source = 'chat' 
-        WHERE trigger_medium = 'api' AND run_purpose = 'production'
-    """)
-    op.execute("""
-        UPDATE agent_runs 
-        SET trigger_source = 'scheduler' 
-        WHERE trigger_medium = 'scheduler' AND run_purpose = 'production'
-    """)
-    op.execute("""
-        UPDATE agent_runs 
-        SET trigger_source = 'draft_test' 
-        WHERE trigger_medium = 'ui' AND run_purpose = 'draft_test'
-    """)
-    op.execute("""
-        UPDATE agent_runs 
-        SET trigger_source = 'draft_copilot' 
-        WHERE trigger_medium = 'ui' AND run_purpose = 'internal_builder'
-    """)
-    op.execute("""
-        UPDATE agent_runs 
-        SET trigger_source = 'debug' 
-        WHERE trigger_medium = 'ui' AND run_purpose = 'debug'
+        UPDATE agent_runs SET
+            trigger_source = CASE
+                WHEN trigger_medium = 'system' AND run_purpose = 'production' THEN 'task'
+                WHEN trigger_medium = 'api' AND run_purpose = 'production' THEN 'chat'
+                WHEN trigger_medium = 'scheduler' AND run_purpose = 'production' THEN 'scheduler'
+                WHEN trigger_medium = 'ui' AND run_purpose = 'draft_test' THEN 'draft_test'
+                WHEN trigger_medium = 'ui' AND run_purpose = 'internal_builder' THEN 'draft_copilot'
+                WHEN trigger_medium = 'ui' AND run_purpose = 'debug' THEN 'debug'
+                ELSE 'api'
+            END
     """)
 
     # 3. Make old column non-nullable

@@ -1,7 +1,6 @@
-"""Claude Code Execution Engine.
+"""CLI Execution Engine — parameterized base for all CLI-based agent runtimes.
 
-engine_kind: "claude_code"
-Docker + Claude Code CLI agent runtime.
+Covers: claude_code, codex, openclaw.
 """
 
 from __future__ import annotations
@@ -15,10 +14,9 @@ from app.core.engine.protocol import EngineCapabilities, ExecutionContext
 from app.core.events.event_types import ExecutionEventType
 
 
-class ClaudeCodeEngine:
-    """Claude Code CLI execution engine."""
+class CLIEngine:
+    """CLI execution engine, parameterized by engine_kind."""
 
-    engine_kind = "claude_code"
     capabilities = EngineCapabilities(
         supports_cancel=True,
         supports_message_injection=True,
@@ -26,6 +24,9 @@ class ClaudeCodeEngine:
         supports_artifacts=True,
         supports_approval=True,
     )
+
+    def __init__(self, engine_kind: str) -> None:
+        self.engine_kind = engine_kind
 
     async def start(
         self,
@@ -39,12 +40,12 @@ class ClaudeCodeEngine:
         from app.core.database import AsyncSessionLocal
 
         execution_id = context.execution_id
-        logger.info(f"[ClaudeCodeEngine] Starting execution {execution_id}")
+        logger.info(f"[CLIEngine:{self.engine_kind}] Starting execution {execution_id}")
 
         await context.update_status("running")
         await context.emit(
             ExecutionEventType.EXECUTION_STARTED,
-            {"engine": "claude_code"},
+            {"engine": self.engine_kind},
         )
 
         async with AsyncSessionLocal() as db:
@@ -64,7 +65,7 @@ class ClaudeCodeEngine:
         session = session_registry.get(execution_id)
         if session:
             await session.cancel()
-            logger.info(f"[ClaudeCodeEngine] Cancelled execution {execution_id}")
+            logger.info(f"[CLIEngine:{self.engine_kind}] Cancelled execution {execution_id}")
 
     async def send_message(self, execution_id: uuid.UUID, message: str) -> None:
         from app.core.agent.cli_backends.session_registry import session_registry

@@ -195,7 +195,7 @@ class ExecutionService:
                 event_type=evt["event_type"],
                 payload=evt["payload"],
                 trigger_medium=self._event_ctx.trigger_medium,
-            run_purpose=self._event_ctx.run_purpose,
+                run_purpose=self._event_ctx.run_purpose,
                 thread_id=self._event_ctx.thread_id,
                 task_id=self._event_ctx.task_id,
             )
