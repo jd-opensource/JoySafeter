@@ -107,7 +107,7 @@ def apply_actions_to_graph_state(
         actions: List of actions to apply (CREATE_NODE, CONNECT_NODES, etc.)
 
     Returns:
-        Tuple of (updated_nodes, updated_edges) in format ready for GraphService.save_graph_state
+        Tuple of (updated_nodes, updated_edges) ready for visual AgentVersion definition payloads
     """
     # Clone current state to apply diffs
     processed_nodes: List[Dict[str, Any]] = [node.copy() for node in current_nodes]
@@ -163,7 +163,7 @@ def apply_actions_to_graph_state(
                     edge_exists = any(e.get("source") == source and e.get("target") == target for e in processed_edges)
 
                     if not edge_exists:
-                        # Create edge in format expected by GraphService.save_graph_state
+                        # Create edge in the visual definition payload format.
                         # Format matches frontend: { id, source, target, data: {} }
                         new_edge: Dict[str, Any] = {
                             "id": f"e-{source}-{target}",
