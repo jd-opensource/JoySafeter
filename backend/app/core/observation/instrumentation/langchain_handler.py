@@ -290,7 +290,7 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
             obs = self._start_obs_span(
                 run_id, name, ObservationType.GENERATION, parent_run_id
             )
-            obs.set_input({"messages": input_msgs})
+            obs.set_input(input_msgs)
 
             self._apply_llm_attributes(
                 obs, run_id, parent_run_id,
@@ -316,7 +316,7 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
             obs = self._start_obs_span(
                 run_id, name, ObservationType.GENERATION, parent_run_id
             )
-            obs.set_input({"prompts": prompts})
+            obs.set_input(prompts[0] if len(prompts) == 1 else prompts)
 
             self._apply_llm_attributes(
                 obs, run_id, parent_run_id,

@@ -1,4 +1,6 @@
-import { memo } from 'react'
+import { memo, type FC } from 'react'
+import ReactMarkdown, { type Options } from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Copy, Check } from 'lucide-react'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import type { JsonTableRow } from '../lib/jsonTable'
@@ -8,6 +10,55 @@ const SMALL_ARRAY_THRESHOLD = 5
 const ARRAY_PREVIEW_ITEMS = 3
 
 const PREVIEW_CLASSES = 'italic text-gray-500 dark:text-gray-400'
+
+const MemoizedReactMarkdown: FC<Options> = memo(ReactMarkdown)
+
+const REMARK_PLUGINS: Options['remarkPlugins'] = [remarkGfm]
+
+const smallHeading = ({ children }: { children?: React.ReactNode }) => (
+  <span className="block text-xs font-bold">{children}</span>
+)
+
+const MARKDOWN_COMPONENTS: Options['components'] = {
+  p({ children }) {
+    return <span className="whitespace-pre-wrap">{children}</span>
+  },
+  ul({ children }) {
+    return <ul className="list-inside list-disc">{children}</ul>
+  },
+  ol({ children }) {
+    return <ol className="list-inside list-decimal">{children}</ol>
+  },
+  li({ children }) {
+    return <li className="mt-0.5 [&>ol]:pl-4 [&>ul]:pl-4">{children}</li>
+  },
+  code({ children }) {
+    return <code className="rounded border bg-muted px-1 py-0.5">{children}</code>
+  },
+  pre({ children }) {
+    return <pre className="my-1 overflow-auto rounded bg-black/10 p-2 dark:bg-white/10">{children}</pre>
+  },
+  a({ children, href }) {
+    return <a href={href ?? undefined} className="underline" target="_blank" rel="noopener noreferrer">{children}</a>
+  },
+  h1({ children }) { return <span className="block text-base font-bold">{children}</span> },
+  h2({ children }) { return <span className="block text-sm font-bold">{children}</span> },
+  h3: smallHeading,
+  h4: smallHeading,
+  h5: smallHeading,
+  h6: smallHeading,
+  blockquote({ children }) {
+    return <blockquote className="border-l-2 pl-2 italic">{children}</blockquote>
+  },
+  table({ children }) {
+    return <div className="overflow-x-auto rounded border"><table className="min-w-full divide-y">{children}</table></div>
+  },
+  thead({ children }) { return <thead>{children}</thead> },
+  tbody({ children }) { return <tbody className="divide-y">{children}</tbody> },
+  tr({ children }) { return <tr>{children}</tr> },
+  th({ children }) { return <th className="px-2 py-1 text-left font-medium">{children}</th> },
+  td({ children }) { return <td className="px-2 py-1">{children}</td> },
+}
 
 function getCopyValue(value: unknown): string {
   if (typeof value === 'string') return value
@@ -82,8 +133,15 @@ export const JsonValueCell = memo(function JsonValueCell({
         ? str.substring(0, MAX_DISPLAY_CHARS) + '...'
         : str
       content = (
-        <span className="whitespace-pre-line text-green-600 dark:text-green-400">
-          &quot;{display}&quot;
+        <span className="text-green-600 dark:text-green-400">
+          &quot;
+          <MemoizedReactMarkdown
+            remarkPlugins={REMARK_PLUGINS}
+            components={MARKDOWN_COMPONENTS}
+          >
+            {display}
+          </MemoizedReactMarkdown>
+          &quot;
         </span>
       )
       break
