@@ -43,16 +43,10 @@ export const API_BASE = `${API_BASE_URL}/${API_VERSION}`
 export const API_ENDPOINTS = {
   auth: 'auth',
   workspaces: 'workspaces',
-  workflows: 'workflows',
   agents: 'agents',
-  graphs: 'graphs',
   chat: 'chat',
-  studio: 'studio',
-  toolsets: 'toolsets',
-  knowledgebases: 'knowledgebases',
   environments: 'environments',
   users: 'users',
-  conversations: 'conversations',
   skills: 'skills',
   runs: 'runs',
 } as const

@@ -77,10 +77,13 @@ class ExecutionEngine(Protocol):
     """
     Stable interface for all execution engines.
 
-    Implementations:
-      - CLIEngine   (runtime_kind: sandbox) — Docker + CLI-backed agent runtime
-      - GraphEngine (runtime_kind: graph)   — LangGraph compiler
-      - CodeEngine  (runtime_kind: code)    — in-process code agent runtime
+    Agent runtime engines (user-facing):
+      - CLIEngine     (runtime_kind: sandbox) — Docker + CLI-backed agent runtime
+      - GraphEngine   (runtime_kind: graph)   — LangGraph compiler
+      - CodeEngine    (runtime_kind: code)    — in-process code agent runtime
+
+    Internal platform engines (not user-facing agent runtimes):
+      - CopilotEngine (engine_kind: build_copilot) — Graph Builder AI assistant
     """
 
     engine_kind: str

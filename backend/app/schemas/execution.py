@@ -15,6 +15,10 @@ class AppErrorPayload(BaseModel):
     code: str
     message: str
     data: dict | None = None
+    source: str | None = None
+    retryable: bool = False
+    user_action: str | None = None
+    detail: str | None = None
 
 
 # ---------------------------------------------------------------------------

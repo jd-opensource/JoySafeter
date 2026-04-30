@@ -12,6 +12,13 @@ RuntimeKindLiteral = Literal["graph", "code", "sandbox"]
 DEFINITION_KINDS: set[str] = {"graph", "code", "claude_code", "codex", "openclaw"}
 CLI_DEFINITION_KINDS: set[str] = {"claude_code", "codex", "openclaw"}
 RUNTIME_KINDS: set[str] = {"graph", "code", "sandbox"}
+
+# Internal engine kinds — platform tools that reuse the execution pipeline
+# but are NOT user-facing agent runtimes.  E.g. the Graph Builder Copilot.
+INTERNAL_ENGINE_KINDS: set[str] = {"build_copilot"}
+
+# All registered engine kinds (agent runtimes + internal).
+ALL_ENGINE_KINDS: set[str] = RUNTIME_KINDS | INTERNAL_ENGINE_KINDS
 DEFINITION_RUNTIME_KIND: dict[str, str] = {
     "graph": "graph",
     "code": "code",

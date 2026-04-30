@@ -67,7 +67,12 @@ export const TASK_STATUS_ORDER: TaskStatus[] = [
   'cancelled',
 ]
 
-export const TERMINAL_TASK_STATUSES: readonly TaskStatus[] = ['done', 'cancelled'] as const
+/** Statuses treated as "inactive" in UI (hide dispatch button, etc.).
+ *  Note: Backend allows reopening these via backlog transition — they are NOT truly terminal. */
+export const INACTIVE_TASK_STATUSES: readonly TaskStatus[] = ['done', 'cancelled'] as const
+
+/** @deprecated Use INACTIVE_TASK_STATUSES — done/cancelled can be reopened via backlog */
+export const TERMINAL_TASK_STATUSES = INACTIVE_TASK_STATUSES
 
 export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   backlog: '待处理',
@@ -95,12 +100,13 @@ export const TASK_STATUS_STYLES: Record<string, string> = {
   cancelled: 'bg-[var(--surface-3)] text-[var(--text-muted)]',
 }
 
-/** Fallback transitions — used before API response arrives. */
+/** Fallback transitions — used before API response arrives.
+ *  Must mirror backend TASK_STATES in core/state_machines/definitions.py */
 export const DEFAULT_MANUAL_TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
   backlog: ['todo', 'in_progress', 'cancelled'],
-  todo: ['backlog', 'in_progress', 'cancelled'],
-  in_progress: ['todo', 'in_review', 'done', 'cancelled'],
-  in_review: ['todo', 'in_progress', 'done', 'cancelled'],
-  done: ['backlog', 'todo'],
-  cancelled: ['backlog', 'todo'],
+  todo: ['in_progress', 'backlog', 'cancelled'],
+  in_progress: ['done', 'in_review', 'cancelled', 'backlog'],
+  in_review: ['in_progress', 'done', 'backlog', 'cancelled'],
+  done: ['backlog'],
+  cancelled: ['backlog'],
 }

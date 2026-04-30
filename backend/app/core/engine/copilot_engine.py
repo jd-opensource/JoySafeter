@@ -1,9 +1,14 @@
 """
-Copilot Execution Engine — routes copilot events through the unified event bus.
+Graph Builder Copilot Engine — internal platform engine.
 
-runtime_kind: "copilot"
-Wraps CopilotService streaming and maps copilot events to ExecutionEvents
-for persistence and WebSocket broadcast.
+engine_kind: "build_copilot"
+
+This is NOT a user-facing agent runtime.  It is the AI assistant that helps
+users design agent graphs on the visual canvas.  It reuses the execution
+pipeline (Run → Execution → EventBus → WebSocket) for streaming and
+persistence, but no user-created Agent ever has runtime_kind="build_copilot".
+
+Wraps CopilotService streaming and maps copilot events to ExecutionEvents.
 """
 
 from __future__ import annotations
@@ -21,9 +26,9 @@ from app.core.events.event_types import ExecutionEventType
 
 
 class CopilotEngine:
-    """Copilot engine — persists copilot events as ExecutionEvents."""
+    """Graph Builder Copilot engine (internal) — persists copilot events as ExecutionEvents."""
 
-    engine_kind = "copilot"
+    engine_kind = "build_copilot"
     capabilities = EngineCapabilities(
         supports_cancel=True,
         supports_message_injection=False,
@@ -62,7 +67,7 @@ class CopilotEngine:
 
         try:
             await context.update_status("running")
-            await context.emit(ExecutionEventType.EXECUTION_STARTED, {"engine": "copilot", "mode": mode})
+            await context.emit(ExecutionEventType.EXECUTION_STARTED, {"engine": "build_copilot", "mode": mode})
 
             # ------------------------------------------------------------------
             # Observation: create copilot extractor if collector set

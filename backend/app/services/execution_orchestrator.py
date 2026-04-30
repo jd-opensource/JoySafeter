@@ -239,10 +239,10 @@ class ExecutionOrchestrator:
             trigger_source="draft_copilot",
             user_id=user_id,
             input_payload=copilot_payload,
-            engine_kind_override="copilot",
-            definition_kind_override="copilot",
+            engine_kind_override="build_copilot",
+            definition_kind_override="build_copilot",
             definition_payload_override=copilot_payload,
-            executor_kind_override="copilot",
+            executor_kind_override="build_copilot",
         )
 
     async def dispatch_debug(
@@ -308,7 +308,7 @@ class ExecutionOrchestrator:
     def _resolve_engine(self, execution: Execution, release: AgentRelease):
         """Resolve the correct engine for an execution.
 
-        Uses executor_kind if it maps to a registered engine (e.g., "copilot"),
+        Uses executor_kind if it maps to a registered engine (e.g., "build_copilot"),
         otherwise falls back to release.runtime_kind.
         """
         if execution.executor_kind and engine_registry.has(execution.executor_kind):

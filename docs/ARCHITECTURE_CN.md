@@ -120,27 +120,45 @@ class ExecutionEngine(Protocol):
 
 **EngineCapabilities** 声明各引擎支持的能力：
 
+**Agent 运行时引擎**（用户面向的 Agent 执行环境）：
+
 | 引擎 | runtime_kind | cancel | msg_inject | debug_obs | artifacts | approval |
 |---|---|---|---|---|---|---|
 | CLIEngine | sandbox | Y | Y | N | Y | Y |
 | GraphEngine | graph | Y | N | Y | Y | Y |
 | CodeEngine | code | Y | N | Y | N | N |
-| CopilotEngine | copilot | Y | N | N | N | N |
 
-**注册表** (`core/engine/registry.py`)：模块级单例 `engine_registry` 将 `runtime_kind` 映射到引擎实例。四个引擎在 `core/engine/__init__.py` 导入时自动注册：
+**内部平台引擎**（复用执行管道的平台工具，非用户面向的 Agent 运行时）：
+
+| 引擎 | engine_kind | cancel | msg_inject | debug_obs | artifacts | approval |
+|---|---|---|---|---|---|---|
+| CopilotEngine | build_copilot | Y | N | N | N | N |
+
+> CopilotEngine 是 Graph Builder AI 助手，帮助用户在画布上设计 Agent 图。它不是 Agent 运行时——没有任何用户创建的 Agent 以 `build_copilot` 作为 `runtime_kind`。它复用执行管道（Run → Execution → EventBus → WebSocket）进行流式传输和持久化。
+
+**注册表** (`core/engine/registry.py`)：模块级单例 `engine_registry` 将引擎键映射到引擎实例。引擎在 `core/engine/__init__.py` 导入时自动注册：
 
 ```python
+# Agent 运行时引擎（用户面向）
 engine_registry.register("sandbox", CLIEngine())
 engine_registry.register("graph", GraphEngine())
 engine_registry.register("code", CodeEngine())
-engine_registry.register("copilot", CopilotEngine())
+
+# 内部平台引擎（非用户面向的 Agent 运行时）
+engine_registry.register("build_copilot", CopilotEngine())
+engine_registry.register("copilot", CopilotEngine())  # 向后兼容已有 DB 记录
 ```
 
-**添加新引擎**需要：
+**添加新 Agent 运行时引擎**需要：
 1. 实现 `ExecutionEngine` 协议
 2. 在 `core/engine/__init__.py` 中注册
 3. 在 `core/contracts/agent.py` 中添加新的 `runtime_kind`（`RUNTIME_KINDS`、`DEFINITION_RUNTIME_KIND`）
 4. 如需新错误码，在 `core/contracts/error.py` 中添加
+
+**添加新内部平台引擎**只需：
+1. 实现 `ExecutionEngine` 协议
+2. 在 `core/engine/__init__.py` 中注册
+3. 在 `core/contracts/agent.py` 的 `INTERNAL_ENGINE_KINDS` 中添加
 
 ### 2.3 两阶段事件总线
 

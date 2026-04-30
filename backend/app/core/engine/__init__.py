@@ -11,11 +11,14 @@ from app.core.engine.graph_engine import GraphEngine
 from app.core.engine.protocol import EngineCapabilities, ExecutionContext, ExecutionEngine
 from app.core.engine.registry import engine_registry
 
-# Register built-in engines
+# Register agent runtime engines (user-facing)
 engine_registry.register("sandbox", CLIEngine())
 engine_registry.register("graph", GraphEngine())
 engine_registry.register("code", CodeEngine())
-engine_registry.register("copilot", CopilotEngine())
+
+# Register internal platform engines (not user-facing agent runtimes)
+engine_registry.register("build_copilot", CopilotEngine())
+engine_registry.register("copilot", CopilotEngine())  # backward compat for existing DB rows
 
 __all__ = [
     "ExecutionContext",

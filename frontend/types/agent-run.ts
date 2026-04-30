@@ -138,6 +138,7 @@ export type ExecutionEventType =
   | 'execution_started'
   | 'execution_completed'
   | 'execution_status_change'
+  | 'run_status_change'
   | 'copilot_status'
   | 'copilot_content'
   | 'copilot_thought_step'
