@@ -10,7 +10,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from app.core.contracts.agent import RuntimeKindLiteral
+from app.core.contracts.agent import RuntimeKind
 from app.core.contracts.execution import ReleaseStatusLiteral
 
 # ---------------------------------------------------------------------------
@@ -20,7 +20,7 @@ from app.core.contracts.execution import ReleaseStatusLiteral
 
 class CreateAgentReleaseRequest(BaseModel):
     agent_version_id: uuid.UUID
-    runtime_kind: RuntimeKindLiteral
+    runtime_kind: RuntimeKind
     builder_kind: Optional[str] = None
     runtime_binding: dict = {}
 

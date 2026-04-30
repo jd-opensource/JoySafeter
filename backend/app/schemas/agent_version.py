@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel
 
-from app.schemas.agent import DefinitionKindLiteral
+from app.core.contracts.agent import EngineKind
 
 # ---------------------------------------------------------------------------
 # Request schemas
@@ -19,7 +19,7 @@ from app.schemas.agent import DefinitionKindLiteral
 
 class CreateAgentVersionRequest(BaseModel):
     source_kind: Optional[str] = "manual"
-    definition_kind: DefinitionKindLiteral = "graph"
+    engine_kind: EngineKind = "langgraph_visual"
     definition_payload: Optional[Dict[str, Any]] = None
     capability_manifest: Optional[Dict[str, Any]] = None
     changelog: Optional[str] = None
@@ -40,7 +40,7 @@ class AgentVersionSummary(BaseModel):
     id: uuid.UUID
     version_number: int
     status: str
-    definition_kind: str
+    engine_kind: str
 
     model_config = {"from_attributes": True}
 
@@ -51,7 +51,7 @@ class AgentVersionResponse(BaseModel):
     version_number: int
     status: str
     source_kind: str
-    definition_kind: str
+    engine_kind: str
     definition_payload: Dict[str, Any]
     capability_manifest: Dict[str, Any]
     changelog: Optional[str] = None

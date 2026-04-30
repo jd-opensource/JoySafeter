@@ -10,7 +10,7 @@ from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from app.core.contracts.agent import DefinitionKindLiteral, RuntimeKindLiteral
+from app.core.contracts.agent import EngineKind, RuntimeKind
 
 # ---------------------------------------------------------------------------
 # Literals
@@ -27,7 +27,7 @@ class CreateAgentRequest(BaseModel):
     name: str = Field(..., max_length=255)
     description: Optional[str] = None
     avatar: Optional[str] = None
-    definition_kind: DefinitionKindLiteral = "graph"
+    engine_kind: EngineKind = "langgraph_visual"
     definition_payload: Optional[Dict[str, Any]] = None
     capability_manifest: Optional[Dict[str, Any]] = None
     custom_env: Optional[Dict[str, str]] = None
@@ -57,8 +57,8 @@ class AgentSummary(BaseModel):
     has_custom_env: bool = False
     current_draft_version_id: Optional[uuid.UUID] = None
     active_release_id: Optional[uuid.UUID] = None
-    definition_kind: Optional[DefinitionKindLiteral] = None
-    runtime_kind: Optional[RuntimeKindLiteral] = None
+    engine_kind: Optional[EngineKind] = None
+    runtime_kind: Optional[RuntimeKind] = None
     created_by: str
     created_at: datetime
     updated_at: datetime
@@ -77,8 +77,8 @@ class AgentResponse(BaseModel):
     has_custom_env: bool = False
     current_draft_version_id: Optional[uuid.UUID] = None
     active_release_id: Optional[uuid.UUID] = None
-    definition_kind: Optional[DefinitionKindLiteral] = None
-    runtime_kind: Optional[RuntimeKindLiteral] = None
+    engine_kind: Optional[EngineKind] = None
+    runtime_kind: Optional[RuntimeKind] = None
     created_by: str
     created_at: datetime
     updated_at: datetime
