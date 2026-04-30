@@ -250,8 +250,11 @@ Generate a complete agent workflow graph following the workflow process."""
 
         # Determine error code and potentially simplify message
         error_code = "AGENT_ERROR"
+        source = "runtime"
+        retryable = False
         if "api_key" in error_msg.lower() or "credential" in error_msg.lower():
             error_code = "CREDENTIAL_ERROR"
+            source = "api"
         elif "RateLimitReached" in error_msg:
             # Try to extract a more readable message for rate limits
             import re
@@ -262,9 +265,12 @@ Generate a complete agent workflow graph following the workflow process."""
                 error_msg = f"Rate limit reached. Please retry after {seconds} seconds."
             else:
                 error_msg = "Rate limit reached. Please try again later."
+            retryable = True
 
         yield {
             "type": "error",
             "message": error_msg,
             "code": error_code,
+            "source": source,
+            "retryable": retryable,
         }

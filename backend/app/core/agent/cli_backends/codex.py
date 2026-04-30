@@ -306,6 +306,8 @@ class CodexProvider:
                             "code": "CODEX_TIMEOUT",
                             "message": "Codex agent timed out",
                             "data": None,
+                            "source": "runtime",
+                            "retryable": True,
                         },
                     )
                 )
@@ -320,6 +322,8 @@ class CodexProvider:
                             "code": "CODEX_DRAIN_FAILED",
                             "message": str(e),
                             "data": None,
+                            "source": "runtime",
+                            "retryable": False,
                         },
                     )
                 )
@@ -337,6 +341,8 @@ class CodexProvider:
                                 "code": "CODEX_TURN_ABORTED",
                                 "message": "Turn was aborted",
                                 "data": None,
+                                "source": "runtime",
+                                "retryable": False,
                             },
                         )
                     )
@@ -357,6 +363,8 @@ class CodexProvider:
                                 "code": "CODEX_EXIT_FAILED",
                                 "message": f"Exit code {exit_code}: {stderr_bytes.decode()[:2000]}",
                                 "data": {"exit_code": exit_code},
+                                "source": "runtime",
+                                "retryable": False,
                             },
                         )
                     )
@@ -382,7 +390,8 @@ class CodexProvider:
             return self._parse_item_notification(method, params)
 
         if method == "turn/error":
-            return [CLIMessage(type="error", content=_extract_codex_error_payload(params)["message"], error_payload=_extract_codex_error_payload(params))]
+            payload = _extract_codex_error_payload(params)
+            return [CLIMessage(type="error", content=payload["message"], error_payload=payload)]
 
         return []
 
@@ -505,9 +514,13 @@ def _extract_codex_error_payload(params: dict[str, Any]) -> dict[str, Any]:
             "code": str(error.get("code") or "CODEX_RUNTIME_ERROR"),
             "message": str(error.get("message") or "Codex runtime error"),
             "data": error.get("data") if isinstance(error.get("data"), dict) else None,
+            "source": "runtime",
+            "retryable": False,
         }
     return {
         "code": "CODEX_RUNTIME_ERROR",
         "message": str(params.get("message") or "Codex runtime error"),
         "data": None,
+        "source": "runtime",
+        "retryable": False,
     }

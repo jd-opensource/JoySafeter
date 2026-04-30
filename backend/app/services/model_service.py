@@ -536,6 +536,8 @@ class ModelService(BaseService):
                 code=MODEL_NOT_FOUND,
                 message=f'Model "{model_name}" is not registered.',
                 data={"model": model_name or ""},
+                source="api",
+                user_action="configure_model",
             )
             return
 
@@ -550,6 +552,8 @@ class ModelService(BaseService):
                 code=MODEL_NO_CREDENTIALS,
                 message=f'No valid API key for provider "{provider_name}".',
                 data={"model": model_name or "", "provider": provider_name or ""},
+                source="api",
+                user_action="configure_model",
             )
             return
 
@@ -570,6 +574,7 @@ class ModelService(BaseService):
                 code="MODEL_INSTANCE_CREATE_FAILED",
                 message="Failed to create model instance.",
                 data={"detail": str(e)},
+                source="runtime",
             )
             return
 
@@ -631,4 +636,7 @@ class ModelService(BaseService):
                 code="MODEL_STREAM_ERROR",
                 message="Model streaming failed.",
                 data={"detail": str(e)},
+                source="runtime",
+                retryable=True,
+                user_action="retry",
             )

@@ -356,6 +356,14 @@ class ExecutionService:
 
                     # 3. Atomically mark execution + run as failed
                     error_msg = f"No heartbeat for {int(threshold.total_seconds() // 60)}+ minutes"
+                    stale_error = {
+                        "code": "STALE_REAPED",
+                        "message": error_msg,
+                        "data": {"reason": "stale_execution"},
+                        "source": "runtime",
+                        "retryable": True,
+                        "user_action": "retry",
+                    }
                     envelope = ExecutionEventEnvelope(
                         execution_id=execution.id,
                         run_id=execution.run_id,
@@ -363,23 +371,11 @@ class ExecutionService:
                         event_type=ExecutionEventType.EXECUTION_COMPLETED,
                         payload={
                             "status": "failed",
-                            "error": {
-                                "code": "STALE_REAPED",
-                                "message": error_msg,
-                                "data": {
-                                    "reason": "stale_execution",
-                                },
-                            },
+                            "error": stale_error,
                             "result_summary": "Reaped: stale execution",
                         },
                         terminal_status="failed",
-                        error={
-                            "code": "STALE_REAPED",
-                            "message": error_msg,
-                            "data": {
-                                "reason": "stale_execution",
-                            },
-                        },
+                        error=stale_error,
                         result_summary="Reaped: stale execution",
                         trigger_source=run.trigger_source if run else None,
                         thread_id=run.thread_id if run else None,

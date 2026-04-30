@@ -14,6 +14,7 @@ except (ImportError, ModuleNotFoundError):
     raise ImportError("`mcp` not installed. Please install using `pip install mcp`")
 
 
+from app.common.app_errors import InternalServiceError
 from app.utils import Audio, File, Image, Video
 
 
@@ -64,14 +65,18 @@ def get_entrypoint_for_tool(tool: MCPTool, session: ClientSession):
     return partial(call_tool, tool_name=tool.name)
 
 
-class ToolExecutionError(Exception):
+class ToolExecutionError(InternalServiceError):
     """Tool execution error."""
 
     def __init__(self, message: str, error_type: str = "unknown", retryable: bool = False):
-        self.message = message
-        self.error_type = error_type  # 'network', 'timeout', 'config', 'permission', 'unknown'
-        self.retryable = retryable
-        super().__init__(self.message)
+        self.error_type = error_type
+        super().__init__(
+            code="TOOL_EXECUTION_FAILED",
+            message=message,
+            source="tool",
+            retryable=retryable,
+            data={"error_type": error_type} if error_type != "unknown" else None,
+        )
 
 
 def _is_retryable_error(error: Exception) -> bool:

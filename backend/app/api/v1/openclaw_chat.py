@@ -94,6 +94,9 @@ async def _stream_sse(url: str, headers: dict, body: dict):
             code="OPENCLAW_STREAM_ERROR",
             message="OpenClaw stream failed.",
             data={"detail": str(e)},
+            source="runtime",
+            retryable=True,
+            user_action="retry",
         )
 
 

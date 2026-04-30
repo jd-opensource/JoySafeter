@@ -146,6 +146,7 @@ class CodeEngine:
                 default_code="CODE_EXECUTION_INVALID",
                 default_message="Code execution failed",
                 default_data={"execution_id": str(execution_id)},
+                source="engine",
             )
             await context.emit(ExecutionEventType.ERROR, app_error.to_payload())
             await context.complete("failed", app_error.message[:2000], app_error)
@@ -156,6 +157,7 @@ class CodeEngine:
                 default_code="CODE_EXECUTION_FAILED",
                 default_message="Code execution failed",
                 default_data={"execution_id": str(execution_id)},
+                source="engine",
             )
             await context.emit(ExecutionEventType.ERROR, app_error.to_payload())
             await context.complete("failed", app_error.message[:2000], app_error)

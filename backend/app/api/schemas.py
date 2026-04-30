@@ -11,6 +11,8 @@ class AppErrorPayloadSchema(BaseModel):
                 "code": "BAD_REQUEST",
                 "message": "请求错误",
                 "data": {"detail": "Bad request"},
+                "source": "api",
+                "retryable": False,
             }
         }
     )
@@ -18,6 +20,10 @@ class AppErrorPayloadSchema(BaseModel):
     code: str = Field(..., description="Stable application error code")
     message: str = Field(..., description="User-facing error summary")
     data: Optional[dict] = Field(None, description="Structured error metadata")
+    source: str = Field("internal", description="Error origin: api, engine, runtime, auth, validation, etc.")
+    retryable: bool = Field(False, description="Whether the client should retry the request")
+    user_action: Optional[str] = Field(None, description="Suggested user action: retry, configure_model, relogin, fix_input, contact_support")
+    detail: Optional[str] = Field(None, description="Detailed diagnostic message")
 
 
 BadRequestResponse = AppErrorPayloadSchema

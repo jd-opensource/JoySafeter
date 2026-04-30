@@ -589,6 +589,9 @@ class ExecutionOrchestrator:
             )
         except Exception as exc:
             logger.error(f"[Orchestrator] _fire_engine failed: {exc}")
+            app_error = normalize_app_error(exc, default_code="EXECUTION_FAILED", source="engine")
+            error_payload = app_error.to_payload()
+            error_payload.setdefault("data", {})["reason"] = "engine_fire_failed"
             await execution_event_bus.publish(
                 ExecutionEventEnvelope(
                     execution_id=execution.id,
@@ -597,23 +600,11 @@ class ExecutionOrchestrator:
                     event_type=ExecutionEventType.EXECUTION_COMPLETED,
                     payload={
                         "status": "failed",
-                        "error": {
-                            "code": "EXECUTION_FAILED",
-                            "message": str(exc)[:2000],
-                            "data": {
-                                "reason": "engine_fire_failed",
-                            },
-                        },
+                        "error": error_payload,
                         "result_summary": str(exc)[:2000],
                     },
                     terminal_status="failed",
-                    error={
-                        "code": "EXECUTION_FAILED",
-                        "message": str(exc)[:2000],
-                        "data": {
-                            "reason": "engine_fire_failed",
-                        },
-                    },
+                    error=error_payload,
                     result_summary=str(exc)[:2000],
                 ),
                 self.db,
@@ -696,6 +687,9 @@ class ExecutionOrchestrator:
             )
         except Exception as exc:
             logger.error(f"[Orchestrator] _fire_engine failed for draft run: {exc}")
+            app_error = normalize_app_error(exc, default_code="EXECUTION_FAILED", source="engine")
+            error_payload = app_error.to_payload()
+            error_payload.setdefault("data", {})["reason"] = "engine_fire_failed"
             await execution_event_bus.publish(
                 ExecutionEventEnvelope(
                     execution_id=execution.id,
@@ -704,23 +698,11 @@ class ExecutionOrchestrator:
                     event_type=ExecutionEventType.EXECUTION_COMPLETED,
                     payload={
                         "status": "failed",
-                        "error": {
-                            "code": "EXECUTION_FAILED",
-                            "message": str(exc)[:2000],
-                            "data": {
-                                "reason": "engine_fire_failed",
-                            },
-                        },
+                        "error": error_payload,
                         "result_summary": str(exc)[:2000],
                     },
                     terminal_status="failed",
-                    error={
-                        "code": "EXECUTION_FAILED",
-                        "message": str(exc)[:2000],
-                        "data": {
-                            "reason": "engine_fire_failed",
-                        },
-                    },
+                    error=error_payload,
                     result_summary=str(exc)[:2000],
                 ),
                 self.db,
@@ -877,6 +859,7 @@ class ExecutionOrchestrator:
                         default_code="EXECUTION_ENGINE_FAILED",
                         default_message="Engine execution failed",
                         default_data={"execution_id": str(execution.id), "run_id": str(run.id)},
+                        source="engine",
                     )
                     await ctx._complete_fn("failed", app_error.message[:2000], app_error)
                 except Exception as cleanup_exc:
@@ -930,15 +913,16 @@ class ExecutionOrchestrator:
             result_summary: str | None = None,
             error: AppError | None = None,
         ) -> None:
+            error_payload = error.to_payload() if error is not None else None
             await execution_event_bus.publish(
                 _envelope(
                     event_type=ExecutionEventType.EXECUTION_COMPLETED,
                     payload={
                         "status": status,
-                        "error": error.to_payload() if error is not None else None,
+                        "error": error_payload,
                     },
                     terminal_status=status,
-                    error=error.to_payload() if error is not None else None,
+                    error=error_payload,
                     result_summary=result_summary,
                 ),
                 ctx.db,

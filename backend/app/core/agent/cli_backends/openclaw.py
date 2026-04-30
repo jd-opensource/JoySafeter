@@ -131,6 +131,8 @@ class OpenClawProvider:
                                 "code": "OPENCLAW_AGENT_TIMEOUT",
                                 "message": "OpenClaw agent timed out",
                                 "data": {"session_id": session_id},
+                                "source": "runtime",
+                                "retryable": True,
                             },
                             session_id=session_id,
                         )
@@ -146,6 +148,8 @@ class OpenClawProvider:
                             "code": "OPENCLAW_AGENT_DRAIN_FAILED",
                             "message": str(e),
                             "data": {"session_id": session_id},
+                            "source": "runtime",
+                            "retryable": False,
                         },
                         session_id=session_id,
                     )
@@ -181,6 +185,8 @@ class OpenClawProvider:
                                 "code": "OPENCLAW_AGENT_EXIT_FAILED",
                                 "message": f"Exit code {exit_code}: {stdout_bytes.decode()[:2000]}",
                                 "data": {"session_id": session_id, "exit_code": exit_code},
+                                "source": "runtime",
+                                "retryable": False,
                             },
                             session_id=session_id,
                         )
@@ -271,27 +277,33 @@ def _extract_error_payload(event: dict) -> dict[str, Any]:
         code = err_obj.get("code") or event.get("code") or "OPENCLAW_AGENT_ERROR"
         data = err_obj.get("data") if isinstance(err_obj.get("data"), dict) else None
         if err_obj.get("message"):
-            return {"code": str(code), "message": str(err_obj["message"]), "data": data}
+            return {"code": str(code), "message": str(err_obj["message"]), "data": data, "source": "runtime", "retryable": False}
         if isinstance(data, dict) and data.get("message"):
-            return {"code": str(code), "message": str(data["message"]), "data": data}
+            return {"code": str(code), "message": str(data["message"]), "data": data, "source": "runtime", "retryable": False}
         if err_obj.get("name"):
-            return {"code": str(code), "message": str(err_obj["name"]), "data": data}
+            return {"code": str(code), "message": str(err_obj["name"]), "data": data, "source": "runtime", "retryable": False}
 
     if event.get("text"):
         return {
             "code": str(event.get("code") or "OPENCLAW_AGENT_ERROR"),
             "message": str(event["text"]),
             "data": None,
+            "source": "runtime",
+            "retryable": False,
         }
     if event.get("message"):
         return {
             "code": str(event.get("code") or "OPENCLAW_AGENT_ERROR"),
             "message": str(event["message"]),
             "data": None,
+            "source": "runtime",
+            "retryable": False,
         }
 
     return {
         "code": str(event.get("code") or "OPENCLAW_AGENT_ERROR"),
         "message": "unknown openclaw error",
         "data": None,
+        "source": "runtime",
+        "retryable": False,
     }

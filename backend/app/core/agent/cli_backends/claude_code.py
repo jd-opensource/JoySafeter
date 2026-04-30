@@ -155,6 +155,8 @@ class ClaudeCodeProvider:
                             "code": "CLAUDE_CODE_TIMEOUT",
                             "message": "Agent timed out",
                             "data": None,
+                            "source": "runtime",
+                            "retryable": True,
                         },
                     )
                 )
@@ -169,6 +171,8 @@ class ClaudeCodeProvider:
                             "code": "CLAUDE_CODE_DRAIN_FAILED",
                             "message": str(e),
                             "data": None,
+                            "source": "runtime",
+                            "retryable": False,
                         },
                     )
                 )
@@ -185,6 +189,8 @@ class ClaudeCodeProvider:
                                 "code": "CLAUDE_CODE_EXECUTION_FAILED",
                                 "message": "\n".join(accumulated_text) or "Claude Code reported an error",
                                 "data": None,
+                                "source": "runtime",
+                                "retryable": False,
                             },
                             session_id=session_id,
                             usage=usage,
@@ -209,6 +215,8 @@ class ClaudeCodeProvider:
                                 "code": "CLAUDE_CODE_EXIT_FAILED",
                                 "message": f"Exit code {exit_code}: {stderr_bytes.decode()[:2000]}",
                                 "data": {"exit_code": exit_code},
+                                "source": "runtime",
+                                "retryable": False,
                             },
                             usage=usage,
                         )
@@ -281,4 +289,6 @@ def _extract_claude_error_payload(event: dict[str, Any]) -> dict[str, Any]:
         "code": str(event.get("code") or "CLAUDE_CODE_RUNTIME_ERROR"),
         "message": str(event.get("message") or "Claude Code runtime error"),
         "data": event.get("data") if isinstance(event.get("data"), dict) else None,
+        "source": "runtime",
+        "retryable": False,
     }

@@ -385,7 +385,7 @@ class ExecutionRunner:
             await self._events.append_event(
                 execution_id=execution_id,
                 event_type=ExecutionEventType.ERROR,
-                payload=error_payload or {"code": "EXECUTION_FAILED", "message": error, "data": None},
+                payload=error_payload or {"code": "EXECUTION_FAILED", "message": error, "data": None, "source": "runtime", "retryable": False},
             )
             await self._events.complete_execution(
                 execution_id=execution_id,
@@ -446,6 +446,8 @@ class ExecutionRunner:
                 "code": "EXECUTION_FAILED",
                 "message": msg.content,
                 "data": None,
+                "source": "runtime",
+                "retryable": False,
             }
         if msg.type == "artifact":
             return {"artifact": {"content": msg.content}}
@@ -468,4 +470,6 @@ def _build_completion_error(message: str | None) -> dict[str, Any] | None:
         "code": "EXECUTION_FAILED",
         "message": message,
         "data": None,
+        "source": "runtime",
+        "retryable": False,
     }

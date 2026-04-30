@@ -277,6 +277,7 @@ class GraphEngine:
                 default_code="GRAPH_EXECUTION_FAILED",
                 default_message="Graph execution failed",
                 default_data={"execution_id": str(execution_id)},
+                source="engine",
             )
             await context.emit(ExecutionEventType.ERROR, app_error.to_payload())
             await context.complete("failed", app_error.message[:2000], app_error)

@@ -159,4 +159,7 @@ def create_validation_error_response(errors: list) -> dict[str, Any]:
                 for error in errors
             ]
         },
+        "source": "validation",
+        "retryable": False,
+        "user_action": "fix_input",
     }

@@ -160,10 +160,28 @@ export interface Execution {
   created_at: string
 }
 
+export type ErrorSource =
+  | 'api'
+  | 'engine'
+  | 'runtime'
+  | 'node'
+  | 'tool'
+  | 'websocket'
+  | 'auth'
+  | 'validation'
+  | 'permission'
+  | 'internal'
+
+export type UserAction = 'retry' | 'configure_model' | 'relogin' | 'fix_input' | 'contact_support'
+
 export interface AppErrorPayload {
   code: string
   message: string
   data: Record<string, unknown> | null
+  source?: ErrorSource
+  retryable?: boolean
+  user_action?: UserAction
+  detail?: string
 }
 
 export interface ExecutionEvent {

@@ -24,6 +24,7 @@
 import { env as runtimeEnv } from 'next-runtime-env'
 
 import { getCsrfToken } from '@/lib/auth/csrf'
+import type { ErrorSource, UserAction } from '@/types/agent-run'
 
 // ==================== Configuration ====================
 const getBaseUrl = (): string => {
@@ -69,6 +70,10 @@ export interface ApiErrorPayload {
   code: string
   message: string
   data?: Record<string, unknown> | null
+  source?: ErrorSource
+  retryable?: boolean
+  user_action?: UserAction
+  detail?: string
 }
 
 export function createApiError(
@@ -89,6 +94,9 @@ export class ApiError extends Error {
   public readonly code: string
   public readonly payload: ApiErrorPayload
   public readonly data?: Record<string, unknown> | null
+  public readonly source: ErrorSource
+  public readonly retryable: boolean
+  public readonly userAction?: UserAction
 
   constructor(
     public readonly status: number,
@@ -100,6 +108,9 @@ export class ApiError extends Error {
     this.code = payload.code
     this.payload = payload
     this.data = payload.data ?? null
+    this.source = payload.source ?? 'internal'
+    this.retryable = payload.retryable ?? false
+    this.userAction = payload.user_action
   }
 }
 

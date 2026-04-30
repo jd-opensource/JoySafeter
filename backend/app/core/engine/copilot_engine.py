@@ -15,7 +15,7 @@ from typing import Any
 
 from loguru import logger
 
-from app.common.app_errors import InvalidRequestError, normalize_app_error
+from app.common.app_errors import InternalServiceError, InvalidRequestError, normalize_app_error
 from app.core.engine.protocol import EngineCapabilities, ExecutionContext
 from app.core.events.event_types import ExecutionEventType
 
@@ -163,24 +163,28 @@ class CopilotEngine:
                     code = event.get("code") or "COPILOT_EXECUTION_FAILED"
                     message = event.get("message", "Unknown error")
                     data = event.get("data")
+                    source = event.get("source", "runtime")
+                    retryable = event.get("retryable", False)
+                    user_action = event.get("user_action")
                     await context.emit(
                         ExecutionEventType.ERROR,
                         {
                             "message": message,
                             "code": code,
                             "data": data,
+                            "source": source,
+                            "retryable": retryable,
+                            **({"user_action": user_action} if user_action else {}),
                         },
                     )
-                    await context.complete(
-                        "failed",
-                        str(message)[:2000],
-                        normalize_app_error(
-                            Exception(str(message)),
-                            default_code=str(code),
-                            default_message=str(message),
-                            default_data=data if isinstance(data, dict) else None,
-                        ),
+                    app_error = InternalServiceError(
+                        message=message,
+                        code=code,
+                        data=data if isinstance(data, dict) else None,
+                        source=source,
+                        retryable=bool(retryable),
                     )
+                    await context.complete("failed", message[:2000], app_error)
                     return
 
                 elif event_type == "done":
@@ -210,6 +214,7 @@ class CopilotEngine:
                 default_code="COPILOT_EXECUTION_FAILED",
                 default_message="Copilot execution failed",
                 default_data={"execution_id": str(execution_id)},
+                source="engine",
             )
             await context.emit(ExecutionEventType.ERROR, app_error.to_payload())
             await context.complete("failed", app_error.message[:2000], app_error)

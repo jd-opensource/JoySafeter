@@ -129,7 +129,7 @@ class CopilotService:
             )
         except Exception as e:
             logger.error(f"[CopilotService] Agent creation error: {e}")
-            yield {"type": "error", "message": f"Failed to create Copilot agent: {str(e)}", "code": "AGENT_ERROR"}
+            yield {"type": "error", "message": f"Failed to create Copilot agent: {str(e)}", "code": "AGENT_ERROR", "source": "runtime", "retryable": False}
             return
 
         messages = self._build_messages(prompt, conversation_history)
@@ -353,21 +353,16 @@ class CopilotService:
             ):
                 yield event
         except ModelConfigError as e:
-            yield {
-                "type": "error",
-                "message": e.message,
-                "code": e.code,
-                "data": e.data,
-            }
+            yield {"type": "error", **e.to_payload()}
         except KeyboardInterrupt:
             logger.warning("[CopilotService] Stream interrupted by user")
-            yield {"type": "error", "message": "Request cancelled by user", "code": "CANCELLED"}
+            yield {"type": "error", "message": "Request cancelled by user", "code": "CANCELLED", "source": "api", "retryable": False}
         except (CopilotLLMError, CopilotAgentError) as e:
             logger.error(f"[CopilotService] Stream failed: {e}")
-            yield {"type": "error", "message": str(e), "code": type(e).__name__}
+            yield {"type": "error", "message": str(e), "code": type(e).__name__, "source": "runtime", "retryable": False}
         except Exception as e:
             logger.exception(f"[CopilotService] generate_actions_stream failed: {e}")
-            yield {"type": "error", "message": f"An unexpected error occurred: {str(e)}", "code": "UNKNOWN_ERROR"}
+            yield {"type": "error", "message": f"An unexpected error occurred: {str(e)}", "code": "UNKNOWN_ERROR", "source": "internal", "retryable": False}
 
     def _handle_chat_model_stream_event(
         self,
