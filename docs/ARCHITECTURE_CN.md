@@ -303,6 +303,7 @@ sequenceDiagram
 
 **前端 ↔ 后端：**
 - **REST API**：Agents、Versions、Releases、Tasks、Threads、技能管理、工具管理、工作空间操作
+- **触发来源**：AgentRun 创建只接受规范化的 `task`、`chat`、`api`、`scheduler`、`draft_test`、`draft_copilot`、`debug` 和 `copilot`。`comment`、`mention` 等旧活动来源不再是 AgentRun trigger source；任务活动和提及先通过 task/activity 服务分派，再以规范的 task 或 copilot 来源创建 run。
 - **WebSocket (`/ws/chat`)**：共享聊天协议，用于 Chat、Copilot 和 Skill Creator 会话；Copilot 通过 `extension: { kind: "copilot" }` 复用同一 WS 连接
 - **WebSocket (`/ws/executions`)**：执行快照、事件回放、实时事件和 observation 帧。
 - **Code API**：保存和运行用户 LangGraph 代码

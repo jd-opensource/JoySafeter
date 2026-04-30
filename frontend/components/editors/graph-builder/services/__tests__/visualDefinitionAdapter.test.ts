@@ -204,6 +204,66 @@ describe('visualDefinitionAdapter', () => {
     )
   })
 
+  it('preserves merged payload cache when save forks to a new version id', async () => {
+    ;(agentVersionService.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...mockVersion,
+      definition_payload: {
+        ...mockVersion.definition_payload,
+        graph_mode: 'custom',
+        code_content: 'print("hello")',
+        context: { user_id: { type: 'string' } },
+        node_secrets: { 'node-1': ['API_KEY'] },
+        future_payload_key: { keep: 'me' },
+      },
+    } as any)
+    ;(agentVersionService.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 'version-fork',
+    } as any)
+    const fetchMock = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      writable: true,
+      value: fetchMock,
+    })
+
+    await visualDefinitionAdapter.save('agent-1', 'version-1', 'workspace-1', {
+      nodes: [{ id: 'node-2' }] as any,
+      edges: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+    })
+
+    visualDefinitionAdapter.sendBeaconSave('agent-1', 'version-fork', 'workspace-1', {
+      nodes: [{ id: 'node-3' }],
+      edges: [],
+      viewport: { x: 5, y: 6, zoom: 2 },
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.example.test/agents/agent-1/versions/version-fork?workspace_id=workspace-1',
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          definition_payload: {
+            graphId: 'graph-1',
+            graphName: 'Graph One',
+            nodes: [{ id: 'node-3' }],
+            edges: [],
+            viewport: { x: 5, y: 6, zoom: 2 },
+            graphStateFields: [{ name: 'count', type: 'int' }],
+            fallbackNodeId: 'node-1',
+            graph_mode: 'custom',
+            code_content: 'print("hello")',
+            context: { user_id: { type: 'string' } },
+            node_secrets: { 'node-1': ['API_KEY'] },
+            future_payload_key: { keep: 'me' },
+          },
+        }),
+        keepalive: true,
+      },
+    )
+  })
+
   it('maps legacy snake_case visual fields into graph state fields', async () => {
     ;(agentVersionService.get as ReturnType<typeof vi.fn>).mockResolvedValue({
       ...mockVersion,

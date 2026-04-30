@@ -103,6 +103,7 @@ export const visualDefinitionAdapter = {
     const updated = await agentVersionService.update(agentId, versionId, workspaceId, {
       definition_payload: mergedPayload,
     })
+    cachePayload(agentId, updated.id, workspaceId, mergedPayload)
     return { versionId: updated.id }
   },
 

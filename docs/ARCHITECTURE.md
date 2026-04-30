@@ -315,6 +315,7 @@ sequenceDiagram
 
 **Frontend ↔ Backend:**
 - **REST API**: Agents, versions, releases, tasks, threads, skill management, tool management, workspace operations
+- **Trigger sources**: AgentRun creation accepts canonical trigger sources `task`, `chat`, `api`, `scheduler`, `draft_test`, `draft_copilot`, `debug`, and `copilot`. Legacy activity-driven values such as `comment` and `mention` are not AgentRun trigger sources; task activities dispatch through task/activity services before creating runs with canonical task or copilot sources.
 - **WebSocket (`/ws/chat`)**: Shared chat protocol for Chat, Copilot, and Skill Creator turns; Copilot sends `extension: { kind: "copilot" }` through the same WS
 - **WebSocket (`/ws/executions`)**: Execution snapshot, replay, live events, and observation frames.
 - **Code API**: Save and run user LangGraph code
