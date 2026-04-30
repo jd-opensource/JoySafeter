@@ -1,7 +1,14 @@
 'use client'
 
 import { apiGet, apiPost } from '@/lib/api-client'
-import type { AgentRun, CreateAgentRunRequest, Execution, ExecutionEvent, ExecutionEventsPage } from '@/types/agent-run'
+import type {
+  AgentRun,
+  CreateAgentRunRequest,
+  Execution,
+  ExecutionEvent,
+  ExecutionEventsPage,
+  TriggerSource,
+} from '@/types/agent-run'
 
 export const agentRunService = {
   list: async (params: {
@@ -9,7 +16,7 @@ export const agentRunService = {
     release_id?: string
     task_id?: string
     agent_id?: string
-    trigger_source?: string
+    trigger_source?: TriggerSource
     status?: string
   }): Promise<AgentRun[]> => {
     const searchParams = new URLSearchParams()

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -14,6 +16,22 @@ import {
   TRIGGER_SOURCES,
 } from '../agent-run'
 import { RELEASE_STATUSES } from '../agent-release'
+
+const readTypeSource = (relativePath: string) =>
+  readFileSync(new URL(relativePath, import.meta.url), 'utf8')
+
+const expectTypeDerivedFromConstant = (
+  source: string,
+  typeName: string,
+  constantName: string,
+) => {
+  expect(source).toContain(
+    `export type ${typeName} = (typeof ${constantName})[number]`,
+  )
+  expect(source.indexOf(`export const ${constantName}`)).toBeLessThan(
+    source.indexOf(`export type ${typeName}`),
+  )
+}
 
 describe('architecture contract types', () => {
   it('exports builder definition kinds', () => {
@@ -102,5 +120,28 @@ describe('architecture contract types', () => {
       'scheduler',
       'task',
     ])
+  })
+
+  it('derives agent type unions from exported const tuples', () => {
+    const source = readTypeSource('../agent.ts')
+
+    expectTypeDerivedFromConstant(
+      source,
+      'DefinitionKind',
+      'BUILDER_DEFINITION_KINDS',
+    )
+    expectTypeDerivedFromConstant(source, 'RuntimeKind', 'RUNTIME_KINDS')
+  })
+
+  it('derives run type unions from exported const tuples', () => {
+    const source = readTypeSource('../agent-run.ts')
+
+    expectTypeDerivedFromConstant(source, 'TriggerSource', 'TRIGGER_SOURCES')
+    expectTypeDerivedFromConstant(source, 'AgentRunStatus', 'RUN_STATUSES')
+    expectTypeDerivedFromConstant(
+      source,
+      'ExecutionStatus',
+      'EXECUTION_STATUSES',
+    )
   })
 })

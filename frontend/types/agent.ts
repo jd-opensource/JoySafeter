@@ -1,8 +1,4 @@
-export type DefinitionKind = 'graph' | 'code' | 'claude_code' | 'codex' | 'openclaw'
-
-export type RuntimeKind = 'graph' | 'code' | 'sandbox'
-
-export const BUILDER_DEFINITION_KINDS: readonly DefinitionKind[] = [
+export const BUILDER_DEFINITION_KINDS = [
   'graph',
   'code',
   'claude_code',
@@ -10,11 +6,15 @@ export const BUILDER_DEFINITION_KINDS: readonly DefinitionKind[] = [
   'openclaw',
 ] as const
 
-export const RUNTIME_KINDS: readonly RuntimeKind[] = [
+export type DefinitionKind = (typeof BUILDER_DEFINITION_KINDS)[number]
+
+export const RUNTIME_KINDS = [
   'graph',
   'code',
   'sandbox',
 ] as const
+
+export type RuntimeKind = (typeof RUNTIME_KINDS)[number]
 
 export function hasBuilderSupport(kind?: string): boolean {
   return BUILDER_DEFINITION_KINDS.includes(kind as DefinitionKind)
