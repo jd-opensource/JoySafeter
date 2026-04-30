@@ -98,7 +98,7 @@
 <mxCell id="s6h" value="&lt;b&gt;STEP 6&lt;/b&gt;  自测 (Langfuse 风格 Trace)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2e7d32;fontColor=#ffffff;fontSize=12;arcSize=15;" vertex="1" parent="1">
   <mxGeometry x="30" y="530" width="350" height="30" as="geometry"/>
 </mxCell>
-<mxCell id="s6c" value="&lt;b&gt;点击 Run 按钮&lt;/b&gt;&lt;br/&gt;RunInputModal → 输入测试消息&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Execution Panel 展开&lt;/b&gt;&lt;br/&gt;Langfuse 风格实时追踪&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Tree View — 执行树&lt;/b&gt;&lt;br/&gt;输入 → LLM → 工具调用 → 输出&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Timeline View — 瀑布时间轴&lt;/b&gt;&lt;br/&gt;耗时 / Token / 并发可视化&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Detail Panel&lt;/b&gt;&lt;br/&gt;Preview / Output / Metadata&lt;br/&gt;&lt;br/&gt;&lt;b&gt;实时流式 (WS /ws/chat)&lt;/b&gt;&lt;br/&gt;边执行边查看" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;overflow=hidden;fontSize=11;spacing=6;" vertex="1" parent="1">
+<mxCell id="s6c" value="&lt;b&gt;点击 Run 按钮&lt;/b&gt;&lt;br/&gt;RunInputModal → 输入测试消息&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Execution Panel 展开&lt;/b&gt;&lt;br/&gt;Langfuse 风格实时追踪&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Tree View — 执行树&lt;/b&gt;&lt;br/&gt;输入 → LLM → 工具调用 → 输出&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Timeline View — 瀑布时间轴&lt;/b&gt;&lt;br/&gt;耗时 / Token / 并发可视化&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Detail Panel&lt;/b&gt;&lt;br/&gt;Preview / Output / Metadata&lt;br/&gt;&lt;br/&gt;&lt;b&gt;实时流式 (WS /ws/executions)&lt;/b&gt;&lt;br/&gt;边执行边查看" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;overflow=hidden;fontSize=11;spacing=6;" vertex="1" parent="1">
   <mxGeometry x="30" y="568" width="350" height="312" as="geometry"/>
 </mxCell>
 
@@ -131,7 +131,7 @@
 <mxCell id="s9h" value="&lt;b&gt;STEP 9&lt;/b&gt;  Run Center 详情  /runs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#283593;fontColor=#ffffff;fontSize=12;arcSize=15;" vertex="1" parent="1">
   <mxGeometry x="1040" y="530" width="510" height="30" as="geometry"/>
 </mxCell>
-<mxCell id="s9c" value="&lt;b&gt;进入 /runs — Run Center&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;&lt;b&gt;筛选过滤&lt;/b&gt;&lt;br/&gt;Agent 名称 / Status (Running/Completed/Failed)&lt;br/&gt;&lt;br/&gt;&lt;b&gt;运行列表 (实时更新)&lt;/b&gt;&lt;br/&gt;RunRow 卡片: 标题 / 状态 / Agent名 / 心跳&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Details → /runs/[runId]&lt;/b&gt;&lt;br/&gt;Overview: 消息 → 回复 → 工具调用&lt;br/&gt;Events: 全部事件流 (JSON)&lt;br/&gt;Snapshot: 运行时状态&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Tool Calls 展开&lt;/b&gt;&lt;br/&gt;工具名 / 参数 / 结果&lt;br/&gt;&lt;br/&gt;&lt;b&gt;实时 WS /ws/runs&lt;/b&gt;&lt;br/&gt;WebSocket 推送状态变更" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;overflow=hidden;fontSize=11;spacing=6;" vertex="1" parent="1">
+<mxCell id="s9c" value="&lt;b&gt;进入 /runs — Run Center&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;&lt;b&gt;筛选过滤&lt;/b&gt;&lt;br/&gt;Agent 名称 / Status (Running/Completed/Failed)&lt;br/&gt;&lt;br/&gt;&lt;b&gt;运行列表 (实时更新)&lt;/b&gt;&lt;br/&gt;RunRow 卡片: 标题 / 状态 / Agent名 / 心跳&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Details → /runs/[runId]&lt;/b&gt;&lt;br/&gt;Overview: 消息 → 回复 → 工具调用&lt;br/&gt;Events: 全部事件流 (JSON)&lt;br/&gt;Snapshot: 运行时状态&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Tool Calls 展开&lt;/b&gt;&lt;br/&gt;工具名 / 参数 / 结果&lt;br/&gt;&lt;br/&gt;&lt;b&gt;实时 WS /ws/executions&lt;/b&gt;&lt;br/&gt;WebSocket 推送状态变更" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;overflow=hidden;fontSize=11;spacing=6;" vertex="1" parent="1">
   <mxGeometry x="1040" y="568" width="510" height="312" as="geometry"/>
 </mxCell>
 

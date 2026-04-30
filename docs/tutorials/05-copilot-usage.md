@@ -17,15 +17,15 @@
 
 Copilot 已全面迁移至 **Agent/Execution 模型**，与 Chat 和 Skill Creator 共享同一 WebSocket 通信层，并通过统一的执行事件通道观测。
 
-### 1.1 通信架构（Shared Chat WS + Execution Events）
+### 1.1 通信架构（Execution Events + /ws/executions）
 
-所有 Copilot 交互都通过 **`/ws/chat` 共享 WebSocket** 进行：
+Copilot 遵循统一的 **Engine → EventBus → WebSocket** 执行管道：
 
-1. **创建执行**：前端提交当前 `AgentVersion.definition_payload`、画布上下文和 prompt，后端通过 `ExecutionOrchestrator` 创建 `AgentRun` 与 `Execution`。
-2. **发送消息**：通过 `getChatWsClient().sendChat()` 发送 `chat.start` 帧，携带 `extension: { kind: “copilot”, executionId, graphContext, conversationHistory, mode }`。
-3. **后端执行**：`ChatWsHandler` 解析协议后路由到 Copilot 执行链路，消费 `CopilotService` 产生的事件流。
-4. **事件持久化**：所有引擎通过 `ExecutionContext.emit()` 写入 `execution_events`；WebSocket 客户端从同一事件源接收实时事件。
-5. **状态投影**：执行快照由 `execution_events` 重放和投影生成，包含 stage、content、thought_steps、tool_calls 等 Copilot 状态。
+1. **创建执行**：前端提交当前 `AgentVersion.definition_payload`、画布上下文和 prompt，后端通过 `DispatchService` → `ExecutionOrchestrator` 创建 `AgentRun` 与 `Execution`。
+2. **引擎执行**：`CopilotEngine` 消费 `CopilotService` 产生的事件流，通过 `ExecutionContext.emit()` 写入 `execution_events`。
+3. **两阶段事件总线**：`ExecutionEventBus` 第 1 阶段持久化 + 状态变迁（共享事务），第 2 阶段 WebSocket 推送 + Task 同步（并行扇出）。
+4. **实时订阅**：前端通过 `/ws/executions` 订阅执行事件，接收 Copilot 状态（stage、content、thought_steps、tool_calls）。
+5. **状态投影**：执行快照由 `execution_events` 重放和投影生成。
 
 ### 1.2 标准模式 vs DeepAgents 模式
 
