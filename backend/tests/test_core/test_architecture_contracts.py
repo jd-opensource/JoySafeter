@@ -87,6 +87,9 @@ def test_registered_engines_declare_message_injection_capabilities() -> None:
 
 
 def test_persistence_subscriber_documents_single_process_sequence_cache() -> None:
-    source = Path("backend/app/core/events/subscribers/persistence.py").read_text()
+    repo_root = Path(__file__).resolve().parents[3]
+    source_path = repo_root / "backend/app/core/events/subscribers/persistence.py"
+    source = source_path.read_text()
     assert "single-process sequence cache" in source
+    assert "serialized/single-writer per execution" in source
     assert "distributed event sequencing" in source
