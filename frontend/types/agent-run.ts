@@ -1,10 +1,31 @@
+export type TriggerSource =
+  | 'task'
+  | 'chat'
+  | 'api'
+  | 'scheduler'
+  | 'draft_test'
+  | 'draft_copilot'
+  | 'debug'
+  | 'copilot'
+
+export const TRIGGER_SOURCES: readonly TriggerSource[] = [
+  'task',
+  'chat',
+  'api',
+  'scheduler',
+  'draft_test',
+  'draft_copilot',
+  'debug',
+  'copilot',
+] as const
+
 export interface AgentRun {
   id: string
   release_id: string
   workspace_id: string
   thread_id: string | null
   task_id: string | null
-  trigger_source: 'task' | 'chat' | 'api' | 'scheduler' | 'comment' | 'mention' | 'copilot'
+  trigger_source: TriggerSource
   goal: string | null
   input_payload: Record<string, unknown> | null
   status: AgentRunStatus
@@ -22,6 +43,14 @@ export type AgentRunStatus =
   | 'succeeded'
   | 'failed'
   | 'cancelled'
+
+export const RUN_STATUSES: readonly AgentRunStatus[] = [
+  'pending',
+  'running',
+  'succeeded',
+  'failed',
+  'cancelled',
+] as const
 
 export const ACTIVE_RUN_STATUSES: readonly AgentRunStatus[] = [
   'pending',
@@ -56,7 +85,7 @@ export interface CreateAgentRunRequest {
   release_id: string
   thread_id?: string
   task_id?: string
-  trigger_source: 'task' | 'chat' | 'api' | 'scheduler' | 'comment' | 'mention' | 'copilot'
+  trigger_source: TriggerSource
   goal?: string
   input_payload?: Record<string, unknown>
 }
@@ -69,6 +98,16 @@ export type ExecutionStatus =
   | 'succeeded'
   | 'failed'
   | 'cancelled'
+
+export const EXECUTION_STATUSES: readonly ExecutionStatus[] = [
+  'pending',
+  'dispatched',
+  'running',
+  'approval_wait',
+  'succeeded',
+  'failed',
+  'cancelled',
+] as const
 
 export const ACTIVE_EXECUTION_STATUSES: readonly ExecutionStatus[] = [
   'pending',

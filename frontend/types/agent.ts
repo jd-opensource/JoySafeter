@@ -10,6 +10,12 @@ export const BUILDER_DEFINITION_KINDS: readonly DefinitionKind[] = [
   'openclaw',
 ] as const
 
+export const RUNTIME_KINDS: readonly RuntimeKind[] = [
+  'graph',
+  'code',
+  'sandbox',
+] as const
+
 export function hasBuilderSupport(kind?: string): boolean {
   return BUILDER_DEFINITION_KINDS.includes(kind as DefinitionKind)
 }

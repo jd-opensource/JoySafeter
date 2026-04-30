@@ -2,11 +2,21 @@ import type { RuntimeKind } from './agent'
 
 export type { RuntimeKind }
 
+export const RELEASE_STATUSES = [
+  'ready',
+  'active',
+  'superseded',
+  'failed',
+  'retired',
+] as const
+
+export type ReleaseStatus = (typeof RELEASE_STATUSES)[number]
+
 export interface AgentRelease {
   id: string
   agent_version_id: string
   release_number: number
-  status: 'ready' | 'active' | 'superseded' | 'failed' | 'retired'
+  status: ReleaseStatus
   runtime_kind: RuntimeKind
   builder_kind: string | null
   executable_ref: Record<string, unknown> | null
@@ -15,8 +25,6 @@ export interface AgentRelease {
   published_at: string | null
   retired_at: string | null
 }
-
-export type ReleaseStatus = AgentRelease['status']
 
 export const canRollback = (status: ReleaseStatus): boolean =>
   status === 'ready' || status === 'superseded'
