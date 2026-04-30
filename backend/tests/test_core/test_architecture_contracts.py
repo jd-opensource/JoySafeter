@@ -73,6 +73,13 @@ def test_registered_engines_declare_capabilities() -> None:
         assert isinstance(engine.capabilities, EngineCapabilities)
 
 
-def test_graph_engine_declares_no_message_injection() -> None:
-    graph_engine = engine_registry.get("graph")
-    assert graph_engine.capabilities.supports_message_injection is False
+def test_registered_engines_declare_message_injection_capabilities() -> None:
+    assert {
+        runtime_kind: engine_registry.get(runtime_kind).capabilities.supports_message_injection
+        for runtime_kind in ["sandbox", "graph", "code", "copilot"]
+    } == {
+        "sandbox": True,
+        "graph": False,
+        "code": False,
+        "copilot": False,
+    }
