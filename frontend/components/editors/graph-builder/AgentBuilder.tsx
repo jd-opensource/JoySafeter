@@ -16,7 +16,7 @@ import { useQueryClient } from '@tanstack/react-query'
 
 import { CodeEditorPage } from './CodeEditorPage'
 import { GraphBuilderShell } from './GraphBuilderShell'
-import { graphDataAdapter } from './services/graphDataAdapter'
+import { visualDefinitionAdapter } from './services/visualDefinitionAdapter'
 import { agentService } from './services/agentService'
 import { useGraphStore } from './stores/graphStore'
 import { useSaveStore, setSaveStoreQueryClient } from './stores/saveStore'
@@ -154,7 +154,7 @@ function AgentBuilderInit({
       if (hasPendingChanges && versionId && workspaceId) {
         try {
           const viewport = rfInstance?.getViewport() || { x: 0, y: 0, zoom: 1 }
-          graphDataAdapter.sendBeaconSave(graphId, versionId, workspaceId, {
+          visualDefinitionAdapter.sendBeaconSave(graphId, versionId, workspaceId, {
             nodes,
             edges,
             viewport,

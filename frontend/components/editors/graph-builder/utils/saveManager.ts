@@ -11,7 +11,7 @@ import type { Node, Edge } from 'reactflow'
 import type { StateField } from '../types/graph'
 import { computeGraphStateHash } from '@/lib/utils/graphStateHash'
 
-import { graphDataAdapter } from '../services/graphDataAdapter'
+import { visualDefinitionAdapter } from '../services/visualDefinitionAdapter'
 
 export type SaveSource = 'manual' | 'auto' | 'debounce'
 
@@ -63,7 +63,7 @@ export class SaveManager {
         return true
       })
 
-      const result = await graphDataAdapter.save(state.agentId, state.versionId, state.workspaceId, {
+      const result = await visualDefinitionAdapter.save(state.agentId, state.versionId, state.workspaceId, {
         nodes: state.nodes,
         edges: deduplicatedEdges,
         viewport: state.viewport,
