@@ -18,10 +18,10 @@ import {
 } from '@/components/ui/select'
 import { useAgents, useCreateAgent, useDeleteAgent } from '@/hooks/queries/agents'
 import {
-  AGENT_LIST_DEFINITION_FILTERS,
+  AGENT_LIST_ENGINE_FILTERS,
   AGENT_LIST_RUNTIME_FILTERS,
   filterAgentsForList,
-  type AgentListDefinitionFilter,
+  type AgentListEngineFilter,
   type AgentListRuntimeFilter,
 } from '@/lib/agents/agent-list-filters'
 import { useTranslation } from '@/lib/i18n'
@@ -41,11 +41,11 @@ export default function AgentsPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [deletingAgent, setDeletingAgent] = useState<Agent | null>(null)
-  const [definitionFilter, setDefinitionFilter] = useState<AgentListDefinitionFilter>('all')
+  const [engineFilter, setEngineFilter] = useState<AgentListEngineFilter>('all')
   const [runtimeFilter, setRuntimeFilter] = useState<AgentListRuntimeFilter>('all')
 
   const filteredAgents = filterAgentsForList(agents, {
-    definitionKind: definitionFilter,
+    engineKind: engineFilter,
     runtimeKind: runtimeFilter,
   })
 
@@ -105,14 +105,14 @@ export default function AgentsPage() {
       {agents.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <Select
-            value={definitionFilter}
-            onValueChange={(value) => setDefinitionFilter(value as AgentListDefinitionFilter)}
+            value={engineFilter}
+            onValueChange={(value) => setEngineFilter(value as AgentListEngineFilter)}
           >
             <SelectTrigger className="h-9 w-[190px] bg-[var(--surface-1)]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {AGENT_LIST_DEFINITION_FILTERS.map((option) => (
+              {AGENT_LIST_ENGINE_FILTERS.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {t(option.labelKey, { defaultValue: option.defaultLabel })}
                 </SelectItem>

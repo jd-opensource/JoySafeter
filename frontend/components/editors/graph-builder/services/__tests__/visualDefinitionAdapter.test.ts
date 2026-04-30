@@ -19,7 +19,7 @@ const originalFetch = globalThis.fetch
 describe('visualDefinitionAdapter', () => {
   const mockVersion = {
     id: 'version-1',
-    definition_kind: 'graph',
+    engine_kind: 'langgraph_visual',
     status: 'draft',
     definition_payload: {
       graphId: 'graph-1',
@@ -115,7 +115,7 @@ describe('visualDefinitionAdapter', () => {
   it('loads version graph state with metadata and raw payload through the adapter boundary', async () => {
     ;(agentVersionService.get as ReturnType<typeof vi.fn>).mockResolvedValue({
       ...mockVersion,
-      definition_kind: 'code',
+      engine_kind: 'langgraph_code',
       status: 'frozen',
       definition_payload: {
         ...mockVersion.definition_payload,
@@ -143,7 +143,7 @@ describe('visualDefinitionAdapter', () => {
         versionId: 'version-1',
         workspaceId: 'workspace-1',
       },
-      definitionKind: 'code',
+      definitionKind: 'langgraph_code',
       versionStatus: 'frozen',
       rawPayload: {
         ...mockVersion.definition_payload,

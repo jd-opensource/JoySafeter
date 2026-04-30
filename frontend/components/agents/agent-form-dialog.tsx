@@ -16,10 +16,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import type { CreateAgentRequest, DefinitionKind } from '@/types/agent'
+import type { CreateAgentRequest, EngineKind } from '@/types/agent'
 
 interface BuildMethodOption {
-  value: DefinitionKind
+  value: EngineKind
   labelKey: string
   descriptionKey: string
   icon: React.ComponentType<{ className?: string }>
@@ -27,13 +27,13 @@ interface BuildMethodOption {
 
 const BUILD_METHOD_OPTIONS: BuildMethodOption[] = [
   {
-    value: 'graph',
+    value: 'langgraph_visual',
     labelKey: 'agents.graph.label',
     descriptionKey: 'agents.graph.description',
     icon: GitBranch,
   },
   {
-    value: 'code',
+    value: 'langgraph_code',
     labelKey: 'agents.code.label',
     descriptionKey: 'agents.code.description',
     icon: Code2,
@@ -74,11 +74,11 @@ export function CreateAgentDialog({
   const { t } = useTranslation()
 
   const [name, setName] = useState('')
-  const [definitionKind, setDefinitionKind] = useState<DefinitionKind>('graph')
+  const [engineKind, setEngineKind] = useState<EngineKind>('langgraph_visual')
 
   function resetForm() {
     setName('')
-    setDefinitionKind('graph')
+    setEngineKind('langgraph_visual')
   }
 
   function handleOpenChange(nextOpen: boolean) {
@@ -94,7 +94,7 @@ export function CreateAgentDialog({
 
     onSubmit({
       name: name.trim(),
-      definition_kind: definitionKind,
+      engine_kind: engineKind,
     })
   }
 
@@ -132,7 +132,7 @@ export function CreateAgentDialog({
             <div className="grid gap-2" role="radiogroup" aria-label={t('agents.buildMethod', { defaultValue: 'Build method' })}>
               {BUILD_METHOD_OPTIONS.map((option) => {
                 const Icon = option.icon
-                const isSelected = definitionKind === option.value
+                const isSelected = engineKind === option.value
                 return (
                   <button
                     key={option.value}
@@ -146,7 +146,7 @@ export function CreateAgentDialog({
                         ? 'border-[var(--skill-brand-600)] bg-[var(--skill-brand-50)]'
                         : 'border-[var(--border)]',
                     )}
-                    onClick={() => setDefinitionKind(option.value)}
+                    onClick={() => setEngineKind(option.value)}
                   >
                     <div
                       className={cn(

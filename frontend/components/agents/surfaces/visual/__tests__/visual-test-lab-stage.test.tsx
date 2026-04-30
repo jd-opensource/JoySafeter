@@ -14,7 +14,7 @@ import { VisualTestLabStage } from '../visual-test-lab-stage'
 
 const baseProps = {
   agent: { id: 'a-1', name: 'Test' } as any,
-  version: { id: 'v-1', definition_kind: 'graph' } as any,
+  version: { id: 'v-1', engine_kind: 'langgraph_visual' } as any,
   workspaceId: 'ws-1',
   navigateToStage: vi.fn(),
 }

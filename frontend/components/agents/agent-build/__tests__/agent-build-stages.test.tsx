@@ -37,7 +37,7 @@ import { AgentUsageStage } from '../agent-usage-stage'
 
 const baseStageProps = {
   agent: { id: 'a-1', name: 'Test', active_release_id: null } as any,
-  version: { id: 'v-1', definition_kind: 'graph', definition_payload: { nodes: [{}] } } as any,
+  version: { id: 'v-1', engine_kind: 'langgraph_visual', definition_payload: { nodes: [{}] } } as any,
   workspaceId: 'ws-1',
   navigateToStage: vi.fn(),
 }

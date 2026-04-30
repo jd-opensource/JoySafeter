@@ -80,8 +80,8 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
   }
 
   const DEFINITION_KIND_LABELS: Record<string, string> = {
-    graph: t('agents.graph.label'),
-    code: t('agents.code.label'),
+    langgraph_visual: t('agents.graph.label'),
+    langgraph_code: t('agents.code.label'),
     claude_code: t('agents.claudeCode.label'),
     codex: t('agents.codex.label'),
     openclaw: t('agents.openclaw.label'),
@@ -173,7 +173,7 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
         {draftVersion ? (
           <div className="mt-3 flex items-center gap-3 text-sm text-[var(--text-muted)]">
             <Badge variant="outline">
-              {DEFINITION_KIND_LABELS[draftVersion.definition_kind] || draftVersion.definition_kind}
+              {DEFINITION_KIND_LABELS[draftVersion.engine_kind] || draftVersion.engine_kind}
             </Badge>
             <span>v{draftVersion.version_number}</span>
             <Badge variant="secondary">

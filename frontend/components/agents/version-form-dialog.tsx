@@ -23,7 +23,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { useCreateVersion } from '@/hooks/queries/agentVersions'
 import { useTranslation } from '@/lib/i18n'
-import type { DefinitionKind } from '@/types/agent'
+import type { EngineKind } from '@/types/agent'
 
 interface VersionFormDialogProps {
   open: boolean
@@ -41,11 +41,11 @@ export function VersionFormDialog({
   const { t } = useTranslation()
   const createVersion = useCreateVersion()
 
-  const [definitionKind, setDefinitionKind] = useState<DefinitionKind>('graph')
+  const [engineKind, setEngineKind] = useState<EngineKind>('langgraph_visual')
   const [changelog, setChangelog] = useState('')
 
   function resetForm() {
-    setDefinitionKind('graph')
+    setEngineKind('langgraph_visual')
     setChangelog('')
   }
 
@@ -63,7 +63,7 @@ export function VersionFormDialog({
       {
         agentId,
         workspaceId,
-        definition_kind: definitionKind,
+        engine_kind: engineKind,
         changelog: changelog.trim() || undefined,
       },
       {
@@ -86,15 +86,15 @@ export function VersionFormDialog({
           <div className="space-y-2">
             <Label>{t('agents.buildMethod')} *</Label>
             <Select
-              value={definitionKind}
-              onValueChange={(v) => setDefinitionKind(v as DefinitionKind)}
+              value={engineKind}
+              onValueChange={(v) => setEngineKind(v as EngineKind)}
             >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="graph">{t('agents.graph.label')}</SelectItem>
-                <SelectItem value="code">{t('agents.code.label')}</SelectItem>
+                <SelectItem value="langgraph_visual">{t('agents.graph.label')}</SelectItem>
+                <SelectItem value="langgraph_code">{t('agents.code.label')}</SelectItem>
                 <SelectItem value="claude_code">{t('agents.claudeCode.label')}</SelectItem>
                 <SelectItem value="codex">{t('agents.codex.label')}</SelectItem>
                 <SelectItem value="openclaw">{t('agents.openclaw.label')}</SelectItem>

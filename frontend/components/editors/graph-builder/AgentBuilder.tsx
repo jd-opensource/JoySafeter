@@ -207,7 +207,7 @@ function AgentBuilderInit({
     const state = graphStateData
 
     // Code mode: hydrate code editor store instead of canvas
-    if (state.definitionKind === 'code' && agentId) {
+    if (state.definitionKind === 'langgraph_code' && agentId) {
       const loadedVars = (state.variables ?? {}) as BuilderVariables
       const agentName = agentData?.name
       useCodeEditorStore
@@ -312,7 +312,7 @@ function AgentBuilderInit({
   }, [agentId, isGraphStateLoaded, graphStateData, agentData, loadGraph, setGraphId, setGraphName])
 
   // Code mode: render CodeEditorPage instead of canvas
-  if (graphStateData?.definitionKind === 'code' && agentId && !isInitializing) {
+  if (graphStateData?.definitionKind === 'langgraph_code' && agentId && !isInitializing) {
     return <CodeEditorPage graphId={agentId} workspaceId={workspaceId} />
   }
 

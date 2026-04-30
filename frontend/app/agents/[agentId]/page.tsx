@@ -63,7 +63,7 @@ export default function AgentDetailPage() {
     )
   }
 
-  const surface = resolveBuilderSurface(version?.definition_kind)
+  const surface = resolveBuilderSurface(version?.engine_kind)
 
   return (
     <BuilderSurfaceContext.Provider value={surface}>

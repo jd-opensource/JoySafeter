@@ -1,10 +1,10 @@
 import { cliSurface } from '@/components/agents/surfaces/cli'
 import { codeSurface } from '@/components/agents/surfaces/code'
 import { visualSurface } from '@/components/agents/surfaces/visual'
-import { BUILDER_DEFINITION_KINDS } from '@/types/agent'
+import { ENGINE_KINDS } from '@/types/agent'
 
 import type { BuilderSurface } from './agent-build-types'
-import type { DefinitionKind } from '@/types/agent'
+import type { EngineKind } from '@/types/agent'
 
 export type BuilderSurfaceKind = 'visual' | 'cli' | 'code'
 
@@ -14,22 +14,22 @@ const SURFACE_MAP: Record<BuilderSurfaceKind, BuilderSurface> = {
   code:   codeSurface,
 }
 
-const DEFINITION_TO_SURFACE: Record<DefinitionKind, BuilderSurfaceKind> = {
-  graph:       'visual',
-  code:        'code',
-  claude_code: 'cli',
-  codex:       'cli',
-  openclaw:    'cli',
+const ENGINE_TO_SURFACE: Record<EngineKind, BuilderSurfaceKind> = {
+  langgraph_visual: 'visual',
+  langgraph_code:   'code',
+  claude_code:      'cli',
+  codex:            'cli',
+  openclaw:         'cli',
 }
 
-export function resolveBuilderSurface(definitionKind: string | null | undefined): BuilderSurface {
-  const surfaceKind = isDefinitionKind(definitionKind)
-    ? DEFINITION_TO_SURFACE[definitionKind]
+export function resolveBuilderSurface(engineKind: string | null | undefined): BuilderSurface {
+  const surfaceKind = isEngineKind(engineKind)
+    ? ENGINE_TO_SURFACE[engineKind]
     : 'visual'
 
   return SURFACE_MAP[surfaceKind]
 }
 
-function isDefinitionKind(definitionKind: string | null | undefined): definitionKind is DefinitionKind {
-  return BUILDER_DEFINITION_KINDS.includes(definitionKind as DefinitionKind)
+function isEngineKind(engineKind: string | null | undefined): engineKind is EngineKind {
+  return ENGINE_KINDS.includes(engineKind as EngineKind)
 }

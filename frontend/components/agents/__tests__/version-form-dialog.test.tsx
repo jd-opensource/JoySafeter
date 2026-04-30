@@ -107,7 +107,7 @@ describe('VersionFormDialog', () => {
     await user.click(screen.getByRole('button', { name: 'agents.cancel' }))
     await user.click(screen.getByRole('button', { name: 'Open dialog' }))
 
-    expect(screen.getByLabelText('definition-kind')).toHaveValue('graph')
+    expect(screen.getByLabelText('definition-kind')).toHaveValue('langgraph_visual')
     expect(screen.getByPlaceholderText('agents.detail.changelogPlaceholder')).toHaveValue('')
   })
 })

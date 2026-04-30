@@ -1,11 +1,11 @@
 import { agentVersionService } from '@/services/agentVersionService'
 import { API_BASE } from '@/lib/api-client'
-import type { DefinitionKind } from '@/types/agent'
+import type { EngineKind } from '@/types/agent'
 import type { GraphState } from '../utils/saveManager'
 
 export interface LoadedVersionGraphState {
   graphState: GraphState
-  definitionKind: DefinitionKind
+  definitionKind: EngineKind
   versionStatus: 'draft' | 'frozen'
   rawPayload: Record<string, unknown>
 }
@@ -82,7 +82,7 @@ export const visualDefinitionAdapter = {
 
     return {
       graphState: toGraphState(rawPayload, agentId, versionId, workspaceId),
-      definitionKind: version.definition_kind,
+      definitionKind: version.engine_kind,
       versionStatus: version.status,
       rawPayload,
     }
@@ -133,7 +133,7 @@ export const visualDefinitionAdapter = {
     basePayload?: Record<string, unknown>,
   ): Promise<string> {
     const version = await agentVersionService.create(agentId, workspaceId, {
-      definition_kind: 'graph',
+      engine_kind: 'langgraph_visual',
       definition_payload: basePayload || {},
     })
     return version.id

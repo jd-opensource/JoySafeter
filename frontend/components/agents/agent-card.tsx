@@ -11,8 +11,8 @@ import type { Agent } from '@/types/agent'
 import { AgentStatusIndicator } from './agent-status'
 
 const DEFINITION_LABEL_KEYS: Record<string, { labelKey: string; defaultLabel: string }> = {
-  graph: { labelKey: 'agents.graph.shortLabel', defaultLabel: 'Graph' },
-  code: { labelKey: 'agents.code.shortLabel', defaultLabel: 'Code' },
+  langgraph_visual: { labelKey: 'agents.graph.shortLabel', defaultLabel: 'Graph' },
+  langgraph_code: { labelKey: 'agents.code.shortLabel', defaultLabel: 'Code' },
   claude_code: { labelKey: 'agents.claudeCode.shortLabel', defaultLabel: 'Claude Code' },
   codex: { labelKey: 'agents.codex.shortLabel', defaultLabel: 'Codex' },
   openclaw: { labelKey: 'agents.openclaw.shortLabel', defaultLabel: 'OpenClaw' },
@@ -33,7 +33,7 @@ export function AgentCard({ agent, onClick, onDelete }: AgentCardProps) {
       : t('agents.card.hintNew', { defaultValue: 'Start building' })
 
   const timeText = agent.updated_at ? formatRelativeTime(agent.updated_at, t) : ''
-  const definitionLabel = agent.definition_kind ? DEFINITION_LABEL_KEYS[agent.definition_kind] : null
+  const definitionLabel = agent.engine_kind ? DEFINITION_LABEL_KEYS[agent.engine_kind] : null
 
   return (
     <Card

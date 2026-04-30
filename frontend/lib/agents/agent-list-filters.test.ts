@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { Agent } from '@/types/agent'
 
 import {
-  AGENT_LIST_DEFINITION_FILTERS,
+  AGENT_LIST_ENGINE_FILTERS,
   AGENT_LIST_RUNTIME_FILTERS,
   filterAgentsForList,
 } from './agent-list-filters'
@@ -20,7 +20,7 @@ function makeAgent(overrides: Partial<Agent>): Agent {
     has_custom_env: false,
     current_draft_version_id: 'version-1',
     active_release_id: null,
-    definition_kind: null,
+    engine_kind: null,
     runtime_kind: null,
     created_by: 'user-1',
     created_at: '2026-01-01T00:00:00Z',
@@ -30,11 +30,11 @@ function makeAgent(overrides: Partial<Agent>): Agent {
 }
 
 describe('agent list filters', () => {
-  it('exposes only supported product definition filters', () => {
-    expect(AGENT_LIST_DEFINITION_FILTERS.map((option) => option.value)).toEqual([
+  it('exposes only supported product engine filters', () => {
+    expect(AGENT_LIST_ENGINE_FILTERS.map((option) => option.value)).toEqual([
       'all',
-      'graph',
-      'code',
+      'langgraph_visual',
+      'langgraph_code',
       'claude_code',
       'codex',
       'openclaw',
@@ -44,34 +44,33 @@ describe('agent list filters', () => {
   it('exposes only supported runtime filters', () => {
     expect(AGENT_LIST_RUNTIME_FILTERS.map((option) => option.value)).toEqual([
       'all',
-      'graph',
-      'code',
       'sandbox',
+      'server',
     ])
   })
 
-  it('filters by definition kind and runtime kind', () => {
-    const graphAgent = makeAgent({ id: 'graph', definition_kind: 'graph', runtime_kind: 'graph' })
-    const codexAgent = makeAgent({ id: 'codex', definition_kind: 'codex', runtime_kind: 'sandbox' })
-    const codeDraft = makeAgent({ id: 'code', definition_kind: 'code', runtime_kind: null })
+  it('filters by engine kind and runtime kind', () => {
+    const graphAgent = makeAgent({ id: 'graph', engine_kind: 'langgraph_visual', runtime_kind: 'server' })
+    const codexAgent = makeAgent({ id: 'codex', engine_kind: 'codex', runtime_kind: 'sandbox' })
+    const codeDraft = makeAgent({ id: 'code', engine_kind: 'langgraph_code', runtime_kind: null })
 
     expect(
       filterAgentsForList([graphAgent, codexAgent, codeDraft], {
-        definitionKind: 'codex',
+        engineKind: 'codex',
         runtimeKind: 'all',
       }).map((agent) => agent.id),
     ).toEqual(['codex'])
 
     expect(
       filterAgentsForList([graphAgent, codexAgent, codeDraft], {
-        definitionKind: 'all',
+        engineKind: 'all',
         runtimeKind: 'sandbox',
       }).map((agent) => agent.id),
     ).toEqual(['codex'])
 
     expect(
       filterAgentsForList([graphAgent, codexAgent, codeDraft], {
-        definitionKind: 'code',
+        engineKind: 'langgraph_code',
         runtimeKind: 'sandbox',
       }),
     ).toEqual([])
