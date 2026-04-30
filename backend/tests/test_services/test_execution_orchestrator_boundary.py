@@ -45,7 +45,7 @@ def test_send_message_rejects_unsupported_engine_before_dispatch() -> None:
         id=run_id,
         release_id=release_id,
         workspace_id=uuid.uuid4(),
-        trigger_source="manual",
+        trigger_source="api",
         status="running",
     )
     release = AgentRelease(
