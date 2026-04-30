@@ -42,9 +42,12 @@ graph TB
 
         subgraph WS_LAYER["Unified WebSocket Layer"]
             BASE_WS["BaseWsClient\n(lifecycle · auth · reconnect)"]
-            CHAT_WS["ChatWsClient\n/ws/chat"]
             EXEC_WS["ExecutionWsClient\n/ws/executions"]
             NOTIF_WS["NotificationWsClient\n/ws/notifications"]
+        end
+
+        subgraph FE_ERROR["Error Consumption"]
+            API_ERROR["ApiError\nErrorDescriptor mirror\nsource · retryable · userAction"]
         end
     end
 
@@ -53,33 +56,69 @@ graph TB
 
         subgraph API["REST + WebSocket API"]
             REST["/v1 REST Endpoints\nAgents · Versions · Releases\nTasks · Threads · Runs · Executions"]
-            WS_HANDLER["ChatWsHandler\nUnified WS Protocol\nchat · copilot · skill_creator"]
-            EXEC_WS_HANDLER["ExecutionWsHandler\nSnapshot · Events\n& Replay"]
+            EXEC_WS_HANDLER["ExecutionSubscriptionHandler\n/ws/executions\nSnapshot · Events · Replay"]
+            NOTIF_HANDLER["NotificationManager\n/ws/notifications"]
+            CLAW_HANDLER["OpenClawHandler\n/ws/openclaw/*"]
+        end
+
+        subgraph CONTRACTS["Contracts — Single Source of Truth"]
+            AGENT_CONTRACT["agent.py\nDefinitionKind · RuntimeKind\nDEFINITION_RUNTIME_KIND"]
+            EXEC_CONTRACT["execution.py\nRunStatus · ExecutionStatus\nTriggerSource · terminal sets"]
+            ERROR_CONTRACT["error.py\nErrorCode StrEnum (~180)\nErrorSource · UserAction"]
         end
 
         subgraph SERVICES["Service Layer"]
+            DISPATCH_SVC["DispatchService\nAPI-facing facade (L1.5)"]
+            ORCH_SVC["ExecutionOrchestrator\nRun + Execution lifecycle (L2)"]
+            ENGINE_REG["EngineRegistry\nruntime_kind → engine (L2.5)"]
             MODEL_SVC["ModelService\nUnified Resolution\n(provider_name, model_name)"]
-            DISPATCH_SVC["DispatchService\nAPI-facing execution entry"]
-            ORCH_SVC["ExecutionOrchestrator\nRun · Execution · Engine dispatch"]
-            ENGINE_REG["EngineRegistry\nruntime_kind -> engine"]
             SANDBOX_SVC["SandboxService\nRAII Handle\nPer-User Isolation"]
             SKILL_SVC["SkillService\nVersioning\n& Collaboration"]
         end
 
+        subgraph ENGINES["Execution Engines (L3)"]
+            CLI_ENG["CLIEngine\nruntime_kind=sandbox\nDocker + CLI agent"]
+            GRAPH_ENG["GraphEngine\nruntime_kind=graph\nLangGraph compiler"]
+            CODE_ENG["CodeEngine\nruntime_kind=code\nIn-process agent"]
+            COPILOT_ENG["CopilotEngine\nruntime_kind=copilot\nGraph analysis"]
+        end
+
+        subgraph EVENT_BUS["Two-Phase Event Bus (L3.5–L4)"]
+            CTX["ExecutionContext.emit()"]
+            BUS["ExecutionEventBus"]
+            subgraph PH1["Phase 1 (shared tx, sequential)"]
+                PERSIST_SUB["PersistenceSubscriber\nExecutionEvent rows + seq"]
+                STATE_SUB["StateTransitionSubscriber\nState machine validation"]
+            end
+            subgraph PH2["Phase 2 (parallel fan-out)"]
+                WS_SUB["WebSocketSubscriber\n→ SubscriptionManager"]
+                TASK_SUB["TaskSyncSubscriber\nRun→Task status sync"]
+            end
+        end
+
+        subgraph STATE_MACHINES["State Machines"]
+            SM["StateMachine engine\n6 entities:\nAgent · Version · Release\nRun · Execution · Task"]
+        end
+
+        subgraph OBSERVATION["Observation Layer"]
+            COLLECTOR["ObservationCollector\nOTel-backed tracing\ninjected into ExecutionContext"]
+        end
+
+        subgraph PORTS["Ports & Adapters"]
+            EVENT_PORT["ExecutionEventPort\n→ execution_event_adapter"]
+            READER_PORT["ExecutionReaderPort\n→ execution_reader_adapter"]
+        end
+
+        subgraph APP_ERRORS["Error System"]
+            APPEXC["AppError hierarchy\nto_payload() → ErrorDescriptor\n{code,message,data,source,retryable}"]
+        end
+
         subgraph CORE["Core Engine"]
-            DEEP_AGENTS["DeepAgents v0.4\nManager-Worker\nOrchestration"]
+            DEEP_AGENTS["DeepAgents\nManager-Worker\nOrchestration"]
             LANGGRAPH["LangGraph Engine\nStateful Graphs\nPause · Resume · Branch"]
-            COPILOT["Copilot Engine\nGraph Analysis\n& Action Execution"]
             MODEL_FACTORY["ModelFactory\nProvider Registry\n& Credential Validation"]
             TOOL_RESOLVER["Tool Resolver\nMCP Protocol\n200+ Tools"]
             SKILL_LOADER["Skill Loader\nBatch Preload\n& Deduplication"]
-        end
-
-        subgraph OBSERVABILITY["Observability & Cross-Cutting"]
-            TRACE["trace_id Propagation\n(contextvars)"]
-            LANGFUSE["Langfuse\nReal-Time Tracing"]
-            LOGURU["Loguru\nStructured Logging"]
-            APPEXC["AppException\nStructured Error Codes\ni18n Support"]
         end
     end
 
@@ -103,50 +142,63 @@ graph TB
     USER --> FRONTEND
 
     %% WebSocket hierarchy
-    BASE_WS --> CHAT_WS
     BASE_WS --> EXEC_WS
     BASE_WS --> NOTIF_WS
 
     %% Frontend → Backend
-    CHAT_WS -->|"ws-token auth"| WS_HANDLER
     EXEC_WS -->|"execution subscribe"| EXEC_WS_HANDLER
+    NOTIF_WS -->|"notifications"| NOTIF_HANDLER
     TANSTACK -->|"REST"| REST
+    API_ERROR -.->|"mirrors"| APPEXC
 
     %% API → Services
-    WS_HANDLER --> DISPATCH_SVC
-    WS_HANDLER --> MODEL_SVC
-    EXEC_WS_HANDLER --> ORCH_SVC
     REST --> DISPATCH_SVC
     REST --> SKILL_SVC
     REST --> MODEL_SVC
     REST --> SANDBOX_SVC
 
-    %% Services → Core
-    MODEL_SVC --> MODEL_FACTORY
+    %% Services → Engines
     DISPATCH_SVC --> ORCH_SVC
     ORCH_SVC --> ENGINE_REG
-    ENGINE_REG --> DEEP_AGENTS
-    ENGINE_REG --> LANGGRAPH
-    DISPATCH_SVC --> COPILOT
-    SKILL_SVC --> SKILL_LOADER
+    ENGINE_REG --> CLI_ENG
+    ENGINE_REG --> GRAPH_ENG
+    ENGINE_REG --> CODE_ENG
+    ENGINE_REG --> COPILOT_ENG
+
+    %% Engines → Event Bus
+    CLI_ENG --> CTX
+    GRAPH_ENG --> CTX
+    CODE_ENG --> CTX
+    COPILOT_ENG --> CTX
+    CTX --> BUS
+    BUS --> PERSIST_SUB
+    BUS --> STATE_SUB
+    BUS --> WS_SUB
+    BUS --> TASK_SUB
+
+    %% State machines
+    STATE_SUB --> SM
+
+    %% Observation
+    COLLECTOR -.->|"injected into"| CTX
+
+    %% Ports
+    EVENT_PORT -.-> BUS
+    CLI_ENG -.-> EVENT_PORT
 
     %% Core internals
+    GRAPH_ENG --> DEEP_AGENTS
     DEEP_AGENTS --> LANGGRAPH
     DEEP_AGENTS --> TOOL_RESOLVER
     DEEP_AGENTS --> SKILL_LOADER
-    COPILOT --> LANGGRAPH
+    COPILOT_ENG --> LANGGRAPH
     TOOL_RESOLVER --> MCP_TOOLS
-
-    %% Observability
-    TRACE -.->|"flows through"| WS_HANDLER
-    TRACE -.->|"flows through"| LANGGRAPH
-    TRACE -.->|"persisted in"| PG
-    LANGFUSE -.-> DEEP_AGENTS
-    LOGURU -.-> SERVICES
+    MODEL_SVC --> MODEL_FACTORY
 
     %% Data
     SERVICES --> PG
     SERVICES --> REDIS
+    PERSIST_SUB --> PG
 
     %% Sandbox
     SANDBOX_SVC -->|"RAII handle"| DOCKER

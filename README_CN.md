@@ -220,11 +220,15 @@
 
 **核心设计原则：**
 
+- **值域唯一来源** —— `core/contracts/` 以 Literal 类型 + set 常量定义所有规范化值（状态、错误码、触发来源），杜绝魔术字符串
+- **引擎协议 + 注册表** —— 所有执行引擎实现 `ExecutionEngine` Protocol；`EngineRegistry` 将 `runtime_kind` 映射到引擎实例；添加新引擎只需改 3 个文件
+- **两阶段事件总线** —— 第 1 阶段（持久化 + 状态变迁）共享 DB 事务，原子提交；第 2 阶段（WebSocket + 任务同步）并行扇出
+- **集中化状态机** —— 6 个实体状态机（`Agent`、`Version`、`Release`、`Run`、`Execution`、`Task`），`transition_*()` 是唯一的状态修改入口
+- **规范化错误系统** —— `AppError.to_payload()` 输出规范的 `ErrorDescriptor`（`{code, message, data, source, retryable, user_action}`），HTTP/WS/SSE/DB 各传输路径一致消费
+- **端口/适配器边界** —— `core/ports/` 定义 Protocol 接口；`services/` 提供实现；`core/` 不导入具体服务
+- **OTel 观测追踪** —— `ObservationCollector` 注入 `ExecutionContext`；span 导出到 DB 和 WebSocket，支持实时追踪展示
 - **图式执行** —— 每个 Agent 工作流都是有状态的 LangGraph，支持暂停、恢复与分支
-- **统一 Run Center** —— Chat、Copilot、Skill Creator 共享同一套事件溯源运行生命周期（Run → Event → Snapshot）
-- **统一 WebSocket 层** —— BaseWsClient 抽象基类；Chat / Run / Notification 三端客户端共享生命周期、认证（ws-token）与重连逻辑
-- **trace_id 全链路追踪** —— 基于 contextvars 的请求追踪，从 HTTP/WS 入口贯穿 LangGraph 直至持久化
-- **白盒可观测性** —— 基于 Langfuse 实时追踪每一步 Agent 决策与状态流转
+- **统一 WebSocket 层** —— BaseWsClient 抽象基类；Execution / Notification 客户端共享生命周期、认证与重连逻辑
 - **RAII 沙箱隔离** —— 用户级 Docker 容器，句柄自动释放，会话间零状态泄露
 - **规范化模型标识** —— 全栈统一 (provider_name, model_name) 解析路径：ModelService → ModelFactory
 - **分层技能体系** —— 技能是版本化单元，可自由组合成工作流，互不耦合
@@ -262,6 +266,10 @@
 
 | 标签 | 功能 | 一句话说明 |
 |------|------|-----------|
+| **NEW** | **架构硬化** | 5 层执行架构：引擎协议 + EngineRegistry + 两阶段事件总线 + 集中化状态机 + 端口/适配器边界 |
+| **NEW** | **统一错误契约** | `AppError.to_payload()` 输出规范 `ErrorDescriptor`，HTTP/WS/SSE/DB 一致消费；前端 `ApiError` 镜像类型化 `source`/`retryable`/`userAction` |
+| **NEW** | **状态机集中化** | 6 个实体状态机（Agent、Version、Release、Run、Execution、Task），`transition_*()` 为唯一状态修改入口 |
+| **NEW** | **观测追踪** | 基于 OTel 的 `ObservationCollector` 注入 ExecutionContext；span 导出到 DB 和 WebSocket，支持实时追踪 |
 | **NEW** | **Run Center 架构** | Chat 与 Copilot 全面迁入 Run Center——支持运行详情查看、会话恢复、页面刷新后实时事件回放 |
 | **NEW** | **深色模式与偏好设置** | 系统/浅色/深色三种主题切换；重新设计个人资料页面，新增语言与主题偏好 |
 | **NEW** | **统一 WebSocket 层** | 引入 BaseWsClient 抽象基类——Chat、Run、Notification 三端客户端共享生命周期、认证（ws-token）与重连逻辑 |

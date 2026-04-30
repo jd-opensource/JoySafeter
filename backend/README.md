@@ -48,6 +48,38 @@ cd backend
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+## 项目结构
+
+```
+app/
+├── api/v1/                  # REST 路由模块
+├── common/
+│   └── app_errors.py        # 统一异常层次 + ErrorDescriptor 序列化
+├── core/
+│   ├── contracts/           # 值域唯一来源（DefinitionKind、RuntimeKind、ErrorCode、ErrorSource 等）
+│   ├── engine/              # 执行引擎协议、注册表、4 个内建引擎（CLI/Graph/Code/Copilot）
+│   ├── events/              # 两阶段事件总线（ExecutionEventBus）+ 4 个内建订阅者
+│   ├── state_machines/      # 集中化状态机（6 个实体的转换规则）
+│   ├── observation/         # OTel-backed 观测追踪（注入 ExecutionContext）
+│   ├── ports/               # Protocol 接口，解耦 core/ 与 services/
+│   ├── agent/               # CLI agent 后端（claude_code、codex、openclaw）
+│   ├── copilot/             # Copilot 服务
+│   ├── graph/               # DeepAgents 图构建器 + 代码执行器
+│   ├── skill/               # 技能系统（渐进式加载）
+│   ├── model/               # 模型提供商 + 凭据管理
+│   ├── tools/               # 工具解析器 + MCP 集成
+│   └── a2a/                 # Agent-to-Agent 协议
+├── models/                  # SQLAlchemy ORM 模型
+├── repositories/            # 数据访问层
+├── schemas/                 # Pydantic 请求/响应 Schema
+├── services/                # 服务层（DispatchService、ExecutionOrchestrator、40+ 模块）
+├── websocket/               # WebSocket 处理器（/ws/executions、/ws/notifications、/ws/openclaw）
+├── templates/               # 邮件模板（Jinja2）
+└── utils/                   # 共享工具
+```
+
+> 完整架构文档：[`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) | [中文版](../docs/ARCHITECTURE_CN.md)
+
 ## API 文档
 
 - Swagger UI: http://localhost:8000/docs

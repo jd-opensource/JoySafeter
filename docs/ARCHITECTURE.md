@@ -1,354 +1,571 @@
 # Architecture
 
-## Overall Architecture
+## 1. Overall Architecture
 
-JoySafeter follows a layered architecture pattern with clear separation of concerns:
+JoySafeter follows a layered architecture with clear separation between API surface, orchestration, execution engines, event pipeline, and real-time delivery.
+
+```
+Layer 1     API Routes (app/api/v1/) + WebSocket Handlers (app/websocket/)
+Layer 1.5   DispatchService — API-facing facade
+Layer 2     ExecutionOrchestrator — creates Run + Execution, builds ExecutionContext
+Layer 2.5   EngineRegistry — singleton, maps runtime_kind to ExecutionEngine
+Layer 3     Execution Engines: CLIEngine / GraphEngine / CodeEngine / CopilotEngine
+Layer 3.5   ExecutionContext callbacks -> ExecutionEventBus
+Layer 4a    PersistenceSubscriber + StateTransitionSubscriber (Phase 1, shared DB tx)
+Layer 4b    WebSocketSubscriber + TaskSyncSubscriber (Phase 2, parallel fan-out)
+Layer 5     ExecutionSubscriptionManager -> WebSocket clients (/ws/executions)
+```
 
 ```mermaid
 flowchart TB
-    subgraph Row1[" "]
+    subgraph L1["Layer 1 — API Surface"]
+        REST["/v1 REST Endpoints"]
+        WS_EXEC["WS /ws/executions"]
+        WS_NOTIF["WS /ws/notifications"]
+        WS_CLAW["WS /ws/openclaw/*"]
+    end
+
+    subgraph L15["Layer 1.5 — Facade"]
+        DISPATCH["DispatchService"]
+    end
+
+    subgraph L2["Layer 2 — Orchestration"]
+        ORCH["ExecutionOrchestrator"]
+    end
+
+    subgraph L25["Layer 2.5 — Registry"]
+        REG["EngineRegistry"]
+    end
+
+    subgraph L3["Layer 3 — Engines"]
+        CLI["CLIEngine<br/>sandbox"]
+        GRAPH["GraphEngine<br/>graph"]
+        CODE["CodeEngine<br/>code"]
+        COPILOT["CopilotEngine<br/>copilot"]
+    end
+
+    subgraph L35["Layer 3.5 — Event Bus"]
+        CTX["ExecutionContext.emit()"]
+        BUS["ExecutionEventBus"]
+    end
+
+    subgraph L4["Layer 4 — Subscribers"]
         direction LR
-
-        subgraph Frontend["Frontend Layer (Next.js + React)"]
-            direction TB
-            Canvas["DeepAgents Canvas<br/>ReactFlow"]
-            CodeEditor["Code Editor<br/>CodeMirror"]
-            Trace["Execution Trace<br/>Execution WebSocket"]
-            Workspace["Workspace Manager<br/>RBAC"]
-            Copilot["Copilot AI<br/>Graph Assistant"]
+        subgraph Phase1["Phase 1 (shared tx, sequential)"]
+            PERSIST["PersistenceSubscriber"]
+            STATE["StateTransitionSubscriber"]
         end
-
-        subgraph API["API Layer (FastAPI)"]
-            direction TB
-            REST["REST APIs<br/>Auth/Agents/Versions/Releases/Tasks/Threads"]
-            WS["WebSocket<br/>Executions/Notifications/OpenClaw"]
-            ExecWS["Execution WebSocket<br/>/ws/executions"]
-            CodeAPI["Code API<br/>Save/Run"]
-        end
-
-        subgraph Services["Service Layer"]
-            direction TB
-            DispatchSvc["DispatchService"]
-            Orchestrator["ExecutionOrchestrator<br/>service layer"]
-            EngineRegistry["EngineRegistry<br/>runtime_kind -> engine"]
-            SkillSvc["SkillService"]
-            MemorySvc["MemoryService"]
-            McpSvc["McpClient<br/>Service"]
-            ToolSvc["ToolService"]
-        end
-
-        subgraph Engine["Core Engine"]
-            direction TB
-            DeepBuilder["DeepAgents<br/>Builder"]
-            CodeExec["Code Executor<br/>Sandboxed exec()"]
-            Middleware["Middleware System<br/>Memory"]
-            SkillSys["Skill System<br/>Progressive Disclosure"]
-            MemorySys["Memory System<br/>Long/Short-term"]
+        subgraph Phase2["Phase 2 (parallel fan-out)"]
+            WS_SUB["WebSocketSubscriber"]
+            TASK_SUB["TaskSyncSubscriber"]
         end
     end
 
-    subgraph Row2[" "]
-        direction LR
-
-        subgraph Runtime["Runtime Layer"]
-            direction TB
-            LangGraph["LangGraph Runtime<br/>StateGraph"]
-            Checkpoint["Checkpointer<br/>State Persistence"]
-        end
-
-        subgraph Data["Data Layer"]
-            direction TB
-            PG["PostgreSQL<br/>Agent Definitions/Versions/Executions<br/>Skills/Memory"]
-            Redis["Redis<br/>Cache/Sessions"]
-        end
-
-        subgraph MCP["MCP Tool Ecosystem"]
-            direction TB
-            MCPServers["MCP Servers<br/>200+ Security Tools"]
-            Tools["Tool Registry<br/>Unified Management"]
-        end
+    subgraph L5["Layer 5 — Delivery"]
+        MGR["ExecutionSubscriptionManager"]
+        CLIENTS["WebSocket Clients"]
     end
 
-    Canvas --> REST
-    CodeEditor --> CodeAPI
-    Trace --> ExecWS
-    Workspace --> REST
-    Copilot --> WS
+    REST --> DISPATCH
+    DISPATCH --> ORCH
+    ORCH --> REG
+    REG --> CLI & GRAPH & CODE & COPILOT
+    CLI & GRAPH & CODE & COPILOT --> CTX
+    CTX --> BUS
+    BUS --> PERSIST & STATE
+    BUS --> WS_SUB & TASK_SUB
+    WS_SUB --> MGR --> CLIENTS
+    WS_EXEC --> MGR
 
-    REST --> Services
-    WS --> Services
-    ExecWS --> Services
-    CodeAPI --> Services
-
-    DispatchSvc --> Orchestrator
-    Orchestrator --> EngineRegistry
-    EngineRegistry --> Engine
-    Engine --> Runtime
-    Runtime --> Data
-    Runtime --> MCP
-
-    MCPServers --> Tools
-
-    style Row1 fill:transparent,stroke:transparent
-    style Row2 fill:transparent,stroke:transparent
-
-    style Frontend fill:#e1f5ff
-    style API fill:#f3e5f5
-    style Services fill:#fff3e0
-    style Engine fill:#e8f5e8
-    style Runtime fill:#fff8e1
-    style Data fill:#fce4ec
-    style MCP fill:#e0f2f1
-
+    style L1 fill:#f3e5f5
+    style L15 fill:#e1f5ff
+    style L2 fill:#fff3e0
+    style L25 fill:#fff3e0
+    style L3 fill:#e8f5e8
+    style L35 fill:#fff8e1
+    style L4 fill:#fce4ec
+    style L5 fill:#e0f2f1
 ```
 
-### Core Modules
+---
 
-#### 1. Graph Build System — Two Paths
+## 2. Core Modules
 
-The system supports two graph building modes:
+### 2.1 Contracts — Single Source of Truth for Value Domains
 
-```mermaid
-flowchart LR
-    Version[AgentVersion.definition_payload] -->|definition_kind = code| CodeExec[Code Executor<br/>exec → StateGraph.compile]
-    Version -->|definition_kind = graph| DeepBuilder[DeepAgents Builder<br/>Manager-Worker topology]
-    Dispatch[DispatchService] --> Orchestrator[ExecutionOrchestrator]
-    Orchestrator --> Registry[EngineRegistry<br/>runtime_kind -> engine]
-    Registry --> CodeExec
-    Registry --> DeepBuilder
+Three contract files in `core/contracts/` define every canonical value as `Literal` types + plain `set[str]` constants. All code references these definitions rather than scattering magic strings.
 
-    CodeExec --> LangGraph[LangGraph Runtime]
-    DeepBuilder --> LangGraph
+| Contract file | Defines |
+|---|---|
+| `agent.py` | `DefinitionKindLiteral`, `RuntimeKindLiteral`, `DEFINITION_RUNTIME_KIND` mapping, `infer_runtime_kind()` |
+| `execution.py` | `RunStatusLiteral`, `ExecutionStatusLiteral`, `TriggerSourceLiteral`, terminal/active sets |
+| `error.py` | `ErrorCode` (StrEnum, ~180 codes), `ErrorSource`, `UserAction`, canonical registry sets |
 
-    style Version fill:#e1f5ff
-    style Dispatch fill:#e1f5ff
-    style Orchestrator fill:#fff3e0
-    style Registry fill:#fff3e0
-    style CodeExec fill:#fff3e0
-    style DeepBuilder fill:#e8f5e8
+### 2.2 Engine Protocol + Registry + Capabilities
+
+**Protocol** (`core/engine/protocol.py`):
+
+```python
+@runtime_checkable
+class ExecutionEngine(Protocol):
+    engine_kind: str
+    capabilities: EngineCapabilities
+
+    async def start(self, context: ExecutionContext, *, ...) -> None: ...
+    async def cancel(self, execution_id: UUID) -> None: ...
+    async def send_message(self, execution_id: UUID, message: str) -> None: ...
 ```
 
-Graph is now only one `AgentVersion.definition_kind = "graph"` definition payload, not a top-level product model.
+**ExecutionContext** is injected into every engine. Engines never touch persistence or WebSocket directly — they call `context.emit()`, `context.update_status()`, and `context.complete()`.
 
-**Code Mode:**
-- User writes standard LangGraph Python code in the browser editor
-- Backend executes code in a sandboxed environment (restricted builtins, import whitelist, exec timeout)
-- Extracts `StateGraph` instance from executed code, compiles and runs it
-- Zero learning curve — LangGraph docs are the docs
+**EngineCapabilities** declares what each engine supports:
 
-**DeepAgents Canvas Mode:**
-- Visual drag-and-drop builder for multi-agent orchestration
-- Three node types: Agent, Code Agent, A2A Agent
-- Builds Manager-Worker star topology via `deepagents.create_deep_agent()`
+| Engine | runtime_kind | cancel | msg_inject | debug_obs | artifacts | approval |
+|---|---|---|---|---|---|---|
+| CLIEngine | sandbox | Y | Y | N | Y | Y |
+| GraphEngine | graph | Y | N | Y | Y | Y |
+| CodeEngine | code | Y | N | Y | N | N |
+| CopilotEngine | copilot | Y | N | N | N | N |
 
-#### 2. DeepAgents Multi-Agent Orchestration
+**Registry** (`core/engine/registry.py`): A module-level singleton `engine_registry` maps `runtime_kind` strings to engine instances. All four engines register at import time in `core/engine/__init__.py`:
 
-DeepAgents implements a star topology with one Manager coordinating multiple Workers:
-
-```mermaid
-flowchart TB
-    Manager[Manager Agent<br/>useDeepAgents=True<br/>DeepAgent]
-
-    Manager -->|task| Worker1[Worker 1<br/>CompiledSubAgent]
-    Manager -->|task| Worker2[Worker 2<br/>CompiledSubAgent]
-    Manager -->|task| Worker3[Worker 3<br/>CompiledSubAgent]
-    Manager -->|task| CodeAgent[CodeAgent<br/>CompiledSubAgent]
-
-    subgraph Backend["Shared Docker Backend"]
-        Skills["/workspace/skills/<br/>Pre-loaded Skills"]
-    end
-
-    Worker1 --> Backend
-    Worker2 --> Backend
-    Worker3 --> Backend
-    CodeAgent --> Backend
-
-    style Manager fill:#e1f5ff
-    style Worker1 fill:#fff4e1
-    style Worker2 fill:#fff4e1
-    style Worker3 fill:#fff4e1
-    style CodeAgent fill:#fff4e1
-    style Backend fill:#e8f5e8
+```python
+engine_registry.register("sandbox", CLIEngine())
+engine_registry.register("graph", GraphEngine())
+engine_registry.register("code", CodeEngine())
+engine_registry.register("copilot", CopilotEngine())
 ```
+
+**Adding a new engine** requires:
+1. Implement the `ExecutionEngine` protocol
+2. Register it in `core/engine/__init__.py`
+3. Add the new `runtime_kind` to `core/contracts/agent.py` (`RUNTIME_KINDS`, `DEFINITION_RUNTIME_KIND`)
+4. Add error codes to `core/contracts/error.py` if needed
+
+### 2.3 Two-Phase Event Bus
+
+`core/events/bus.py` — `ExecutionEventBus`
+
+All execution events flow through a two-phase publish pipeline:
+
+- **Phase 1 (PERSIST)**: Subscribers share the caller's DB session and run **sequentially**. The bus commits once after all Phase 1 subscribers complete. This guarantees that persistence and state transitions are atomic.
+  - `PersistenceSubscriber` — writes `ExecutionEvent` rows, assigns `seq` numbers
+  - `StateTransitionSubscriber` — validates and applies status changes via state machines
+
+- **Phase 2 (BROADCAST)**: Subscribers run **in parallel** via `asyncio.gather`. A failure in one does not affect others.
+  - `WebSocketSubscriber` — pushes events to `ExecutionSubscriptionManager` for real-time delivery
+  - `TaskSyncSubscriber` — syncs Task status based on Run terminal status
+
+**Envelope** (`core/events/envelope.py`): `ExecutionEventEnvelope` is the canonical shape all subscribers receive:
+
+```python
+@dataclass
+class ExecutionEventEnvelope:
+    execution_id: UUID
+    run_id: UUID
+    workspace_id: UUID
+    event_type: ExecutionEventType | str
+    payload: dict[str, Any]
+    seq: int = 0                          # filled by PersistenceSubscriber
+    trigger_source: str | None = None
+    thread_id: UUID | None = None
+    task_id: UUID | None = None
+    terminal_status: str | None = None    # completion-only
+    error: dict[str, Any] | None = None   # ErrorDescriptor via AppError.to_payload()
+    ...
+```
+
+**Event types** (`core/events/event_types.py`): `ExecutionEventType` StrEnum — content events (`assistant_text`, `thinking`, `tool_use_start/end`, `error`, `artifact_created`, `approval_requested/resolved`), lifecycle events (`execution_started/completed/status_change`, `run_status_change`), and copilot events.
+
+### 2.4 State Machines
+
+`core/state_machines/` centralizes all status transition rules.
+
+**Engine** (`engine.py`): Generic `StateMachine` class with `validate(from, to)` and `is_terminal(status)`.
+
+**Definitions** (`definitions.py`): Transition tables for 6 entities:
+
+| State Machine | Entity | Terminal States |
+|---|---|---|
+| `AGENT_SM` | Agent | (none — archived can revert) |
+| `VERSION_SM` | AgentVersion | (none — frozen can unfreeze) |
+| `RELEASE_SM` | AgentRelease | `retired` |
+| `RUN_SM` | AgentRun | `succeeded`, `failed`, `cancelled` |
+| `EXECUTION_SM` | Execution | `succeeded`, `failed`, `cancelled` |
+| `TASK_SM` | Task | (none — done/cancelled can reopen) |
+
+**Transitions** (`transitions.py`): `transition_run()`, `transition_execution()`, `transition_task()` are the **only** functions that modify `.status` on domain entities. `sync_task_from_run()` auto-maps Run terminal status to Task status via `RUN_TO_TASK_SYNC`.
+
+### 2.5 Observation Layer
+
+`core/observation/` — OTel-backed tracing injected into `ExecutionContext`.
+
+| Module | Purpose |
+|---|---|
+| `collector.py` | `ObservationCollector` — main entry point, injected as `context.collector` |
+| `model.py` | Data models for observation spans |
+| `types.py` | Type definitions |
+| `otel/provider.py` | OTel TracerProvider setup |
+| `otel/span_wrapper.py` | Span wrapper with JoySafeter-specific attributes |
+| `otel/persistence_processor.py` | Exports spans to DB |
+| `otel/broadcast_processor.py` | Exports spans to WebSocket for real-time display |
+| `instrumentation/` | Engine-specific extractors: `cli_extractor.py`, `copilot_extractor.py`, `langchain_handler.py`, `file_tracker.py` |
+
+### 2.6 Ports & Adapters
+
+`core/ports/execution.py` defines Protocol interfaces that decouple `core/` from `services/`:
+
+- **`ExecutionEventPort`** — port for publishing execution events through the event bus. Implemented by `services/execution_event_adapter.py`, used by `core/agent/cli_backends/execution_runner.py`.
+- **`ExecutionReaderPort`** — port for reading execution data without direct ORM queries in `core/`. Implemented by `services/execution_reader_adapter.py`.
+
+`EventContext` dataclass carries run-level metadata so event publishing can construct complete envelopes without querying the DB on every event.
+
+### 2.7 Error System — AppError Hierarchy + ErrorDescriptor
+
+`common/app_errors.py` defines a unified exception hierarchy rooted at `AppError` (a `@dataclass(slots=True)` subclass of `Exception`).
+
+**Category classes** (no constructors, just `_default_source`):
+
+```
+AppError
+  ├── DomainError          (_default_source = "api")
+  ├── InfraError           (_default_source = "runtime")
+  ├── AuthError            (_default_source = "auth")
+  ├── ValidationError      (_default_source = "validation")
+  ├── PermissionDeniedError(_default_source = "permission")
+  ├── ConflictError        (_default_source = "api")
+  ├── RateLimitError       (_default_source = "api")
+  └── InternalError        (_default_source = "internal")
+```
+
+**Leaf classes** provide defaults and `**kw` pass-through:
+
+```
+DomainError
+  ├── NotFoundError          (code=NOT_FOUND)
+  ├── InvalidRequestError    (code=BAD_REQUEST)
+  └── ModelConfigError       (code=MODEL_*)
+AuthError
+  └── AuthenticationError    (code=UNAUTHORIZED, user_action=relogin)
+PermissionDeniedError
+  └── AccessDeniedError      (code=FORBIDDEN)
+...
+```
+
+**ErrorDescriptor** — the canonical error payload shape, output by `AppError.to_payload()`:
+
+```json
+{
+  "code": "SKILL_NOT_FOUND",
+  "message": "Skill not found",
+  "data": {"skill_id": "..."},
+  "source": "api",
+  "retryable": false,
+  "user_action": null,
+  "detail": null
+}
+```
+
+This is the **single serialization chokepoint** — all transport paths (HTTP response body, WebSocket error frames, SSE error events, DB JSONB `error` columns) flow through `to_payload()`.
+
+**Error code registry**: `core/contracts/error.py` contains `ErrorCode` StrEnum with ~180 entries organized by domain (Generic, Auth, Agent, Run, Execution, Engine, Model, Sandbox, Skill, Tool/MCP, Task, etc.).
+
+### 2.8 Graph Build System
+
+Two paths for building agent graphs:
+
+| Path | definition_kind | Engine | Description |
+|---|---|---|---|
+| **Code Mode** | `code` | CodeEngine | User writes LangGraph Python in browser; backend exec()s in sandbox |
+| **DeepAgents Canvas** | `graph` | GraphEngine | Visual drag-and-drop builder; Manager-Worker star topology |
+| **CLI-backed** | `claude_code`, `codex`, `openclaw` | CLIEngine | Docker container + CLI agent runtime |
+| **Copilot** | (internal) | CopilotEngine | Graph analysis and action execution |
 
 **DeepAgents Build Pipeline:**
 
 ```
 build_deep_agents_graph()
-    ├── 1. resolve_all_configs()     — pure config extraction, no side effects
-    ├── 2. setup shared backend      — Docker sandbox if needed
-    ├── 3. preload_skills()          — batch preload with deduplication
-    ├── 4. ModelResolver.resolve()   — unified LLM resolution with cache
-    ├── 5. build workers             — agent_factory per node type
-    └── 6. create_deep_agent()       — compile and finalize
+  ├── 1. resolve_all_configs()    — pure config extraction, no side effects
+  ├── 2. setup shared backend     — Docker sandbox if needed
+  ├── 3. preload_skills()         — batch preload with deduplication
+  ├── 4. ModelResolver.resolve()  — unified LLM resolution with cache
+  ├── 5. build workers            — agent_factory per node type
+  └── 6. create_deep_agent()      — compile and finalize
 ```
 
-**Key Design Decisions:**
-- **No inheritance** — composition of dedicated resolvers (ModelResolver, ToolResolver, SkillsLoader)
-- **Config resolution is pure** — no side effects, each node resolved exactly once
-- **Model resolution is unified and cached** — same resolver for node models and memory models
-- **Star Topology**: Manager connects directly to all SubAgents (not chain)
-- **Shared Backend**: Docker backend shared across agents for skills and code execution
-
-#### 3. Code Executor Security
+### 2.9 Code Executor Security
 
 The code executor runs user LangGraph code with multiple security layers:
 
 | Layer | Protection |
-|-------|-----------|
-| **Builtins blacklist** | `open`, `eval`, `exec`, `compile`, `globals`, `locals`, `vars`, `dir` removed |
-| **Import blocklist** | `os`, `sys`, `subprocess`, `socket`, `io`, `pathlib`, etc. blocked |
-| **Import allowlist** | Only `langgraph`, `langchain`, `typing`, `json`, `pydantic`, etc. allowed |
-| **Exec timeout** | 10 second limit via `signal.alarm` |
-| **Invoke timeout** | 30 second limit via `asyncio.wait_for` |
-| **Permission checks** | Save requires member role, Run requires viewer role |
-| **Error sanitization** | Server file paths stripped from error messages |
+|---|---|
+| Builtins blacklist | `open`, `eval`, `exec`, `compile`, `globals`, `locals`, `vars`, `dir` removed |
+| Import blocklist | `os`, `sys`, `subprocess`, `socket`, `io`, `pathlib`, etc. blocked |
+| Import allowlist | Only `langgraph`, `langchain`, `typing`, `json`, `pydantic`, etc. allowed |
+| Exec timeout | 10-second limit via `signal.alarm` |
+| Invoke timeout | 30-second limit via `asyncio.wait_for` |
+| Permission checks | Save requires member role, Run requires viewer role |
+| Error sanitization | Server file paths stripped from error messages |
 
-#### 4. Skill System (Progressive Disclosure)
+### 2.10 Skill System
 
-The skill system implements progressive disclosure to reduce token consumption:
+Progressive disclosure to reduce token consumption:
 
-```mermaid
-sequenceDiagram
-    participant Node as Agent Node
-    participant Loader as SkillSandboxLoader
-    participant Backend as Docker Backend
-
-    Node->>Loader: Preload skills (batch, deduplicated)
-    Loader->>Backend: Write skill files to /workspace/skills/
-    Backend-->>Loader: Skills loaded
-
-    Node->>Node: Agent sees skill summaries in system prompt
-    Node->>Backend: Agent reads /workspace/skills/{skill_name}/SKILL.md
-    Backend-->>Node: Agent receives full skill content on demand
-```
-
-**Components:**
-- **SkillService**: CRUD operations with permission control
+- **SkillService**: CRUD with permission control and versioning
 - **SkillsLoader**: Batch preloads skills to Docker backend with deduplication
-- **FilesystemMiddleware**: Agent reads skill files from `/workspace/skills/` via filesystem access
+- **FilesystemMiddleware**: Agent reads `/workspace/skills/{skill_name}/SKILL.md` on demand
 
-#### 5. Memory System (Long/Short-term Memory)
+Skill exceptions inherit from the unified error tree:
 
-```mermaid
-sequenceDiagram
-    participant User as User Input
-    participant Middleware as MemoryMiddleware
-    participant Manager as MemoryManager
-    participant DB as PostgreSQL
-    participant Agent as Agent
-
-    User->>Middleware: User message
-    Middleware->>Manager: Retrieve relevant memories
-    Manager->>DB: Query memories by user_id/topics
-    DB-->>Manager: Return memories
-    Manager-->>Middleware: Inject memories into context
-    Middleware->>Agent: Enhanced prompt with memories
-    Agent-->>Middleware: Agent response
-    Middleware->>Manager: Extract and persist new memories
-    Manager->>DB: Persist memory
+```
+DomainError → SkillLoadError, SkillNotFoundError (via NotFoundError)
+PermissionDeniedError → SkillPermissionDeniedError (via AccessDeniedError)
+InternalError → SkillFileWriteError (via InternalServiceError)
 ```
 
-**Memory Types:**
-- **Fact**: Factual knowledge (target info, vulnerabilities)
-- **Procedure**: Procedural knowledge (successful attack paths)
-- **Episodic**: Session-specific experiences
-- **Semantic**: General security knowledge
+### 2.11 Memory System
 
-### Core Workflows
+Long/short-term agent memory with middleware injection:
 
-#### Agent Definition and Execution Flow
+- **MemoryManager**: Query and persist memories by user/topics
+- **MemoryMiddleware**: Injects relevant memories into agent context, extracts new memories from responses
+- **Memory types**: Fact, Procedure, Episodic, Semantic
+
+---
+
+## 3. Core Workflows
+
+### 3.1 Execution Flow
 
 ```mermaid
 sequenceDiagram
-    participant Frontend as Frontend
+    participant FE as Frontend
     participant API as REST API
-    participant Dispatch as DispatchService
-    participant Orchestrator as ExecutionOrchestrator
-    participant Registry as EngineRegistry
-    participant Engine as ExecutionEngine
+    participant DS as DispatchService
+    participant EO as ExecutionOrchestrator
+    participant ER as EngineRegistry
+    participant ENG as ExecutionEngine
+    participant CTX as ExecutionContext
+    participant BUS as ExecutionEventBus
+    participant P1 as Phase 1 Subscribers
+    participant P2 as Phase 2 Subscribers
+    participant WS as /ws/executions
 
-    Frontend->>API: Save agent version definition_payload
-    API->>Dispatch: start execution
-    Dispatch->>Orchestrator: create run/execution
-    Orchestrator->>Registry: resolve runtime_kind
+    FE->>API: POST /runs or /executions
+    API->>DS: dispatch(agent_id, prompt, ...)
+    DS->>EO: create_and_start(...)
+    EO->>EO: Create AgentRun + Execution rows
+    EO->>ER: get(runtime_kind)
+    ER->>ENG: engine.start(context, ...)
 
-    alt Code-backed definition
-        Registry->>Engine: code execution engine
-    else Graph definition
-        Registry->>Engine: graph execution engine
-    else CLI-backed definition
-        Registry->>Engine: CLI execution engine
+    loop Engine execution
+        ENG->>CTX: context.emit(event_type, payload)
+        CTX->>BUS: publish(envelope, db)
+        BUS->>P1: PersistenceSubscriber.handle() [sequential, shared tx]
+        BUS->>P1: StateTransitionSubscriber.handle()
+        Note over BUS: COMMIT
+        BUS->>P2: WebSocketSubscriber.handle() [parallel]
+        BUS->>P2: TaskSyncSubscriber.handle() [parallel]
+        P2->>WS: push to subscribed clients
     end
 
-    Engine-->>Orchestrator: execution result and events
-    Orchestrator-->>API: execution status
-    API-->>Frontend: Ready
+    ENG->>CTX: context.complete(status, result, error)
+    CTX->>BUS: publish completion envelope
 ```
 
-AgentVersion.definition_payload stores visual graph, code, or CLI-backed definitions. Execution starts through `DispatchService -> ExecutionOrchestrator -> EngineRegistry -> ExecutionEngine`.
-
-#### Execution Event Flow
+### 3.2 Error Flow
 
 ```mermaid
-sequenceDiagram
-    participant Frontend as Frontend
-    participant ExecWS as Execution WebSocket
-    participant Orchestrator as ExecutionOrchestrator
-    participant Context as ExecutionContext
-    participant DB as execution_events
+flowchart LR
+    ENG["Engine raises<br/>or catches error"] --> APP["AppError<br/>(or normalize_app_error)"]
+    APP --> TP["to_payload()<br/>→ ErrorDescriptor"]
+    TP --> HTTP["HTTP JSON response"]
+    TP --> WSF["WS error frame"]
+    TP --> DB["DB JSONB<br/>execution.error"]
+    TP --> ENV["Envelope.error field"]
 
-    Frontend->>ExecWS: WS /ws/executions
-    ExecWS->>DB: Replay persisted events
-    DB-->>ExecWS: Snapshots and events
-    ExecWS-->>Frontend: Observation frames
-
-    loop During execution
-        Orchestrator->>Context: Run engine step
-        Context->>DB: emit(event)
-        DB-->>ExecWS: Live event
-        ExecWS-->>Frontend: Observation frame
-    end
+    style APP fill:#fce4ec
+    style TP fill:#fff3e0
 ```
 
-### Data Flow
+All errors are normalized to `AppError` (or subclass), serialized via the single `to_payload()` method, and consumed identically across all transports. The frontend `ApiError` class mirrors the `ErrorDescriptor` shape with typed `source: ErrorSource`, `retryable: boolean`, and `userAction?: UserAction`.
 
-**Frontend ↔ Backend:**
-- **REST API**: Agents, versions, releases, tasks, threads, skill management, tool management, workspace operations
-- **Trigger sources**: AgentRun creation accepts canonical trigger sources `task`, `chat`, `api`, `scheduler`, `draft_test`, `draft_copilot`, `debug`, and `copilot`. Legacy activity-driven values such as `comment` and `mention` are not AgentRun trigger sources; task activities dispatch through task/activity services before creating runs with canonical task or copilot sources.
-- **WebSocket (`/ws/chat`)**: Shared chat protocol for Chat, Copilot, and Skill Creator turns; Copilot sends `extension: { kind: "copilot" }` through the same WS
-- **WebSocket (`/ws/executions`)**: Execution snapshot, replay, live events, and observation frames.
-- **Code API**: Save and run user LangGraph code
-- **Execution events**: All engines emit through `ExecutionContext.emit()` into `execution_events`; WebSocket subscribers receive persisted and live events from the same source.
+---
 
-**Backend Internal:**
-- **Agent Definitions**: `AgentVersion.definition_payload` stores visual graph, code, or CLI-backed definitions
-- **Execution Dispatch**: `DispatchService` → `ExecutionOrchestrator` → `EngineRegistry` → `ExecutionEngine`
-- **Code Mode**: `code_executor.execute_code()` → `StateGraph.compile()` → `ainvoke()`
-- **Graph Mode**: `build_deep_agents_graph()` → `create_deep_agent()` → `compile()` → `ainvoke()`
-- **Copilot Turn**: `execute_copilot_turn()` → `CopilotService._get_copilot_stream()` → events emitted into `execution_events`
-- **LangGraph Runtime → MCP Servers → Tools**: Tool invocation and execution
-- **Middleware → Agent → Model**: Request processing pipeline
+## 4. Data Flow
 
-**Backend ↔ Data Layer:**
-- **PostgreSQL**: Agent definitions, versions, releases, skills, memories, sessions, workspaces, runs, executions, execution events, and snapshots
-- **Redis**: Cache, rate limiting, temporary data
+### 4.1 WebSocket Endpoints
 
-### Backend File Structure (Graph Module)
+| Path | Handler | Purpose |
+|---|---|---|
+| `/ws/executions` | `ExecutionSubscriptionHandler` | Execution event stream — subscribe, snapshot replay, live events |
+| `/ws/notifications` | `NotificationManager` | User-level push notifications |
+| `/ws/openclaw/dashboard` | `OpenClawHandler` | OpenClaw dashboard bridge |
+| `/ws/openclaw/bridge/{user_id}` | `OpenClawHandler` | OpenClaw device bridge |
+
+### 4.2 Trigger Sources
+
+AgentRun creation accepts canonical trigger sources defined in `core/contracts/execution.py`:
+
+`task` | `chat` | `api` | `scheduler` | `draft_test` | `draft_copilot` | `debug` | `copilot`
+
+### 4.3 Single Event Source
+
+All engines emit events through `ExecutionContext.emit()` into `execution_events` table. The `PersistenceSubscriber` assigns monotonically increasing `seq` numbers. WebSocket clients replay from persisted events on reconnect and receive live events from the same pipeline.
+
+### 4.4 Frontend → Backend Communication
+
+| Channel | Use |
+|---|---|
+| REST API (`/api/v1/*`) | CRUD operations: agents, versions, releases, tasks, threads, runs, executions, skills, tools, models, workspaces |
+| WebSocket `/ws/executions` | Real-time execution event streaming |
+| WebSocket `/ws/notifications` | User notifications |
+| Code API | Save and run user LangGraph code |
+
+### 4.5 Backend → Data Layer
+
+- **PostgreSQL**: Agent definitions, versions, releases, skills, memories, sessions, workspaces, runs, executions, execution_events, snapshots, traces
+- **Redis**: Session cache, rate limiting, temporary data
+
+---
+
+## 5. Backend File Structure
 
 ```
-app/core/graph/
-├── __init__.py                    # Exports build_deep_agents_graph()
-├── deep_agents/
-│   ├── builder.py                 # Build orchestration (no inheritance)
-│   ├── config.py                  # Pure config extraction
-│   ├── model_resolver.py          # Unified LLM resolution with cache
-│   ├── agent_factory.py           # Creates agent/code_agent/a2a workers
-│   ├── skills_loader.py           # Batch skills preload with dedup
-│   ├── tool_resolver.py           # Tool name → instance resolution
-│   └── middleware.py              # Memory middleware
-├── node_secrets.py                # A2A secret hydration
-└── runtime_prompt_template.py     # Runtime prompt variable substitution
-
-app/core/code_executor.py          # Sandboxed exec() for Code mode
+app/
+├── api/v1/                        # REST route modules
+├── common/
+│   └── app_errors.py              # AppError hierarchy + to_payload() + normalize_app_error()
+├── core/
+│   ├── contracts/                 # Value domain registries (single source of truth)
+│   │   ├── agent.py               #   DefinitionKind, RuntimeKind, DEFINITION_RUNTIME_KIND
+│   │   ├── execution.py           #   RunStatus, ExecutionStatus, TriggerSource, terminal sets
+│   │   └── error.py               #   ErrorCode (StrEnum ~180), ErrorSource, UserAction
+│   ├── engine/                    # Execution engine abstraction
+│   │   ├── protocol.py            #   ExecutionEngine Protocol, ExecutionContext, EngineCapabilities
+│   │   ├── registry.py            #   EngineRegistry singleton
+│   │   ├── __init__.py            #   Registers 4 built-in engines at import time
+│   │   ├── cli_engine.py          #   CLIEngine (Docker + CLI agent runtime)
+│   │   ├── graph_engine.py        #   GraphEngine (LangGraph compiler)
+│   │   ├── code_engine.py         #   CodeEngine (in-process code agent)
+│   │   └── copilot_engine.py      #   CopilotEngine (graph analysis)
+│   ├── events/                    # Two-phase event bus
+│   │   ├── bus.py                 #   ExecutionEventBus (Phase 1 + Phase 2)
+│   │   ├── envelope.py            #   ExecutionEventEnvelope dataclass
+│   │   ├── event_types.py         #   ExecutionEventType StrEnum
+│   │   ├── subscriber.py          #   EventSubscriber Protocol + SubscriberPhase enum
+│   │   └── subscribers/           #   Built-in subscriber implementations
+│   │       ├── persistence.py     #     PersistenceSubscriber (Phase 1)
+│   │       ├── state_transition.py#     StateTransitionSubscriber (Phase 1)
+│   │       ├── websocket.py       #     WebSocketSubscriber (Phase 2)
+│   │       └── task_sync.py       #     TaskSyncSubscriber (Phase 2)
+│   ├── state_machines/            # Centralized status transition rules
+│   │   ├── definitions.py         #   Transition tables for 6 entities
+│   │   ├── engine.py              #   StateMachine class + InvalidTransition error
+│   │   └── transitions.py         #   transition_run(), transition_execution(), transition_task()
+│   ├── observation/               # OTel-backed tracing
+│   │   ├── collector.py           #   ObservationCollector (injected into ExecutionContext)
+│   │   ├── otel/                  #   TracerProvider, span wrappers, processors
+│   │   └── instrumentation/       #   Engine-specific extractors
+│   ├── ports/                     # Protocol interfaces for core/ <-> services/ decoupling
+│   │   └── execution.py           #   ExecutionEventPort, ExecutionReaderPort, EventContext
+│   ├── agent/                     # CLI agent backends (claude_code, codex, openclaw)
+│   ├── copilot/                   # Copilot service implementation
+│   ├── graph/                     # DeepAgents graph builder + code executor
+│   ├── skill/                     # Skill system (service, loader, exceptions)
+│   ├── model/                     # Model provider + credential management
+│   ├── tools/                     # Tool resolver + MCP integration
+│   └── a2a/                       # Agent-to-agent protocol support
+├── models/                        # SQLAlchemy ORM models
+├── repositories/                  # Data access layer
+├── schemas/                       # Pydantic request/response schemas
+├── services/                      # Service layer implementations
+│   ├── dispatch_service.py        #   API-facing facade (Layer 1.5)
+│   ├── execution_orchestrator.py  #   Run + Execution lifecycle (Layer 2)
+│   ├── execution_event_adapter.py #   ExecutionEventPort implementation
+│   ├── execution_reader_adapter.py#   ExecutionReaderPort implementation
+│   ├── runner_factory.py          #   Creates CLI execution runners
+│   ├── agent_service.py           #   Agent CRUD
+│   ├── agent_version_service.py   #   Version management
+│   ├── agent_release_service.py   #   Release lifecycle
+│   ├── agent_run_service.py       #   Run queries
+│   ├── copilot_service.py         #   Copilot streaming
+│   ├── skill_service.py           #   Skill CRUD + permissions
+│   ├── model_service.py           #   Model resolution (provider_name, model_name)
+│   ├── sandbox_manager.py         #   Sandbox pool management
+│   └── ...                        #   (40+ service modules)
+├── websocket/                     # WebSocket handlers
+│   ├── execution_subscription_handler.py  # /ws/executions handler
+│   ├── execution_subscription_manager.py  # Subscription registry + broadcast
+│   ├── notification_manager.py            # /ws/notifications
+│   ├── openclaw_handler.py                # /ws/openclaw/* handlers
+│   └── auth.py                            # WS authentication
+├── templates/                     # Email templates (Jinja2)
+└── utils/                         # Shared utilities
 ```
+
+---
+
+## 6. Frontend Architecture
+
+### 6.1 App Router Structure
+
+Next.js App Router with route groups:
+
+```
+app/
+├── (auth)/                       # Auth pages (signin, signup, verify, reset-password)
+├── dashboard/                    # Dashboard
+├── agents/[agentId]/             # Agent detail: edit, versions, releases, tasks, threads
+├── executions/[executionId]/     # Execution detail + real-time trace
+├── tasks/                        # Task management
+├── skills/                       # Skill marketplace + creator
+├── tools/                        # Tool management
+├── memory/                       # Memory management
+├── openclaw/                     # OpenClaw dashboard
+└── settings/                     # Models, members, sandboxes, tokens
+```
+
+### 6.2 WebSocket Client Layer
+
+```
+BaseWsClient (abstract)
+├── lifecycle management (connect, disconnect, reconnect)
+├── authentication (ws-token)
+├── heartbeat + auto-reconnect with backoff
+│
+├── ExecutionWsClient     /ws/executions
+├── NotificationWsClient  /ws/notifications
+└── (OpenClaw clients)    /ws/openclaw/*
+```
+
+`ExecutionSubscriptionManager` on the frontend subscribes to execution IDs and dispatches incoming events to the appropriate UI stores.
+
+### 6.3 State Management
+
+- **Zustand**: Client-side stores for UI state (execution trace, sidebar, editor)
+- **TanStack Query**: Server state with cache invalidation (agents, skills, models, etc.)
+
+### 6.4 Error Consumption
+
+The frontend `ApiError` class (`lib/api-client.ts`) mirrors the backend `ErrorDescriptor`:
+
+```typescript
+class ApiError extends Error {
+  code: string              // e.g., "SKILL_NOT_FOUND"
+  source: ErrorSource       // "api" | "engine" | "runtime" | ...
+  retryable: boolean        // drives retry button visibility
+  userAction?: UserAction   // "retry" | "relogin" | "configure_model" | ...
+}
+```
+
+The `source` and `userAction` fields drive UI behavior: `relogin` triggers auth redirect, `retry` shows a retry button, `configure_model` navigates to model settings.
+
+### 6.5 API Client
+
+Unified `apiFetch()` in `lib/api-client.ts` handles:
+- URL construction (`API_BASE + path`)
+- CSRF token injection
+- 401 auto-refresh with single-flight deduplication
+- Timeout via `AbortController`
+- Structured error extraction → `ApiError`

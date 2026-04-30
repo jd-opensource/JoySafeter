@@ -220,11 +220,15 @@ All modes support remote deployment scenarios:
 
 **Key design principles:**
 
+- **Single source of truth for value domains** — `core/contracts/` defines every canonical value (status, error code, trigger source) as Literal types + set constants; no magic strings
+- **Engine protocol + registry** — all execution engines implement `ExecutionEngine` Protocol; `EngineRegistry` maps `runtime_kind` to engine instances; adding a new engine is a 3-file change
+- **Two-phase event bus** — Phase 1 (persistence + state transition) shares a DB transaction and commits atomically; Phase 2 (WebSocket + task sync) fans out in parallel
+- **Centralized state machines** — 6 entity state machines (`Agent`, `Version`, `Release`, `Run`, `Execution`, `Task`) with `transition_*()` as the only status-mutation functions
+- **Normalized error system** — `AppError.to_payload()` produces a canonical `ErrorDescriptor` (`{code, message, data, source, retryable, user_action}`) consumed identically across HTTP, WebSocket, SSE, and DB
+- **Port/Adapter boundaries** — `core/ports/` defines Protocol interfaces; `services/` provides implementations; `core/` never imports concrete services
+- **OTel-backed observation** — `ObservationCollector` injected into `ExecutionContext`; spans exported to both DB and WebSocket for real-time trace display
 - **Graph-based execution** — every agent workflow is a stateful LangGraph, enabling pause, resume, and branch
-- **Unified Run Center** — Chat, Copilot, and Skill Creator share a single event-sourced run lifecycle (Run → Event → Snapshot)
-- **Unified WebSocket layer** — BaseWsClient abstract class; Chat / Run / Notification clients share lifecycle, auth (ws-token), and reconnect logic
-- **Full-chain trace_id propagation** — contextvars-based request tracing from HTTP/WS entry through LangGraph to persistence
-- **Glass-box observability** — real-time Langfuse tracing of every agent decision and state transition
+- **Unified WebSocket layer** — BaseWsClient abstract class; Execution / Notification clients share lifecycle, auth (ws-token), and reconnect logic
 - **RAII sandbox isolation** — per-user Docker containers with automatic handle release, zero state leakage
 - **Canonical model identifiers** — full-stack (provider_name, model_name) resolution via ModelService → ModelFactory
 - **Layered skill system** — skills are versioned units that compose into workflows without coupling
@@ -262,6 +266,10 @@ All modes support remote deployment scenarios:
 
 | Tag | Feature | What it means |
 |-----|---------|---------------|
+| **NEW** | **Architecture Hardening** | 5-layer execution architecture with Engine Protocol, EngineRegistry, two-phase EventBus, centralized state machines, and Port/Adapter boundaries |
+| **NEW** | **Unified Error Contract** | `AppError.to_payload()` produces canonical `ErrorDescriptor` consumed identically across HTTP, WS, SSE, and DB; frontend `ApiError` mirrors the shape with typed `source`/`retryable`/`userAction` |
+| **NEW** | **State Machine Centralization** | 6 entity state machines (`Agent`, `Version`, `Release`, `Run`, `Execution`, `Task`) with `transition_*()` as the only status-mutation functions |
+| **NEW** | **Observation Tracing** | OTel-backed `ObservationCollector` injected into `ExecutionContext`; spans exported to DB and WebSocket for real-time trace display |
 | **NEW** | **Run Center Architecture** | Chat & Copilot fully integrated into Run Center — run details, session recovery, and live event replay on page refresh |
 | **NEW** | **Dark Mode & Preferences** | System / Light / Dark theme switching; redesigned profile page with language & theme preferences |
 | **NEW** | **Unified WebSocket Layer** | BaseWsClient abstract class — Chat, Run, and Notification clients share lifecycle, auth (ws-token), and reconnect logic |

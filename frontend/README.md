@@ -28,6 +28,36 @@ bun run dev
 
 访问：http://localhost:3000
 
+## 架构概述
+
+### 路由结构（App Router）
+
+```
+app/
+├── (auth)/                       # 认证页面（登录、注册、验证、重置密码）
+├── dashboard/                    # 仪表盘
+├── agents/[agentId]/             # Agent 详情：编辑、版本、发布、任务、会话
+├── executions/[executionId]/     # 执行详情 + 实时追踪
+├── tasks/                        # 任务管理
+├── skills/                       # 技能市场 + 创建器
+├── tools/                        # 工具管理
+├── memory/                       # 记忆管理
+├── openclaw/                     # OpenClaw 看板
+└── settings/                     # 模型、成员、沙箱、Token
+```
+
+### 核心模块
+
+| 模块 | 路径 | 职责 |
+|---|---|---|
+| **API 客户端** | `lib/api-client.ts` | 统一 REST 请求（URL 构建、CSRF、401 自动刷新、ErrorDescriptor 提取） |
+| **WebSocket 层** | `lib/ws/` | BaseWsClient 抽象类 + ExecutionWsClient / NotificationWsClient |
+| **状态管理** | `stores/` | Zustand 客户端 Store（执行追踪、侧边栏、编辑器等） |
+| **服务端状态** | hooks + TanStack Query | 缓存 + 失效（agents、skills、models 等） |
+| **错误消费** | `ApiError` class | 镜像后端 ErrorDescriptor：`source`、`retryable`、`userAction` 驱动 UI 行为 |
+
+> 完整架构文档：[`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) | [中文版](../docs/ARCHITECTURE_CN.md)
+
 ## 常用脚本
 
 ```bash
