@@ -35,7 +35,8 @@ class AgentRun(Base):
     workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     thread_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("threads.id"), nullable=True)
     task_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("tasks.id"), nullable=True)
-    trigger_source: Mapped[str] = mapped_column(String(20), nullable=False)
+    trigger_medium: Mapped[str] = mapped_column(String(20), nullable=False)
+    run_purpose: Mapped[str] = mapped_column(String(20), nullable=False)
     goal: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     input_payload: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     status: Mapped[str] = mapped_column(

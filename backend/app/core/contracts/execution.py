@@ -15,15 +15,17 @@ ExecutionStatusLiteral = Literal[
     "cancelled",
 ]
 ReleaseStatusLiteral = Literal["ready", "active", "superseded", "failed", "retired"]
-TriggerSourceLiteral = Literal[
-    "task",
-    "chat",
+TriggerMediumLiteral = Literal[
     "api",
     "scheduler",
+    "system",
+    "ui",
+]
+RunPurposeLiteral = Literal[
+    "production",
     "draft_test",
-    "draft_copilot",
     "debug",
-    "copilot",
+    "internal_builder",
 ]
 
 RUN_STATUSES: set[str] = {"pending", "running", "succeeded", "failed", "cancelled"}
@@ -43,13 +45,15 @@ ACTIVE_EXECUTION_STATUSES: set[str] = {"pending", "dispatched", "running", "appr
 TERMINAL_EXECUTION_STATUSES: set[str] = {"succeeded", "failed", "cancelled"}
 
 RELEASE_STATUSES: set[str] = {"ready", "active", "superseded", "failed", "retired"}
-TRIGGER_SOURCES: set[str] = {
-    "task",
-    "chat",
+TRIGGER_MEDIUMS: set[str] = {
     "api",
     "scheduler",
+    "system",
+    "ui",
+}
+RUN_PURPOSES: set[str] = {
+    "production",
     "draft_test",
-    "draft_copilot",
     "debug",
-    "copilot",
+    "internal_builder",
 }

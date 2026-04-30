@@ -59,10 +59,11 @@ class AgentRunRepository(BaseRepository[AgentRun]):
         self,
         agent_id: uuid.UUID,
         workspace_id: uuid.UUID,
-        trigger_source: Optional[str] = None,
+        trigger_medium: Optional[str] = None,
+        run_purpose: Optional[str] = None,
         status: Optional[str] = None,
     ) -> List[AgentRun]:
-        """Find runs for a specific agent, optionally filtered by trigger_source and status."""
+        """Find runs for a specific agent, optionally filtered by trigger_medium, run_purpose and status."""
         query = (
             select(AgentRun)
             .outerjoin(AgentRelease, AgentRun.release_id == AgentRelease.id)
@@ -76,8 +77,10 @@ class AgentRunRepository(BaseRepository[AgentRun]):
             .where(AgentVersion.agent_id == agent_id)
             .where(AgentRun.workspace_id == workspace_id)
         )
-        if trigger_source:
-            query = query.where(AgentRun.trigger_source == trigger_source)
+        if trigger_medium:
+            query = query.where(AgentRun.trigger_medium == trigger_medium)
+        if run_purpose:
+            query = query.where(AgentRun.run_purpose == run_purpose)
         if status:
             query = query.where(AgentRun.status == status)
         query = query.order_by(AgentRun.created_at.desc()).limit(10)

@@ -10,14 +10,15 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from app.core.contracts.execution import TriggerSourceLiteral
+from app.core.contracts.execution import RunPurposeLiteral, TriggerMediumLiteral
 
 
 class CreateAgentRunRequest(BaseModel):
     release_id: uuid.UUID
     thread_id: Optional[uuid.UUID] = None
     task_id: Optional[uuid.UUID] = None
-    trigger_source: TriggerSourceLiteral
+    trigger_medium: TriggerMediumLiteral
+    run_purpose: RunPurposeLiteral
     goal: Optional[str] = None
     input_payload: Optional[dict] = None
 
@@ -37,7 +38,8 @@ class AgentRunResponse(BaseModel):
     workspace_id: uuid.UUID
     thread_id: Optional[uuid.UUID]
     task_id: Optional[uuid.UUID]
-    trigger_source: str
+    trigger_medium: str
+    run_purpose: str
     goal: Optional[str]
     input_payload: Optional[dict]
     status: str

@@ -61,7 +61,8 @@ async def list_runs(
     release_id: uuid.UUID | None = Query(None),
     task_id: uuid.UUID | None = Query(None),
     agent_id: uuid.UUID | None = Query(None),
-    trigger_source: str | None = Query(None),
+    trigger_medium: str | None = Query(None),
+    run_purpose: str | None = Query(None),
     status: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[List[AgentRunResponse]]:
@@ -72,7 +73,8 @@ async def list_runs(
         release_id=release_id,
         task_id=task_id,
         agent_id=agent_id,
-        trigger_source=trigger_source,
+        trigger_medium=trigger_medium,
+        run_purpose=run_purpose,
         status=status,
     )
     return BaseResponse(
@@ -100,7 +102,8 @@ async def create_run(
         release_id=request.release_id,
         prompt=request.goal or "",
         user_id=str(current_user.id),
-        trigger_source=request.trigger_source,
+        trigger_medium=request.trigger_medium,
+        run_purpose=request.run_purpose,
         thread_id=request.thread_id,
         task_id=request.task_id,
         input_payload=request.input_payload,

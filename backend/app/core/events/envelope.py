@@ -26,7 +26,8 @@ class ExecutionEventEnvelope:
     seq: int = 0  # filled by PersistenceSubscriber in Phase 1
 
     # Run metadata — subscribers use these for routing decisions
-    trigger_source: Optional[str] = None
+    trigger_medium: Optional[str] = None
+    run_purpose: Optional[str] = None
     thread_id: Optional[uuid.UUID] = None
     task_id: Optional[uuid.UUID] = None
 

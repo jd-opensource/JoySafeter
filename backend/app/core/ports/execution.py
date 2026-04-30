@@ -24,7 +24,8 @@ class EventContext:
 
     run_id: uuid.UUID
     workspace_id: uuid.UUID
-    trigger_source: Optional[str] = None
+    trigger_medium: Optional[str] = None
+    run_purpose: Optional[str] = None
     thread_id: Optional[uuid.UUID] = None
     task_id: Optional[uuid.UUID] = None
 

@@ -30,7 +30,8 @@ class AgentRunService:
         release_id: Optional[uuid.UUID] = None,
         task_id: Optional[uuid.UUID] = None,
         agent_id: Optional[uuid.UUID] = None,
-        trigger_source: Optional[str] = None,
+        trigger_medium: Optional[str] = None,
+        run_purpose: Optional[str] = None,
         status: Optional[str] = None,
     ) -> List[AgentRun]:
         """List runs filtered by parameters."""
@@ -44,7 +45,8 @@ class AgentRunService:
             return await self.run_repo.find_by_agent_and_trigger(
                 agent_id=agent_id,
                 workspace_id=workspace_id,
-                trigger_source=trigger_source,
+                trigger_medium=trigger_medium,
+                run_purpose=run_purpose,
                 status=status,
             )
         elif task_id:
