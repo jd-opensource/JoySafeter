@@ -1,15 +1,20 @@
-export const TRIGGER_SOURCES = [
-  'task',
-  'chat',
+export const TRIGGER_MEDIUMS = [
   'api',
   'scheduler',
-  'draft_test',
-  'draft_copilot',
-  'debug',
-  'copilot',
+  'system',
+  'ui',
 ] as const
 
-export type TriggerSource = (typeof TRIGGER_SOURCES)[number]
+export type TriggerMedium = (typeof TRIGGER_MEDIUMS)[number]
+
+export const RUN_PURPOSES = [
+  'production',
+  'draft_test',
+  'debug',
+  'internal_builder',
+] as const
+
+export type RunPurpose = (typeof RUN_PURPOSES)[number]
 
 export interface AgentRun {
   id: string
@@ -17,7 +22,8 @@ export interface AgentRun {
   workspace_id: string
   thread_id: string | null
   task_id: string | null
-  trigger_source: TriggerSource
+  trigger_medium: TriggerMedium
+  run_purpose: RunPurpose
   goal: string | null
   input_payload: Record<string, unknown> | null
   status: AgentRunStatus
@@ -72,7 +78,8 @@ export interface CreateAgentRunRequest {
   release_id: string
   thread_id?: string
   task_id?: string
-  trigger_source: TriggerSource
+  trigger_medium: TriggerMedium
+  run_purpose: RunPurpose
   goal?: string
   input_payload?: Record<string, unknown>
 }
@@ -151,7 +158,7 @@ export interface Execution {
   run_id: string
   parent_execution_id: string | null
   attempt_index: number
-  executor_kind: string
+  engine_kind: string
   runtime_session_ref: string | null
   status: ExecutionStatus
   error: AppErrorPayload | null

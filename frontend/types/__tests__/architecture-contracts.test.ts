@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 import {
-  BUILDER_DEFINITION_KINDS,
+  ENGINE_KINDS,
   RUNTIME_KINDS,
 } from '../agent'
 import {
@@ -13,7 +13,8 @@ import {
   RUN_STATUSES,
   TERMINAL_EXECUTION_STATUSES,
   TERMINAL_RUN_STATUSES,
-  TRIGGER_SOURCES,
+  TRIGGER_MEDIUMS,
+  RUN_PURPOSES,
 } from '../agent-run'
 import { RELEASE_STATUSES } from '../agent-release'
 
@@ -34,18 +35,18 @@ const expectTypeDerivedFromConstant = (
 }
 
 describe('architecture contract types', () => {
-  it('exports builder definition kinds', () => {
-    expect([...BUILDER_DEFINITION_KINDS].sort()).toEqual([
+  it('exports engine kinds', () => {
+    expect([...ENGINE_KINDS].sort()).toEqual([
       'claude_code',
-      'code',
       'codex',
-      'graph',
+      'langgraph_code',
+      'langgraph_visual',
       'openclaw',
     ])
   })
 
   it('exports runtime kinds', () => {
-    expect([...RUNTIME_KINDS].sort()).toEqual(['code', 'graph', 'sandbox'])
+    expect([...RUNTIME_KINDS].sort()).toEqual(['sandbox', 'server'])
   })
 
   it('exports run statuses', () => {
@@ -109,34 +110,36 @@ describe('architecture contract types', () => {
     ])
   })
 
-  it('exports trigger sources', () => {
-    expect([...TRIGGER_SOURCES].sort()).toEqual([
+  it('exports trigger mediums', () => {
+    expect([...TRIGGER_MEDIUMS].sort()).toEqual([
       'api',
-      'chat',
-      'copilot',
-      'debug',
-      'draft_copilot',
-      'draft_test',
       'scheduler',
-      'task',
+      'system',
+      'ui',
+    ])
+  })
+
+  it('exports run purposes', () => {
+    expect([...RUN_PURPOSES].sort()).toEqual([
+      'debug',
+      'draft_test',
+      'internal_builder',
+      'production',
     ])
   })
 
   it('derives agent type unions from exported const tuples', () => {
     const source = readTypeSource('../agent.ts')
 
-    expectTypeDerivedFromConstant(
-      source,
-      'DefinitionKind',
-      'BUILDER_DEFINITION_KINDS',
-    )
+    expectTypeDerivedFromConstant(source, 'EngineKind', 'ENGINE_KINDS')
     expectTypeDerivedFromConstant(source, 'RuntimeKind', 'RUNTIME_KINDS')
   })
 
   it('derives run type unions from exported const tuples', () => {
     const source = readTypeSource('../agent-run.ts')
 
-    expectTypeDerivedFromConstant(source, 'TriggerSource', 'TRIGGER_SOURCES')
+    expectTypeDerivedFromConstant(source, 'TriggerMedium', 'TRIGGER_MEDIUMS')
+    expectTypeDerivedFromConstant(source, 'RunPurpose', 'RUN_PURPOSES')
     expectTypeDerivedFromConstant(source, 'AgentRunStatus', 'RUN_STATUSES')
     expectTypeDerivedFromConstant(
       source,

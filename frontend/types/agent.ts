@@ -1,23 +1,19 @@
-export const BUILDER_DEFINITION_KINDS = [
-  'graph',
-  'code',
+export const ENGINE_KINDS = [
+  'langgraph_visual',
+  'langgraph_code',
   'claude_code',
   'codex',
   'openclaw',
 ] as const
 
-export type DefinitionKind = (typeof BUILDER_DEFINITION_KINDS)[number]
+export type EngineKind = (typeof ENGINE_KINDS)[number]
 
-export const RUNTIME_KINDS = [
-  'graph',
-  'code',
-  'sandbox',
-] as const
+export const RUNTIME_KINDS = ['sandbox', 'server'] as const
 
 export type RuntimeKind = (typeof RUNTIME_KINDS)[number]
 
 export function hasBuilderSupport(kind?: string): boolean {
-  return BUILDER_DEFINITION_KINDS.includes(kind as DefinitionKind)
+  return ENGINE_KINDS.includes(kind as EngineKind)
 }
 
 export interface Agent {
@@ -31,7 +27,7 @@ export interface Agent {
   has_custom_env: boolean
   current_draft_version_id: string | null
   active_release_id: string | null
-  definition_kind: DefinitionKind | null
+  engine_kind: EngineKind | null
   runtime_kind: RuntimeKind | null
   created_by: string
   created_at: string
@@ -42,7 +38,7 @@ export interface CreateAgentRequest {
   name: string
   description?: string
   avatar?: string
-  definition_kind: DefinitionKind
+  engine_kind: EngineKind
   definition_payload?: Record<string, unknown>
   capability_manifest?: Record<string, unknown>
 }
@@ -60,7 +56,7 @@ export interface AgentVersion {
   version_number: number
   status: 'draft' | 'frozen'
   source_kind: string
-  definition_kind: DefinitionKind
+  engine_kind: EngineKind
   definition_payload: Record<string, unknown>
   capability_manifest: Record<string, unknown>
   changelog: string | null
@@ -70,7 +66,7 @@ export interface AgentVersion {
 
 export interface CreateAgentVersionRequest {
   source_kind?: string
-  definition_kind: DefinitionKind
+  engine_kind: EngineKind
   definition_payload?: Record<string, unknown>
   capability_manifest?: Record<string, unknown>
   changelog?: string
