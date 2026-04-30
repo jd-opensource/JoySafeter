@@ -93,7 +93,7 @@ class ExecutionRunner:
         logger.info(
             f"[exec:{execution_id}] Starting execution "
             f"(release={release.id if release else 'draft'}, "
-            f"executor={execution.executor_kind})"
+            f"engine={execution.engine_kind})"
         )
 
         try:
@@ -163,13 +163,13 @@ class ExecutionRunner:
                 event_type=ExecutionEventType.EXECUTION_STARTED,
                 payload={
                     "container_id": container.container_id,
-                    "executor_kind": execution.executor_kind,
+                    "engine_kind": execution.engine_kind,
                     "reused": prior_session_id is not None,
                 },
             )
 
             # 5. Execute via provider (with session resume + credentials)
-            provider = runtime_registry.get(execution.executor_kind)
+            provider = runtime_registry.get(execution.engine_kind)
 
             # Determine auto_approve from task settings
             if run.task_id:
@@ -193,7 +193,7 @@ class ExecutionRunner:
             self._session = session
 
             # 6. Drain messages → events
-            await self._drain_to_events(execution_id, collector=collector, executor_kind=execution.executor_kind)
+            await self._drain_to_events(execution_id, collector=collector, engine_kind=execution.engine_kind)
 
             # 7. Await final result
             result = await session.result
@@ -264,7 +264,7 @@ class ExecutionRunner:
         execution_id: uuid.UUID,
         *,
         collector: Any = None,
-        executor_kind: str = "cli",
+        engine_kind: str = "cli",
     ) -> None:
         assert self._session is not None, "_drain_to_events called before session was set"
         pending: list[tuple[CLIMessage, str, dict[str, Any]]] = []
@@ -277,7 +277,7 @@ class ExecutionRunner:
         if collector:
             from app.core.observation.instrumentation.cli_extractor import CLIObservationExtractor
 
-            root_span = collector.start_agent(name=f"cli:{executor_kind}")
+            root_span = collector.start_agent(name=f"cli:{engine_kind}")
             extractor = CLIObservationExtractor(collector, root_span)
 
         while True:

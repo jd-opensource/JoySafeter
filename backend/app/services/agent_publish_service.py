@@ -12,7 +12,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.app_errors import InvalidRequestError, NotFoundError
-from app.core.agent_kinds import infer_runtime_kind, is_cli_definition_kind
+from app.core.contracts.agent import infer_runtime_kind
 from app.models.agent import AgentVersion
 from app.repositories.agent import AgentRepository, AgentVersionRepository
 from app.schemas.agent_release import CreateAgentReleaseRequest
@@ -40,13 +40,11 @@ class AgentPublishService(BaseService):
         if version.status == "draft":
             await self.version_svc.freeze_version(version.id)
 
-        runtime_kind = self._infer_runtime_kind(version.definition_kind)
+        runtime_kind = infer_runtime_kind(version.engine_kind)
         release_data = CreateAgentReleaseRequest(
             agent_version_id=version.id,
             runtime_kind=runtime_kind,
-            runtime_binding=(
-                {"runtime_type": version.definition_kind} if is_cli_definition_kind(version.definition_kind) else {}
-            ),
+            runtime_binding={},
         )
         release = await self.release_svc.publish_release(agent_id, user_id, release_data)
 
@@ -97,6 +95,3 @@ class AgentPublishService(BaseService):
             )
         return version
 
-    @staticmethod
-    def _infer_runtime_kind(definition_kind: str) -> str:
-        return infer_runtime_kind(definition_kind)

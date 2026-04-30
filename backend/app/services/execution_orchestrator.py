@@ -15,7 +15,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.app_errors import AppError, InvalidRequestError, NotFoundError, normalize_app_error
-from app.core.agent_kinds import infer_runtime_kind, is_cli_definition_kind
 from app.core.engine.protocol import ExecutionContext
 from app.core.engine.registry import engine_registry
 from app.core.events import ExecutionEventEnvelope, execution_event_bus
@@ -88,7 +87,8 @@ class ExecutionOrchestrator:
             release_id=agent.active_release_id,
             workspace_id=agent.workspace_id,
             prompt=prompt,
-            trigger_source="task",
+            trigger_medium="system",
+            run_purpose="production",
             task_id=task_id,
             user_id=user_id,
         )
@@ -123,7 +123,8 @@ class ExecutionOrchestrator:
             release_id=agent.active_release_id,
             workspace_id=agent.workspace_id,
             prompt=message,
-            trigger_source="chat",
+            trigger_medium="api",
+            run_purpose="production",
             thread_id=thread_id,
             user_id=user_id,
         )
@@ -133,7 +134,8 @@ class ExecutionOrchestrator:
         release_id: uuid.UUID,
         prompt: str,
         user_id: str,
-        trigger_source: str = "api",
+        trigger_medium: str = "api",
+        run_purpose: str = "production",
         thread_id: uuid.UUID | None = None,
         task_id: uuid.UUID | None = None,
         input_payload: dict | None = None,
@@ -148,7 +150,8 @@ class ExecutionOrchestrator:
             release_id=release_id,
             workspace_id=agent.workspace_id,
             prompt=prompt,
-            trigger_source=trigger_source,
+            trigger_medium=trigger_medium,
+            run_purpose=run_purpose,
             thread_id=thread_id,
             task_id=task_id,
             user_id=user_id,
@@ -186,7 +189,8 @@ class ExecutionOrchestrator:
             version=version,
             workspace_id=workspace_id,
             prompt=prompt,
-            trigger_source="draft_test",
+            trigger_medium="ui",
+            run_purpose="draft_test",
             user_id=user_id,
             input_payload=input_payload,
         )
@@ -236,7 +240,8 @@ class ExecutionOrchestrator:
             version=version,
             workspace_id=workspace_id,
             prompt=prompt,
-            trigger_source="draft_copilot",
+            trigger_medium="ui",
+            run_purpose="internal_builder",
             user_id=user_id,
             input_payload=copilot_payload,
             engine_kind_override="build_copilot",
@@ -276,7 +281,8 @@ class ExecutionOrchestrator:
             version=version,
             workspace_id=workspace_id,
             prompt=prompt,
-            trigger_source="debug",
+            trigger_medium="ui",
+            run_purpose="debug",
             user_id=user_id,
             input_payload={"debug": True, "variables": variables or {}},
             debug=True,
@@ -306,21 +312,12 @@ class ExecutionOrchestrator:
         return run
 
     def _resolve_engine(self, execution: Execution, release: AgentRelease):
-        """Resolve the correct engine for an execution.
-
-        Uses executor_kind if it maps to a registered engine (e.g., "build_copilot"),
-        otherwise falls back to release.runtime_kind.
-        """
-        if execution.executor_kind and engine_registry.has(execution.executor_kind):
-            return engine_registry.get(execution.executor_kind)
-        return engine_registry.get(release.runtime_kind)
+        return engine_registry.get(execution.engine_kind)
 
     def _resolve_draft_engine_kind(self, version: AgentVersion) -> str:
-        return infer_runtime_kind(version.definition_kind)
+        return version.engine_kind
 
     def _build_draft_runtime_binding(self, version: AgentVersion) -> dict:
-        if is_cli_definition_kind(version.definition_kind):
-            return {"runtime_type": version.definition_kind}
         return {}
 
     def _build_copilot_payload(
@@ -367,7 +364,8 @@ class ExecutionOrchestrator:
             workspace_id=run.workspace_id,
             event_type=ExecutionEventType.USER_MESSAGE,
             payload=payload,
-            trigger_source=run.trigger_source,
+            trigger_medium=run.trigger_medium,
+            run_purpose=run.run_purpose,
             thread_id=run.thread_id,
             task_id=run.task_id,
         )
@@ -450,7 +448,7 @@ class ExecutionOrchestrator:
         execution = Execution(
             run_id=run_id,
             attempt_index=max_attempt + 1,
-            executor_kind=release.runtime_binding.get("runtime_type", "claude_code"),
+            engine_kind=version.engine_kind,
             status="pending",
         )
         self.db.add(execution)
@@ -509,7 +507,7 @@ class ExecutionOrchestrator:
                 code="EXECUTION_OPERATION_UNSUPPORTED",
                 data={
                     "operation": "send_message",
-                    "engine_kind": getattr(engine, "engine_kind", execution.executor_kind),
+                    "engine_kind": getattr(engine, "engine_kind", execution.engine_kind),
                     "execution_id": str(execution_id),
                 },
             )
@@ -525,7 +523,8 @@ class ExecutionOrchestrator:
         release_id: uuid.UUID,
         workspace_id: uuid.UUID,
         prompt: str,
-        trigger_source: str,
+        trigger_medium: str,
+        run_purpose: str,
         user_id: str,
         thread_id: uuid.UUID | None = None,
         task_id: uuid.UUID | None = None,
@@ -545,7 +544,8 @@ class ExecutionOrchestrator:
             workspace_id=workspace_id,
             thread_id=thread_id,
             task_id=task_id,
-            trigger_source=trigger_source,
+            trigger_medium=trigger_medium,
+            run_purpose=run_purpose,
             goal=prompt[:500] if prompt else None,
             input_payload=input_payload,
             status="pending",
@@ -557,7 +557,7 @@ class ExecutionOrchestrator:
         execution = Execution(
             run_id=run.id,
             attempt_index=1,
-            executor_kind=executor_kind_override or release.runtime_binding.get("runtime_type", "claude_code"),
+            engine_kind=executor_kind_override or version.engine_kind,
             status="pending",
         )
         self.db.add(execution)
@@ -619,7 +619,8 @@ class ExecutionOrchestrator:
         version: AgentVersion,
         workspace_id: uuid.UUID,
         prompt: str,
-        trigger_source: str,
+        trigger_medium: str,
+        run_purpose: str,
         user_id: str,
         input_payload: dict | None = None,
         *,
@@ -642,7 +643,8 @@ class ExecutionOrchestrator:
             release_id=None,
             agent_version_id=version.id,
             workspace_id=workspace_id,
-            trigger_source=trigger_source,
+            trigger_medium=trigger_medium,
+            run_purpose=run_purpose,
             goal=prompt[:500] if prompt else None,
             input_payload=input_payload,
             status="pending",
@@ -654,7 +656,7 @@ class ExecutionOrchestrator:
         execution = Execution(
             run_id=run.id,
             attempt_index=1,
-            executor_kind=executor_kind_override or runtime_binding.get("runtime_type", engine_kind),
+            engine_kind=executor_kind_override or version.engine_kind,
             status="pending",
         )
         self.db.add(execution)
@@ -675,7 +677,6 @@ class ExecutionOrchestrator:
             await self._fire_engine(
                 execution=execution,
                 release_runtime_binding=runtime_binding,
-                runtime_kind=engine_kind,
                 version=version,
                 agent=agent,
                 workspace_id=workspace_id,
@@ -747,7 +748,6 @@ class ExecutionOrchestrator:
         *,
         release: AgentRelease | None = None,
         release_runtime_binding: dict | None = None,
-        runtime_kind: str | None = None,
         engine_kind_override: str | None = None,
         definition_kind_override: str | None = None,
         definition_payload_override: dict | None = None,
@@ -775,23 +775,16 @@ class ExecutionOrchestrator:
 
         # Wire context callbacks (pass run metadata to avoid extra DB query)
         _run_meta = dict(
-            trigger_source=run.trigger_source,
+            trigger_medium=run.trigger_medium,
+            run_purpose=run.run_purpose,
             thread_id=run.thread_id,
             task_id=run.task_id,
         )
         self._wire_context(context, **_run_meta)
 
         runtime_binding = release_runtime_binding or (release.runtime_binding if release else {})
-        resolved_runtime_kind = runtime_kind or (release.runtime_kind if release else None)
-        if not resolved_runtime_kind:
-            raise InvalidRequestError(
-                "No runtime kind available for execution",
-                code="EXECUTION_RUNTIME_KIND_MISSING",
-                data={"execution_id": str(execution.id), "run_id": str(run.id)},
-            )
-
-        engine = engine_registry.get(engine_kind_override or resolved_runtime_kind)
-        _def_kind = definition_kind_override or version.definition_kind
+        engine = engine_registry.get(engine_kind_override or execution.engine_kind)
+        _def_kind = definition_kind_override or version.engine_kind
         _def_payload = definition_payload_override or version.definition_payload
 
         async def _run_engine():
@@ -836,7 +829,7 @@ class ExecutionOrchestrator:
                         await engine.start(
                             ctx,
                             release_runtime_binding=runtime_binding,
-                            definition_kind=_def_kind,
+                            engine_kind=_def_kind,
                             definition_payload=_def_payload,
                             prompt=prompt,
                         )
@@ -871,7 +864,8 @@ class ExecutionOrchestrator:
         self,
         ctx: ExecutionContext,
         *,
-        trigger_source: str | None = None,
+        trigger_medium: str | None = None,
+        run_purpose: str | None = None,
         thread_id: uuid.UUID | None = None,
         task_id: uuid.UUID | None = None,
     ) -> None:
@@ -886,7 +880,8 @@ class ExecutionOrchestrator:
                 execution_id=ctx.execution_id,
                 run_id=ctx.run_id,
                 workspace_id=ctx.workspace_id,
-                trigger_source=trigger_source,
+                trigger_medium=trigger_medium,
+                run_purpose=run_purpose,
                 thread_id=thread_id,
                 task_id=task_id,
                 **overrides,
@@ -955,7 +950,8 @@ class ExecutionOrchestrator:
                 payload={"status": target_status},
                 target_status=target_status,
                 result_summary=result_summary,
-                trigger_source=run.trigger_source,
+                trigger_medium=run.trigger_medium,
+                run_purpose=run.run_purpose,
                 thread_id=run.thread_id,
                 task_id=run.task_id,
             ),
