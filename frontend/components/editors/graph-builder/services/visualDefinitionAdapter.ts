@@ -10,6 +10,31 @@ export interface LoadedVersionGraphState {
   rawPayload: Record<string, unknown>
 }
 
+const payloadCache = new Map<string, Record<string, unknown>>()
+
+function cacheKey(agentId: string, versionId: string, workspaceId: string): string {
+  return `${workspaceId}:${agentId}:${versionId}`
+}
+
+function cachePayload(
+  agentId: string,
+  versionId: string,
+  workspaceId: string,
+  payload: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  const definitionPayload = payload ?? {}
+  payloadCache.set(cacheKey(agentId, versionId, workspaceId), definitionPayload)
+  return definitionPayload
+}
+
+function getCachedPayload(
+  agentId: string,
+  versionId: string,
+  workspaceId: string,
+): Record<string, unknown> {
+  return payloadCache.get(cacheKey(agentId, versionId, workspaceId)) ?? {}
+}
+
 function toGraphState(
   payload: Record<string, unknown> | null | undefined,
   agentId: string,
@@ -28,8 +53,12 @@ function toGraphState(
       y: 0,
       zoom: 1,
     },
-    graphStateFields: (definitionPayload.graphStateFields as any[]) ?? [],
-    fallbackNodeId: (definitionPayload.fallbackNodeId as string) ?? null,
+    graphStateFields:
+      (definitionPayload.graphStateFields as any[]) ?? (definitionPayload.state_fields as any[]) ?? [],
+    fallbackNodeId:
+      (definitionPayload.fallbackNodeId as string) ??
+      (definitionPayload.fallback_node_id as string) ??
+      null,
     agentId,
     versionId,
     workspaceId,
@@ -39,7 +68,8 @@ function toGraphState(
 export const visualDefinitionAdapter = {
   async load(agentId: string, versionId: string, workspaceId: string): Promise<GraphState> {
     const version = await agentVersionService.get(agentId, versionId, workspaceId)
-    return toGraphState(version.definition_payload, agentId, versionId, workspaceId)
+    const rawPayload = cachePayload(agentId, versionId, workspaceId, version.definition_payload)
+    return toGraphState(rawPayload, agentId, versionId, workspaceId)
   },
 
   async loadVersionGraphState(
@@ -48,7 +78,7 @@ export const visualDefinitionAdapter = {
     workspaceId: string,
   ): Promise<LoadedVersionGraphState> {
     const version = await agentVersionService.get(agentId, versionId, workspaceId)
-    const rawPayload = version.definition_payload ?? {}
+    const rawPayload = cachePayload(agentId, versionId, workspaceId, version.definition_payload)
 
     return {
       graphState: toGraphState(rawPayload, agentId, versionId, workspaceId),
@@ -69,6 +99,7 @@ export const visualDefinitionAdapter = {
       ...(current.definition_payload ?? {}),
       ...graphState,
     }
+    cachePayload(agentId, versionId, workspaceId, mergedPayload)
     const updated = await agentVersionService.update(agentId, versionId, workspaceId, {
       definition_payload: mergedPayload,
     })
@@ -82,7 +113,11 @@ export const visualDefinitionAdapter = {
     graphState: { nodes: unknown[]; edges: unknown[]; viewport?: unknown },
   ): void {
     const url = `${API_BASE}/agents/${agentId}/versions/${versionId}?workspace_id=${workspaceId}`
-    const body = JSON.stringify({ definition_payload: graphState })
+    const mergedPayload = {
+      ...getCachedPayload(agentId, versionId, workspaceId),
+      ...graphState,
+    }
+    const body = JSON.stringify({ definition_payload: mergedPayload })
     fetch(url, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },

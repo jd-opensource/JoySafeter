@@ -14,6 +14,8 @@ vi.mock('@/services/agentVersionService', () => ({
   },
 }))
 
+const originalFetch = globalThis.fetch
+
 describe('visualDefinitionAdapter', () => {
   const mockVersion = {
     id: 'version-1',
@@ -32,6 +34,11 @@ describe('visualDefinitionAdapter', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      writable: true,
+      value: originalFetch,
+    })
   })
 
   it('loads definition_payload graph state and annotates ownership ids', async () => {
@@ -143,5 +150,74 @@ describe('visualDefinitionAdapter', () => {
         code_content: 'return 1',
       },
     })
+  })
+
+  it('merges cached definition payload into beacon saves', async () => {
+    ;(agentVersionService.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...mockVersion,
+      definition_payload: {
+        ...mockVersion.definition_payload,
+        graph_mode: 'custom',
+        code_content: 'print("hello")',
+        context: { user_id: { type: 'string' } },
+        node_secrets: { 'node-1': ['API_KEY'] },
+        future_payload_key: { keep: 'me' },
+      },
+    } as any)
+    const fetchMock = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      writable: true,
+      value: fetchMock,
+    })
+
+    await visualDefinitionAdapter.loadVersionGraphState('agent-1', 'version-1', 'workspace-1')
+    visualDefinitionAdapter.sendBeaconSave('agent-1', 'version-1', 'workspace-1', {
+      nodes: [{ id: 'node-2' }],
+      edges: [{ id: 'edge-2', source: 'node-2', target: 'node-3' }],
+      viewport: { x: 0, y: 0, zoom: 1 },
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.example.test/agents/agent-1/versions/version-1?workspace_id=workspace-1',
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          definition_payload: {
+            graphId: 'graph-1',
+            graphName: 'Graph One',
+            nodes: [{ id: 'node-2' }],
+            edges: [{ id: 'edge-2', source: 'node-2', target: 'node-3' }],
+            viewport: { x: 0, y: 0, zoom: 1 },
+            graphStateFields: [{ name: 'count', type: 'int' }],
+            fallbackNodeId: 'node-1',
+            graph_mode: 'custom',
+            code_content: 'print("hello")',
+            context: { user_id: { type: 'string' } },
+            node_secrets: { 'node-1': ['API_KEY'] },
+            future_payload_key: { keep: 'me' },
+          },
+        }),
+        keepalive: true,
+      },
+    )
+  })
+
+  it('maps legacy snake_case visual fields into graph state fields', async () => {
+    ;(agentVersionService.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...mockVersion,
+      definition_payload: {
+        nodes: [],
+        edges: [],
+        state_fields: [{ name: 'legacy_count', type: 'int' }],
+        fallback_node_id: 'legacy-node',
+      },
+    } as any)
+
+    const result = await visualDefinitionAdapter.load('agent-1', 'version-1', 'workspace-1')
+
+    expect(result.graphStateFields).toEqual([{ name: 'legacy_count', type: 'int' }])
+    expect(result.fallbackNodeId).toBe('legacy-node')
   })
 })
