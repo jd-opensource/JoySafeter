@@ -28,7 +28,7 @@
     <mxCell id="auth-ui" value="&lt;b&gt;Auth Pages&lt;/b&gt;&lt;br/&gt;Login / Register&lt;br/&gt;OAuth / Verify" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="1340" y="110" width="140" height="65" as="geometry" /></mxCell>
 
     <!-- Frontend infra -->
-    <mxCell id="ws-clients" value="&lt;b&gt;WebSocket Clients (BaseWsClient)&lt;/b&gt;&lt;br/&gt;chatWsClient · runWsClient · NotificationWsClient" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;fontSize=11;arcSize=8;" vertex="1" parent="1"><mxGeometry x="60" y="195" width="400" height="55" as="geometry" /></mxCell>
+    <mxCell id="ws-clients" value="&lt;b&gt;WebSocket Clients (BaseWsClient)&lt;/b&gt;&lt;br/&gt;chatWsClient · ExecutionWsClient · NotificationWsClient" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;fontSize=11;arcSize=8;" vertex="1" parent="1"><mxGeometry x="60" y="195" width="400" height="55" as="geometry" /></mxCell>
     <mxCell id="state-mgmt" value="&lt;b&gt;State Management&lt;/b&gt;&lt;br/&gt;Zustand Stores · TanStack Query · React Context" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;fontSize=11;arcSize=8;" vertex="1" parent="1"><mxGeometry x="480" y="195" width="350" height="55" as="geometry" /></mxCell>
     <mxCell id="api-client" value="&lt;b&gt;API / Service Layer&lt;/b&gt;&lt;br/&gt;api-client.ts · REST services · i18next" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;fontSize=11;arcSize=8;" vertex="1" parent="1"><mxGeometry x="850" y="195" width="350" height="55" as="geometry" /></mxCell>
     <mxCell id="nextjs-mw" value="&lt;b&gt;Next.js Middleware&lt;/b&gt;&lt;br/&gt;CSP · Auth Guard · Redirect" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;fontSize=11;arcSize=8;" vertex="1" parent="1"><mxGeometry x="1220" y="195" width="300" height="55" as="geometry" /></mxCell>
@@ -44,7 +44,7 @@
     <mxCell id="ws-arrow-run" value="" style="endArrow=classic;startArrow=classic;curved=1;strokeColor=#e65100;strokeWidth=2;exitX=0.35;exitY=1;entryX=0.35;entryY=0;" edge="1" parent="1" source="client-group" target="backend-group">
       <mxGeometry relative="1" as="geometry" />
     </mxCell>
-    <mxCell id="ws-arrow-run-label" value="WS /ws/runs" style="text;fontSize=10;fontStyle=1;fontColor=#e65100;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+    <mxCell id="ws-arrow-run-label" value="WS /ws/executions" style="text;fontSize=10;fontStyle=1;fontColor=#e65100;fillColor=none;strokeColor=none;" vertex="1" parent="1">
       <mxGeometry x="395" y="283" width="80" height="20" as="geometry" />
     </mxCell>
 
@@ -86,7 +86,7 @@
     </mxCell>
 
     <mxCell id="chat-ws-handler" value="&lt;b&gt;ChatWsHandler&lt;/b&gt;&lt;br/&gt;chat.start / resume / stop" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="70" y="375" width="175" height="45" as="geometry" /></mxCell>
-    <mxCell id="run-ws-handler" value="&lt;b&gt;RunSubscriptionHandler&lt;/b&gt;&lt;br/&gt;subscribe / replay / live" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="260" y="375" width="175" height="45" as="geometry" /></mxCell>
+    <mxCell id="run-ws-handler" value="&lt;b&gt;ExecutionWsHandler&lt;/b&gt;&lt;br/&gt;snapshot / replay / live" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="260" y="375" width="175" height="45" as="geometry" /></mxCell>
     <mxCell id="notif-handler" value="&lt;b&gt;NotificationManager&lt;/b&gt;&lt;br/&gt;push / heartbeat" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="450" y="375" width="160" height="45" as="geometry" /></mxCell>
     <mxCell id="rest-routes" value="&lt;b&gt;REST API v1&lt;/b&gt;&lt;br/&gt;33+ Routers" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="625" y="375" width="450" height="45" as="geometry" /></mxCell>
     <mxCell id="openclaw-bridge" value="&lt;b&gt;OpenClaw Bridge&lt;/b&gt;&lt;br/&gt;WS Proxy" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="1090" y="375" width="130" height="45" as="geometry" /></mxCell>
@@ -101,10 +101,10 @@
     </mxCell>
 
     <mxCell id="chat-svc" value="&lt;b&gt;ChatTurn&lt;br/&gt;Executor&lt;/b&gt;&lt;br/&gt;Supervisor" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="70" y="472" width="100" height="48" as="geometry" /></mxCell>
-    <mxCell id="graph-svc" value="&lt;b&gt;GraphService&lt;/b&gt;&lt;br/&gt;Compile · Cache&lt;br/&gt;Deploy" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="180" y="472" width="115" height="48" as="geometry" /></mxCell>
+    <mxCell id="graph-svc" value="&lt;b&gt;DispatchService&lt;/b&gt;&lt;br/&gt;API-facing&lt;br/&gt;execution entry" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="180" y="472" width="115" height="48" as="geometry" /></mxCell>
     <mxCell id="copilot-svc" value="&lt;b&gt;CopilotService&lt;/b&gt;&lt;br/&gt;Graph Actions&lt;br/&gt;DeepAgents" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="305" y="472" width="115" height="48" as="geometry" /></mxCell>
     <mxCell id="skill-svc" value="&lt;b&gt;SkillService&lt;/b&gt;&lt;br/&gt;Sandbox Loader&lt;br/&gt;Versions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="430" y="472" width="110" height="48" as="geometry" /></mxCell>
-    <mxCell id="run-svc" value="&lt;b&gt;RunService&lt;/b&gt;&lt;br/&gt;Heartbeat&lt;br/&gt;Recovery" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="550" y="472" width="105" height="48" as="geometry" /></mxCell>
+    <mxCell id="run-svc" value="&lt;b&gt;ExecutionOrchestrator&lt;/b&gt;&lt;br/&gt;Run · Execution&lt;br/&gt;Engine dispatch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="550" y="472" width="105" height="48" as="geometry" /></mxCell>
     <mxCell id="model-svc" value="&lt;b&gt;ModelProvider&lt;br/&gt;Service&lt;/b&gt;&lt;br/&gt;Sync · Resolve" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="665" y="472" width="110" height="48" as="geometry" /></mxCell>
     <mxCell id="tool-svc" value="&lt;b&gt;ToolRegistry&lt;/b&gt;&lt;br/&gt;MCP Client&lt;br/&gt;Builtin / Custom" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="785" y="472" width="115" height="48" as="geometry" /></mxCell>
     <mxCell id="memory-svc" value="&lt;b&gt;MemoryService&lt;/b&gt;&lt;br/&gt;Fact / Procedure&lt;br/&gt;Episodic" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="910" y="472" width="110" height="48" as="geometry" /></mxCell>
@@ -130,7 +130,7 @@
     <mxCell id="copilot-engine" value="&lt;b&gt;Copilot Engine&lt;/b&gt;&lt;br/&gt;Graph Tools · Parser&lt;br/&gt;Validator · Applier" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#f57f17;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="1330" y="572" width="145" height="55" as="geometry" /></mxCell>
 
     <!-- Repository Layer -->
-    <mxCell id="repo-layer" value="&lt;b&gt;Repository Layer&lt;/b&gt; — SQLAlchemy ORM · 30+ models (AuthUser, AgentGraph, GraphNode, Skill, AgentRun, AgentRunEvent, Memory, McpServer, ModelProvider, OpenClawInstance, ...)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#efebe9;strokeColor=#5d4037;fontSize=10;arcSize=8;" vertex="1" parent="1"><mxGeometry x="60" y="678" width="1480" height="40" as="geometry" /></mxCell>
+    <mxCell id="repo-layer" value="&lt;b&gt;Repository Layer&lt;/b&gt; — SQLAlchemy ORM · 30+ models (AuthUser, Agent, AgentVersion, AgentRelease, AgentRun, Execution, ExecutionEvent, Memory, McpServer, ModelProvider, OpenClawInstance, ...)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#efebe9;strokeColor=#5d4037;fontSize=10;arcSize=8;" vertex="1" parent="1"><mxGeometry x="60" y="678" width="1480" height="40" as="geometry" /></mxCell>
 
     <!-- Alembic Migrations -->
     <mxCell id="alembic" value="&lt;b&gt;Alembic Migrations&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#efebe9;strokeColor=#5d4037;fontSize=10;arcSize=8;" vertex="1" parent="1"><mxGeometry x="60" y="730" width="150" height="30" as="geometry" /></mxCell>
@@ -143,7 +143,7 @@
       <mxGeometry x="60" y="865" width="400" height="24" as="geometry" />
     </mxCell>
 
-    <mxCell id="postgres" value="&lt;b&gt;PostgreSQL 15&lt;/b&gt;&lt;br/&gt;User Data · Graphs&lt;br/&gt;Runs · Events&lt;br/&gt;LangGraph Checkpoints" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=10;arcSize=10;size=12;" vertex="1" parent="1"><mxGeometry x="80" y="895" width="150" height="100" as="geometry" /></mxCell>
+    <mxCell id="postgres" value="&lt;b&gt;PostgreSQL 15&lt;/b&gt;&lt;br/&gt;Users · Agents&lt;br/&gt;Versions · Executions&lt;br/&gt;LangGraph Checkpoints" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=10;arcSize=10;size=12;" vertex="1" parent="1"><mxGeometry x="80" y="895" width="150" height="100" as="geometry" /></mxCell>
     <mxCell id="redis" value="&lt;b&gt;Redis 7&lt;/b&gt;&lt;br/&gt;Cache · Rate Limit&lt;br/&gt;Distributed Locks&lt;br/&gt;Refresh Tokens" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=10;arcSize=10;size=12;" vertex="1" parent="1"><mxGeometry x="260" y="895" width="150" height="100" as="geometry" /></mxCell>
 
     <mxCell id="mcp-server" value="&lt;b&gt;MCP Server Container&lt;/b&gt;&lt;br/&gt;Ports 8001–8010&lt;br/&gt;Scanner · JEB · Demo Tools&lt;br/&gt;Shared backend-files volume" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#7b1fa2;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="450" y="900" width="200" height="80" as="geometry" /></mxCell>

@@ -15,17 +15,17 @@
 
 ## 1. 核心架构与实现原理（”Under the Hood”）
 
-Copilot 已全面迁移至 **Run Center 模型**，与 Chat 和 Skill Creator 共享同一 WebSocket 通信层。
+Copilot 已全面迁移至 **Agent/Execution 模型**，与 Chat 和 Skill Creator 共享同一 WebSocket 通信层，并通过统一的执行事件通道观测。
 
-### 1.1 通信架构（Shared Chat WS + Run Center）
+### 1.1 通信架构（Shared Chat WS + Execution Events）
 
 所有 Copilot 交互都通过 **`/ws/chat` 共享 WebSocket** 进行：
 
-1. **创建 Run**：前端调用 `runService.createRun({ agent_name: “copilot”, graph_id, message })` 在 Run Center 注册本次任务。
-2. **发送消息**：通过 `getChatWsClient().sendChat()` 发送 `chat.start` 帧，携带 `extension: { kind: “copilot”, runId, graphContext, conversationHistory, mode }`。
-3. **后端执行**：`ChatWsHandler` 解析协议后路由到 `execute_copilot_turn()`，消费 `CopilotService._get_copilot_stream()` 产生的事件流。
-4. **事件持久化**：每个事件通过 `_emit_event()` 同时推送到 WS 客户端，并通过 `_mirror_run_stream_event()` 持久化到 `agent_run_events` 表。
-5. **状态投影**：`run_reducers/copilot.py` 维护实时投影（stage、content、thought_steps、tool_calls 等），存储于 `agent_run_snapshots`。
+1. **创建执行**：前端提交当前 `AgentVersion.definition_payload`、画布上下文和 prompt，后端通过 `ExecutionOrchestrator` 创建 `AgentRun` 与 `Execution`。
+2. **发送消息**：通过 `getChatWsClient().sendChat()` 发送 `chat.start` 帧，携带 `extension: { kind: “copilot”, executionId, graphContext, conversationHistory, mode }`。
+3. **后端执行**：`ChatWsHandler` 解析协议后路由到 Copilot 执行链路，消费 `CopilotService` 产生的事件流。
+4. **事件持久化**：所有引擎通过 `ExecutionContext.emit()` 写入 `execution_events`；WebSocket 客户端从同一事件源接收实时事件。
+5. **状态投影**：执行快照由 `execution_events` 重放和投影生成，包含 stage、content、thought_steps、tool_calls 等 Copilot 状态。
 
 ### 1.2 标准模式 vs DeepAgents 模式
 
@@ -44,9 +44,9 @@ Copilot 已全面迁移至 **Run Center 模型**，与 Chat 和 Skill Creator �
 
 ### 1.3 页面刷新恢复
 
-得益于 Run Center 持久化，Copilot 支持页面刷新后无缝恢复：
-- 前端检测到未完成的 `currentRunId` 后，先获取 `runService.getRunSnapshot()` 恢复最新状态。
-- 若 run 仍在执行中，通过 `/ws/runs` 订阅后续实时事件。
+得益于 `execution_events` 持久化，Copilot 支持页面刷新后无缝恢复：
+- 前端检测到未完成的 `executionId` 后，先获取执行快照恢复最新状态。
+- 若 execution 仍在执行中，通过 `/ws/executions` 订阅后续实时事件。
 
 ---
 

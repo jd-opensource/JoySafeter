@@ -128,6 +128,8 @@ flowchart LR
     style DeepBuilder fill:#e8f5e8
 ```
 
+Graph is now only one `AgentVersion.definition_kind = "graph"` definition payload, not a top-level product model.
+
 **Code Mode:**
 - User writes standard LangGraph Python code in the browser editor
 - Backend executes code in a sandboxed environment (restricted builtins, import whitelist, exec timeout)
