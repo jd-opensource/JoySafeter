@@ -16,7 +16,7 @@ from loguru import logger
 from sqlalchemy import select
 
 from app.common.app_errors import InvalidRequestError, InternalServiceError, normalize_app_error
-from app.core.engine.protocol import ExecutionContext
+from app.core.engine.protocol import EngineCapabilities, ExecutionContext
 from app.core.events.event_types import ExecutionEventType
 
 
@@ -24,6 +24,13 @@ class CodeEngine:
     """Sandboxed code executor engine."""
 
     engine_kind = "code"
+    capabilities = EngineCapabilities(
+        supports_cancel=True,
+        supports_message_injection=False,
+        supports_debug_observation=True,
+        supports_artifacts=False,
+        supports_approval=False,
+    )
 
     def __init__(self) -> None:
         self._running: dict[uuid.UUID, Any] = {}

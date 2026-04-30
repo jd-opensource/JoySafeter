@@ -214,3 +214,27 @@ def test_retrying_invalid_zero_attempts_raises_structured_internal_error() -> No
             "message": "Unexpected state in async retry logic",
             "data": {"mode": "async"},
         }
+
+
+def test_execution_operation_unsupported_error_payload() -> None:
+    from app.common.app_errors import InvalidRequestError
+
+    error = InvalidRequestError(
+        "Execution engine does not support message injection",
+        code="EXECUTION_OPERATION_UNSUPPORTED",
+        data={
+            "operation": "send_message",
+            "engine_kind": "graph",
+            "execution_id": "exec-1",
+        },
+    )
+
+    assert error.to_payload() == {
+        "code": "EXECUTION_OPERATION_UNSUPPORTED",
+        "message": "Execution engine does not support message injection",
+        "data": {
+            "operation": "send_message",
+            "engine_kind": "graph",
+            "execution_id": "exec-1",
+        },
+    }

@@ -12,7 +12,7 @@ from typing import Any
 
 from loguru import logger
 
-from app.core.engine.protocol import ExecutionContext
+from app.core.engine.protocol import EngineCapabilities, ExecutionContext
 from app.core.events.event_types import ExecutionEventType
 
 
@@ -20,6 +20,13 @@ class CLIEngine:
     """Docker container + CLI agent execution engine."""
 
     engine_kind = "sandbox"
+    capabilities = EngineCapabilities(
+        supports_cancel=True,
+        supports_message_injection=True,
+        supports_debug_observation=False,
+        supports_artifacts=True,
+        supports_approval=True,
+    )
 
     def __init__(self) -> None:
         self._sessions: dict[uuid.UUID, Any] = {}

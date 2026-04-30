@@ -22,6 +22,8 @@ from app.core.contracts.execution import (
     RunStatusLiteral,
     TriggerSourceLiteral,
 )
+from app.core.engine import engine_registry
+from app.core.engine.protocol import EngineCapabilities
 from app.models.agent import AgentRelease
 from app.models.agent_run import AgentRun
 from app.models.execution import Execution
@@ -63,3 +65,14 @@ def test_model_status_enums_match_contracts() -> None:
     assert _enum_values(AgentRun, "status") == RUN_STATUSES
     assert _enum_values(Execution, "status") == EXECUTION_STATUSES
     assert _enum_values(AgentRelease, "status") == RELEASE_STATUSES
+
+
+def test_registered_engines_declare_capabilities() -> None:
+    for runtime_kind in ["sandbox", "graph", "code", "copilot"]:
+        engine = engine_registry.get(runtime_kind)
+        assert isinstance(engine.capabilities, EngineCapabilities)
+
+
+def test_graph_engine_declares_no_message_injection() -> None:
+    graph_engine = engine_registry.get("graph")
+    assert graph_engine.capabilities.supports_message_injection is False

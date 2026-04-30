@@ -63,6 +63,15 @@ class ExecutionContext:
             await self._complete_fn(status, result_summary, error)
 
 
+@dataclass(frozen=True)
+class EngineCapabilities:
+    supports_cancel: bool = False
+    supports_message_injection: bool = False
+    supports_debug_observation: bool = False
+    supports_artifacts: bool = False
+    supports_approval: bool = False
+
+
 @runtime_checkable
 class ExecutionEngine(Protocol):
     """
@@ -75,6 +84,7 @@ class ExecutionEngine(Protocol):
     """
 
     engine_kind: str
+    capabilities: EngineCapabilities
 
     async def start(
         self,

@@ -503,6 +503,16 @@ class ExecutionOrchestrator:
                 code="RUN_BINDING_INVALID",
                 data={"run_id": str(run.id)},
             )
+        if not engine.capabilities.supports_message_injection:
+            raise InvalidRequestError(
+                "Execution engine does not support message injection",
+                code="EXECUTION_OPERATION_UNSUPPORTED",
+                data={
+                    "operation": "send_message",
+                    "engine_kind": getattr(engine, "engine_kind", execution.executor_kind),
+                    "execution_id": str(execution_id),
+                },
+            )
         await engine.send_message(execution_id, message)
 
     # ------------------------------------------------------------------
