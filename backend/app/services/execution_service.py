@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
-from typing import Any, List, Mapping, Optional
+from typing import Any, List, Mapping, Optional, cast
 
 from loguru import logger
 from sqlalchemy import func, select
@@ -132,12 +132,13 @@ class ExecutionService:
 
         # Return the updated row
         if execution is None:
-            execution = (
-                await self.db.execute(select(Execution).where(Execution.id == execution_id))
-            ).scalar_one_or_none()
+            execution = cast(
+                Optional[Execution],
+                (await self.db.execute(select(Execution).where(Execution.id == execution_id))).scalar_one_or_none(),
+            )
         else:
             await self.db.refresh(execution)
-        return execution
+        return cast(Optional[Execution], execution)
 
     async def append_event(
         self,
@@ -283,7 +284,8 @@ class ExecutionService:
 
         # Build a minimal projection from the execution row itself
         class _Snapshot:
-            pass
+            last_seq: int
+            projection: dict[str, Any]
 
         snap = _Snapshot()
         snap.last_seq = last_seq

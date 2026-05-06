@@ -29,7 +29,7 @@ class WebSocketSubscriber:
         eid = str(envelope.execution_id)
 
         if envelope.event_type == ExecutionEventType.EXECUTION_COMPLETED:
-            payload = {
+            payload: dict[str, object] = {
                 "type": "execution_completed",
                 "execution_id": eid,
                 "run_id": str(envelope.run_id),

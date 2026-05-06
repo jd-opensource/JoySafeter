@@ -214,7 +214,7 @@ class CopilotEngine:
 
         except Exception as exc:
             logger.error(f"[CopilotEngine] Execution {execution_id} failed: {exc}")
-            app_error = normalize_app_error(
+            app_error = normalize_app_error(  # type: ignore[assignment]
                 exc,
                 default_code="COPILOT_EXECUTION_FAILED",
                 default_message="Copilot execution failed",

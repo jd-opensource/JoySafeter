@@ -203,6 +203,10 @@ export default function PropertiesPanel({
     [schema],
   )
   const descriptionField = useMemo(() => schema?.find((s) => s.key === 'description'), [schema])
+  const visibleDeepAgentSkillFields = useMemo(
+    () => deepAgentSkillFields.filter((f) => shouldShowField(f, config)),
+    [deepAgentSkillFields, config],
+  )
 
   if (!node || !nodeData) return null
 
@@ -217,10 +221,6 @@ export default function PropertiesPanel({
     const pd = p?.data as { config?: Record<string, unknown> }
     return pd?.config?.useDeepAgents === true
   })
-  const visibleDeepAgentSkillFields = useMemo(
-    () => deepAgentSkillFields.filter((f) => shouldShowField(f, config)),
-    [deepAgentSkillFields, config],
-  )
 
   return (
     <div

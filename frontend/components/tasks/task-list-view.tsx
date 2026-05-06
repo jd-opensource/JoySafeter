@@ -42,6 +42,23 @@ const STATUS_ORDER: Record<string, number> = Object.fromEntries(
   TASK_STATUS_ORDER.map((s, i) => [s, i]),
 )
 
+function SortIcon({
+  field,
+  sortField,
+  sortDir,
+}: {
+  field: SortField
+  sortField: SortField
+  sortDir: 'asc' | 'desc'
+}) {
+  if (sortField !== field) return null
+  return sortDir === 'asc' ? (
+    <ArrowUp className="ml-1 inline h-3 w-3" />
+  ) : (
+    <ArrowDown className="ml-1 inline h-3 w-3" />
+  )
+}
+
 export function TaskListView({ tasks, agentsMap, onSelectTask }: TaskListViewProps) {
   const { t } = useTranslation()
   const [sortField, setSortField] = useState<SortField>('updated_at')
@@ -82,39 +99,30 @@ export function TaskListView({ tasks, agentsMap, onSelectTask }: TaskListViewPro
     return arr
   }, [tasks, sortField, sortDir])
 
-  const SortIcon = ({ field }: { field: SortField }) => {
-    if (sortField !== field) return null
-    return sortDir === 'asc' ? (
-      <ArrowUp className="ml-1 inline h-3 w-3" />
-    ) : (
-      <ArrowDown className="ml-1 inline h-3 w-3" />
-    )
-  }
-
   return (
     <div className="overflow-auto p-4">
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead className="w-[40%] cursor-pointer" onClick={() => toggleSort('title')}>
-              Title <SortIcon field="title" />
+              Title <SortIcon field="title" sortField={sortField} sortDir={sortDir} />
             </TableHead>
             <TableHead className="cursor-pointer" onClick={() => toggleSort('status')}>
-              Status <SortIcon field="status" />
+              Status <SortIcon field="status" sortField={sortField} sortDir={sortDir} />
             </TableHead>
             <TableHead className="cursor-pointer" onClick={() => toggleSort('priority')}>
-              Priority <SortIcon field="priority" />
+              Priority <SortIcon field="priority" sortField={sortField} sortDir={sortDir} />
             </TableHead>
             <TableHead>Agent</TableHead>
             <TableHead>Tags</TableHead>
             <TableHead className="cursor-pointer" onClick={() => toggleSort('due_date')}>
-              Due <SortIcon field="due_date" />
+              Due <SortIcon field="due_date" sortField={sortField} sortDir={sortDir} />
             </TableHead>
             <TableHead
               className="cursor-pointer text-right"
               onClick={() => toggleSort('updated_at')}
             >
-              Updated <SortIcon field="updated_at" />
+              Updated <SortIcon field="updated_at" sortField={sortField} sortDir={sortDir} />
             </TableHead>
           </TableRow>
         </TableHeader>

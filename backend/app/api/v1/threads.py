@@ -164,7 +164,7 @@ async def chat(
     attachments = [att.model_dump() for att in request.attachments] if request.attachments else None
     await dispatch.emit_user_message(
         run=run,
-        execution_id=run.current_execution_id,
+        execution_id=run.current_execution_id,  # type: ignore[arg-type]
         message=request.message,
         attachments=attachments,
     )
@@ -175,7 +175,7 @@ async def chat(
         msg="Chat dispatched",
         data=ChatResponse(
             run_id=run.id,
-            execution_id=run.current_execution_id,
+            execution_id=run.current_execution_id,  # type: ignore[arg-type]
         ),
     )
 

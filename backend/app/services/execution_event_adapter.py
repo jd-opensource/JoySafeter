@@ -7,7 +7,7 @@ Bridges core/ execution runners to the event bus without core/ importing service
 from __future__ import annotations
 
 import uuid
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping, Optional, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -77,12 +77,13 @@ class ExecutionEventAdapter:
         await execution_event_bus.publish(envelope, self.db)
 
         if execution is None:
-            execution = (
-                await self.db.execute(select(Execution).where(Execution.id == execution_id))
-            ).scalar_one_or_none()
+            execution = cast(
+                Optional[Execution],
+                (await self.db.execute(select(Execution).where(Execution.id == execution_id))).scalar_one_or_none(),
+            )
         else:
             await self.db.refresh(execution)
-        return execution
+        return cast(Optional[Execution], execution)
 
     async def append_event(
         self,

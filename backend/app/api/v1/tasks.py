@@ -190,6 +190,8 @@ async def dispatch_task(
     )
     service = TaskService(db)
     task = await service.get_task(task_id, workspace_id)
+    if task is None:
+        raise NotFoundError("Task not found", code="TASK_NOT_FOUND", data={"task_id": str(task_id)})
     return BaseResponse(success=True, code=200, msg="Task dispatched", data=_to_summary(task))
 
 

@@ -118,8 +118,8 @@ class LangGraphCodeEngine:
 
             result_text: str = ""
             async for chunk in compiled.astream(
-                {"messages": [{"role": "user", "content": prompt}]},
-                stream_config,
+                {"messages": [{"role": "user", "content": prompt}]},  # type: ignore[arg-type]
+                stream_config,  # type: ignore[arg-type]
             ):
                 if cancel_event.is_set():
                     await context.complete("cancelled", "Execution cancelled by user")

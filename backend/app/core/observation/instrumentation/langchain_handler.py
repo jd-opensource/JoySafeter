@@ -285,7 +285,7 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
             self._track_run(run_id, parent_run_id)
             name = (serialized or {}).get("name", "") or kwargs.get("name", "chat_model")
 
-            input_msgs = []
+            input_msgs: list[dict[str, Any]] = []
             for msg_list in messages:
                 input_msgs.extend(serialize_message(m) for m in msg_list)
 

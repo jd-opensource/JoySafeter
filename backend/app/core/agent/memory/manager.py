@@ -457,7 +457,7 @@ class MemoryManager:
 
         if memory_ids:
             # Delete all memories in a single batch operation
-            self.db.delete_user_memories(memory_ids=memory_ids, user_id=user_id)
+            self.db.delete_user_memories(memory_ids=memory_ids, user_id=user_id)  # type: ignore[unused-coroutine]
             logger.debug(f"Cleared {len(memory_ids)} memories for user {user_id}")
 
     async def aclear_user_memories(self, user_id: Optional[str] = None) -> None:
@@ -490,7 +490,7 @@ class MemoryManager:
             if _is_memory_service(self.db):
                 await self.db.delete_user_memories(memory_ids=memory_ids, user_id=user_id)
             else:
-                self.db.delete_user_memories(memory_ids=memory_ids, user_id=user_id)
+                self.db.delete_user_memories(memory_ids=memory_ids, user_id=user_id)  # type: ignore[unused-coroutine]
             logger.debug(f"Cleared {len(memory_ids)} memories for user {user_id}")
 
     # -*- Agent Functions
@@ -1155,7 +1155,7 @@ class MemoryManager:
 
                     opt_mem.memory_id = str(uuid4())
 
-                self.db.upsert_user_memory(memory=opt_mem)
+                self.db.upsert_user_memory(memory=opt_mem)  # type: ignore[unused-coroutine]
 
         optimized_tokens = strategy_instance.count_tokens(optimized_memories)
         logger.debug(f"Optimization complete. New token count: {optimized_tokens}")
@@ -1228,7 +1228,7 @@ class MemoryManager:
                 if _is_memory_service(self.db):
                     await self.db.upsert_user_memory(memory=opt_mem)
                 else:
-                    self.db.upsert_user_memory(memory=opt_mem)
+                    self.db.upsert_user_memory(memory=opt_mem)  # type: ignore[unused-coroutine]
 
         optimized_tokens = strategy_instance.count_tokens(optimized_memories)
         logger.debug(f"Memory optimization complete. New token count: {optimized_tokens}")
@@ -1975,7 +1975,7 @@ class MemoryManager:
                         )
                     )
                 else:
-                    db.upsert_user_memory(
+                    db.upsert_user_memory(  # type: ignore[unused-coroutine]
                         UserMemory(
                             memory_id=memory_id,
                             user_id=user_id,
@@ -2017,7 +2017,7 @@ class MemoryManager:
                         )
                     )
                 else:
-                    db.upsert_user_memory(
+                    db.upsert_user_memory(  # type: ignore[unused-coroutine]
                         UserMemory(
                             memory_id=memory_id,
                             memory=memory,
@@ -2042,7 +2042,7 @@ class MemoryManager:
                 if _is_memory_service(db):
                     await db.delete_user_memory(memory_id=memory_id, user_id=user_id)
                 else:
-                    db.delete_user_memory(memory_id=memory_id, user_id=user_id)
+                    db.delete_user_memory(memory_id=memory_id, user_id=user_id)  # type: ignore[unused-coroutine]
                 logger.debug("Memory deleted")
                 return "Memory deleted successfully"
             except Exception as e:
@@ -2058,7 +2058,7 @@ class MemoryManager:
             if _is_memory_service(db):
                 await db.clear_memories()
             else:
-                db.clear_memories()
+                db.clear_memories()  # type: ignore[unused-coroutine]
             logger.debug("Memory cleared")
             return "Memory cleared successfully"
 

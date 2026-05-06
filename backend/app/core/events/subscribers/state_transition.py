@@ -84,7 +84,7 @@ class StateTransitionSubscriber:
         try:
             await transition_execution(execution, envelope.target_status, db)
         except InvalidTransition:
-            logger.warning(f"[StateTransition] Skipping execution {execution.id}: " f"already {execution.status}")
+            logger.warning(f"[StateTransition] Skipping execution {execution.id}: already {execution.status}")
             return
 
         self._apply_metadata(execution, envelope)

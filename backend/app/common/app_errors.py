@@ -14,7 +14,7 @@ def _normalize_data(data: Mapping[str, Any] | None) -> dict[str, Any] | None:
 class AppError(Exception):
     code: str
     message: str
-    data: dict[str, Any] | None = None
+    data: Mapping[str, Any] | None = None
     source: str = "internal"
     retryable: bool = False
     user_action: str | None = None

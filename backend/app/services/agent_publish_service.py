@@ -43,7 +43,7 @@ class AgentPublishService(BaseService):
         runtime_kind = infer_runtime_kind(version.engine_kind)
         release_data = CreateAgentReleaseRequest(
             agent_version_id=version.id,
-            runtime_kind=runtime_kind,
+            runtime_kind=runtime_kind,  # type: ignore[arg-type]
             runtime_binding={},
         )
         release = await self.release_svc.publish_release(agent_id, user_id, release_data)
@@ -60,7 +60,7 @@ class AgentPublishService(BaseService):
         )
         return {"agent": reloaded_agent or agent, "release": release}
 
-    async def rollback(self, agent_id: uuid.UUID, release_id: uuid.UUID) -> dict:
+    async def rollback(self, agent_id: uuid.UUID, release_id: uuid.UUID) -> dict:  # type: ignore[override]
         await self.release_svc.activate_release(agent_id, release_id)
         await self.safe_commit()
         agent = await self.agent_repo.get(

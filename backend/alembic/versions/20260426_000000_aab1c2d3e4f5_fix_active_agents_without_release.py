@@ -21,7 +21,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute("UPDATE agents SET status = 'draft' " "WHERE status = 'active' AND active_release_id IS NULL")
+    op.execute("UPDATE agents SET status = 'draft' WHERE status = 'active' AND active_release_id IS NULL")
 
 
 def downgrade() -> None:
