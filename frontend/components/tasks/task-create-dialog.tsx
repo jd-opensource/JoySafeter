@@ -200,9 +200,7 @@ export function TaskCreateDialog({ workspaceId, defaultAgentId, trigger }: TaskC
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label htmlFor="task-auto-approve">{t('tasks.autoApproveLabel')}</Label>
-                <p className="text-xs text-[var(--text-muted)]">
-                  {t('tasks.autoApproveHint')}
-                </p>
+                <p className="text-xs text-[var(--text-muted)]">{t('tasks.autoApproveHint')}</p>
               </div>
               <Switch
                 id="task-auto-approve"

@@ -15,7 +15,7 @@ from typing import Any
 from loguru import logger
 from sqlalchemy import select
 
-from app.common.app_errors import InvalidRequestError, InternalServiceError, normalize_app_error
+from app.common.app_errors import InternalServiceError, InvalidRequestError, normalize_app_error
 from app.core.engine.protocol import EngineCapabilities, ExecutionContext
 from app.core.events.event_types import ExecutionEventType
 
@@ -90,7 +90,6 @@ class LangGraphCodeEngine:
                 },
             )
 
-            user_id: str | None = None
             thread_id: str | None = None
             try:
                 from app.models.agent_run import AgentRun
@@ -99,7 +98,6 @@ class LangGraphCodeEngine:
                     await context.db.execute(select(AgentRun).where(AgentRun.id == context.run_id))
                 ).scalar_one_or_none()
                 if run:
-                    user_id = run.created_by
                     thread_id = str(run.thread_id) if run.thread_id else None
             except Exception as lookup_exc:
                 logger.warning(f"[LangGraphCodeEngine] Could not resolve user_id/thread_id: {lookup_exc}")

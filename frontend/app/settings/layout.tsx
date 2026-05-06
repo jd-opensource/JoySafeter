@@ -74,7 +74,9 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
                 >
                   <Icon
                     size={18}
-                    className={cn(isActive ? 'text-[var(--brand-600)]' : 'text-[var(--text-muted)]')}
+                    className={cn(
+                      isActive ? 'text-[var(--brand-600)]' : 'text-[var(--text-muted)]',
+                    )}
                   />
                   {item.label}
                 </Link>

@@ -84,12 +84,7 @@ export function ChatEventBubble({ event }: ChatEventBubbleProps) {
           onClick={() => setCollapsed(!collapsed)}
           className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
         >
-          <ChevronDown
-            className={cn(
-              'h-3 w-3 transition-transform',
-              !collapsed && 'rotate-180',
-            )}
-          />
+          <ChevronDown className={cn('h-3 w-3 transition-transform', !collapsed && 'rotate-180')} />
           Thinking...
         </button>
         {!collapsed && (
@@ -112,12 +107,7 @@ export function ChatEventBubble({ event }: ChatEventBubbleProps) {
         <Wrench className="h-3 w-3 text-[var(--text-muted)]" />
         <span className="font-medium text-[var(--text-primary)]">{name}</span>
         <Loader2 className="h-3 w-3 animate-spin text-[var(--text-muted)]" />
-        <ChevronDown
-          className={cn(
-            'h-3 w-3 transition-transform',
-            !collapsed && 'rotate-180',
-          )}
-        />
+        <ChevronDown className={cn('h-3 w-3 transition-transform', !collapsed && 'rotate-180')} />
         {!collapsed && (
           <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap text-[var(--text-muted)]">
             {JSON.stringify(payload.input, null, 2)}
@@ -168,11 +158,7 @@ export function ChatEventBubble({ event }: ChatEventBubbleProps) {
             className="mt-1 text-xs text-red-400/70"
           >
             {collapsed ? 'Show trace' : 'Hide trace'}
-            {!collapsed && (
-              <pre className="mt-1 max-h-40 overflow-auto">
-                {payload.trace}
-              </pre>
-            )}
+            {!collapsed && <pre className="mt-1 max-h-40 overflow-auto">{payload.trace}</pre>}
           </button>
         )}
       </div>
@@ -190,22 +176,16 @@ export function ChatEventBubble({ event }: ChatEventBubbleProps) {
     )
   }
 
-  if (
-    event_type === 'execution_started' ||
-    event_type === 'execution_completed'
-  ) {
+  if (event_type === 'execution_started' || event_type === 'execution_completed') {
     const isComplete = event_type === 'execution_completed'
-    const terminalStatus =
-      (payload.terminal_status as string) || event.execution_status
+    const terminalStatus = (payload.terminal_status as string) || event.execution_status
     return (
       <div className="flex justify-center">
         <span
           className={cn(
             'rounded-full px-3 py-0.5 text-[10px] font-medium',
-            isComplete && terminalStatus === 'succeeded' &&
-              'bg-green-500/10 text-green-500',
-            isComplete && terminalStatus !== 'succeeded' &&
-              'bg-red-500/10 text-red-400',
+            isComplete && terminalStatus === 'succeeded' && 'bg-green-500/10 text-green-500',
+            isComplete && terminalStatus !== 'succeeded' && 'bg-red-500/10 text-red-400',
             !isComplete && 'bg-[var(--surface-3)] text-[var(--text-muted)]',
           )}
         >

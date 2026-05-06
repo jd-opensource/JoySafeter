@@ -19,7 +19,11 @@ interface CopilotCallbacks {
   onContent: (content: string) => void
   onThoughtStep: (step: { index: number; content: string }) => void
   onToolCall: (tool: string, input: Record<string, unknown>) => void
-  onToolResult: (action: { type: string; payload: Record<string, unknown>; reasoning?: string }) => void
+  onToolResult: (action: {
+    type: string
+    payload: Record<string, unknown>
+    reasoning?: string
+  }) => void
   onResult: (response: { message: string; actions?: GraphAction[] }) => Promise<void>
   onError: (error: AppErrorPayload) => void
   onDone: () => Promise<void>
@@ -60,10 +64,7 @@ export function useCopilotExecutionBridge({
 
       switch (event.event_type) {
         case 'copilot_status':
-          cb.onStatus(
-            (payload.stage as string) ?? 'processing',
-            (payload.message as string) ?? '',
-          )
+          cb.onStatus((payload.stage as string) ?? 'processing', (payload.message as string) ?? '')
           break
 
         case 'copilot_content':
@@ -75,10 +76,7 @@ export function useCopilotExecutionBridge({
           break
 
         case 'copilot_tool_call':
-          cb.onToolCall(
-            payload.tool as string,
-            (payload.input as Record<string, unknown>) ?? {},
-          )
+          cb.onToolCall(payload.tool as string, (payload.input as Record<string, unknown>) ?? {})
           break
 
         case 'copilot_tool_result':

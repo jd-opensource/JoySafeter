@@ -468,55 +468,56 @@ export const SandboxesPage = () => {
                         </TableCell>
                         <TableCell className="py-3">
                           <div className="flex justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                            {canAdmin && (sandbox.status === 'running' ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7 rounded-md text-[var(--status-warning)] hover:bg-[var(--status-warning-bg)] hover:text-[var(--status-warning)]"
-                                    onClick={() =>
-                                      setConfirmDialog({
-                                        type: 'stop',
-                                        sandboxId: sandbox.id,
-                                        open: true,
-                                      })
-                                    }
-                                    disabled={actionLoading === sandbox.id}
-                                    aria-label="Stop sandbox"
-                                  >
-                                    <StopCircle className="h-3.5 w-3.5" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="text-xs">
-                                  {t('settings.sandboxes.stop')}
-                                </TooltipContent>
-                              </Tooltip>
-                            ) : (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7 rounded-md text-[var(--status-success)] hover:bg-[var(--status-success-bg)] hover:text-[var(--status-success-hover)]"
-                                    onClick={() =>
-                                      setConfirmDialog({
-                                        type: 'restart',
-                                        sandboxId: sandbox.id,
-                                        open: true,
-                                      })
-                                    }
-                                    disabled={actionLoading === sandbox.id}
-                                    aria-label="Restart sandbox"
-                                  >
-                                    <PlayCircle className="h-3.5 w-3.5" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="text-xs">
-                                  {t('settings.sandboxes.restart')}
-                                </TooltipContent>
-                              </Tooltip>
-                            ))}
+                            {canAdmin &&
+                              (sandbox.status === 'running' ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7 rounded-md text-[var(--status-warning)] hover:bg-[var(--status-warning-bg)] hover:text-[var(--status-warning)]"
+                                      onClick={() =>
+                                        setConfirmDialog({
+                                          type: 'stop',
+                                          sandboxId: sandbox.id,
+                                          open: true,
+                                        })
+                                      }
+                                      disabled={actionLoading === sandbox.id}
+                                      aria-label="Stop sandbox"
+                                    >
+                                      <StopCircle className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="text-xs">
+                                    {t('settings.sandboxes.stop')}
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7 rounded-md text-[var(--status-success)] hover:bg-[var(--status-success-bg)] hover:text-[var(--status-success-hover)]"
+                                      onClick={() =>
+                                        setConfirmDialog({
+                                          type: 'restart',
+                                          sandboxId: sandbox.id,
+                                          open: true,
+                                        })
+                                      }
+                                      disabled={actionLoading === sandbox.id}
+                                      aria-label="Restart sandbox"
+                                    >
+                                      <PlayCircle className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="text-xs">
+                                    {t('settings.sandboxes.restart')}
+                                  </TooltipContent>
+                                </Tooltip>
+                              ))}
                             {canAdmin && (
                               <Tooltip>
                                 <TooltipTrigger asChild>

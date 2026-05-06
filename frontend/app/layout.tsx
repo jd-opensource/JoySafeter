@@ -58,11 +58,11 @@ export default function RootLayout({
             <QueryProvider>
               <AuthGuard>
                 <WorkspaceProvider>
-                <NotificationProvider>
-                  <ZoomPrevention />
-                  <AppShell>{children}</AppShell>
-                  <Toaster />
-                </NotificationProvider>
+                  <NotificationProvider>
+                    <ZoomPrevention />
+                    <AppShell>{children}</AppShell>
+                    <Toaster />
+                  </NotificationProvider>
                 </WorkspaceProvider>
               </AuthGuard>
             </QueryProvider>

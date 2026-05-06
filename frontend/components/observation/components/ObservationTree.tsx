@@ -10,19 +10,11 @@ import { ObservationSpanContent } from './ObservationSpanContent'
 
 export function ObservationTree() {
   const { roots, isExecuting } = useObservationData()
-  const {
-    selectedNodeId,
-    selectNode,
-    collapsedNodes,
-    toggleCollapse,
-  } = useObservationSelection()
+  const { selectedNodeId, selectNode, collapsedNodes, toggleCollapse } = useObservationSelection()
 
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const flatItems = useMemo(
-    () => flattenTree(roots, collapsedNodes),
-    [roots, collapsedNodes],
-  )
+  const flatItems = useMemo(() => flattenTree(roots, collapsedNodes), [roots, collapsedNodes])
 
   const rowVirtualizer = useVirtualizer({
     count: flatItems.length,
@@ -36,14 +28,8 @@ export function ObservationTree() {
   const hasScrolledRef = useRef(false)
 
   useLayoutEffect(() => {
-    if (
-      selectedNodeId &&
-      !hasScrolledRef.current &&
-      selectedNodeId === initialNodeIdRef.current
-    ) {
-      const index = flatItems.findIndex(
-        (item) => item.node.id === selectedNodeId,
-      )
+    if (selectedNodeId && !hasScrolledRef.current && selectedNodeId === initialNodeIdRef.current) {
+      const index = flatItems.findIndex((item) => item.node.id === selectedNodeId)
       if (index !== -1) {
         rowVirtualizer.scrollToIndex(index, {
           align: 'center',
@@ -65,10 +51,7 @@ export function ObservationTree() {
 
   return (
     <div ref={scrollRef} className="h-full overflow-auto">
-      <div
-        style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
-        className="relative w-full"
-      >
+      <div style={{ height: `${rowVirtualizer.getTotalSize()}px` }} className="relative w-full">
         {rowVirtualizer.getVirtualItems().map((virtualItem) => {
           const item = flatItems[virtualItem.index]
           const isSelected = item.node.id === selectedNodeId

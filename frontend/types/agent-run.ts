@@ -1,18 +1,8 @@
-export const TRIGGER_MEDIUMS = [
-  'api',
-  'scheduler',
-  'system',
-  'ui',
-] as const
+export const TRIGGER_MEDIUMS = ['api', 'scheduler', 'system', 'ui'] as const
 
 export type TriggerMedium = (typeof TRIGGER_MEDIUMS)[number]
 
-export const RUN_PURPOSES = [
-  'production',
-  'draft_test',
-  'debug',
-  'internal_builder',
-] as const
+export const RUN_PURPOSES = ['production', 'draft_test', 'debug', 'internal_builder'] as const
 
 export type RunPurpose = (typeof RUN_PURPOSES)[number]
 
@@ -35,20 +25,11 @@ export interface AgentRun {
   created_at: string
 }
 
-export const RUN_STATUSES = [
-  'pending',
-  'running',
-  'succeeded',
-  'failed',
-  'cancelled',
-] as const
+export const RUN_STATUSES = ['pending', 'running', 'succeeded', 'failed', 'cancelled'] as const
 
 export type AgentRunStatus = (typeof RUN_STATUSES)[number]
 
-export const ACTIVE_RUN_STATUSES: readonly AgentRunStatus[] = [
-  'pending',
-  'running',
-] as const
+export const ACTIVE_RUN_STATUSES: readonly AgentRunStatus[] = ['pending', 'running'] as const
 
 export const TERMINAL_RUN_STATUSES: readonly AgentRunStatus[] = [
   'succeeded',

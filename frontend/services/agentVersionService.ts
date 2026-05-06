@@ -15,11 +15,7 @@ export const agentVersionService = {
     return res ?? []
   },
 
-  get: async (
-    agentId: string,
-    versionId: string,
-    workspaceId: string,
-  ): Promise<AgentVersion> => {
+  get: async (agentId: string, versionId: string, workspaceId: string): Promise<AgentVersion> => {
     return apiGet<AgentVersion>(
       `agents/${agentId}/versions/${versionId}?workspace_id=${workspaceId}`,
     )
@@ -30,10 +26,7 @@ export const agentVersionService = {
     workspaceId: string,
     data: CreateAgentVersionRequest,
   ): Promise<AgentVersion> => {
-    return apiPost<AgentVersion>(
-      `agents/${agentId}/versions?workspace_id=${workspaceId}`,
-      data,
-    )
+    return apiPost<AgentVersion>(`agents/${agentId}/versions?workspace_id=${workspaceId}`, data)
   },
 
   update: async (
@@ -47,5 +40,4 @@ export const agentVersionService = {
       data,
     )
   },
-
 }

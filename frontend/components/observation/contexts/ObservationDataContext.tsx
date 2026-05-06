@@ -1,12 +1,8 @@
 'use client'
 
-import React, {
-  createContext, useCallback, useContext, useMemo, useReducer, useState,
-} from 'react'
+import React, { createContext, useCallback, useContext, useMemo, useReducer, useState } from 'react'
 import { buildTraceTree } from '../lib/tree-building'
-import type {
-  ObservationNode, RawObservation, SearchItem, TraceTreeResult,
-} from '../lib/types'
+import type { ObservationNode, RawObservation, SearchItem, TraceTreeResult } from '../lib/types'
 
 interface ObservationDataState {
   nodeMap: Map<string, ObservationNode>
@@ -46,9 +42,7 @@ function parseRawToNode(
     statusMessage: raw.statusMessage,
     startTime,
     endTime,
-    completionStartTime: raw.completionStartTime
-      ? new Date(raw.completionStartTime)
-      : null,
+    completionStartTime: raw.completionStartTime ? new Date(raw.completionStartTime) : null,
     input: raw.input ?? null,
     output: raw.output ?? null,
     metadata: raw.metadata ?? null,
@@ -67,8 +61,9 @@ function parseRawToNode(
     totalCost: raw.calculatedTotalCost ?? 0,
     inputUsage: raw.usageDetails?.input ?? null,
     outputUsage: raw.usageDetails?.output ?? null,
-    totalUsage: raw.usageDetails?.total
-      ?? (raw.usageDetails?.input != null || raw.usageDetails?.output != null
+    totalUsage:
+      raw.usageDetails?.total ??
+      (raw.usageDetails?.input != null || raw.usageDetails?.output != null
         ? (raw.usageDetails?.input ?? 0) + (raw.usageDetails?.output ?? 0)
         : null),
     latency: endTime ? (endTime.getTime() - startTime.getTime()) / 1000 : null,
@@ -79,9 +74,10 @@ function parseRawToNode(
   }
 }
 
-function rebuildRootsAndSearch(
-  nodeMap: Map<string, ObservationNode>,
-): { roots: ObservationNode[]; searchItems: SearchItem[] } {
+function rebuildRootsAndSearch(nodeMap: Map<string, ObservationNode>): {
+  roots: ObservationNode[]
+  searchItems: SearchItem[]
+} {
   const roots = [...nodeMap.values()]
     .filter((n) => !n.parentObservationId)
     .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
@@ -98,17 +94,13 @@ function rebuildRootsAndSearch(
   return { roots, searchItems }
 }
 
-function propagateAggregates(
-  nodeMap: Map<string, ObservationNode>,
-  nodeId: string,
-): void {
+function propagateAggregates(nodeMap: Map<string, ObservationNode>, nodeId: string): void {
   let current = nodeMap.get(nodeId)
   while (current) {
     const nodeCost =
       current.calculatedTotalCost ??
-      ((current.calculatedInputCost ?? 0) + (current.calculatedOutputCost ?? 0))
-    current.totalCost =
-      nodeCost + current.children.reduce((sum, c) => sum + c.totalCost, 0)
+      (current.calculatedInputCost ?? 0) + (current.calculatedOutputCost ?? 0)
+    current.totalCost = nodeCost + current.children.reduce((sum, c) => sum + c.totalCost, 0)
     if (!current.parentObservationId) break
     current = nodeMap.get(current.parentObservationId)
   }
@@ -168,19 +160,23 @@ function reducer(state: ObservationDataState, action: ObservationAction): Observ
       const existing = state.nodeMap.get(action.observation.id)
       if (!existing) return state
       const updated = { ...existing }
-      if (action.observation.endTime)
-        updated.endTime = new Date(action.observation.endTime)
+      if (action.observation.endTime) updated.endTime = new Date(action.observation.endTime)
       if (action.observation.completionStartTime)
         updated.completionStartTime = new Date(action.observation.completionStartTime)
       if (action.observation.input !== undefined) updated.input = action.observation.input
       if (action.observation.output !== undefined) updated.output = action.observation.output
       if (action.observation.model !== undefined) updated.model = action.observation.model
       if (action.observation.metadata !== undefined) updated.metadata = action.observation.metadata
-      if (action.observation.statusMessage !== undefined) updated.statusMessage = action.observation.statusMessage
-      if (action.observation.modelParameters !== undefined) updated.modelParameters = action.observation.modelParameters
-      if (action.observation.environment !== undefined) updated.environment = action.observation.environment
-      if (action.observation.promptName !== undefined) updated.promptName = action.observation.promptName
-      if (action.observation.promptVersion !== undefined) updated.promptVersion = action.observation.promptVersion
+      if (action.observation.statusMessage !== undefined)
+        updated.statusMessage = action.observation.statusMessage
+      if (action.observation.modelParameters !== undefined)
+        updated.modelParameters = action.observation.modelParameters
+      if (action.observation.environment !== undefined)
+        updated.environment = action.observation.environment
+      if (action.observation.promptName !== undefined)
+        updated.promptName = action.observation.promptName
+      if (action.observation.promptVersion !== undefined)
+        updated.promptVersion = action.observation.promptVersion
       if (action.observation.calculatedTotalCost !== undefined)
         updated.calculatedTotalCost = action.observation.calculatedTotalCost as number
       if (action.observation.calculatedInputCost !== undefined)
@@ -191,8 +187,9 @@ function reducer(state: ObservationDataState, action: ObservationAction): Observ
         updated.usageDetails = action.observation.usageDetails
         updated.inputUsage = updated.usageDetails?.input ?? null
         updated.outputUsage = updated.usageDetails?.output ?? null
-        updated.totalUsage = updated.usageDetails?.total
-          ?? (updated.inputUsage != null || updated.outputUsage != null
+        updated.totalUsage =
+          updated.usageDetails?.total ??
+          (updated.inputUsage != null || updated.outputUsage != null
             ? (updated.inputUsage ?? 0) + (updated.outputUsage ?? 0)
             : null)
       }
@@ -228,24 +225,17 @@ export function ObservationDataProvider({ children }: { children: React.ReactNod
   const [state, dispatch] = useReducer(reducer, initialState)
   const [isExecuting, setIsExecuting] = useState(false)
 
-  const loadTrace = useCallback(
-    (observations: RawObservation[], traceStartTime: Date) => {
-      const result = buildTraceTree(observations, traceStartTime)
-      dispatch({ type: 'SET_TREE', result, traceStartTime })
-    },
-    [],
-  )
+  const loadTrace = useCallback((observations: RawObservation[], traceStartTime: Date) => {
+    const result = buildTraceTree(observations, traceStartTime)
+    dispatch({ type: 'SET_TREE', result, traceStartTime })
+  }, [])
 
   const value = useMemo(
     () => ({ ...state, isExecuting, dispatch, loadTrace, setIsExecuting }),
     [state, isExecuting, dispatch, loadTrace],
   )
 
-  return (
-    <ObservationDataCtx.Provider value={value}>
-      {children}
-    </ObservationDataCtx.Provider>
-  )
+  return <ObservationDataCtx.Provider value={value}>{children}</ObservationDataCtx.Provider>
 }
 
 export function useObservationData() {

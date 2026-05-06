@@ -114,10 +114,7 @@ async function extractErrorFromResponse(response: Response): Promise<ApiError> {
     const text = await response.text()
     const errorData = JSON.parse(text)
     payload =
-      errorData &&
-      typeof errorData === 'object' &&
-      'code' in errorData &&
-      'message' in errorData
+      errorData && typeof errorData === 'object' && 'code' in errorData && 'message' in errorData
         ? (errorData as ApiErrorPayload)
         : undefined
   } catch {
@@ -155,7 +152,13 @@ async function parseResponse<T>(response: Response): Promise<T> {
   try {
     const json = JSON.parse(text)
 
-    if (json && typeof json === 'object' && 'code' in json && 'message' in json && !('success' in json)) {
+    if (
+      json &&
+      typeof json === 'object' &&
+      'code' in json &&
+      'message' in json &&
+      !('success' in json)
+    ) {
       throw createApiError(response.status, response.statusText, json as ApiErrorPayload)
     }
 

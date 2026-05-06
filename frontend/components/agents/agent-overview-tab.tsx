@@ -1,6 +1,13 @@
 'use client'
 
-import { MessageSquare, Activity, Settings, GitBranch, PenTool, LayoutDashboard } from 'lucide-react'
+import {
+  MessageSquare,
+  Activity,
+  Settings,
+  GitBranch,
+  PenTool,
+  LayoutDashboard,
+} from 'lucide-react'
 import Link from 'next/link'
 import { useMemo } from 'react'
 
@@ -51,7 +58,14 @@ export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
   // Merge runs and threads into a single recent activity list, sorted by time
   const activities = useMemo(() => {
     type ActivityItem =
-      | { kind: 'run'; id: string; current_execution_id?: string | null; label: string; status: AgentRunStatus; time: string }
+      | {
+          kind: 'run'
+          id: string
+          current_execution_id?: string | null
+          label: string
+          status: AgentRunStatus
+          time: string
+        }
       | { kind: 'thread'; id: string; label: string; status: string; time: string }
 
     const items: ActivityItem[] = [
@@ -92,7 +106,10 @@ export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
             </h2>
           </div>
           <p className="text-sm leading-relaxed text-[var(--text-secondary)]">
-            {agent.description || t('agents.detail.noDescription', { defaultValue: 'No description provided for this agent.' })}
+            {agent.description ||
+              t('agents.detail.noDescription', {
+                defaultValue: 'No description provided for this agent.',
+              })}
           </p>
         </Card>
 
@@ -108,9 +125,7 @@ export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
           {activities.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-[var(--border)] py-8">
               <Activity className="mb-2 h-8 w-8 text-[var(--border)]" />
-              <p className="text-sm text-[var(--text-muted)]">
-                {t('agents.detail.noActivity')}
-              </p>
+              <p className="text-sm text-[var(--text-muted)]">{t('agents.detail.noActivity')}</p>
             </div>
           ) : (
             <div className="space-y-2.5">
@@ -140,7 +155,7 @@ export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
                       {item.kind === 'run' && (
                         <Badge
                           variant="outline"
-                          className={cn(RUN_STATUS_STYLES[item.status] || '', "ml-2")}
+                          className={cn(RUN_STATUS_STYLES[item.status] || '', 'ml-2')}
                         >
                           {item.status}
                         </Badge>
@@ -178,7 +193,9 @@ export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
                     {t('agents.detail.openBuilder', { defaultValue: 'Open Studio' })}
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">
-                    {t('agents.detail.openBuilderDesc', { defaultValue: 'Build, test, publish, and use this Agent' })}
+                    {t('agents.detail.openBuilderDesc', {
+                      defaultValue: 'Build, test, publish, and use this Agent',
+                    })}
                   </span>
                 </div>
               </Link>

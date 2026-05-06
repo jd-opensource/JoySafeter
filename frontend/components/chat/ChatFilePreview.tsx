@@ -115,11 +115,7 @@ function ImagePreview({
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
           onClick={() => setFullscreen(false)}
         >
-          <img
-            src={rawUrl}
-            alt={filename}
-            className="max-h-[90vh] max-w-[90vw] object-contain"
-          />
+          <img src={rawUrl} alt={filename} className="max-h-[90vh] max-w-[90vw] object-contain" />
         </div>
       )}
     </>
@@ -149,9 +145,7 @@ function PdfPreview({
           <span className="text-[var(--text-primary)]">{filename}</span>
           <span className="text-[var(--text-muted)]">{sizeLabel}</span>
         </span>
-        <ChevronDown
-          className={cn('h-3 w-3 transition-transform', open && 'rotate-180')}
-        />
+        <ChevronDown className={cn('h-3 w-3 transition-transform', open && 'rotate-180')} />
       </button>
       {open && (
         <iframe
@@ -205,9 +199,7 @@ function TextPreview({
 
   const lines = content?.split('\n') ?? []
   const displayed =
-    expanded || lines.length <= MAX_PREVIEW_LINES
-      ? lines
-      : lines.slice(0, MAX_PREVIEW_LINES)
+    expanded || lines.length <= MAX_PREVIEW_LINES ? lines : lines.slice(0, MAX_PREVIEW_LINES)
   const hasMore = lines.length > MAX_PREVIEW_LINES
 
   return (
@@ -219,9 +211,7 @@ function TextPreview({
       >
         <span className="flex items-center gap-2 text-xs">
           <FileIcon className="h-3 w-3 text-[var(--text-muted)]" />
-          <span className="font-medium text-[var(--text-primary)]">
-            {filename}
-          </span>
+          <span className="font-medium text-[var(--text-primary)]">{filename}</span>
           <span className="text-[var(--text-muted)]">{sizeLabel}</span>
         </span>
         <ChevronDown
@@ -238,11 +228,7 @@ function TextPreview({
               <Loader2 className="h-3 w-3 animate-spin" /> Loading…
             </div>
           )}
-          {error && (
-            <div className="px-3 py-3 text-xs text-red-400">
-              Failed: {error}
-            </div>
-          )}
+          {error && <div className="px-3 py-3 text-xs text-red-400">Failed: {error}</div>}
           {content !== null && (
             <>
               <pre className="max-h-96 overflow-auto p-3 text-xs text-[var(--text-primary)]">

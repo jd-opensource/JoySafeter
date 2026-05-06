@@ -126,10 +126,12 @@ export function CreateAgentDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>
-              {t('agents.buildMethod', { defaultValue: 'Build method' })}
-            </Label>
-            <div className="grid gap-2" role="radiogroup" aria-label={t('agents.buildMethod', { defaultValue: 'Build method' })}>
+            <Label>{t('agents.buildMethod', { defaultValue: 'Build method' })}</Label>
+            <div
+              className="grid gap-2"
+              role="radiogroup"
+              aria-label={t('agents.buildMethod', { defaultValue: 'Build method' })}
+            >
               {BUILD_METHOD_OPTIONS.map((option) => {
                 const Icon = option.icon
                 const isSelected = engineKind === option.value
@@ -162,9 +164,7 @@ export function CreateAgentDialog({
                       <p className="text-sm font-medium text-[var(--text-primary)]">
                         {t(option.labelKey)}
                       </p>
-                      <p className="text-xs text-[var(--text-muted)]">
-                        {t(option.descriptionKey)}
-                      </p>
+                      <p className="text-xs text-[var(--text-muted)]">{t(option.descriptionKey)}</p>
                     </div>
                   </button>
                 )

@@ -14,9 +14,7 @@ export function flattenTreeWithTimelineMetrics(
 ): TimelineFlatItem[] {
   const flatList: TimelineFlatItem[] = []
 
-  const sortedRoots = roots
-    .slice()
-    .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
+  const sortedRoots = roots.slice().sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
 
   type StackItem = {
     node: ObservationNode
@@ -41,9 +39,7 @@ export function flattenTreeWithTimelineMetrics(
     const { node } = current
 
     const latency =
-      node.endTime !== null
-        ? (node.endTime.getTime() - node.startTime.getTime()) / 1000
-        : undefined
+      node.endTime !== null ? (node.endTime.getTime() - node.startTime.getTime()) / 1000 : undefined
 
     const startOffset = calculateTimelineOffset(
       node.startTime,
@@ -52,11 +48,7 @@ export function flattenTreeWithTimelineMetrics(
       scaleWidth,
     )
 
-    const itemWidth = calculateTimelineWidth(
-      latency ?? 0,
-      totalScaleSpan,
-      scaleWidth,
-    )
+    const itemWidth = calculateTimelineWidth(latency ?? 0, totalScaleSpan, scaleWidth)
 
     const firstTokenTimeOffset = node.completionStartTime
       ? calculateTimelineOffset(

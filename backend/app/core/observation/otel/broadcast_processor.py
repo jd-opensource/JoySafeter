@@ -1,4 +1,5 @@
 """BroadcastProcessor — instant WebSocket relay via LiveSpanProcessor."""
+
 from __future__ import annotations
 
 import asyncio
@@ -76,18 +77,20 @@ class BroadcastProcessor(LiveSpanProcessor):
         if hasattr(span, "context") and span.context:
             self._otel_span_id_to_observation_id.pop(span.context.span_id, None)
 
-    def on_event(
-        self, span: ObservationSpan, event_name: str, attributes: dict
-    ) -> None:
+    def on_event(self, span: ObservationSpan, event_name: str, attributes: dict) -> None:
         parent_obs_id: str | None = None
         parent_span_id = span.get_parent_span_id()
         if parent_span_id is not None:
             parent_obs_id = self._otel_span_id_to_observation_id.get(parent_span_id)
-        self._emit(event_name, {
-            "id": str(span.observation_id),
-            "trace_id": str(self._trace_id),
-            "parent_observation_id": parent_obs_id,
-        }, data=dict(attributes))
+        self._emit(
+            event_name,
+            {
+                "id": str(span.observation_id),
+                "trace_id": str(self._trace_id),
+                "parent_observation_id": parent_obs_id,
+            },
+            data=dict(attributes),
+        )
 
     def emit_trace_complete(self, status: str, trace_id: str, aggregates: dict) -> None:
         self._emit(
@@ -113,9 +116,7 @@ class BroadcastProcessor(LiveSpanProcessor):
             "timestamp": datetime.now(tz=timezone.utc).isoformat(),
         }
         try:
-            future = asyncio.run_coroutine_threadsafe(
-                self._broadcast_fn(self._execution_id, message), self._loop
-            )
+            future = asyncio.run_coroutine_threadsafe(self._broadcast_fn(self._execution_id, message), self._loop)
             future.add_done_callback(self._log_if_failed)
         except Exception:
             logger.opt(exception=True).debug("broadcast schedule failed")

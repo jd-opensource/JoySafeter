@@ -5,12 +5,12 @@ Revises: g8h9i0j1k2l3
 Create Date: 2026-04-22
 """
 
+from alembic import op
+
 revision = "h1i2j3k4l5m6"
 down_revision = "g8h9i0j1k2l3"
 branch_labels = None
 depends_on = None
-
-from alembic import op
 
 
 def upgrade() -> None:

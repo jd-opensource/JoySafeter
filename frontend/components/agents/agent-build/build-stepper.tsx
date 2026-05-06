@@ -48,9 +48,7 @@ export function BuildStepper({ stages, activeStage, onNavigate }: BuildStepperPr
               <Icon className="h-3.5 w-3.5 shrink-0" />
               <span className="hidden whitespace-nowrap sm:inline">{t(stage.labelKey)}</span>
             </button>
-            {!isLast && (
-              <div className="mx-1 h-px w-4 bg-[var(--border)]" />
-            )}
+            {!isLast && <div className="mx-1 h-px w-4 bg-[var(--border)]" />}
           </div>
         )
       })}

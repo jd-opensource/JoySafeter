@@ -31,9 +31,7 @@ export function AttachmentChip({
       )}
     >
       <FileIcon className="h-3 w-3 text-[var(--text-muted)]" />
-      <span className="max-w-[120px] truncate text-[var(--text-primary)]">
-        {filename}
-      </span>
+      <span className="max-w-[120px] truncate text-[var(--text-primary)]">{filename}</span>
       <span className="text-[var(--text-muted)]">{sizeLabel}</span>
       {onRemove && (
         <button

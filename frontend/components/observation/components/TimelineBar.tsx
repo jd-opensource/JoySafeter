@@ -30,10 +30,7 @@ export function TimelineBar({
 
     return (
       <div
-        className={cn(
-          'flex cursor-pointer',
-          isSelected && 'ring-3 ring-primary-accent rounded-sm',
-        )}
+        className={cn('flex cursor-pointer', isSelected && 'ring-3 ring-primary-accent rounded-sm')}
         style={{ marginLeft: `${startOffset}px` }}
         onClick={onSelect}
       >

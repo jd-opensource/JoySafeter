@@ -24,9 +24,7 @@ export function formatToolDisplay(
   toolName: string,
   args?: Record<string, unknown>,
 ): { label: string; detail: string } {
-  const label = toolName
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (char) => char.toUpperCase())
+  const label = toolName.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
 
   let detail = ''
   if (args && Object.keys(args).length > 0) {

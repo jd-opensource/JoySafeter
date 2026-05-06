@@ -38,6 +38,7 @@ class DebugRunRequest(BaseModel):
     workspace_id: uuid.UUID
     variables: Optional[Dict[str, Any]] = None
 
+
 router = APIRouter(prefix="/v1/executions", tags=["Executions"])
 
 

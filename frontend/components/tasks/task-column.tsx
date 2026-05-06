@@ -58,12 +58,7 @@ interface TaskColumnProps {
   onSelectTask?: (id: string) => void
 }
 
-export function TaskColumn({
-  status,
-  tasks,
-  agentsMap,
-  onSelectTask,
-}: TaskColumnProps) {
+export function TaskColumn({ status, tasks, agentsMap, onSelectTask }: TaskColumnProps) {
   const { t } = useTranslation()
   const { setNodeRef, isOver } = useDroppable({
     id: `column-${status}`,
@@ -97,7 +92,7 @@ export function TaskColumn({
             <SortableTaskCard
               key={task.id}
               task={task}
-              agentName={agentsMap?.[task.agent_id ?? task.assignee_id ?? '']}
+              agentName={agentsMap?.[task.agent_id ?? '']}
               onSelectTask={onSelectTask}
             />
           ))}

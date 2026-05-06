@@ -81,7 +81,9 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
                 }
               />
               <span className="font-medium">
-                {deploymentStatus.is_deployed ? t('workspace.deployed') : t('workspace.notDeployed')}
+                {deploymentStatus.is_deployed
+                  ? t('workspace.deployed')
+                  : t('workspace.notDeployed')}
               </span>
             </div>
             <div className="flex items-center gap-2">

@@ -80,9 +80,7 @@ export function NeedsAttention({ workspaceId, tasks }: NeedsAttentionProps) {
       ) : (
         <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-4">
           <CheckCircle2 className="h-4 w-4 text-[var(--status-success)]" />
-          <span className="text-sm text-[var(--text-secondary)]">
-            {t('dashboard.allClear')}
-          </span>
+          <span className="text-sm text-[var(--text-secondary)]">{t('dashboard.allClear')}</span>
         </div>
       )}
     </Card>

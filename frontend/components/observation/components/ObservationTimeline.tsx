@@ -3,10 +3,7 @@
 import { useMemo, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { flattenTreeWithTimelineMetrics } from '../lib/timeline-flattening'
-import {
-  calculateStepSize,
-  SCALE_WIDTH,
-} from '../lib/timeline-calculations'
+import { calculateStepSize, SCALE_WIDTH } from '../lib/timeline-calculations'
 import { useObservationData } from '../contexts/ObservationDataContext'
 import { useObservationSelection } from '../contexts/ObservationSelectionContext'
 import { useObservationViewPrefs } from '../contexts/ObservationViewPrefsContext'
@@ -16,18 +13,14 @@ import { TimelineScale } from './TimelineScale'
 
 export function ObservationTimeline() {
   const { roots } = useObservationData()
-  const { selectedNodeId, selectNode, collapsedNodes, toggleCollapse } =
-    useObservationSelection()
+  const { selectedNodeId, selectNode, collapsedNodes, toggleCollapse } = useObservationSelection()
   const { showCostTokens, colorCodeMetrics } = useObservationViewPrefs()
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const timeIndexRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
 
-  const traceDuration = useMemo(
-    () => Math.max(...roots.map((r) => r.latency ?? 0), 0.01),
-    [roots],
-  )
+  const traceDuration = useMemo(() => Math.max(...roots.map((r) => r.latency ?? 0), 0.01), [roots])
   const traceStartTime = useMemo(
     () =>
       roots.length > 0
@@ -59,33 +52,19 @@ export function ObservationTimeline() {
   const rootTotalCost = roots.length > 0 ? roots[0].totalCost : undefined
 
   const handleTimeIndexScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    if (contentRef.current)
-      contentRef.current.scrollLeft = e.currentTarget.scrollLeft
+    if (contentRef.current) contentRef.current.scrollLeft = e.currentTarget.scrollLeft
   }
   const handleContentScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    if (timeIndexRef.current)
-      timeIndexRef.current.scrollLeft = e.currentTarget.scrollLeft
+    if (timeIndexRef.current) timeIndexRef.current.scrollLeft = e.currentTarget.scrollLeft
   }
 
   return (
     <div className="flex h-full flex-col">
-      <div
-        ref={timeIndexRef}
-        className="shrink-0 overflow-x-auto"
-        onScroll={handleTimeIndexScroll}
-      >
-        <TimelineScale
-          traceDuration={traceDuration}
-          scaleWidth={SCALE_WIDTH}
-          stepSize={stepSize}
-        />
+      <div ref={timeIndexRef} className="shrink-0 overflow-x-auto" onScroll={handleTimeIndexScroll}>
+        <TimelineScale traceDuration={traceDuration} scaleWidth={SCALE_WIDTH} stepSize={stepSize} />
       </div>
 
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-auto"
-        onScroll={handleContentScroll}
-      >
+      <div ref={scrollRef} className="flex-1 overflow-auto" onScroll={handleContentScroll}>
         <div
           ref={contentRef}
           style={{

@@ -166,10 +166,7 @@ export function TaskListView({ tasks, agentsMap, onSelectTask }: TaskListViewPro
                   <PriorityBadge priority={m.priority} />
                 </TableCell>
                 <TableCell className="text-xs text-[var(--text-muted)]">
-                  {/* Support both new agent_id and legacy assignee_id */}
-                  {(m.agent_id ?? m.assignee_id)
-                    ? (agentsMap[m.agent_id ?? m.assignee_id ?? ''] ?? 'Agent')
-                    : '—'}
+                  {m.agent_id ? (agentsMap[m.agent_id] ?? 'Agent') : '—'}
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-1">

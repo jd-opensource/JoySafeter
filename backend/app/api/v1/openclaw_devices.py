@@ -46,7 +46,12 @@ async def _docker_exec(container_id: str, cmd: list[str]) -> str:
             raise ServiceUnavailableError(
                 "OpenClaw device command failed",
                 code="OPENCLAW_DEVICE_COMMAND_FAILED",
-                data={"container_id": container_id, "command": cmd, "exit_code": exit_code, "detail": output_str.strip()},
+                data={
+                    "container_id": container_id,
+                    "command": cmd,
+                    "exit_code": exit_code,
+                    "detail": output_str.strip(),
+                },
             )
         return output_str.strip()
     except docker.errors.NotFound:

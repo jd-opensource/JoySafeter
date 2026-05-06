@@ -1,8 +1,4 @@
-export function heatMapTextColor(p: {
-  min?: number
-  max: number
-  value: number
-}): string {
+export function heatMapTextColor(p: { min?: number; max: number; value: number }): string {
   const { min = 0, max, value } = p
   if (max === min) return ''
   const ratio = (value - min) / (max - min)
@@ -14,8 +10,7 @@ export function heatMapTextColor(p: {
 export function formatIntervalSeconds(seconds: number): string {
   if (seconds < 1) return `${Math.round(seconds * 1000)}ms`
   if (seconds < 60) return `${seconds.toFixed(2)}s`
-  if (seconds < 3600)
-    return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`
 }
 

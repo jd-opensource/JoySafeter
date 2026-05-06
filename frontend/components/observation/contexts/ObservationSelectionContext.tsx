@@ -1,8 +1,6 @@
 'use client'
 
-import React, {
-  createContext, useCallback, useContext, useMemo, useRef, useState,
-} from 'react'
+import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 
 interface ObservationSelectionValue {
@@ -63,10 +61,7 @@ export function ObservationSelectionProvider({ children }: { children: React.Rea
     })
   }, [])
   const expandAll = useCallback(() => setCollapsedNodes(new Set()), [])
-  const collapseAll = useCallback(
-    (ids: string[]) => setCollapsedNodes(new Set(ids)),
-    [],
-  )
+  const collapseAll = useCallback((ids: string[]) => setCollapsedNodes(new Set(ids)), [])
 
   const [searchInputValue, setSearchInputValue] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
@@ -96,33 +91,51 @@ export function ObservationSelectionProvider({ children }: { children: React.Rea
 
   const value = useMemo(
     () => ({
-      selectedNodeId, selectNode,
-      collapsedNodes, toggleCollapse, expandAll, collapseAll,
-      searchInputValue, searchQuery,
-      setSearchInputValue: handleSearchInput, setSearchQueryImmediate,
-      viewMode, setViewMode,
-      selectedTab, setSelectedTab,
-      viewPref, setViewPref,
+      selectedNodeId,
+      selectNode,
+      collapsedNodes,
+      toggleCollapse,
+      expandAll,
+      collapseAll,
+      searchInputValue,
+      searchQuery,
+      setSearchInputValue: handleSearchInput,
+      setSearchQueryImmediate,
+      viewMode,
+      setViewMode,
+      selectedTab,
+      setSelectedTab,
+      viewPref,
+      setViewPref,
     }),
     [
-      selectedNodeId, selectNode,
-      collapsedNodes, toggleCollapse, expandAll, collapseAll,
-      searchInputValue, searchQuery, handleSearchInput, setSearchQueryImmediate,
-      viewMode, setViewMode,
-      selectedTab, setSelectedTab,
-      viewPref, setViewPref,
+      selectedNodeId,
+      selectNode,
+      collapsedNodes,
+      toggleCollapse,
+      expandAll,
+      collapseAll,
+      searchInputValue,
+      searchQuery,
+      handleSearchInput,
+      setSearchQueryImmediate,
+      viewMode,
+      setViewMode,
+      selectedTab,
+      setSelectedTab,
+      viewPref,
+      setViewPref,
     ],
   )
 
   return (
-    <ObservationSelectionCtx.Provider value={value}>
-      {children}
-    </ObservationSelectionCtx.Provider>
+    <ObservationSelectionCtx.Provider value={value}>{children}</ObservationSelectionCtx.Provider>
   )
 }
 
 export function useObservationSelection() {
   const ctx = useContext(ObservationSelectionCtx)
-  if (!ctx) throw new Error('useObservationSelection must be used within ObservationSelectionProvider')
+  if (!ctx)
+    throw new Error('useObservationSelection must be used within ObservationSelectionProvider')
   return ctx
 }

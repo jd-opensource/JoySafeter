@@ -29,9 +29,7 @@ export function ChatHistory({ events, isLoading, isExecuting }: ChatHistoryProps
   const visible = useMemo(
     () =>
       events.filter(
-        (e) =>
-          !IGNORED_EVENTS.has(e.event_type) &&
-          !e.event_type.startsWith('copilot_'),
+        (e) => !IGNORED_EVENTS.has(e.event_type) && !e.event_type.startsWith('copilot_'),
       ),
     [events],
   )
@@ -47,9 +45,7 @@ export function ChatHistory({ events, isLoading, isExecuting }: ChatHistoryProps
   if (visible.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-[var(--text-muted)]">
-          {t('chat.noMessages')}
-        </p>
+        <p className="text-sm text-[var(--text-muted)]">{t('chat.noMessages')}</p>
       </div>
     )
   }

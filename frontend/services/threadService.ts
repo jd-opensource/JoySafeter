@@ -12,9 +12,7 @@ import type {
 
 export const threadService = {
   list: async (agentId: string, workspaceId: string): Promise<Thread[]> => {
-    const res = await apiGet<Thread[]>(
-      `threads?agent_id=${agentId}&workspace_id=${workspaceId}`,
-    )
+    const res = await apiGet<Thread[]>(`threads?agent_id=${agentId}&workspace_id=${workspaceId}`)
     return res ?? []
   },
 
@@ -22,9 +20,7 @@ export const threadService = {
     return apiGet<Thread>(`threads/${threadId}?workspace_id=${workspaceId}`)
   },
 
-  create: async (
-    data: CreateThreadRequest & { workspace_id: string },
-  ): Promise<Thread> => {
+  create: async (data: CreateThreadRequest & { workspace_id: string }): Promise<Thread> => {
     const { workspace_id, ...body } = data
     return apiPost<Thread>(`threads?workspace_id=${workspace_id}`, body)
   },
@@ -34,10 +30,7 @@ export const threadService = {
     workspaceId: string,
     data: UpdateThreadRequest,
   ): Promise<Thread> => {
-    return apiPatch<Thread>(
-      `threads/${threadId}?workspace_id=${workspaceId}`,
-      data,
-    )
+    return apiPatch<Thread>(`threads/${threadId}?workspace_id=${workspaceId}`, data)
   },
 
   archive: async (threadId: string, workspaceId: string): Promise<void> => {
@@ -61,9 +54,9 @@ export const threadService = {
     message: string,
     attachments: ChatAttachment[] = [],
   ): Promise<ChatResponse> => {
-    return apiPost<ChatResponse>(
-      `threads/${threadId}/chat?workspace_id=${workspaceId}`,
-      { message, attachments: attachments.length ? attachments : undefined },
-    )
+    return apiPost<ChatResponse>(`threads/${threadId}/chat?workspace_id=${workspaceId}`, {
+      message,
+      attachments: attachments.length ? attachments : undefined,
+    })
   },
 }

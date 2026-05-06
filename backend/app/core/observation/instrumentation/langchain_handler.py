@@ -1,4 +1,5 @@
 """LangChain async callback handler — maps all 18 hooks to OTel observation spans."""
+
 from __future__ import annotations
 
 import json
@@ -17,11 +18,11 @@ from app.core.observation.instrumentation.langchain_utils import (
     _classify_chain,
     extract_model_name,
 )
-from app.utils.message_serializer import serialize_message
-from app.utils.token_usage import extract_usage_from_llm_result
 from app.core.observation.otel.provider import ObservationTracerProvider
 from app.core.observation.otel.span_wrapper import ObservationSpan
 from app.core.observation.types import ObservationLevel, ObservationType
+from app.utils.message_serializer import serialize_message
+from app.utils.token_usage import extract_usage_from_llm_result
 
 
 def _safe_json(obj: Any) -> Any:
@@ -150,7 +151,8 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
             parent_ctx = parent_span.get_context()
 
         otel_span = self._tracer.start_span(
-            name, context=parent_ctx,
+            name,
+            context=parent_ctx,
             attributes={
                 "observation.id": str(obs_id),
                 "observation.type": obs_type.value,
@@ -287,14 +289,16 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
             for msg_list in messages:
                 input_msgs.extend(serialize_message(m) for m in msg_list)
 
-            obs = self._start_obs_span(
-                run_id, name, ObservationType.GENERATION, parent_run_id
-            )
+            obs = self._start_obs_span(run_id, name, ObservationType.GENERATION, parent_run_id)
             obs.set_input(input_msgs)
 
             self._apply_llm_attributes(
-                obs, run_id, parent_run_id,
-                serialized=serialized, metadata=metadata, kwargs=kwargs,
+                obs,
+                run_id,
+                parent_run_id,
+                serialized=serialized,
+                metadata=metadata,
+                kwargs=kwargs,
             )
         except Exception:
             logger.opt(exception=True).debug("on_chat_model_start failed")
@@ -313,14 +317,16 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
         try:
             self._track_run(run_id, parent_run_id)
             name = (serialized or {}).get("name", "") or kwargs.get("name", "llm")
-            obs = self._start_obs_span(
-                run_id, name, ObservationType.GENERATION, parent_run_id
-            )
+            obs = self._start_obs_span(run_id, name, ObservationType.GENERATION, parent_run_id)
             obs.set_input(prompts[0] if len(prompts) == 1 else prompts)
 
             self._apply_llm_attributes(
-                obs, run_id, parent_run_id,
-                serialized=serialized or {}, metadata=metadata, kwargs=kwargs,
+                obs,
+                run_id,
+                parent_run_id,
+                serialized=serialized or {},
+                metadata=metadata,
+                kwargs=kwargs,
             )
         except Exception:
             logger.opt(exception=True).debug("on_llm_start failed")
@@ -431,9 +437,7 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
         try:
             self._track_run(run_id, parent_run_id)
             name = (serialized or {}).get("name", "") or kwargs.get("name", "tool")
-            obs = self._start_obs_span(
-                run_id, name, ObservationType.TOOL, parent_run_id
-            )
+            obs = self._start_obs_span(run_id, name, ObservationType.TOOL, parent_run_id)
             obs.set_input({"arguments": input_str})
             if metadata:
                 obs.set_metadata(metadata)
@@ -487,9 +491,7 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
         try:
             self._track_run(run_id, parent_run_id)
             name = (serialized or {}).get("name", "") or kwargs.get("name", "retriever")
-            obs = self._start_obs_span(
-                run_id, name, ObservationType.RETRIEVER, parent_run_id
-            )
+            obs = self._start_obs_span(run_id, name, ObservationType.RETRIEVER, parent_run_id)
             obs.set_input({"query": query})
             if metadata:
                 obs.set_metadata(metadata)
@@ -556,9 +558,7 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
         try:
             obs = self._runs.get(run_id)
             if obs:
-                return_values = _safe_json(
-                    getattr(finish, "return_values", str(finish))
-                )
+                return_values = _safe_json(getattr(finish, "return_values", str(finish)))
                 obs.set_output(return_values)
         except Exception:
             logger.opt(exception=True).debug("on_agent_finish failed")
@@ -575,10 +575,13 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
         try:
             obs = self._runs.get(run_id)
             if obs:
-                obs.add_event("retry", {
-                    "attempt": str(getattr(retry_state, "attempt_number", "?")),
-                    "error": str(getattr(retry_state, "outcome", "")),
-                })
+                obs.add_event(
+                    "retry",
+                    {
+                        "attempt": str(getattr(retry_state, "attempt_number", "?")),
+                        "error": str(getattr(retry_state, "outcome", "")),
+                    },
+                )
         except Exception:
             logger.opt(exception=True).debug("on_retry failed")
 

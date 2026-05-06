@@ -245,7 +245,8 @@ const en = {
         brief: {
           kicker: 'First build step',
           title: 'Describe the Agent you want to build',
-          subtitle: 'Copilot will turn this brief into an editable visual workflow. You can still skip and build manually on the canvas.',
+          subtitle:
+            'Copilot will turn this brief into an editable visual workflow. You can still skip and build manually on the canvas.',
           goal: 'Goal',
           input: 'Input',
           output: 'Output',
@@ -258,7 +259,8 @@ const en = {
         testLab: {
           kicker: 'Draft validation',
           title: 'Test the current draft',
-          subtitle: 'Run draft behavior before publishing. These tests do not affect the active release.',
+          subtitle:
+            'Run draft behavior before publishing. These tests do not affect the active release.',
           inputLabel: 'Test input',
           inputPlaceholder: 'Enter a sample request for this draft...',
           runDraft: 'Run Draft',
@@ -313,8 +315,10 @@ const en = {
         usage: {
           kicker: 'Business usage',
           title: 'Use this Agent in business scenarios',
-          subtitleReady: 'The active release can now be connected to chat, tasks, API calls, and business workflows.',
-          subtitleNoRelease: 'Publish and activate a release before connecting this Agent to business usage.',
+          subtitleReady:
+            'The active release can now be connected to chat, tasks, API calls, and business workflows.',
+          subtitleNoRelease:
+            'Publish and activate a release before connecting this Agent to business usage.',
           chat: 'Chat',
           chatDesc: 'Start conversations against the active release.',
           tasks: 'Tasks and workflows',
@@ -369,8 +373,10 @@ const en = {
         usage: {
           kicker: 'Business usage',
           title: 'Use this Agent in business scenarios',
-          subtitleReady: 'The active release can now be connected to chat, tasks, API calls, and business workflows.',
-          subtitleNoRelease: 'Publish and activate a release before connecting this Agent to business usage.',
+          subtitleReady:
+            'The active release can now be connected to chat, tasks, API calls, and business workflows.',
+          subtitleNoRelease:
+            'Publish and activate a release before connecting this Agent to business usage.',
           chat: 'Chat',
           chatDesc: 'Start conversations against the active release.',
           tasks: 'Tasks and workflows',
@@ -801,7 +807,8 @@ const en = {
       oauthDenied: 'Authentication was cancelled.',
       oauthInvalidState: 'Invalid authentication state. Please try again.',
       oauthProviderNotFound: 'The selected authentication provider is unavailable.',
-      oauthDiscoveryFailed: 'Failed to initialize the authentication provider. Please try again later.',
+      oauthDiscoveryFailed:
+        'Failed to initialize the authentication provider. Please try again later.',
       oauthAuthorizeUrlMissing: 'The authentication provider is not configured correctly.',
       oauthTokenUrlMissing: 'The authentication token endpoint is not configured correctly.',
       oauthUserinfoUrlMissing: 'The authentication user info endpoint is not configured correctly.',

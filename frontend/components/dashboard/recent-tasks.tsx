@@ -56,7 +56,7 @@ export function RecentTasks({ workspaceId, tasks }: RecentTasksProps) {
       ) : (
         <div className="space-y-1">
           {recentTasks.map((task: Task) => {
-            const agentId = task.agent_id ?? task.assignee_id
+            const agentId = task.agent_id
             const agentName = agentId ? agentsMap[agentId] : undefined
 
             return (
@@ -70,9 +70,7 @@ export function RecentTasks({ workspaceId, tasks }: RecentTasksProps) {
                   {task.title}
                 </span>
                 {agentName && (
-                  <span className="shrink-0 text-xs text-[var(--text-muted)]">
-                    {agentName}
-                  </span>
+                  <span className="shrink-0 text-xs text-[var(--text-muted)]">{agentName}</span>
                 )}
                 <Badge
                   variant="outline"

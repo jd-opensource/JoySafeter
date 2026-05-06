@@ -386,7 +386,14 @@ class ExecutionRunner:
             await self._events.append_event(
                 execution_id=execution_id,
                 event_type=ExecutionEventType.ERROR,
-                payload=error_payload or {"code": "EXECUTION_FAILED", "message": error, "data": None, "source": "runtime", "retryable": False},
+                payload=error_payload
+                or {
+                    "code": "EXECUTION_FAILED",
+                    "message": error,
+                    "data": None,
+                    "source": "runtime",
+                    "retryable": False,
+                },
             )
             await self._events.complete_execution(
                 execution_id=execution_id,

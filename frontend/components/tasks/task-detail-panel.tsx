@@ -64,7 +64,7 @@ import {
   TASK_STATUS_LABELS,
   TASK_STATUS_ORDER,
   TASK_STATUS_STYLES,
-  TERMINAL_TASK_STATUSES,
+  INACTIVE_TASK_STATUSES,
 } from '@/types/tasks'
 
 import { PriorityBadge } from './priority-badge'
@@ -89,10 +89,8 @@ interface TaskDetailPanelProps {
 export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPanelProps) {
   const { t } = useTranslation()
   const { data: task, isLoading } = useTask(taskId, workspaceId)
-  const { data: agent } = useAgent(task?.agent_id ?? task?.assignee_id ?? '', workspaceId, {
-    enabled:
-      (task?.assignee_type === 'agent' || Boolean(task?.agent_id)) &&
-      Boolean(task?.agent_id ?? task?.assignee_id),
+  const { data: agent } = useAgent(task?.agent_id ?? '', workspaceId, {
+    enabled: Boolean(task?.agent_id),
   })
   const { data: agents = [] } = useAgents(workspaceId, { enabled: Boolean(workspaceId) })
   const { data: runs = [] } = useAgentRuns(
@@ -122,24 +120,18 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
 
   const canDispatch = useMemo(() => {
     if (!task) return false
-    const hasAgent =
-      (task.assignee_type === 'agent' && task.assignee_id) || Boolean(task.agent_id)
+    const hasAgent = Boolean(task.agent_id)
     const notRunning = !task.current_execution_id && !task.latest_run_id
     const validStatus: TaskStatus[] = ['todo', 'in_progress', 'in_review', 'backlog']
     return hasAgent && notRunning && validStatus.includes(task.status)
   }, [task])
 
   const currentRun = useMemo(
-    () =>
-      task?.latest_run_id
-        ? runs.find((r) => r.id === task.latest_run_id)
-        : undefined,
+    () => (task?.latest_run_id ? runs.find((r) => r.id === task.latest_run_id) : undefined),
     [task, runs],
   )
 
-  const canCancel = currentRun
-    ? ACTIVE_RUN_STATUSES.includes(currentRun.status)
-    : false
+  const canCancel = currentRun ? ACTIVE_RUN_STATUSES.includes(currentRun.status) : false
 
   const pastRunCount = runs.length - (currentRun ? 1 : 0)
 
@@ -193,15 +185,12 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
   }
 
   const handleAssign = (agentId: string) => {
-    assignTask.mutate(
-      { taskId, workspaceId, agentId: agentId },
-      { onError: onMutationError },
-    )
+    assignTask.mutate({ taskId, workspaceId, agentId: agentId }, { onError: onMutationError })
     setAgentPickerOpen(false)
   }
 
   const handleUnassign = () => {
-    doUpdate({ assignee_type: null, assignee_id: null })
+    doUpdate({ agent_id: null })
     setAgentPickerOpen(false)
   }
 
@@ -274,7 +263,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                 onValueChange={(v) => {
                   if (
                     task.current_execution_id &&
-                    (TERMINAL_TASK_STATUSES as readonly string[]).includes(v)
+                    (INACTIVE_TASK_STATUSES as readonly string[]).includes(v)
                   )
                     return
                   doUpdate({ status: v as TaskStatus })
@@ -301,7 +290,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                       value={s}
                       disabled={
                         Boolean(task.current_execution_id) &&
-                        (TERMINAL_TASK_STATUSES as readonly string[]).includes(s)
+                        (INACTIVE_TASK_STATUSES as readonly string[]).includes(s)
                       }
                     >
                       {TASK_STATUS_LABELS[s]}
@@ -443,9 +432,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                 <div className="flex items-center gap-2">
                   <input
                     type="date"
-                    value={
-                      task.due_date ? new Date(task.due_date).toISOString().split('T')[0] : ''
-                    }
+                    value={task.due_date ? new Date(task.due_date).toISOString().split('T')[0] : ''}
                     onChange={(e) => doUpdate({ due_date: e.target.value || null })}
                     className="h-7 rounded border border-[var(--border)] bg-transparent px-2 text-xs text-[var(--text-secondary)] outline-none focus:ring-1 focus:ring-[var(--brand-400)]"
                   />
@@ -468,11 +455,11 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                 <span className="text-xs font-medium text-[var(--text-muted)]">
                   {t('tasks.agent')}
                 </span>
-                {(task.assignee_type === 'agent' || Boolean(task.agent_id)) && agent ? (
+                {Boolean(task.agent_id) && agent ? (
                   <div className="flex items-center gap-2">
                     <Bot className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
                     <Link
-                      href={`/agents/${task.agent_id ?? task.assignee_id}`}
+                      href={`/agents/${task.agent_id}`}
                       className="text-sm font-medium text-[var(--brand-500)] hover:underline"
                     >
                       {agent.name}
@@ -487,7 +474,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                       <PopoverContent className="w-60 p-0" align="end">
                         <AgentPickerContent
                           agents={agents}
-                          currentAgentId={task.agent_id ?? task.assignee_id}
+                          currentAgentId={task.agent_id}
                           onSelect={handleAssign}
                           onUnassign={handleUnassign}
                         />
@@ -518,7 +505,9 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
               {/* Auto Approve */}
               <div className="flex items-center justify-between px-3 py-2.5">
                 <div className="space-y-0.5">
-                  <p className="text-xs font-medium text-[var(--text-primary)]">{t('tasks.autoApprove')}</p>
+                  <p className="text-xs font-medium text-[var(--text-primary)]">
+                    {t('tasks.autoApprove')}
+                  </p>
                   <p className="text-[10px] text-[var(--text-muted)]">
                     {task.auto_approve
                       ? t('tasks.autoApproveOnDesc')
@@ -570,17 +559,12 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                           size="sm"
                           className="h-6 px-2 text-xs"
                           onClick={() =>
-                            cancelRun.mutate(
-                              currentRun.id,
-                              { onError: onMutationError },
-                            )
+                            cancelRun.mutate(currentRun.id, { onError: onMutationError })
                           }
                           disabled={cancelRun.isPending}
                         >
                           <Square className="mr-1 h-3 w-3" />
-                          {cancelRun.isPending
-                            ? t('tasks.stoppingRun')
-                            : t('tasks.stopRun')}
+                          {cancelRun.isPending ? t('tasks.stoppingRun') : t('tasks.stopRun')}
                         </Button>
                       )}
                     </div>
@@ -596,9 +580,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                           timelineExpanded && 'rotate-180',
                         )}
                       />
-                      {timelineExpanded
-                        ? t('tasks.collapseTimeline')
-                        : t('tasks.expandTimeline')}
+                      {timelineExpanded ? t('tasks.collapseTimeline') : t('tasks.expandTimeline')}
                     </Button>
                   </div>
                   {timelineExpanded && (
@@ -670,18 +652,17 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                   <Clock className="h-3 w-3" />
                   Created {formatDate(task.created_at)}
                 </div>
-                {!TERMINAL_TASK_STATUSES.includes(task.status) &&
-                  !task.current_execution_id && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-                      onClick={() => setShowCancelConfirm(true)}
-                    >
-                      <Archive className="h-3.5 w-3.5" />
-                      {t('tasks.archive')}
-                    </Button>
-                  )}
+                {!INACTIVE_TASK_STATUSES.includes(task.status) && !task.current_execution_id && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                    onClick={() => setShowCancelConfirm(true)}
+                  >
+                    <Archive className="h-3.5 w-3.5" />
+                    {t('tasks.archive')}
+                  </Button>
+                )}
               </div>
               {task.updated_at !== task.created_at && (
                 <div className="mt-1 flex items-center gap-1.5 text-xs text-[var(--text-muted)]">

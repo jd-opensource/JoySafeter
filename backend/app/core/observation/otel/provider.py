@@ -1,4 +1,5 @@
 """ObservationTracerProvider — per-execution OTel TracerProvider lifecycle."""
+
 from __future__ import annotations
 
 import asyncio
@@ -26,20 +27,18 @@ class ObservationTracerProvider:
         event_loop: asyncio.AbstractEventLoop,
     ) -> None:
         self._provider = TracerProvider(
-            resource=Resource.create({
-                "service.name": "joysafeter",
-                "execution.id": str(execution_id),
-                "trace.id": str(trace_id),
-                "workspace.id": str(workspace_id),
-            })
+            resource=Resource.create(
+                {
+                    "service.name": "joysafeter",
+                    "execution.id": str(execution_id),
+                    "trace.id": str(trace_id),
+                    "workspace.id": str(workspace_id),
+                }
+            )
         )
-        self._persistence = PersistenceProcessor(
-            execution_id, trace_id, workspace_id, db_session_factory, event_loop
-        )
+        self._persistence = PersistenceProcessor(execution_id, trace_id, workspace_id, db_session_factory, event_loop)
         self._trace_id = trace_id
-        self._broadcast = BroadcastProcessor(
-            execution_id, trace_id, broadcast_fn, event_loop
-        )
+        self._broadcast = BroadcastProcessor(execution_id, trace_id, broadcast_fn, event_loop)
         self._provider.add_span_processor(self._persistence)
         self._provider.add_span_processor(self._broadcast)
         self._tracer = self._provider.get_tracer("joysafeter.observation")
@@ -48,9 +47,7 @@ class ObservationTracerProvider:
     def get_tracer(self) -> Tracer:
         return self._tracer
 
-    def dispatch_live_event(
-        self, span: ObservationSpan, event_name: str, attributes: dict
-    ) -> None:
+    def dispatch_live_event(self, span: ObservationSpan, event_name: str, attributes: dict) -> None:
         for proc in self._live_processors:
             proc.on_event(span, event_name, attributes)
 

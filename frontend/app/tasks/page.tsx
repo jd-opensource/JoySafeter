@@ -67,13 +67,10 @@ export default function TasksPage() {
 
   const tasks = useMemo(() => {
     if (!agentFilter) return allTasks
-    return allTasks.filter((t) => (t.agent_id ?? t.assignee_id) === agentFilter)
+    return allTasks.filter((t) => t.agent_id === agentFilter)
   }, [allTasks, agentFilter])
 
-  const attentionTasks = useMemo(
-    () => allTasks.filter((t) => t.status === 'in_review'),
-    [allTasks],
-  )
+  const attentionTasks = useMemo(() => allTasks.filter((t) => t.status === 'in_review'), [allTasks])
 
   const inProgressTasks = useMemo(
     () => allTasks.filter((t) => t.status === 'in_progress'),
@@ -83,7 +80,9 @@ export default function TasksPage() {
   const recentlyDoneTasks = useMemo(() => {
     const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000
     return allTasks
-      .filter((t) => t.status === 'done' && t.updated_at && new Date(t.updated_at).getTime() > oneDayAgo)
+      .filter(
+        (t) => t.status === 'done' && t.updated_at && new Date(t.updated_at).getTime() > oneDayAgo,
+      )
       .sort((a, b) => new Date(b.updated_at!).getTime() - new Date(a.updated_at!).getTime())
   }, [allTasks])
 
@@ -108,7 +107,9 @@ export default function TasksPage() {
             >
               <option value="">{t('tasks.allAgents')}</option>
               {agents.map((a) => (
-                <option key={a.id} value={a.id}>{a.name}</option>
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
               ))}
             </select>
 
@@ -180,7 +181,9 @@ export default function TasksPage() {
         ) : allTasks.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-4">
             <Target className="h-10 w-10 text-[var(--text-muted)]" />
-            <h2 className="text-lg font-semibold text-[var(--text-primary)]">{t('tasks.emptyTitle')}</h2>
+            <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+              {t('tasks.emptyTitle')}
+            </h2>
             <p className="text-sm text-[var(--text-muted)]">{t('tasks.emptyDescription')}</p>
             <Link
               href="/agents"
@@ -192,21 +195,24 @@ export default function TasksPage() {
         ) : (
           <>
             {/* Attention + Activity summary — only show when not filtered */}
-            {!agentFilter && (attentionTasks.length > 0 || inProgressTasks.length > 0 || recentlyDoneTasks.length > 0) && (
-              <div className="space-y-4 px-8 py-6">
-                <TaskAttentionPanel
-                  tasks={attentionTasks}
-                  agentsMap={agentsMap}
-                  onSelectTask={setSelectedTaskId}
-                />
-                <TaskActivitySummary
-                  inProgressTasks={inProgressTasks}
-                  recentlyDoneTasks={recentlyDoneTasks}
-                  agentsMap={agentsMap}
-                  onSelectTask={setSelectedTaskId}
-                />
-              </div>
-            )}
+            {!agentFilter &&
+              (attentionTasks.length > 0 ||
+                inProgressTasks.length > 0 ||
+                recentlyDoneTasks.length > 0) && (
+                <div className="space-y-4 px-8 py-6">
+                  <TaskAttentionPanel
+                    tasks={attentionTasks}
+                    agentsMap={agentsMap}
+                    onSelectTask={setSelectedTaskId}
+                  />
+                  <TaskActivitySummary
+                    inProgressTasks={inProgressTasks}
+                    recentlyDoneTasks={recentlyDoneTasks}
+                    agentsMap={agentsMap}
+                    onSelectTask={setSelectedTaskId}
+                  />
+                </div>
+              )}
 
             {/* Full task board/list */}
             <div className="flex-1 overflow-hidden">

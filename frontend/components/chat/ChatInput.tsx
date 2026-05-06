@@ -87,7 +87,8 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
     <div
       className={cn(
         'relative border-t border-[var(--border)] bg-[var(--surface-elevated)] px-4 py-3 transition-colors',
-        isDragOver && 'bg-[var(--skill-brand-600)]/5 ring-2 ring-inset ring-[var(--skill-brand-600)]/30',
+        isDragOver &&
+          'bg-[var(--skill-brand-600)]/5 ring-[var(--skill-brand-600)]/30 ring-2 ring-inset',
       )}
       onDrop={handleDrop}
       onDragOver={(e) => e.preventDefault()}
@@ -110,9 +111,7 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
               filename={f.name}
               mimeType={f.type}
               sizeBytes={f.size}
-              onRemove={() =>
-                setFiles((prev) => prev.filter((_, j) => j !== i))
-              }
+              onRemove={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
             />
           ))}
           {files.length >= UPLOAD_LIMITS.MAX_FILES_PER_UPLOAD && (
@@ -158,11 +157,7 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
           disabled={disabled || (!text.trim() && files.length === 0)}
           className="h-9 gap-1.5"
         >
-          {disabled ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Send className="h-4 w-4" />
-          )}
+          {disabled ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
         </Button>
       </div>
     </div>

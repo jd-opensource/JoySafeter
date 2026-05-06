@@ -33,16 +33,14 @@ export function ObservationNodeWrapper({
     <div
       className={cn(
         'flex w-full cursor-pointer items-center pr-1',
-        isSelected && 'rounded-sm bg-muted/50 ring-2 ring-primary-accent',
+        isSelected && 'ring-primary-accent rounded-sm bg-muted/50 ring-2',
         isError && 'border-l-2 border-red-500',
       )}
       onClick={onSelect}
     >
       {treeLines.map((hasLine, i) => (
         <div key={i} className="relative w-5 shrink-0 self-stretch">
-          {hasLine && (
-            <div className="absolute bottom-0 left-3 top-0 w-px bg-border" />
-          )}
+          {hasLine && <div className="absolute bottom-0 left-3 top-0 w-px bg-border" />}
         </div>
       ))}
 
@@ -58,7 +56,7 @@ export function ObservationNodeWrapper({
         </div>
       )}
 
-      <div className="relative w-6 shrink-0 self-stretch flex items-center justify-center">
+      <div className="relative flex w-6 shrink-0 items-center justify-center self-stretch">
         <ItemBadge type={nodeType} />
         {hasChildren && !isCollapsed && (
           <div className="absolute bottom-0 left-1/2 top-3 w-px bg-border" />

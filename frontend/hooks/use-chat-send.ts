@@ -49,20 +49,13 @@ export function useChatSend(threadId: string, workspaceId: string) {
         }
         queryClient.setQueryData(
           threadEventKeys.events(threadId, workspaceId),
-          (
-            old: { events: ThreadEvent[]; total: number } | undefined,
-          ) => ({
+          (old: { events: ThreadEvent[]; total: number } | undefined) => ({
             events: [...(old?.events ?? []), optimisticEvent],
             total: (old?.total ?? 0) + 1,
           }),
         )
 
-        const res = await threadService.sendChat(
-          threadId,
-          workspaceId,
-          message,
-          attachments,
-        )
+        const res = await threadService.sendChat(threadId, workspaceId, message, attachments)
         setExecutionId(res.execution_id)
         return res
       } finally {

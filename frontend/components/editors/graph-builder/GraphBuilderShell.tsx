@@ -12,9 +12,7 @@ interface GraphBuilderShellProps {
   agentId: string
 }
 
-export function GraphBuilderShell({
-  agentId,
-}: GraphBuilderShellProps) {
+export function GraphBuilderShell({ agentId }: GraphBuilderShellProps) {
   const selectedNodeId = useGraphStore((s) => s.selectedNodeId)
   const selectedEdgeId = useGraphStore((s) => s.selectedEdgeId)
   const clearSelection = useGraphStore((s) => s.selectNode)

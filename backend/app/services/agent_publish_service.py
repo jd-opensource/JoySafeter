@@ -94,4 +94,3 @@ class AgentPublishService(BaseService):
                 data={"version_id": str(agent.current_draft_version_id)},
             )
         return version
-

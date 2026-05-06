@@ -3,7 +3,11 @@
 import { ArrowLeft, Bot, Loader2, MessageSquare, Settings } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useSearchParams, useRouter } from 'next/navigation'
-import { BUILD_STAGES, isBuildStageId, type BuildStageId } from '@/components/agents/agent-build/agent-build-types'
+import {
+  BUILD_STAGES,
+  isBuildStageId,
+  type BuildStageId,
+} from '@/components/agents/agent-build/agent-build-types'
 import { BuildStepper } from '@/components/agents/agent-build/build-stepper'
 
 import { AgentStatusIndicator } from '@/components/agents/agent-status'
@@ -55,8 +59,13 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
     <div className="flex h-full flex-col bg-[var(--bg)]">
       <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-elevated)] px-4 py-2">
         {/* Left: Identity */}
-        <div className="flex items-center gap-3 min-w-0">
-          <Button variant="ghost" size="sm" asChild className="-ml-2 h-8 w-8 p-0 text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+        <div className="flex min-w-0 items-center gap-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            asChild
+            className="-ml-2 h-8 w-8 p-0 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          >
             <Link href="/agents">
               <ArrowLeft className="h-4 w-4" />
             </Link>
@@ -65,7 +74,7 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
           <h1 className="truncate text-sm font-semibold text-[var(--text-primary)]">
             {agent.name}
           </h1>
-          <AgentStatusIndicator status={agent.status} className="shrink-0 scale-75 origin-left" />
+          <AgentStatusIndicator status={agent.status} className="shrink-0 origin-left scale-75" />
         </div>
 
         {/* Center: Build Stepper (only in builder mode) */}

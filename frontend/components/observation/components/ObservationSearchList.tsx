@@ -9,12 +9,8 @@ import { formatIntervalSeconds } from '../lib/helpers'
 
 export function ObservationSearchList() {
   const { searchItems } = useObservationData()
-  const {
-    searchQuery,
-    selectedNodeId,
-    selectNode,
-    setSearchQueryImmediate,
-  } = useObservationSelection()
+  const { searchQuery, selectedNodeId, selectNode, setSearchQueryImmediate } =
+    useObservationSelection()
 
   const results = useMemo(() => {
     if (!searchQuery.trim()) return []

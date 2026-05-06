@@ -45,6 +45,7 @@ export interface UpdateTaskRequest {
   position?: number
   tags?: string[]
   due_date?: string | null
+  agent_id?: string | null
   auto_approve?: boolean
 }
 

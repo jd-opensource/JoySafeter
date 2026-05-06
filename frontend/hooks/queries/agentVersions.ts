@@ -35,11 +35,7 @@ export const versionKeys = {
 
 // ==================== Query Hooks ====================
 
-export function useVersions(
-  agentId: string,
-  workspaceId: string,
-  options?: { enabled?: boolean },
-) {
+export function useVersions(agentId: string, workspaceId: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: versionKeys.list(agentId, workspaceId),
     queryFn: async (): Promise<AgentVersion[]> => {
@@ -63,10 +59,7 @@ export function useVersion(
     queryKey: versionKeys.detail(agentId, versionId, workspaceId),
     queryFn: () => agentVersionService.get(agentId, versionId, workspaceId),
     enabled:
-      Boolean(agentId) &&
-      Boolean(versionId) &&
-      Boolean(workspaceId) &&
-      options?.enabled !== false,
+      Boolean(agentId) && Boolean(versionId) && Boolean(workspaceId) && options?.enabled !== false,
     staleTime: STALE_TIME.STANDARD,
   })
 }
@@ -186,10 +179,7 @@ export function useVersionGraphState(
       }
     },
     enabled:
-      Boolean(agentId) &&
-      Boolean(versionId) &&
-      Boolean(workspaceId) &&
-      options?.enabled !== false,
+      Boolean(agentId) && Boolean(versionId) && Boolean(workspaceId) && options?.enabled !== false,
     staleTime: STALE_TIME.SHORT,
     gcTime: CACHE_TIME.STANDARD,
     refetchOnMount: options?.refetchOnMount ?? false,

@@ -1,4 +1,12 @@
-import { API_BASE, apiGet, apiPost, apiPut, apiDelete, ApiResponse, createApiError } from '@/lib/api-client'
+import {
+  API_BASE,
+  apiGet,
+  apiPost,
+  apiPut,
+  apiDelete,
+  ApiResponse,
+  createApiError,
+} from '@/lib/api-client'
 
 import {
   Skill,

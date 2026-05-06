@@ -59,9 +59,7 @@ export function ArtifactPanel({
 
   // Simple artifact list mode
   const items =
-    artifacts ||
-    files?.map((f) => ({ type: 'file', title: f.path, content: f.content })) ||
-    []
+    artifacts || files?.map((f) => ({ type: 'file', title: f.path, content: f.content })) || []
 
   if (!items.length) return null
 

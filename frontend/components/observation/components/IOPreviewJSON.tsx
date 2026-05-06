@@ -45,9 +45,14 @@ function JsonSection({
         <div
           role="button"
           tabIndex={0}
-          className="flex h-6 w-6 items-center justify-center rounded opacity-0 hover:bg-muted transition-opacity group-hover:opacity-100"
+          className="flex h-6 w-6 items-center justify-center rounded opacity-0 transition-opacity hover:bg-muted group-hover:opacity-100"
           onClick={onCopy}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onCopy(e as unknown as React.MouseEvent) } }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              onCopy(e as unknown as React.MouseEvent)
+            }
+          }}
           title="Copy section"
         >
           {copied ? (

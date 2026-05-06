@@ -7,10 +7,7 @@ import { useStreamingText } from '../contexts/StreamingTextContext'
 import { ObservationDetailHeader } from './ObservationDetailHeader'
 import { IOPreview } from './IOPreview'
 import { PrettyJsonView } from './PrettyJsonView'
-import {
-  formatIntervalSeconds,
-  usdFormatter,
-} from '../lib/helpers'
+import { formatIntervalSeconds, usdFormatter } from '../lib/helpers'
 import type { ObservationNode } from '../lib/types'
 
 function TraceSummaryView() {

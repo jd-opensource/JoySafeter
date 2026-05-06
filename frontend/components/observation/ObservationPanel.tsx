@@ -12,13 +12,8 @@ import { usdFormatter, formatTokenCounts } from './lib/helpers'
 
 export function Toolbar() {
   const { roots, isExecuting } = useObservationData()
-  const {
-    searchInputValue,
-    setSearchInputValue,
-    setSearchQueryImmediate,
-    viewMode,
-    setViewMode,
-  } = useObservationSelection()
+  const { searchInputValue, setSearchInputValue, setSearchQueryImmediate, viewMode, setViewMode } =
+    useObservationSelection()
 
   const totalCost = roots.reduce((sum, r) => sum + r.totalCost, 0)
   const totalTokens = roots.reduce((sum, r) => sum + (r.totalUsage ?? 0), 0)
@@ -32,7 +27,7 @@ export function Toolbar() {
           placeholder="Search observations..."
           value={searchInputValue}
           onChange={(e) => setSearchInputValue(e.target.value)}
-          className="h-7 w-full rounded-sm border bg-transparent pl-7 pr-7 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary-accent"
+          className="focus:ring-primary-accent h-7 w-full rounded-sm border bg-transparent pl-7 pr-7 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1"
         />
         {searchInputValue && (
           <button
@@ -73,14 +68,10 @@ export function Toolbar() {
         </span>
       )}
       {totalCost > 0 && (
-        <span className="text-xs text-muted-foreground">
-          {usdFormatter(totalCost)}
-        </span>
+        <span className="text-xs text-muted-foreground">{usdFormatter(totalCost)}</span>
       )}
 
-      {isExecuting && (
-        <span className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
-      )}
+      {isExecuting && <span className="h-2 w-2 animate-pulse rounded-full bg-green-500" />}
     </div>
   )
 }
@@ -93,7 +84,7 @@ function ObservationPanelContent() {
         <Panel defaultSize={40} minSize={20} collapsible collapsedSize={3}>
           <ObservationNavigation />
         </Panel>
-        <PanelResizeHandle className="w-px bg-border hover:bg-primary-accent/50 transition-colors" />
+        <PanelResizeHandle className="hover:bg-primary-accent/50 w-px bg-border transition-colors" />
         <Panel defaultSize={60} minSize={30}>
           <ObservationDetailPanel />
         </Panel>

@@ -21,8 +21,12 @@ function readBool(key: string, fallback: boolean): boolean {
 
 export function ObservationViewPrefsProvider({ children }: { children: React.ReactNode }) {
   const [showDuration, _setShowDuration] = useState(() => readBool('obs-show-duration', true))
-  const [showCostTokens, _setShowCostTokens] = useState(() => readBool('obs-show-cost-tokens', true))
-  const [colorCodeMetrics, _setColorCodeMetrics] = useState(() => readBool('obs-color-code-metrics', true))
+  const [showCostTokens, _setShowCostTokens] = useState(() =>
+    readBool('obs-show-cost-tokens', true),
+  )
+  const [colorCodeMetrics, _setColorCodeMetrics] = useState(() =>
+    readBool('obs-color-code-metrics', true),
+  )
 
   const setShowDuration = useCallback((v: boolean) => {
     localStorage.setItem('obs-show-duration', String(v))
@@ -39,22 +43,31 @@ export function ObservationViewPrefsProvider({ children }: { children: React.Rea
 
   const value = useMemo(
     () => ({
-      showDuration, showCostTokens, colorCodeMetrics,
-      setShowDuration, setShowCostTokens, setColorCodeMetrics,
+      showDuration,
+      showCostTokens,
+      colorCodeMetrics,
+      setShowDuration,
+      setShowCostTokens,
+      setColorCodeMetrics,
     }),
-    [showDuration, showCostTokens, colorCodeMetrics,
-     setShowDuration, setShowCostTokens, setColorCodeMetrics],
+    [
+      showDuration,
+      showCostTokens,
+      colorCodeMetrics,
+      setShowDuration,
+      setShowCostTokens,
+      setColorCodeMetrics,
+    ],
   )
 
   return (
-    <ObservationViewPrefsCtx.Provider value={value}>
-      {children}
-    </ObservationViewPrefsCtx.Provider>
+    <ObservationViewPrefsCtx.Provider value={value}>{children}</ObservationViewPrefsCtx.Provider>
   )
 }
 
 export function useObservationViewPrefs() {
   const ctx = useContext(ObservationViewPrefsCtx)
-  if (!ctx) throw new Error('useObservationViewPrefs must be used within ObservationViewPrefsProvider')
+  if (!ctx)
+    throw new Error('useObservationViewPrefs must be used within ObservationViewPrefsProvider')
   return ctx
 }

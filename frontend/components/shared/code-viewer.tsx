@@ -8,9 +8,18 @@ interface CodeViewerProps {
   maxHeight?: string
 }
 
-export default function CodeViewer({ code, language, className, filename, maxHeight }: CodeViewerProps) {
+export default function CodeViewer({
+  code,
+  language,
+  className,
+  filename,
+  maxHeight,
+}: CodeViewerProps) {
   return (
-    <div className={`flex flex-col overflow-hidden rounded ${className || ''}`} style={maxHeight ? { maxHeight } : undefined}>
+    <div
+      className={`flex flex-col overflow-hidden rounded ${className || ''}`}
+      style={maxHeight ? { maxHeight } : undefined}
+    >
       {filename && (
         <div className="flex-shrink-0 border-b border-[var(--border)] bg-[var(--surface-3)] px-3 py-1.5 font-mono text-xs text-[var(--text-muted)]">
           {filename}

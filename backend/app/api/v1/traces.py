@@ -49,11 +49,7 @@ async def list_traces(
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse:
     """List traces, sorted by created_at DESC."""
-    stmt = (
-        select(Trace)
-        .where(Trace.workspace_id == workspace_id)
-        .order_by(Trace.created_at.desc())
-    )
+    stmt = select(Trace).where(Trace.workspace_id == workspace_id).order_by(Trace.created_at.desc())
     if agent_version_id is not None:
         stmt = stmt.where(Trace.agent_version_id == agent_version_id)
 
@@ -107,11 +103,7 @@ async def get_trace_observations(
     if not await check_workspace_access(db, trace.workspace_id, current_user, WorkspaceMemberRole.viewer):
         raise AccessDeniedError("Insufficient workspace permission", code="WORKSPACE_PERMISSION_DENIED")
 
-    stmt = (
-        select(Observation)
-        .where(Observation.trace_id == trace_id)
-        .order_by(Observation.start_time.asc())
-    )
+    stmt = select(Observation).where(Observation.trace_id == trace_id).order_by(Observation.start_time.asc())
     if type is not None:
         stmt = stmt.where(Observation.type == type)
 

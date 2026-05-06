@@ -17,9 +17,7 @@ export function ItemBadge({ type, isSmall, showLabel, className }: ItemBadgeProp
   return (
     <span className={cn('inline-flex items-center gap-1', className)}>
       <Icon className={cn(color, isSmall ? 'h-3 w-3' : 'h-4 w-4')} />
-      {showLabel && (
-        <span className="text-xs text-muted-foreground">{type}</span>
-      )}
+      {showLabel && <span className="text-xs text-muted-foreground">{type}</span>}
     </span>
   )
 }

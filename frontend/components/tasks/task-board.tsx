@@ -18,7 +18,7 @@ import type { Task, TaskStatus } from '@/types/tasks'
 import {
   DEFAULT_MANUAL_TRANSITIONS,
   TASK_STATUS_ORDER,
-  TERMINAL_TASK_STATUSES,
+  INACTIVE_TASK_STATUSES,
 } from '@/types/tasks'
 
 import { TaskCard } from './task-card'
@@ -31,12 +31,7 @@ interface TaskBoardProps {
   onSelectTask?: (id: string) => void
 }
 
-export function TaskBoard({
-  tasks,
-  workspaceId,
-  agentsMap,
-  onSelectTask,
-}: TaskBoardProps) {
+export function TaskBoard({ tasks, workspaceId, agentsMap, onSelectTask }: TaskBoardProps) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const updateTask = useUpdateTask()
   const { data: transitions } = useTaskTransitions(workspaceId)
@@ -135,7 +130,7 @@ export function TaskBoard({
           toastError(`Cannot move from ${from} to ${targetStatus}`)
           return
         }
-        const toTerminal = (TERMINAL_TASK_STATUSES as readonly string[]).includes(targetStatus)
+        const toTerminal = (INACTIVE_TASK_STATUSES as readonly string[]).includes(targetStatus)
         if (draggedTask.current_execution_id && toTerminal) {
           toastError('Cancel the running execution before moving to this status')
           return
@@ -178,7 +173,7 @@ export function TaskBoard({
         {activeTask ? (
           <TaskCard
             task={activeTask}
-            agentName={agentsMap[activeTask.agent_id ?? activeTask.assignee_id ?? '']}
+            agentName={agentsMap[activeTask.agent_id ?? '']}
             isDragOverlay
           />
         ) : null}

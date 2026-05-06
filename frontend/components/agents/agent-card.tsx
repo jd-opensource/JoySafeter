@@ -68,9 +68,7 @@ export function AgentCard({ agent, onClick, onDelete }: AgentCardProps) {
               {t(definitionLabel.labelKey, { defaultValue: definitionLabel.defaultLabel })}
             </span>
           )}
-          {timeText && (
-            <span className="text-[10px] text-[var(--text-muted)]">{timeText}</span>
-          )}
+          {timeText && <span className="text-[10px] text-[var(--text-muted)]">{timeText}</span>}
         </div>
         <div className="flex items-center gap-1">
           <span className="flex items-center gap-0.5 text-[10px] font-medium text-[var(--skill-brand-600)] opacity-0 transition-opacity group-hover:opacity-100">

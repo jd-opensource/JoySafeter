@@ -2,13 +2,7 @@ import type { RuntimeKind } from './agent'
 
 export type { RuntimeKind }
 
-export const RELEASE_STATUSES = [
-  'ready',
-  'active',
-  'superseded',
-  'failed',
-  'retired',
-] as const
+export const RELEASE_STATUSES = ['ready', 'active', 'superseded', 'failed', 'retired'] as const
 
 export type ReleaseStatus = (typeof RELEASE_STATUSES)[number]
 

@@ -1,13 +1,6 @@
 'use client'
 
-import {
-  Bot,
-  LayoutDashboard,
-  ListChecks,
-  Sparkles,
-  Wrench,
-  Settings,
-} from 'lucide-react'
+import { Bot, LayoutDashboard, ListChecks, Sparkles, Wrench, Settings } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
@@ -50,9 +43,7 @@ const menuGroups: MenuGroup[] = [
     ],
   },
   {
-    items: [
-      { id: 'settings', labelKey: 'sidebar.settings', icon: Settings, href: '/settings' },
-    ],
+    items: [{ id: 'settings', labelKey: 'sidebar.settings', icon: Settings, href: '/settings' }],
   },
 ]
 
@@ -98,7 +89,9 @@ export function AppSidebar() {
                               {!isCollapsed && <span className="truncate">{label}</span>}
                             </Link>
                           </TooltipTrigger>
-                          <TooltipContent side="right" className={cn(!isCollapsed && "hidden")}>{label}</TooltipContent>
+                          <TooltipContent side="right" className={cn(!isCollapsed && 'hidden')}>
+                            {label}
+                          </TooltipContent>
                         </Tooltip>
                       </li>
                     )

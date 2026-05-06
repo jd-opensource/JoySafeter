@@ -1,4 +1,5 @@
 """Copilot stream → observation extractor."""
+
 from __future__ import annotations
 
 from app.core.observation.collector import ObservationCollector

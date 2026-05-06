@@ -1,4 +1,5 @@
 """Base SpanProcessor extension that adds an on_event hook for live streaming."""
+
 from __future__ import annotations
 
 import json

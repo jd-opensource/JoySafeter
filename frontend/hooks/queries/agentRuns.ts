@@ -6,12 +6,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { agentRunService } from '@/services/agentRunService'
-import type {
-  AgentRun,
-  CreateAgentRunRequest,
-  Execution,
-  ExecutionEvent,
-} from '@/types/agent-run'
+import type { AgentRun, CreateAgentRunRequest, Execution, ExecutionEvent } from '@/types/agent-run'
 import { TERMINAL_RUN_STATUSES, TERMINAL_EXECUTION_STATUSES } from '@/types/agent-run'
 
 import { STALE_TIME } from './constants'

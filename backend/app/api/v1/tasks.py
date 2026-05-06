@@ -184,7 +184,7 @@ async def dispatch_task(
     from app.services.dispatch_service import DispatchService
 
     dispatch = DispatchService(db)
-    run = await dispatch.dispatch_task(
+    await dispatch.dispatch_task(
         task_id=task_id,
         user_id=str(current_user.id),
     )

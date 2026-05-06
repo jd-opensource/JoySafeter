@@ -20,7 +20,7 @@ export function CopilotOverlay({ agentId, expanded, onToggle }: CopilotOverlayPr
     return (
       <div className="absolute bottom-2 left-1/2 z-30 w-full max-w-xl -translate-x-1/2 px-4">
         <button
-          className="flex w-full items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/90 px-4 py-2.5 text-sm text-[var(--text-muted)] shadow-lg backdrop-blur transition-colors hover:bg-[var(--surface-2)]"
+          className="bg-[var(--surface-2)]/90 flex w-full items-center gap-2 rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm text-[var(--text-muted)] shadow-lg backdrop-blur transition-colors hover:bg-[var(--surface-2)]"
           onClick={onToggle}
         >
           <Sparkles className="h-4 w-4 shrink-0 text-[var(--skill-brand-600)]" />

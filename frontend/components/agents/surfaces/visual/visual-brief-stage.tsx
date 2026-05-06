@@ -53,7 +53,8 @@ export function VisualBriefStage({ agent, navigateToStage }: StageProps) {
           </h2>
           <p className="mt-1.5 text-sm text-[var(--text-secondary)]">
             {t('agents.studio.brief.subtitle', {
-              defaultValue: 'Copilot will turn this into a visual workflow, or skip to build manually.',
+              defaultValue:
+                'Copilot will turn this into a visual workflow, or skip to build manually.',
             })}
           </p>
         </div>
@@ -70,7 +71,8 @@ export function VisualBriefStage({ agent, navigateToStage }: StageProps) {
               onChange={(e) => setGoal(e.target.value)}
               rows={3}
               placeholder={t('agents.studio.brief.goalPlaceholder', {
-                defaultValue: 'What should this agent do? e.g. "Analyze customer feedback and generate weekly reports"',
+                defaultValue:
+                  'What should this agent do? e.g. "Analyze customer feedback and generate weekly reports"',
               })}
               className="resize-none"
             />

@@ -20,7 +20,13 @@ interface CodeEditorState {
   setGraphId: (id: string) => void
   setGraphName: (name: string) => void
   save: () => Promise<void>
-  hydrate: (graphId: string, code: string, name: string, versionId: string | null, workspaceId: string | null) => void
+  hydrate: (
+    graphId: string,
+    code: string,
+    name: string,
+    versionId: string | null,
+    workspaceId: string | null,
+  ) => void
   reset: () => void
 }
 

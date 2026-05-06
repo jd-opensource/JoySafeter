@@ -32,9 +32,13 @@ export function TaskActivitySummary({
       <Card className="border-[var(--border)] bg-[var(--surface-1)] p-5">
         <div className="mb-3 flex items-center gap-2">
           <Play className="h-3.5 w-3.5 text-[var(--brand-500)]" />
-          <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t('tasks.inProgress')}</h3>
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+            {t('tasks.inProgress')}
+          </h3>
           {inProgressTasks.length > 0 && (
-            <Badge variant="outline" className="text-xs">{inProgressTasks.length}</Badge>
+            <Badge variant="outline" className="text-xs">
+              {inProgressTasks.length}
+            </Badge>
           )}
         </div>
         {inProgressTasks.length === 0 ? (
@@ -42,7 +46,7 @@ export function TaskActivitySummary({
         ) : (
           <div className="space-y-2">
             {inProgressTasks.slice(0, 5).map((task) => {
-              const agentId = task.agent_id ?? task.assignee_id
+              const agentId = task.agent_id
               const agentName = agentId ? agentsMap[agentId] : undefined
               return (
                 <button
@@ -53,7 +57,9 @@ export function TaskActivitySummary({
                 >
                   <PulsingDot />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-[var(--text-primary)]">{task.title}</p>
+                    <p className="truncate text-sm font-medium text-[var(--text-primary)]">
+                      {task.title}
+                    </p>
                     {agentName && (
                       <div className="mt-0.5 flex items-center gap-1 text-xs text-[var(--text-muted)]">
                         <Bot className="h-3 w-3" />
@@ -77,14 +83,16 @@ export function TaskActivitySummary({
       <Card className="border-[var(--border)] bg-[var(--surface-1)] p-5">
         <div className="mb-3 flex items-center gap-2">
           <CheckCircle2 className="h-3.5 w-3.5 text-[var(--status-success)]" />
-          <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t('tasks.recentlyDone')}</h3>
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+            {t('tasks.recentlyDone')}
+          </h3>
         </div>
         {recentlyDoneTasks.length === 0 ? (
           <p className="text-xs text-[var(--text-muted)]">{t('tasks.noRecentlyDone')}</p>
         ) : (
           <div className="space-y-2">
             {recentlyDoneTasks.slice(0, 5).map((task) => {
-              const agentId = task.agent_id ?? task.assignee_id
+              const agentId = task.agent_id
               const agentName = agentId ? agentsMap[agentId] : undefined
               return (
                 <button

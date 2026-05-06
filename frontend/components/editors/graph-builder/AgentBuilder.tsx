@@ -4,9 +4,7 @@ import { Loader2 } from 'lucide-react'
 import React, { useEffect } from 'react'
 import { ReactFlowProvider } from 'reactflow'
 
-import {
-  useVersionGraphState,
-} from '@/hooks/queries/agentVersions'
+import { useVersionGraphState } from '@/hooks/queries/agentVersions'
 import { useAgent } from '@/hooks/queries/agents'
 import { useTranslation } from '@/lib/i18n'
 import { computeGraphStateHash } from '@/lib/utils/graphStateHash'
@@ -57,14 +55,8 @@ function AgentBuilderInit({
   const workspaceId = workspaceIdProp || currentWorkspaceId
   const agentId = agentIdProp && isValidUUID(agentIdProp) ? agentIdProp : null
 
-  const {
-    isInitializing,
-    rfInstance,
-    loadGraph,
-    setWorkspaceId,
-    setGraphId,
-    setGraphName,
-  } = useGraphStore()
+  const { isInitializing, rfInstance, loadGraph, setWorkspaceId, setGraphId, setGraphName } =
+    useGraphStore()
 
   const { startAutoSave, stopAutoSave } = useSaveStore()
 
@@ -143,8 +135,7 @@ function AgentBuilderInit({
   // Handle beforeunload (beacon save)
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      const { nodes, edges, rfInstance, graphId, versionId, workspaceId } =
-        useGraphStore.getState()
+      const { nodes, edges, rfInstance, graphId, versionId, workspaceId } = useGraphStore.getState()
       const { hasPendingChanges } = useSaveStore.getState()
 
       if (!graphId || graphId !== agentId || !isValidUUID(graphId)) {
@@ -212,7 +203,13 @@ function AgentBuilderInit({
       const agentName = agentData?.name
       useCodeEditorStore
         .getState()
-        .hydrate(agentId, loadedVars.code_content ?? '', agentName ?? '', versionIdProp ?? null, workspaceId || null)
+        .hydrate(
+          agentId,
+          loadedVars.code_content ?? '',
+          agentName ?? '',
+          versionIdProp ?? null,
+          workspaceId || null,
+        )
       loadedGraphIdRef.current = agentId
       useGraphStore.setState({ isInitializing: false })
       return
@@ -326,11 +323,7 @@ function AgentBuilderInit({
     )
   }
 
-  return (
-    <GraphBuilderShell
-      agentId={agentIdProp}
-    />
-  )
+  return <GraphBuilderShell agentId={agentIdProp} />
 }
 
 export default function AgentBuilder(props: AgentBuilderProps) {

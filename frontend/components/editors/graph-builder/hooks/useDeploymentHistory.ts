@@ -228,12 +228,9 @@ export function useDeploymentHistory(
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-  const handleSelectVersion = useCallback(
-    (version: number) => {
-      setSelectedVersion((prev) => (prev === version ? null : version))
-    },
-    [],
-  )
+  const handleSelectVersion = useCallback((version: number) => {
+    setSelectedVersion((prev) => (prev === version ? null : version))
+  }, [])
 
   const handlePageChange = useCallback(
     (page: number) => {
@@ -262,7 +259,11 @@ export function useDeploymentHistory(
     if (!releaseId) return
 
     try {
-      await rollbackMutation.mutateAsync({ agentId: agentId!, releaseId, workspaceId: workspaceId! })
+      await rollbackMutation.mutateAsync({
+        agentId: agentId!,
+        releaseId,
+        workspaceId: workspaceId!,
+      })
 
       // Reload canvas state from the activated version's definition_payload
       try {

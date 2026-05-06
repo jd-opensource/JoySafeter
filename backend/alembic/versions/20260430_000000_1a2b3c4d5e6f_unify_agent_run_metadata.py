@@ -1,24 +1,26 @@
 """unify_agent_run_metadata
 
 Revision ID: 1a2b3c4d5e6f
-Revises: 
+Revises:
 Create Date: 2026-04-30 18:32:00.000000
 
 """
-from alembic import op
+
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = '1a2b3c4d5e6f'
-down_revision = 'ff6aa7bb8cc9'
+revision = "1a2b3c4d5e6f"
+down_revision = "ff6aa7bb8cc9"
 branch_labels = None
 depends_on = None
 
+
 def upgrade():
     # 1. Add new columns
-    op.add_column('agent_runs', sa.Column('trigger_medium', sa.String(length=20), nullable=True))
-    op.add_column('agent_runs', sa.Column('run_purpose', sa.String(length=20), nullable=True))
+    op.add_column("agent_runs", sa.Column("trigger_medium", sa.String(length=20), nullable=True))
+    op.add_column("agent_runs", sa.Column("run_purpose", sa.String(length=20), nullable=True))
 
     # 2. Data Migration: single-pass CASE to map old trigger_source → new axes
     op.execute("""
@@ -48,20 +50,22 @@ def upgrade():
     """)
 
     # 3. Make new columns non-nullable
-    op.alter_column('agent_runs', 'trigger_medium', existing_type=sa.String(length=20), nullable=False)
-    op.alter_column('agent_runs', 'run_purpose', existing_type=sa.String(length=20), nullable=False)
+    op.alter_column("agent_runs", "trigger_medium", existing_type=sa.String(length=20), nullable=False)
+    op.alter_column("agent_runs", "run_purpose", existing_type=sa.String(length=20), nullable=False)
 
     # 4. Drop old column
-    op.drop_column('agent_runs', 'trigger_source')
+    op.drop_column("agent_runs", "trigger_source")
 
     # 5. Clean up old executor kinds and definition kinds
     op.execute("UPDATE executions SET executor_kind = 'build_copilot' WHERE executor_kind = 'copilot'")
-    op.execute("UPDATE agent_versions SET definition_kind = 'sandbox_cli' WHERE definition_kind IN ('claude_code', 'codex', 'openclaw')")
+    op.execute(
+        "UPDATE agent_versions SET definition_kind = 'sandbox_cli' WHERE definition_kind IN ('claude_code', 'codex', 'openclaw')"
+    )
 
 
 def downgrade():
     # 1. Add old column
-    op.add_column('agent_runs', sa.Column('trigger_source', sa.String(length=20), nullable=True))
+    op.add_column("agent_runs", sa.Column("trigger_source", sa.String(length=20), nullable=True))
 
     # 2. Revert Data Migration: single-pass CASE
     op.execute("""
@@ -78,8 +82,8 @@ def downgrade():
     """)
 
     # 3. Make old column non-nullable
-    op.alter_column('agent_runs', 'trigger_source', existing_type=sa.String(length=20), nullable=False)
+    op.alter_column("agent_runs", "trigger_source", existing_type=sa.String(length=20), nullable=False)
 
     # 4. Drop new columns
-    op.drop_column('agent_runs', 'run_purpose')
-    op.drop_column('agent_runs', 'trigger_medium')
+    op.drop_column("agent_runs", "run_purpose")
+    op.drop_column("agent_runs", "trigger_medium")

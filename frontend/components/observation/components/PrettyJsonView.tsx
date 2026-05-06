@@ -73,7 +73,16 @@ export function PrettyJsonView({ data, title, section }: PrettyJsonViewProps) {
         accessorKey: 'key' as const,
         header: 'Path',
         size: 35,
-        cell: ({ row }: { row: { original: JsonTableRow; getIsExpanded: () => boolean; toggleExpanded: () => void; depth: number } }) => {
+        cell: ({
+          row,
+        }: {
+          row: {
+            original: JsonTableRow
+            getIsExpanded: () => boolean
+            toggleExpanded: () => void
+            depth: number
+          }
+        }) => {
           const indent = row.original.level * 16 + 8
           return (
             <div className="flex items-center font-mono text-xs" style={{ paddingLeft: indent }}>
@@ -131,8 +140,11 @@ export function PrettyJsonView({ data, title, section }: PrettyJsonViewProps) {
 
   const allExpanded = useMemo(() => {
     const flatRows = table.getRowModel().flatRows
-    return flatRows.length > 0 && flatRows.filter((r) => r.original.hasChildren).every((r) => r.getIsExpanded())
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- table ref changes when expanded changes
+    return (
+      flatRows.length > 0 &&
+      flatRows.filter((r) => r.original.hasChildren).every((r) => r.getIsExpanded())
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- table ref changes when expanded changes
   }, [table])
 
   const handleToggleExpandAll = useCallback(() => {
@@ -188,7 +200,7 @@ export function PrettyJsonView({ data, title, section }: PrettyJsonViewProps) {
               <tr
                 key={row.id}
                 className={cn(
-                  'border-b border-border/50 transition-colors hover:bg-muted/30',
+                  'border-border/50 border-b transition-colors hover:bg-muted/30',
                   row.original.hasChildren && 'cursor-pointer',
                 )}
                 onClick={() => {
@@ -249,7 +261,10 @@ function loadAllChildren(rows: JsonTableRow[]): JsonTableRow[] {
     if (updated.subRows) {
       const childrenUpdated = loadAllChildren(updated.subRows)
       if (childrenUpdated !== updated.subRows) {
-        updated = updated === row ? { ...row, subRows: childrenUpdated } : { ...updated, subRows: childrenUpdated }
+        updated =
+          updated === row
+            ? { ...row, subRows: childrenUpdated }
+            : { ...updated, subRows: childrenUpdated }
       }
     }
     return updated

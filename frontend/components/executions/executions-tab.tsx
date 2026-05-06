@@ -52,10 +52,7 @@ export function ExecutionsTab() {
   })
   const agentNameMap = useReleaseAgentNameMap(workspaceId)
 
-  const taskTitleMap = useMemo(
-    () => Object.fromEntries(tasks.map((m) => [m.id, m.title])),
-    [tasks],
-  )
+  const taskTitleMap = useMemo(() => Object.fromEntries(tasks.map((m) => [m.id, m.title])), [tasks])
 
   const cancelMutation = useCancelAgentRun()
 
@@ -71,10 +68,7 @@ export function ExecutionsTab() {
     router.replace(qs ? `/tasks?${qs}` : '/tasks')
   }
 
-  const selectedRun = useMemo(
-    () => runs.find((r) => r.id === selectedRunId),
-    [runs, selectedRunId],
-  )
+  const selectedRun = useMemo(() => runs.find((r) => r.id === selectedRunId), [runs, selectedRunId])
 
   return (
     <div className="flex h-full">
@@ -99,7 +93,9 @@ export function ExecutionsTab() {
 
         {taskFilter && (
           <div className="flex items-center gap-2 border-b border-[var(--border)] px-6 py-2">
-            <span className="text-xs text-[var(--text-muted)]">{t('execution.filteredByTask')}:</span>
+            <span className="text-xs text-[var(--text-muted)]">
+              {t('execution.filteredByTask')}:
+            </span>
             <Badge variant="secondary" className="gap-1 pr-1">
               {taskTitleMap[taskFilter] || taskFilter.slice(0, 8)}
               <button
@@ -141,9 +137,7 @@ export function ExecutionsTab() {
                   agentName={agentNameMap[run.release_id]}
                   onSelect={setSelectedRunId}
                   onCancel={(id) => cancelMutation.mutate(id)}
-                  isCancelling={
-                    cancelMutation.isPending && cancelMutation.variables === run.id
-                  }
+                  isCancelling={cancelMutation.isPending && cancelMutation.variables === run.id}
                   isSelected={run.id === selectedRunId}
                 />
               ))}

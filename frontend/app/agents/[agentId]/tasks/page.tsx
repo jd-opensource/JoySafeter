@@ -49,13 +49,7 @@ export default function AgentTasksPage() {
   const agentsMap = useAgentNameMap(workspaceId)
 
   // Tasks are already filtered server-side by agent_id.
-  // Keep a lightweight client-side fallback for legacy assignee_id field just in case.
-  const tasks = allTasks.filter((t) => {
-    // If the task has agent_id set (new backend field), it was already filtered server-side
-    if (t.agent_id) return true
-    // Fallback: check legacy assignee_id
-    return t.assignee_id === agentId
-  })
+  const tasks = allTasks.filter((t) => t.agent_id === agentId)
 
   const isLoading = isWorkspacesLoading || isTasksLoading
 
@@ -128,11 +122,7 @@ export default function AgentTasksPage() {
             onSelectTask={setSelectedTaskId}
           />
         ) : (
-          <TaskListView
-            tasks={tasks}
-            agentsMap={agentsMap}
-            onSelectTask={setSelectedTaskId}
-          />
+          <TaskListView tasks={tasks} agentsMap={agentsMap} onSelectTask={setSelectedTaskId} />
         )}
       </div>
 

@@ -19,20 +19,14 @@ interface DebugPanelProps {
   workspaceId: string
 }
 
-function DebugPanelInner({
-  agentId,
-  agentVersionId,
-  workspaceId,
-}: DebugPanelProps) {
+function DebugPanelInner({ agentId, agentVersionId, workspaceId }: DebugPanelProps) {
   const [executionId, setExecutionId] = useState<string | null>(null)
   const [runId, setRunId] = useState<string | null>(null)
   const [mode, setMode] = useState<'idle' | 'live' | 'replay'>('idle')
   const [replayTraceId, setReplayTraceId] = useState<string | null>(null)
 
   const { dispatch, loadTrace, isExecuting } = useObservationData()
-  useObservationStream(
-    mode === 'live' ? executionId : null,
-  )
+  useObservationStream(mode === 'live' ? executionId : null)
 
   const { data: traces = [] } = useQuery({
     queryKey: ['traces', agentVersionId, workspaceId],
@@ -71,15 +65,12 @@ function DebugPanelInner({
     async (prompt: string) => {
       dispatch({ type: 'RESET' })
       try {
-        const data = await apiPost<{ execution_id: string; run_id: string }>(
-          '/executions/debug',
-          {
-            agent_id: agentId,
-            agent_version_id: agentVersionId,
-            prompt,
-            workspace_id: workspaceId,
-          },
-        )
+        const data = await apiPost<{ execution_id: string; run_id: string }>('/executions/debug', {
+          agent_id: agentId,
+          agent_version_id: agentVersionId,
+          prompt,
+          workspace_id: workspaceId,
+        })
         setExecutionId(data.execution_id)
         setRunId(data.run_id)
         setMode('live')
@@ -121,7 +112,7 @@ function DebugPanelInner({
         <Panel defaultSize={40} minSize={20} collapsible collapsedSize={3}>
           <ObservationNavigation />
         </Panel>
-        <PanelResizeHandle className="w-px bg-border hover:bg-primary-accent/50 transition-colors" />
+        <PanelResizeHandle className="hover:bg-primary-accent/50 w-px bg-border transition-colors" />
         <Panel defaultSize={60} minSize={30}>
           <ObservationDetailPanel />
         </Panel>

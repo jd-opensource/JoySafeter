@@ -36,13 +36,23 @@ const MARKDOWN_COMPONENTS: Options['components'] = {
     return <code className="rounded border bg-muted px-1 py-0.5">{children}</code>
   },
   pre({ children }) {
-    return <pre className="my-1 overflow-auto rounded bg-black/10 p-2 dark:bg-white/10">{children}</pre>
+    return (
+      <pre className="my-1 overflow-auto rounded bg-black/10 p-2 dark:bg-white/10">{children}</pre>
+    )
   },
   a({ children, href }) {
-    return <a href={href ?? undefined} className="underline" target="_blank" rel="noopener noreferrer">{children}</a>
+    return (
+      <a href={href ?? undefined} className="underline" target="_blank" rel="noopener noreferrer">
+        {children}
+      </a>
+    )
   },
-  h1({ children }) { return <span className="block text-base font-bold">{children}</span> },
-  h2({ children }) { return <span className="block text-sm font-bold">{children}</span> },
+  h1({ children }) {
+    return <span className="block text-base font-bold">{children}</span>
+  },
+  h2({ children }) {
+    return <span className="block text-sm font-bold">{children}</span>
+  },
   h3: smallHeading,
   h4: smallHeading,
   h5: smallHeading,
@@ -51,13 +61,27 @@ const MARKDOWN_COMPONENTS: Options['components'] = {
     return <blockquote className="border-l-2 pl-2 italic">{children}</blockquote>
   },
   table({ children }) {
-    return <div className="overflow-x-auto rounded border"><table className="min-w-full divide-y">{children}</table></div>
+    return (
+      <div className="overflow-x-auto rounded border">
+        <table className="min-w-full divide-y">{children}</table>
+      </div>
+    )
   },
-  thead({ children }) { return <thead>{children}</thead> },
-  tbody({ children }) { return <tbody className="divide-y">{children}</tbody> },
-  tr({ children }) { return <tr>{children}</tr> },
-  th({ children }) { return <th className="px-2 py-1 text-left font-medium">{children}</th> },
-  td({ children }) { return <td className="px-2 py-1">{children}</td> },
+  thead({ children }) {
+    return <thead>{children}</thead>
+  },
+  tbody({ children }) {
+    return <tbody className="divide-y">{children}</tbody>
+  },
+  tr({ children }) {
+    return <tr>{children}</tr>
+  },
+  th({ children }) {
+    return <th className="px-2 py-1 text-left font-medium">{children}</th>
+  },
+  td({ children }) {
+    return <td className="px-2 py-1">{children}</td>
+  },
 }
 
 function getCopyValue(value: unknown): string {
@@ -72,8 +96,7 @@ function getCopyValue(value: unknown): string {
 }
 
 function renderArrayPreview(arr: unknown[]) {
-  if (arr.length === 0)
-    return <span className={PREVIEW_CLASSES}>empty list</span>
+  if (arr.length === 0) return <span className={PREVIEW_CLASSES}>empty list</span>
   if (arr.length <= SMALL_ARRAY_THRESHOLD) {
     const items = arr.map((item) => {
       if (typeof item === 'string') return `"${item}"`
@@ -96,8 +119,7 @@ function renderArrayPreview(arr: unknown[]) {
 
 function renderObjectPreview(obj: Record<string, unknown>) {
   const keys = Object.keys(obj)
-  if (keys.length === 0)
-    return <span className={PREVIEW_CLASSES}>empty object</span>
+  if (keys.length === 0) return <span className={PREVIEW_CLASSES}>empty object</span>
   return <span className={PREVIEW_CLASSES}>{keys.length} items</span>
 }
 
@@ -129,16 +151,12 @@ export const JsonValueCell = memo(function JsonValueCell({
     case 'string': {
       const str = String(value)
       needsTruncation = str.length > MAX_DISPLAY_CHARS
-      const display = needsTruncation && !isCellExpanded
-        ? str.substring(0, MAX_DISPLAY_CHARS) + '...'
-        : str
+      const display =
+        needsTruncation && !isCellExpanded ? str.substring(0, MAX_DISPLAY_CHARS) + '...' : str
       content = (
         <span className="text-green-600 dark:text-green-400">
           &quot;
-          <MemoizedReactMarkdown
-            remarkPlugins={REMARK_PLUGINS}
-            components={MARKDOWN_COMPONENTS}
-          >
+          <MemoizedReactMarkdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
             {display}
           </MemoizedReactMarkdown>
           &quot;
@@ -169,7 +187,7 @@ export const JsonValueCell = memo(function JsonValueCell({
   }
 
   return (
-    <div className="group relative max-w-full font-mono text-xs break-words">
+    <div className="group relative max-w-full break-words font-mono text-xs">
       <span className="cursor-text">{content}</span>
       {needsTruncation && !row.hasChildren && (
         <span

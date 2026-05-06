@@ -81,6 +81,7 @@ export function CopilotPanel() {
   })
 
   const stageConfig = getStageConfig(t)
+  const { scrollRef, streamingContentRef } = refs
 
   const handleCopyStreaming = useCallback(async () => {
     try {
@@ -109,7 +110,7 @@ export function CopilotPanel() {
     <CopilotErrorBoundary>
       <div className="relative flex h-full flex-col bg-[var(--surface-2)]">
         {/* Messages and streaming area */}
-        <div className="custom-scrollbar flex-1 space-y-5 overflow-y-auto p-3" ref={refs.scrollRef}>
+        <div className="custom-scrollbar flex-1 space-y-5 overflow-y-auto p-3" ref={scrollRef}>
           {/* Loading history indicator */}
           {state.loadingHistory && (
             <div className="flex items-center justify-center py-4">
@@ -139,7 +140,7 @@ export function CopilotPanel() {
             toolResults={state.toolResults}
             expandedToolTypes={state.expandedToolTypes}
             copiedStreaming={state.copiedStreaming}
-            streamingContentRef={refs.streamingContentRef}
+            streamingContentRef={streamingContentRef}
             stageConfig={stageConfig}
             onToggleToolType={actions.toggleToolType}
             onCopyStreaming={handleCopyStreaming}

@@ -38,11 +38,7 @@ export function ThreadSidebar({
           disabled={isCreating}
           className="h-7 w-7 p-0"
         >
-          {isCreating ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Plus className="h-4 w-4" />
-          )}
+          {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
         </Button>
       </div>
       <div className="flex-1 overflow-y-auto p-2">
@@ -51,9 +47,7 @@ export function ThreadSidebar({
             <Loader2 className="h-4 w-4 animate-spin" /> {t('common.loading')}
           </div>
         ) : threads.length === 0 ? (
-          <p className="py-6 text-center text-xs text-[var(--text-muted)]">
-            No threads yet
-          </p>
+          <p className="py-6 text-center text-xs text-[var(--text-muted)]">No threads yet</p>
         ) : (
           threads.map((thread) => (
             <button
@@ -68,9 +62,7 @@ export function ThreadSidebar({
               )}
             >
               <MessageSquare className="h-3.5 w-3.5 flex-shrink-0" />
-              <span className="truncate">
-                {thread.title || 'Untitled'}
-              </span>
+              <span className="truncate">{thread.title || 'Untitled'}</span>
             </button>
           ))
         )}

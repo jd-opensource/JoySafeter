@@ -31,16 +31,16 @@ from app.core.contracts.execution import (
     ACTIVE_RUN_STATUSES,
     EXECUTION_STATUSES,
     RELEASE_STATUSES,
+    RUN_PURPOSES,
     RUN_STATUSES,
     TERMINAL_EXECUTION_STATUSES,
     TERMINAL_RUN_STATUSES,
     TRIGGER_MEDIUMS,
-    RUN_PURPOSES,
     ExecutionStatusLiteral,
     ReleaseStatusLiteral,
+    RunPurposeLiteral,
     RunStatusLiteral,
     TriggerMediumLiteral,
-    RunPurposeLiteral,
 )
 
 __all__ = [

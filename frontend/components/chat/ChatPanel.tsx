@@ -31,10 +31,7 @@ export function ChatPanel({
   className,
 }: ChatPanelProps) {
   const { t } = useTranslation()
-  const { data: threads = [], isLoading: threadsLoading } = useThreads(
-    agentId,
-    workspaceId,
-  )
+  const { data: threads = [], isLoading: threadsLoading } = useThreads(agentId, workspaceId)
   const createThread = useCreateThread()
 
   const { data: eventsData, isLoading: eventsLoading } = useThreadEvents(
@@ -43,15 +40,8 @@ export function ChatPanel({
     { enabled: Boolean(threadId) },
   )
 
-  const { send, isSending, executionId } = useChatSend(
-    threadId || '',
-    workspaceId,
-  )
-  const { isExecuting } = useChatStream(
-    executionId,
-    threadId || '',
-    workspaceId,
-  )
+  const { send, isSending, executionId } = useChatSend(threadId || '', workspaceId)
+  const { isExecuting } = useChatStream(executionId, threadId || '', workspaceId)
 
   const handleCreateThread = useCallback(async () => {
     const thread = await createThread.mutateAsync({
@@ -85,13 +75,8 @@ export function ChatPanel({
         {!threadId ? (
           <div className="flex h-full flex-col items-center justify-center gap-3">
             <MessageSquare className="h-12 w-12 text-[var(--text-muted)]" />
-            <p className="text-sm text-[var(--text-muted)]">
-              {t('agents.detail.startChat')}
-            </p>
-            <Button
-              onClick={handleCreateThread}
-              disabled={createThread.isPending}
-            >
+            <p className="text-sm text-[var(--text-muted)]">{t('agents.detail.startChat')}</p>
+            <Button onClick={handleCreateThread} disabled={createThread.isPending}>
               <Plus className="mr-1.5 h-4 w-4" /> {t('chat.newChat')}
             </Button>
           </div>
@@ -104,10 +89,7 @@ export function ChatPanel({
                 isExecuting={isExecuting}
               />
             </div>
-            <ChatInput
-              onSend={handleSend}
-              disabled={isSending || isExecuting}
-            />
+            <ChatInput onSend={handleSend} disabled={isSending || isExecuting} />
           </>
         )}
       </div>

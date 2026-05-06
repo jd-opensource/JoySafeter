@@ -22,10 +22,7 @@ export const taskActivityService = {
     workspaceId: string,
     data: CreateTaskActivityRequest,
   ): Promise<TaskActivity> => {
-    return apiPost<TaskActivity>(
-      `tasks/${taskId}/activities?workspace_id=${workspaceId}`,
-      data,
-    )
+    return apiPost<TaskActivity>(`tasks/${taskId}/activities?workspace_id=${workspaceId}`, data)
   },
 
   update: async (

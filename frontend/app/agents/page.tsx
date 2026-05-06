@@ -146,7 +146,9 @@ export default function AgentsPage() {
               {t('agents.emptyTitle', { defaultValue: 'No agents yet' })}
             </h3>
             <p className="mt-1 text-sm text-[var(--text-muted)]">
-              {t('agents.emptySubtitle', { defaultValue: 'Create your first agent to get started' })}
+              {t('agents.emptySubtitle', {
+                defaultValue: 'Create your first agent to get started',
+              })}
             </p>
           </div>
           {canEdit && (
@@ -192,7 +194,9 @@ export default function AgentsPage() {
 
       <ConfirmDialog
         open={Boolean(deletingAgent)}
-        onOpenChange={(open) => { if (!open) setDeletingAgent(null) }}
+        onOpenChange={(open) => {
+          if (!open) setDeletingAgent(null)
+        }}
         title={t('agents.deleteConfirmTitle', { defaultValue: 'Delete agent' })}
         description={t('agents.deleteConfirmDescription', {
           name: deletingAgent?.name,

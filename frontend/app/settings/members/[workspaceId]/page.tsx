@@ -141,7 +141,10 @@ export default function WorkspaceMembersPage() {
       } else if (apiError?.code === 'USER_NOT_FOUND') {
         toastError(t('workspace.userNotFoundDescription'), t('workspace.userNotFound'))
       } else {
-        toastError(apiError?.message || t('workspace.addMemberFailed'), t('workspace.addMemberFailed'))
+        toastError(
+          apiError?.message || t('workspace.addMemberFailed'),
+          t('workspace.addMemberFailed'),
+        )
       }
     },
   })

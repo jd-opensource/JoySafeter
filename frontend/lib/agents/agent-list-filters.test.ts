@@ -50,7 +50,11 @@ describe('agent list filters', () => {
   })
 
   it('filters by engine kind and runtime kind', () => {
-    const graphAgent = makeAgent({ id: 'graph', engine_kind: 'langgraph_visual', runtime_kind: 'server' })
+    const graphAgent = makeAgent({
+      id: 'graph',
+      engine_kind: 'langgraph_visual',
+      runtime_kind: 'server',
+    })
     const codexAgent = makeAgent({ id: 'codex', engine_kind: 'codex', runtime_kind: 'sandbox' })
     const codeDraft = makeAgent({ id: 'code', engine_kind: 'langgraph_code', runtime_kind: null })
 

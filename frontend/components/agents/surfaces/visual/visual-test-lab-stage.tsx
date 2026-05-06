@@ -18,7 +18,7 @@ export function VisualTestLabStage({ agent, version, workspaceId, navigateToStag
             <h2 className="text-sm font-semibold text-[var(--text-primary)]">
               {t('agents.studio.testLab.title', { defaultValue: 'Test the current draft' })}
             </h2>
-            <p className="text-xs text-[var(--text-muted)] truncate max-w-xl">
+            <p className="max-w-xl truncate text-xs text-[var(--text-muted)]">
               {t('agents.studio.testLab.subtitle', {
                 defaultValue:
                   'Run draft behavior before publishing. These tests do not affect the active release.',
@@ -26,10 +26,20 @@ export function VisualTestLabStage({ agent, version, workspaceId, navigateToStag
             </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => navigateToStage('build')} className="h-8 text-xs">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigateToStage('build')}
+              className="h-8 text-xs"
+            >
               {t('agents.studio.testLab.backToCanvas', { defaultValue: 'Back to Build' })}
             </Button>
-            <Button variant="outline" size="sm" onClick={() => navigateToStage('release')} className="h-8 text-xs">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigateToStage('release')}
+              className="h-8 text-xs"
+            >
               {t('agents.studio.testLab.openRelease', { defaultValue: 'Open Release' })}
             </Button>
           </div>
@@ -37,11 +47,7 @@ export function VisualTestLabStage({ agent, version, workspaceId, navigateToStag
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden">
-        <DebugPanel
-          agentId={agentId}
-          agentVersionId={versionId}
-          workspaceId={workspaceId}
-        />
+        <DebugPanel agentId={agentId} agentVersionId={versionId} workspaceId={workspaceId} />
       </div>
     </div>
   )

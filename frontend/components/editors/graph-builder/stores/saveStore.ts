@@ -135,11 +135,12 @@ useGraphStore.subscribe((state, prev) => {
   }
 
   const currentHash = computeGraphStateHash(nodes, edges, graphStateFields, fallbackNodeId)
-  const hasPendingChanges = lastSavedStateHash !== null
-    ? currentHash !== lastSavedStateHash
-    : nodes.length > 0 || edges.length > 0
+  const hasPendingChanges =
+    lastSavedStateHash !== null
+      ? currentHash !== lastSavedStateHash
+      : nodes.length > 0 || edges.length > 0
   useSaveStore.setState({ hasPendingChanges })
 })
 const saveStoreInitialState = useSaveStore.getState()
-;(useSaveStore as unknown as { getInitialState: () => SaveState }).getInitialState =
-  () => saveStoreInitialState
+;(useSaveStore as unknown as { getInitialState: () => SaveState }).getInitialState = () =>
+  saveStoreInitialState

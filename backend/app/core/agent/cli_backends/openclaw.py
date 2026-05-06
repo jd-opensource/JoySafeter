@@ -123,20 +123,20 @@ class OpenClawProvider:
 
         except TimeoutError:
             if not result_future.done():
-                    result_future.set_result(
-                        CLIResult(
-                            status="timeout",
-                            error="OpenClaw agent timed out",
-                            error_payload={
-                                "code": "OPENCLAW_AGENT_TIMEOUT",
-                                "message": "OpenClaw agent timed out",
-                                "data": {"session_id": session_id},
-                                "source": "runtime",
-                                "retryable": True,
-                            },
-                            session_id=session_id,
-                        )
+                result_future.set_result(
+                    CLIResult(
+                        status="timeout",
+                        error="OpenClaw agent timed out",
+                        error_payload={
+                            "code": "OPENCLAW_AGENT_TIMEOUT",
+                            "message": "OpenClaw agent timed out",
+                            "data": {"session_id": session_id},
+                            "source": "runtime",
+                            "retryable": True,
+                        },
+                        session_id=session_id,
                     )
+                )
         except Exception as e:
             logger.error(f"OpenClaw drain error: {e}")
             if not result_future.done():
@@ -277,11 +277,29 @@ def _extract_error_payload(event: dict) -> dict[str, Any]:
         code = err_obj.get("code") or event.get("code") or "OPENCLAW_AGENT_ERROR"
         data = err_obj.get("data") if isinstance(err_obj.get("data"), dict) else None
         if err_obj.get("message"):
-            return {"code": str(code), "message": str(err_obj["message"]), "data": data, "source": "runtime", "retryable": False}
+            return {
+                "code": str(code),
+                "message": str(err_obj["message"]),
+                "data": data,
+                "source": "runtime",
+                "retryable": False,
+            }
         if isinstance(data, dict) and data.get("message"):
-            return {"code": str(code), "message": str(data["message"]), "data": data, "source": "runtime", "retryable": False}
+            return {
+                "code": str(code),
+                "message": str(data["message"]),
+                "data": data,
+                "source": "runtime",
+                "retryable": False,
+            }
         if err_obj.get("name"):
-            return {"code": str(code), "message": str(err_obj["name"]), "data": data, "source": "runtime", "retryable": False}
+            return {
+                "code": str(code),
+                "message": str(err_obj["name"]),
+                "data": data,
+                "source": "runtime",
+                "retryable": False,
+            }
 
     if event.get("text"):
         return {

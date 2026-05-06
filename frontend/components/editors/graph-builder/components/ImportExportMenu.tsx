@@ -96,7 +96,12 @@ export function ImportExportMenu() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <AlertDialog open={!!pendingFile} onOpenChange={(open) => { if (!open) setPendingFile(null) }}>
+      <AlertDialog
+        open={!!pendingFile}
+        onOpenChange={(open) => {
+          if (!open) setPendingFile(null)
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <div className="mb-2 flex items-center gap-1 text-[var(--status-warning)]">
@@ -106,7 +111,9 @@ export function ImportExportMenu() {
             <AlertDialogDescription>{t('workspace.importOverwriteWarning')}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setPendingFile(null)}>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setPendingFile(null)}>
+              {t('common.cancel')}
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={async () => {
                 if (pendingFile) await doImport(pendingFile)

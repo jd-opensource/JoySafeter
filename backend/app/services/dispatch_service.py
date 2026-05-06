@@ -10,8 +10,8 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.execution_orchestrator import ExecutionOrchestrator
 from app.models.agent_run import AgentRun
+from app.services.execution_orchestrator import ExecutionOrchestrator
 
 
 class DispatchService:

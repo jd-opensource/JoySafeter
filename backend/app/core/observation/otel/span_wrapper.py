@@ -1,4 +1,5 @@
 """ObservationSpan — typed wrapper over an OTel Span with observation-schema setters."""
+
 from __future__ import annotations
 
 import json
@@ -88,14 +89,15 @@ class ObservationSpan:
     # --- streaming events ---
 
     def flush_streaming_text(self, text: str) -> None:
-        self._provider.dispatch_live_event(
-            self, "streaming_text", {"text": text}
-        )
+        self._provider.dispatch_live_event(self, "streaming_text", {"text": text})
 
     def add_intermediate_update(self, payload: dict) -> None:
-        self._span.add_event("stream.intermediate_update", {
-            "payload_json": json.dumps(payload, default=str),
-        })
+        self._span.add_event(
+            "stream.intermediate_update",
+            {
+                "payload_json": json.dumps(payload, default=str),
+            },
+        )
         self._provider.dispatch_live_event(self, "span_update", payload)
 
     def add_event(self, name: str, attributes: dict[str, str] | None = None) -> None:
@@ -110,6 +112,7 @@ class ObservationSpan:
     def get_context(self) -> Any:
         """Return an OTel Context with this span set as current."""
         from opentelemetry import trace as _trace
+
         return _trace.set_span_in_context(self._span)
 
     def end(self) -> None:

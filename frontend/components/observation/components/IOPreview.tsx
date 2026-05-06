@@ -8,20 +8,9 @@ interface IOPreviewProps {
   currentView: 'pretty' | 'json'
 }
 
-export function IOPreview({
-  input,
-  output,
-  metadata,
-  currentView,
-}: IOPreviewProps) {
+export function IOPreview({ input, output, metadata, currentView }: IOPreviewProps) {
   if (currentView === 'json') {
     return <IOPreviewJSON input={input} output={output} metadata={metadata} />
   }
-  return (
-    <IOPreviewPretty
-      input={input}
-      output={output}
-      metadata={metadata}
-    />
-  )
+  return <IOPreviewPretty input={input} output={output} metadata={metadata} />
 }

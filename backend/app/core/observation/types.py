@@ -11,20 +11,20 @@ from enum import StrEnum
 
 
 class ObservationType(StrEnum):
-    SPAN       = "SPAN"
-    EVENT      = "EVENT"
+    SPAN = "SPAN"
+    EVENT = "EVENT"
     GENERATION = "GENERATION"
-    AGENT      = "AGENT"
-    TOOL       = "TOOL"
-    CHAIN      = "CHAIN"
-    RETRIEVER  = "RETRIEVER"
-    EMBEDDING  = "EMBEDDING"
-    EVALUATOR  = "EVALUATOR"
-    GUARDRAIL  = "GUARDRAIL"
+    AGENT = "AGENT"
+    TOOL = "TOOL"
+    CHAIN = "CHAIN"
+    RETRIEVER = "RETRIEVER"
+    EMBEDDING = "EMBEDDING"
+    EVALUATOR = "EVALUATOR"
+    GUARDRAIL = "GUARDRAIL"
 
 
 class ObservationLevel(StrEnum):
-    DEBUG   = "DEBUG"
+    DEBUG = "DEBUG"
     DEFAULT = "DEFAULT"
     WARNING = "WARNING"
-    ERROR   = "ERROR"
+    ERROR = "ERROR"

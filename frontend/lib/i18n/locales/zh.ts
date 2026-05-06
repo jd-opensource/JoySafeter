@@ -244,7 +244,8 @@ const zh = {
         brief: {
           kicker: '第一步',
           title: '描述你想打造的 Agent',
-          subtitle: 'Copilot 会把需求转换成可编辑的可视化流程。你也可以跳过并直接在画布上手动构建。',
+          subtitle:
+            'Copilot 会把需求转换成可编辑的可视化流程。你也可以跳过并直接在画布上手动构建。',
           goal: '目标',
           input: '输入',
           output: '输出',

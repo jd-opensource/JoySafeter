@@ -17,8 +17,7 @@ export function useThreadEvents(
   return useQuery({
     queryKey: threadEventKeys.events(threadId, workspaceId),
     queryFn: () => threadService.listThreadEvents(threadId, workspaceId),
-    enabled:
-      Boolean(threadId) && Boolean(workspaceId) && options?.enabled !== false,
+    enabled: Boolean(threadId) && Boolean(workspaceId) && options?.enabled !== false,
     refetchOnWindowFocus: false,
   })
 }

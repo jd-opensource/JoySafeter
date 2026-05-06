@@ -23,6 +23,7 @@ from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.app_errors import InvalidRequestError
 from app.common.dependencies import get_db
 from app.common.response import success_response
 from app.core.oauth import get_oauth_config, get_protocol_handler

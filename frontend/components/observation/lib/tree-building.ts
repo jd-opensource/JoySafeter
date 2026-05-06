@@ -6,9 +6,10 @@ import type {
   SearchItem,
 } from './types'
 
-function prepareObservations(
-  observations: RawObservation[],
-): { sorted: RawObservation[]; orphanedCount: number } {
+function prepareObservations(observations: RawObservation[]): {
+  sorted: RawObservation[]
+  orphanedCount: number
+} {
   const idSet = new Set(observations.map((o) => o.id))
   let orphanedCount = 0
 
@@ -20,16 +21,17 @@ function prepareObservations(
     return o
   })
 
-  const sorted = normalized.slice().sort(
-    (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
-  )
+  const sorted = normalized
+    .slice()
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
 
   return { sorted, orphanedCount }
 }
 
-function buildDependencyGraph(
-  observations: RawObservation[],
-): { processingMap: Map<string, ProcessingNode>; leaves: string[] } {
+function buildDependencyGraph(observations: RawObservation[]): {
+  processingMap: Map<string, ProcessingNode>
+  leaves: string[]
+} {
   const processingMap = new Map<string, ProcessingNode>()
 
   for (const obs of observations) {
@@ -51,9 +53,7 @@ function buildDependencyGraph(
   }
 
   // BFS from roots to compute depth
-  const roots = observations
-    .filter((o) => o.parentObservationId === null)
-    .map((o) => o.id)
+  const roots = observations.filter((o) => o.parentObservationId === null).map((o) => o.id)
 
   const queue = [...roots]
   let qi = 0
@@ -99,19 +99,14 @@ function buildTreeNodesBottomUp(
       .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
 
     const nodeCost =
-      obs.calculatedTotalCost ??
-      ((obs.calculatedInputCost ?? 0) + (obs.calculatedOutputCost ?? 0))
-    const totalCost =
-      nodeCost + childTreeNodes.reduce((sum, c) => sum + c.totalCost, 0)
+      obs.calculatedTotalCost ?? (obs.calculatedInputCost ?? 0) + (obs.calculatedOutputCost ?? 0)
+    const totalCost = nodeCost + childTreeNodes.reduce((sum, c) => sum + c.totalCost, 0)
 
     const startTime = new Date(obs.startTime)
     const endTime = obs.endTime ? new Date(obs.endTime) : null
-    const completionStartTime = obs.completionStartTime
-      ? new Date(obs.completionStartTime)
-      : null
+    const completionStartTime = obs.completionStartTime ? new Date(obs.completionStartTime) : null
 
-    const latency =
-      endTime !== null ? (endTime.getTime() - startTime.getTime()) / 1000 : null
+    const latency = endTime !== null ? (endTime.getTime() - startTime.getTime()) / 1000 : null
 
     const startTimeSinceTrace = startTime.getTime() - traceStartTime.getTime()
 
@@ -125,17 +120,13 @@ function buildTreeNodesBottomUp(
     }
 
     const childrenDepth =
-      childTreeNodes.length > 0
-        ? Math.max(...childTreeNodes.map((c) => c.childrenDepth)) + 1
-        : 0
+      childTreeNodes.length > 0 ? Math.max(...childTreeNodes.map((c) => c.childrenDepth)) + 1 : 0
 
     const inputUsage = obs.usageDetails?.input ?? null
     const outputUsage = obs.usageDetails?.output ?? null
     const totalUsage =
       obs.usageDetails?.total ??
-      (inputUsage !== null || outputUsage !== null
-        ? (inputUsage ?? 0) + (outputUsage ?? 0)
-        : null)
+      (inputUsage !== null || outputUsage !== null ? (inputUsage ?? 0) + (outputUsage ?? 0) : null)
 
     const treeNode: ObservationNode = {
       id: obs.id,

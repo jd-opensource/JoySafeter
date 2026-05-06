@@ -6,11 +6,7 @@ interface TimelineScaleProps {
   stepSize: number
 }
 
-export function TimelineScale({
-  traceDuration,
-  scaleWidth,
-  stepSize,
-}: TimelineScaleProps) {
+export function TimelineScale({ traceDuration, scaleWidth, stepSize }: TimelineScaleProps) {
   const numMarkers = Math.ceil(scaleWidth / STEP_SIZE) + 1
 
   return (
@@ -43,7 +39,7 @@ export function TimelineScale({
           return (
             <div
               key={`grid-${i}`}
-              className="pointer-events-none absolute h-full border-l border-border/30"
+              className="border-border/30 pointer-events-none absolute h-full border-l"
               style={{ left: `${i * STEP_SIZE}px` }}
             />
           )

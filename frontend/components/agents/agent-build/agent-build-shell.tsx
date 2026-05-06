@@ -7,7 +7,12 @@ import { useTranslation } from '@/lib/i18n'
 import { useCurrentWorkspace } from '@/providers/workspace-provider'
 import type { Agent, AgentVersion } from '@/types/agent'
 
-import { BUILD_STAGES, isBuildStageId, resolveDefaultStage, type BuildStageId } from './agent-build-types'
+import {
+  BUILD_STAGES,
+  isBuildStageId,
+  resolveDefaultStage,
+  type BuildStageId,
+} from './agent-build-types'
 import { BuildStepper } from './build-stepper'
 import { useBuilderSurface } from './builder-surface-context'
 import { StageRenderer } from './stage-renderer'
@@ -57,11 +62,7 @@ export function AgentBuildShell({ agent, version }: AgentBuildShellProps) {
   return (
     <div className="flex h-full flex-col">
       <main className="min-h-0 flex-1 overflow-hidden">
-        <StageRenderer
-          stageId={activeStageId}
-          surface={surface}
-          stageProps={stageProps}
-        />
+        <StageRenderer stageId={activeStageId} surface={surface} stageProps={stageProps} />
       </main>
     </div>
   )

@@ -21,11 +21,7 @@ export const releaseKeys = {
 
 // ==================== Query Hooks ====================
 
-export function useReleases(
-  agentId: string,
-  workspaceId: string,
-  options?: { enabled?: boolean },
-) {
+export function useReleases(agentId: string, workspaceId: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: releaseKeys.list(agentId, workspaceId),
     queryFn: async () => {

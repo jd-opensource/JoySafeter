@@ -1,4 +1,5 @@
 """ObservationCollector — OTel-backed central API for observation tracing."""
+
 from __future__ import annotations
 
 import asyncio
@@ -103,8 +104,12 @@ class ObservationCollector:
         level: ObservationLevel = ObservationLevel.DEFAULT,
     ) -> ObservationSpan:
         span = self.start_span(
-            ObservationType.GENERATION, name,
-            parent=parent, input=input, metadata=metadata, level=level,
+            ObservationType.GENERATION,
+            name,
+            parent=parent,
+            input=input,
+            metadata=metadata,
+            level=level,
         )
         if output is not None:
             span.set_output(output)
@@ -128,8 +133,12 @@ class ObservationCollector:
         level: ObservationLevel = ObservationLevel.DEFAULT,
     ) -> ObservationSpan:
         span = self.start_span(
-            ObservationType.TOOL, name,
-            parent=parent, input=input, metadata=metadata, level=level,
+            ObservationType.TOOL,
+            name,
+            parent=parent,
+            input=input,
+            metadata=metadata,
+            level=level,
         )
         if output is not None:
             span.set_output(output)
@@ -146,8 +155,12 @@ class ObservationCollector:
         level: ObservationLevel = ObservationLevel.DEFAULT,
     ) -> ObservationSpan:
         span = self.start_span(
-            ObservationType.EVENT, name,
-            parent=parent, input=input, metadata=metadata, level=level,
+            ObservationType.EVENT,
+            name,
+            parent=parent,
+            input=input,
+            metadata=metadata,
+            level=level,
         )
         span.end()
         return span

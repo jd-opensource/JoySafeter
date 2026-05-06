@@ -1,6 +1,14 @@
 import {
-  Fan, Bot, Wrench, CircleDot, MoveHorizontal,
-  Link, Search, Layers3, ShieldCheck, WandSparkles,
+  Fan,
+  Bot,
+  Wrench,
+  CircleDot,
+  MoveHorizontal,
+  Link,
+  Search,
+  Layers3,
+  ShieldCheck,
+  WandSparkles,
 } from 'lucide-react'
 import type { ObservationType } from './types'
 import type { LucideIcon } from 'lucide-react'

@@ -1,4 +1,5 @@
 """LangChain callback helper utilities — message conversion, usage normalization, model extraction."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -47,9 +48,7 @@ def normalize_usage(raw: dict | None) -> dict[str, int]:
         if input_key in raw:
             inp = int(raw[input_key])
             out = int(raw.get(output_key, 0))
-            total = (
-                int(raw[total_key]) if total_key and total_key in raw else inp + out
-            )
+            total = int(raw[total_key]) if total_key and total_key in raw else inp + out
             return {"input": inp, "output": out, "total": total}
     return {}
 
@@ -86,11 +85,7 @@ def extract_model_name(
 
 def _classify_chain(name: str, serialized: dict) -> ObservationType:
     """Determine if a chain is actually an AGENT based on name patterns and serialized id path."""
-    if name and (
-        name.startswith("worker:")
-        or "SubAgent" in name
-        or "CompiledSubAgent" in name
-    ):
+    if name and (name.startswith("worker:") or "SubAgent" in name or "CompiledSubAgent" in name):
         return ObservationType.AGENT
     if serialized:
         path = serialized.get("id", [])

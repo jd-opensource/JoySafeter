@@ -14,9 +14,7 @@ export function ObservationProviders({ children }: { children: React.ReactNode }
         <StreamingTextProvider>
           <Suspense fallback={null}>
             <ObservationSelectionProvider>
-              <ObservationJsonExpansionProvider>
-                {children}
-              </ObservationJsonExpansionProvider>
+              <ObservationJsonExpansionProvider>{children}</ObservationJsonExpansionProvider>
             </ObservationSelectionProvider>
           </Suspense>
         </StreamingTextProvider>

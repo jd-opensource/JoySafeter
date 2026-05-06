@@ -150,7 +150,9 @@ export function useCopilotWebSocketHandler({
         if (graphId) {
           const { versionId, workspaceId } = useGraphStore.getState()
           if (versionId && workspaceId) {
-            queryClient.invalidateQueries({ queryKey: versionKeys.graphState(graphId, versionId, workspaceId) })
+            queryClient.invalidateQueries({
+              queryKey: versionKeys.graphState(graphId, versionId, workspaceId),
+            })
           }
         }
         actions.clearStreaming()

@@ -29,19 +29,11 @@ export const taskService = {
     return apiPost<Task>('tasks', data)
   },
 
-  update: async (
-    taskId: string,
-    workspaceId: string,
-    data: UpdateTaskRequest,
-  ): Promise<Task> => {
+  update: async (taskId: string, workspaceId: string, data: UpdateTaskRequest): Promise<Task> => {
     return apiPatch<Task>(`tasks/${taskId}?workspace_id=${workspaceId}`, data)
   },
 
-  assign: async (
-    taskId: string,
-    workspaceId: string,
-    agentId: string,
-  ): Promise<Task> => {
+  assign: async (taskId: string, workspaceId: string, agentId: string): Promise<Task> => {
     return apiPost<Task>(`tasks/${taskId}/assign?workspace_id=${workspaceId}`, {
       agent_id: agentId,
     })
@@ -71,10 +63,7 @@ export const taskService = {
     return apiGet<ExecutionEventsPage>(`tasks/${taskId}/execution/events?${params}`)
   },
 
-  getExecutionSnapshot: async (
-    taskId: string,
-    workspaceId: string,
-  ): Promise<ExecutionSnapshot> => {
+  getExecutionSnapshot: async (taskId: string, workspaceId: string): Promise<ExecutionSnapshot> => {
     return apiGet<ExecutionSnapshot>(
       `tasks/${taskId}/execution/snapshot?workspace_id=${workspaceId}`,
     )

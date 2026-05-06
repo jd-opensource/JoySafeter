@@ -1,5 +1,6 @@
 # backend/app/core/observation/model.py
 """Trace and Observation persistence models — Langfuse-aligned schema."""
+
 from __future__ import annotations
 
 import uuid
@@ -7,8 +8,15 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
-    ARRAY, Boolean, DateTime, ForeignKey, Integer, Numeric,
-    String, Text, func,
+    ARRAY,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -48,9 +56,7 @@ class Trace(Base):
     agent_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class Observation(Base):
@@ -62,9 +68,7 @@ class Observation(Base):
         ForeignKey("traces.id", ondelete="CASCADE"),
         nullable=False,
     )
-    parent_observation_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
+    parent_observation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     type: Mapped[str] = mapped_column(String(20), nullable=False)
     name: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -74,9 +78,7 @@ class Observation(Base):
 
     start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    completion_start_time: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    completion_start_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     input: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     output: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
@@ -95,6 +97,4 @@ class Observation(Base):
     execution_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

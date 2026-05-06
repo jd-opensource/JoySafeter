@@ -11,6 +11,7 @@ Changes:
 from typing import Sequence, Union
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "ff6aa7bb8cc9"

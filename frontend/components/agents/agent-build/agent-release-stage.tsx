@@ -123,11 +123,7 @@ function PublishedCard({
         </div>
         <div className="flex items-center gap-2">
           {canAdmin && (
-            <Button
-              variant="outline"
-              onClick={onUnpublish}
-              disabled={isUnpublishing}
-            >
+            <Button variant="outline" onClick={onUnpublish} disabled={isUnpublishing}>
               {isUnpublishing ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
@@ -383,7 +379,9 @@ export function AgentReleaseStage({ agent, version, workspaceId }: StageProps) {
                         onClick={() => setShowArchived((prev) => !prev)}
                       >
                         {showArchived
-                          ? t('agents.build.release.hideArchived', { defaultValue: 'Hide archived' })
+                          ? t('agents.build.release.hideArchived', {
+                              defaultValue: 'Hide archived',
+                            })
                           : t('agents.build.release.showArchived', {
                               defaultValue: `Show ${archivedCount} archived`,
                               num: String(archivedCount),

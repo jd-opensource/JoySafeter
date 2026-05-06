@@ -8,13 +8,8 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { taskService } from '@/services/taskService'
-import type {
-  Task,
-  CreateTaskRequest,
-  UpdateTaskRequest,
-  TaskStatus,
-} from '@/types/tasks'
-import { TERMINAL_TASK_STATUSES, DEFAULT_MANUAL_TRANSITIONS } from '@/types/tasks'
+import type { Task, CreateTaskRequest, UpdateTaskRequest, TaskStatus } from '@/types/tasks'
+import { INACTIVE_TASK_STATUSES, DEFAULT_MANUAL_TRANSITIONS } from '@/types/tasks'
 
 import { STALE_TIME } from './constants'
 import { agentRunKeys } from './agentRuns'
@@ -59,11 +54,7 @@ export function useTasks(
   })
 }
 
-export function useTask(
-  taskId: string,
-  workspaceId: string,
-  options?: { enabled?: boolean },
-) {
+export function useTask(taskId: string, workspaceId: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: taskKeys.detail(taskId, workspaceId),
     queryFn: () => taskService.get(taskId, workspaceId),
@@ -71,7 +62,7 @@ export function useTask(
     staleTime: STALE_TIME.SHORT,
     refetchInterval: (query) => {
       const status = query.state.data?.status
-      if (status && TERMINAL_TASK_STATUSES.includes(status)) return false
+      if (status && INACTIVE_TASK_STATUSES.includes(status)) return false
       return 10_000
     },
   })
@@ -111,19 +102,17 @@ export function useUpdateTask() {
 
       queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.all }, (old) => {
         if (!old || !Array.isArray(old)) return old
-        return old.map((m) =>
-          m.id === variables.taskId ? ({ ...m, ...updates } as Task) : m,
-        )
+        return old.map((m) => (m.id === variables.taskId ? ({ ...m, ...updates } as Task) : m))
       })
 
       const previousDetail = queryClient.getQueryData<Task>(
         taskKeys.detail(variables.taskId, variables.workspaceId),
       )
       if (previousDetail) {
-        queryClient.setQueryData<Task>(
-          taskKeys.detail(variables.taskId, variables.workspaceId),
-          { ...previousDetail, ...updates } as Task,
-        )
+        queryClient.setQueryData<Task>(taskKeys.detail(variables.taskId, variables.workspaceId), {
+          ...previousDetail,
+          ...updates,
+        } as Task)
       }
 
       return { previous, previousDetail }
@@ -179,7 +168,10 @@ export function useDispatchTask() {
       queryClient.setQueryData(taskKeys.detail(variables.taskId, variables.workspaceId), data)
       queryClient.invalidateQueries({ queryKey: taskKeys.all })
       queryClient.invalidateQueries({
-        queryKey: agentRunKeys.list({ workspace_id: variables.workspaceId, task_id: variables.taskId }),
+        queryKey: agentRunKeys.list({
+          workspace_id: variables.workspaceId,
+          task_id: variables.taskId,
+        }),
       })
     },
   })
@@ -195,7 +187,10 @@ export function useCancelTask() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: taskKeys.all })
       queryClient.invalidateQueries({
-        queryKey: agentRunKeys.list({ workspace_id: variables.workspaceId, task_id: variables.taskId }),
+        queryKey: agentRunKeys.list({
+          workspace_id: variables.workspaceId,
+          task_id: variables.taskId,
+        }),
       })
     },
   })

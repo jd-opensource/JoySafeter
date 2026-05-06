@@ -56,8 +56,7 @@ export class CopilotErrorBoundary extends Component<Props, State> {
       }
 
       const errorMessage = this.state.error?.message || 'An unexpected error occurred'
-      const errorCode =
-        this.state.error instanceof ApiError ? this.state.error.code : undefined
+      const errorCode = this.state.error instanceof ApiError ? this.state.error.code : undefined
       const isNetworkError = errorCode === 'NETWORK_ERROR' || errorCode === 'REQUEST_TIMEOUT'
       const isWebSocketError =
         errorCode === 'WEBSOCKET_CONNECTION_FAILED' || errorCode === 'WEBSOCKET_UNAVAILABLE'

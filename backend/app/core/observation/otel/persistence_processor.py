@@ -1,4 +1,5 @@
 """PersistenceProcessor -- deferred-INSERT SpanProcessor writing Observation rows to PG."""
+
 from __future__ import annotations
 
 import asyncio
@@ -61,9 +62,7 @@ class PersistenceProcessor(SpanProcessor):
         self._has_error = False
 
         # Start drain loop on the event loop
-        self._drain_future = asyncio.run_coroutine_threadsafe(
-            self._drain_loop(), self._loop
-        )
+        self._drain_future = asyncio.run_coroutine_threadsafe(self._drain_loop(), self._loop)
 
     # ---- SpanProcessor interface ----
 
@@ -86,9 +85,7 @@ class PersistenceProcessor(SpanProcessor):
 
         parent_obs_id: uuid.UUID | None = None
         if span.parent:
-            parent_obs_id = self._otel_span_id_to_observation_id.get(
-                span.parent.span_id
-            )
+            parent_obs_id = self._otel_span_id_to_observation_id.get(span.parent.span_id)
 
         obs = Observation(
             id=obs_id,
@@ -109,9 +106,7 @@ class PersistenceProcessor(SpanProcessor):
             model_parameters=parse_json_attr(attrs.get("llm.parameters")),
             usage_details=build_usage(attrs),
             cost_details=build_cost(attrs),
-            completion_start_time=self._parse_iso_attr(
-                attrs, "llm.completion_start_time"
-            ),
+            completion_start_time=self._parse_iso_attr(attrs, "llm.completion_start_time"),
             prompt_name=attrs.get("llm.prompt.name"),  # type: ignore[arg-type]
             prompt_version=self._safe_int(attrs.get("llm.prompt.version")),
             tool_calls=parse_json_attr(attrs.get("tool.calls")),
@@ -186,13 +181,9 @@ class PersistenceProcessor(SpanProcessor):
         """Async variant used by ObservationTracerProvider.shutdown()."""
         self._queue.put_nowait(_SENTINEL)
         try:
-            await asyncio.wait_for(
-                asyncio.wrap_future(self._drain_future), timeout=10
-            )
+            await asyncio.wait_for(asyncio.wrap_future(self._drain_future), timeout=10)
         except Exception:
-            logger.opt(exception=True).warning(
-                "PersistenceProcessor drain loop did not exit cleanly"
-            )
+            logger.opt(exception=True).warning("PersistenceProcessor drain loop did not exit cleanly")
 
     # ---- Internal: drain loop & flush ----
 
@@ -201,9 +192,7 @@ class PersistenceProcessor(SpanProcessor):
         buffer: list[Observation] = []
         while True:
             try:
-                item = await asyncio.wait_for(
-                    self._queue.get(), timeout=self._max_wait_ms / 1000
-                )
+                item = await asyncio.wait_for(self._queue.get(), timeout=self._max_wait_ms / 1000)
             except asyncio.TimeoutError:
                 if buffer:
                     await self._flush(buffer)

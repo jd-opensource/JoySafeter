@@ -287,7 +287,9 @@ async def publish_agent(
     service = AgentPublishService(db)
     result = await service.publish(agent_id, current_user.id)
     return BaseResponse(
-        success=True, code=200, msg="ok",
+        success=True,
+        code=200,
+        msg="ok",
         data=PublishAgentResponse(
             agent=_to_response(result["agent"]),
             release=_release_to_response(result["release"]),
@@ -306,7 +308,9 @@ async def rollback_agent(
     service = AgentPublishService(db)
     result = await service.rollback(agent_id, body.release_id)
     return BaseResponse(
-        success=True, code=200, msg="ok",
+        success=True,
+        code=200,
+        msg="ok",
         data=RollbackAgentResponse(
             agent=_to_response(result["agent"]),
         ),
@@ -323,7 +327,9 @@ async def unpublish_agent(
     service = AgentPublishService(db)
     result = await service.unpublish(agent_id)
     return BaseResponse(
-        success=True, code=200, msg="ok",
+        success=True,
+        code=200,
+        msg="ok",
         data=UnpublishAgentResponse(
             agent=_to_response(result["agent"]),
             release=_release_to_response(result["release"]) if result["release"] else None,

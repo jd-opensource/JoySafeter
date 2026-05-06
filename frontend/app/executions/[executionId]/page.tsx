@@ -58,9 +58,7 @@ export default function ExecutionDetailPage() {
             </Button>
             <Activity className="h-5 w-5 text-[var(--skill-brand-600)]" />
             <div>
-              <h1 className="text-lg font-semibold text-[var(--text-primary)]">
-                Execution Detail
-              </h1>
+              <h1 className="text-lg font-semibold text-[var(--text-primary)]">Execution Detail</h1>
               <p className="text-xs text-[var(--text-muted)]">{executionId}</p>
             </div>
           </div>
@@ -114,9 +112,7 @@ export default function ExecutionDetailPage() {
                   <Activity className="h-4 w-4 text-[var(--skill-brand-600)]" />
                   <span className="text-sm font-medium text-[var(--text-secondary)]">Executor</span>
                 </div>
-                <div className="text-sm text-[var(--text-primary)]">
-                  {execution.engine_kind}
-                </div>
+                <div className="text-sm text-[var(--text-primary)]">{execution.engine_kind}</div>
               </Card>
             </div>
 

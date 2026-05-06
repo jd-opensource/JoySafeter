@@ -354,7 +354,10 @@ export const useGraphStore = create<GraphState>((set, get) => ({
         if (e.id !== id) return e
         const updatedData = { ...(e.data || {}), ...data } as EdgeData
         const edgeType = updatedData.edge_type
-        const { type: edgeTypeForReactFlow, style: edgeStyle } = getEdgeStyleByType(edgeType, e.style)
+        const { type: edgeTypeForReactFlow, style: edgeStyle } = getEdgeStyleByType(
+          edgeType,
+          e.style,
+        )
         return { ...e, type: edgeTypeForReactFlow, data: updatedData, style: edgeStyle }
       }),
     }))
@@ -466,5 +469,5 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 }))
 
 const graphStoreInitialState = useGraphStore.getState()
-;(useGraphStore as unknown as { getInitialState: () => GraphState }).getInitialState =
-  () => graphStoreInitialState
+;(useGraphStore as unknown as { getInitialState: () => GraphState }).getInitialState = () =>
+  graphStoreInitialState

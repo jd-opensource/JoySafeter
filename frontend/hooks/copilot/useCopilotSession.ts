@@ -38,10 +38,7 @@ export function useCopilotSession(graphId?: string) {
     (runId: string, executionId: string | null = null) => {
       setSessionState({ runId, executionId })
       if (graphId) {
-        localStorage.setItem(
-          `draft_copilot_run_${graphId}`,
-          JSON.stringify({ runId, executionId }),
-        )
+        localStorage.setItem(`draft_copilot_run_${graphId}`, JSON.stringify({ runId, executionId }))
         localStorage.removeItem(`copilot_run_${graphId}`)
       }
     },

@@ -16,24 +16,31 @@ interface TaskAttentionPanelProps {
   onRetry?: (taskId: string) => void
 }
 
-export function TaskAttentionPanel({ tasks, agentsMap, onSelectTask, onRetry }: TaskAttentionPanelProps) {
+export function TaskAttentionPanel({
+  tasks,
+  agentsMap,
+  onSelectTask,
+  onRetry,
+}: TaskAttentionPanelProps) {
   const { t } = useTranslation()
 
   if (tasks.length === 0) return null
 
   return (
-    <Card className="border-[var(--status-warning-border)] bg-[var(--status-warning-bg)]/30 p-5">
+    <Card className="bg-[var(--status-warning-bg)]/30 border-[var(--status-warning-border)] p-5">
       <div className="mb-3 flex items-center gap-2">
         <AlertTriangle className="h-4 w-4 text-[var(--status-warning)]" />
         <h2 className="text-sm font-semibold text-[var(--text-primary)]">
           {t('tasks.needsAttention')}
         </h2>
-        <Badge variant="outline" className="text-xs">{tasks.length}</Badge>
+        <Badge variant="outline" className="text-xs">
+          {tasks.length}
+        </Badge>
       </div>
 
       <div className="space-y-2">
         {tasks.slice(0, 5).map((task) => {
-          const agentId = task.agent_id ?? task.assignee_id
+          const agentId = task.agent_id
           const agentName = agentId ? agentsMap[agentId] : undefined
           const isFailed = task.status === 'in_review'
 
@@ -42,7 +49,7 @@ export function TaskAttentionPanel({ tasks, agentsMap, onSelectTask, onRetry }: 
               key={task.id}
               className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-3"
             >
-              <div className="flex items-center gap-3 min-w-0">
+              <div className="flex min-w-0 items-center gap-3">
                 <div
                   className={`h-2 w-2 flex-shrink-0 rounded-full ${
                     isFailed ? 'bg-[var(--status-error)]' : 'bg-[var(--status-warning)]'
@@ -71,7 +78,7 @@ export function TaskAttentionPanel({ tasks, agentsMap, onSelectTask, onRetry }: 
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 flex-shrink-0">
+              <div className="flex flex-shrink-0 items-center gap-2">
                 <Button
                   variant="ghost"
                   size="sm"

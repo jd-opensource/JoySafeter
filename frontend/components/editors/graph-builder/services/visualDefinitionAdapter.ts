@@ -54,7 +54,9 @@ function toGraphState(
       zoom: 1,
     },
     graphStateFields:
-      (definitionPayload.graphStateFields as any[]) ?? (definitionPayload.state_fields as any[]) ?? [],
+      (definitionPayload.graphStateFields as any[]) ??
+      (definitionPayload.state_fields as any[]) ??
+      [],
     fallbackNodeId:
       (definitionPayload.fallbackNodeId as string) ??
       (definitionPayload.fallback_node_id as string) ??

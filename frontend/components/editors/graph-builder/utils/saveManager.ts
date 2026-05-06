@@ -63,13 +63,18 @@ export class SaveManager {
         return true
       })
 
-      const result = await visualDefinitionAdapter.save(state.agentId, state.versionId, state.workspaceId, {
-        nodes: state.nodes,
-        edges: deduplicatedEdges,
-        viewport: state.viewport,
-        graphStateFields: state.graphStateFields,
-        fallbackNodeId: state.fallbackNodeId,
-      })
+      const result = await visualDefinitionAdapter.save(
+        state.agentId,
+        state.versionId,
+        state.workspaceId,
+        {
+          nodes: state.nodes,
+          edges: deduplicatedEdges,
+          viewport: state.viewport,
+          graphStateFields: state.graphStateFields,
+          fallbackNodeId: state.fallbackNodeId,
+        },
+      )
 
       if (result.versionId !== state.versionId) {
         this.callbacks.onVersionForked?.(state.versionId, result.versionId)

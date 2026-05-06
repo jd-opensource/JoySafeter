@@ -8,11 +8,7 @@ import { threadEventKeys } from './use-thread-events'
 import { TERMINAL_EXECUTION_STATUSES } from '@/types/agent-run'
 import type { ThreadEvent } from '@/types/thread'
 
-export function useChatStream(
-  executionId: string | null,
-  threadId: string,
-  workspaceId: string,
-) {
+export function useChatStream(executionId: string | null, threadId: string, workspaceId: string) {
   const queryClient = useQueryClient()
   const { events, status } = useExecutionStream({
     executionId: executionId || '',
@@ -24,14 +20,10 @@ export function useChatStream(
   useEffect(() => {
     if (!executionId || !events.length) return
 
-    const newEvents = events.filter(
-      (e) => e.seq > lastSeenSeqRef.current,
-    )
+    const newEvents = events.filter((e) => e.seq > lastSeenSeqRef.current)
     if (!newEvents.length) return
 
-    lastSeenSeqRef.current = Math.max(
-      ...newEvents.map((e) => e.seq),
-    )
+    lastSeenSeqRef.current = Math.max(...newEvents.map((e) => e.seq))
 
     queryClient.setQueryData(
       threadEventKeys.events(threadId, workspaceId),
@@ -75,9 +67,7 @@ export function useChatStream(
   }, [status, threadId, workspaceId, queryClient])
 
   const isExecuting = Boolean(
-    executionId &&
-      status &&
-      !TERMINAL_EXECUTION_STATUSES.includes(status as never),
+    executionId && status && !TERMINAL_EXECUTION_STATUSES.includes(status as never),
   )
 
   return { isExecuting, status }

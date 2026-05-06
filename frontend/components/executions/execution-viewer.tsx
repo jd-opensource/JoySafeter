@@ -62,11 +62,15 @@ export function ExecutionViewer({
     refetch: refetchExec,
   } = useExecution(executionId)
 
-  const shouldStream = isLive && ACTIVE_EXECUTION_STATUSES.includes(
-    (execution?.status ?? 'pending') as never,
-  )
+  const shouldStream =
+    isLive && ACTIVE_EXECUTION_STATUSES.includes((execution?.status ?? 'pending') as never)
 
-  const { events: wsEvents, status: wsStatus, isConnected, wsFailed } = useExecutionStream({
+  const {
+    events: wsEvents,
+    status: wsStatus,
+    isConnected,
+    wsFailed,
+  } = useExecutionStream({
     executionId,
     enabled: shouldStream,
   })
@@ -81,7 +85,8 @@ export function ExecutionViewer({
   })
 
   const events: ExecutionEvent[] = shouldStream && !wsFailed ? wsEvents : (polledEventsPage ?? [])
-  const currentStatus = (shouldStream && !wsFailed ? wsStatus : null) ?? execution?.status ?? 'pending'
+  const currentStatus =
+    (shouldStream && !wsFailed ? wsStatus : null) ?? execution?.status ?? 'pending'
   const isActive = ACTIVE_EXECUTION_STATUSES.includes(currentStatus as never)
 
   // Artifacts from event stream
@@ -91,7 +96,10 @@ export function ExecutionViewer({
       .filter((e) => e.event_type === 'artifact_created')
       .map((e) => ({
         type: 'file' as const,
-        title: (e.payload as Record<string, string>)?.uri || (e.payload as Record<string, string>)?.name || 'artifact',
+        title:
+          (e.payload as Record<string, string>)?.uri ||
+          (e.payload as Record<string, string>)?.name ||
+          'artifact',
         content: (e.payload as Record<string, string>)?.content || '',
         language: (e.payload as Record<string, string>)?.language,
       }))
@@ -147,7 +155,12 @@ export function ExecutionViewer({
 
   if (execError || eventsError) {
     return (
-      <div className={cn('flex flex-col items-center justify-center gap-3', compact ? 'h-80' : 'h-full')}>
+      <div
+        className={cn(
+          'flex flex-col items-center justify-center gap-3',
+          compact ? 'h-80' : 'h-full',
+        )}
+      >
         <AlertCircle className="h-8 w-8 text-[var(--status-error)]" />
         <p className="text-sm text-[var(--text-secondary)]">Failed to load execution data</p>
         <Button variant="outline" size="sm" onClick={handleRetry} className="gap-1.5">
@@ -160,7 +173,12 @@ export function ExecutionViewer({
 
   if (isExecLoading && !execution) {
     return (
-      <div className={cn('flex flex-col items-center justify-center gap-2', compact ? 'h-80' : 'h-full')}>
+      <div
+        className={cn(
+          'flex flex-col items-center justify-center gap-2',
+          compact ? 'h-80' : 'h-full',
+        )}
+      >
         <Loader2 className="h-6 w-6 animate-spin text-[var(--text-muted)]" />
         <p className="text-sm text-[var(--text-muted)]">Loading execution...</p>
       </div>
@@ -173,9 +191,15 @@ export function ExecutionViewer({
       <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-2.5">
         <div className="flex items-center gap-2">
           <StatusIcon
-            className={cn('h-4 w-4', statusConfig.color, currentStatus === 'running' && 'animate-spin')}
+            className={cn(
+              'h-4 w-4',
+              statusConfig.color,
+              currentStatus === 'running' && 'animate-spin',
+            )}
           />
-          <span className={cn('text-sm font-medium', statusConfig.color)}>{statusConfig.label}</span>
+          <span className={cn('text-sm font-medium', statusConfig.color)}>
+            {statusConfig.label}
+          </span>
           {duration && <span className="text-xs text-[var(--text-muted)]">{duration}</span>}
         </div>
         <div className="flex items-center gap-2">
@@ -233,7 +257,11 @@ export function ExecutionViewer({
 }
 
 /** Collapsible artifact section */
-function ArtifactSection({ artifacts }: { artifacts: Array<{ type: string; title: string; content: string; language?: string }> }) {
+function ArtifactSection({
+  artifacts,
+}: {
+  artifacts: Array<{ type: string; title: string; content: string; language?: string }>
+}) {
   const [expanded, setExpanded] = useState(false)
 
   return (

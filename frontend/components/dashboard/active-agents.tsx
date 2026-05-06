@@ -22,7 +22,7 @@ export function ActiveAgents({ workspaceId, agents, tasks }: ActiveAgentsProps) 
   const activeTaskCounts = useMemo(() => {
     const counts: Record<string, number> = {}
     tasks.forEach((task: Task) => {
-      const agentId = task.agent_id ?? task.assignee_id
+      const agentId = task.agent_id
       if (agentId && task.status === 'in_progress') {
         counts[agentId] = (counts[agentId] || 0) + 1
       }
@@ -76,9 +76,7 @@ export function ActiveAgents({ workspaceId, agents, tasks }: ActiveAgentsProps) 
                   {agent.name.charAt(0).toUpperCase()}
                 </div>
                 <div className="text-left">
-                  <p className="text-sm font-medium text-[var(--text-primary)]">
-                    {agent.name}
-                  </p>
+                  <p className="text-sm font-medium text-[var(--text-primary)]">{agent.name}</p>
                   <p className="text-xs text-[var(--text-muted)]">
                     {isIdle ? t('dashboard.idle') : `${taskCount} active`}
                   </p>

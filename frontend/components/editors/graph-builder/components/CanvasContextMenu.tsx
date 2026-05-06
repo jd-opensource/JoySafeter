@@ -14,7 +14,11 @@ export function CanvasContextMenu({ open, x, y, onClose, onAddNode }: CanvasCont
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-[80]" onClick={onClose} onContextMenu={(event) => event.preventDefault()}>
+    <div
+      className="fixed inset-0 z-[80]"
+      onClick={onClose}
+      onContextMenu={(event) => event.preventDefault()}
+    >
       <div
         className="absolute rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] shadow-2xl"
         style={{ left: x, top: y }}

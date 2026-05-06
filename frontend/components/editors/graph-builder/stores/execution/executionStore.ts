@@ -296,7 +296,11 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
 
       const context = contexts.get(graphId)
       if (context?.subscribedExecutionId) {
-        try { getExecutionWsClient().unsubscribe(context.subscribedExecutionId) } catch { /* ignore */ }
+        try {
+          getExecutionWsClient().unsubscribe(context.subscribedExecutionId)
+        } catch {
+          /* ignore */
+        }
       }
       if (context?.abortController) {
         context.abortController.abort()
@@ -412,7 +416,9 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       const workspaceId = draftInput?.workspaceId ?? builderState.workspaceId
 
       if (!agentId || !workspaceId) {
-        throw new Error('agentId and workspaceId are required to start execution. Legacy workspace route is no longer supported.')
+        throw new Error(
+          'agentId and workspaceId are required to start execution. Legacy workspace route is no longer supported.',
+        )
       }
 
       const graphId = store.currentGraphId
@@ -441,7 +447,11 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       // Cancel previous subscription
       const existingContext = store.getContext(graphId)
       if (existingContext.subscribedExecutionId) {
-        try { getExecutionWsClient().unsubscribe(existingContext.subscribedExecutionId) } catch { /* ignore */ }
+        try {
+          getExecutionWsClient().unsubscribe(existingContext.subscribedExecutionId)
+        } catch {
+          /* ignore */
+        }
       }
       if (existingContext.abortController) {
         existingContext.abortController.abort()
@@ -486,7 +496,11 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
 
         switch (event_type) {
           case 'assistant_text': {
-            const text = (payload.delta as string) ?? (payload.content as string) ?? (payload.text as string) ?? ''
+            const text =
+              (payload.delta as string) ??
+              (payload.content as string) ??
+              (payload.text as string) ??
+              ''
             if (currentThoughtStepId) {
               store.appendContent(currentThoughtStepId, text)
             } else {
@@ -665,14 +679,17 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
 
         const executionId = run.current_execution_id
 
-
         const timeoutId = setTimeout(() => {
           const context = getOrCreateContext(get().contexts, graphId)
           if (context.runId) {
             executionAdapter.cancelRun(context.runId).catch(() => {})
           }
           if (context.subscribedExecutionId) {
-            try { getExecutionWsClient().unsubscribe(context.subscribedExecutionId) } catch { /* ignore */ }
+            try {
+              getExecutionWsClient().unsubscribe(context.subscribedExecutionId)
+            } catch {
+              /* ignore */
+            }
           }
           store.addStep({
             id: generateId('timeout'),
@@ -688,79 +705,87 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         }, EXECUTION_TIMEOUT_MS)
         store.setTimeoutId(graphId, timeoutId)
 
-
         await new Promise<void>((resolve, reject) => {
           const onAbort = () => {
-            try { getExecutionWsClient().unsubscribe(executionId) } catch { /* ignore */ }
+            try {
+              getExecutionWsClient().unsubscribe(executionId)
+            } catch {
+              /* ignore */
+            }
             resolve()
           }
           abortController.signal.addEventListener('abort', onAbort, { once: true })
 
-          getExecutionWsClient().subscribe(executionId, 0, {
-            onEvent: (frame: ExecutionEventFrame) => {
-              try {
-                handleExecutionEvent(frame)
-              } catch (err) {
-                console.warn('[executionStore] Failed to handle execution event:', err)
-              }
-            },
-
-            onSnapshot: (frame: ExecutionSnapshotFrame) => {
-              for (const evt of frame.events) {
+          getExecutionWsClient()
+            .subscribe(executionId, 0, {
+              onEvent: (frame: ExecutionEventFrame) => {
                 try {
-                  handleExecutionEvent({
-                    type: 'event',
-                    execution_id: frame.execution_id,
-                    seq: evt.seq,
-                    event_type: evt.event_type,
-                    payload: evt.payload,
-                    created_at: evt.created_at,
-                  })
+                  handleExecutionEvent(frame)
                 } catch (err) {
-                  console.warn('[executionStore] Failed to replay snapshot event:', err)
+                  console.warn('[executionStore] Failed to handle execution event:', err)
                 }
-              }
-            },
+              },
 
-            onCompleted: (frame: ExecutionCompletedFrame) => {
-              abortController.signal.removeEventListener('abort', onAbort)
-              if (currentThoughtStepId) {
-                store.updateStep(currentThoughtStepId, { status: 'success', endTime: Date.now() })
-                currentThoughtStepId = null
-              }
-              const now = Date.now()
-              const graphContext = store.getContext(graphId)
-              const workflowStep = graphContext.state.steps.find((s) => s.id === workflowId)
-              const status = (frame.status === 'succeeded' || frame.status === 'completed') ? 'success' : 'error' as const
-              store.updateStep(workflowId, {
-                status,
-                endTime: now,
-                duration: now - (workflowStep?.startTime || now),
-              })
-              if (frame.error) {
-                store.addStep({
-                  id: generateId('error'),
-                  nodeId: 'system',
-                  nodeLabel: 'Error',
-                  stepType: 'system_log',
-                  title: frame.error.code,
-                  status: 'error',
-                  startTime: now,
-                  content: frame.error.message,
-                  data: { ...frame.error },
+              onSnapshot: (frame: ExecutionSnapshotFrame) => {
+                for (const evt of frame.events) {
+                  try {
+                    handleExecutionEvent({
+                      type: 'event',
+                      execution_id: frame.execution_id,
+                      seq: evt.seq,
+                      event_type: evt.event_type,
+                      payload: evt.payload,
+                      created_at: evt.created_at,
+                    })
+                  } catch (err) {
+                    console.warn('[executionStore] Failed to replay snapshot event:', err)
+                  }
+                }
+              },
+
+              onCompleted: (frame: ExecutionCompletedFrame) => {
+                abortController.signal.removeEventListener('abort', onAbort)
+                if (currentThoughtStepId) {
+                  store.updateStep(currentThoughtStepId, { status: 'success', endTime: Date.now() })
+                  currentThoughtStepId = null
+                }
+                const now = Date.now()
+                const graphContext = store.getContext(graphId)
+                const workflowStep = graphContext.state.steps.find((s) => s.id === workflowId)
+                const status =
+                  frame.status === 'succeeded' || frame.status === 'completed'
+                    ? 'success'
+                    : ('error' as const)
+                store.updateStep(workflowId, {
+                  status,
+                  endTime: now,
+                  duration: now - (workflowStep?.startTime || now),
                 })
-              }
-              resolve()
-            },
+                if (frame.error) {
+                  store.addStep({
+                    id: generateId('error'),
+                    nodeId: 'system',
+                    nodeLabel: 'Error',
+                    stepType: 'system_log',
+                    title: frame.error.code,
+                    status: 'error',
+                    startTime: now,
+                    content: frame.error.message,
+                    data: { ...frame.error },
+                  })
+                }
+                resolve()
+              },
 
-            onError: (error: AppErrorPayload) => {
+              onError: (error: AppErrorPayload) => {
+                abortController.signal.removeEventListener('abort', onAbort)
+                reject(new Error(`Execution WebSocket error: ${error.message}`))
+              },
+            })
+            .catch((err) => {
               abortController.signal.removeEventListener('abort', onAbort)
-              reject(new Error(`Execution WebSocket error: ${error.message}`))
-            },
-          }).catch((err) => {
-            abortController.signal.removeEventListener('abort', onAbort)
-            reject(err)
-          })
+              reject(err)
+            })
 
           store.setSubscribedExecutionId(graphId, executionId)
         })
@@ -787,7 +812,11 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         }
         // Unsubscribe if still subscribed
         if (finalContext.subscribedExecutionId) {
-          try { getExecutionWsClient().unsubscribe(finalContext.subscribedExecutionId) } catch { /* ignore */ }
+          try {
+            getExecutionWsClient().unsubscribe(finalContext.subscribedExecutionId)
+          } catch {
+            /* ignore */
+          }
         }
         store.updateGraphState(graphId, { isExecuting: false })
         store.setAbortController(graphId, null)
@@ -837,7 +866,11 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
 
       // Unsubscribe from execution WS
       if (context.subscribedExecutionId) {
-        try { getExecutionWsClient().unsubscribe(context.subscribedExecutionId) } catch { /* ignore */ }
+        try {
+          getExecutionWsClient().unsubscribe(context.subscribedExecutionId)
+        } catch {
+          /* ignore */
+        }
         setSubscribedExecutionId(currentGraphId, null)
       }
 

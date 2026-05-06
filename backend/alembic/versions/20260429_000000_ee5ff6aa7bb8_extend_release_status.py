@@ -53,7 +53,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(
-        "UPDATE agent_releases SET status = 'ready' "
-        "WHERE status IN ('active', 'superseded')"
-    )
+    op.execute("UPDATE agent_releases SET status = 'ready' " "WHERE status IN ('active', 'superseded')")

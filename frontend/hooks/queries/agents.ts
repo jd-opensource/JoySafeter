@@ -36,11 +36,7 @@ export function useAgents(workspaceId: string, options?: { enabled?: boolean }) 
   })
 }
 
-export function useAgent(
-  agentId: string,
-  workspaceId: string,
-  options?: { enabled?: boolean },
-) {
+export function useAgent(agentId: string, workspaceId: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: agentKeys.detail(agentId, workspaceId),
     queryFn: () => agentService.get(agentId, workspaceId),
@@ -62,9 +58,7 @@ export function useReleaseAgentNameMap(workspaceId: string) {
   return useMemo(
     () =>
       Object.fromEntries(
-        agents
-          .filter((a) => a.active_release_id)
-          .map((a) => [a.active_release_id!, a.name]),
+        agents.filter((a) => a.active_release_id).map((a) => [a.active_release_id!, a.name]),
       ) as Record<string, string>,
     [agents],
   )

@@ -1,15 +1,7 @@
 'use client'
 
 import { useQueryClient } from '@tanstack/react-query'
-import {
-  Loader2,
-  Play,
-  Rocket,
-  Save,
-  Square,
-  ChevronDown,
-  ChevronUp,
-} from 'lucide-react'
+import { Loader2, Play, Rocket, Save, Square, ChevronDown, ChevronUp } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -80,7 +72,8 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
         onError: (error) => {
           toast({
             title: t('workspace.deployFailed'),
-            description: error instanceof Error ? error.message : t('workspace.deployFailedDescription'),
+            description:
+              error instanceof Error ? error.message : t('workspace.deployFailedDescription'),
             variant: 'destructive',
           })
         },
@@ -182,11 +175,7 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
       />
 
       {showExecutionPanel && (
-        <DebugPanel
-          agentId={graphId}
-          agentVersionId={versionId ?? ''}
-          workspaceId={workspaceId}
-        />
+        <DebugPanel agentId={graphId} agentVersionId={versionId ?? ''} workspaceId={workspaceId} />
       )}
     </div>
   )

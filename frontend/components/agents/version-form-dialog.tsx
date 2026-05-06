@@ -85,10 +85,7 @@ export function VersionFormDialog({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label>{t('agents.buildMethod')} *</Label>
-            <Select
-              value={engineKind}
-              onValueChange={(v) => setEngineKind(v as EngineKind)}
-            >
+            <Select value={engineKind} onValueChange={(v) => setEngineKind(v as EngineKind)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>

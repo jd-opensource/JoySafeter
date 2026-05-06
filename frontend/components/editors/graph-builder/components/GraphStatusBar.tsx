@@ -11,14 +11,8 @@ import { ZoomControls } from './ZoomControls'
 
 export function GraphStatusBar() {
   const { t } = useTranslation()
-  const {
-    lastAutoSaveTime,
-    hasPendingChanges,
-    lastSaveError,
-    saveRetryCount,
-    isSaving,
-    autoSave,
-  } = useSaveStore()
+  const { lastAutoSaveTime, hasPendingChanges, lastSaveError, saveRetryCount, isSaving, autoSave } =
+    useSaveStore()
   const graphId = useGraphStore((s) => s.graphId)
 
   const formatTime = (timestamp: number | null): string => {
@@ -107,9 +101,7 @@ export function GraphStatusBar() {
 
   return (
     <div className="flex items-center justify-between border-t border-[var(--border)] px-3 py-1 text-xs text-[var(--text-secondary)]">
-      <div className="flex items-center">
-        {renderSaveStatus()}
-      </div>
+      <div className="flex items-center">{renderSaveStatus()}</div>
       <ZoomControls />
     </div>
   )

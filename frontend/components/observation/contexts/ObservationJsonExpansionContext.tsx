@@ -44,26 +44,27 @@ export function ObservationJsonExpansionProvider({ children }: { children: React
           ...prev,
           formatted: { ...prev.formatted, [field]: expansion },
         }
-        try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch {}
+        try {
+          sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+        } catch {}
         return next
       })
     },
     [],
   )
 
-  const setJsonFieldExpansion = useCallback(
-    (field: Field, expanded: boolean) => {
-      setState((prev) => {
-        const next = {
-          ...prev,
-          json: { ...prev.json, [field]: expanded },
-        }
-        try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch {}
-        return next
-      })
-    },
-    [],
-  )
+  const setJsonFieldExpansion = useCallback((field: Field, expanded: boolean) => {
+    setState((prev) => {
+      const next = {
+        ...prev,
+        json: { ...prev.json, [field]: expanded },
+      }
+      try {
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+      } catch {}
+      return next
+    })
+  }, [])
 
   const value = useMemo(
     () => ({
@@ -84,6 +85,9 @@ export function ObservationJsonExpansionProvider({ children }: { children: React
 
 export function useObservationJsonExpansion() {
   const ctx = useContext(ObservationJsonExpansionCtx)
-  if (!ctx) throw new Error('useObservationJsonExpansion must be used within ObservationJsonExpansionProvider')
+  if (!ctx)
+    throw new Error(
+      'useObservationJsonExpansion must be used within ObservationJsonExpansionProvider',
+    )
   return ctx
 }

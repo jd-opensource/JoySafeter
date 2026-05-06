@@ -1,7 +1,12 @@
 'use client'
 
 import React, {
-  createContext, useCallback, useContext, useMemo, useRef, useSyncExternalStore,
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
 } from 'react'
 
 interface StreamingTextStore {
@@ -59,11 +64,7 @@ export function StreamingTextProvider({ children }: { children: React.ReactNode 
     [notify],
   )
 
-  return (
-    <StreamingTextCtx.Provider value={store}>
-      {children}
-    </StreamingTextCtx.Provider>
-  )
+  return <StreamingTextCtx.Provider value={store}>{children}</StreamingTextCtx.Provider>
 }
 
 export function useStreamingTextStore() {
@@ -75,10 +76,7 @@ export function useStreamingTextStore() {
 export function useStreamingText(id: string | null | undefined): string | undefined {
   const store = useStreamingTextStore()
   return useSyncExternalStore(
-    useCallback(
-      (listener) => (id ? store.subscribe(id, listener) : () => {}),
-      [store, id],
-    ),
+    useCallback((listener) => (id ? store.subscribe(id, listener) : () => {}), [store, id]),
     () => (id ? store.getText(id) : undefined),
     () => undefined,
   )

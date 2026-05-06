@@ -1,4 +1,5 @@
 """CLI message stream → observation extractor for CLI engines."""
+
 from __future__ import annotations
 
 from app.core.agent.cli_backends.base import CLIMessage
@@ -6,11 +7,19 @@ from app.core.observation.collector import ObservationCollector
 from app.core.observation.otel.span_wrapper import ObservationSpan
 from app.core.observation.types import ObservationType
 
-
-FILE_TOOLS = frozenset({
-    "read_file", "write_file", "create_file", "edit_file",
-    "Read", "Write", "Edit", "Glob", "Grep",
-})
+FILE_TOOLS = frozenset(
+    {
+        "read_file",
+        "write_file",
+        "create_file",
+        "edit_file",
+        "Read",
+        "Write",
+        "Edit",
+        "Glob",
+        "Grep",
+    }
+)
 
 
 class CLIObservationExtractor:
@@ -31,16 +40,14 @@ class CLIObservationExtractor:
                 tool_name = msg.tool_name or msg.tool or msg.content or "tool"
                 tool_input = msg.tool_input or msg.input or {}
                 self._current_tool_span = self._collector.child_span(
-                    self._root, ObservationType.TOOL, name=tool_name,
+                    self._root,
+                    ObservationType.TOOL,
+                    name=tool_name,
                     input={"arguments": tool_input},
                 )
                 if tool_name in FILE_TOOLS:
                     path = tool_input.get("path", tool_input.get("file_path", ""))
-                    op = (
-                        "read"
-                        if "read" in tool_name.lower() or tool_name in ("Read", "Glob", "Grep")
-                        else "write"
-                    )
+                    op = "read" if "read" in tool_name.lower() or tool_name in ("Read", "Glob", "Grep") else "write"
                     self._collector.record_event(
                         f"file:{op} {path}",
                         parent=self._current_tool_span,

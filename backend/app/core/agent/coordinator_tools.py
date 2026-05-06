@@ -10,8 +10,8 @@ from sqlalchemy import select
 
 from app.core.agent.cli_backends.base import CLIResult
 from app.core.database import async_session_factory
-from app.services.execution_orchestrator import ExecutionOrchestrator
 from app.models.execution import Execution
+from app.services.execution_orchestrator import ExecutionOrchestrator
 from app.utils.safe_task import safe_create_task
 
 # Execution status string literals

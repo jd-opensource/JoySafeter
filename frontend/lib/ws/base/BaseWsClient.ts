@@ -209,7 +209,9 @@ export abstract class BaseWsClient<TState extends BaseConnectionState = BaseConn
   protected onParseError(): void {}
   protected createConnectionError(message: string): Error {
     const code =
-      message === 'WebSocket not connected' ? 'WEBSOCKET_UNAVAILABLE' : 'WEBSOCKET_CONNECTION_FAILED'
+      message === 'WebSocket not connected'
+        ? 'WEBSOCKET_UNAVAILABLE'
+        : 'WEBSOCKET_CONNECTION_FAILED'
     return createApiError(0, 'WebSocket Error', {
       code,
       message,

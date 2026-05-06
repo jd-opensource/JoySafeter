@@ -36,10 +36,9 @@ export const TaskCard = forwardRef<
   ref,
 ) {
   const { t } = useTranslation()
-  // Support both new agent_id (backend) and legacy assignee_id fields
-  const effectiveAgentId = task.agent_id ?? task.assignee_id
+  const effectiveAgentId = task.agent_id
   const hasActiveExecution = Boolean(task.current_execution_id)
-  const isAssignedToAgent = task.assignee_type === 'agent' || Boolean(task.agent_id)
+  const isAssignedToAgent = Boolean(task.agent_id)
   // Show run status badge when there's a linked run but no active execution
   const hasLinkedRun = Boolean(task.latest_run_id) && !hasActiveExecution
 

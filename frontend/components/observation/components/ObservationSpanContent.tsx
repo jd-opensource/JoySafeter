@@ -19,8 +19,7 @@ export function ObservationSpanContent({
   parentTotalCost,
   parentTotalDuration,
 }: ObservationSpanContentProps) {
-  const { showDuration, showCostTokens, colorCodeMetrics } =
-    useObservationViewPrefs()
+  const { showDuration, showCostTokens, colorCodeMetrics } = useObservationViewPrefs()
 
   return (
     <div className="flex min-w-0 items-center gap-2">

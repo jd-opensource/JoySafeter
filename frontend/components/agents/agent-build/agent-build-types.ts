@@ -24,11 +24,36 @@ export interface BuildStageConfig {
 }
 
 export const BUILD_STAGES: readonly BuildStageConfig[] = [
-  { id: 'brief',    labelKey: 'agents.build.stages.brief',   descriptionKey: 'agents.build.stageDescriptions.brief',   icon: FileText },
-  { id: 'build',    labelKey: 'agents.build.stages.build',   descriptionKey: 'agents.build.stageDescriptions.build',   icon: Hammer },
-  { id: 'test-lab', labelKey: 'agents.build.stages.testLab', descriptionKey: 'agents.build.stageDescriptions.testLab', icon: Beaker },
-  { id: 'release',  labelKey: 'agents.build.stages.release', descriptionKey: 'agents.build.stageDescriptions.release', icon: Rocket },
-  { id: 'usage',    labelKey: 'agents.build.stages.usage',   descriptionKey: 'agents.build.stageDescriptions.usage',   icon: BriefcaseBusiness },
+  {
+    id: 'brief',
+    labelKey: 'agents.build.stages.brief',
+    descriptionKey: 'agents.build.stageDescriptions.brief',
+    icon: FileText,
+  },
+  {
+    id: 'build',
+    labelKey: 'agents.build.stages.build',
+    descriptionKey: 'agents.build.stageDescriptions.build',
+    icon: Hammer,
+  },
+  {
+    id: 'test-lab',
+    labelKey: 'agents.build.stages.testLab',
+    descriptionKey: 'agents.build.stageDescriptions.testLab',
+    icon: Beaker,
+  },
+  {
+    id: 'release',
+    labelKey: 'agents.build.stages.release',
+    descriptionKey: 'agents.build.stageDescriptions.release',
+    icon: Rocket,
+  },
+  {
+    id: 'usage',
+    labelKey: 'agents.build.stages.usage',
+    descriptionKey: 'agents.build.stageDescriptions.usage',
+    icon: BriefcaseBusiness,
+  },
 ] as const
 
 const BUILD_STAGE_IDS = new Set<BuildStageId>(BUILD_STAGES.map((s) => s.id))

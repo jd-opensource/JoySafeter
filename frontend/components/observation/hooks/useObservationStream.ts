@@ -81,16 +81,12 @@ export function useObservationStream(executionId: string | null) {
                   const observations = rawList.map(normalizeObservation)
                   if (observations.length > 0) {
                     const traceStart = new Date(
-                      Math.min(
-                        ...observations.map((o) => new Date(o.startTime).getTime()),
-                      ),
+                      Math.min(...observations.map((o) => new Date(o.startTime).getTime())),
                     )
                     loadTraceRef.current(observations, traceStart)
                   }
                 })
-                .catch((err) =>
-                  console.error('Auto-reload after trace_complete failed:', err),
-                )
+                .catch((err) => console.error('Auto-reload after trace_complete failed:', err))
             }
             break
           }

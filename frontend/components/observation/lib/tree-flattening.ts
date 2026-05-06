@@ -6,9 +6,7 @@ export function flattenTree(
 ): ObservationFlatItem[] {
   const flatList: ObservationFlatItem[] = []
 
-  const sortedRoots = roots
-    .slice()
-    .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
+  const sortedRoots = roots.slice().sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
 
   type StackItem = {
     node: ObservationNode
@@ -37,10 +35,7 @@ export function flattenTree(
       treeLines: current.treeLines,
     })
 
-    if (
-      current.node.children.length > 0 &&
-      !collapsedNodes.has(current.node.id)
-    ) {
+    if (current.node.children.length > 0 && !collapsedNodes.has(current.node.id)) {
       const sortedChildren = current.node.children
         .slice()
         .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())

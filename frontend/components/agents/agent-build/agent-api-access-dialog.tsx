@@ -298,7 +298,11 @@ export function AgentApiAccessDialog({
 
             <TabsContent value="keys" className="space-y-4">
               <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 shadow-sm">
-                <TokenList resourceType={tokenResourceType} resourceId={workspaceId} header={tokenHeader} />
+                <TokenList
+                  resourceType={tokenResourceType}
+                  resourceId={workspaceId}
+                  header={tokenHeader}
+                />
               </div>
             </TabsContent>
           </Tabs>

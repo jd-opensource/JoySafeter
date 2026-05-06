@@ -84,13 +84,7 @@ export function InspectorPanel({ onClose }: InspectorPanelProps) {
       {selectedNode && nodeDef ? (
         <div className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface-1)] px-3">
           <div className="flex min-w-0 items-center gap-2 text-[var(--text-primary)]">
-            <div
-              className={cn(
-                'shrink-0 rounded-md p-1',
-                nodeDef.style.bg,
-                nodeDef.style.color,
-              )}
-            >
+            <div className={cn('shrink-0 rounded-md p-1', nodeDef.style.bg, nodeDef.style.color)}>
               <NodeIcon size={14} />
             </div>
             {isEditingName ? (
@@ -109,7 +103,8 @@ export function InspectorPanel({ onClose }: InspectorPanelProps) {
               <span
                 className={cn(
                   'truncate text-sm font-semibold',
-                  userPermissions.canEdit && 'cursor-text rounded-sm px-1 hover:bg-[var(--surface-2)]',
+                  userPermissions.canEdit &&
+                    'cursor-text rounded-sm px-1 hover:bg-[var(--surface-2)]',
                 )}
                 onClick={startEditingName}
               >
@@ -133,7 +128,13 @@ export function InspectorPanel({ onClose }: InspectorPanelProps) {
       ) : (
         <div className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border)] px-3">
           <span className="text-sm font-semibold">{edgeTitle}</span>
-          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onClose} aria-label="Close">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={onClose}
+            aria-label="Close"
+          >
             <X size={14} />
           </Button>
         </div>

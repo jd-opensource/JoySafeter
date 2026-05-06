@@ -1,6 +1,15 @@
 'use client'
 
-import { Archive, ChevronDown, ChevronRight, Loader2, MoreHorizontal, Pencil, Save, Undo2 } from 'lucide-react'
+import {
+  Archive,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  MoreHorizontal,
+  Pencil,
+  Save,
+  Undo2,
+} from 'lucide-react'
 import { useState } from 'react'
 
 import { ReleaseStatusBadge } from '@/components/agents/release-status-badge'
@@ -42,9 +51,13 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
   })
 
   const isPublished = Boolean(agent?.active_release_id)
-  const { data: releases = [], isLoading: releasesLoading } = useReleaseHistory(agentId, workspaceId, {
-    enabled: isPublished,
-  })
+  const { data: releases = [], isLoading: releasesLoading } = useReleaseHistory(
+    agentId,
+    workspaceId,
+    {
+      enabled: isPublished,
+    },
+  )
   const rollbackAgent = useRollbackAgent()
   const retireRelease = useRetireRelease()
 
@@ -183,9 +196,7 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
             </Badge>
           </div>
         ) : (
-          <p className="mt-3 text-sm text-[var(--text-muted)]">
-            {t('agents.detail.noActivity')}
-          </p>
+          <p className="mt-3 text-sm text-[var(--text-muted)]">{t('agents.detail.noActivity')}</p>
         )}
       </Card>
 
@@ -217,9 +228,7 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
                 {t('common.loading')}
               </div>
             ) : releases.length === 0 ? (
-              <p className="text-sm text-[var(--text-muted)]">
-                {t('agents.detail.noActivity')}
-              </p>
+              <p className="text-sm text-[var(--text-muted)]">{t('agents.detail.noActivity')}</p>
             ) : (
               <div className="space-y-2">
                 {releases.map((rel) => {
@@ -230,7 +239,7 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
                       key={rel.id}
                       className={`flex items-center justify-between rounded-lg border p-3 ${
                         isActive
-                          ? 'border-[var(--status-success)] bg-[var(--status-success)]/5'
+                          ? 'bg-[var(--status-success)]/5 border-[var(--status-success)]'
                           : 'border-[var(--border)] bg-[var(--surface-2)]'
                       }`}
                     >
@@ -306,7 +315,6 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
           </div>
         )}
       </Card>
-
     </div>
   )
 }

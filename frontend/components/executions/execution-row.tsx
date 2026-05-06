@@ -51,10 +51,7 @@ export function ExecutionRow({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <Badge
-              variant="outline"
-              className={cn('text-xs', RUN_STATUS_STYLES[run.status])}
-            >
+            <Badge variant="outline" className={cn('text-xs', RUN_STATUS_STYLES[run.status])}>
               {t(RUN_STATUS_I18N[run.status])}
             </Badge>
             {taskTitle && run.task_id && (

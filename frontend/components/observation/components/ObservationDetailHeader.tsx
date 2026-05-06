@@ -3,12 +3,7 @@
 import { Copy, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { ItemBadge } from './ItemBadge'
 import {
@@ -28,7 +23,7 @@ function CopyIdButton({ id }: { id: string }) {
 
   return (
     <button
-      className="flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-50 hover:bg-muted hover:opacity-100 transition-opacity"
+      className="flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-50 transition-opacity hover:bg-muted hover:opacity-100"
       onClick={() => handleCopy(id)}
       title="Copy observation ID"
     >
@@ -70,8 +65,7 @@ function UsageTooltipContent({ node }: { node: ObservationNode }) {
 }
 
 function CostTooltipContent({ node }: { node: ObservationNode }) {
-  const hasBreakdown =
-    node.calculatedInputCost != null || node.calculatedOutputCost != null
+  const hasBreakdown = node.calculatedInputCost != null || node.calculatedOutputCost != null
 
   if (!hasBreakdown) return null
 
@@ -113,9 +107,7 @@ export function ObservationDetailHeader({ node }: ObservationDetailHeaderProps) 
         <CopyIdButton id={node.id} />
       </div>
 
-      <div className="text-xs text-muted-foreground">
-        {formatLocalIsoMs(node.startTime)}
-      </div>
+      <div className="text-xs text-muted-foreground">{formatLocalIsoMs(node.startTime)}</div>
 
       <div className="flex flex-wrap gap-1.5">
         {node.latency != null && (
@@ -189,7 +181,8 @@ export function ObservationDetailHeader({ node }: ObservationDetailHeaderProps) 
 
         {node.promptName && (
           <Badge variant="secondary" className="text-[10px] font-normal">
-            {node.promptName}{node.promptVersion != null ? ` v${node.promptVersion}` : ''}
+            {node.promptName}
+            {node.promptVersion != null ? ` v${node.promptVersion}` : ''}
           </Badge>
         )}
 

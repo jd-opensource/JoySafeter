@@ -98,10 +98,7 @@ export function getEmptyValueDisplay(value: unknown): string | null {
   return null
 }
 
-export function findOptimalExpansionLevel(
-  rows: JsonTableRow[],
-  maxRows = 20,
-): number {
+export function findOptimalExpansionLevel(rows: JsonTableRow[], maxRows = 20): number {
   let bestLevel = 0
   for (let level = 1; level <= 5; level++) {
     const count = countVisibleRows(rows, level)

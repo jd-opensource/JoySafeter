@@ -1,6 +1,14 @@
 export type ObservationType =
-  | 'SPAN' | 'EVENT' | 'GENERATION' | 'AGENT' | 'TOOL'
-  | 'CHAIN' | 'RETRIEVER' | 'EMBEDDING' | 'EVALUATOR' | 'GUARDRAIL'
+  | 'SPAN'
+  | 'EVENT'
+  | 'GENERATION'
+  | 'AGENT'
+  | 'TOOL'
+  | 'CHAIN'
+  | 'RETRIEVER'
+  | 'EMBEDDING'
+  | 'EVALUATOR'
+  | 'GUARDRAIL'
 
 export type ObservationLevel = 'DEBUG' | 'DEFAULT' | 'WARNING' | 'ERROR'
 
