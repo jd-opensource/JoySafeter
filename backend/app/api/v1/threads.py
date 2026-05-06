@@ -162,9 +162,11 @@ async def chat(
 
     # 2. Emit user_message as the first event in this execution.
     attachments = [att.model_dump() for att in request.attachments] if request.attachments else None
+    # dispatch_chat always creates an execution
+    assert run.current_execution_id is not None
     await dispatch.emit_user_message(
         run=run,
-        execution_id=run.current_execution_id,  # type: ignore[arg-type]
+        execution_id=run.current_execution_id,
         message=request.message,
         attachments=attachments,
     )
@@ -175,7 +177,7 @@ async def chat(
         msg="Chat dispatched",
         data=ChatResponse(
             run_id=run.id,
-            execution_id=run.current_execution_id,  # type: ignore[arg-type]
+            execution_id=run.current_execution_id,
         ),
     )
 

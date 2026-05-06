@@ -44,7 +44,7 @@ export function useCopilotExecutionBridge({
   const callbacksRef = useRef(callbacks)
   useEffect(() => {
     callbacksRef.current = callbacks
-  })
+  }, [callbacks])
 
   const { status, events, error } = useExecutionStream({
     executionId: executionId || '',

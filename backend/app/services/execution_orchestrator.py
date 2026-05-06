@@ -763,13 +763,13 @@ class ExecutionOrchestrator:
         )
 
         # Wire context callbacks (pass run metadata to avoid extra DB query)
-        self._wire_context(
-            context,
+        run_meta = dict(
             trigger_medium=run.trigger_medium,
             run_purpose=run.run_purpose,
             thread_id=run.thread_id,
             task_id=run.task_id,
         )
+        self._wire_context(context, **run_meta)  # type: ignore[arg-type]
 
         runtime_binding = release_runtime_binding or (release.runtime_binding if release else {})
         engine = engine_registry.get(engine_kind_override or execution.engine_kind)
@@ -790,13 +790,7 @@ class ExecutionOrchestrator:
                         credentials=credentials,
                         auto_approve=auto_approve,
                     )
-                    self._wire_context(
-                        ctx,
-                        trigger_medium=run.trigger_medium,
-                        run_purpose=run.run_purpose,
-                        thread_id=run.thread_id,
-                        task_id=run.task_id,
-                    )
+                    self._wire_context(ctx, **run_meta)
 
                     collector = None
                     if debug:
