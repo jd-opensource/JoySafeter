@@ -81,11 +81,6 @@ class ExecutionOrchestrator:
                 data={"agent_id": str(agent.id), "agent_name": agent.name},
             )
 
-        # Lazy-bind a Thread to the Task so multi-turn execution (retry / follow-up)
-        # reuses the same container + CLI session. Once PR3 makes tasks.thread_id
-        # NOT NULL this branch goes away.
-        thread_id = await self._ensure_task_thread(task, agent, user_id)
-
         prompt = prompt_override or task.goal or task.title
         run = await self._create_and_fire(
             agent=agent,
@@ -94,7 +89,7 @@ class ExecutionOrchestrator:
             prompt=prompt,
             trigger_medium="system",
             run_purpose="production",
-            thread_id=thread_id,
+            thread_id=task.thread_id,
             task_id=task_id,
             user_id=user_id,
         )
@@ -1006,28 +1001,6 @@ class ExecutionOrchestrator:
                 code="THREAD_ACTIVE_RUN_EXISTS",
                 data={"thread_id": str(thread_id), "run_id": str(active)},
             )
-
-    async def _ensure_task_thread(self, task: Task, agent: Agent, user_id: str) -> uuid.UUID:
-        """Return task.thread_id, creating a Thread on demand if missing.
-
-        This implements the "Task owns one Thread" invariant. Once PR3 makes
-        tasks.thread_id NOT NULL this lazy-provision path disappears.
-        """
-        if task.thread_id:
-            return task.thread_id
-
-        thread = Thread(
-            agent_id=agent.id,
-            workspace_id=agent.workspace_id,
-            title=task.title,
-            status="active",
-            created_by=user_id,
-        )
-        self.db.add(thread)
-        await self.db.flush()
-        task.thread_id = thread.id
-        await self.db.flush()
-        return thread.id
 
     async def _ensure_trace(
         self,

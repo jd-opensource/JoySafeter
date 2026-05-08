@@ -24,7 +24,7 @@ class CreateTaskRequest(BaseModel):
     description: Optional[str] = None
     goal: Optional[str] = None
     priority: TaskPriorityLiteral = "none"
-    agent_id: Optional[uuid.UUID] = None
+    agent_id: uuid.UUID
     parent_task_id: Optional[uuid.UUID] = None
     tags: Optional[list[str]] = None
     position: float = 0.0
@@ -61,7 +61,8 @@ class TaskSummary(BaseModel):
     goal: Optional[str] = None
     status: str
     priority: str
-    agent_id: Optional[uuid.UUID] = None
+    agent_id: uuid.UUID
+    thread_id: uuid.UUID
     creator_id: str
     latest_run_id: Optional[uuid.UUID] = None
     parent_task_id: Optional[uuid.UUID] = None

@@ -57,15 +57,15 @@ class Task(BaseModel):
         default=TaskPriority.NONE,
     )
 
-    agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    agent_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("agents.id"),
-        nullable=True,
+        nullable=False,
     )
-    thread_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    thread_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("threads.id"),
-        nullable=True,
+        nullable=False,
     )
     creator_id: Mapped[str] = mapped_column(
         String(255),
@@ -89,9 +89,9 @@ class Task(BaseModel):
     auto_approve: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # Relationships
-    agent: Mapped[Optional["Agent"]] = relationship("Agent")
+    agent: Mapped["Agent"] = relationship("Agent")
     latest_run: Mapped[Optional["AgentRun"]] = relationship("AgentRun", foreign_keys=[latest_run_id])
-    thread: Mapped[Optional["Thread"]] = relationship("Thread", foreign_keys=[thread_id])
+    thread: Mapped["Thread"] = relationship("Thread", foreign_keys=[thread_id])
 
     __table_args__ = (
         Index("tasks_workspace_status_idx", "workspace_id", "status"),

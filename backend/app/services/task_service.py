@@ -16,6 +16,7 @@ from app.common.app_errors import InvalidRequestError, NotFoundError
 from app.core.state_machines.engine import InvalidTransition
 from app.core.state_machines.transitions import transition_task
 from app.models.task import Task, TaskPriority, TaskStatus
+from app.models.thread import Thread
 from app.repositories.task import TaskRepository
 
 
@@ -32,15 +33,28 @@ class TaskService:
         workspace_id: uuid.UUID,
         creator_id: str,
         title: str,
+        agent_id: uuid.UUID,
         description: Optional[str] = None,
         goal: Optional[str] = None,
         priority: TaskPriority = TaskPriority.NONE,
-        agent_id: Optional[uuid.UUID] = None,
         parent_task_id: Optional[uuid.UUID] = None,
         tags: Optional[list] = None,
         position: float = 0.0,
         auto_approve: bool = False,
     ) -> Task:
+        # Every Task owns exactly one Thread — the session root for all of its
+        # runs (first attempt + retries). Built synchronously so the FK is
+        # populated before the insert.
+        thread = Thread(
+            agent_id=agent_id,
+            workspace_id=workspace_id,
+            title=title,
+            status="active",
+            created_by=creator_id,
+        )
+        self.db.add(thread)
+        await self.db.flush()
+
         task = Task(
             workspace_id=workspace_id,
             creator_id=creator_id,
@@ -50,6 +64,7 @@ class TaskService:
             priority=priority,
             status=TaskStatus.BACKLOG,
             agent_id=agent_id,
+            thread_id=thread.id,
             parent_task_id=parent_task_id,
             tags=tags,
             position=position,
@@ -58,7 +73,7 @@ class TaskService:
         self.db.add(task)
         await self.db.commit()
         await self.db.refresh(task)
-        logger.info(f"Created task: {task.id} ({title})")
+        logger.info(f"Created task: {task.id} ({title}) with thread {thread.id}")
         return task
 
     async def get_task(self, task_id: uuid.UUID, workspace_id: uuid.UUID) -> Optional[Task]:

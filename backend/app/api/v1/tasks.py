@@ -38,6 +38,7 @@ def _to_summary(t: Task) -> TaskSummary:
         status=t.status.value if hasattr(t.status, "value") else str(t.status),
         priority=t.priority.value if hasattr(t.priority, "value") else str(t.priority),
         agent_id=t.agent_id,
+        thread_id=t.thread_id,
         creator_id=t.creator_id,
         latest_run_id=t.latest_run_id,
         parent_task_id=t.parent_task_id,
