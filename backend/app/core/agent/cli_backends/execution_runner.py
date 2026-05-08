@@ -34,6 +34,7 @@ from app.core.agent.cli_backends.registry import runtime_registry
 from app.core.agent.cli_backends.runner_callbacks import RunnerCallbacks
 from app.core.agent.cli_backends.session_registry import session_registry
 from app.core.events.event_types import ExecutionEventType
+from app.core.observation.types import ObservationLevel
 from app.core.ports.execution import EventContext, ExecutionEventPort, ExecutionReaderPort
 
 if TYPE_CHECKING:
@@ -143,7 +144,11 @@ class ExecutionRunner:
                 },
             )
 
-            # 5. Execute via provider (with session resume + credentials)
+            # 5. Execute via provider (with session resume + credentials).
+            #    If the provider reports its --resume session is invalid, we
+            #    rebuild the prompt from thread history and retry once without
+            #    --resume. This recovers the Agent's memory across CLI-side
+            #    session loss (e.g., container restart, TTL expiry).
             provider = runtime_registry.get(execution.engine_kind)
 
             # Determine auto_approve from task settings
@@ -152,26 +157,61 @@ class ExecutionRunner:
             else:
                 self._auto_approve = True
 
-            session = await provider.execute(
-                prompt,
-                container_id=container.container_id,
-                cwd=container.working_dir,
-                model=model,
-                timeout=timeout,
-                resume_session_id=prior_session_id,
-                env=credentials,
-                auto_approve=self._auto_approve,
-            )
+            effective_prompt = prompt
+            attempt = 0
+            while True:
+                attempt += 1
+                session = await provider.execute(
+                    effective_prompt,
+                    container_id=container.container_id,
+                    cwd=container.working_dir,
+                    model=model,
+                    timeout=timeout,
+                    resume_session_id=prior_session_id,
+                    env=credentials,
+                    auto_approve=self._auto_approve,
+                )
 
-            # 5b. Register session so the API layer can inject messages
-            session_registry.register(execution_id, session)
-            self._session = session
+                # 5b. Register session so the API layer can inject messages
+                session_registry.register(execution_id, session)
+                self._session = session
 
-            # 6. Drain messages → events
-            await self._drain_to_events(execution_id, collector=collector, engine_kind=execution.engine_kind)
+                # 6. Drain messages → events
+                await self._drain_to_events(
+                    execution_id, collector=collector, engine_kind=execution.engine_kind
+                )
 
-            # 7. Await final result
-            result = await session.result
+                # 7. Await final result
+                result = await session.result
+
+                if not (result.session_invalid and attempt == 1 and prior_session_id):
+                    break
+
+                # Session recovery path: drop the bad session, rebuild the
+                # prompt from thread history, and retry once without --resume.
+                logger.warning(
+                    f"[exec:{execution_id}] CLI session {prior_session_id} invalid; "
+                    "rebuilding prompt from thread history and retrying without --resume"
+                )
+                await container_pool.store_session(run.thread_id, "")
+                if collector is not None:
+                    try:
+                        collector.record_event(
+                            "cli_session_recovered",
+                            input={"previous_session_id": prior_session_id},
+                            level=ObservationLevel.WARNING,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            f"[exec:{execution_id}] collector.record_event failed: {exc}"
+                        )
+
+                history = await self._reader.load_thread_history(
+                    run.thread_id, before_run_id=run.id
+                )
+                effective_prompt = _rebuild_prompt(history, prompt)
+                prior_session_id = None
+                session_registry.unregister(execution_id)
 
             # 8. Mark final status
             await self._finalize(execution_id, result, release)
@@ -448,3 +488,28 @@ def _build_completion_error(message: str | None) -> dict[str, Any] | None:
         "source": "runtime",
         "retryable": False,
     }
+
+
+def _rebuild_prompt(history: list[tuple[str, str]], current_prompt: str) -> str:
+    """Collapse prior ``(role, content)`` turns into a prefix before the new prompt.
+
+    Raw-text concatenation (the user-approved strategy). Long sessions will
+    consume more tokens on recovery, but correctness is preserved and no
+    external summariser is needed.
+    """
+    if not history:
+        return current_prompt
+
+    lines: list[str] = [
+        "Earlier conversation (CLI session was reset; context is replayed "
+        "below to restore continuity):",
+        "",
+    ]
+    for role, content in history:
+        speaker = "User" if role == "user" else "Assistant"
+        lines.append(f"{speaker}: {content}")
+        lines.append("")
+    lines.append("Continue the conversation with the following new user message:")
+    lines.append("")
+    lines.append(current_prompt)
+    return "\n".join(lines)

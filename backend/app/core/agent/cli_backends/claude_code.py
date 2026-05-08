@@ -75,7 +75,7 @@ class ClaudeCodeProvider:
         result_future: asyncio.Future[CLIResult] = loop.create_future()
 
         drain_task = asyncio.create_task(
-            self._drain(process, queue, result_future, timeout),
+            self._drain(process, queue, result_future, timeout, resume_session_id),
             name=f"claude-drain-{container_id[:12]}",
         )
 
@@ -101,6 +101,7 @@ class ClaudeCodeProvider:
         queue: asyncio.Queue[CLIMessage | None],
         result_future: asyncio.Future[CLIResult],
         timeout: int,
+        resume_session_id: str | None = None,
     ) -> None:
         accumulated_text: list[str] = []
         session_id = ""
@@ -179,6 +180,26 @@ class ClaudeCodeProvider:
         finally:
             if not result_future.done():
                 exit_code = await process.wait()
+                # Session resume failures surface as either an is_error result
+                # or a non-zero exit with "session not found" text. Flag them
+                # so the ExecutionRunner can drop the cached session and retry
+                # from rebuilt history rather than bubbling up a hard failure.
+                stderr_text = ""
+                if exit_code != 0 and process.stderr:
+                    stderr_text = (await process.stderr.read()).decode()[:2000]
+                combined_text = (
+                    "\n".join(accumulated_text) + "\n" + stderr_text
+                ).lower()
+                session_invalid = bool(resume_session_id) and any(
+                    marker in combined_text
+                    for marker in (
+                        "session not found",
+                        "no such session",
+                        "session does not exist",
+                        "session expired",
+                    )
+                )
+
                 if is_error:
                     result_future.set_result(
                         CLIResult(
@@ -193,6 +214,7 @@ class ClaudeCodeProvider:
                                 "retryable": False,
                             },
                             session_id=session_id,
+                            session_invalid=session_invalid,
                             usage=usage,
                         )
                     )
@@ -206,18 +228,18 @@ class ClaudeCodeProvider:
                         )
                     )
                 else:
-                    stderr_bytes = await process.stderr.read() if process.stderr else b""
                     result_future.set_result(
                         CLIResult(
                             status="failed",
-                            error=f"Exit code {exit_code}: {stderr_bytes.decode()[:2000]}",
+                            error=f"Exit code {exit_code}: {stderr_text}",
                             error_payload={
                                 "code": "CLAUDE_CODE_EXIT_FAILED",
-                                "message": f"Exit code {exit_code}: {stderr_bytes.decode()[:2000]}",
+                                "message": f"Exit code {exit_code}: {stderr_text}",
                                 "data": {"exit_code": exit_code},
                                 "source": "runtime",
                                 "retryable": False,
                             },
+                            session_invalid=session_invalid,
                             usage=usage,
                         )
                     )

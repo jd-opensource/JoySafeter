@@ -6,6 +6,20 @@ from dataclasses import dataclass
 from typing import Any, AsyncIterator, Awaitable, Callable, Protocol
 
 
+class CLISessionInvalidError(Exception):
+    """Raised when a CLI provider reports its resume session_id is unusable
+    (expired, missing, or not found on disk).
+
+    Signals the ExecutionRunner to clear the persisted session, rebuild the
+    prompt from thread history, and retry the execute call without --resume.
+    """
+
+    def __init__(self, session_id: str, reason: str = ""):
+        self.session_id = session_id
+        self.reason = reason
+        super().__init__(f"CLI session invalid: session_id={session_id} reason={reason}")
+
+
 @dataclass
 class CLIMessage:
     type: str  # "text" | "thinking" | "tool_use" | "tool_result" | "error" | "artifact" | "approval_request"
@@ -43,6 +57,12 @@ class CLIResult:
     session_id: str = ""
     branch_name: str = ""
     usage: dict | None = None
+    # Set true when the provider detects that resume_session_id was rejected
+    # by the underlying CLI. The ExecutionRunner reacts by evicting the cached
+    # session id and retrying without --resume (history is rebuilt from the
+    # event log). Provider responsibility: this flag is the contract for
+    # signalling "the session is gone" without Runner-side string matching.
+    session_invalid: bool = False
 
 
 @dataclass
