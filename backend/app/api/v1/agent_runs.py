@@ -132,6 +132,7 @@ async def create_draft_run(
         prompt=request.goal or "",
         user_id=str(current_user.id),
         workspace_id=request.workspace_id,
+        thread_id=request.thread_id,
         input_payload=request.input_payload,
     )
     return BaseResponse(

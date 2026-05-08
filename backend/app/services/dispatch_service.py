@@ -63,6 +63,7 @@ class DispatchService:
         prompt: str,
         user_id: str,
         workspace_id: uuid.UUID,
+        thread_id: uuid.UUID | None = None,
         input_payload: dict | None = None,
     ) -> AgentRun:
         return await self._orchestrator.dispatch_draft(
@@ -71,6 +72,7 @@ class DispatchService:
             prompt,
             user_id,
             workspace_id,
+            thread_id=thread_id,
             input_payload=input_payload,
         )
 

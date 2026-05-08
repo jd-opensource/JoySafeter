@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.app_errors import AccessDeniedError, InvalidRequestError
+from app.common.app_errors import AccessDeniedError
 from app.common.dependencies import CurrentUser, require_workspace_role
 from app.core.database import get_db
 from app.models.agent_run import AgentRun
@@ -137,22 +137,8 @@ async def chat(
     if not has_access:
         raise AccessDeniedError("No access to workspace", code="WORKSPACE_ACCESS_DENIED")
 
-    active_run = (
-        await db.execute(
-            select(AgentRun).where(
-                AgentRun.thread_id == thread_id,
-                AgentRun.status.in_(["pending", "running"]),
-            )
-        )
-    ).scalar_one_or_none()
-    if active_run:
-        raise InvalidRequestError(
-            "Thread has an active run, please wait for it to complete",
-            code="THREAD_ACTIVE_RUN_EXISTS",
-            data={"thread_id": str(thread_id)},
-        )
-
     # 1. Create run + execution first (so we have execution_id for the event)
+    #    Orchestrator enforces the "one active run per thread" invariant.
     dispatch = DispatchService(db)
     run = await dispatch.dispatch_chat(
         thread_id=thread_id,

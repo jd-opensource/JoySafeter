@@ -27,6 +27,7 @@ class CreateDraftAgentRunRequest(BaseModel):
     agent_id: uuid.UUID
     version_id: uuid.UUID
     workspace_id: uuid.UUID
+    thread_id: Optional[uuid.UUID] = None
     goal: Optional[str] = None
     input_payload: Optional[dict] = None
 

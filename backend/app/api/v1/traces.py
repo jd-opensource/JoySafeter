@@ -44,6 +44,7 @@ async def list_traces(
     current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
     workspace_id: uuid.UUID = Query(..., description="Filter by Workspace ID (required)"),
     agent_version_id: Optional[uuid.UUID] = Query(None, description="Filter by Agent Version ID"),
+    session_id: Optional[str] = Query(None, description="Filter by session (thread) ID"),
     page: int = Query(1, ge=1, description="Page number (1-based)"),
     page_size: int = Query(20, ge=1, le=100, description="Page size"),
     db: AsyncSession = Depends(get_db),
@@ -52,6 +53,8 @@ async def list_traces(
     stmt = select(Trace).where(Trace.workspace_id == workspace_id).order_by(Trace.created_at.desc())
     if agent_version_id is not None:
         stmt = stmt.where(Trace.agent_version_id == agent_version_id)
+    if session_id is not None:
+        stmt = stmt.where(Trace.session_id == session_id)
 
     offset = (page - 1) * page_size
     stmt = stmt.limit(page_size).offset(offset)

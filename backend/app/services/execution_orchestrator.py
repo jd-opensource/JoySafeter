@@ -165,6 +165,7 @@ class ExecutionOrchestrator:
         prompt: str,
         user_id: str,
         workspace_id: uuid.UUID,
+        thread_id: uuid.UUID | None = None,
         input_payload: dict | None = None,
     ) -> AgentRun:
         """Dispatch a Test Lab run against a draft AgentVersion."""
@@ -192,6 +193,7 @@ class ExecutionOrchestrator:
             trigger_medium="ui",
             run_purpose="draft_test",
             user_id=user_id,
+            thread_id=thread_id,
             input_payload=input_payload,
         )
 
@@ -256,6 +258,7 @@ class ExecutionOrchestrator:
         prompt: str,
         user_id: str,
         workspace_id: uuid.UUID,
+        thread_id: uuid.UUID | None = None,
         variables: dict | None = None,
     ) -> AgentRun:
         """Dispatch a debug run with observation tracing."""
@@ -283,6 +286,7 @@ class ExecutionOrchestrator:
             trigger_medium="ui",
             run_purpose="debug",
             user_id=user_id,
+            thread_id=thread_id,
             input_payload={"debug": True, "variables": variables or {}},
             debug=True,
         )
@@ -293,6 +297,12 @@ class ExecutionOrchestrator:
         from app.core.observation.model import Trace
 
         if run.current_execution_id:
+            # Use thread_id as session_id to group multi-turn traces
+            session_id = (
+                str(thread_id)
+                if thread_id
+                else f"debug-{user_id}-{version_id}-{datetime.now(timezone.utc).date()}"
+            )
             trace = Trace(
                 id=run.current_execution_id,
                 name=agent.name,
@@ -302,7 +312,7 @@ class ExecutionOrchestrator:
                 execution_id=run.current_execution_id,
                 agent_version_id=version_id,
                 user_id=uuid.UUID(user_id) if isinstance(user_id, str) else user_id,
-                session_id=f"debug-{user_id}-{version_id}-{datetime.now(timezone.utc).date()}",
+                session_id=session_id,
                 input={"prompt": prompt, "variables": variables or {}},
             )
             self.db.add(trace)
@@ -533,6 +543,8 @@ class ExecutionOrchestrator:
         release = await self._get_release(release_id)
         version = await self._get_version(release.agent_version_id)
 
+        await self._require_no_active_run(thread_id)
+
         # Create Run in pending state — bus will transition to running
         run = AgentRun(
             release_id=release_id,
@@ -617,6 +629,7 @@ class ExecutionOrchestrator:
         trigger_medium: str,
         run_purpose: str,
         user_id: str,
+        thread_id: uuid.UUID | None = None,
         input_payload: dict | None = None,
         *,
         debug: bool = False,
@@ -631,10 +644,13 @@ class ExecutionOrchestrator:
         )
         runtime_binding: dict = {}
 
+        await self._require_no_active_run(thread_id)
+
         run = AgentRun(
             release_id=None,
             agent_version_id=version.id,
             workspace_id=workspace_id,
+            thread_id=thread_id,
             trigger_medium=trigger_medium,
             run_purpose=run_purpose,
             goal=prompt[:500] if prompt else None,
@@ -984,3 +1000,26 @@ class ExecutionOrchestrator:
         if not result:
             raise NotFoundError("Agent run not found", code="AGENT_RUN_NOT_FOUND", data={"run_id": str(run_id)})
         return result
+
+    async def _require_no_active_run(self, thread_id: uuid.UUID | None) -> None:
+        """Enforce invariant: at most one active AgentRun per Thread.
+
+        No-op when thread_id is None (pre-Thread-as-Session paths). Once
+        thread_id becomes NOT NULL, this check is unconditional.
+        """
+        if thread_id is None:
+            return
+        active = (
+            await self.db.execute(
+                select(AgentRun.id).where(
+                    AgentRun.thread_id == thread_id,
+                    AgentRun.status.in_(("pending", "running")),
+                )
+            )
+        ).scalar_one_or_none()
+        if active:
+            raise InvalidRequestError(
+                "Thread has an active run, please wait for it to complete",
+                code="THREAD_ACTIVE_RUN_EXISTS",
+                data={"thread_id": str(thread_id), "run_id": str(active)},
+            )

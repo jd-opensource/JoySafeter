@@ -661,6 +661,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
               versionId: draftInput.versionId,
               prompt: input,
               workspaceId,
+              threadId: draftInput.threadId,
             })
           : await (async () => {
               const agent = await globalAgentService.get(agentId, workspaceId)

@@ -14,6 +14,7 @@ export interface StartDraftRunParams {
   versionId: string
   prompt: string
   workspaceId: string
+  threadId?: string
 }
 
 export interface RunResult {
@@ -41,6 +42,7 @@ export const executionAdapter = {
       version_id: params.versionId,
       goal: params.prompt,
       workspace_id: params.workspaceId,
+      ...(params.threadId ? { thread_id: params.threadId } : {}),
     })
   },
 

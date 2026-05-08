@@ -52,6 +52,7 @@ export interface StartDraftExecutionInput {
   versionId: string
   workspaceId: string
   input: string
+  threadId?: string
 }
 
 export interface StartExecutionOptions {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Play, Square } from 'lucide-react'
+import { Play, Square, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 
@@ -14,6 +14,10 @@ interface DebugToolbarProps {
   onStop: () => void
   onSelectTrace: (traceId: string) => void
   traces: Array<{ id: string; createdAt: string }>
+  /** Number of turns in the current session (0 = no session started) */
+  turnCount?: number
+  /** Reset the session to start fresh */
+  onNewSession?: () => void
 }
 
 export function DebugToolbar({
@@ -25,6 +29,8 @@ export function DebugToolbar({
   onStop,
   onSelectTrace,
   traces,
+  turnCount = 0,
+  onNewSession,
 }: DebugToolbarProps) {
   const [prompt, setPrompt] = useState('')
   const [showPrompt, setShowPrompt] = useState(true)
@@ -33,6 +39,8 @@ export function DebugToolbar({
     if (!prompt.trim()) return
     onStartDebug(prompt.trim())
   }
+
+  const isMultiTurn = turnCount > 0
 
   return (
     <div className="space-y-2 border-b px-3 py-2">
@@ -45,8 +53,30 @@ export function DebugToolbar({
         ) : (
           <Button size="sm" onClick={handleStart} disabled={!prompt.trim()}>
             <Play className="mr-1 h-3 w-3" />
-            Debug
+            {isMultiTurn ? `Turn ${turnCount + 1}` : 'Debug'}
           </Button>
+        )}
+
+        {/* Session indicator + New Session button */}
+        {isMultiTurn && (
+          <>
+            <span className="text-xs text-muted-foreground">
+              Session: {turnCount} turn{turnCount > 1 ? 's' : ''}
+            </span>
+            {onNewSession && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={onNewSession}
+                disabled={isExecuting}
+                className="h-7 px-2 text-xs"
+                title="Start a new debug session"
+              >
+                <RotateCcw className="mr-1 h-3 w-3" />
+                New Session
+              </Button>
+            )}
+          </>
         )}
 
         {traces.length > 0 && (
@@ -56,11 +86,11 @@ export function DebugToolbar({
             defaultValue=""
           >
             <option value="" disabled>
-              History...
+              {isMultiTurn ? `Traces (${traces.length})...` : 'History...'}
             </option>
-            {traces.map((t) => (
+            {traces.map((t, i) => (
               <option key={t.id} value={t.id}>
-                {new Date(t.createdAt).toLocaleString()}
+                {isMultiTurn ? `Turn ${i + 1} – ` : ''}{new Date(t.createdAt).toLocaleString()}
               </option>
             ))}
           </select>
@@ -69,7 +99,7 @@ export function DebugToolbar({
 
       {showPrompt && (
         <Textarea
-          placeholder="Enter test prompt..."
+          placeholder={isMultiTurn ? 'Follow-up message (context preserved)...' : 'Enter test prompt...'}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           rows={2}
