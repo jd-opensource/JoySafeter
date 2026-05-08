@@ -81,6 +81,11 @@ class ExecutionOrchestrator:
                 data={"agent_id": str(agent.id), "agent_name": agent.name},
             )
 
+        # Lazy-bind a Thread to the Task so multi-turn execution (retry / follow-up)
+        # reuses the same container + CLI session. Once PR3 makes tasks.thread_id
+        # NOT NULL this branch goes away.
+        thread_id = await self._ensure_task_thread(task, agent, user_id)
+
         prompt = prompt_override or task.goal or task.title
         run = await self._create_and_fire(
             agent=agent,
@@ -89,6 +94,7 @@ class ExecutionOrchestrator:
             prompt=prompt,
             trigger_medium="system",
             run_purpose="production",
+            thread_id=thread_id,
             task_id=task_id,
             user_id=user_id,
         )
@@ -134,9 +140,9 @@ class ExecutionOrchestrator:
         release_id: uuid.UUID,
         prompt: str,
         user_id: str,
+        thread_id: uuid.UUID,
         trigger_medium: str = "api",
         run_purpose: str = "production",
-        thread_id: uuid.UUID | None = None,
         task_id: uuid.UUID | None = None,
         input_payload: dict | None = None,
     ) -> AgentRun:
@@ -165,7 +171,7 @@ class ExecutionOrchestrator:
         prompt: str,
         user_id: str,
         workspace_id: uuid.UUID,
-        thread_id: uuid.UUID | None = None,
+        thread_id: uuid.UUID,
         input_payload: dict | None = None,
     ) -> AgentRun:
         """Dispatch a Test Lab run against a draft AgentVersion."""
@@ -237,6 +243,18 @@ class ExecutionOrchestrator:
             model_name=model_name,
         )
 
+        # Copilot is a build-time interaction; still gets a Thread so the
+        # container/CLI-session/Trace aggregation model is uniform.
+        thread = Thread(
+            agent_id=agent_id,
+            workspace_id=workspace_id,
+            title=f"copilot:{version_id}",
+            status="active",
+            created_by=user_id,
+        )
+        self.db.add(thread)
+        await self.db.flush()
+
         return await self._create_and_fire_draft(
             agent=agent,
             version=version,
@@ -245,6 +263,7 @@ class ExecutionOrchestrator:
             trigger_medium="ui",
             run_purpose="internal_builder",
             user_id=user_id,
+            thread_id=thread.id,
             input_payload=copilot_payload,
             engine_kind_override="build_copilot",
             definition_kind_override="build_copilot",
@@ -258,7 +277,7 @@ class ExecutionOrchestrator:
         prompt: str,
         user_id: str,
         workspace_id: uuid.UUID,
-        thread_id: uuid.UUID | None = None,
+        thread_id: uuid.UUID,
         variables: dict | None = None,
     ) -> AgentRun:
         """Dispatch a debug run with observation tracing."""
@@ -288,35 +307,7 @@ class ExecutionOrchestrator:
             user_id=user_id,
             thread_id=thread_id,
             input_payload={"debug": True, "variables": variables or {}},
-            debug=True,
         )
-
-        # Create Trace record for observation tracking
-        from datetime import datetime, timezone
-
-        from app.core.observation.model import Trace
-
-        if run.current_execution_id:
-            # Use thread_id as session_id to group multi-turn traces
-            session_id = (
-                str(thread_id)
-                if thread_id
-                else f"debug-{user_id}-{version_id}-{datetime.now(timezone.utc).date()}"
-            )
-            trace = Trace(
-                id=run.current_execution_id,
-                name=agent.name,
-                workspace_id=workspace_id,
-                start_time=datetime.now(timezone.utc),
-                status="running",
-                execution_id=run.current_execution_id,
-                agent_version_id=version_id,
-                user_id=uuid.UUID(user_id) if isinstance(user_id, str) else user_id,
-                session_id=session_id,
-                input={"prompt": prompt, "variables": variables or {}},
-            )
-            self.db.add(trace)
-            await self.db.commit()
 
         return run
 
@@ -532,7 +523,7 @@ class ExecutionOrchestrator:
         trigger_medium: str,
         run_purpose: str,
         user_id: str,
-        thread_id: uuid.UUID | None = None,
+        thread_id: uuid.UUID,
         task_id: uuid.UUID | None = None,
         input_payload: dict | None = None,
         *,
@@ -629,10 +620,9 @@ class ExecutionOrchestrator:
         trigger_medium: str,
         run_purpose: str,
         user_id: str,
-        thread_id: uuid.UUID | None = None,
+        thread_id: uuid.UUID,
         input_payload: dict | None = None,
         *,
-        debug: bool = False,
         engine_kind_override: str | None = None,
         definition_kind_override: str | None = None,
         definition_payload_override: dict | None = None,
@@ -692,7 +682,6 @@ class ExecutionOrchestrator:
                 engine_kind_override=engine_kind_override,
                 definition_kind_override=definition_kind_override,
                 definition_payload_override=definition_payload_override,
-                debug=debug,
             )
         except Exception as exc:
             logger.error(f"[Orchestrator] _fire_engine failed for draft run: {exc}")
@@ -756,9 +745,12 @@ class ExecutionOrchestrator:
         engine_kind_override: str | None = None,
         definition_kind_override: str | None = None,
         definition_payload_override: dict | None = None,
-        debug: bool = False,
     ) -> None:
-        """Build context and fire engine in a background task."""
+        """Build context and fire engine in a background task.
+
+        Trace + ObservationCollector are created unconditionally — every run
+        contributes to full-stack tracing, grouped by thread_id as session_id.
+        """
         credentials = build_agent_credentials(agent)
 
         # Resolve auto_approve from task if linked
@@ -787,6 +779,9 @@ class ExecutionOrchestrator:
         )
         self._wire_context(context, **run_meta)  # type: ignore[arg-type]
 
+        # Persist the Trace row up-front so downstream observations can FK to it.
+        await self._ensure_trace(execution, run, agent, prompt)
+
         runtime_binding = release_runtime_binding or (release.runtime_binding if release else {})
         engine = engine_registry.get(engine_kind_override or execution.engine_kind)
         _def_kind = definition_kind_override or version.engine_kind
@@ -794,6 +789,9 @@ class ExecutionOrchestrator:
 
         async def _run_engine():
             from app.core.database import AsyncSessionLocal
+            from app.core.observation import ObservationCollector
+            from app.core.observation.types import ObservationLevel
+            from app.websocket.execution_subscription_manager import execution_subscription_manager
 
             try:
                 async with AsyncSessionLocal() as db:
@@ -808,27 +806,20 @@ class ExecutionOrchestrator:
                     )
                     self._wire_context(ctx, **run_meta)
 
-                    collector = None
-                    if debug:
-                        from app.core.observation import ObservationCollector
-                        from app.core.observation.types import ObservationLevel
-                        from app.websocket.execution_subscription_manager import execution_subscription_manager
+                    async def _db_factory():
+                        return db
 
-                        async def _db_factory():
-                            return db
+                    async def _broadcast(exec_id: Any, message: dict) -> None:
+                        await execution_subscription_manager.broadcast_event(str(exec_id), message)
 
-                        async def _broadcast(exec_id: Any, message: dict) -> None:
-                            await execution_subscription_manager.broadcast_event(str(exec_id), message)
-
-                        collector = ObservationCollector(
-                            trace_id=execution.id,
-                            execution_id=execution.id,
-                            workspace_id=workspace_id,
-                            db_session_factory=_db_factory,
-                            broadcast_fn=_broadcast,
-                        )
-                        ctx.debug = True
-                        ctx.collector = collector
+                    collector = ObservationCollector(
+                        trace_id=execution.id,
+                        execution_id=execution.id,
+                        workspace_id=workspace_id,
+                        db_session_factory=_db_factory,
+                        broadcast_fn=_broadcast,
+                    )
+                    ctx.collector = collector
 
                     try:
                         await engine.start(
@@ -839,16 +830,14 @@ class ExecutionOrchestrator:
                             prompt=prompt,
                         )
                     except Exception as exc:
-                        if collector:
-                            collector.record_event(
-                                f"error:{type(exc).__name__}",
-                                input={"message": str(exc)},
-                                level=ObservationLevel.ERROR,
-                            )
+                        collector.record_event(
+                            f"error:{type(exc).__name__}",
+                            input={"message": str(exc)},
+                            level=ObservationLevel.ERROR,
+                        )
                         raise
                     finally:
-                        if collector:
-                            await collector.finalize()
+                        await collector.finalize()
             except Exception as exc:
                 logger.error(f"[Orchestrator] Engine failed for execution {execution.id}: {exc}")
                 try:
@@ -1001,14 +990,8 @@ class ExecutionOrchestrator:
             raise NotFoundError("Agent run not found", code="AGENT_RUN_NOT_FOUND", data={"run_id": str(run_id)})
         return result
 
-    async def _require_no_active_run(self, thread_id: uuid.UUID | None) -> None:
-        """Enforce invariant: at most one active AgentRun per Thread.
-
-        No-op when thread_id is None (pre-Thread-as-Session paths). Once
-        thread_id becomes NOT NULL, this check is unconditional.
-        """
-        if thread_id is None:
-            return
+    async def _require_no_active_run(self, thread_id: uuid.UUID) -> None:
+        """Enforce invariant: at most one active AgentRun per Thread."""
         active = (
             await self.db.execute(
                 select(AgentRun.id).where(
@@ -1023,3 +1006,67 @@ class ExecutionOrchestrator:
                 code="THREAD_ACTIVE_RUN_EXISTS",
                 data={"thread_id": str(thread_id), "run_id": str(active)},
             )
+
+    async def _ensure_task_thread(self, task: Task, agent: Agent, user_id: str) -> uuid.UUID:
+        """Return task.thread_id, creating a Thread on demand if missing.
+
+        This implements the "Task owns one Thread" invariant. Once PR3 makes
+        tasks.thread_id NOT NULL this lazy-provision path disappears.
+        """
+        if task.thread_id:
+            return task.thread_id
+
+        thread = Thread(
+            agent_id=agent.id,
+            workspace_id=agent.workspace_id,
+            title=task.title,
+            status="active",
+            created_by=user_id,
+        )
+        self.db.add(thread)
+        await self.db.flush()
+        task.thread_id = thread.id
+        await self.db.flush()
+        return thread.id
+
+    async def _ensure_trace(
+        self,
+        execution: Execution,
+        run: AgentRun,
+        agent: Agent,
+        prompt: str,
+    ) -> None:
+        """Insert the Trace row for this execution, keyed by thread_id as session_id.
+
+        Trace.id == Execution.id by convention so observation rows FK cleanly.
+        session_id = str(run.thread_id) groups multi-turn traces in the UI.
+        """
+        from datetime import datetime, timezone
+
+        from app.core.observation.model import Trace
+
+        trace = Trace(
+            id=execution.id,
+            name=agent.name,
+            workspace_id=run.workspace_id,
+            start_time=datetime.now(timezone.utc),
+            status="running",
+            execution_id=execution.id,
+            agent_version_id=run.agent_version_id
+            or (await self._version_id_for_release(run.release_id)),
+            user_id=(
+                uuid.UUID(run.created_by)
+                if run.created_by and isinstance(run.created_by, str)
+                else run.created_by
+            ),
+            session_id=str(run.thread_id),
+            input={"prompt": prompt},
+        )
+        self.db.add(trace)
+        await self.db.flush()
+
+    async def _version_id_for_release(self, release_id: uuid.UUID | None) -> uuid.UUID | None:
+        if release_id is None:
+            return None
+        release = await self._get_release(release_id)
+        return release.agent_version_id

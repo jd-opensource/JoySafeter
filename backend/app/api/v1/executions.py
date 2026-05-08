@@ -36,7 +36,7 @@ class DebugRunRequest(BaseModel):
     agent_id: uuid.UUID
     prompt: str
     workspace_id: uuid.UUID
-    thread_id: Optional[uuid.UUID] = None
+    thread_id: uuid.UUID
     variables: Optional[Dict[str, Any]] = None
 
 

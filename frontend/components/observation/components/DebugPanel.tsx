@@ -26,24 +26,47 @@ function DebugPanelInner({ agentId, agentVersionId, workspaceId }: DebugPanelPro
   const [mode, setMode] = useState<'idle' | 'live' | 'replay'>('idle')
   const [replayTraceId, setReplayTraceId] = useState<string | null>(null)
 
-  // Multi-turn session state
+  // Session state — a Thread is provisioned on mount and lives for the
+  // entire panel session. "New Session" archives it and provisions a fresh one.
   const [threadId, setThreadId] = useState<string | null>(null)
   const [turnCount, setTurnCount] = useState(0)
 
   const { dispatch, loadTrace, isExecuting } = useObservationData()
   useObservationStream(mode === 'live' ? executionId : null)
 
+  // Provision a Thread on mount (and after "New Session"). Every debug turn
+  // flows through this thread, so the backend pool + Trace aggregation stay
+  // consistent. The thread is archived on "New Session".
+  useEffect(() => {
+    if (threadId) return
+    let cancelled = false
+    threadService
+      .create({
+        agent_id: agentId,
+        title: `Debug session – ${new Date().toLocaleString()}`,
+        workspace_id: workspaceId,
+      })
+      .then((thread) => {
+        if (!cancelled) setThreadId(thread.id)
+      })
+      .catch((err) => {
+        console.error('DebugPanel: thread provisioning failed', err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [threadId, agentId, workspaceId])
+
   const { data: traces = [], refetch: refetchTraces } = useQuery({
     queryKey: ['traces', agentVersionId, workspaceId, threadId],
     queryFn: async () => {
-      // When we have a threadId, filter traces by session_id to show only this session's traces
       const sessionFilter = threadId ? `&session_id=${threadId}` : ''
       const data = await apiGet<Array<{ id: string; created_at: string }>>(
         `/traces?workspace_id=${workspaceId}&agent_version_id=${agentVersionId}&page_size=20${sessionFilter}`,
       )
       return data.map((t) => ({ id: t.id, createdAt: t.created_at }))
     },
-    enabled: !!agentVersionId && !!workspaceId,
+    enabled: !!agentVersionId && !!workspaceId && !!threadId,
   })
 
   const { data: replayObservations } = useQuery({
@@ -70,37 +93,29 @@ function DebugPanelInner({ agentId, agentVersionId, workspaceId }: DebugPanelPro
 
   const handleStartDebug = useCallback(
     async (prompt: string) => {
-      // Only RESET observation state for first turn or when no threadId exists
-      // For subsequent turns, we keep previous traces visible in the History dropdown
+      if (!threadId) {
+        console.warn('DebugPanel: thread not yet ready; ignoring start')
+        return
+      }
+      // Clear the live observation tree so the next turn starts with a fresh view;
+      // prior turns remain accessible in the History dropdown via session filtering.
       dispatch({ type: 'RESET' })
 
       try {
-        // Create a thread on first turn for multi-turn context
-        let currentThreadId = threadId
-        if (!currentThreadId) {
-          const thread = await threadService.create({
-            agent_id: agentId,
-            title: `Debug session – ${new Date().toLocaleString()}`,
-            workspace_id: workspaceId,
-          })
-          currentThreadId = thread.id
-          setThreadId(currentThreadId)
-        }
-
         const data = await apiPost<{ execution_id: string; run_id: string }>('/executions/debug', {
           agent_id: agentId,
           agent_version_id: agentVersionId,
           prompt,
           workspace_id: workspaceId,
-          thread_id: currentThreadId,
+          thread_id: threadId,
         })
         setExecutionId(data.execution_id)
         setRunId(data.run_id)
         setMode('live')
         setTurnCount((c) => c + 1)
 
-        // Refetch traces so the new trace appears in history
-        // (slight delay to let backend create the Trace record)
+        // Trace row is created during _fire_engine; give it a tick before
+        // surfacing the new entry in the history dropdown.
         setTimeout(() => refetchTraces(), 1000)
       } catch (err) {
         console.error('Debug start failed:', err)

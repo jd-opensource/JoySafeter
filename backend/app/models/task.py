@@ -14,6 +14,7 @@ from .base import BaseModel
 if TYPE_CHECKING:
     from .agent import Agent
     from .agent_run import AgentRun
+    from .thread import Thread
 
 
 class TaskStatus(str, enum.Enum):
@@ -61,6 +62,11 @@ class Task(BaseModel):
         ForeignKey("agents.id"),
         nullable=True,
     )
+    thread_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("threads.id"),
+        nullable=True,
+    )
     creator_id: Mapped[str] = mapped_column(
         String(255),
         ForeignKey("user.id", ondelete="CASCADE"),
@@ -85,6 +91,7 @@ class Task(BaseModel):
     # Relationships
     agent: Mapped[Optional["Agent"]] = relationship("Agent")
     latest_run: Mapped[Optional["AgentRun"]] = relationship("AgentRun", foreign_keys=[latest_run_id])
+    thread: Mapped[Optional["Thread"]] = relationship("Thread", foreign_keys=[thread_id])
 
     __table_args__ = (
         Index("tasks_workspace_status_idx", "workspace_id", "status"),

@@ -33,7 +33,7 @@ class AgentRun(Base):
         UUID(as_uuid=True), ForeignKey("agent_versions.id"), nullable=True
     )
     workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
-    thread_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("threads.id"), nullable=True)
+    thread_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("threads.id"), nullable=False)
     task_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("tasks.id"), nullable=True)
     trigger_medium: Mapped[str] = mapped_column(String(20), nullable=False)
     run_purpose: Mapped[str] = mapped_column(String(20), nullable=False)

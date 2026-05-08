@@ -8,9 +8,11 @@ import uuid
 from typing import List
 
 from loguru import logger
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.app_errors import NotFoundError
+from app.common.app_errors import InvalidRequestError, NotFoundError
+from app.models.agent_run import AgentRun
 from app.models.thread import Thread
 from app.repositories.thread import ThreadRepository
 from app.schemas.thread import CreateThreadRequest, UpdateThreadRequest
@@ -78,10 +80,36 @@ class ThreadService:
         if not thread:
             raise NotFoundError("Thread not found", code="THREAD_NOT_FOUND", data={"thread_id": str(thread_id)})
 
+        # Refuse to archive while a run is in flight — otherwise we'd kill a
+        # live container out from under the engine.
+        active_run_id = (
+            await self.db.execute(
+                select(AgentRun.id).where(
+                    AgentRun.thread_id == thread_id,
+                    AgentRun.status.in_(("pending", "running")),
+                )
+            )
+        ).scalar_one_or_none()
+        if active_run_id:
+            raise InvalidRequestError(
+                "Cannot archive a thread with an active run",
+                code="THREAD_ACTIVE_RUN_EXISTS",
+                data={"thread_id": str(thread_id), "run_id": str(active_run_id)},
+            )
+
         updated = await self.thread_repo.update(thread_id, {"status": "archived"})
         assert updated is not None
         await self.db.commit()
         await self.db.refresh(updated)
+
+        # Tear down the cached container + clear DB binding.
+        from app.core.agent.cli_backends.container_pool import container_pool
+
+        try:
+            await container_pool.evict(thread_id)
+        except Exception as exc:
+            logger.warning(f"[thread:{thread_id}] container_pool.evict failed: {exc}")
+
         logger.info(f"Archived thread {thread_id}")
         return updated
 

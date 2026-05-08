@@ -15,7 +15,7 @@ from app.core.contracts.execution import RunPurposeLiteral, TriggerMediumLiteral
 
 class CreateAgentRunRequest(BaseModel):
     release_id: uuid.UUID
-    thread_id: Optional[uuid.UUID] = None
+    thread_id: uuid.UUID
     task_id: Optional[uuid.UUID] = None
     trigger_medium: TriggerMediumLiteral
     run_purpose: RunPurposeLiteral
@@ -27,7 +27,7 @@ class CreateDraftAgentRunRequest(BaseModel):
     agent_id: uuid.UUID
     version_id: uuid.UUID
     workspace_id: uuid.UUID
-    thread_id: Optional[uuid.UUID] = None
+    thread_id: uuid.UUID
     goal: Optional[str] = None
     input_payload: Optional[dict] = None
 
@@ -37,7 +37,7 @@ class AgentRunResponse(BaseModel):
     release_id: Optional[uuid.UUID]
     agent_version_id: Optional[uuid.UUID] = None
     workspace_id: uuid.UUID
-    thread_id: Optional[uuid.UUID]
+    thread_id: uuid.UUID
     task_id: Optional[uuid.UUID]
     trigger_medium: str
     run_purpose: str

@@ -77,7 +77,7 @@ class ExecutionRunner:
         execution = await self._reader.get_execution(execution_id)
         run = await self._reader.get_run_for_execution(execution_id)
         release = await self._reader.get_release_for_run(run.id)
-        pooled = False  # whether the container came from the pool
+        thread_id = run.thread_id
 
         # Inject run metadata so events route through the bus
         self._events.set_event_context(
@@ -93,7 +93,7 @@ class ExecutionRunner:
 
         logger.info(
             f"[exec:{execution_id}] Starting execution "
-            f"(release={release.id if release else 'draft'}, "
+            f"(thread={thread_id}, release={release.id if release else 'draft'}, "
             f"engine={execution.engine_kind})"
         )
 
@@ -101,48 +101,22 @@ class ExecutionRunner:
             # 1. Mark as dispatched
             await self._events.mark_status(execution_id=execution_id, status="dispatched")
 
-            # 2. Get or create container
-            prior_session_id: Optional[str] = None
-            if release:
-                container, prior_session_id = await container_pool.get(release.id)
-
-            if container:
-                pooled = True
-                # Verify container is still running
-                try:
-                    status = await self.container_service.inspect_container(container.container_id)
-                    if "running" not in status.strip().lower():
-                        logger.warning(
-                            f"[exec:{execution_id}] Pooled container {container.container_id[:12]} "
-                            f"not running (status={status.strip()}), creating new one"
-                        )
-                        if release:
-                            await container_pool.remove(release.id)
-                        container = None
-                        prior_session_id = None
-                        pooled = False
-                except Exception as inspect_exc:
-                    logger.warning(f"[exec:{execution_id}] Failed to inspect pooled container: {inspect_exc}")
-                    if release:
-                        await container_pool.remove(release.id)
-                    container = None
-                    prior_session_id = None
-                    pooled = False
-
-            if not container:
-                logger.info(f"[exec:{execution_id}] Creating new container")
-                container = await self.container_service.create_container(
+            # 2. Acquire container from the thread-keyed pool.
+            #    The pool handles adopt / provision / LRU internally; we only
+            #    supply a create_fn for the provisioning path.
+            async def _create_container() -> ContainerInfo:
+                logger.info(f"[exec:{execution_id}] Creating new container for thread {thread_id}")
+                return await self.container_service.create_container(
                     execution_id=execution_id,
                     config=container_config,
                     env=credentials,
                 )
-                if release:
-                    await container_pool.put(release.id, container)
-                    pooled = True
+
+            container, prior_session_id = await container_pool.acquire(thread_id, _create_container)
 
             if prior_session_id:
                 logger.info(
-                    f"[exec:{execution_id}] Reusing pooled container "
+                    f"[exec:{execution_id}] Reusing container "
                     f"{container.container_id[:12]} with session {prior_session_id}"
                 )
 
@@ -202,10 +176,12 @@ class ExecutionRunner:
             # 8. Mark final status
             await self._finalize(execution_id, result, release)
 
-            # 9. Store session_id back to pool for next resume
-            if result.session_id and release:
-                await container_pool.set_session_id(release.id, result.session_id)
-                logger.info(f"[exec:{execution_id}] Stored session {result.session_id} for release {release.id}")
+            # 9. Store session_id so the next turn on this thread can --resume
+            if result.session_id:
+                await container_pool.store_session(thread_id, result.session_id)
+                logger.info(
+                    f"[exec:{execution_id}] Stored session {result.session_id} for thread {thread_id}"
+                )
 
             return result
 
@@ -221,14 +197,11 @@ class ExecutionRunner:
             return CLIResult(status="failed", error=app_error.message, error_payload=app_error.to_payload())
 
         finally:
-            # 10. Unregister session; release container back to pool
+            # 10. Unregister session; release the slot back to the pool.
+            #     The container is kept alive for the next turn on this thread.
             session_registry.unregister(execution_id)
-            if container and release and pooled:
-                await container_pool.release(release.id)
-                logger.info(f"[exec:{execution_id}] Released container {container.container_id[:12]} back to pool")
-            elif container:
-                await self._cleanup_container(container.container_id)
-                logger.info(f"[exec:{execution_id}] Destroyed container {container.container_id[:12]} (no release)")
+            if container:
+                await container_pool.release(thread_id)
 
     async def _inject(
         self,
@@ -408,12 +381,6 @@ class ExecutionRunner:
                 await self.callbacks.on_execution_failed(execution_id, error)
             except Exception as exc:
                 logger.warning(f"Callback on_execution_failed failed for {execution_id}: {exc}")
-
-    async def _cleanup_container(self, container_id: str) -> None:
-        try:
-            await self.container_service.remove_container(container_id, force=True)
-        except Exception as exc:
-            logger.warning(f"Failed to cleanup container {container_id[:12]}: {exc}")
 
     @staticmethod
     def _msg_to_event_type(msg: CLIMessage) -> ExecutionEventType:

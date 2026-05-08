@@ -670,10 +670,21 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
                 throw new Error('Agent has no active release. Please publish the agent first.')
               }
 
+              // Every run belongs to a Thread. Build-page "Run" button is a
+              // one-off interaction, so we mint a fresh Thread per click — it
+              // becomes the session root for container + CLI + Trace.
+              const { threadService } = await import('@/services/threadService')
+              const thread = await threadService.create({
+                agent_id: agentId,
+                title: `Run – ${new Date().toLocaleString()}`,
+                workspace_id: workspaceId,
+              })
+
               return executionAdapter.startRun({
                 releaseId,
                 prompt: input,
                 workspaceId,
+                threadId: thread.id,
               })
             })()
         store.setRunId(graphId, run.id)

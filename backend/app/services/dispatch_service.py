@@ -39,9 +39,9 @@ class DispatchService:
         release_id: uuid.UUID,
         prompt: str,
         user_id: str,
+        thread_id: uuid.UUID,
         trigger_medium: str = "api",
         run_purpose: str = "production",
-        thread_id: uuid.UUID | None = None,
         task_id: uuid.UUID | None = None,
         input_payload: dict | None = None,
     ) -> AgentRun:
@@ -49,9 +49,9 @@ class DispatchService:
             release_id,
             prompt,
             user_id,
+            thread_id=thread_id,
             trigger_medium=trigger_medium,
             run_purpose=run_purpose,
-            thread_id=thread_id,
             task_id=task_id,
             input_payload=input_payload,
         )
@@ -63,7 +63,7 @@ class DispatchService:
         prompt: str,
         user_id: str,
         workspace_id: uuid.UUID,
-        thread_id: uuid.UUID | None = None,
+        thread_id: uuid.UUID,
         input_payload: dict | None = None,
     ) -> AgentRun:
         return await self._orchestrator.dispatch_draft(

@@ -1,9 +1,17 @@
-"""
-CLI agent container pool with TTL-based eviction and session resume.
+"""Thread-keyed CLI agent container pool with DB-backed persistence.
 
-Keeps containers alive after execution for reuse by the same agent.
-Idle containers are cleaned up after `idle_timeout` seconds (default 30 min).
-On app shutdown, containers are NOT destroyed — they survive restarts.
+Architecture invariants (see project memory: Thread as Session):
+- Pool is keyed by thread_id. One Thread → one container → one CLI session.
+- DB is the source of truth (threads.container_id, threads.cli_session_id,
+  threads.last_active_at). The in-memory pool is a read/write cache.
+- On cache miss, the pool lazily adopts a live container recorded in the DB,
+  or provisions a new one via the caller-supplied create_fn.
+- LRU eviction only touches entries with active_count == 0. Running
+  executions are never evicted.
+- Pool size is bounded by a global max_containers.
+
+The pool does NOT destroy containers on process shutdown. Survivors are
+re-adopted after restart when their Thread is next touched.
 """
 
 from __future__ import annotations
@@ -12,9 +20,14 @@ import asyncio
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 
 from loguru import logger
+from sqlalchemy import select, update
+
+from app.core.database import AsyncSessionLocal
+from app.models.thread import Thread
+from app.utils.datetime import utc_now
 
 from .container_service import CLIContainerService, ContainerInfo
 
@@ -22,171 +35,321 @@ from .container_service import CLIContainerService, ContainerInfo
 @dataclass
 class PoolEntry:
     container: ContainerInfo
-    agent_profile_id: uuid.UUID
+    thread_id: uuid.UUID
     last_used: float
     created_at: float
     active_count: int = 0
-    last_session_id: Optional[str] = None
+    cli_session_id: Optional[str] = None
+
+
+CreateFn = Callable[[], Awaitable[ContainerInfo]]
 
 
 class ContainerPool:
-    """Pool of CLI agent containers keyed by agent_profile_id."""
+    """Thread-keyed cache over the persisted container mapping in threads."""
 
     def __init__(
         self,
         container_service: Optional[CLIContainerService] = None,
         idle_timeout: int = 1800,
-        max_size: int = 20,
+        max_containers: int = 50,
     ):
-        self._pool: dict[uuid.UUID, PoolEntry] = {}
+        self._cache: dict[uuid.UUID, PoolEntry] = {}
         self._lock = asyncio.Lock()
         self._idle_timeout = idle_timeout
-        self._max_size = max_size
+        self._max_containers = max_containers
         self._shutdown = False
         self.container_service = container_service or CLIContainerService()
 
-    async def get(self, agent_profile_id: uuid.UUID) -> tuple[Optional[ContainerInfo], Optional[str]]:
-        """Return (container, last_session_id) if a pooled container exists."""
-        async with self._lock:
-            if self._shutdown:
-                return None, None
-            entry = self._pool.get(agent_profile_id)
-            if entry:
-                entry.last_used = time.time()
-                entry.active_count += 1
-                return entry.container, entry.last_session_id
-            return None, None
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
-    async def put(
+    async def acquire(
         self,
-        agent_profile_id: uuid.UUID,
-        container: ContainerInfo,
-    ) -> None:
-        """Register a newly created container in the pool."""
-        old: Optional[PoolEntry] = None
-        evicted: Optional[PoolEntry] = None
-        shutdown = False
+        thread_id: uuid.UUID,
+        create_fn: CreateFn,
+    ) -> tuple[ContainerInfo, Optional[str]]:
+        """Reserve a container for a Thread.
 
+        Returns (container, prior_cli_session_id). The returned container is
+        either cached, adopted from the DB, or freshly created. The caller
+        must eventually call release(thread_id).
+        """
+        if self._shutdown:
+            raise RuntimeError("ContainerPool is shut down")
+
+        # 1. Cache hit
         async with self._lock:
-            if self._shutdown:
-                shutdown = True
-            else:
-                if len(self._pool) >= self._max_size and agent_profile_id not in self._pool:
-                    evicted = self._evict_lru_entry()
-
-                old = self._pool.pop(agent_profile_id, None)
-                self._pool[agent_profile_id] = PoolEntry(
-                    container=container,
-                    agent_profile_id=agent_profile_id,
-                    last_used=time.time(),
-                    created_at=time.time(),
-                    active_count=1,
-                )
-                logger.info(
-                    f"Pooled container {container.container_id[:12]} for agent "
-                    f"{agent_profile_id} (pool_size={len(self._pool)})"
-                )
-
-        if shutdown:
-            await self._safe_remove(container.container_id)
-            return
-        if evicted:
-            await self._safe_remove(evicted.container.container_id)
-        if old:
-            await self._safe_remove(old.container.container_id)
-
-    async def release(self, agent_profile_id: uuid.UUID) -> None:
-        """Decrement active count after execution finishes."""
-        async with self._lock:
-            entry = self._pool.get(agent_profile_id)
+            entry = self._cache.get(thread_id)
             if entry:
-                entry.active_count = max(0, entry.active_count - 1)
+                entry.active_count += 1
                 entry.last_used = time.time()
+                await self._touch_db_active_at(thread_id)
+                return entry.container, entry.cli_session_id
 
-    async def release_and_destroy_if_idle(self, agent_profile_id: uuid.UUID) -> bool:
-        """Decrement active count; if no other executions are using it, remove the container.
+        # 2. DB-backed adopt
+        adopted = await self._try_adopt(thread_id)
+        if adopted:
+            return adopted
 
-        Returns True if the container was destroyed."""
-        entry: Optional[PoolEntry] = None
+        # 3. Provision a new container
         async with self._lock:
-            e = self._pool.get(agent_profile_id)
-            if not e:
-                return False
-            e.active_count = max(0, e.active_count - 1)
-            if e.active_count == 0:
-                entry = self._pool.pop(agent_profile_id)
-        if entry:
-            await self._safe_remove(entry.container.container_id)
-            logger.info(
-                f"Destroyed idle container {entry.container.container_id[:12]} "
-                f"for agent {agent_profile_id} after cancel"
+            if len(self._cache) >= self._max_containers:
+                await self._evict_lru_locked()
+
+        container = await create_fn()
+
+        # Race: two concurrent acquires for the same thread both missed
+        # and both created a container. The first writer wins; the second
+        # tears its container down to keep invariant 2 (one container per thread).
+        async with self._lock:
+            existing = self._cache.get(thread_id)
+            if existing:
+                logger.warning(
+                    f"[pool] Race on thread {thread_id}: discarding duplicate container "
+                    f"{container.container_id[:12]}"
+                )
+                await self._safe_remove(container.container_id)
+                existing.active_count += 1
+                existing.last_used = time.time()
+                return existing.container, existing.cli_session_id
+
+            entry = PoolEntry(
+                container=container,
+                thread_id=thread_id,
+                last_used=time.time(),
+                created_at=time.time(),
+                active_count=1,
+                cli_session_id=None,
             )
-            return True
-        return False
+            self._cache[thread_id] = entry
 
-    async def set_session_id(self, agent_profile_id: uuid.UUID, session_id: str) -> None:
-        """Store Claude session_id for next --resume."""
-        async with self._lock:
-            entry = self._pool.get(agent_profile_id)
-            if entry and session_id:
-                entry.last_session_id = session_id
+        await self._persist_container(thread_id, container.container_id)
+        logger.info(
+            f"[pool] Provisioned container {container.container_id[:12]} for thread {thread_id} "
+            f"(cache_size={len(self._cache)})"
+        )
+        return container, None
 
-    async def remove(self, agent_profile_id: uuid.UUID) -> None:
-        """Force-remove a container (e.g., on execution failure)."""
-        entry: Optional[PoolEntry] = None
+    async def release(self, thread_id: uuid.UUID) -> None:
+        """Decrement active count after an execution finishes."""
         async with self._lock:
-            entry = self._pool.pop(agent_profile_id, None)
+            entry = self._cache.get(thread_id)
+            if not entry:
+                return
+            entry.active_count = max(0, entry.active_count - 1)
+            entry.last_used = time.time()
+        await self._touch_db_active_at(thread_id)
+
+    async def store_session(self, thread_id: uuid.UUID, cli_session_id: str) -> None:
+        """Persist the CLI session id for the next --resume."""
+        async with self._lock:
+            entry = self._cache.get(thread_id)
+            if entry:
+                entry.cli_session_id = cli_session_id or None
+
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Thread)
+                .where(Thread.id == thread_id)
+                .values(cli_session_id=cli_session_id or None)
+            )
+            await db.commit()
+
+    async def evict(self, thread_id: uuid.UUID) -> None:
+        """Tear down a thread's container and clear the DB binding.
+
+        Called when a Thread is archived or its container needs to be reset
+        (e.g., CLI session recovery falls back to rebuild).
+        """
+        entry: Optional[PoolEntry]
+        async with self._lock:
+            entry = self._cache.pop(thread_id, None)
+
         if entry:
             await self._safe_remove(entry.container.container_id)
+
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Thread)
+                .where(Thread.id == thread_id)
+                .values(container_id=None, cli_session_id=None)
+            )
+            await db.commit()
+
+        logger.info(f"[pool] Evicted thread {thread_id}")
+
+    # ------------------------------------------------------------------
+    # Maintenance
+    # ------------------------------------------------------------------
 
     async def cleanup_idle(self) -> int:
-        """Remove containers idle longer than idle_timeout. Returns count removed."""
+        """Remove containers idle longer than idle_timeout. Returns count."""
         now = time.time()
         to_remove: list[tuple[uuid.UUID, str]] = []
 
         async with self._lock:
-            for agent_id, entry in list(self._pool.items()):
+            for tid, entry in list(self._cache.items()):
                 idle = entry.active_count == 0 and (now - entry.last_used) > self._idle_timeout
                 if idle:
-                    self._pool.pop(agent_id)
-                    to_remove.append((agent_id, entry.container.container_id))
+                    self._cache.pop(tid)
+                    to_remove.append((tid, entry.container.container_id))
 
-        for agent_id, container_id in to_remove:
-            await self._safe_remove(container_id)
-            logger.info(f"Evicted idle container {container_id[:12]} for agent {agent_id}")
+        for tid, cid in to_remove:
+            await self._safe_remove(cid)
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    update(Thread)
+                    .where(Thread.id == tid)
+                    .values(container_id=None, cli_session_id=None)
+                )
+                await db.commit()
+            logger.info(f"[pool] Evicted idle container {cid[:12]} for thread {tid}")
 
         return len(to_remove)
 
     async def shutdown(self) -> None:
-        """Mark pool as shut down. Containers are NOT destroyed."""
+        """Mark the pool as shut down. Containers are NOT destroyed so they
+        can be adopted again after restart."""
         async with self._lock:
             self._shutdown = True
-            self._pool.clear()
-        logger.info("Container pool shut down (containers left running for reuse after restart)")
+            self._cache.clear()
+        logger.info("[pool] Shut down (containers left running for reuse after restart)")
 
-    async def _evict_lru(self) -> None:
-        """Evict the least-recently-used idle container. Called outside lock."""
-        entry = self._evict_lru_entry()
-        if entry:
-            await self._safe_remove(entry.container.container_id)
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
 
-    def _evict_lru_entry(self) -> Optional[PoolEntry]:
-        """Pop the LRU idle entry from the pool. Must be called inside lock."""
+    async def _try_adopt(self, thread_id: uuid.UUID) -> Optional[tuple[ContainerInfo, Optional[str]]]:
+        """Attempt to adopt a container recorded in the threads row.
+
+        Returns None if no DB record exists or the container is no longer
+        running; the caller then falls through to provisioning a new one.
+        On adopt failure, the stale DB binding is cleared.
+        """
+        async with AsyncSessionLocal() as db:
+            thread = (await db.execute(select(Thread).where(Thread.id == thread_id))).scalar_one_or_none()
+            if thread is None or not thread.container_id:
+                return None
+            container_id = thread.container_id
+            cli_session_id = thread.cli_session_id
+
+        # Verify the container is actually alive
+        try:
+            status = (await self.container_service.inspect_container(container_id)).strip().lower()
+        except Exception as exc:
+            logger.warning(f"[pool] Inspect failed for {container_id[:12]} on thread {thread_id}: {exc}")
+            status = "missing"
+
+        if "running" not in status:
+            logger.info(
+                f"[pool] DB-recorded container {container_id[:12]} for thread {thread_id} "
+                f"is not running (status={status}); clearing binding"
+            )
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    update(Thread)
+                    .where(Thread.id == thread_id)
+                    .values(container_id=None, cli_session_id=None)
+                )
+                await db.commit()
+            return None
+
+        container = ContainerInfo(
+            container_id=container_id,
+            name=container_id[:12],
+            status="running",
+            working_dir="/workspace",
+        )
+
+        async with self._lock:
+            existing = self._cache.get(thread_id)
+            if existing:
+                existing.active_count += 1
+                existing.last_used = time.time()
+                return existing.container, existing.cli_session_id
+
+            if len(self._cache) >= self._max_containers:
+                await self._evict_lru_locked()
+
+            entry = PoolEntry(
+                container=container,
+                thread_id=thread_id,
+                last_used=time.time(),
+                created_at=time.time(),
+                active_count=1,
+                cli_session_id=cli_session_id,
+            )
+            self._cache[thread_id] = entry
+
+        await self._touch_db_active_at(thread_id)
+        logger.info(
+            f"[pool] Adopted container {container_id[:12]} for thread {thread_id} "
+            f"(cli_session={'yes' if cli_session_id else 'no'})"
+        )
+        return container, cli_session_id
+
+    async def _evict_lru_locked(self) -> None:
+        """Evict the least-recently-used idle entry. Caller must hold the lock."""
         lru_id: Optional[uuid.UUID] = None
         lru_time = float("inf")
-        for agent_id, entry in self._pool.items():
+        for tid, entry in self._cache.items():
             if entry.active_count == 0 and entry.last_used < lru_time:
                 lru_time = entry.last_used
-                lru_id = agent_id
-        if lru_id:
-            return self._pool.pop(lru_id)
-        return None
+                lru_id = tid
+
+        if lru_id is None:
+            # Nothing idle to evict; the cache is fully active. The new
+            # acquire will push us past the soft cap. Log and continue —
+            # active executions must not be interrupted.
+            logger.warning(
+                f"[pool] max_containers={self._max_containers} reached with no idle entry; "
+                "exceeding limit until an active run completes"
+            )
+            return
+
+        entry = self._cache.pop(lru_id)
+        # Release the lock briefly to perform IO: we drop the container and
+        # clear the DB binding outside the critical section.
+        loop_tid = lru_id
+        loop_cid = entry.container.container_id
+        # Perform best-effort cleanup; don't propagate errors — eviction is
+        # advisory, the DB binding gets reset on next adopt attempt anyway.
+        asyncio.create_task(self._evict_cleanup(loop_tid, loop_cid))
+
+    async def _evict_cleanup(self, thread_id: uuid.UUID, container_id: str) -> None:
+        await self._safe_remove(container_id)
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Thread)
+                .where(Thread.id == thread_id)
+                .values(container_id=None, cli_session_id=None)
+            )
+            await db.commit()
+        logger.info(f"[pool] LRU-evicted container {container_id[:12]} for thread {thread_id}")
+
+    async def _persist_container(self, thread_id: uuid.UUID, container_id: str) -> None:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Thread)
+                .where(Thread.id == thread_id)
+                .values(container_id=container_id, last_active_at=utc_now())
+            )
+            await db.commit()
+
+    async def _touch_db_active_at(self, thread_id: uuid.UUID) -> None:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Thread).where(Thread.id == thread_id).values(last_active_at=utc_now())
+            )
+            await db.commit()
 
     async def _safe_remove(self, container_id: str) -> None:
         try:
             await self.container_service.remove_container(container_id, force=True)
         except Exception as exc:
-            logger.warning(f"Failed to remove pooled container {container_id[:12]}: {exc}")
+            logger.warning(f"[pool] Failed to remove container {container_id[:12]}: {exc}")
 
 
 # Module-level singleton
