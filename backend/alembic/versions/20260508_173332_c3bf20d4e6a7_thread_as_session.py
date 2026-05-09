@@ -11,9 +11,9 @@ Establish Thread as the session root:
 - Rows without thread_id are deleted (greenfield, no back-fill)
 """
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 revision = "c3bf20d4e6a7"
 down_revision = "b2af1f3e0215"

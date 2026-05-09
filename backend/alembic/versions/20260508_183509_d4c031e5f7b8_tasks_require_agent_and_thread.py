@@ -9,9 +9,9 @@ Tasks without an agent or without a thread are deleted (greenfield — callers
 now create the Thread synchronously during task creation).
 """
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 revision = "d4c031e5f7b8"
 down_revision = "c3bf20d4e6a7"

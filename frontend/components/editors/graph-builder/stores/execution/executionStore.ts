@@ -46,6 +46,14 @@ import { useGraphStore } from '../graphStore'
 const pendingContentUpdates = new Map<string, string>()
 let contentUpdateScheduled = false
 
+/**
+ * Per-graph in-flight guard for `startExecution`. A rapid double-click on
+ * Run used to mint two Threads (and two orphan runs) before the first
+ * dispatch's isExecuting flag propagated. The module-level Set short-circuits
+ * re-entry until the first startExecution call finishes its provisioning.
+ */
+const startInFlight = new Set<string>()
+
 function getOrCreateContext(
   contexts: Map<string, ExecutionContext>,
   graphId: string | null,
@@ -437,6 +445,16 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         })
         return
       }
+
+      // Reject concurrent starts on the same graph. Without this, two rapid
+      // clicks both pass the isExecuting check (set further down) and each
+      // provisions a fresh Thread + Run.
+      if (startInFlight.has(graphId)) {
+        console.warn(`[execution] startExecution re-entered for ${graphId}; ignoring`)
+        return
+      }
+      startInFlight.add(graphId)
+      try {
 
       // If already executing, cancel the existing backend run before starting a new one
       const currentGraphState = store.getContext(graphId).state
@@ -835,6 +853,9 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         store.setRunId(graphId, null)
         store.setSubscribedExecutionId(graphId, null)
         store.setTimeoutId(graphId, null)
+      }
+      } finally {
+        startInFlight.delete(graphId)
       }
     },
 

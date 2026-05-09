@@ -98,11 +98,13 @@ class ExecutionReaderPort(Protocol):
         thread_id: uuid.UUID,
         *,
         before_run_id: Optional[uuid.UUID] = None,
+        max_turns: int = 20,
     ) -> list[tuple[str, str]]:
         """Return completed turn history for a Thread in chronological order.
 
         Each entry is ``(role, content)`` with ``role`` being ``"user"`` or
         ``"assistant"``. Entries for ``before_run_id`` and later are excluded
         so the caller can rebuild a prompt prefix for session recovery.
+        ``max_turns`` caps how many *prior runs* are returned.
         """
         ...

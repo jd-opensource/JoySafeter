@@ -157,38 +157,23 @@ class ExecutionRunner:
             else:
                 self._auto_approve = True
 
-            effective_prompt = prompt
-            attempt = 0
-            while True:
-                attempt += 1
-                session = await provider.execute(
-                    effective_prompt,
-                    container_id=container.container_id,
-                    cwd=container.working_dir,
-                    model=model,
-                    timeout=timeout,
-                    resume_session_id=prior_session_id,
-                    env=credentials,
-                    auto_approve=self._auto_approve,
-                )
+            # First attempt (may --resume the prior CLI session)
+            result = await self._run_one_attempt(
+                execution=execution,
+                prompt=prompt,
+                container=container,
+                model=model,
+                timeout=timeout,
+                resume_session_id=prior_session_id,
+                credentials=credentials,
+                collector=collector,
+                provider=provider,
+            )
 
-                # 5b. Register session so the API layer can inject messages
-                session_registry.register(execution_id, session)
-                self._session = session
-
-                # 6. Drain messages → events
-                await self._drain_to_events(
-                    execution_id, collector=collector, engine_kind=execution.engine_kind
-                )
-
-                # 7. Await final result
-                result = await session.result
-
-                if not (result.session_invalid and attempt == 1 and prior_session_id):
-                    break
-
-                # Session recovery path: drop the bad session, rebuild the
-                # prompt from thread history, and retry once without --resume.
+            # Recovery: if the resume was rejected, rebuild the prompt from
+            # thread history and retry once without --resume. One retry, no
+            # loop — the outer `finally` releases the container exactly once.
+            if result.session_invalid and prior_session_id:
                 logger.warning(
                     f"[exec:{execution_id}] CLI session {prior_session_id} invalid; "
                     "rebuilding prompt from thread history and retrying without --resume"
@@ -209,9 +194,21 @@ class ExecutionRunner:
                 history = await self._reader.load_thread_history(
                     run.thread_id, before_run_id=run.id
                 )
-                effective_prompt = _rebuild_prompt(history, prompt)
-                prior_session_id = None
+                rebuilt_prompt = _rebuild_prompt(history, prompt)
                 session_registry.unregister(execution_id)
+                # NOTE: container remains acquired — the retry reuses the
+                # same slot and the outer `finally` still releases it once.
+                result = await self._run_one_attempt(
+                    execution=execution,
+                    prompt=rebuilt_prompt,
+                    container=container,
+                    model=model,
+                    timeout=timeout,
+                    resume_session_id=None,
+                    credentials=credentials,
+                    collector=collector,
+                    provider=provider,
+                )
 
             # 8. Mark final status
             await self._finalize(execution_id, result, release)
@@ -272,6 +269,43 @@ class ExecutionRunner:
 
     _DRAIN_BATCH_SIZE = 5
     _DRAIN_FLUSH_INTERVAL = 0.5  # seconds — flush at least every 500ms
+
+    async def _run_one_attempt(
+        self,
+        *,
+        execution: Any,
+        prompt: str,
+        container: ContainerInfo,
+        model: Optional[str],
+        timeout: int,
+        resume_session_id: Optional[str],
+        credentials: Optional[dict[str, str]],
+        collector: Any,
+        provider: Any,
+    ) -> CLIResult:
+        """Single provider.execute + drain + await-result cycle.
+
+        Extracted so the outer :meth:`run` can express "first try → recover
+        → retry" as straight-line code rather than a two-iteration loop.
+        """
+        session = await provider.execute(
+            prompt,
+            container_id=container.container_id,
+            cwd=container.working_dir,
+            model=model,
+            timeout=timeout,
+            resume_session_id=resume_session_id,
+            env=credentials,
+            auto_approve=self._auto_approve,
+        )
+        session_registry.register(execution.id, session)
+        self._session = session
+
+        await self._drain_to_events(
+            execution.id, collector=collector, engine_kind=execution.engine_kind
+        )
+        result: CLIResult = await session.result
+        return result
 
     async def _drain_to_events(
         self,

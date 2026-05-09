@@ -12,6 +12,7 @@ from typing import Any
 
 from loguru import logger
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.app_errors import AppError, InvalidRequestError, NotFoundError, normalize_app_error
@@ -19,6 +20,7 @@ from app.core.engine.protocol import ExecutionContext
 from app.core.engine.registry import engine_registry
 from app.core.events import ExecutionEventEnvelope, execution_event_bus
 from app.core.events.event_types import ExecutionEventType
+from app.core.observation.model import Trace
 from app.core.state_machines.transitions import transition_task
 from app.models.agent import Agent, AgentRelease, AgentVersion
 from app.models.agent_run import AgentRun
@@ -26,7 +28,12 @@ from app.models.execution import Execution
 from app.models.task import Task
 from app.models.thread import Thread
 from app.utils.credentials import build_agent_credentials
+from app.utils.datetime import utc_now
 from app.utils.safe_task import safe_create_task
+
+# Status values that count as an "active" AgentRun — mirrored in the
+# partial unique index `uq_agent_runs_active_per_thread`.
+ACTIVE_RUN_STATUSES: tuple[str, ...] = ("pending", "running")
 
 
 class ExecutionOrchestrator:
@@ -545,7 +552,13 @@ class ExecutionOrchestrator:
             created_by=user_id,
         )
         self.db.add(run)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError:
+            # uq_agent_runs_active_per_thread kicked in — another dispatch
+            # beat us to the insert. Surface the same error as the fast path.
+            await self.db.rollback()
+            raise self._raise_active_run_conflict(thread_id)
 
         execution = Execution(
             run_id=run.id,
@@ -644,7 +657,11 @@ class ExecutionOrchestrator:
             created_by=user_id,
         )
         self.db.add(run)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError:
+            await self.db.rollback()
+            raise self._raise_active_run_conflict(thread_id)
 
         execution = Execution(
             run_id=run.id,
@@ -774,9 +791,6 @@ class ExecutionOrchestrator:
         )
         self._wire_context(context, **run_meta)  # type: ignore[arg-type]
 
-        # Persist the Trace row up-front so downstream observations can FK to it.
-        await self._ensure_trace(execution, run, agent, prompt)
-
         runtime_binding = release_runtime_binding or (release.runtime_binding if release else {})
         engine = engine_registry.get(engine_kind_override or execution.engine_kind)
         _def_kind = definition_kind_override or version.engine_kind
@@ -790,6 +804,18 @@ class ExecutionOrchestrator:
 
             try:
                 async with AsyncSessionLocal() as db:
+                    # Persist the Trace row inside this session so observations
+                    # written later FK to a committed row — no cross-session
+                    # visibility race with the caller's transaction.
+                    await self._insert_trace(
+                        db,
+                        execution=execution,
+                        run=run,
+                        agent_name=agent.name,
+                        agent_version_id=version.id,
+                        prompt=prompt,
+                    )
+
                     # Rebuild context with fresh session
                     ctx = ExecutionContext(
                         db=db,
@@ -986,12 +1012,18 @@ class ExecutionOrchestrator:
         return result
 
     async def _require_no_active_run(self, thread_id: uuid.UUID) -> None:
-        """Enforce invariant: at most one active AgentRun per Thread."""
+        """Enforce invariant: at most one active AgentRun per Thread.
+
+        Fast path — the partial unique index
+        ``uq_agent_runs_active_per_thread`` is the correctness backstop
+        against the check/insert race; this SELECT just surfaces a friendly
+        error in the common (uncontested) case.
+        """
         active = (
             await self.db.execute(
                 select(AgentRun.id).where(
                     AgentRun.thread_id == thread_id,
-                    AgentRun.status.in_(("pending", "running")),
+                    AgentRun.status.in_(ACTIVE_RUN_STATUSES),
                 )
             )
         ).scalar_one_or_none()
@@ -1002,31 +1034,39 @@ class ExecutionOrchestrator:
                 data={"thread_id": str(thread_id), "run_id": str(active)},
             )
 
-    async def _ensure_trace(
+    @staticmethod
+    def _raise_active_run_conflict(thread_id: uuid.UUID) -> InvalidRequestError:
+        return InvalidRequestError(
+            "Thread has an active run, please wait for it to complete",
+            code="THREAD_ACTIVE_RUN_EXISTS",
+            data={"thread_id": str(thread_id)},
+        )
+
+    async def _insert_trace(
         self,
+        db: AsyncSession,
+        *,
         execution: Execution,
         run: AgentRun,
-        agent: Agent,
+        agent_name: str,
+        agent_version_id: uuid.UUID,
         prompt: str,
     ) -> None:
-        """Insert the Trace row for this execution, keyed by thread_id as session_id.
+        """Insert the Trace row for this execution.
 
-        Trace.id == Execution.id by convention so observation rows FK cleanly.
-        session_id = str(run.thread_id) groups multi-turn traces in the UI.
+        Called inside the engine's fresh session so the row is committed with
+        the engine transaction — downstream observations FK to it safely.
+        Trace.id == Execution.id by convention; session_id == str(thread_id)
+        groups multi-turn traces in the UI.
         """
-        from datetime import datetime, timezone
-
-        from app.core.observation.model import Trace
-
         trace = Trace(
             id=execution.id,
-            name=agent.name,
+            name=agent_name,
             workspace_id=run.workspace_id,
-            start_time=datetime.now(timezone.utc),
+            start_time=utc_now(),
             status="running",
             execution_id=execution.id,
-            agent_version_id=run.agent_version_id
-            or (await self._version_id_for_release(run.release_id)),
+            agent_version_id=agent_version_id,
             user_id=(
                 uuid.UUID(run.created_by)
                 if run.created_by and isinstance(run.created_by, str)
@@ -1035,11 +1075,5 @@ class ExecutionOrchestrator:
             session_id=str(run.thread_id),
             input={"prompt": prompt},
         )
-        self.db.add(trace)
-        await self.db.commit()
-
-    async def _version_id_for_release(self, release_id: uuid.UUID | None) -> uuid.UUID | None:
-        if release_id is None:
-            return None
-        release = await self._get_release(release_id)
-        return release.agent_version_id
+        db.add(trace)
+        await db.flush()

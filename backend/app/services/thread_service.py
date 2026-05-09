@@ -16,6 +16,7 @@ from app.models.agent_run import AgentRun
 from app.models.thread import Thread
 from app.repositories.thread import ThreadRepository
 from app.schemas.thread import CreateThreadRequest, UpdateThreadRequest
+from app.services.execution_orchestrator import ACTIVE_RUN_STATUSES
 
 
 class ThreadService:
@@ -86,7 +87,7 @@ class ThreadService:
             await self.db.execute(
                 select(AgentRun.id).where(
                     AgentRun.thread_id == thread_id,
-                    AgentRun.status.in_(("pending", "running")),
+                    AgentRun.status.in_(ACTIVE_RUN_STATUSES),
                 )
             )
         ).scalar_one_or_none()

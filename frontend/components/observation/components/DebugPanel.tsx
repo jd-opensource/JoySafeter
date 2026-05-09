@@ -1,7 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useCallback, useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels'
 import { useObservationData } from '../contexts/ObservationDataContext'
 import { useObservationStream } from '../hooks/useObservationStream'
@@ -13,7 +13,7 @@ import { TurnTimeline } from './TurnTimeline'
 import { normalizeObservation } from '../lib/normalize'
 import { Toolbar } from '../ObservationPanel'
 import { apiGet, apiPost } from '@/lib/api-client'
-import { threadService } from '@/services/threadService'
+import { useArchiveThread, useCreateThread } from '@/hooks/queries/threads'
 
 interface DebugPanelProps {
   agentId: string
@@ -21,49 +21,47 @@ interface DebugPanelProps {
   workspaceId: string
 }
 
+type PanelMode = 'idle' | 'live' | 'replay'
+
 function DebugPanelInner({ agentId, agentVersionId, workspaceId }: DebugPanelProps) {
   const [executionId, setExecutionId] = useState<string | null>(null)
   const [runId, setRunId] = useState<string | null>(null)
-  const [mode, setMode] = useState<'idle' | 'live' | 'replay'>('idle')
+  const [mode, setMode] = useState<PanelMode>('idle')
   const [replayTraceId, setReplayTraceId] = useState<string | null>(null)
 
   // Session state — a Thread is provisioned on mount and lives for the
   // entire panel session. "New Session" archives it and provisions a fresh one.
   const [threadId, setThreadId] = useState<string | null>(null)
   const [turnCount, setTurnCount] = useState(0)
-  // Which turn's trace is currently shown in the observation panel. Kept in
-  // sync with mode: in live mode it's the streaming execution, in replay it's
-  // whichever turn the user clicked in the timeline.
-  const [activeTraceId, setActiveTraceId] = useState<string | null>(null)
+
+  // activeTraceId is derived — in live mode it's the streaming execution,
+  // in replay mode whichever trace the timeline selected, otherwise none.
+  const activeTraceId = mode === 'live' ? executionId : mode === 'replay' ? replayTraceId : null
 
   const { dispatch, loadTrace, isExecuting } = useObservationData()
   useObservationStream(mode === 'live' ? executionId : null)
 
-  // Provision a Thread on mount (and after "New Session"). Every debug turn
-  // flows through this thread, so the backend pool + Trace aggregation stay
-  // consistent. The thread is archived on "New Session".
+  const queryClient = useQueryClient()
+  const createThread = useCreateThread()
+  const archiveThread = useArchiveThread()
+
+  // Provision a Thread on mount (and after "New Session"). The mutation fires
+  // when threadId is null; we swallow the promise because useMutation already
+  // tracks in-flight state via isPending and caller-side StrictMode re-runs.
   useEffect(() => {
-    if (threadId) return
-    let cancelled = false
-    threadService
-      .create({
-        agent_id: agentId,
-        title: `Debug session – ${new Date().toLocaleString()}`,
-        workspace_id: workspaceId,
-      })
-      .then((thread) => {
-        if (!cancelled) setThreadId(thread.id)
-      })
-      .catch((err) => {
-        console.error('DebugPanel: thread provisioning failed', err)
-      })
-    return () => {
-      cancelled = true
-    }
+    if (threadId || createThread.isPending) return
+    createThread
+      .mutateAsync({ agent_id: agentId, title: `Debug session – ${new Date().toLocaleString()}`, workspace_id: workspaceId })
+      .then((thread) => setThreadId(thread.id))
+      .catch((err) => console.error('DebugPanel: thread provisioning failed', err))
+    // mutate* identities from useMutation are stable; we only need to react to
+    // threadId flipping to null (new session) or inputs changing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId, agentId, workspaceId])
 
-  const { data: traces = [], refetch: refetchTraces } = useQuery({
-    queryKey: ['traces', agentVersionId, workspaceId, threadId],
+  const tracesQueryKey = ['traces', agentVersionId, workspaceId, threadId] as const
+  const { data: traces = [] } = useQuery({
+    queryKey: tracesQueryKey,
     queryFn: async () => {
       const sessionFilter = threadId ? `&session_id=${threadId}` : ''
       const data = await apiGet<Array<{ id: string; created_at: string }>>(
@@ -102,8 +100,8 @@ function DebugPanelInner({ agentId, agentVersionId, workspaceId }: DebugPanelPro
         console.warn('DebugPanel: thread not yet ready; ignoring start')
         return
       }
-      // Clear the live observation tree so the next turn starts with a fresh view;
-      // prior turns remain accessible in the History dropdown via session filtering.
+      // Clear the live observation tree so the next turn starts with a fresh
+      // view; prior turns remain accessible via the TurnTimeline.
       dispatch({ type: 'RESET' })
 
       try {
@@ -117,19 +115,17 @@ function DebugPanelInner({ agentId, agentVersionId, workspaceId }: DebugPanelPro
         setExecutionId(data.execution_id)
         setRunId(data.run_id)
         setMode('live')
-        // The new trace's id == execution_id — that lets the timeline highlight
-        // the in-flight turn before the /traces list refetch completes.
-        setActiveTraceId(data.execution_id)
         setTurnCount((c) => c + 1)
 
-        // Trace row is created during _fire_engine; give it a tick before
-        // surfacing the new entry in the history dropdown.
-        setTimeout(() => refetchTraces(), 1000)
+        // Trace is inserted in the engine's session (after dispatch returns),
+        // so the /traces list won't include it yet. Invalidate to refetch —
+        // react-query re-requests as soon as the new row is visible.
+        queryClient.invalidateQueries({ queryKey: tracesQueryKey })
       } catch (err) {
         console.error('Debug start failed:', err)
       }
     },
-    [agentId, agentVersionId, workspaceId, threadId, dispatch, refetchTraces],
+    [agentId, agentVersionId, workspaceId, threadId, dispatch, queryClient, tracesQueryKey],
   )
 
   const handleStop = useCallback(async () => {
@@ -141,18 +137,15 @@ function DebugPanelInner({ agentId, agentVersionId, workspaceId }: DebugPanelPro
     (traceId: string) => {
       dispatch({ type: 'RESET' })
       setReplayTraceId(traceId)
-      setActiveTraceId(traceId)
       setMode('replay')
     },
     [dispatch],
   )
 
   const handleNewSession = useCallback(() => {
-    // Archive old thread
     if (threadId) {
-      threadService.archive(threadId, workspaceId).catch(() => {})
+      archiveThread.mutate({ threadId, workspaceId })
     }
-    // Reset all state for a fresh session
     dispatch({ type: 'RESET' })
     setThreadId(null)
     setTurnCount(0)
@@ -160,22 +153,15 @@ function DebugPanelInner({ agentId, agentVersionId, workspaceId }: DebugPanelPro
     setRunId(null)
     setMode('idle')
     setReplayTraceId(null)
-    setActiveTraceId(null)
-  }, [threadId, workspaceId, dispatch])
+  }, [threadId, workspaceId, dispatch, archiveThread])
 
-  // traces come from the API in DESC order (newest first). The timeline
-  // renders chronologically so Turn 1 is leftmost; reverse once here.
-  const timelineTurns = useMemo(
-    () => [...traces].reverse().map((t) => ({ id: t.id, createdAt: t.createdAt })),
-    [traces],
-  )
+  // traces come from the API in DESC order (newest first). Reverse inline —
+  // ≤20 items per session, not worth a useMemo.
+  const timelineTurns = [...traces].reverse()
 
   return (
     <div className="flex h-full flex-col">
       <DebugToolbar
-        agentId={agentId}
-        agentVersionId={agentVersionId}
-        workspaceId={workspaceId}
         isExecuting={isExecuting}
         onStartDebug={handleStartDebug}
         onStop={handleStop}

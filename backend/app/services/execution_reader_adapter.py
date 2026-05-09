@@ -67,47 +67,70 @@ class ExecutionReaderAdapter:
         thread_id: uuid.UUID,
         *,
         before_run_id: Optional[uuid.UUID] = None,
+        max_turns: int = 20,
     ) -> list[tuple[str, str]]:
         """Return ``(role, content)`` pairs in chronological order for a thread.
 
-        Only completed runs before ``before_run_id`` contribute. ``role`` is
-        ``"user"`` for USER_MESSAGE events and ``"assistant"`` for
-        ASSISTANT_TEXT events.
+        Only succeeded runs before ``before_run_id`` contribute. Role is
+        ``"user"`` for each run's goal, ``"assistant"`` for its concatenated
+        ASSISTANT_TEXT event payloads.
+
+        ``max_turns`` caps the number of *prior runs* pulled back — session
+        recovery pays linear cost in history length, and feeding the CLI a
+        1000-turn transcript is worse than forgetting ancient context.
         """
-        completed_runs_stmt = select(AgentRun.id, AgentRun.goal, AgentRun.created_at).where(
-            AgentRun.thread_id == thread_id,
-            AgentRun.status == "completed",
-        )
+        # Build a before-cutoff subquery so we can do the whole history in
+        # one round trip — no correlated fetch of ``before_run_id.created_at``.
+        cutoff = None
         if before_run_id is not None:
-            # Exclude the current run and any that were created after it.
-            before_stmt = select(AgentRun.created_at).where(AgentRun.id == before_run_id)
-            before_created = (await self.db.execute(before_stmt)).scalar_one_or_none()
-            if before_created is not None:
-                completed_runs_stmt = completed_runs_stmt.where(AgentRun.created_at < before_created)
-        completed_runs_stmt = completed_runs_stmt.order_by(AgentRun.created_at.asc())
-        runs = (await self.db.execute(completed_runs_stmt)).all()
+            cutoff = (
+                select(AgentRun.created_at)
+                .where(AgentRun.id == before_run_id)
+                .scalar_subquery()
+            )
+
+        runs_stmt = select(AgentRun.id, AgentRun.goal, AgentRun.created_at).where(
+            AgentRun.thread_id == thread_id,
+            AgentRun.status == "succeeded",
+        )
+        if cutoff is not None:
+            runs_stmt = runs_stmt.where(AgentRun.created_at < cutoff)
+        # Pull the *latest* max_turns succeeded runs, then reverse for chron
+        # order. DESC limit is cheaper than ASC+OFFSET on long threads.
+        runs_stmt = runs_stmt.order_by(AgentRun.created_at.desc()).limit(max_turns)
+        rows = list((await self.db.execute(runs_stmt)).all())
+        if not rows:
+            return []
+        rows.reverse()
+        run_ids = [row[0] for row in rows]
+
+        # Single IN query for all assistant-text events across those runs.
+        events_stmt = (
+            select(
+                Execution.run_id,
+                ExecutionEvent.payload,
+                ExecutionEvent.created_at,
+                ExecutionEvent.sequence_no,
+            )
+            .join(Execution, Execution.id == ExecutionEvent.execution_id)
+            .where(
+                Execution.run_id.in_(run_ids),
+                ExecutionEvent.event_type == ExecutionEventType.ASSISTANT_TEXT.value,
+            )
+            .order_by(ExecutionEvent.created_at.asc(), ExecutionEvent.sequence_no.asc())
+        )
+        assistant_by_run: dict[uuid.UUID, list[str]] = {}
+        for run_id, payload, *_ in (await self.db.execute(events_stmt)).all():
+            if isinstance(payload, dict):
+                content = payload.get("content")
+                if content:
+                    assistant_by_run.setdefault(run_id, []).append(str(content))
 
         history: list[tuple[str, str]] = []
-        for run_id, goal, _ in runs:
-            # Goal carries the user's turn input.
+        for run_id, goal, _ in rows:
             if goal:
                 history.append(("user", goal))
-
-            # Drain assistant text events for this run's executions, in order.
-            events_stmt = (
-                select(ExecutionEvent.payload)
-                .join(Execution, Execution.id == ExecutionEvent.execution_id)
-                .where(
-                    Execution.run_id == run_id,
-                    ExecutionEvent.event_type == ExecutionEventType.ASSISTANT_TEXT.value,
-                )
-                .order_by(ExecutionEvent.created_at.asc(), ExecutionEvent.sequence_no.asc())
-            )
-            payloads = (await self.db.execute(events_stmt)).scalars().all()
-            assistant_chunks = [
-                str(p.get("content", "")) for p in payloads if isinstance(p, dict) and p.get("content")
-            ]
-            if assistant_chunks:
-                history.append(("assistant", "".join(assistant_chunks)))
-
+            chunks = assistant_by_run.get(run_id)
+            if chunks:
+                history.append(("assistant", "".join(chunks)))
         return history

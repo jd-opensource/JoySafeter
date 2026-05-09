@@ -6,9 +6,6 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 
 interface DebugToolbarProps {
-  agentId: string
-  agentVersionId: string
-  workspaceId: string
   isExecuting: boolean
   onStartDebug: (prompt: string, variables?: Record<string, string>) => void
   onStop: () => void
@@ -19,9 +16,6 @@ interface DebugToolbarProps {
 }
 
 export function DebugToolbar({
-  agentId: _agentId,
-  agentVersionId: _agentVersionId,
-  workspaceId: _workspaceId,
   isExecuting,
   onStartDebug,
   onStop,
