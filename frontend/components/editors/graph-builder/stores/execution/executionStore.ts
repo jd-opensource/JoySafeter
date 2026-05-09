@@ -41,6 +41,7 @@ import type {
 } from './types'
 import { executionAdapter } from '../../services/executionAdapter'
 import { agentService as globalAgentService } from '@/services/agentService'
+import { threadService } from '@/services/threadService'
 import { useGraphStore } from '../graphStore'
 
 const pendingContentUpdates = new Map<string, string>()
@@ -691,7 +692,6 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
               // Every run belongs to a Thread. Build-page "Run" button is a
               // one-off interaction, so we mint a fresh Thread per click — it
               // becomes the session root for container + CLI + Trace.
-              const { threadService } = await import('@/services/threadService')
               const thread = await threadService.create({
                 agent_id: agentId,
                 title: `Run – ${new Date().toLocaleString()}`,

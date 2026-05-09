@@ -60,6 +60,11 @@ class ContainerPool:
         self._max_containers = max_containers
         self._shutdown = False
         self.container_service = container_service or CLIContainerService()
+        # Eviction cleanup runs outside the pool lock as fire-and-forget
+        # tasks. Keeping the handles lets `shutdown()` await them so we
+        # don't tear down the DB engine mid-write, and surfaces exceptions
+        # via a done-callback instead of silently losing them.
+        self._eviction_tasks: set[asyncio.Task[None]] = set()
 
     # ------------------------------------------------------------------
     # Public API
@@ -215,6 +220,12 @@ class ContainerPool:
         async with self._lock:
             self._shutdown = True
             self._cache.clear()
+        # Wait for any in-flight eviction cleanups so we don't race the
+        # DB engine teardown. None of them block on the pool lock, so this
+        # completes promptly.
+        if self._eviction_tasks:
+            pending = list(self._eviction_tasks)
+            await asyncio.gather(*pending, return_exceptions=True)
         logger.info("[pool] Shut down (containers left running for reuse after restart)")
 
     # ------------------------------------------------------------------
@@ -316,7 +327,25 @@ class ContainerPool:
         loop_cid = entry.container.container_id
         # Perform best-effort cleanup; don't propagate errors — eviction is
         # advisory, the DB binding gets reset on next adopt attempt anyway.
-        asyncio.create_task(self._evict_cleanup(loop_tid, loop_cid))
+        self._spawn_cleanup(loop_tid, loop_cid)
+
+    def _spawn_cleanup(self, thread_id: uuid.UUID, container_id: str) -> None:
+        """Fire an eviction cleanup and keep a handle for shutdown + errors."""
+        task = asyncio.create_task(
+            self._evict_cleanup(thread_id, container_id),
+            name=f"pool-evict-{thread_id}",
+        )
+        self._eviction_tasks.add(task)
+
+        def _on_done(t: asyncio.Task[None]) -> None:
+            self._eviction_tasks.discard(t)
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc is not None:
+                logger.warning(f"[pool] eviction cleanup raised: {exc!r}")
+
+        task.add_done_callback(_on_done)
 
     async def _evict_cleanup(self, thread_id: uuid.UUID, container_id: str) -> None:
         await self._safe_remove(container_id)

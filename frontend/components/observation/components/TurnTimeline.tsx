@@ -1,5 +1,6 @@
 'use client'
 
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 export interface TurnTimelineItem {
@@ -32,28 +33,24 @@ export function TurnTimeline({ turns, activeTraceId, isLive, onSelect }: TurnTim
         const isActive = t.id === activeTraceId
         const isLastAndLive = isLive && i === turns.length - 1
         return (
-          <button
+          <Button
             key={t.id}
             type="button"
+            variant={isActive ? 'default' : 'outline'}
+            size="sm"
             onClick={() => onSelect(t.id)}
-            className={cn(
-              'shrink-0 rounded-sm border px-2 py-0.5 text-xs transition-colors',
-              isActive
-                ? 'border-primary bg-primary/10 text-primary'
-                : 'border-border text-muted-foreground hover:bg-muted',
-            )}
+            // Chip is smaller than the default `sm` — override height + padding.
+            className={cn('h-6 shrink-0 px-2 text-xs', !isActive && 'text-muted-foreground')}
             title={new Date(t.createdAt).toLocaleString()}
           >
-            <span className="inline-flex items-center gap-1">
-              {isLastAndLive && (
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/70" />
-                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
-                </span>
-              )}
-              Turn {i + 1}
-            </span>
-          </button>
+            {isLastAndLive && (
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary-foreground/70" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary-foreground" />
+              </span>
+            )}
+            Turn {i + 1}
+          </Button>
         )
       })}
     </div>
