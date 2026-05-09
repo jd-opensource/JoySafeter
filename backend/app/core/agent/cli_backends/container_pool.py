@@ -40,6 +40,10 @@ class PoolEntry:
     created_at: float
     active_count: int = 0
     cli_session_id: Optional[str] = None
+    # Wall-clock timestamp of the last time we wrote ``last_active_at`` to
+    # the DB. Used by the debounce in ``_touch_db_active_at`` so that the
+    # hot acquire/release path doesn't issue a write per call.
+    last_flushed: float = 0.0
 
 
 CreateFn = Callable[[], Awaitable[ContainerInfo]]
@@ -53,6 +57,7 @@ class ContainerPool:
         container_service: Optional[CLIContainerService] = None,
         idle_timeout: int = 1800,
         max_containers: int = 50,
+        active_at_debounce: float = 60.0,
     ):
         self._cache: dict[uuid.UUID, PoolEntry] = {}
         self._lock = asyncio.Lock()
@@ -60,6 +65,12 @@ class ContainerPool:
         self._max_containers = max_containers
         self._shutdown = False
         self.container_service = container_service or CLIContainerService()
+        # `last_active_at` was previously written on every acquire/release;
+        # that's 2-3 DB round-trips per turn just for a timestamp. The pool
+        # flushes the in-memory `last_used` at most once per this many
+        # seconds, trading coarser idle-eviction granularity for a much
+        # quieter write path.
+        self._active_at_debounce = active_at_debounce
         # Eviction cleanup runs outside the pool lock as fire-and-forget
         # tasks. Keeping the handles lets `shutdown()` await them so we
         # don't tear down the DB engine mid-write, and surfaces exceptions
@@ -127,6 +138,10 @@ class ContainerPool:
                 created_at=time.time(),
                 active_count=1,
                 cli_session_id=None,
+                # _persist_container writes last_active_at below, so the
+                # debounce clock starts now — no redundant flush on the
+                # first acquire.
+                last_flushed=time.time(),
             )
             self._cache[thread_id] = entry
 
@@ -291,6 +306,9 @@ class ContainerPool:
                 created_at=time.time(),
                 active_count=1,
                 cli_session_id=cli_session_id,
+                # last_flushed stays 0 so the touch below always flushes —
+                # the DB last_active_at may be stale from long ago, and we
+                # want a fresh timestamp the first time we see this thread.
             )
             self._cache[thread_id] = entry
 
@@ -368,6 +386,27 @@ class ContainerPool:
             await db.commit()
 
     async def _touch_db_active_at(self, thread_id: uuid.UUID) -> None:
+        """Flush ``last_active_at`` to DB at most once per debounce window.
+
+        Called on every acquire-hit / release / adopt — without the
+        debounce this would be 2-3 writes per turn just for a timestamp.
+        The in-memory ``last_used`` on ``PoolEntry`` is always current; the
+        DB column is allowed to lag by up to ``active_at_debounce`` seconds,
+        which is well within the idle-eviction granularity.
+        """
+        now = time.time()
+        async with self._lock:
+            entry = self._cache.get(thread_id)
+            if entry is None:
+                # Not in cache: we're mid-race or the entry was evicted.
+                # Fall through and just flush — cheap and correct.
+                should_flush = True
+            else:
+                should_flush = (now - entry.last_flushed) >= self._active_at_debounce
+                if should_flush:
+                    entry.last_flushed = now
+        if not should_flush:
+            return
         async with AsyncSessionLocal() as db:
             await db.execute(
                 update(Thread).where(Thread.id == thread_id).values(last_active_at=utc_now())
