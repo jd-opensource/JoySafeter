@@ -1036,7 +1036,7 @@ class ExecutionOrchestrator:
             input={"prompt": prompt},
         )
         self.db.add(trace)
-        await self.db.flush()
+        await self.db.commit()
 
     async def _version_id_for_release(self, release_id: uuid.UUID | None) -> uuid.UUID | None:
         if release_id is None:

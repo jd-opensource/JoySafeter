@@ -23,6 +23,20 @@ depends_on = None
 
 def upgrade():
     # 1. Drop orphan agent_runs (no thread). Greenfield cleanup before NOT NULL.
+    # We must cleanly delete references to avoid foreign key violations.
+    op.execute(
+        "UPDATE tasks SET latest_run_id = NULL WHERE latest_run_id IN (SELECT id FROM agent_runs WHERE thread_id IS NULL)"
+    )
+    op.execute("UPDATE agent_runs SET current_execution_id = NULL WHERE thread_id IS NULL")
+    op.execute(
+        "DELETE FROM execution_events WHERE execution_id IN (SELECT id FROM executions WHERE run_id IN (SELECT id FROM agent_runs WHERE thread_id IS NULL))"
+    )
+    op.execute(
+        "DELETE FROM artifacts WHERE execution_id IN (SELECT id FROM executions WHERE run_id IN (SELECT id FROM agent_runs WHERE thread_id IS NULL))"
+    )
+    op.execute(
+        "DELETE FROM executions WHERE run_id IN (SELECT id FROM agent_runs WHERE thread_id IS NULL)"
+    )
     op.execute("DELETE FROM agent_runs WHERE thread_id IS NULL")
 
     # 2. threads: add pool persistence columns
