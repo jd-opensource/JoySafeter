@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels'
 import { useObservationData } from '../contexts/ObservationDataContext'
@@ -9,6 +9,7 @@ import { DebugToolbar } from './DebugToolbar'
 import { ObservationNavigation } from './ObservationNavigation'
 import { ObservationDetailPanel } from './ObservationDetailPanel'
 import { ObservationProviders } from './ObservationProviders'
+import { TurnTimeline } from './TurnTimeline'
 import { normalizeObservation } from '../lib/normalize'
 import { Toolbar } from '../ObservationPanel'
 import { apiGet, apiPost } from '@/lib/api-client'
@@ -30,6 +31,10 @@ function DebugPanelInner({ agentId, agentVersionId, workspaceId }: DebugPanelPro
   // entire panel session. "New Session" archives it and provisions a fresh one.
   const [threadId, setThreadId] = useState<string | null>(null)
   const [turnCount, setTurnCount] = useState(0)
+  // Which turn's trace is currently shown in the observation panel. Kept in
+  // sync with mode: in live mode it's the streaming execution, in replay it's
+  // whichever turn the user clicked in the timeline.
+  const [activeTraceId, setActiveTraceId] = useState<string | null>(null)
 
   const { dispatch, loadTrace, isExecuting } = useObservationData()
   useObservationStream(mode === 'live' ? executionId : null)
@@ -112,6 +117,9 @@ function DebugPanelInner({ agentId, agentVersionId, workspaceId }: DebugPanelPro
         setExecutionId(data.execution_id)
         setRunId(data.run_id)
         setMode('live')
+        // The new trace's id == execution_id — that lets the timeline highlight
+        // the in-flight turn before the /traces list refetch completes.
+        setActiveTraceId(data.execution_id)
         setTurnCount((c) => c + 1)
 
         // Trace row is created during _fire_engine; give it a tick before
@@ -133,6 +141,7 @@ function DebugPanelInner({ agentId, agentVersionId, workspaceId }: DebugPanelPro
     (traceId: string) => {
       dispatch({ type: 'RESET' })
       setReplayTraceId(traceId)
+      setActiveTraceId(traceId)
       setMode('replay')
     },
     [dispatch],
@@ -151,7 +160,15 @@ function DebugPanelInner({ agentId, agentVersionId, workspaceId }: DebugPanelPro
     setRunId(null)
     setMode('idle')
     setReplayTraceId(null)
+    setActiveTraceId(null)
   }, [threadId, workspaceId, dispatch])
+
+  // traces come from the API in DESC order (newest first). The timeline
+  // renders chronologically so Turn 1 is leftmost; reverse once here.
+  const timelineTurns = useMemo(
+    () => [...traces].reverse().map((t) => ({ id: t.id, createdAt: t.createdAt })),
+    [traces],
+  )
 
   return (
     <div className="flex h-full flex-col">
@@ -162,10 +179,14 @@ function DebugPanelInner({ agentId, agentVersionId, workspaceId }: DebugPanelPro
         isExecuting={isExecuting}
         onStartDebug={handleStartDebug}
         onStop={handleStop}
-        onSelectTrace={handleSelectTrace}
-        traces={traces}
         turnCount={turnCount}
         onNewSession={handleNewSession}
+      />
+      <TurnTimeline
+        turns={timelineTurns}
+        activeTraceId={activeTraceId}
+        isLive={mode === 'live'}
+        onSelect={handleSelectTrace}
       />
       <Toolbar />
       <PanelGroup direction="horizontal" className="flex-1">

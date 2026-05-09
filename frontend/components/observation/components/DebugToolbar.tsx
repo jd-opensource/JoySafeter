@@ -12,8 +12,6 @@ interface DebugToolbarProps {
   isExecuting: boolean
   onStartDebug: (prompt: string, variables?: Record<string, string>) => void
   onStop: () => void
-  onSelectTrace: (traceId: string) => void
-  traces: Array<{ id: string; createdAt: string }>
   /** Number of turns in the current session (0 = no session started) */
   turnCount?: number
   /** Reset the session to start fresh */
@@ -21,19 +19,16 @@ interface DebugToolbarProps {
 }
 
 export function DebugToolbar({
-  agentId,
-  agentVersionId,
-  workspaceId,
+  agentId: _agentId,
+  agentVersionId: _agentVersionId,
+  workspaceId: _workspaceId,
   isExecuting,
   onStartDebug,
   onStop,
-  onSelectTrace,
-  traces,
   turnCount = 0,
   onNewSession,
 }: DebugToolbarProps) {
   const [prompt, setPrompt] = useState('')
-  const [showPrompt, setShowPrompt] = useState(true)
 
   const handleStart = () => {
     if (!prompt.trim()) return
@@ -57,7 +52,6 @@ export function DebugToolbar({
           </Button>
         )}
 
-        {/* Session indicator + New Session button */}
         {isMultiTurn && (
           <>
             <span className="text-xs text-muted-foreground">
@@ -78,40 +72,21 @@ export function DebugToolbar({
             )}
           </>
         )}
-
-        {traces.length > 0 && (
-          <select
-            className="h-8 rounded-sm border bg-transparent px-2 text-xs"
-            onChange={(e) => e.target.value && onSelectTrace(e.target.value)}
-            defaultValue=""
-          >
-            <option value="" disabled>
-              {isMultiTurn ? `Traces (${traces.length})...` : 'History...'}
-            </option>
-            {traces.map((t, i) => (
-              <option key={t.id} value={t.id}>
-                {isMultiTurn ? `Turn ${i + 1} – ` : ''}{new Date(t.createdAt).toLocaleString()}
-              </option>
-            ))}
-          </select>
-        )}
       </div>
 
-      {showPrompt && (
-        <Textarea
-          placeholder={isMultiTurn ? 'Follow-up message (context preserved)...' : 'Enter test prompt...'}
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          rows={2}
-          className="resize-none text-sm"
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault()
-              handleStart()
-            }
-          }}
-        />
-      )}
+      <Textarea
+        placeholder={isMultiTurn ? 'Follow-up message (context preserved)...' : 'Enter test prompt...'}
+        value={prompt}
+        onChange={(e) => setPrompt(e.target.value)}
+        rows={2}
+        className="resize-none text-sm"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault()
+            handleStart()
+          }
+        }}
+      />
     </div>
   )
 }
