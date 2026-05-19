@@ -8,9 +8,10 @@ export type RunPurpose = (typeof RUN_PURPOSES)[number]
 
 export interface AgentRun {
   id: string
-  release_id: string
+  release_id: string | null
+  agent_version_id: string | null
   workspace_id: string
-  thread_id: string | null
+  thread_id: string
   task_id: string | null
   trigger_medium: TriggerMedium
   run_purpose: RunPurpose
@@ -57,7 +58,7 @@ export const RUN_STATUS_I18N: Record<AgentRunStatus, string> = {
 
 export interface CreateAgentRunRequest {
   release_id: string
-  thread_id?: string
+  thread_id: string
   task_id?: string
   trigger_medium: TriggerMedium
   run_purpose: RunPurpose

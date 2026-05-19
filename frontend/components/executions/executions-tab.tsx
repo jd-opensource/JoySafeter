@@ -134,7 +134,7 @@ export function ExecutionsTab() {
                   key={run.id}
                   run={run}
                   taskTitle={run.task_id ? taskTitleMap[run.task_id] : undefined}
-                  agentName={agentNameMap[run.release_id]}
+                  agentName={run.release_id ? agentNameMap[run.release_id] : undefined}
                   onSelect={setSelectedRunId}
                   onCancel={(id) => cancelMutation.mutate(id)}
                   isCancelling={cancelMutation.isPending && cancelMutation.variables === run.id}

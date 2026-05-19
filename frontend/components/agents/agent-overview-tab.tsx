@@ -50,7 +50,9 @@ export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
     { workspace_id: workspaceId },
     { enabled: Boolean(workspaceId) },
   )
-  const recentRuns = allRuns.filter((run) => releaseIds.has(run.release_id)).slice(0, 5)
+  const recentRuns = allRuns
+    .filter((run) => run.release_id && releaseIds.has(run.release_id))
+    .slice(0, 5)
 
   const { data: threads = [] } = useThreads(agentId, workspaceId)
   const recentThreads = threads.slice(0, 5)
