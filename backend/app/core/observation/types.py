@@ -1,8 +1,7 @@
 """
-Canonical observation types — the single source of truth for Langfuse-aligned tracing.
+Canonical observation types — the single source of truth for observation tracing.
 
-Values MUST match Langfuse SDK enums exactly (uppercase). Used by ObservationCollector
-to emit observation events to the trace tree.
+Used by ObservationCollector to emit observation events to the trace tree.
 """
 
 from __future__ import annotations

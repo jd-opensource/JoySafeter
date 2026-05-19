@@ -351,16 +351,6 @@ class Settings(BaseSettings):
     # - Model config: stored in the ModelInstance table (including default model flag)
     # - Credentials: stored in the ModelCredential table (encrypted)
 
-    # Langfuse (Observability)
-    langfuse_public_key: Optional[str] = Field(default=None, description="Langfuse public key for observability")
-    langfuse_secret_key: Optional[str] = Field(default=None, description="Langfuse secret key for observability")
-    langfuse_host: Optional[str] = Field(
-        default="https://cloud.langfuse.com", description="Langfuse host URL (default: cloud.langfuse.com)"
-    )
-    langfuse_enabled: bool = Field(
-        default=False, description="Enable Langfuse tracing (requires langfuse_public_key and langfuse_secret_key)"
-    )
-
     # OpenTelemetry Trace Export
     otel_exporter_otlp_endpoint: Optional[str] = Field(
         default=None,

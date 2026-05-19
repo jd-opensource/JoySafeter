@@ -1,5 +1,5 @@
 # backend/app/core/observation/model.py
-"""Trace and Observation persistence models — Langfuse-aligned schema."""
+"""Trace and Observation persistence models."""
 
 from __future__ import annotations
 

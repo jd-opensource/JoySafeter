@@ -1,4 +1,4 @@
-"""Observation tracing — Langfuse-aligned trace tree for in-product agent debugging."""
+"""Observation tracing — OTel-backed trace tree for in-product agent debugging."""
 
 from app.core.observation.collector import ObservationCollector
 from app.core.observation.model import Observation, Trace

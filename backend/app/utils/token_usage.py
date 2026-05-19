@@ -1,7 +1,6 @@
 """
 Token Usage Normalization
 
-Modeled after Langfuse _parse_usage_model().
 Normalize token usage from various LLM vendors into a standard {input, output, total} format.
 Support OpenAI, Anthropic, Bedrock, Vertex AI, IBM watsonx, etc.
 """
@@ -37,7 +36,7 @@ def normalize_usage(raw_usage: Any) -> Optional[dict[str, int]]:
     """
     Normalize token usage from various vendors into {input, output, total}.
 
-    Modeled after Langfuse CallbackHandler._parse_usage_model()
+    Modeled after LangChain's usage model extraction.
 
     Args:
         raw_usage: raw usage data; may be a dict, pydantic model, or other object
@@ -106,7 +105,7 @@ def extract_usage_from_output(output: Any) -> Optional[dict[str, int]]:
     """
     Extract token usage from a LangChain LLM output using multiple sources.
 
-    Modeled after Langfuse CallbackHandler._parse_usage(), trying sources by priority:
+    Extract token usage from LLM response, trying sources by priority:
     1. output.usage_metadata (langchain_core >= 0.2, most direct)
     2. output.response_metadata["token_usage"] (OpenAI)
     3. output.response_metadata["usage"] (Bedrock-Anthropic)

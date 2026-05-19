@@ -1,7 +1,7 @@
 """
 Execution trace model
 
-Modeled after Langfuse Trace / Observation for persisting LangGraph execution data.
+Persisting LangGraph execution data as structured traces and observations.
 Support hierarchical observations via parent_observation_id self-reference.
 """
 
@@ -65,7 +65,7 @@ class ObservationStatus(str, enum.Enum):
 class ExecutionTrace(Base):
     """
     Execution trace table -- represents a single complete Graph execution.
-    Analogous to a Langfuse Trace.
+    Analogous to a Trace.
     """
 
     __tablename__ = "execution_traces"
@@ -144,7 +144,7 @@ class ExecutionObservation(Base):
     """
     Execution observation table -- represents a single Observation (Span / Generation / Tool / Event).
     Support N-level nesting via parent_observation_id.
-    Analogous to a Langfuse Observation.
+    Analogous to an Observation.
     """
 
     __tablename__ = "execution_observations"

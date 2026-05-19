@@ -116,7 +116,6 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
         self._root_run_states: dict[uuid.UUID, RootRunState] = {}
         self._completion_start_memo: set[uuid.UUID] = set()
         self._token_buffers: dict[uuid.UUID, _TokenBuffer] = {}
-        self._prompt_to_parent: dict[uuid.UUID, Any] = {}
 
     # --- run tree ---
 
@@ -197,9 +196,6 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
             obs.set_input(_safe_json(inputs))
             if metadata:
                 obs.set_metadata(metadata)
-                prompt = metadata.get("langfuse_prompt")
-                if prompt:
-                    self._prompt_to_parent[run_id] = prompt
         except Exception:
             logger.opt(exception=True).debug("on_chain_start failed")
 
@@ -271,8 +267,6 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
 
         if metadata:
             obs.set_metadata(metadata)
-
-        self._maybe_link_prompt(run_id, parent_run_id, obs)
 
     async def on_chat_model_start(
         self,
@@ -597,22 +591,3 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
         **kwargs: Any,
     ) -> None:
         pass  # Ignored — info covered by other hooks
-
-    # --- prompt linkage helper ---
-
-    def _maybe_link_prompt(
-        self,
-        run_id: uuid.UUID,
-        parent_run_id: uuid.UUID | None,
-        obs: ObservationSpan,
-    ) -> None:
-        current = parent_run_id
-        while current:
-            prompt = self._prompt_to_parent.pop(current, None)
-            if prompt:
-                name = getattr(prompt, "name", str(prompt))
-                version = str(getattr(prompt, "version", ""))
-                obs.set_prompt(name, version or None)
-                return
-            state = self._run_states.get(current)
-            current = state.parent_run_id if state else None

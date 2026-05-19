@@ -1,7 +1,6 @@
 """
 LangChain Message Serializer
 
-Modeled after Langfuse _convert_message_to_dict().
 Serialize LangChain BaseMessage objects into storable dict format.
 """
 
@@ -13,8 +12,6 @@ from loguru import logger
 def serialize_message(msg: Any) -> dict:
     """
     Convert a LangChain BaseMessage to a JSON-serializable dict.
-
-    Modeled after Langfuse CallbackHandler._convert_message_to_dict()
 
     Args:
         msg: LangChain BaseMessage instance or similar object
