@@ -23,14 +23,14 @@ from app.utils.datetime import utc_now
 from app.utils.prompts import get_json_output_prompt
 from app.utils.string import parse_response_model_str
 
+from app.core.ports.memory import MemoryPort
+
 if TYPE_CHECKING:
-    from app.services.memory_service import MemoryService
+    pass
 
 
-def _is_memory_service(obj: Any) -> bool:
-    from app.services.memory_service import MemoryService as _MS  # cached by Python's import system
-
-    return isinstance(obj, _MS)
+def _is_memory_port(obj: Any) -> bool:
+    return isinstance(obj, MemoryPort)
 
 
 class MemorySearchResponse(BaseModel):
@@ -70,7 +70,7 @@ class MemoryManager:
     add_memories: bool = True
 
     # The database to store memories
-    db: Optional[Union[MemoryService]] = None
+    db: Optional[MemoryPort] = None
 
     debug_mode: bool = False
 
@@ -80,7 +80,7 @@ class MemoryManager:
         system_message: Optional[str] = None,
         memory_capture_instructions: Optional[str] = None,
         additional_instructions: Optional[str] = None,
-        db: Optional[Union[MemoryService]] = None,
+        db: Optional[MemoryPort] = None,
         delete_memories: bool = False,
         update_memories: bool = True,
         add_memories: bool = True,
@@ -150,7 +150,7 @@ class MemoryManager:
 
     async def aread_from_db(self, user_id: Optional[str] = None):
         if self.db:
-            if _is_memory_service(self.db):
+            if _is_memory_port(self.db):
                 # If no user_id is provided, read all memories
                 if user_id is None:
                     all_memories: List[UserMemory] = await self.db.get_user_memories()  # type: ignore
@@ -441,7 +441,7 @@ class MemoryManager:
             logger.warning("Memory DB not provided.")
             return
 
-        if _is_memory_service(self.db):
+        if _is_memory_port(self.db):
             raise ValueError(
                 "clear_user_memories() is not supported with an async DB. Please use aclear_user_memories() instead."
             )
@@ -473,7 +473,7 @@ class MemoryManager:
             logger.warning("Memory DB not provided.")
             return
 
-        if _is_memory_service(self.db):
+        if _is_memory_port(self.db):
             memories = await self.aget_user_memories(user_id=user_id)
         else:
             memories = self.get_user_memories(user_id=user_id)
@@ -487,7 +487,7 @@ class MemoryManager:
 
         if memory_ids:
             # Delete all memories in a single batch operation
-            if _is_memory_service(self.db):
+            if _is_memory_port(self.db):
                 await self.db.delete_user_memories(memory_ids=memory_ids, user_id=user_id)
             else:
                 self.db.delete_user_memories(memory_ids=memory_ids, user_id=user_id)  # type: ignore[unused-coroutine]
@@ -509,7 +509,7 @@ class MemoryManager:
             logger.warning("MemoryDb not provided.")
             return "Please provide a db to store memories"
 
-        if _is_memory_service(self.db):
+        if _is_memory_port(self.db):
             raise ValueError(
                 "create_user_memories() is not supported with an async DB. Please use acreate_user_memories() instead."
             )
@@ -577,7 +577,7 @@ class MemoryManager:
         if user_id is None:
             user_id = "default"
 
-        if _is_memory_service(self.db):
+        if _is_memory_port(self.db):
             memories = await self.aread_from_db(user_id=user_id)
         else:
             memories = self.read_from_db(user_id=user_id)
@@ -599,7 +599,7 @@ class MemoryManager:
         )
 
         # We refresh from the DB
-        if _is_memory_service(self.db):
+        if _is_memory_port(self.db):
             memories = await self.aread_from_db(user_id=user_id)
         else:
             memories = self.read_from_db(user_id=user_id)
@@ -613,7 +613,7 @@ class MemoryManager:
             logger.warning("MemoryDb not provided.")
             return "Please provide a db to store memories"
 
-        if not _is_memory_service(self.db):
+        if not _is_memory_port(self.db):
             raise ValueError(
                 "update_memory_task() is not supported with an async DB. Please use aupdate_memory_task() instead."
             )
@@ -655,7 +655,7 @@ class MemoryManager:
         if user_id is None:
             user_id = "default"
 
-        if _is_memory_service(self.db):
+        if _is_memory_port(self.db):
             memories = await self.aread_from_db(user_id=user_id)
         else:
             memories = self.read_from_db(user_id=user_id)
@@ -678,7 +678,7 @@ class MemoryManager:
         )
 
         # We refresh from the DB
-        if _is_memory_service(self.db):
+        if _is_memory_port(self.db):
             await self.aread_from_db(user_id=user_id)
         else:
             self.read_from_db(user_id=user_id)
@@ -1114,7 +1114,7 @@ class MemoryManager:
         if user_id is None:
             user_id = "default"
 
-        if _is_memory_service(self.db):
+        if _is_memory_port(self.db):
             raise ValueError(
                 "optimize_memories() is not supported with an async DB. Please use aoptimize_memories() instead."
             )
@@ -1186,7 +1186,7 @@ class MemoryManager:
             user_id = "default"
 
         # Get user memories - handle both sync and async DBs
-        if _is_memory_service(self.db):
+        if _is_memory_port(self.db):
             memories = await self.aget_user_memories(user_id=user_id)
         else:
             memories = self.get_user_memories(user_id=user_id)
@@ -1225,7 +1225,7 @@ class MemoryManager:
 
                     opt_mem.memory_id = str(uuid4())
 
-                if _is_memory_service(self.db):
+                if _is_memory_port(self.db):
                     await self.db.upsert_user_memory(memory=opt_mem)
                 else:
                     self.db.upsert_user_memory(memory=opt_mem)  # type: ignore[unused-coroutine]
@@ -1345,7 +1345,7 @@ class MemoryManager:
         messages: List[Message],
         existing_memories: List[Dict[str, Any]],
         user_id: str,
-        db: MemoryService,
+        db: MemoryPort,
         agent_id: Optional[str] = None,
         team_id: Optional[str] = None,
         update_memories: bool = True,
@@ -1447,7 +1447,7 @@ class MemoryManager:
         messages: List[Message],
         existing_memories: List[Dict[str, Any]],
         user_id: str,
-        db: Union[MemoryService],
+        db: Union[MemoryPort],
         agent_id: Optional[str] = None,
         team_id: Optional[str] = None,
         update_memories: bool = True,
@@ -1468,7 +1468,7 @@ class MemoryManager:
         # and LangChain models are thread-safe
         model_copy = self.model
         # Update the Model (set defaults, add logit etc.)
-        if _is_memory_service(db):
+        if _is_memory_port(db):
             _tools = self.determine_tools_for_model(
                 await self._aget_db_tools(
                     user_id,
@@ -1566,7 +1566,7 @@ class MemoryManager:
         task: str,
         existing_memories: List[Dict[str, Any]],
         user_id: str,
-        db: MemoryService,
+        db: MemoryPort,
         delete_memories: bool = True,
         update_memories: bool = True,
         add_memories: bool = True,
@@ -1662,7 +1662,7 @@ class MemoryManager:
         task: str,
         existing_memories: List[Dict[str, Any]],
         user_id: str,
-        db: Union[MemoryService],
+        db: Union[MemoryPort],
         delete_memories: bool = True,
         clear_memories: bool = True,
         update_memories: bool = True,
@@ -1678,7 +1678,7 @@ class MemoryManager:
         # and LangChain models are thread-safe
         model_copy = self.model
         # Update the Model (set defaults, add logit etc.)
-        if _is_memory_service(db):
+        if _is_memory_port(db):
             _tools = self.determine_tools_for_model(
                 await self._aget_db_tools(
                     user_id,
@@ -1772,7 +1772,7 @@ class MemoryManager:
     def _get_db_tools(
         self,
         user_id: str,
-        db: MemoryService,
+        db: MemoryPort,
         input_string: str,
         enable_add_memory: bool = True,
         enable_update_memory: bool = True,
@@ -1939,7 +1939,7 @@ class MemoryManager:
     async def _aget_db_tools(
         self,
         user_id: str,
-        db: Union[MemoryService],
+        db: Union[MemoryPort],
         input_string: str,
         enable_add_memory: bool = True,
         enable_update_memory: bool = True,
@@ -1962,7 +1962,7 @@ class MemoryManager:
 
             try:
                 memory_id = str(uuid4())
-                if _is_memory_service(db):
+                if _is_memory_port(db):
                     await db.upsert_user_memory(
                         UserMemory(
                             memory_id=memory_id,
@@ -2007,7 +2007,7 @@ class MemoryManager:
                 return "Can't update memory with empty string. Use the delete memory function if available."
 
             try:
-                if _is_memory_service(db):
+                if _is_memory_port(db):
                     await db.upsert_user_memory(
                         UserMemory(
                             memory_id=memory_id,
@@ -2039,7 +2039,7 @@ class MemoryManager:
                 str: A message indicating if the memory was deleted successfully or not.
             """
             try:
-                if _is_memory_service(db):
+                if _is_memory_port(db):
                     await db.delete_user_memory(memory_id=memory_id, user_id=user_id)
                 else:
                     db.delete_user_memory(memory_id=memory_id, user_id=user_id)  # type: ignore[unused-coroutine]
@@ -2055,7 +2055,7 @@ class MemoryManager:
             Returns:
                 str: A message indicating if the memory was cleared successfully or not.
             """
-            if _is_memory_service(db):
+            if _is_memory_port(db):
                 await db.clear_memories()
             else:
                 db.clear_memories()  # type: ignore[unused-coroutine]
