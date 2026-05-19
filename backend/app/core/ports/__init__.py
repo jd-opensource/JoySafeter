@@ -3,6 +3,8 @@ Ports — Protocol interfaces defining the boundary between core/ and services/.
 
 core/ modules depend on these Protocols (dependency inversion).
 services/ modules provide concrete implementations.
+
+See docs/PORT_SYSTEM.md for the full catalog and wiring guide.
 """
 
 from app.core.ports.agent_spawn import AgentSpawnPort

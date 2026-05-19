@@ -1,8 +1,11 @@
 """
-Execution Orchestrator — service-layer entry point for execution dispatch.
+Execution Orchestrator — dispatch strategy layer.
 
-Layer 2: sits between API/triggers (Layer 1) and engines (Layer 3).
-Creates AgentRun + Execution, resolves the engine, builds context, and starts execution.
+Owns the decision of *what* to run: validates triggers, creates AgentRun +
+Execution rows, publishes status events, and delegates engine firing to
+ExecutionLauncher.  Does NOT own engine lifecycle (see execution_launcher.py).
+
+See docs/EXECUTION_LIFECYCLE.md for the full architecture.
 """
 
 from __future__ import annotations
