@@ -8,8 +8,8 @@ JoySafeter 采用分层架构，API 表面、编排层、执行引擎、事件�
 Layer 1     API 路由 (app/api/v1/) + WebSocket 处理器 (app/websocket/)
 Layer 1.5   DispatchService — 面向 API 的门面
 Layer 2     ExecutionOrchestrator — 创建 Run + Execution，构建 ExecutionContext
-Layer 2.5   EngineRegistry — 单例，runtime_kind → ExecutionEngine
-Layer 3     执行引擎：CLIEngine / GraphEngine / CodeEngine / CopilotEngine
+Layer 2.5   EngineRegistry — 单例，engine_kind → ExecutionEngine
+Layer 3     执行引擎：CLIEngine / LangGraphVisualEngine / LangGraphCodeEngine / CopilotEngine
 Layer 3.5   ExecutionContext 回调 → ExecutionEventBus
 Layer 4a    PersistenceSubscriber + StateTransitionSubscriber（第 1 阶段，共享 DB 事务）
 Layer 4b    WebSocketSubscriber + TaskSyncSubscriber（第 2 阶段，并行扇出）
@@ -38,10 +38,10 @@ flowchart TB
     end
 
     subgraph L3["Layer 3 — 引擎"]
-        CLI["CLIEngine<br/>sandbox"]
-        GRAPH["GraphEngine<br/>graph"]
-        CODE["CodeEngine<br/>code"]
-        COPILOT["CopilotEngine<br/>copilot"]
+        CLI["CLIEngine<br/>claude_code / codex / openclaw"]
+        GRAPH["LangGraphVisualEngine<br/>langgraph_visual"]
+        CODE["LangGraphCodeEngine<br/>langgraph_code"]
+        COPILOT["CopilotEngine<br/>build_copilot"]
     end
 
     subgraph L35["Layer 3.5 — 事件总线"]
@@ -93,13 +93,18 @@ flowchart TB
 
 ### 2.1 契约（Contracts）— 值域唯一来源
 
-`core/contracts/` 下三个契约文件以 `Literal` 类型 + `set[str]` 常量定义所有规范化值。全部代码引用这些定义，不散布魔术字符串。
+`core/contracts/` 下三个契约文件以 `Literal` 类型、`StrEnum` 类和 `set[str]` 常量定义所有规范化值。全部代码引用这些定义，不散布魔术字符串。
 
 | 契约文件 | 定义内容 |
 |---|---|
-| `agent.py` | `DefinitionKindLiteral`、`RuntimeKindLiteral`、`DEFINITION_RUNTIME_KIND` 映射、`infer_runtime_kind()` |
-| `execution.py` | `RunStatusLiteral`、`ExecutionStatusLiteral`、`TriggerSourceLiteral`、终态/活跃集合 |
+| `agent.py` | `EngineKind`（Literal）、`RuntimeKind`（Literal）、`ENGINE_RUNTIME_MAP`、`infer_runtime_kind()` |
+| `execution.py` | `TriggerMedium`（StrEnum）、`RunPurpose`（StrEnum）、`RunStatusLiteral`、`ExecutionStatusLiteral`、终态/活跃集合 |
 | `error.py` | `ErrorCode`（StrEnum，~180 码）、`ErrorSource`、`UserAction`、规范化注册集合 |
+
+**两个正交的调度维度**（在 `execution.py` 中定义为 StrEnum）：
+
+- `TriggerMedium` — 如何发起：`api` | `scheduler` | `system` | `ui`
+- `RunPurpose` — 为何存在：`production` | `draft_test` | `debug` | `internal_builder`
 
 ### 2.2 引擎协议 + 注册表 + 能力矩阵
 
@@ -120,45 +125,29 @@ class ExecutionEngine(Protocol):
 
 **EngineCapabilities** 声明各引擎支持的能力：
 
-**Agent 运行时引擎**（用户面向的 Agent 执行环境）：
-
-| 引擎 | runtime_kind | cancel | msg_inject | debug_obs | artifacts | approval |
+| 引擎类 | engine_kind | cancel | msg_inject | debug_obs | artifacts | approval |
 |---|---|---|---|---|---|---|
-| CLIEngine | sandbox | Y | Y | N | Y | Y |
-| GraphEngine | graph | Y | N | Y | Y | Y |
-| CodeEngine | code | Y | N | Y | N | N |
+| CLIEngine | `claude_code`、`codex`、`openclaw` | Y | Y | N | Y | Y |
+| LangGraphVisualEngine | `langgraph_visual` | Y | N | Y | Y | Y |
+| LangGraphCodeEngine | `langgraph_code` | Y | N | Y | N | N |
+| CopilotEngine | `build_copilot`（内部） | Y | N | N | N | N |
 
-**内部平台引擎**（复用执行管道的平台工具，非用户面向的 Agent 运行时）：
-
-| 引擎 | engine_kind | cancel | msg_inject | debug_obs | artifacts | approval |
-|---|---|---|---|---|---|---|
-| CopilotEngine | build_copilot | Y | N | N | N | N |
-
-> CopilotEngine 是 Graph Builder AI 助手，帮助用户在画布上设计 Agent 图。它不是 Agent 运行时——没有任何用户创建的 Agent 以 `build_copilot` 作为 `runtime_kind`。它复用执行管道（Run → Execution → EventBus → WebSocket）进行流式传输和持久化。
-
-**注册表** (`core/engine/registry.py`)：模块级单例 `engine_registry` 将引擎键映射到引擎实例。引擎在 `core/engine/__init__.py` 导入时自动注册：
+**注册表** (`core/engine/registry.py`)：模块级单例 `engine_registry` 将 `engine_kind` 字符串映射到引擎实例。引擎在 `core/engine/__init__.py` 导入时自动注册：
 
 ```python
-# Agent 运行时引擎（用户面向）
-engine_registry.register("sandbox", CLIEngine())
-engine_registry.register("graph", GraphEngine())
-engine_registry.register("code", CodeEngine())
-
-# 内部平台引擎（非用户面向的 Agent 运行时）
+engine_registry.register("langgraph_visual", LangGraphVisualEngine())
+engine_registry.register("langgraph_code", LangGraphCodeEngine())
+engine_registry.register("claude_code", CLIEngine("claude_code"))
+engine_registry.register("codex", CLIEngine("codex"))
+engine_registry.register("openclaw", CLIEngine("openclaw"))
 engine_registry.register("build_copilot", CopilotEngine())
-engine_registry.register("copilot", CopilotEngine())  # 向后兼容已有 DB 记录
 ```
 
-**添加新 Agent 运行时引擎**需要：
+**添加新引擎**需要：
 1. 实现 `ExecutionEngine` 协议
 2. 在 `core/engine/__init__.py` 中注册
-3. 在 `core/contracts/agent.py` 中添加新的 `runtime_kind`（`RUNTIME_KINDS`、`DEFINITION_RUNTIME_KIND`）
+3. 在 `core/contracts/agent.py` 中添加新的 `engine_kind`（`ENGINE_KINDS`、`ENGINE_RUNTIME_MAP`）
 4. 如需新错误码，在 `core/contracts/error.py` 中添加
-
-**添加新内部平台引擎**只需：
-1. 实现 `ExecutionEngine` 协议
-2. 在 `core/engine/__init__.py` 中注册
-3. 在 `core/contracts/agent.py` 的 `INTERNAL_ENGINE_KINDS` 中添加
 
 ### 2.3 两阶段事件总线
 
@@ -185,12 +174,16 @@ class ExecutionEventEnvelope:
     event_type: ExecutionEventType | str
     payload: dict[str, Any]
     seq: int = 0                          # 由 PersistenceSubscriber 填充
-    trigger_source: str | None = None
+    trigger_medium: str | None = None     # 如何发起：api / scheduler / system / ui
+    run_purpose: str | None = None        # 为何存在：production / draft_test / debug / internal_builder
     thread_id: UUID | None = None
     task_id: UUID | None = None
     terminal_status: str | None = None    # 仅完成事件
+    result_summary: str | None = None
     error: dict[str, Any] | None = None   # ErrorDescriptor，通过 AppError.to_payload()
-    ...
+    target_status: str | None = None      # 状态变更事件
+    container_id: str | None = None
+    metrics: dict[str, Any] | None = None
 ```
 
 **事件类型** (`core/events/event_types.py`)：`ExecutionEventType` StrEnum —— 内容事件（`assistant_text`、`thinking`、`tool_use_start/end`、`error`、`artifact_created`、`approval_requested/resolved`）、生命周期事件（`execution_started/completed/status_change`、`run_status_change`）和 Copilot 事件。
@@ -221,9 +214,10 @@ class ExecutionEventEnvelope:
 | 模块 | 用途 |
 |---|---|
 | `collector.py` | `ObservationCollector` — 主入口，注入为 `context.collector` |
-| `model.py` | 观测 span 数据模型 |
-| `types.py` | 类型定义 |
+| `model.py` | `Trace` 和 `Observation` ORM 模型（表：`traces`、`observations`） |
+| `types.py` | 类型定义（`ObservationType`、`ObservationLevel`） |
 | `otel/provider.py` | OTel TracerProvider 设置 |
+| `otel/global_provider.py` | 应用级 TracerProvider 单例初始化 |
 | `otel/span_wrapper.py` | Span 包装器，附加 JoySafeter 专属属性 |
 | `otel/persistence_processor.py` | 将 span 导出到 DB |
 | `otel/broadcast_processor.py` | 将 span 导出到 WebSocket 实时展示 |
@@ -231,10 +225,20 @@ class ExecutionEventEnvelope:
 
 ### 2.6 端口与适配器（Ports & Adapters）
 
-`core/ports/execution.py` 定义 Protocol 接口，解耦 `core/` 和 `services/`：
+`core/ports/` 定义 Protocol 接口，解耦 `core/` 与 `services/` 和 `models/`：
 
-- **`ExecutionEventPort`** — 通过事件总线发布执行事件的端口。由 `services/execution_event_adapter.py` 实现，`core/agent/cli_backends/execution_runner.py` 使用。
-- **`ExecutionReaderPort`** — 在 `core/` 中读取执行数据，无需直接 ORM 查询。由 `services/execution_reader_adapter.py` 实现。
+| 端口 | 用途 | 实现方 |
+|---|---|---|
+| `ExecutionEventPort` | 通过事件总线发布执行事件 | `services/execution_event_adapter.py` |
+| `ExecutionReaderPort` | 在 core/ 中读取执行数据 | `services/execution_reader_adapter.py` |
+| `ContextEventBridge` | 将 ExecutionContext.emit/complete 连接到事件总线 | `services/execution_launcher.py`（_Bridge 内部类）|
+| `AgentSpawnPort` | 创建子 Agent Run | `services/agent_spawn_adapter.py` |
+| `McpServerPort` | 按名称解析 MCP 服务器实例 | `services/mcp_server_service.py` |
+| `ModelPort` | 按 provider+name 解析 LLM 模型 | `services/model_service.py` |
+| `MemoryPort` | 记忆 CRUD（获取/更新/删除）| `services/memory_service.py` |
+| `ObservationCollectorPort` | 执行内的观测追踪 | `core/observation/collector.py` |
+| `SandboxPort` | 沙箱生命周期管理 | `services/sandbox_manager.py` |
+| `SkillPort` | 技能 CRUD + 权限检查 | `services/skill_service.py` |
 
 `EventContext` 数据类携带 Run 级元数据，使事件发布无需每次查询 DB 即可构建完整信封。
 
@@ -256,26 +260,12 @@ AppError
   └── InternalError        (_default_source = "internal")
 ```
 
-**叶子类**提供默认值并使用 `**kw` 透传：
-
-```
-DomainError
-  ├── NotFoundError          (code=NOT_FOUND)
-  ├── InvalidRequestError    (code=BAD_REQUEST)
-  └── ModelConfigError       (code=MODEL_*)
-AuthError
-  └── AuthenticationError    (code=UNAUTHORIZED, user_action=relogin)
-PermissionDeniedError
-  └── AccessDeniedError      (code=FORBIDDEN)
-...
-```
-
 **ErrorDescriptor** — 规范化错误载荷，由 `AppError.to_payload()` 输出：
 
 ```json
 {
   "code": "SKILL_NOT_FOUND",
-  "message": "技能未找到",
+  "message": "Skill not found",
   "data": {"skill_id": "..."},
   "source": "api",
   "retryable": false,
@@ -286,18 +276,14 @@ PermissionDeniedError
 
 这是**唯一的序列化出口** —— 所有传输路径（HTTP 响应体、WebSocket 错误帧、SSE 错误事件、DB JSONB `error` 列）均通过 `to_payload()` 流转。
 
-**错误码注册表**：`core/contracts/error.py` 包含 `ErrorCode` StrEnum，约 180 个条目，按领域分组（Generic、Auth、Agent、Run、Execution、Engine、Model、Sandbox、Skill、Tool/MCP、Task 等）。
-
 ### 2.8 图构建系统
 
-两条路径构建 Agent 图：
-
-| 路径 | definition_kind | 引擎 | 说明 |
+| 路径 | engine_kind | 引擎类 | 说明 |
 |---|---|---|---|
-| **Code 模式** | `code` | CodeEngine | 用户在浏览器写 LangGraph Python；后端沙箱 exec() |
-| **DeepAgents 画布** | `graph` | GraphEngine | 可视化拖拽；Manager-Worker 星型拓扑 |
+| **DeepAgents 画布** | `langgraph_visual` | LangGraphVisualEngine | 可视化拖拽；Manager-Worker 星型拓扑 |
+| **Code 模式** | `langgraph_code` | LangGraphCodeEngine | 用户在浏览器写 LangGraph Python；后端沙箱 exec() |
 | **CLI-backed** | `claude_code`、`codex`、`openclaw` | CLIEngine | Docker 容器 + CLI agent 运行时 |
-| **Copilot** | (内部) | CopilotEngine | 图分析与动作执行 |
+| **Copilot** | `build_copilot` | CopilotEngine | 内部图分析与动作执行 |
 
 **DeepAgents 构建流水线：**
 
@@ -313,7 +299,7 @@ build_deep_agents_graph()
 
 ### 2.9 代码执行器安全
 
-代码执行器通过多层安全机制运行用户 LangGraph 代码：
+代码执行器（`core/engine/code_executor.py`）通过多层安全机制运行用户 LangGraph 代码：
 
 | 安全层 | 保护措施 |
 |---|---|
@@ -332,14 +318,6 @@ build_deep_agents_graph()
 - **SkillService**：CRUD + 权限控制 + 版本管理
 - **SkillsLoader**：批量预加载到 Docker 后端，自动去重
 - **FilesystemMiddleware**：Agent 按需读取 `/workspace/skills/{skill_name}/SKILL.md`
-
-技能异常继承自统一错误树：
-
-```
-DomainError → SkillLoadError、SkillNotFoundError（经 NotFoundError）
-PermissionDeniedError → SkillPermissionDeniedError（经 AccessDeniedError）
-InternalError → SkillFileWriteError（经 InternalServiceError）
-```
 
 ### 2.11 记忆系统
 
@@ -373,7 +351,7 @@ sequenceDiagram
     API->>DS: dispatch(agent_id, prompt, ...)
     DS->>EO: create_and_start(...)
     EO->>EO: 创建 AgentRun + Execution 行
-    EO->>ER: get(runtime_kind)
+    EO->>ER: get(engine_kind)
     ER->>ENG: engine.start(context, ...)
 
     loop 引擎执行过程
@@ -421,11 +399,13 @@ flowchart LR
 | `/ws/openclaw/dashboard` | `OpenClawHandler` | OpenClaw 看板桥接 |
 | `/ws/openclaw/bridge/{user_id}` | `OpenClawHandler` | OpenClaw 设备桥接 |
 
-### 4.2 触发来源
+### 4.2 调度维度
 
-AgentRun 创建接受 `core/contracts/execution.py` 中定义的规范化触发来源：
+AgentRun 创建使用两个正交维度，在 `core/contracts/execution.py` 中定义为 StrEnum：
 
-`task` | `chat` | `api` | `scheduler` | `draft_test` | `draft_copilot` | `debug` | `copilot`
+**TriggerMedium** — 如何发起：`api` | `scheduler` | `system` | `ui`
+
+**RunPurpose** — 为何存在：`production` | `draft_test` | `debug` | `internal_builder`
 
 ### 4.3 单一事件源
 
@@ -442,7 +422,7 @@ AgentRun 创建接受 `core/contracts/execution.py` 中定义的规范化触发�
 
 ### 4.5 后端 → 数据层
 
-- **PostgreSQL**：Agent 定义、版本、发布、技能、记忆、会话、工作空间、runs、executions、execution_events、snapshots、traces
+- **PostgreSQL**：Agent 定义、版本、发布、技能、记忆、会话、工作空间、runs、executions、execution_events、snapshots、traces、observations
 - **Redis**：会话缓存、限流、临时数据
 
 ---
@@ -453,71 +433,70 @@ AgentRun 创建接受 `core/contracts/execution.py` 中定义的规范化触发�
 app/
 ├── api/v1/                        # REST 路由模块
 ├── common/
-│   └── app_errors.py              # AppError 层次结构 + to_payload() + normalize_app_error()
+│   ├── app_errors.py              # AppError 层次结构 + to_payload() + normalize_app_error()
+│   ├── workspace_permission.py    # 工作空间访问检查工具
+│   └── ...                        # dependencies, exceptions, pagination, permissions
 ├── core/
 │   ├── contracts/                 # 值域注册表（唯一来源）
-│   │   ├── agent.py               #   DefinitionKind、RuntimeKind、DEFINITION_RUNTIME_KIND
-│   │   ├── execution.py           #   RunStatus、ExecutionStatus、TriggerSource、终态集合
+│   │   ├── agent.py               #   EngineKind、RuntimeKind、ENGINE_RUNTIME_MAP
+│   │   ├── execution.py           #   TriggerMedium、RunPurpose（StrEnum）、RunStatus、ExecutionStatus、集合
 │   │   └── error.py               #   ErrorCode（StrEnum ~180）、ErrorSource、UserAction
 │   ├── engine/                    # 执行引擎抽象
 │   │   ├── protocol.py            #   ExecutionEngine Protocol、ExecutionContext、EngineCapabilities
 │   │   ├── registry.py            #   EngineRegistry 单例
-│   │   ├── __init__.py            #   导入时注册 4 个内建引擎
-│   │   ├── cli_engine.py          #   CLIEngine（Docker + CLI agent 运行时）
-│   │   ├── graph_engine.py        #   GraphEngine（LangGraph 编译器）
-│   │   ├── code_engine.py         #   CodeEngine（进程内代码 agent）
-│   │   └── copilot_engine.py      #   CopilotEngine（图分析）
+│   │   ├── __init__.py            #   导入时注册 6 个引擎实例
+│   │   ├── cli_engine.py          #   CLIEngine（claude_code / codex / openclaw）
+│   │   ├── graph_engine.py        #   LangGraphVisualEngine（langgraph_visual）
+│   │   ├── code_engine.py         #   LangGraphCodeEngine（langgraph_code）
+│   │   ├── copilot_engine.py      #   CopilotEngine（build_copilot，内部）
+│   │   └── code_executor.py       #   沙箱化用户代码执行器（LangGraphCodeEngine 使用）
 │   ├── events/                    # 两阶段事件总线
 │   │   ├── bus.py                 #   ExecutionEventBus（第 1 + 第 2 阶段）
 │   │   ├── envelope.py            #   ExecutionEventEnvelope 数据类
 │   │   ├── event_types.py         #   ExecutionEventType StrEnum
 │   │   ├── subscriber.py          #   EventSubscriber Protocol + SubscriberPhase 枚举
 │   │   └── subscribers/           #   内建订阅者实现
-│   │       ├── persistence.py     #     PersistenceSubscriber（第 1 阶段）
-│   │       ├── state_transition.py#     StateTransitionSubscriber（第 1 阶段）
-│   │       ├── websocket.py       #     WebSocketSubscriber（第 2 阶段）
-│   │       └── task_sync.py       #     TaskSyncSubscriber（第 2 阶段）
 │   ├── state_machines/            # 集中化状态转换规则
-│   │   ├── definitions.py         #   6 个实体的转换表
-│   │   ├── engine.py              #   StateMachine 类 + InvalidTransition 错误
-│   │   └── transitions.py         #   transition_run()、transition_execution()、transition_task()
 │   ├── observation/               # 基于 OTel 的追踪
 │   │   ├── collector.py           #   ObservationCollector（注入 ExecutionContext）
+│   │   ├── model.py               #   Trace + Observation ORM 模型
 │   │   ├── otel/                  #   TracerProvider、span 包装器、处理器
 │   │   └── instrumentation/       #   引擎专属提取器
 │   ├── ports/                     # Protocol 接口，解耦 core/ <-> services/
-│   │   └── execution.py           #   ExecutionEventPort、ExecutionReaderPort、EventContext
-│   ├── agent/                     # CLI agent 后端（claude_code、codex、openclaw）
+│   │   ├── execution.py           #   ExecutionEventPort、ExecutionReaderPort、EventContext
+│   │   ├── observation.py         #   ObservationCollectorPort
+│   │   ├── memory.py              #   MemoryPort
+│   │   ├── mcp.py                 #   McpServerPort
+│   │   ├── model.py               #   ModelPort
+│   │   ├── skill.py               #   SkillPort
+│   │   ├── sandbox.py             #   SandboxPort
+│   │   ├── agent_spawn.py         #   AgentSpawnPort
+│   │   └── context_event.py       #   ContextEventBridge
+│   ├── agent/                     # Agent 运行时（CLI 后端、基础工厂、记忆）
+│   │   ├── base_agent.py          #   get_agent() — 可复用 LangChain agent 工厂
+│   │   ├── cli_backends/          #   CLI agent 后端（claude_code、codex、openclaw）
+│   │   ├── code_agent/            #   代码 agent 实现
+│   │   └── memory/                #   MemoryManager + 策略
 │   ├── copilot/                   # Copilot 服务实现
-│   ├── graph/                     # DeepAgents 图构建器 + 代码执行器
-│   ├── skill/                     # 技能系统（服务、加载器、异常）
+│   ├── copilot_deepagents/        # DeepAgents copilot runner
+│   ├── graph/                     # DeepAgents 图构建器
+│   ├── skill/                     # 技能系统（加载器、校验器、异常）
 │   ├── model/                     # 模型提供商 + 凭据管理
 │   ├── tools/                     # 工具解析器 + MCP 集成
-│   └── a2a/                       # Agent-to-Agent 协议支持
+│   ├── a2a/                       # Agent-to-Agent 协议支持
+│   └── constants.py               # DEFAULT_USER_ID + contracts 重导出
 ├── models/                        # SQLAlchemy ORM 模型
 ├── repositories/                  # 数据访问层
 ├── schemas/                       # Pydantic 请求/响应 Schema
 ├── services/                      # 服务层实现
 │   ├── dispatch_service.py        #   面向 API 的门面（Layer 1.5）
 │   ├── execution_orchestrator.py  #   Run + Execution 生命周期（Layer 2）
+│   ├── execution_launcher.py      #   引擎启动 + trace + 错误处理
 │   ├── execution_event_adapter.py #   ExecutionEventPort 实现
 │   ├── execution_reader_adapter.py#   ExecutionReaderPort 实现
-│   ├── runner_factory.py          #   创建 CLI 执行 runner
-│   ├── agent_service.py           #   Agent CRUD
-│   ├── agent_version_service.py   #   版本管理
-│   ├── agent_release_service.py   #   发布生命周期
-│   ├── agent_run_service.py       #   Run 查询
-│   ├── copilot_service.py         #   Copilot 流式处理
-│   ├── skill_service.py           #   技能 CRUD + 权限
-│   ├── model_service.py           #   模型解析（provider_name, model_name）
-│   ├── sandbox_manager.py         #   沙箱池管理
+│   ├── agent_spawn_adapter.py     #   AgentSpawnPort 实现
 │   └── ...                        #   （40+ 服务模块）
 ├── websocket/                     # WebSocket 处理器
-│   ├── execution_subscription_handler.py  # /ws/executions 处理器
-│   ├── execution_subscription_manager.py  # 订阅注册 + 广播
-│   ├── notification_manager.py            # /ws/notifications
-│   ├── openclaw_handler.py                # /ws/openclaw/* 处理器
-│   └── auth.py                            # WS 认证
 ├── templates/                     # 邮件模板（Jinja2）
 └── utils/                         # 共享工具
 ```

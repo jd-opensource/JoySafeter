@@ -122,7 +122,7 @@ Agent 读取方式：
 ### 1. 在常规 Agent 中启用技能
 
 ```python
-from app.core.agent.sample_agent import get_agent
+from app.core.agent.base_agent import get_agent
 from app.core.database import async_session_factory
 
 # 创建带技能支持的 Agent

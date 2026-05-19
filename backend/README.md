@@ -56,8 +56,8 @@ app/
 ├── common/
 │   └── app_errors.py        # 统一异常层次 + ErrorDescriptor 序列化
 ├── core/
-│   ├── contracts/           # 值域唯一来源（DefinitionKind、RuntimeKind、ErrorCode、ErrorSource 等）
-│   ├── engine/              # 执行引擎协议、注册表、4 个内建引擎（CLI/Graph/Code/Copilot）
+│   ├── contracts/           # 值域唯一来源（EngineKind、RuntimeKind、TriggerMedium、RunPurpose、ErrorCode 等）
+│   ├── engine/              # 执行引擎协议、注册表、6 个内建引擎（CLI×3/Visual/Code/Copilot）
 │   ├── events/              # 两阶段事件总线（ExecutionEventBus）+ 4 个内建订阅者
 │   ├── state_machines/      # 集中化状态机（6 个实体的转换规则）
 │   ├── observation/         # OTel-backed 观测追踪（注入 ExecutionContext）

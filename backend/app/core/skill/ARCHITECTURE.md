@@ -537,7 +537,7 @@ graph TD
 
 #### 常规 Agent 预加载流程
 
-常规 Agent（`sample_agent.py`）的预加载流程：
+常规 Agent（`base_agent.py`）的预加载流程：
 
 ```mermaid
 graph TD
@@ -951,7 +951,7 @@ license: MIT
 
 ### Q1: 常规 Agent 如何预加载技能？
 
-**A**: 常规 Agent（`sample_agent.py`）不自动预加载技能。有两种方式：
+**A**: 常规 Agent（`base_agent.py`）不自动预加载技能。有两种方式：
 
 1. **外部预加载**：在创建 Agent 前，手动调用 `SkillSandboxLoader` 预加载技能到 Backend
 2. **使用 DatabaseSkillAdapter**：如果没有持久化 Backend，使用 `DatabaseSkillAdapter` 在运行时加载
