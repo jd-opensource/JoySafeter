@@ -180,7 +180,7 @@ class ExecutionLauncher:
                     await collector.finalize()
         except Exception as exc:
             logger.error(f"[Launcher] Engine failed for execution {execution.id}: {exc}")
-            if ctx is not None and ctx._complete_fn is not None:
+            if ctx is not None and ctx._event_bridge is not None:
                 try:
                     app_error = normalize_app_error(
                         exc,
@@ -189,7 +189,7 @@ class ExecutionLauncher:
                         default_data={"execution_id": str(execution.id), "run_id": str(run.id)},
                         source="engine",
                     )
-                    await ctx._complete_fn("failed", app_error.message[:2000], app_error)
+                    await ctx.complete("failed", app_error.message[:2000], app_error)
                 except Exception as cleanup_exc:
                     logger.error(f"[Launcher] Failed to mark execution as failed: {cleanup_exc}")
 
@@ -214,45 +214,45 @@ class ExecutionLauncher:
                 **overrides,
             )
 
-        async def _emit(event_type: ExecutionEventType, payload: dict) -> None:
-            await execution_event_bus.publish(
-                _envelope(event_type=event_type, payload=payload),
-                ctx.db,
-            )
+        class _Bridge:
+            async def emit(self, event_type: ExecutionEventType, payload: dict) -> None:
+                await execution_event_bus.publish(
+                    _envelope(event_type=event_type, payload=payload),
+                    ctx.db,
+                )
 
-        async def _status(status: str) -> None:
-            await execution_event_bus.publish(
-                _envelope(
-                    event_type=ExecutionEventType.EXECUTION_STATUS_CHANGE,
-                    payload={"status": status},
-                    target_status=status,
-                ),
-                ctx.db,
-            )
+            async def update_status(self, status: str) -> None:
+                await execution_event_bus.publish(
+                    _envelope(
+                        event_type=ExecutionEventType.EXECUTION_STATUS_CHANGE,
+                        payload={"status": status},
+                        target_status=status,
+                    ),
+                    ctx.db,
+                )
 
-        async def _complete(
-            status: str,
-            result_summary: str | None = None,
-            error: AppError | None = None,
-        ) -> None:
-            error_payload = error.to_payload() if error is not None else None
-            await execution_event_bus.publish(
-                _envelope(
-                    event_type=ExecutionEventType.EXECUTION_COMPLETED,
-                    payload={
-                        "status": status,
-                        "error": error_payload,
-                    },
-                    terminal_status=status,
-                    error=error_payload,
-                    result_summary=result_summary,
-                ),
-                ctx.db,
-            )
+            async def complete(
+                self,
+                status: str,
+                result_summary: str | None = None,
+                error: AppError | None = None,
+            ) -> None:
+                error_payload = error.to_payload() if error is not None else None
+                await execution_event_bus.publish(
+                    _envelope(
+                        event_type=ExecutionEventType.EXECUTION_COMPLETED,
+                        payload={
+                            "status": status,
+                            "error": error_payload,
+                        },
+                        terminal_status=status,
+                        error=error_payload,
+                        result_summary=result_summary,
+                    ),
+                    ctx.db,
+                )
 
-        ctx._emit_fn = _emit
-        ctx._status_fn = _status
-        ctx._complete_fn = _complete
+        ctx._event_bridge = _Bridge()
 
     async def _insert_trace(
         self,

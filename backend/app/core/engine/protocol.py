@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.app_errors import AppError
 from app.core.events.event_types import ExecutionEventType
+from app.core.ports.context_event import ContextEventBridge
 from app.core.ports.model import ModelPort
 from app.core.ports.observation import ObservationCollectorPort
 
@@ -38,25 +39,21 @@ class ExecutionContext:
     metadata: dict[str, Any] = field(default_factory=dict)
     debug: bool = False
 
-    # Ports — injected by orchestrator, used by engines.
+    # Ports — injected by launcher, used by engines.
     collector: ObservationCollectorPort | None = None
     model_port: ModelPort | None = None
     runner_factory: Any = None  # Callable[[AsyncSession], ExecutionRunner]
-
-    # ---- set by orchestrator after construction ----
-    _emit_fn: Any = None  # async (event_type, payload) -> None
-    _status_fn: Any = None  # async (status) -> None
-    _complete_fn: Any = None  # async (status, result_summary, error) -> None
+    _event_bridge: ContextEventBridge | None = None
 
     async def emit(self, event_type: ExecutionEventType, payload: dict | None = None) -> None:
         """Emit an execution event → persisted + broadcast."""
-        if self._emit_fn:
-            await self._emit_fn(event_type, payload or {})
+        if self._event_bridge:
+            await self._event_bridge.emit(event_type, payload or {})
 
     async def update_status(self, status: str) -> None:
         """Update Execution.status without completing."""
-        if self._status_fn:
-            await self._status_fn(status)
+        if self._event_bridge:
+            await self._event_bridge.update_status(status)
 
     async def complete(
         self,
@@ -65,8 +62,8 @@ class ExecutionContext:
         error: AppError | None = None,
     ) -> None:
         """Mark execution as terminal → updates Run + Task status."""
-        if self._complete_fn:
-            await self._complete_fn(status, result_summary, error)
+        if self._event_bridge:
+            await self._event_bridge.complete(status, result_summary, error)
 
 
 @dataclass(frozen=True)
