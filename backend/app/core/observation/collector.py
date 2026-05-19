@@ -194,18 +194,21 @@ class ObservationCollector:
     async def _update_trace_row(self, status: str, agg: dict) -> None:
         try:
             session = await self._db_session_factory()
-            now = utc_now()
-            await session.execute(
-                sa.update(Trace)
-                .where(Trace.id == self._trace_id)
-                .values(
-                    status=status,
-                    end_time=now,
-                    total_observations=agg["total_observations"],
-                    total_tokens=agg["total_tokens"],
-                    total_cost=agg["total_cost"],
+            try:
+                now = utc_now()
+                await session.execute(
+                    sa.update(Trace)
+                    .where(Trace.id == self._trace_id)
+                    .values(
+                        status=status,
+                        end_time=now,
+                        total_observations=agg["total_observations"],
+                        total_tokens=agg["total_tokens"],
+                        total_cost=agg["total_cost"],
+                    )
                 )
-            )
-            await session.commit()
+                await session.commit()
+            finally:
+                await session.close()
         except Exception:
             logger.opt(exception=True).warning("Failed to update Trace row")
