@@ -11,12 +11,12 @@ from typing import Any, Callable, Coroutine
 from loguru import logger
 
 from app.core.observation.otel.processor_base import (
+    BucketRegistry,
     LiveSpanProcessor,
     build_cost,
     build_usage,
     ns_to_iso,
     parse_json_attr,
-    resolve_execution_id,
 )
 from app.core.observation.otel.span_wrapper import ObservationSpan
 from app.core.observation.types import ObservationLevel, ObservationType
@@ -146,8 +146,7 @@ class BroadcastProcessor(LiveSpanProcessor):
     """Global singleton that routes broadcast events to per-execution buckets."""
 
     def __init__(self) -> None:
-        self._buckets: dict[str, _BroadcastBucket] = {}
-        self._lock = threading.Lock()
+        self._registry: BucketRegistry[_BroadcastBucket] = BucketRegistry()
 
     def register_execution(
         self,
@@ -157,31 +156,18 @@ class BroadcastProcessor(LiveSpanProcessor):
         event_loop: asyncio.AbstractEventLoop,
     ) -> None:
         bucket = _BroadcastBucket(execution_id, trace_id, broadcast_fn, event_loop)
-        with self._lock:
-            self._buckets[str(execution_id)] = bucket
+        self._registry._put(execution_id, bucket)
 
     def unregister_execution(self, execution_id: uuid.UUID) -> None:
-        with self._lock:
-            self._buckets.pop(str(execution_id), None)
-
-    def _get_bucket(self, span: Any) -> _BroadcastBucket | None:
-        exec_id = resolve_execution_id(span)
-        if exec_id is None:
-            return None
-        with self._lock:
-            return self._buckets.get(exec_id)
-
-    def _get_bucket_by_id(self, execution_id: uuid.UUID) -> _BroadcastBucket | None:
-        with self._lock:
-            return self._buckets.get(str(execution_id))
+        self._registry._pop(execution_id)
 
     def on_start(self, span: Any, parent_context: Any = None) -> None:
-        bucket = self._get_bucket(span)
+        bucket = self._registry._get_by_span(span)
         if bucket:
             bucket.on_start(span)
 
     def on_end(self, span: Any) -> None:
-        bucket = self._get_bucket(span)
+        bucket = self._registry._get_by_span(span)
         if bucket:
             bucket.on_end(span)
 
@@ -189,13 +175,12 @@ class BroadcastProcessor(LiveSpanProcessor):
         exec_id_str = attributes.get("execution.id") or ""
         bucket: _BroadcastBucket | None = None
         if exec_id_str:
-            with self._lock:
-                bucket = self._buckets.get(str(exec_id_str))
+            bucket = self._registry._get_by_str(str(exec_id_str))
         if bucket:
             bucket.on_event(span, event_name, attributes)
 
     def emit_trace_complete(self, execution_id: uuid.UUID, status: str, trace_id: str, aggregates: dict) -> None:
-        bucket = self._get_bucket_by_id(execution_id)
+        bucket = self._registry._get_by_id(execution_id)
         if bucket:
             bucket.emit_trace_complete(status, trace_id, aggregates)
 
@@ -203,5 +188,4 @@ class BroadcastProcessor(LiveSpanProcessor):
         return True
 
     def shutdown(self, timeout_millis: int = 30000) -> None:
-        with self._lock:
-            self._buckets.clear()
+        self._registry._clear()

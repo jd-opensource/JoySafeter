@@ -15,11 +15,11 @@ from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor
 
 from app.core.observation.model import Observation
 from app.core.observation.otel.processor_base import (
+    BucketRegistry,
     build_cost,
     build_usage,
     ns_to_datetime,
     parse_json_attr,
-    resolve_execution_id,
 )
 from app.core.observation.types import ObservationLevel, ObservationType
 
@@ -259,8 +259,7 @@ class PersistenceProcessor(SpanProcessor):
     """
 
     def __init__(self) -> None:
-        self._buckets: dict[str, _ExecutionBucket] = {}
-        self._lock = threading.Lock()
+        self._registry: BucketRegistry[_ExecutionBucket] = BucketRegistry()
 
     def register_execution(
         self,
@@ -273,55 +272,35 @@ class PersistenceProcessor(SpanProcessor):
         bucket = _ExecutionBucket(
             execution_id, trace_id, workspace_id, db_session_factory, event_loop
         )
-        with self._lock:
-            self._buckets[str(execution_id)] = bucket
+        self._registry._put(execution_id, bucket)
 
     def get_execution_aggregates(self, execution_id: uuid.UUID) -> dict:
-        with self._lock:
-            bucket = self._buckets.get(str(execution_id))
+        bucket = self._registry._get_by_id(execution_id)
         if bucket is None:
             return dict(_EMPTY_AGGREGATES)
         return bucket.get_aggregates()
 
     async def async_shutdown_execution(self, execution_id: uuid.UUID) -> dict:
-        with self._lock:
-            bucket = self._buckets.pop(str(execution_id), None)
+        bucket = self._registry._pop(execution_id)
         if bucket is None:
             return dict(_EMPTY_AGGREGATES)
         aggregates = bucket.get_aggregates()
         await bucket.async_shutdown()
         return aggregates
 
-    def _get_bucket(self, span: ReadableSpan) -> _ExecutionBucket | None:
-        exec_id = resolve_execution_id(span)
-        if exec_id is None:
-            return None
-        with self._lock:
-            return self._buckets.get(exec_id)
-
     def on_start(self, span: ReadableSpan, parent_context: Any = None) -> None:  # type: ignore[override]
-        bucket = self._get_bucket(span)
+        bucket = self._registry._get_by_span(span)
         if bucket:
             bucket.on_start(span)
 
     def on_end(self, span: ReadableSpan) -> None:
-        bucket = self._get_bucket(span)
+        bucket = self._registry._get_by_span(span)
         if bucket:
             bucket.on_end(span)
 
     def reap_stale(self, max_age_seconds: float = 1800) -> list[str]:
-        """Remove buckets older than *max_age_seconds* (default 30 min).
-
-        Returns the execution_ids that were reaped.  Intended to be called
-        from a periodic background task (e.g. the execution reaper).
-        """
-        now = time.monotonic()
-        stale: list[tuple[str, _ExecutionBucket]] = []
-        with self._lock:
-            for eid, bucket in list(self._buckets.items()):
-                if now - bucket.created_at > max_age_seconds:
-                    stale.append((eid, bucket))
-                    self._buckets.pop(eid)
+        """Remove buckets older than *max_age_seconds* (default 30 min)."""
+        stale = self._registry._pop_stale(max_age_seconds)
         for eid, bucket in stale:
             bucket.sync_shutdown()
             logger.warning("Reaped stale observation bucket for execution {}", eid)
@@ -331,8 +310,5 @@ class PersistenceProcessor(SpanProcessor):
         return True
 
     def shutdown(self, timeout_millis: int = 10000) -> None:
-        with self._lock:
-            buckets = list(self._buckets.values())
-            self._buckets.clear()
-        for bucket in buckets:
+        for bucket in self._registry._clear():
             bucket.sync_shutdown()

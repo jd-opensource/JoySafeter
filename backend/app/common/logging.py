@@ -12,7 +12,7 @@ import os
 import time
 
 from loguru import logger
-from opentelemetry import trace
+from opentelemetry import propagate, trace
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 
@@ -60,9 +60,18 @@ class LoggingMiddleware:
         client = scope.get("client")
         client_host = client[0] if client else "unknown"
 
+        # Extract incoming W3C traceparent so upstream traces are continued
+        carrier = {
+            k.decode(): v.decode()
+            for k, v in scope.get("headers", [])
+            if k in (b"traceparent", b"tracestate")
+        }
+        parent_ctx = propagate.extract(carrier) if carrier else None
+
         tracer = trace.get_tracer("joysafeter.http")
         with tracer.start_as_current_span(
             "http.request",
+            context=parent_ctx,
             attributes={
                 "http.method": method,
                 "http.path": path,

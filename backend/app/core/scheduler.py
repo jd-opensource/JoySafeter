@@ -84,6 +84,12 @@ async def execution_reaper_loop() -> None:
                 logger.info(f"Scheduler: reaped {reaped} stale executions")
         except Exception as exc:
             logger.warning(f"Execution reaper error: {exc}")
+        try:
+            from app.core.observation.otel.provider import get_persistence_processor
+
+            get_persistence_processor().reap_stale()
+        except Exception:
+            pass
 
 
 async def recover_stale_on_startup() -> None:

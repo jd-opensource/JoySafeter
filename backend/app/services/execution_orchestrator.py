@@ -828,7 +828,7 @@ class ExecutionOrchestrator:
                     self._wire_context(ctx, **run_meta)
 
                     async def _db_factory():
-                        return db
+                        return AsyncSessionLocal()
 
                     async def _broadcast(exec_id: Any, message: dict) -> None:
                         await execution_subscription_manager.broadcast_event(str(exec_id), message)
