@@ -8,7 +8,7 @@ Creates AgentRun + Execution, resolves the engine, builds context, and starts ex
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
@@ -59,6 +59,11 @@ class RunSpec:
     engine_kind_override: str | None = None
     definition_kind_override: str | None = None
     definition_payload_override: dict | None = None
+
+    def __post_init__(self) -> None:
+        overrides = (self.engine_kind_override, self.definition_kind_override, self.definition_payload_override)
+        if any(o is not None for o in overrides) and not all(o is not None for o in overrides):
+            raise ValueError("engine_kind_override, definition_kind_override, and definition_payload_override must be all-or-nothing")
 
 
 class ExecutionOrchestrator:
