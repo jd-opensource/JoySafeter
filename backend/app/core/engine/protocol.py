@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.app_errors import AppError
 from app.core.events.event_types import ExecutionEventType
+from app.core.ports.model import ModelPort
+from app.core.ports.observation import ObservationCollectorPort
 
 
 @dataclass
@@ -35,7 +37,11 @@ class ExecutionContext:
     auto_approve: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
     debug: bool = False
-    collector: Any = None  # ObservationCollector | None — import avoided for no circular deps
+
+    # Ports — injected by orchestrator, used by engines.
+    collector: ObservationCollectorPort | None = None
+    model_port: ModelPort | None = None
+    runner_factory: Any = None  # Callable[[AsyncSession], ExecutionRunner]
 
     # ---- set by orchestrator after construction ----
     _emit_fn: Any = None  # async (event_type, payload) -> None

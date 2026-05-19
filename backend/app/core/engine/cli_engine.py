@@ -49,9 +49,7 @@ class CLIEngine:
         )
 
         async with AsyncSessionLocal() as db:
-            from app.services.runner_factory import create_execution_runner
-
-            runner = create_execution_runner(db)
+            runner = context.runner_factory(db)
             await runner.run(
                 execution_id=execution_id,
                 prompt=prompt,

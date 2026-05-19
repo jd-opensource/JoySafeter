@@ -688,6 +688,8 @@ class ExecutionOrchestrator:
             from app.core.database import AsyncSessionLocal
             from app.core.observation import ObservationCollector
             from app.core.observation.types import ObservationLevel
+            from app.services.model_service import ModelService
+            from app.services.runner_factory import create_execution_runner
             from app.websocket.execution_subscription_manager import execution_subscription_manager
 
             try:
@@ -712,6 +714,8 @@ class ExecutionOrchestrator:
                         workspace_id=workspace_id,
                         credentials=credentials,
                         auto_approve=auto_approve,
+                        model_port=ModelService(db),
+                        runner_factory=create_execution_runner,
                     )
                     self._wire_context(ctx, **run_meta)
 

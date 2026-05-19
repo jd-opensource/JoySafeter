@@ -222,16 +222,13 @@ class LangGraphVisualEngine:
             # Build deep-agents graph
             # ------------------------------------------------------------------
             from app.core.graph.deep_agents.builder import build_deep_agents_graph
-            from app.services.model_service import ModelService
-
-            model_service = ModelService(context.db)
 
             compiled = await build_deep_agents_graph(
                 graph,
                 nodes,
                 edges,
                 user_id=user_id,
-                model_service=model_service,
+                model_service=context.model_port,
                 thread_id=thread_id,
             )
 
