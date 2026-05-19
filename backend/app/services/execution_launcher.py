@@ -169,8 +169,10 @@ class ExecutionLauncher:
                     await collector.finalize()
         except Exception as exc:
             logger.error(f"[Launcher] Engine failed for execution {execution.id}: {exc}")
-            if ctx is not None and ctx._event_bridge is not None:
-                try:
+            # ctx.db is closed here (async with exited), so we need a fresh
+            # session to publish the failure event through the event bus.
+            try:
+                async with AsyncSessionLocal() as err_db:
                     app_error = normalize_app_error(
                         exc,
                         default_code="EXECUTION_ENGINE_FAILED",
@@ -178,9 +180,26 @@ class ExecutionLauncher:
                         default_data={"execution_id": str(execution.id), "run_id": str(run.id)},
                         source="engine",
                     )
-                    await ctx.complete("failed", app_error.message[:2000], app_error)
-                except Exception as cleanup_exc:
-                    logger.error(f"[Launcher] Failed to mark execution as failed: {cleanup_exc}")
+                    error_payload = app_error.to_payload() if app_error else None
+                    await execution_event_bus.publish(
+                        ExecutionEventEnvelope(
+                            execution_id=execution.id,
+                            run_id=run.id,
+                            workspace_id=workspace_id,
+                            event_type=ExecutionEventType.EXECUTION_COMPLETED,
+                            payload={"status": "failed", "error": error_payload},
+                            terminal_status="failed",
+                            error=error_payload,
+                            result_summary=str(exc)[:2000],
+                            trigger_medium=run_meta.get("trigger_medium"),
+                            run_purpose=run_meta.get("run_purpose"),
+                            thread_id=run_meta.get("thread_id"),
+                            task_id=run_meta.get("task_id"),
+                        ),
+                        err_db,
+                    )
+            except Exception as cleanup_exc:
+                logger.error(f"[Launcher] Failed to mark execution as failed: {cleanup_exc}")
 
     def _wire_context(
         self,
