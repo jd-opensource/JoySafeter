@@ -30,7 +30,7 @@ from app.schemas.thread import (
 )
 from app.services.dispatch_service import DispatchService
 from app.services.thread_service import ThreadService
-from app.services.workspace_permission import check_workspace_access
+from app.common.workspace_permission import check_workspace_access
 
 router = APIRouter(prefix="/v1/threads", tags=["Threads"])
 

@@ -23,7 +23,7 @@ from app.schemas.task import (
     UpdateTaskRequest,
 )
 from app.services.task_service import TaskService
-from app.services.workspace_permission import check_workspace_access
+from app.common.workspace_permission import check_workspace_access
 
 router = APIRouter(prefix="/v1/tasks", tags=["Tasks"])
 

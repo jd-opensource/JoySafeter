@@ -1,7 +1,7 @@
 """
 Copilot Agent - Create and manage the Copilot Agent instance.
 
-Uses the same infrastructure as sample_agent to create an Agent
+Uses the base agent factory to create an Agent
 specialized for graph manipulation tasks.
 """
 
@@ -11,7 +11,7 @@ from langchain_core.runnables import Runnable
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.agent.sample_agent import get_agent
+from app.core.agent.base_agent import get_agent
 from app.core.copilot.prompt_builder import build_copilot_system_prompt
 from app.core.copilot.tools import get_copilot_tools, set_current_graph_context, set_preloaded_models
 
@@ -86,7 +86,7 @@ async def get_copilot_agent(
     logger.debug(f"[get_copilot_agent] System prompt length: {len(system_prompt)}")
     logger.debug(f"[get_copilot_agent] Tools count: {len(tools)}")
 
-    # Create agent using the same infrastructure as sample_agent
+    # Create agent using the base agent factory
     agent = await get_agent(
         model=model,
         max_tokens=max_tokens,

@@ -23,7 +23,7 @@ from app.schemas.agent_run import (
 )
 from app.services.agent_run_service import AgentRunService
 from app.services.dispatch_service import DispatchService
-from app.services.workspace_permission import check_workspace_access
+from app.common.workspace_permission import check_workspace_access
 
 router = APIRouter(prefix="/v1/runs", tags=["Runs"])
 

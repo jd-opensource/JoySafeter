@@ -18,14 +18,7 @@ from .base import BaseModel, SoftDeleteMixin, TimestampMixin
 from .chat import Chat
 from .custom_tool import CustomTool
 from .execution import Artifact, Execution, ExecutionEvent
-from .execution_trace import (
-    ExecutionObservation,
-    ExecutionTrace,
-    ObservationLevel,
-    ObservationStatus,
-    ObservationType,
-    TraceStatus,
-)
+from .execution_trace import ExecutionObservation, ExecutionTrace  # noqa: F401 — alembic discovery
 from .mcp import McpServer
 from .memory import Memory
 from .model_credential import ModelCredential
@@ -80,12 +73,6 @@ __all__ = [
     "SkillFile",
     "SecurityAuditLog",
     "Memory",
-    "ExecutionTrace",
-    "ExecutionObservation",
-    "TraceStatus",
-    "ObservationType",
-    "ObservationLevel",
-    "ObservationStatus",
     "OpenClawInstance",
     "CollaboratorRole",
     "SkillCollaborator",

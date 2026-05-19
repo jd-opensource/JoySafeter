@@ -288,7 +288,7 @@ async def update_member_role(
     current_user: User = Depends(get_current_user),
 ):
     """Update a workspace member's role (admin only)."""
-    from app.services.workspace_permission import check_workspace_access
+    from app.common.workspace_permission import check_workspace_access
 
     has_access = await check_workspace_access(
         db,
@@ -328,7 +328,7 @@ async def remove_member(
     """Remove a workspace member (admin can remove others, members can remove themselves)."""
     # Allow self-removal without admin check; otherwise require admin role
     if str(user_id) != str(current_user.id):
-        from app.services.workspace_permission import check_workspace_access
+        from app.common.workspace_permission import check_workspace_access
 
         has_access = await check_workspace_access(
             db,

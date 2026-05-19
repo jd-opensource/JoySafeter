@@ -36,7 +36,7 @@ from app.services.agent_publish_service import AgentPublishService
 from app.services.agent_release_service import AgentReleaseService
 from app.services.agent_service import AgentService
 from app.services.agent_version_service import AgentVersionService
-from app.services.workspace_permission import check_workspace_access
+from app.common.workspace_permission import check_workspace_access
 
 
 class RollbackRequest(PydanticBaseModel):

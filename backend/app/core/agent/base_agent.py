@@ -1,7 +1,8 @@
 """
-Example Agent implementation.
+Base Agent factory — reusable LangChain agent construction.
 
-Implements a sample chatbot node using LangChain v1 create_agent API.
+Provides get_default_model() and get_agent() for building agents
+with standard middleware (filesystem, skills, summarization, etc.).
 """
 
 from typing import Any, cast

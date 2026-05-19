@@ -28,7 +28,7 @@ from app.schemas.execution import (
 from app.schemas.task import InjectMessageRequest
 from app.services.dispatch_service import DispatchService
 from app.services.execution_service import ExecutionService
-from app.services.workspace_permission import check_workspace_access
+from app.common.workspace_permission import check_workspace_access
 
 
 class DebugRunRequest(BaseModel):

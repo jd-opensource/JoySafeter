@@ -71,7 +71,7 @@ async def get_current_user(
             raise AuthenticationError("User is inactive", code="USER_INACTIVE")
         return user
 
-    raise AuthenticationError("Could not validate credentials", code="CREDENTIALS_INVALID")
+    raise AuthenticationError("Could not validate credentials", code="INVALID_CREDENTIALS")
 
 
 async def get_current_user_optional(

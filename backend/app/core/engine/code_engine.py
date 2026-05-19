@@ -102,7 +102,7 @@ class LangGraphCodeEngine:
             except Exception as lookup_exc:
                 logger.warning(f"[LangGraphCodeEngine] Could not resolve user_id/thread_id: {lookup_exc}")
 
-            from app.core.code_executor import execute_code
+            from app.core.engine.code_executor import execute_code
 
             await context.emit(ExecutionEventType.ASSISTANT_TEXT, {"content": "Compiling user code..."})
             state_graph = execute_code(code)
