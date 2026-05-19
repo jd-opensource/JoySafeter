@@ -20,7 +20,7 @@ def _get_otel_trace_id() -> str:
     """Read trace_id from the current OTel span context (hex, 32-char)."""
     span = trace.get_current_span()
     ctx = span.get_span_context()
-    if ctx and ctx.trace_id:
+    if ctx and ctx.trace_id != 0:
         return format(ctx.trace_id, "032x")
     return ""
 

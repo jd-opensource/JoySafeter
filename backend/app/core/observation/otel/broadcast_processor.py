@@ -51,7 +51,8 @@ class _BroadcastBucket:
 
     def _resolve_parent_obs_id(self, span: Any) -> str | None:
         if span.parent:
-            return self._otel_span_id_to_observation_id.get(span.parent.span_id)
+            with self._lock:
+                return self._otel_span_id_to_observation_id.get(span.parent.span_id)
         return None
 
     def _build_observation(self, span: Any, *, include_end: bool = False) -> dict:
@@ -186,6 +187,13 @@ class BroadcastProcessor(LiveSpanProcessor):
         bucket = self._registry.get_by_id(execution_id)
         if bucket:
             bucket.emit_trace_complete(status, trace_id, aggregates)
+
+    def reap_stale(self, max_age_seconds: float = 1800) -> list[str]:
+        """Remove broadcast buckets older than *max_age_seconds*."""
+        stale = self._registry.pop_stale(max_age_seconds)
+        for eid, _ in stale:
+            logger.warning("Reaped stale broadcast bucket for execution {}", eid)
+        return [eid for eid, _ in stale]
 
     def force_flush(self, timeout_millis: int = 30000) -> bool:
         return True

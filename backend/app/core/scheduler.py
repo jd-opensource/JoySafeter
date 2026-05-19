@@ -85,9 +85,10 @@ async def execution_reaper_loop() -> None:
         except Exception as exc:
             logger.warning(f"Execution reaper error: {exc}")
         try:
-            from app.core.observation.otel.provider import get_persistence_processor
+            from app.core.observation.otel.provider import get_broadcast_processor, get_persistence_processor
 
             get_persistence_processor().reap_stale()
+            get_broadcast_processor().reap_stale()
         except Exception as exc:
             logger.debug(f"Observation bucket reap failed: {exc}")
 
