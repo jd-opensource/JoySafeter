@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.app_errors import InvalidRequestError, NotFoundError, normalize_app_error
+from app.core.constants import RunPurpose, TriggerMedium
 from app.core.engine.registry import engine_registry
 from app.core.events import ExecutionEventEnvelope, execution_event_bus
 from app.core.events.event_types import ExecutionEventType
@@ -45,8 +46,8 @@ class RunSpec:
     version: AgentVersion
     workspace_id: uuid.UUID
     prompt: str
-    trigger_medium: str
-    run_purpose: str
+    trigger_medium: TriggerMedium
+    run_purpose: RunPurpose
     user_id: str
     thread_id: uuid.UUID
     release: AgentRelease | None = None
@@ -123,8 +124,8 @@ class ExecutionOrchestrator:
             release=release,
             workspace_id=agent.workspace_id,
             prompt=prompt,
-            trigger_medium="system",
-            run_purpose="production",
+            trigger_medium=TriggerMedium.SYSTEM,
+            run_purpose=RunPurpose.PRODUCTION,
             user_id=user_id,
             thread_id=task.thread_id,
             task_id=task_id,
@@ -163,8 +164,8 @@ class ExecutionOrchestrator:
             release=release,
             workspace_id=agent.workspace_id,
             prompt=message,
-            trigger_medium="api",
-            run_purpose="production",
+            trigger_medium=TriggerMedium.API,
+            run_purpose=RunPurpose.PRODUCTION,
             user_id=user_id,
             thread_id=thread_id,
         ))
@@ -175,8 +176,8 @@ class ExecutionOrchestrator:
         prompt: str,
         user_id: str,
         thread_id: uuid.UUID,
-        trigger_medium: str = "api",
-        run_purpose: str = "production",
+        trigger_medium: TriggerMedium = TriggerMedium.API,
+        run_purpose: RunPurpose = RunPurpose.PRODUCTION,
         task_id: uuid.UUID | None = None,
         input_payload: dict | None = None,
     ) -> AgentRun:
@@ -231,8 +232,8 @@ class ExecutionOrchestrator:
             version=version,
             workspace_id=workspace_id,
             prompt=prompt,
-            trigger_medium="ui",
-            run_purpose="draft_test",
+            trigger_medium=TriggerMedium.UI,
+            run_purpose=RunPurpose.DRAFT_TEST,
             user_id=user_id,
             thread_id=thread_id,
             input_payload=input_payload,
@@ -295,8 +296,8 @@ class ExecutionOrchestrator:
             version=version,
             workspace_id=workspace_id,
             prompt=prompt,
-            trigger_medium="ui",
-            run_purpose="internal_builder",
+            trigger_medium=TriggerMedium.UI,
+            run_purpose=RunPurpose.INTERNAL_BUILDER,
             user_id=user_id,
             thread_id=thread.id,
             input_payload=copilot_payload,
@@ -337,8 +338,8 @@ class ExecutionOrchestrator:
             version=version,
             workspace_id=workspace_id,
             prompt=prompt,
-            trigger_medium="ui",
-            run_purpose="debug",
+            trigger_medium=TriggerMedium.UI,
+            run_purpose=RunPurpose.DEBUG,
             user_id=user_id,
             thread_id=thread_id,
             input_payload={"debug": True, "variables": variables or {}},

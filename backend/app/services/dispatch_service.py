@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import uuid
 
+from app.core.constants import RunPurpose, TriggerMedium
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent_run import AgentRun
@@ -40,8 +42,8 @@ class DispatchService:
         prompt: str,
         user_id: str,
         thread_id: uuid.UUID,
-        trigger_medium: str = "api",
-        run_purpose: str = "production",
+        trigger_medium: TriggerMedium = TriggerMedium.API,
+        run_purpose: RunPurpose = RunPurpose.PRODUCTION,
         task_id: uuid.UUID | None = None,
         input_payload: dict | None = None,
     ) -> AgentRun:

@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.agent.cli_backends.base import CLIResult
+from app.core.constants import RunPurpose, TriggerMedium
 from app.core.ports.agent_spawn import AgentSpawnPort
 from app.models.agent_run import AgentRun
 from app.models.execution import Execution
@@ -188,8 +189,8 @@ class AgentSpawnAdapter:
                 agent_version_id=None if parent_release_id else parent_version_id,
                 workspace_id=ws_id,
                 thread_id=parent_thread_id,
-                trigger_medium="system",
-                run_purpose="production",
+                trigger_medium=TriggerMedium.SYSTEM,
+                run_purpose=RunPurpose.PRODUCTION,
                 goal=f"[Sub] {agent_name}: {prompt[:80]}",
                 status="pending",
                 created_by=user_id,
