@@ -89,7 +89,6 @@ async def get_copilot_agent(
     # Create agent using the base agent factory
     agent = await get_agent(
         model=model,
-        max_tokens=max_tokens,
         user_id=user_id,
         system_prompt=system_prompt,
         tools=tools,
