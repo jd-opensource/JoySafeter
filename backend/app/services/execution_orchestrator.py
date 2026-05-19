@@ -499,15 +499,22 @@ class ExecutionOrchestrator:
         # Fire engine in background (with error envelope, same as dispatch path)
         from app.services.execution_launcher import ExecutionLauncher, LaunchSpec
 
-        launcher = ExecutionLauncher(self.db)
+        launcher = ExecutionLauncher()
         try:
+            auto_approve = True
+            if run.task_id:
+                task = (await self.db.execute(select(Task).where(Task.id == run.task_id))).scalar_one_or_none()
+                if task:
+                    auto_approve = task.auto_approve
             await launcher.launch(LaunchSpec(
                 execution=execution,
+                run=run,
                 release=release,
                 version=version,
                 agent=agent,
                 workspace_id=run.workspace_id,
                 prompt=run.goal or "",
+                auto_approve=auto_approve,
             ))
         except Exception as exc:
             logger.error(f"[Orchestrator] launcher.launch failed for retry: {exc}")
@@ -602,9 +609,10 @@ class ExecutionOrchestrator:
         try:
             from app.services.execution_launcher import ExecutionLauncher, LaunchSpec
 
-            launcher = ExecutionLauncher(self.db)
+            launcher = ExecutionLauncher()
             await launcher.launch(LaunchSpec(
                 execution=execution,
+                run=run,
                 version=spec.version,
                 agent=spec.agent,
                 workspace_id=spec.workspace_id,

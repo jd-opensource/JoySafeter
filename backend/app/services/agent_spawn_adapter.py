@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
@@ -207,9 +208,7 @@ class AgentSpawnAdapter:
                 parent_execution_id=parent_id,
             )
             run.current_execution_id = execution.id
-            await db.commit()
 
-            # Insert Trace row so observations FK correctly
             from app.core.observation.model import Trace
             from app.utils.datetime import utc_now
 
@@ -226,7 +225,6 @@ class AgentSpawnAdapter:
                 input={"prompt": prompt},
             )
             db.add(trace)
-            await db.flush()
             await db.commit()
 
             await ExecutionOrchestrator.publish_run_status_change(
@@ -259,10 +257,8 @@ class AgentSpawnAdapter:
             return None
 
 
+@dataclass(slots=True)
 class _ChildExecution:
-    __slots__ = ("exec_id", "workspace_id", "agent_name")
-
-    def __init__(self, exec_id: uuid.UUID, workspace_id: uuid.UUID, agent_name: str) -> None:
-        self.exec_id = exec_id
-        self.workspace_id = workspace_id
-        self.agent_name = agent_name
+    exec_id: uuid.UUID
+    workspace_id: uuid.UUID
+    agent_name: str

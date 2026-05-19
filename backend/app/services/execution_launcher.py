@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.app_errors import AppError, normalize_app_error
@@ -27,7 +26,6 @@ from app.core.observation.model import Trace
 from app.models.agent import Agent, AgentRelease, AgentVersion
 from app.models.agent_run import AgentRun
 from app.models.execution import Execution
-from app.models.task import Task
 from app.utils.credentials import build_agent_credentials
 from app.utils.datetime import utc_now
 from app.utils.safe_task import safe_create_task
@@ -38,10 +36,12 @@ class LaunchSpec:
     """Everything needed to fire an engine for an existing Execution row."""
 
     execution: Execution
+    run: AgentRun
     version: AgentVersion
     agent: Agent
     workspace_id: uuid.UUID
     prompt: str
+    auto_approve: bool = True
     release: AgentRelease | None = None
     engine_kind_override: str | None = None
     definition_kind_override: str | None = None
@@ -51,21 +51,10 @@ class LaunchSpec:
 class ExecutionLauncher:
     """Owns the engine-fire lifecycle: context → trace → collector → engine → error handling."""
 
-    def __init__(self, db: AsyncSession):
-        self.db = db
-
     async def launch(self, spec: LaunchSpec) -> None:
         """Fire engine in a background task with full trace + error handling."""
-        run = (
-            await self.db.execute(select(AgentRun).where(AgentRun.id == spec.execution.run_id))
-        ).scalar_one()
+        run = spec.run
         credentials = build_agent_credentials(spec.agent)
-
-        auto_approve = True
-        if run.task_id:
-            task = (await self.db.execute(select(Task).where(Task.id == run.task_id))).scalar_one_or_none()
-            if task:
-                auto_approve = task.auto_approve
 
         run_meta = dict(
             trigger_medium=run.trigger_medium,
@@ -88,7 +77,7 @@ class ExecutionLauncher:
                 workspace_id=spec.workspace_id,
                 prompt=spec.prompt,
                 credentials=credentials,
-                auto_approve=auto_approve,
+                auto_approve=spec.auto_approve,
                 run_meta=run_meta,
                 runtime_binding=runtime_binding,
                 engine=engine,
