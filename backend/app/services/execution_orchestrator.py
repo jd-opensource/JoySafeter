@@ -16,21 +16,17 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.app_errors import AppError, InvalidRequestError, NotFoundError, normalize_app_error
-from app.core.engine.protocol import ExecutionContext
+from app.common.app_errors import InvalidRequestError, NotFoundError, normalize_app_error
 from app.core.engine.registry import engine_registry
 from app.core.events import ExecutionEventEnvelope, execution_event_bus
 from app.core.events.event_types import ExecutionEventType
-from app.core.observation.model import Trace
 from app.core.state_machines.transitions import transition_task
 from app.models.agent import Agent, AgentRelease, AgentVersion
 from app.models.agent_run import AgentRun
 from app.models.execution import Execution
 from app.models.task import Task
 from app.models.thread import Thread
-from app.utils.credentials import build_agent_credentials
 from app.utils.datetime import utc_now
-from app.utils.safe_task import safe_create_task
 
 # Status values that count as an "active" AgentRun — mirrored in the
 # partial unique index `uq_agent_runs_active_per_thread`.
@@ -499,15 +495,37 @@ class ExecutionOrchestrator:
         )
         await self.db.commit()
 
-        # Fire engine in background
-        await self._fire_engine(
-            execution=execution,
-            release=release,
-            version=version,
-            agent=agent,
-            workspace_id=run.workspace_id,
-            prompt=run.goal or "",
-        )
+        # Fire engine in background (with error envelope, same as dispatch path)
+        from app.services.execution_launcher import ExecutionLauncher, LaunchSpec
+
+        launcher = ExecutionLauncher(self.db)
+        try:
+            await launcher.launch(LaunchSpec(
+                execution=execution,
+                release=release,
+                version=version,
+                agent=agent,
+                workspace_id=run.workspace_id,
+                prompt=run.goal or "",
+            ))
+        except Exception as exc:
+            logger.error(f"[Orchestrator] _fire_engine failed for retry: {exc}")
+            app_error = normalize_app_error(exc, default_code="EXECUTION_FAILED", source="engine")
+            error_payload = app_error.to_payload()
+            error_payload.setdefault("data", {})["reason"] = "engine_fire_failed"
+            await execution_event_bus.publish(
+                ExecutionEventEnvelope(
+                    execution_id=execution.id,
+                    run_id=run.id,
+                    workspace_id=run.workspace_id,
+                    event_type=ExecutionEventType.EXECUTION_COMPLETED,
+                    payload={"status": "failed", "error": error_payload, "result_summary": str(exc)[:2000]},
+                    terminal_status="failed",
+                    error=error_payload,
+                    result_summary=str(exc)[:2000],
+                ),
+                self.db,
+            )
 
         await self.db.refresh(run)
         return run
@@ -596,7 +614,10 @@ class ExecutionOrchestrator:
         await self.db.refresh(run)
 
         try:
-            await self._fire_engine(
+            from app.services.execution_launcher import ExecutionLauncher, LaunchSpec
+
+            launcher = ExecutionLauncher(self.db)
+            await launcher.launch(LaunchSpec(
                 execution=execution,
                 version=spec.version,
                 agent=spec.agent,
@@ -606,7 +627,7 @@ class ExecutionOrchestrator:
                 engine_kind_override=spec.engine_kind_override,
                 definition_kind_override=spec.definition_kind_override,
                 definition_payload_override=spec.definition_payload_override,
-            )
+            ))
         except Exception as exc:
             logger.error(f"[Orchestrator] _fire_engine failed: {exc}")
             app_error = normalize_app_error(exc, default_code="EXECUTION_FAILED", source="engine")
@@ -632,207 +653,6 @@ class ExecutionOrchestrator:
             await self.db.refresh(run)
 
         return run
-
-    async def _fire_engine(
-        self,
-        execution: Execution,
-        version: AgentVersion,
-        agent: Agent,
-        workspace_id: uuid.UUID,
-        prompt: str,
-        *,
-        release: AgentRelease | None = None,
-        engine_kind_override: str | None = None,
-        definition_kind_override: str | None = None,
-        definition_payload_override: dict | None = None,
-    ) -> None:
-        """Build context and fire engine in a background task.
-
-        Trace + ObservationCollector are created unconditionally — every run
-        contributes to full-stack tracing, grouped by thread_id as session_id.
-        """
-        credentials = build_agent_credentials(agent)
-
-        # Resolve auto_approve from task if linked
-        auto_approve = True
-        run = (await self.db.execute(select(AgentRun).where(AgentRun.id == execution.run_id))).scalar_one()
-        if run.task_id:
-            task = (await self.db.execute(select(Task).where(Task.id == run.task_id))).scalar_one_or_none()
-            if task:
-                auto_approve = task.auto_approve
-
-        context = ExecutionContext(
-            db=self.db,
-            execution_id=execution.id,
-            run_id=run.id,
-            workspace_id=workspace_id,
-            credentials=credentials,
-            auto_approve=auto_approve,
-        )
-
-        # Wire context callbacks (pass run metadata to avoid extra DB query)
-        run_meta = dict(
-            trigger_medium=run.trigger_medium,
-            run_purpose=run.run_purpose,
-            thread_id=run.thread_id,
-            task_id=run.task_id,
-        )
-        self._wire_context(context, **run_meta)  # type: ignore[arg-type]
-
-        runtime_binding = release.runtime_binding if release else {}
-        engine = engine_registry.get(engine_kind_override or execution.engine_kind)
-        _def_kind = definition_kind_override or version.engine_kind
-        _def_payload = definition_payload_override or version.definition_payload
-
-        async def _run_engine():
-            from app.core.database import AsyncSessionLocal
-            from app.core.observation import ObservationCollector
-            from app.core.observation.types import ObservationLevel
-            from app.services.model_service import ModelService
-            from app.services.runner_factory import create_execution_runner
-            from app.websocket.execution_subscription_manager import execution_subscription_manager
-
-            try:
-                async with AsyncSessionLocal() as db:
-                    # Persist the Trace row inside this session so observations
-                    # written later FK to a committed row — no cross-session
-                    # visibility race with the caller's transaction.
-                    await self._insert_trace(
-                        db,
-                        execution=execution,
-                        run=run,
-                        agent_name=agent.name,
-                        agent_version_id=version.id,
-                        prompt=prompt,
-                    )
-
-                    # Rebuild context with fresh session
-                    ctx = ExecutionContext(
-                        db=db,
-                        execution_id=execution.id,
-                        run_id=run.id,
-                        workspace_id=workspace_id,
-                        credentials=credentials,
-                        auto_approve=auto_approve,
-                        model_port=ModelService(db),
-                        runner_factory=create_execution_runner,
-                    )
-                    self._wire_context(ctx, **run_meta)
-
-                    async def _db_factory():
-                        return AsyncSessionLocal()
-
-                    async def _broadcast(exec_id: Any, message: dict) -> None:
-                        await execution_subscription_manager.broadcast_event(str(exec_id), message)
-
-                    collector = ObservationCollector(
-                        trace_id=execution.id,
-                        execution_id=execution.id,
-                        workspace_id=workspace_id,
-                        db_session_factory=_db_factory,
-                        broadcast_fn=_broadcast,
-                    )
-                    ctx.collector = collector
-
-                    try:
-                        await engine.start(
-                            ctx,
-                            release_runtime_binding=runtime_binding,
-                            engine_kind=_def_kind,
-                            definition_payload=_def_payload,
-                            prompt=prompt,
-                        )
-                    except Exception as exc:
-                        collector.record_event(
-                            f"error:{type(exc).__name__}",
-                            input={"message": str(exc)},
-                            level=ObservationLevel.ERROR,
-                        )
-                        raise
-                    finally:
-                        await collector.finalize()
-            except Exception as exc:
-                logger.error(f"[Orchestrator] Engine failed for execution {execution.id}: {exc}")
-                try:
-                    app_error = normalize_app_error(
-                        exc,
-                        default_code="EXECUTION_ENGINE_FAILED",
-                        default_message="Engine execution failed",
-                        default_data={"execution_id": str(execution.id), "run_id": str(run.id)},
-                        source="engine",
-                    )
-                    await ctx._complete_fn("failed", app_error.message[:2000], app_error)
-                except Exception as cleanup_exc:
-                    logger.error(f"[Orchestrator] Failed to mark execution as failed: {cleanup_exc}")
-
-        safe_create_task(_run_engine(), name=f"engine-{execution.id}")
-
-    def _wire_context(
-        self,
-        ctx: ExecutionContext,
-        *,
-        trigger_medium: str | None = None,
-        run_purpose: str | None = None,
-        thread_id: uuid.UUID | None = None,
-        task_id: uuid.UUID | None = None,
-    ) -> None:
-        """Attach emit/status/complete callbacks to context.
-
-        Run metadata is passed in directly by the caller (who already has the
-        run object), avoiding an extra DB query.
-        """
-
-        def _envelope(**overrides: Any) -> ExecutionEventEnvelope:
-            return ExecutionEventEnvelope(
-                execution_id=ctx.execution_id,
-                run_id=ctx.run_id,
-                workspace_id=ctx.workspace_id,
-                trigger_medium=trigger_medium,
-                run_purpose=run_purpose,
-                thread_id=thread_id,
-                task_id=task_id,
-                **overrides,
-            )
-
-        async def _emit(event_type: ExecutionEventType, payload: dict) -> None:
-            await execution_event_bus.publish(
-                _envelope(event_type=event_type, payload=payload),
-                ctx.db,
-            )
-
-        async def _status(status: str) -> None:
-            await execution_event_bus.publish(
-                _envelope(
-                    event_type=ExecutionEventType.EXECUTION_STATUS_CHANGE,
-                    payload={"status": status},
-                    target_status=status,
-                ),
-                ctx.db,
-            )
-
-        async def _complete(
-            status: str,
-            result_summary: str | None = None,
-            error: AppError | None = None,
-        ) -> None:
-            error_payload = error.to_payload() if error is not None else None
-            await execution_event_bus.publish(
-                _envelope(
-                    event_type=ExecutionEventType.EXECUTION_COMPLETED,
-                    payload={
-                        "status": status,
-                        "error": error_payload,
-                    },
-                    terminal_status=status,
-                    error=error_payload,
-                    result_summary=result_summary,
-                ),
-                ctx.db,
-            )
-
-        ctx._emit_fn = _emit
-        ctx._status_fn = _status
-        ctx._complete_fn = _complete
 
     # ------------------------------------------------------------------
     # Internal: helpers
@@ -934,38 +754,3 @@ class ExecutionOrchestrator:
             data={"thread_id": str(thread_id)},
         )
 
-    async def _insert_trace(
-        self,
-        db: AsyncSession,
-        *,
-        execution: Execution,
-        run: AgentRun,
-        agent_name: str,
-        agent_version_id: uuid.UUID,
-        prompt: str,
-    ) -> None:
-        """Insert the Trace row for this execution.
-
-        Called inside the engine's fresh session so the row is committed with
-        the engine transaction — downstream observations FK to it safely.
-        Trace.id == Execution.id by convention; session_id == str(thread_id)
-        groups multi-turn traces in the UI.
-        """
-        trace = Trace(
-            id=execution.id,
-            name=agent_name,
-            workspace_id=run.workspace_id,
-            start_time=utc_now(),
-            status="running",
-            execution_id=execution.id,
-            agent_version_id=agent_version_id,
-            user_id=(
-                uuid.UUID(run.created_by)
-                if run.created_by and isinstance(run.created_by, str)
-                else run.created_by
-            ),
-            session_id=str(run.thread_id),
-            input={"prompt": prompt},
-        )
-        db.add(trace)
-        await db.flush()
