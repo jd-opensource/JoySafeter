@@ -10,7 +10,6 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any, Generic, TypeVar
 
-from loguru import logger
 from opentelemetry.sdk.trace import SpanProcessor
 
 
@@ -34,10 +33,6 @@ def resolve_execution_id(span: Any) -> str | None:
     return str(val) if val else None
 
 
-# ---------------------------------------------------------------------------
-# BucketRegistry — shared dict+lock pattern for both processors
-# ---------------------------------------------------------------------------
-
 B = TypeVar("B")
 
 
@@ -48,50 +43,50 @@ class BucketRegistry(Generic[B]):
         self._buckets: dict[str, B] = {}
         self._lock = threading.Lock()
 
-    def _put(self, execution_id: uuid.UUID, bucket: B) -> None:
+    def put(self, execution_id: uuid.UUID, bucket: B) -> None:
         with self._lock:
             self._buckets[str(execution_id)] = bucket
 
-    def _pop(self, execution_id: uuid.UUID) -> B | None:
+    def pop(self, execution_id: uuid.UUID) -> B | None:
         with self._lock:
             return self._buckets.pop(str(execution_id), None)
 
-    def _get_by_id(self, execution_id: uuid.UUID) -> B | None:
+    def get_by_id(self, execution_id: uuid.UUID) -> B | None:
         with self._lock:
             return self._buckets.get(str(execution_id))
 
-    def _get_by_span(self, span: Any) -> B | None:
+    def get_by_span(self, span: Any) -> B | None:
         exec_id = resolve_execution_id(span)
         if exec_id is None:
             return None
         with self._lock:
             return self._buckets.get(exec_id)
 
-    def _get_by_str(self, exec_id_str: str) -> B | None:
+    def get_by_str(self, exec_id_str: str) -> B | None:
         with self._lock:
             return self._buckets.get(exec_id_str)
 
-    def _pop_stale(self, max_age_seconds: float) -> list[tuple[str, B]]:
-        """Remove and return buckets older than *max_age_seconds*."""
+    def pop_stale(self, max_age_seconds: float) -> list[tuple[str, B]]:
+        """Remove and return buckets older than *max_age_seconds*.
+
+        Requires buckets to have a ``created_at: float`` attribute
+        (monotonic timestamp).
+        """
         now = time.monotonic()
         stale: list[tuple[str, B]] = []
         with self._lock:
             for eid, bucket in list(self._buckets.items()):
-                if now - getattr(bucket, "created_at", 0) > max_age_seconds:
+                created = getattr(bucket, "created_at", None)
+                if created is not None and now - created > max_age_seconds:
                     stale.append((eid, bucket))
                     self._buckets.pop(eid)
         return stale
 
-    def _clear(self) -> list[B]:
+    def clear(self) -> list[B]:
         with self._lock:
             buckets = list(self._buckets.values())
             self._buckets.clear()
         return buckets
-
-
-# ---------------------------------------------------------------------------
-# Shared attribute helpers
-# ---------------------------------------------------------------------------
 
 
 def parse_json_attr(val: Any) -> Any:

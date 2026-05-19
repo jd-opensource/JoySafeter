@@ -272,16 +272,16 @@ class PersistenceProcessor(SpanProcessor):
         bucket = _ExecutionBucket(
             execution_id, trace_id, workspace_id, db_session_factory, event_loop
         )
-        self._registry._put(execution_id, bucket)
+        self._registry.put(execution_id, bucket)
 
     def get_execution_aggregates(self, execution_id: uuid.UUID) -> dict:
-        bucket = self._registry._get_by_id(execution_id)
+        bucket = self._registry.get_by_id(execution_id)
         if bucket is None:
             return dict(_EMPTY_AGGREGATES)
         return bucket.get_aggregates()
 
     async def async_shutdown_execution(self, execution_id: uuid.UUID) -> dict:
-        bucket = self._registry._pop(execution_id)
+        bucket = self._registry.pop(execution_id)
         if bucket is None:
             return dict(_EMPTY_AGGREGATES)
         aggregates = bucket.get_aggregates()
@@ -289,18 +289,18 @@ class PersistenceProcessor(SpanProcessor):
         return aggregates
 
     def on_start(self, span: ReadableSpan, parent_context: Any = None) -> None:  # type: ignore[override]
-        bucket = self._registry._get_by_span(span)
+        bucket = self._registry.get_by_span(span)
         if bucket:
             bucket.on_start(span)
 
     def on_end(self, span: ReadableSpan) -> None:
-        bucket = self._registry._get_by_span(span)
+        bucket = self._registry.get_by_span(span)
         if bucket:
             bucket.on_end(span)
 
     def reap_stale(self, max_age_seconds: float = 1800) -> list[str]:
         """Remove buckets older than *max_age_seconds* (default 30 min)."""
-        stale = self._registry._pop_stale(max_age_seconds)
+        stale = self._registry.pop_stale(max_age_seconds)
         for eid, bucket in stale:
             bucket.sync_shutdown()
             logger.warning("Reaped stale observation bucket for execution {}", eid)
@@ -310,5 +310,5 @@ class PersistenceProcessor(SpanProcessor):
         return True
 
     def shutdown(self, timeout_millis: int = 10000) -> None:
-        for bucket in self._registry._clear():
+        for bucket in self._registry.clear():
             bucket.sync_shutdown()

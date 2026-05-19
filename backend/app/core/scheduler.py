@@ -88,8 +88,8 @@ async def execution_reaper_loop() -> None:
             from app.core.observation.otel.provider import get_persistence_processor
 
             get_persistence_processor().reap_stale()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(f"Observation bucket reap failed: {exc}")
 
 
 async def recover_stale_on_startup() -> None:

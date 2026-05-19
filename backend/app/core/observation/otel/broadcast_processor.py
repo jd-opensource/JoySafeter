@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine
@@ -30,6 +31,7 @@ class _BroadcastBucket:
         "_loop",
         "_lock",
         "_otel_span_id_to_observation_id",
+        "created_at",
     )
 
     def __init__(
@@ -45,6 +47,7 @@ class _BroadcastBucket:
         self._loop = event_loop
         self._lock = threading.Lock()
         self._otel_span_id_to_observation_id: dict[int, str] = {}
+        self.created_at = time.monotonic()
 
     def _resolve_parent_obs_id(self, span: Any) -> str | None:
         if span.parent:
@@ -156,18 +159,18 @@ class BroadcastProcessor(LiveSpanProcessor):
         event_loop: asyncio.AbstractEventLoop,
     ) -> None:
         bucket = _BroadcastBucket(execution_id, trace_id, broadcast_fn, event_loop)
-        self._registry._put(execution_id, bucket)
+        self._registry.put(execution_id, bucket)
 
     def unregister_execution(self, execution_id: uuid.UUID) -> None:
-        self._registry._pop(execution_id)
+        self._registry.pop(execution_id)
 
     def on_start(self, span: Any, parent_context: Any = None) -> None:
-        bucket = self._registry._get_by_span(span)
+        bucket = self._registry.get_by_span(span)
         if bucket:
             bucket.on_start(span)
 
     def on_end(self, span: Any) -> None:
-        bucket = self._registry._get_by_span(span)
+        bucket = self._registry.get_by_span(span)
         if bucket:
             bucket.on_end(span)
 
@@ -175,12 +178,12 @@ class BroadcastProcessor(LiveSpanProcessor):
         exec_id_str = attributes.get("execution.id") or ""
         bucket: _BroadcastBucket | None = None
         if exec_id_str:
-            bucket = self._registry._get_by_str(str(exec_id_str))
+            bucket = self._registry.get_by_str(str(exec_id_str))
         if bucket:
             bucket.on_event(span, event_name, attributes)
 
     def emit_trace_complete(self, execution_id: uuid.UUID, status: str, trace_id: str, aggregates: dict) -> None:
-        bucket = self._registry._get_by_id(execution_id)
+        bucket = self._registry.get_by_id(execution_id)
         if bucket:
             bucket.emit_trace_complete(status, trace_id, aggregates)
 
@@ -188,4 +191,4 @@ class BroadcastProcessor(LiveSpanProcessor):
         return True
 
     def shutdown(self, timeout_millis: int = 30000) -> None:
-        self._registry._clear()
+        self._registry.clear()
