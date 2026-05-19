@@ -12,11 +12,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.app_errors import InvalidRequestError, NotFoundError
+from app.core.contracts.execution import ACTIVE_RUN_STATUSES
 from app.models.agent_run import AgentRun
 from app.models.thread import Thread
 from app.repositories.thread import ThreadRepository
 from app.schemas.thread import CreateThreadRequest, UpdateThreadRequest
-from app.services.execution_orchestrator import ACTIVE_RUN_STATUSES
 
 
 class ThreadService:

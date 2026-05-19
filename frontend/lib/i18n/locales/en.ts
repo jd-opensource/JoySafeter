@@ -457,7 +457,7 @@ const en = {
         changelogPlaceholder: 'Describe what changed in this version',
         definitionPayload: 'Definition Payload',
         capabilityManifest: 'Capability Manifest',
-        selectDefinitionKind: 'Select build method',
+        selectEngineKind: 'Select build method',
         versionStatus: {
           draft: 'Draft',
           frozen: 'Frozen',

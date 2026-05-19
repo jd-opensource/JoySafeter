@@ -451,7 +451,7 @@ const zh = {
         changelogPlaceholder: '描述此版本的变更内容',
         definitionPayload: '定义配置',
         capabilityManifest: '能力清单',
-        selectDefinitionKind: '选择构建方式',
+        selectEngineKind: '选择构建方式',
         versionStatus: {
           draft: '初版',
           frozen: '已冻结',

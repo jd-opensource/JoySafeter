@@ -5,7 +5,7 @@ import type { GraphState } from '../utils/saveManager'
 
 export interface LoadedVersionGraphState {
   graphState: GraphState
-  definitionKind: EngineKind
+  engineKind: EngineKind
   versionStatus: 'draft' | 'frozen'
   rawPayload: Record<string, unknown>
 }
@@ -84,7 +84,7 @@ export const visualDefinitionAdapter = {
 
     return {
       graphState: toGraphState(rawPayload, agentId, versionId, workspaceId),
-      definitionKind: version.engine_kind,
+      engineKind: version.engine_kind,
       versionStatus: version.status,
       rawPayload,
     }

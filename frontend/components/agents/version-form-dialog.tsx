@@ -79,7 +79,7 @@ export function VersionFormDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t('agents.detail.createVersion')}</DialogTitle>
-          <DialogDescription>{t('agents.detail.selectDefinitionKind')}</DialogDescription>
+          <DialogDescription>{t('agents.detail.selectEngineKind')}</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">

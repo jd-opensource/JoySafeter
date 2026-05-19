@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.app_errors import InvalidRequestError, NotFoundError, normalize_app_error
 from app.core.constants import RunPurpose, TriggerMedium
+from app.core.contracts.execution import ACTIVE_RUN_STATUSES
 from app.core.engine.registry import engine_registry
 from app.core.events import ExecutionEventEnvelope, execution_event_bus
 from app.core.events.event_types import ExecutionEventType
@@ -31,10 +32,6 @@ from app.models.execution import Execution
 from app.models.task import Task
 from app.models.thread import Thread
 from app.utils.datetime import utc_now
-
-# Status values that count as an "active" AgentRun — mirrored in the
-# partial unique index `uq_agent_runs_active_per_thread`.
-ACTIVE_RUN_STATUSES: tuple[str, ...] = ("pending", "running")
 
 
 @dataclass
@@ -57,13 +54,12 @@ class RunSpec:
     task_id: uuid.UUID | None = None
     input_payload: dict | None = None
     engine_kind_override: str | None = None
-    definition_kind_override: str | None = None
     definition_payload_override: dict | None = None
 
     def __post_init__(self) -> None:
-        overrides = (self.engine_kind_override, self.definition_kind_override, self.definition_payload_override)
+        overrides = (self.engine_kind_override, self.definition_payload_override)
         if any(o is not None for o in overrides) and not all(o is not None for o in overrides):
-            raise ValueError("engine_kind_override, definition_kind_override, and definition_payload_override must be all-or-nothing")
+            raise ValueError("engine_kind_override and definition_payload_override must be all-or-nothing")
 
 
 class ExecutionOrchestrator:
@@ -305,7 +301,6 @@ class ExecutionOrchestrator:
             thread_id=thread.id,
             input_payload=copilot_payload,
             engine_kind_override="build_copilot",
-            definition_kind_override="build_copilot",
             definition_payload_override=copilot_payload,
         ))
 
@@ -629,7 +624,6 @@ class ExecutionOrchestrator:
                 prompt=spec.prompt,
                 release=spec.release,
                 engine_kind_override=spec.engine_kind_override,
-                definition_kind_override=spec.definition_kind_override,
                 definition_payload_override=spec.definition_payload_override,
             ))
         except Exception as exc:

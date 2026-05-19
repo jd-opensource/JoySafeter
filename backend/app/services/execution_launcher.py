@@ -44,7 +44,6 @@ class LaunchSpec:
     auto_approve: bool = True
     release: AgentRelease | None = None
     engine_kind_override: str | None = None
-    definition_kind_override: str | None = None
     definition_payload_override: dict | None = None
 
 
@@ -64,8 +63,8 @@ class ExecutionLauncher:
         )
 
         runtime_binding = spec.release.runtime_binding if spec.release else {}
-        engine = engine_registry.get(spec.engine_kind_override or spec.execution.engine_kind)
-        def_kind = spec.definition_kind_override or spec.version.engine_kind
+        engine_kind = spec.engine_kind_override or spec.execution.engine_kind
+        engine = engine_registry.get(engine_kind)
         def_payload = spec.definition_payload_override or spec.version.definition_payload
 
         safe_create_task(
@@ -81,7 +80,7 @@ class ExecutionLauncher:
                 run_meta=run_meta,
                 runtime_binding=runtime_binding,
                 engine=engine,
-                def_kind=def_kind,
+                engine_kind=engine_kind,
                 def_payload=def_payload,
             ),
             name=f"engine-{spec.execution.id}",
@@ -101,7 +100,7 @@ class ExecutionLauncher:
         run_meta: dict,
         runtime_binding: dict,
         engine: Any,
-        def_kind: str,
+        engine_kind: str,
         def_payload: dict,
     ) -> None:
         from app.core.database import AsyncSessionLocal
@@ -154,7 +153,7 @@ class ExecutionLauncher:
                     await engine.start(
                         ctx,
                         release_runtime_binding=runtime_binding,
-                        engine_kind=def_kind,
+                        engine_kind=engine_kind,
                         definition_payload=def_payload,
                         prompt=prompt,
                     )

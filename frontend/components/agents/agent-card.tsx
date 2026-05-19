@@ -10,7 +10,7 @@ import type { Agent } from '@/types/agent'
 
 import { AgentStatusIndicator } from './agent-status'
 
-const DEFINITION_LABEL_KEYS: Record<string, { labelKey: string; defaultLabel: string }> = {
+const ENGINE_KIND_LABELS: Record<string, { labelKey: string; defaultLabel: string }> = {
   langgraph_visual: { labelKey: 'agents.graph.shortLabel', defaultLabel: 'Graph' },
   langgraph_code: { labelKey: 'agents.code.shortLabel', defaultLabel: 'Code' },
   claude_code: { labelKey: 'agents.claudeCode.shortLabel', defaultLabel: 'Claude Code' },
@@ -33,7 +33,7 @@ export function AgentCard({ agent, onClick, onDelete }: AgentCardProps) {
       : t('agents.card.hintNew', { defaultValue: 'Start building' })
 
   const timeText = agent.updated_at ? formatRelativeTime(agent.updated_at, t) : ''
-  const definitionLabel = agent.engine_kind ? DEFINITION_LABEL_KEYS[agent.engine_kind] : null
+  const engineLabel = agent.engine_kind ? ENGINE_KIND_LABELS[agent.engine_kind] : null
 
   return (
     <Card
@@ -63,9 +63,9 @@ export function AgentCard({ agent, onClick, onDelete }: AgentCardProps) {
       {/* Meta + Action — single compact row */}
       <div className="mt-auto flex items-center justify-between pt-2">
         <div className="flex items-center gap-1.5">
-          {definitionLabel && (
+          {engineLabel && (
             <span className="inline-flex h-5 items-center rounded-md border border-[var(--border)] px-1.5 text-[10px] text-[var(--text-muted)]">
-              {t(definitionLabel.labelKey, { defaultValue: definitionLabel.defaultLabel })}
+              {t(engineLabel.labelKey, { defaultValue: engineLabel.defaultLabel })}
             </span>
           )}
           {timeText && <span className="text-[10px] text-[var(--text-muted)]">{timeText}</span>}

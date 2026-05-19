@@ -119,7 +119,7 @@ export interface VersionGraphState {
   edges: Edge[]
   viewport?: { x: number; y: number; zoom: number }
   variables?: Record<string, unknown>
-  definitionKind?: string
+  engineKind?: string
   versionStatus?: 'draft' | 'frozen'
 }
 
@@ -174,7 +174,7 @@ export function useVersionGraphState(
       )
       return {
         ...toVersionGraphState(versionState),
-        definitionKind: versionState.definitionKind,
+        engineKind: versionState.engineKind,
         versionStatus: versionState.versionStatus,
       }
     },
