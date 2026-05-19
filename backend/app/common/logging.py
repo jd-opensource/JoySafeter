@@ -1,9 +1,9 @@
 """
-Logging middleware.
+Logging & tracing middleware.
 
-Log detailed information for each request, including method, path, duration, status code, etc.
-Uses OpenTelemetry for trace-context propagation so that HTTP request logs, engine
-observations, and outgoing A2A calls share the same trace_id.
+Unified ASGI middleware that wraps both HTTP requests and WebSocket
+connections in an OTel span, so trace_id flows into logs, response
+headers, and outgoing A2A calls for *all* connection types.
 """
 # mypy: ignore-errors
 
@@ -43,24 +43,27 @@ class InterceptHandler(logging.Handler):
         logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
 
 
-class LoggingMiddleware:
-    """Pure ASGI logging middleware with OTel trace-context propagation."""
+class TracingMiddleware:
+    """Unified ASGI middleware: OTel span + structured logging for HTTP and WebSocket."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
+        conn_type = scope["type"]
+        if conn_type == "http":
+            await self._handle_http(scope, receive, send)
+        elif conn_type == "websocket":
+            await self._handle_websocket(scope, receive, send)
+        else:
             await self.app(scope, receive, send)
-            return
 
+    async def _handle_http(self, scope: Scope, receive: Receive, send: Send) -> None:
         start_time = time.time()
         method = scope.get("method", "-")
         path = scope.get("path", "-")
-        client = scope.get("client")
-        client_host = client[0] if client else "unknown"
+        client_host = scope["client"][0] if scope.get("client") else "unknown"
 
-        # Extract incoming W3C traceparent so upstream traces are continued
         carrier = {
             k.decode(): v.decode()
             for k, v in scope.get("headers", [])
@@ -114,6 +117,24 @@ class LoggingMiddleware:
                 log.warning(message)
             else:
                 log.info(message)
+
+    async def _handle_websocket(self, scope: Scope, receive: Receive, send: Send) -> None:
+        path = scope.get("path", "-")
+        client_host = scope["client"][0] if scope.get("client") else "unknown"
+
+        tracer = trace.get_tracer("joysafeter.ws")
+        with tracer.start_as_current_span(
+            f"ws:{path}",
+            attributes={
+                "ws.path": path,
+                "ws.client": client_host,
+            },
+        ):
+            await self.app(scope, receive, send)
+
+
+# Keep the old name as an alias so main.py import doesn't break
+LoggingMiddleware = TracingMiddleware
 
 
 def setup_logging():

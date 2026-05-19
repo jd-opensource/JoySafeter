@@ -361,6 +361,18 @@ class Settings(BaseSettings):
         default=False, description="Enable Langfuse tracing (requires langfuse_public_key and langfuse_secret_key)"
     )
 
+    # OpenTelemetry Trace Export
+    otel_exporter_otlp_endpoint: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_ENDPOINT"),
+        description="OTLP gRPC endpoint for trace export (e.g. http://localhost:4317). Disabled when unset.",
+    )
+    otel_exporter_otlp_protocol: str = Field(
+        default="grpc",
+        validation_alias="OTEL_EXPORTER_OTLP_PROTOCOL",
+        description="OTLP transport protocol: 'grpc' or 'http/protobuf'",
+    )
+
     # Artifact Storage
     agent_artifacts_root: Optional[str] = Field(
         default=None,
