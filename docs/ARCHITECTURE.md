@@ -8,8 +8,8 @@ JoySafeter follows a layered architecture with clear separation between API surf
 Layer 1     API Routes (app/api/v1/) + WebSocket Handlers (app/websocket/)
 Layer 1.5   DispatchService — API-facing facade
 Layer 2     ExecutionOrchestrator — creates Run + Execution, builds ExecutionContext
-Layer 2.5   EngineRegistry — singleton, maps runtime_kind to ExecutionEngine
-Layer 3     Execution Engines: CLIEngine / GraphEngine / CodeEngine / CopilotEngine
+Layer 2.5   EngineRegistry — singleton, maps engine_kind to ExecutionEngine
+Layer 3     Execution Engines: CLIEngine / LangGraphVisualEngine / LangGraphCodeEngine / CopilotEngine
 Layer 3.5   ExecutionContext callbacks -> ExecutionEventBus
 Layer 4a    PersistenceSubscriber + StateTransitionSubscriber (Phase 1, shared DB tx)
 Layer 4b    WebSocketSubscriber + TaskSyncSubscriber (Phase 2, parallel fan-out)
@@ -38,10 +38,10 @@ flowchart TB
     end
 
     subgraph L3["Layer 3 — Engines"]
-        CLI["CLIEngine<br/>sandbox"]
-        GRAPH["GraphEngine<br/>graph"]
-        CODE["CodeEngine<br/>code"]
-        COPILOT["CopilotEngine<br/>copilot"]
+        CLI["CLIEngine<br/>claude_code / codex / openclaw"]
+        GRAPH["LangGraphVisualEngine<br/>langgraph_visual"]
+        CODE["LangGraphCodeEngine<br/>langgraph_code"]
+        COPILOT["CopilotEngine<br/>build_copilot"]
     end
 
     subgraph L35["Layer 3.5 — Event Bus"]
@@ -93,13 +93,18 @@ flowchart TB
 
 ### 2.1 Contracts — Single Source of Truth for Value Domains
 
-Three contract files in `core/contracts/` define every canonical value as `Literal` types + plain `set[str]` constants. All code references these definitions rather than scattering magic strings.
+Contract files in `core/contracts/` define every canonical value as `Literal` types, `StrEnum` classes, and plain `set[str]` constants. All code references these definitions rather than scattering magic strings.
 
 | Contract file | Defines |
 |---|---|
-| `agent.py` | `DefinitionKindLiteral`, `RuntimeKindLiteral`, `DEFINITION_RUNTIME_KIND` mapping, `infer_runtime_kind()` |
-| `execution.py` | `RunStatusLiteral`, `ExecutionStatusLiteral`, `TriggerSourceLiteral`, terminal/active sets |
+| `agent.py` | `EngineKind` (Literal), `RuntimeKind` (Literal), `ENGINE_RUNTIME_MAP`, `infer_runtime_kind()` |
+| `execution.py` | `TriggerMedium` (StrEnum), `RunPurpose` (StrEnum), `RunStatusLiteral`, `ExecutionStatusLiteral`, terminal/active sets |
 | `error.py` | `ErrorCode` (StrEnum, ~180 codes), `ErrorSource`, `UserAction`, canonical registry sets |
+
+**Two orthogonal dispatch dimensions** (defined as StrEnums in `execution.py`):
+
+- `TriggerMedium` — HOW the run was initiated: `api` | `scheduler` | `system` | `ui`
+- `RunPurpose` — WHY the run exists: `production` | `draft_test` | `debug` | `internal_builder`
 
 ### 2.2 Engine Protocol + Registry + Capabilities
 
@@ -120,26 +125,28 @@ class ExecutionEngine(Protocol):
 
 **EngineCapabilities** declares what each engine supports:
 
-| Engine | runtime_kind | cancel | msg_inject | debug_obs | artifacts | approval |
+| Engine class | engine_kind(s) | cancel | msg_inject | debug_obs | artifacts | approval |
 |---|---|---|---|---|---|---|
-| CLIEngine | sandbox | Y | Y | N | Y | Y |
-| GraphEngine | graph | Y | N | Y | Y | Y |
-| CodeEngine | code | Y | N | Y | N | N |
-| CopilotEngine | copilot | Y | N | N | N | N |
+| CLIEngine | `claude_code`, `codex`, `openclaw` | Y | Y | N | Y | Y |
+| LangGraphVisualEngine | `langgraph_visual` | Y | N | Y | Y | Y |
+| LangGraphCodeEngine | `langgraph_code` | Y | N | Y | N | N |
+| CopilotEngine | `build_copilot` (internal) | Y | N | N | N | N |
 
-**Registry** (`core/engine/registry.py`): A module-level singleton `engine_registry` maps `runtime_kind` strings to engine instances. All four engines register at import time in `core/engine/__init__.py`:
+**Registry** (`core/engine/registry.py`): A module-level singleton `engine_registry` maps `engine_kind` strings to engine instances. All engines register at import time in `core/engine/__init__.py`:
 
 ```python
-engine_registry.register("sandbox", CLIEngine())
-engine_registry.register("graph", GraphEngine())
-engine_registry.register("code", CodeEngine())
-engine_registry.register("copilot", CopilotEngine())
+engine_registry.register("langgraph_visual", LangGraphVisualEngine())
+engine_registry.register("langgraph_code", LangGraphCodeEngine())
+engine_registry.register("claude_code", CLIEngine("claude_code"))
+engine_registry.register("codex", CLIEngine("codex"))
+engine_registry.register("openclaw", CLIEngine("openclaw"))
+engine_registry.register("build_copilot", CopilotEngine())
 ```
 
 **Adding a new engine** requires:
 1. Implement the `ExecutionEngine` protocol
 2. Register it in `core/engine/__init__.py`
-3. Add the new `runtime_kind` to `core/contracts/agent.py` (`RUNTIME_KINDS`, `DEFINITION_RUNTIME_KIND`)
+3. Add the new `engine_kind` to `core/contracts/agent.py` (`ENGINE_KINDS`, `ENGINE_RUNTIME_MAP`)
 4. Add error codes to `core/contracts/error.py` if needed
 
 ### 2.3 Two-Phase Event Bus
@@ -167,12 +174,16 @@ class ExecutionEventEnvelope:
     event_type: ExecutionEventType | str
     payload: dict[str, Any]
     seq: int = 0                          # filled by PersistenceSubscriber
-    trigger_source: str | None = None
+    trigger_medium: str | None = None     # HOW: api / scheduler / system / ui
+    run_purpose: str | None = None        # WHY: production / draft_test / debug / internal_builder
     thread_id: UUID | None = None
     task_id: UUID | None = None
     terminal_status: str | None = None    # completion-only
+    result_summary: str | None = None
     error: dict[str, Any] | None = None   # ErrorDescriptor via AppError.to_payload()
-    ...
+    target_status: str | None = None      # status-change events
+    container_id: str | None = None
+    metrics: dict[str, Any] | None = None
 ```
 
 **Event types** (`core/events/event_types.py`): `ExecutionEventType` StrEnum — content events (`assistant_text`, `thinking`, `tool_use_start/end`, `error`, `artifact_created`, `approval_requested/resolved`), lifecycle events (`execution_started/completed/status_change`, `run_status_change`), and copilot events.
@@ -203,9 +214,10 @@ class ExecutionEventEnvelope:
 | Module | Purpose |
 |---|---|
 | `collector.py` | `ObservationCollector` — main entry point, injected as `context.collector` |
-| `model.py` | Data models for observation spans |
-| `types.py` | Type definitions |
+| `model.py` | `Trace` and `Observation` ORM models (tables: `traces`, `observations`) |
+| `types.py` | Type definitions (`ObservationType`, `ObservationLevel`) |
 | `otel/provider.py` | OTel TracerProvider setup |
+| `otel/global_provider.py` | App-level singleton TracerProvider initialization |
 | `otel/span_wrapper.py` | Span wrapper with JoySafeter-specific attributes |
 | `otel/persistence_processor.py` | Exports spans to DB |
 | `otel/broadcast_processor.py` | Exports spans to WebSocket for real-time display |
@@ -213,10 +225,20 @@ class ExecutionEventEnvelope:
 
 ### 2.6 Ports & Adapters
 
-`core/ports/execution.py` defines Protocol interfaces that decouple `core/` from `services/`:
+`core/ports/` defines Protocol interfaces that decouple `core/` from `services/` and `models/`:
 
-- **`ExecutionEventPort`** — port for publishing execution events through the event bus. Implemented by `services/execution_event_adapter.py`, used by `core/agent/cli_backends/execution_runner.py`.
-- **`ExecutionReaderPort`** — port for reading execution data without direct ORM queries in `core/`. Implemented by `services/execution_reader_adapter.py`.
+| Port | Purpose | Implemented by |
+|---|---|---|
+| `ExecutionEventPort` | Publish execution events through the event bus | `services/execution_event_adapter.py` |
+| `ExecutionReaderPort` | Read execution data without direct ORM queries | `services/execution_reader_adapter.py` |
+| `ContextEventBridge` | Wire ExecutionContext.emit/complete to event bus | `services/execution_launcher.py` (_Bridge inner class) |
+| `AgentSpawnPort` | Spawn child agent runs | `services/agent_spawn_adapter.py` |
+| `McpServerPort` | Resolve MCP server instances by name | `services/mcp_server_service.py` |
+| `ModelPort` | Resolve LLM models by provider+name | `services/model_service.py` |
+| `MemoryPort` | Memory CRUD (get/upsert/delete) | `services/memory_service.py` |
+| `ObservationCollectorPort` | Observation tracing within execution | `core/observation/collector.py` |
+| `SandboxPort` | Sandbox lifecycle management | `services/sandbox_manager.py` |
+| `SkillPort` | Skill CRUD + permission checks | `services/skill_service.py` |
 
 `EventContext` dataclass carries run-level metadata so event publishing can construct complete envelopes without querying the DB on every event.
 
@@ -238,20 +260,6 @@ AppError
   └── InternalError        (_default_source = "internal")
 ```
 
-**Leaf classes** provide defaults and `**kw` pass-through:
-
-```
-DomainError
-  ├── NotFoundError          (code=NOT_FOUND)
-  ├── InvalidRequestError    (code=BAD_REQUEST)
-  └── ModelConfigError       (code=MODEL_*)
-AuthError
-  └── AuthenticationError    (code=UNAUTHORIZED, user_action=relogin)
-PermissionDeniedError
-  └── AccessDeniedError      (code=FORBIDDEN)
-...
-```
-
 **ErrorDescriptor** — the canonical error payload shape, output by `AppError.to_payload()`:
 
 ```json
@@ -268,18 +276,14 @@ PermissionDeniedError
 
 This is the **single serialization chokepoint** — all transport paths (HTTP response body, WebSocket error frames, SSE error events, DB JSONB `error` columns) flow through `to_payload()`.
 
-**Error code registry**: `core/contracts/error.py` contains `ErrorCode` StrEnum with ~180 entries organized by domain (Generic, Auth, Agent, Run, Execution, Engine, Model, Sandbox, Skill, Tool/MCP, Task, etc.).
-
 ### 2.8 Graph Build System
 
-Two paths for building agent graphs:
-
-| Path | definition_kind | Engine | Description |
+| Path | engine_kind | Engine class | Description |
 |---|---|---|---|
-| **Code Mode** | `code` | CodeEngine | User writes LangGraph Python in browser; backend exec()s in sandbox |
-| **DeepAgents Canvas** | `graph` | GraphEngine | Visual drag-and-drop builder; Manager-Worker star topology |
+| **DeepAgents Canvas** | `langgraph_visual` | LangGraphVisualEngine | Visual drag-and-drop builder; Manager-Worker star topology |
+| **Code Mode** | `langgraph_code` | LangGraphCodeEngine | User writes LangGraph Python in browser; backend exec()s in sandbox |
 | **CLI-backed** | `claude_code`, `codex`, `openclaw` | CLIEngine | Docker container + CLI agent runtime |
-| **Copilot** | (internal) | CopilotEngine | Graph analysis and action execution |
+| **Copilot** | `build_copilot` | CopilotEngine | Internal graph analysis and action execution |
 
 **DeepAgents Build Pipeline:**
 
@@ -295,7 +299,7 @@ build_deep_agents_graph()
 
 ### 2.9 Code Executor Security
 
-The code executor runs user LangGraph code with multiple security layers:
+The code executor (`core/engine/code_executor.py`) runs user LangGraph code with multiple security layers:
 
 | Layer | Protection |
 |---|---|
@@ -314,14 +318,6 @@ Progressive disclosure to reduce token consumption:
 - **SkillService**: CRUD with permission control and versioning
 - **SkillsLoader**: Batch preloads skills to Docker backend with deduplication
 - **FilesystemMiddleware**: Agent reads `/workspace/skills/{skill_name}/SKILL.md` on demand
-
-Skill exceptions inherit from the unified error tree:
-
-```
-DomainError → SkillLoadError, SkillNotFoundError (via NotFoundError)
-PermissionDeniedError → SkillPermissionDeniedError (via AccessDeniedError)
-InternalError → SkillFileWriteError (via InternalServiceError)
-```
 
 ### 2.11 Memory System
 
@@ -355,7 +351,7 @@ sequenceDiagram
     API->>DS: dispatch(agent_id, prompt, ...)
     DS->>EO: create_and_start(...)
     EO->>EO: Create AgentRun + Execution rows
-    EO->>ER: get(runtime_kind)
+    EO->>ER: get(engine_kind)
     ER->>ENG: engine.start(context, ...)
 
     loop Engine execution
@@ -403,11 +399,13 @@ All errors are normalized to `AppError` (or subclass), serialized via the single
 | `/ws/openclaw/dashboard` | `OpenClawHandler` | OpenClaw dashboard bridge |
 | `/ws/openclaw/bridge/{user_id}` | `OpenClawHandler` | OpenClaw device bridge |
 
-### 4.2 Trigger Sources
+### 4.2 Dispatch Dimensions
 
-AgentRun creation accepts canonical trigger sources defined in `core/contracts/execution.py`:
+AgentRun creation uses two orthogonal dimensions defined as StrEnums in `core/contracts/execution.py`:
 
-`task` | `chat` | `api` | `scheduler` | `draft_test` | `draft_copilot` | `debug` | `copilot`
+**TriggerMedium** — HOW: `api` | `scheduler` | `system` | `ui`
+
+**RunPurpose** — WHY: `production` | `draft_test` | `debug` | `internal_builder`
 
 ### 4.3 Single Event Source
 
@@ -424,7 +422,7 @@ All engines emit events through `ExecutionContext.emit()` into `execution_events
 
 ### 4.5 Backend → Data Layer
 
-- **PostgreSQL**: Agent definitions, versions, releases, skills, memories, sessions, workspaces, runs, executions, execution_events, snapshots, traces
+- **PostgreSQL**: Agent definitions, versions, releases, skills, memories, sessions, workspaces, runs, executions, execution_events, snapshots, traces, observations
 - **Redis**: Session cache, rate limiting, temporary data
 
 ---
@@ -435,71 +433,74 @@ All engines emit events through `ExecutionContext.emit()` into `execution_events
 app/
 ├── api/v1/                        # REST route modules
 ├── common/
-│   └── app_errors.py              # AppError hierarchy + to_payload() + normalize_app_error()
+│   ├── app_errors.py              # AppError hierarchy + to_payload() + normalize_app_error()
+│   ├── workspace_permission.py    # Workspace access check utilities
+│   └── ...                        # dependencies, exceptions, pagination, permissions
 ├── core/
 │   ├── contracts/                 # Value domain registries (single source of truth)
-│   │   ├── agent.py               #   DefinitionKind, RuntimeKind, DEFINITION_RUNTIME_KIND
-│   │   ├── execution.py           #   RunStatus, ExecutionStatus, TriggerSource, terminal sets
+│   │   ├── agent.py               #   EngineKind, RuntimeKind, ENGINE_RUNTIME_MAP
+│   │   ├── execution.py           #   TriggerMedium, RunPurpose (StrEnums), RunStatus, ExecutionStatus, sets
 │   │   └── error.py               #   ErrorCode (StrEnum ~180), ErrorSource, UserAction
 │   ├── engine/                    # Execution engine abstraction
 │   │   ├── protocol.py            #   ExecutionEngine Protocol, ExecutionContext, EngineCapabilities
 │   │   ├── registry.py            #   EngineRegistry singleton
-│   │   ├── __init__.py            #   Registers 4 built-in engines at import time
-│   │   ├── cli_engine.py          #   CLIEngine (Docker + CLI agent runtime)
-│   │   ├── graph_engine.py        #   GraphEngine (LangGraph compiler)
-│   │   ├── code_engine.py         #   CodeEngine (in-process code agent)
-│   │   └── copilot_engine.py      #   CopilotEngine (graph analysis)
+│   │   ├── __init__.py            #   Registers 6 engine instances at import time
+│   │   ├── cli_engine.py          #   CLIEngine (claude_code / codex / openclaw)
+│   │   ├── graph_engine.py        #   LangGraphVisualEngine (langgraph_visual)
+│   │   ├── code_engine.py         #   LangGraphCodeEngine (langgraph_code)
+│   │   ├── copilot_engine.py      #   CopilotEngine (build_copilot, internal)
+│   │   └── code_executor.py       #   Sandboxed user-code executor (used by LangGraphCodeEngine)
 │   ├── events/                    # Two-phase event bus
 │   │   ├── bus.py                 #   ExecutionEventBus (Phase 1 + Phase 2)
 │   │   ├── envelope.py            #   ExecutionEventEnvelope dataclass
 │   │   ├── event_types.py         #   ExecutionEventType StrEnum
 │   │   ├── subscriber.py          #   EventSubscriber Protocol + SubscriberPhase enum
 │   │   └── subscribers/           #   Built-in subscriber implementations
-│   │       ├── persistence.py     #     PersistenceSubscriber (Phase 1)
-│   │       ├── state_transition.py#     StateTransitionSubscriber (Phase 1)
-│   │       ├── websocket.py       #     WebSocketSubscriber (Phase 2)
-│   │       └── task_sync.py       #     TaskSyncSubscriber (Phase 2)
 │   ├── state_machines/            # Centralized status transition rules
 │   │   ├── definitions.py         #   Transition tables for 6 entities
 │   │   ├── engine.py              #   StateMachine class + InvalidTransition error
 │   │   └── transitions.py         #   transition_run(), transition_execution(), transition_task()
 │   ├── observation/               # OTel-backed tracing
 │   │   ├── collector.py           #   ObservationCollector (injected into ExecutionContext)
+│   │   ├── model.py               #   Trace + Observation ORM models
 │   │   ├── otel/                  #   TracerProvider, span wrappers, processors
 │   │   └── instrumentation/       #   Engine-specific extractors
 │   ├── ports/                     # Protocol interfaces for core/ <-> services/ decoupling
-│   │   └── execution.py           #   ExecutionEventPort, ExecutionReaderPort, EventContext
-│   ├── agent/                     # CLI agent backends (claude_code, codex, openclaw)
+│   │   ├── execution.py           #   ExecutionEventPort, ExecutionReaderPort, EventContext
+│   │   ├── observation.py         #   ObservationCollectorPort
+│   │   ├── memory.py              #   MemoryPort
+│   │   ├── mcp.py                 #   McpServerPort
+│   │   ├── model.py               #   ModelPort
+│   │   ├── skill.py               #   SkillPort
+│   │   ├── sandbox.py             #   SandboxPort
+│   │   ├── agent_spawn.py         #   AgentSpawnPort
+│   │   └── context_event.py       #   ContextEventBridge
+│   ├── agent/                     # Agent runtime (CLI backends, base factory, memory)
+│   │   ├── base_agent.py          #   get_agent() — reusable LangChain agent factory
+│   │   ├── cli_backends/          #   CLI agent backends (claude_code, codex, openclaw)
+│   │   ├── code_agent/            #   Code agent implementation
+│   │   └── memory/                #   MemoryManager + strategies
 │   ├── copilot/                   # Copilot service implementation
-│   ├── graph/                     # DeepAgents graph builder + code executor
-│   ├── skill/                     # Skill system (service, loader, exceptions)
+│   ├── copilot_deepagents/        # DeepAgents copilot runner
+│   ├── graph/                     # DeepAgents graph builder
+│   ├── skill/                     # Skill system (loader, validators, exceptions)
 │   ├── model/                     # Model provider + credential management
 │   ├── tools/                     # Tool resolver + MCP integration
-│   └── a2a/                       # Agent-to-agent protocol support
+│   ├── a2a/                       # Agent-to-agent protocol support
+│   └── constants.py               # DEFAULT_USER_ID + re-exports from contracts
 ├── models/                        # SQLAlchemy ORM models
 ├── repositories/                  # Data access layer
 ├── schemas/                       # Pydantic request/response schemas
 ├── services/                      # Service layer implementations
 │   ├── dispatch_service.py        #   API-facing facade (Layer 1.5)
 │   ├── execution_orchestrator.py  #   Run + Execution lifecycle (Layer 2)
+│   ├── execution_launcher.py      #   Engine firing with trace + error handling
 │   ├── execution_event_adapter.py #   ExecutionEventPort implementation
 │   ├── execution_reader_adapter.py#   ExecutionReaderPort implementation
 │   ├── runner_factory.py          #   Creates CLI execution runners
-│   ├── agent_service.py           #   Agent CRUD
-│   ├── agent_version_service.py   #   Version management
-│   ├── agent_release_service.py   #   Release lifecycle
-│   ├── agent_run_service.py       #   Run queries
-│   ├── copilot_service.py         #   Copilot streaming
-│   ├── skill_service.py           #   Skill CRUD + permissions
-│   ├── model_service.py           #   Model resolution (provider_name, model_name)
-│   ├── sandbox_manager.py         #   Sandbox pool management
+│   ├── agent_spawn_adapter.py     #   AgentSpawnPort implementation
 │   └── ...                        #   (40+ service modules)
 ├── websocket/                     # WebSocket handlers
-│   ├── execution_subscription_handler.py  # /ws/executions handler
-│   ├── execution_subscription_manager.py  # Subscription registry + broadcast
-│   ├── notification_manager.py            # /ws/notifications
-│   ├── openclaw_handler.py                # /ws/openclaw/* handlers
-│   └── auth.py                            # WS authentication
 ├── templates/                     # Email templates (Jinja2)
 └── utils/                         # Shared utilities
 ```
