@@ -8,7 +8,7 @@ Provide unified utility functions for:
 """
 
 import uuid
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -80,7 +80,9 @@ def parse_mcp_tool_name(tool_name: str) -> Tuple[Optional[str], Optional[str]]:
     return server_name, actual_tool_name
 
 
-async def resolve_mcp_server_instance(server_name: str, user_id: str, db: AsyncSession) -> Optional[McpServer]:
+async def resolve_mcp_server_instance(
+    server_name: str, user_id: str, db: AsyncSession, *, mcp_port: Any = None,
+) -> Optional[McpServer]:
     """Resolve the actual MCP server instance by server_name.
 
     Args:
@@ -103,10 +105,13 @@ async def resolve_mcp_server_instance(server_name: str, user_id: str, db: AsyncS
     _assert_not_uuid(server_name, f"resolve_mcp_server_instance(user_id={user_id})")
 
     try:
-        from app.services.mcp_server_service import McpServerService
+        if mcp_port:
+            server = await mcp_port.get_server_by_name(user_id, server_name)
+        else:
+            from app.services.mcp_server_service import McpServerService
 
-        service = McpServerService(db)
-        server = await service.repo.get_by_name(user_id, server_name)
+            service = McpServerService(db)
+            server = await service.repo.get_by_name(user_id, server_name)
 
         if not server:
             error_msg = f"MCP server not found by name: server_name={server_name}, user_id={user_id}"

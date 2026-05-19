@@ -32,6 +32,7 @@ async def resolve_skill_ids(
     *,
     node_label: Optional[str] = None,
     graph_name: Optional[str] = None,
+    skill_port: Optional[Any] = None,
 ) -> List[uuid.UUID]:
     """Resolve raw skill config to validated UUIDs.
 
@@ -42,20 +43,22 @@ async def resolve_skill_ids(
 
     ctx = format_node_ctx(node_label, graph_name)
 
-    # ["*"] means all skills for this user
     if len(skill_ids_raw) == 1 and skill_ids_raw[0] == "*":
-        from app.core.database import async_session_factory
-        from app.services.skill_service import SkillService
+        if skill_port:
+            skills_list = await skill_port.list_skills(current_user_id=user_id, include_public=True)
+        else:
+            from app.core.database import async_session_factory
+            from app.services.skill_service import SkillService
 
-        async with async_session_factory() as db:
-            skill_service = SkillService(db)
-            skills_list = await skill_service.list_skills(
-                current_user_id=user_id,
-                include_public=True,
-            )
-            ids = [s.id for s in skills_list]
-            logger.info(f"{LOG_PREFIX} Resolved ['*'] → {len(ids)} skills for {ctx}")
-            return ids
+            async with async_session_factory() as db:
+                skill_service = SkillService(db)
+                skills_list = await skill_service.list_skills(
+                    current_user_id=user_id,
+                    include_public=True,
+                )
+        ids = [s.id for s in skills_list]
+        logger.info(f"{LOG_PREFIX} Resolved ['*'] → {len(ids)} skills for {ctx}")
+        return ids
 
     # Explicit UUIDs
     valid_ids: List[uuid.UUID] = []
@@ -81,6 +84,7 @@ async def preload_skills(
     *,
     node_label: Optional[str] = None,
     graph_name: Optional[str] = None,
+    skill_port: Optional[Any] = None,
 ) -> int:
     """Load skills into sandbox backend. Returns count of successfully loaded skills.
 
@@ -105,25 +109,38 @@ async def preload_skills(
         logger.debug(f"{LOG_PREFIX} All {len(skill_ids)} skills already loaded")
         return len(skill_ids)
 
-    from app.core.database import async_session_factory
     from app.core.skill.sandbox_loader import SkillSandboxLoader
-    from app.services.skill_service import SkillService
 
     try:
-        async with async_session_factory() as db:
-            skill_service = SkillService(db)
+        if skill_port:
             loader = SkillSandboxLoader(
-                skill_service=skill_service,
+                skill_service=skill_port,
                 user_id=user_id,
                 skills_base_dir=skills_path,
             )
-
             results = await loader.load_skills_to_sandbox(
                 skill_ids=to_load,
                 backend=backend,
                 user_id=user_id,
                 skills_base_dir=skills_path,
             )
+        else:
+            from app.core.database import async_session_factory
+            from app.services.skill_service import SkillService
+
+            async with async_session_factory() as db:
+                skill_service = SkillService(db)
+                loader = SkillSandboxLoader(
+                    skill_service=skill_service,
+                    user_id=user_id,
+                    skills_base_dir=skills_path,
+                )
+                results = await loader.load_skills_to_sandbox(
+                    skill_ids=to_load,
+                    backend=backend,
+                    user_id=user_id,
+                    skills_base_dir=skills_path,
+                )
 
             successful = sum(1 for v in results.values() if v)
             newly_loaded = {sid for sid, ok in results.items() if ok}

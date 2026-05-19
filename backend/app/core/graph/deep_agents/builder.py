@@ -65,6 +65,7 @@ async def build_deep_agents_graph(
     model_service: Optional[Any] = None,
     thread_id: Optional[str] = None,
     file_emitter: Optional[Any] = None,
+    sandbox_port: Optional[Any] = None,
 ) -> Any:
     """Build a DeepAgents graph. Main entry point.
 
@@ -120,7 +121,7 @@ async def build_deep_agents_graph(
             )
 
         if docker_ok:
-            sandbox_handle = await _get_user_sandbox(user_id)
+            sandbox_handle = await _get_user_sandbox(user_id, sandbox_port)
             backend = sandbox_handle.adapter
             if backend and file_emitter:
                 from app.core.agent.backends.file_tracking_proxy import FileTrackingProxy
@@ -351,28 +352,24 @@ def _any_wants_docker(configs: List[NodeConfig]) -> bool:
     return False
 
 
-async def _get_user_sandbox(user_id: Any) -> Any:
-    """Get user's shared sandbox handle from pool.
+async def _get_user_sandbox(user_id: Any, sandbox_port: Any = None) -> Any:
+    """Get user's shared sandbox handle via the sandbox port."""
+    if sandbox_port is None:
+        from app.services.sandbox_manager import get_sandbox_handle
 
-    Returns a SandboxHandle. The caller MUST call handle.release() when done,
-    or use it as an async context manager.
-    """
-    from app.services.sandbox_manager import get_sandbox_handle
-
-    handle = await get_sandbox_handle(str(user_id))
+        handle = await get_sandbox_handle(str(user_id))
+    else:
+        handle = await sandbox_port.get_handle(str(user_id))
     logger.info(f"{LOG_PREFIX} Got sandbox handle: sandbox_id={handle.sandbox_id}, user={user_id}")
     return handle
 
 
 async def _cleanup_backend(backend: Any) -> None:
     """Release sandbox handle reference."""
-    from app.services.sandbox_handle import SandboxHandle
-
-    if isinstance(backend, SandboxHandle):
+    if hasattr(backend, "release"):
         await backend.release()
         return
 
-    # Fallback for bare adapters (legacy path)
     sandbox_id = getattr(backend, "id", None)
     if sandbox_id:
         try:
