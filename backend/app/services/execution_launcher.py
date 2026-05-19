@@ -122,6 +122,7 @@ class ExecutionLauncher:
         from app.services.runner_factory import create_execution_runner
         from app.websocket.execution_subscription_manager import execution_subscription_manager
 
+        ctx = None
         try:
             async with AsyncSessionLocal() as db:
                 await self._insert_trace(
@@ -179,17 +180,18 @@ class ExecutionLauncher:
                     await collector.finalize()
         except Exception as exc:
             logger.error(f"[Launcher] Engine failed for execution {execution.id}: {exc}")
-            try:
-                app_error = normalize_app_error(
-                    exc,
-                    default_code="EXECUTION_ENGINE_FAILED",
-                    default_message="Engine execution failed",
-                    default_data={"execution_id": str(execution.id), "run_id": str(run.id)},
-                    source="engine",
-                )
-                await ctx._complete_fn("failed", app_error.message[:2000], app_error)
-            except Exception as cleanup_exc:
-                logger.error(f"[Launcher] Failed to mark execution as failed: {cleanup_exc}")
+            if ctx is not None and ctx._complete_fn is not None:
+                try:
+                    app_error = normalize_app_error(
+                        exc,
+                        default_code="EXECUTION_ENGINE_FAILED",
+                        default_message="Engine execution failed",
+                        default_data={"execution_id": str(execution.id), "run_id": str(run.id)},
+                        source="engine",
+                    )
+                    await ctx._complete_fn("failed", app_error.message[:2000], app_error)
+                except Exception as cleanup_exc:
+                    logger.error(f"[Launcher] Failed to mark execution as failed: {cleanup_exc}")
 
     def _wire_context(
         self,

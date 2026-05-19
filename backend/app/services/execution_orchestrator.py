@@ -509,23 +509,8 @@ class ExecutionOrchestrator:
                 prompt=run.goal or "",
             ))
         except Exception as exc:
-            logger.error(f"[Orchestrator] _fire_engine failed for retry: {exc}")
-            app_error = normalize_app_error(exc, default_code="EXECUTION_FAILED", source="engine")
-            error_payload = app_error.to_payload()
-            error_payload.setdefault("data", {})["reason"] = "engine_fire_failed"
-            await execution_event_bus.publish(
-                ExecutionEventEnvelope(
-                    execution_id=execution.id,
-                    run_id=run.id,
-                    workspace_id=run.workspace_id,
-                    event_type=ExecutionEventType.EXECUTION_COMPLETED,
-                    payload={"status": "failed", "error": error_payload, "result_summary": str(exc)[:2000]},
-                    terminal_status="failed",
-                    error=error_payload,
-                    result_summary=str(exc)[:2000],
-                ),
-                self.db,
-            )
+            logger.error(f"[Orchestrator] launcher.launch failed for retry: {exc}")
+            await self._publish_launch_failure(execution, run.id, run.workspace_id, exc)
 
         await self.db.refresh(run)
         return run
@@ -629,27 +614,8 @@ class ExecutionOrchestrator:
                 definition_payload_override=spec.definition_payload_override,
             ))
         except Exception as exc:
-            logger.error(f"[Orchestrator] _fire_engine failed: {exc}")
-            app_error = normalize_app_error(exc, default_code="EXECUTION_FAILED", source="engine")
-            error_payload = app_error.to_payload()
-            error_payload.setdefault("data", {})["reason"] = "engine_fire_failed"
-            await execution_event_bus.publish(
-                ExecutionEventEnvelope(
-                    execution_id=execution.id,
-                    run_id=run.id,
-                    workspace_id=spec.workspace_id,
-                    event_type=ExecutionEventType.EXECUTION_COMPLETED,
-                    payload={
-                        "status": "failed",
-                        "error": error_payload,
-                        "result_summary": str(exc)[:2000],
-                    },
-                    terminal_status="failed",
-                    error=error_payload,
-                    result_summary=str(exc)[:2000],
-                ),
-                self.db,
-            )
+            logger.error(f"[Orchestrator] launcher.launch failed: {exc}")
+            await self._publish_launch_failure(execution, run.id, spec.workspace_id, exc)
             await self.db.refresh(run)
 
         return run
@@ -657,6 +623,30 @@ class ExecutionOrchestrator:
     # ------------------------------------------------------------------
     # Internal: helpers
     # ------------------------------------------------------------------
+
+    async def _publish_launch_failure(
+        self,
+        execution: Execution,
+        run_id: uuid.UUID,
+        workspace_id: uuid.UUID,
+        exc: Exception,
+    ) -> None:
+        app_error = normalize_app_error(exc, default_code="EXECUTION_FAILED", source="engine")
+        error_payload = app_error.to_payload()
+        error_payload.setdefault("data", {})["reason"] = "engine_fire_failed"
+        await execution_event_bus.publish(
+            ExecutionEventEnvelope(
+                execution_id=execution.id,
+                run_id=run_id,
+                workspace_id=workspace_id,
+                event_type=ExecutionEventType.EXECUTION_COMPLETED,
+                payload={"status": "failed", "error": error_payload, "result_summary": str(exc)[:2000]},
+                terminal_status="failed",
+                error=error_payload,
+                result_summary=str(exc)[:2000],
+            ),
+            self.db,
+        )
 
     @staticmethod
     async def publish_run_status_change(
