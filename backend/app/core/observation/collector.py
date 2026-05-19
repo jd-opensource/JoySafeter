@@ -59,9 +59,7 @@ class ObservationCollector:
             "execution",
             context=forced_ctx,
         )
-        self._ctx_token = otel_context.attach(
-            trace.set_span_in_context(self._ctx_span)
-        )
+        self._ctx_token = otel_context.attach(trace.set_span_in_context(self._ctx_span))
 
     def start_span(
         self,

@@ -83,11 +83,7 @@ class ExecutionReaderAdapter:
         # one round trip — no correlated fetch of ``before_run_id.created_at``.
         cutoff = None
         if before_run_id is not None:
-            cutoff = (
-                select(AgentRun.created_at)
-                .where(AgentRun.id == before_run_id)
-                .scalar_subquery()
-            )
+            cutoff = select(AgentRun.created_at).where(AgentRun.id == before_run_id).scalar_subquery()
 
         runs_stmt = select(AgentRun.id, AgentRun.goal, AgentRun.created_at).where(
             AgentRun.thread_id == thread_id,

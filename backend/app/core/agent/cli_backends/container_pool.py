@@ -123,8 +123,7 @@ class ContainerPool:
             existing = self._cache.get(thread_id)
             if existing:
                 logger.warning(
-                    f"[pool] Race on thread {thread_id}: discarding duplicate container "
-                    f"{container.container_id[:12]}"
+                    f"[pool] Race on thread {thread_id}: discarding duplicate container {container.container_id[:12]}"
                 )
                 await self._safe_remove(container.container_id)
                 existing.active_count += 1
@@ -170,11 +169,7 @@ class ContainerPool:
                 entry.cli_session_id = cli_session_id or None
 
         async with AsyncSessionLocal() as db:
-            await db.execute(
-                update(Thread)
-                .where(Thread.id == thread_id)
-                .values(cli_session_id=cli_session_id or None)
-            )
+            await db.execute(update(Thread).where(Thread.id == thread_id).values(cli_session_id=cli_session_id or None))
             await db.commit()
 
     async def evict(self, thread_id: uuid.UUID) -> None:
@@ -192,9 +187,7 @@ class ContainerPool:
 
         async with AsyncSessionLocal() as db:
             await db.execute(
-                update(Thread)
-                .where(Thread.id == thread_id)
-                .values(container_id=None, cli_session_id=None)
+                update(Thread).where(Thread.id == thread_id).values(container_id=None, cli_session_id=None)
             )
             await db.commit()
 
@@ -219,11 +212,7 @@ class ContainerPool:
         for tid, cid in to_remove:
             await self._safe_remove(cid)
             async with AsyncSessionLocal() as db:
-                await db.execute(
-                    update(Thread)
-                    .where(Thread.id == tid)
-                    .values(container_id=None, cli_session_id=None)
-                )
+                await db.execute(update(Thread).where(Thread.id == tid).values(container_id=None, cli_session_id=None))
                 await db.commit()
             logger.info(f"[pool] Evicted idle container {cid[:12]} for thread {tid}")
 
@@ -275,9 +264,7 @@ class ContainerPool:
             )
             async with AsyncSessionLocal() as db:
                 await db.execute(
-                    update(Thread)
-                    .where(Thread.id == thread_id)
-                    .values(container_id=None, cli_session_id=None)
+                    update(Thread).where(Thread.id == thread_id).values(container_id=None, cli_session_id=None)
                 )
                 await db.commit()
             return None
@@ -369,9 +356,7 @@ class ContainerPool:
         await self._safe_remove(container_id)
         async with AsyncSessionLocal() as db:
             await db.execute(
-                update(Thread)
-                .where(Thread.id == thread_id)
-                .values(container_id=None, cli_session_id=None)
+                update(Thread).where(Thread.id == thread_id).values(container_id=None, cli_session_id=None)
             )
             await db.commit()
         logger.info(f"[pool] LRU-evicted container {container_id[:12]} for thread {thread_id}")
@@ -379,9 +364,7 @@ class ContainerPool:
     async def _persist_container(self, thread_id: uuid.UUID, container_id: str) -> None:
         async with AsyncSessionLocal() as db:
             await db.execute(
-                update(Thread)
-                .where(Thread.id == thread_id)
-                .values(container_id=container_id, last_active_at=utc_now())
+                update(Thread).where(Thread.id == thread_id).values(container_id=container_id, last_active_at=utc_now())
             )
             await db.commit()
 
@@ -408,9 +391,7 @@ class ContainerPool:
         if not should_flush:
             return
         async with AsyncSessionLocal() as db:
-            await db.execute(
-                update(Thread).where(Thread.id == thread_id).values(last_active_at=utc_now())
-            )
+            await db.execute(update(Thread).where(Thread.id == thread_id).values(last_active_at=utc_now()))
             await db.commit()
 
     async def _safe_remove(self, container_id: str) -> None:

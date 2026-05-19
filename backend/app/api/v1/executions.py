@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.app_errors import AccessDeniedError, InvalidRequestError, NotFoundError
 from app.common.dependencies import CurrentUser, get_current_user
+from app.common.workspace_permission import check_workspace_access
 from app.core.database import get_db
 from app.models.agent_run import AgentRun
 from app.models.auth import AuthUser as User
@@ -28,7 +29,6 @@ from app.schemas.execution import (
 from app.schemas.task import InjectMessageRequest
 from app.services.dispatch_service import DispatchService
 from app.services.execution_service import ExecutionService
-from app.common.workspace_permission import check_workspace_access
 
 
 class DebugRunRequest(BaseModel):

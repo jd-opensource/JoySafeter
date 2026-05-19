@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -14,9 +14,16 @@ class ModelPort(Protocol):
     """
 
     async def get_model_instance(
-        self, *, user_id: str, provider_name: str, model_name: str,
+        self,
+        *,
+        user_id: str,
+        provider_name: str,
+        model_name: str,
     ) -> Any: ...
 
     async def get_runtime_model_by_name(
-        self, *, model_name: str, user_id: str,
+        self,
+        *,
+        model_name: str,
+        user_id: str,
     ) -> Any: ...

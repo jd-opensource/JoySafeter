@@ -9,11 +9,9 @@ from typing import Any
 
 from loguru import logger
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.agent.cli_backends.base import CLIResult
 from app.core.constants import RunPurpose, TriggerMedium
-from app.core.ports.agent_spawn import AgentSpawnPort
 from app.models.agent_run import AgentRun
 from app.models.execution import Execution
 from app.services.execution_orchestrator import ExecutionOrchestrator
@@ -228,7 +226,10 @@ class AgentSpawnAdapter:
             await db.commit()
 
             await ExecutionOrchestrator.publish_run_status_change(
-                db, run, execution_id=execution.id, target_status="running",
+                db,
+                run,
+                execution_id=execution.id,
+                target_status="running",
             )
 
             return _ChildExecution(

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Any
 
 from loguru import logger
 from sqlalchemy import select
@@ -31,7 +30,6 @@ from app.models.agent_run import AgentRun
 from app.models.execution import Execution
 from app.models.task import Task
 from app.models.thread import Thread
-from app.utils.datetime import utc_now
 
 
 @dataclass
@@ -46,8 +44,8 @@ class RunSpec:
     version: AgentVersion
     workspace_id: uuid.UUID
     prompt: str
-    trigger_medium: TriggerMedium
-    run_purpose: RunPurpose
+    trigger_medium: str
+    run_purpose: str
     user_id: str
     thread_id: uuid.UUID
     release: AgentRelease | None = None
@@ -117,18 +115,20 @@ class ExecutionOrchestrator:
         prompt = prompt_override or task.goal or task.title
         release = await self._get_release(agent.active_release_id)
         version = await self._get_version(release.agent_version_id)
-        run = await self._create_run_and_fire(RunSpec(
-            agent=agent,
-            version=version,
-            release=release,
-            workspace_id=agent.workspace_id,
-            prompt=prompt,
-            trigger_medium=TriggerMedium.SYSTEM,
-            run_purpose=RunPurpose.PRODUCTION,
-            user_id=user_id,
-            thread_id=task.thread_id,
-            task_id=task_id,
-        ))
+        run = await self._create_run_and_fire(
+            RunSpec(
+                agent=agent,
+                version=version,
+                release=release,
+                workspace_id=agent.workspace_id,
+                prompt=prompt,
+                trigger_medium=TriggerMedium.SYSTEM,
+                run_purpose=RunPurpose.PRODUCTION,
+                user_id=user_id,
+                thread_id=task.thread_id,
+                task_id=task_id,
+            )
+        )
 
         # Update task status
         await transition_task(task, "in_progress", self.db, latest_run_id=run.id)
@@ -157,17 +157,19 @@ class ExecutionOrchestrator:
 
         release = await self._get_release(agent.active_release_id)
         version = await self._get_version(release.agent_version_id)
-        return await self._create_run_and_fire(RunSpec(
-            agent=agent,
-            version=version,
-            release=release,
-            workspace_id=agent.workspace_id,
-            prompt=message,
-            trigger_medium=TriggerMedium.API,
-            run_purpose=RunPurpose.PRODUCTION,
-            user_id=user_id,
-            thread_id=thread_id,
-        ))
+        return await self._create_run_and_fire(
+            RunSpec(
+                agent=agent,
+                version=version,
+                release=release,
+                workspace_id=agent.workspace_id,
+                prompt=message,
+                trigger_medium=TriggerMedium.API,
+                run_purpose=RunPurpose.PRODUCTION,
+                user_id=user_id,
+                thread_id=thread_id,
+            )
+        )
 
     async def dispatch_direct(
         self,
@@ -175,8 +177,8 @@ class ExecutionOrchestrator:
         prompt: str,
         user_id: str,
         thread_id: uuid.UUID,
-        trigger_medium: TriggerMedium = TriggerMedium.API,
-        run_purpose: RunPurpose = RunPurpose.PRODUCTION,
+        trigger_medium: str = TriggerMedium.API,
+        run_purpose: str = RunPurpose.PRODUCTION,
         task_id: uuid.UUID | None = None,
         input_payload: dict | None = None,
     ) -> AgentRun:
@@ -185,19 +187,21 @@ class ExecutionOrchestrator:
         version = await self._get_version(release.agent_version_id)
         agent = await self._get_agent(version.agent_id)
 
-        return await self._create_run_and_fire(RunSpec(
-            agent=agent,
-            version=version,
-            release=release,
-            workspace_id=agent.workspace_id,
-            prompt=prompt,
-            trigger_medium=trigger_medium,
-            run_purpose=run_purpose,
-            user_id=user_id,
-            thread_id=thread_id,
-            task_id=task_id,
-            input_payload=input_payload,
-        ))
+        return await self._create_run_and_fire(
+            RunSpec(
+                agent=agent,
+                version=version,
+                release=release,
+                workspace_id=agent.workspace_id,
+                prompt=prompt,
+                trigger_medium=trigger_medium,
+                run_purpose=run_purpose,
+                user_id=user_id,
+                thread_id=thread_id,
+                task_id=task_id,
+                input_payload=input_payload,
+            )
+        )
 
     async def dispatch_draft(
         self,
@@ -226,17 +230,19 @@ class ExecutionOrchestrator:
                 data={"agent_id": str(agent_id), "workspace_id": str(workspace_id)},
             )
 
-        return await self._create_run_and_fire(RunSpec(
-            agent=agent,
-            version=version,
-            workspace_id=workspace_id,
-            prompt=prompt,
-            trigger_medium=TriggerMedium.UI,
-            run_purpose=RunPurpose.DRAFT_TEST,
-            user_id=user_id,
-            thread_id=thread_id,
-            input_payload=input_payload,
-        ))
+        return await self._create_run_and_fire(
+            RunSpec(
+                agent=agent,
+                version=version,
+                workspace_id=workspace_id,
+                prompt=prompt,
+                trigger_medium=TriggerMedium.UI,
+                run_purpose=RunPurpose.DRAFT_TEST,
+                user_id=user_id,
+                thread_id=thread_id,
+                input_payload=input_payload,
+            )
+        )
 
     async def dispatch_copilot_draft(
         self,
@@ -290,19 +296,21 @@ class ExecutionOrchestrator:
         self.db.add(thread)
         await self.db.flush()
 
-        return await self._create_run_and_fire(RunSpec(
-            agent=agent,
-            version=version,
-            workspace_id=workspace_id,
-            prompt=prompt,
-            trigger_medium=TriggerMedium.UI,
-            run_purpose=RunPurpose.INTERNAL_BUILDER,
-            user_id=user_id,
-            thread_id=thread.id,
-            input_payload=copilot_payload,
-            engine_kind_override="build_copilot",
-            definition_payload_override=copilot_payload,
-        ))
+        return await self._create_run_and_fire(
+            RunSpec(
+                agent=agent,
+                version=version,
+                workspace_id=workspace_id,
+                prompt=prompt,
+                trigger_medium=TriggerMedium.UI,
+                run_purpose=RunPurpose.INTERNAL_BUILDER,
+                user_id=user_id,
+                thread_id=thread.id,
+                input_payload=copilot_payload,
+                engine_kind_override="build_copilot",
+                definition_payload_override=copilot_payload,
+            )
+        )
 
     async def dispatch_debug(
         self,
@@ -331,17 +339,19 @@ class ExecutionOrchestrator:
                 data={"agent_id": str(agent_id), "workspace_id": str(workspace_id)},
             )
 
-        return await self._create_run_and_fire(RunSpec(
-            agent=agent,
-            version=version,
-            workspace_id=workspace_id,
-            prompt=prompt,
-            trigger_medium=TriggerMedium.UI,
-            run_purpose=RunPurpose.DEBUG,
-            user_id=user_id,
-            thread_id=thread_id,
-            input_payload={"debug": True, "variables": variables or {}},
-        ))
+        return await self._create_run_and_fire(
+            RunSpec(
+                agent=agent,
+                version=version,
+                workspace_id=workspace_id,
+                prompt=prompt,
+                trigger_medium=TriggerMedium.UI,
+                run_purpose=RunPurpose.DEBUG,
+                user_id=user_id,
+                thread_id=thread_id,
+                input_payload={"debug": True, "variables": variables or {}},
+            )
+        )
 
     def _resolve_engine(self, execution: Execution, release: AgentRelease):
         return engine_registry.get(execution.engine_kind)
@@ -449,9 +459,7 @@ class ExecutionOrchestrator:
         """Retry a failed/cancelled run with a new Execution attempt."""
         # SELECT ... FOR UPDATE prevents concurrent retries on the same run
         run = (
-            await self.db.execute(
-                select(AgentRun).where(AgentRun.id == run_id).with_for_update()
-            )
+            await self.db.execute(select(AgentRun).where(AgentRun.id == run_id).with_for_update())
         ).scalar_one_or_none()
         if not run:
             raise NotFoundError("Agent run not found", code="AGENT_RUN_NOT_FOUND", data={"run_id": str(run_id)})
@@ -511,16 +519,18 @@ class ExecutionOrchestrator:
                 task = (await self.db.execute(select(Task).where(Task.id == run.task_id))).scalar_one_or_none()
                 if task:
                     auto_approve = task.auto_approve
-            await launcher.launch(LaunchSpec(
-                execution=execution,
-                run=run,
-                release=release,
-                version=version,
-                agent=agent,
-                workspace_id=run.workspace_id,
-                prompt=run.goal or "",
-                auto_approve=auto_approve,
-            ))
+            await launcher.launch(
+                LaunchSpec(
+                    execution=execution,
+                    run=run,
+                    release=release,
+                    version=version,
+                    agent=agent,
+                    workspace_id=run.workspace_id,
+                    prompt=run.goal or "",
+                    auto_approve=auto_approve,
+                )
+            )
         except Exception as exc:
             logger.error(f"[Orchestrator] launcher.launch failed for retry: {exc}")
             await self._publish_launch_failure(execution, run.id, run.workspace_id, exc)
@@ -615,17 +625,19 @@ class ExecutionOrchestrator:
             from app.services.execution_launcher import ExecutionLauncher, LaunchSpec
 
             launcher = ExecutionLauncher()
-            await launcher.launch(LaunchSpec(
-                execution=execution,
-                run=run,
-                version=spec.version,
-                agent=spec.agent,
-                workspace_id=spec.workspace_id,
-                prompt=spec.prompt,
-                release=spec.release,
-                engine_kind_override=spec.engine_kind_override,
-                definition_payload_override=spec.definition_payload_override,
-            ))
+            await launcher.launch(
+                LaunchSpec(
+                    execution=execution,
+                    run=run,
+                    version=spec.version,
+                    agent=spec.agent,
+                    workspace_id=spec.workspace_id,
+                    prompt=spec.prompt,
+                    release=spec.release,
+                    engine_kind_override=spec.engine_kind_override,
+                    definition_payload_override=spec.definition_payload_override,
+                )
+            )
         except Exception as exc:
             logger.error(f"[Orchestrator] launcher.launch failed: {exc}")
             await self._publish_launch_failure(execution, run.id, spec.workspace_id, exc)
@@ -756,4 +768,3 @@ class ExecutionOrchestrator:
             code="THREAD_ACTIVE_RUN_EXISTS",
             data={"thread_id": str(thread_id)},
         )
-

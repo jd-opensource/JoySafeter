@@ -17,13 +17,12 @@ from app.core.agent.memory.strategies import (
 
 # Import DEFAULT_USER_ID for consistent user_id handling
 from app.core.constants import DEFAULT_USER_ID
+from app.core.ports.memory import MemoryPort
 from app.core.tools.tool import EnhancedTool
 from app.schemas.memory import UserMemory
 from app.utils.datetime import utc_now
 from app.utils.prompts import get_json_output_prompt
 from app.utils.string import parse_response_model_str
-
-from app.core.ports.memory import MemoryPort
 
 
 def _is_memory_port(obj: Any) -> bool:

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.app_errors import AccessDeniedError
 from app.common.dependencies import CurrentUser, get_current_user, require_workspace_role
+from app.common.workspace_permission import check_workspace_access
 from app.core.database import get_db
 from app.models.agent import Agent, AgentRelease, AgentVersion
 from app.models.auth import AuthUser as User
@@ -23,7 +24,6 @@ from app.schemas.agent_run import (
 )
 from app.services.agent_run_service import AgentRunService
 from app.services.dispatch_service import DispatchService
-from app.common.workspace_permission import check_workspace_access
 
 router = APIRouter(prefix="/v1/runs", tags=["Runs"])
 

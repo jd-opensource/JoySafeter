@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Protocol, runtime_checkable
+from typing import Any, List, Protocol, runtime_checkable
 
 
 @runtime_checkable

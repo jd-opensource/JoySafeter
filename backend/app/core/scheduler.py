@@ -125,6 +125,7 @@ async def _reap_stale_executions() -> int:
 async def _reap_orphan_traces() -> None:
     """Mark Trace rows as 'error' if their execution is already terminal but the Trace is still 'running'."""
     import sqlalchemy as sa
+    from sqlalchemy.engine import CursorResult
 
     from app.core.observation.model import Trace
     from app.models.execution import Execution
@@ -132,7 +133,7 @@ async def _reap_orphan_traces() -> None:
 
     terminal = ("succeeded", "failed", "cancelled")
     async with AsyncSessionLocal() as db:
-        result = await db.execute(
+        result: CursorResult = await db.execute(  # type: ignore[assignment]
             sa.update(Trace)
             .where(
                 Trace.status == "running",
@@ -141,6 +142,7 @@ async def _reap_orphan_traces() -> None:
             )
             .values(status="error", end_time=utc_now())
         )
-        if result.rowcount:
+        rows_fixed = result.rowcount
+        if rows_fixed:
             await db.commit()
-            logger.info(f"Scheduler: fixed {result.rowcount} orphan Trace rows")
+            logger.info(f"Scheduler: fixed {rows_fixed} orphan Trace rows")

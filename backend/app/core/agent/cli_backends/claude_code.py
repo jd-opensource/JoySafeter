@@ -187,9 +187,7 @@ class ClaudeCodeProvider:
                 stderr_text = ""
                 if exit_code != 0 and process.stderr:
                     stderr_text = (await process.stderr.read()).decode()[:2000]
-                combined_text = (
-                    "\n".join(accumulated_text) + "\n" + stderr_text
-                ).lower()
+                combined_text = ("\n".join(accumulated_text) + "\n" + stderr_text).lower()
                 session_invalid = bool(resume_session_id) and any(
                     marker in combined_text
                     for marker in (

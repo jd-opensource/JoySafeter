@@ -456,404 +456,407 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       }
       startInFlight.add(graphId)
       try {
-
-      // If already executing, cancel the existing backend run before starting a new one
-      const currentGraphState = store.getContext(graphId).state
-      if (currentGraphState.isExecuting) {
-        await get().stopExecution()
-      }
-
-      // Cancel previous subscription
-      const existingContext = store.getContext(graphId)
-      if (existingContext.subscribedExecutionId) {
-        try {
-          getExecutionWsClient().unsubscribe(existingContext.subscribedExecutionId)
-        } catch {
-          /* ignore */
+        // If already executing, cancel the existing backend run before starting a new one
+        const currentGraphState = store.getContext(graphId).state
+        if (currentGraphState.isExecuting) {
+          await get().stopExecution()
         }
-      }
-      if (existingContext.abortController) {
-        existingContext.abortController.abort()
-      }
 
-      const abortController = new AbortController()
-      store.setAbortController(graphId, abortController)
-      store.setRunId(graphId, null)
-      store.setSubscribedExecutionId(graphId, null)
+        // Cancel previous subscription
+        const existingContext = store.getContext(graphId)
+        if (existingContext.subscribedExecutionId) {
+          try {
+            getExecutionWsClient().unsubscribe(existingContext.subscribedExecutionId)
+          } catch {
+            /* ignore */
+          }
+        }
+        if (existingContext.abortController) {
+          existingContext.abortController.abort()
+        }
 
-      store.updateGraphState(graphId, {
-        steps: [],
-        isExecuting: true,
-        activeNodeId: null,
-        pendingInterrupts: new Map(),
-      })
-      if (openPanel) {
-        store.togglePanel(true)
-      }
+        const abortController = new AbortController()
+        store.setAbortController(graphId, abortController)
+        store.setRunId(graphId, null)
+        store.setSubscribedExecutionId(graphId, null)
 
-      const workflowId = generateId('workflow')
-      store.addStep({
-        id: workflowId,
-        nodeId: 'system',
-        nodeLabel: 'Workflow',
-        stepType: 'node_lifecycle',
-        title: 'Workflow Execution',
-        status: 'running',
-        startTime: Date.now(),
-        data: { input },
-      })
+        store.updateGraphState(graphId, {
+          steps: [],
+          isExecuting: true,
+          activeNodeId: null,
+          pendingInterrupts: new Map(),
+        })
+        if (openPanel) {
+          store.togglePanel(true)
+        }
 
-      // toolUseId → stepId
-      const toolStepMap = new Map<string, string>() // toolUseId → stepId
-      let currentThoughtStepId: string | null = null
+        const workflowId = generateId('workflow')
+        store.addStep({
+          id: workflowId,
+          nodeId: 'system',
+          nodeLabel: 'Workflow',
+          stepType: 'node_lifecycle',
+          title: 'Workflow Execution',
+          status: 'running',
+          startTime: Date.now(),
+          data: { input },
+        })
 
-      /**
-       * Handle a single execution event and map it to store operations.
-       */
-      const handleExecutionEvent = (frame: ExecutionEventFrame) => {
-        const { event_type, payload } = frame
+        // toolUseId → stepId
+        const toolStepMap = new Map<string, string>() // toolUseId → stepId
+        let currentThoughtStepId: string | null = null
 
-        switch (event_type) {
-          case 'assistant_text': {
-            const text =
-              (payload.delta as string) ??
-              (payload.content as string) ??
-              (payload.text as string) ??
-              ''
-            if (currentThoughtStepId) {
-              store.appendContent(currentThoughtStepId, text)
-            } else {
-              const stepId = generateId('thought')
+        /**
+         * Handle a single execution event and map it to store operations.
+         */
+        const handleExecutionEvent = (frame: ExecutionEventFrame) => {
+          const { event_type, payload } = frame
+
+          switch (event_type) {
+            case 'assistant_text': {
+              const text =
+                (payload.delta as string) ??
+                (payload.content as string) ??
+                (payload.text as string) ??
+                ''
+              if (currentThoughtStepId) {
+                store.appendContent(currentThoughtStepId, text)
+              } else {
+                const stepId = generateId('thought')
+                currentThoughtStepId = stepId
+                store.addStep({
+                  id: stepId,
+                  nodeId: 'assistant',
+                  nodeLabel: 'Assistant',
+                  stepType: 'agent_thought',
+                  title: 'Assistant Response',
+                  status: 'running',
+                  startTime: Date.now(),
+                  content: text,
+                })
+              }
+              break
+            }
+
+            case 'thinking': {
+              const text = (payload.text as string) ?? ''
+              const stepId = generateId('thinking')
               currentThoughtStepId = stepId
               store.addStep({
                 id: stepId,
                 nodeId: 'assistant',
                 nodeLabel: 'Assistant',
                 stepType: 'agent_thought',
-                title: 'Assistant Response',
+                title: 'Thinking',
                 status: 'running',
                 startTime: Date.now(),
                 content: text,
               })
+              break
             }
-            break
-          }
 
-          case 'thinking': {
-            const text = (payload.text as string) ?? ''
-            const stepId = generateId('thinking')
-            currentThoughtStepId = stepId
-            store.addStep({
-              id: stepId,
-              nodeId: 'assistant',
-              nodeLabel: 'Assistant',
-              stepType: 'agent_thought',
-              title: 'Thinking',
-              status: 'running',
-              startTime: Date.now(),
-              content: text,
-            })
-            break
-          }
-
-          case 'tool_use_start': {
-            if (currentThoughtStepId) {
-              store.updateStep(currentThoughtStepId, { status: 'success', endTime: Date.now() })
-              currentThoughtStepId = null
-            }
-            const toolUseId = (payload.tool_use_id as string) ?? ''
-            const toolName = (payload.tool_name as string) ?? 'tool'
-            const toolInput = (payload.input as Record<string, unknown>) ?? {}
-            const stepId = generateId('tool')
-            toolStepMap.set(toolUseId, stepId)
-            store.addStep({
-              id: stepId,
-              nodeId: 'tool',
-              nodeLabel: toolName,
-              stepType: 'tool_execution',
-              title: toolName,
-              status: 'running',
-              startTime: Date.now(),
-              data: { request: toolInput },
-            })
-            break
-          }
-
-          case 'tool_use_end': {
-            const toolUseId = (payload.tool_use_id as string) ?? ''
-            const isError = (payload.is_error as boolean) ?? false
-            const output = payload.output ?? payload.result ?? ''
-            const stepId = toolStepMap.get(toolUseId)
-            if (stepId) {
-              store.updateStep(stepId, {
-                status: isError ? 'error' : 'success',
-                endTime: Date.now(),
-                data: { response: output as string | Record<string, unknown> },
-              })
-              toolStepMap.delete(toolUseId)
-            }
-            break
-          }
-
-          case 'error': {
-            const code = (payload.code as string) ?? ''
-            const message = (payload.message as string) ?? String(payload.error ?? 'Unknown error')
-            if (code === 'stopped') {
-              // User-initiated stop — mark workflow as stopped, don't add error step
-              store.updateStep(workflowId, { status: 'error', endTime: Date.now() })
-            } else {
-              store.addStep({
-                id: generateId('error'),
-                nodeId: 'system',
-                nodeLabel: 'Error',
-                stepType: 'system_log',
-                title: 'Error',
-                status: 'error',
-                startTime: Date.now(),
-                content: message,
-              })
-            }
-            break
-          }
-
-          case 'artifact_created': {
-            const artifactName = (payload.name as string) ?? 'Artifact'
-            store.addStep({
-              id: generateId('artifact'),
-              nodeId: 'artifact',
-              nodeLabel: artifactName,
-              stepType: 'artifact',
-              title: artifactName,
-              status: 'success',
-              startTime: Date.now(),
-              data: payload,
-            })
-            break
-          }
-
-          case 'approval_requested': {
-            const nodeId = (payload.node_id as string) ?? 'unknown'
-            const nodeLabel = (payload.node_label as string) ?? nodeId
-            const threadId = (payload.thread_id as string) ?? ''
-            store.addInterrupt({
-              nodeId,
-              nodeLabel,
-              state: payload as Record<string, unknown>,
-              threadId,
-            })
-            break
-          }
-
-          case 'approval_resolved': {
-            const nodeId = (payload.node_id as string) ?? 'unknown'
-            store.removeInterrupt(nodeId)
-            break
-          }
-
-          // Lifecycle events — handled by onCompleted / noop here
-          case 'execution_started':
-          case 'execution_status_change':
-          case 'execution_completed':
-          case 'user_message':
-            break
-
-          // Copilot events — handled by separate copilot pipeline
-          case 'copilot_status':
-          case 'copilot_content':
-          case 'copilot_thought_step':
-          case 'copilot_tool_call':
-          case 'copilot_tool_result':
-          case 'copilot_result':
-            break
-
-          default:
-            // Unknown event types — ignore
-            break
-        }
-      }
-
-      const EXECUTION_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
-      try {
-        const run = draftInput
-          ? await executionAdapter.startDraftRun({
-              agentId,
-              versionId: draftInput.versionId,
-              prompt: input,
-              workspaceId,
-              threadId: draftInput.threadId,
-            })
-          : await (async () => {
-              const agent = await globalAgentService.get(agentId, workspaceId)
-              const releaseId = agent.active_release_id
-              if (!releaseId) {
-                throw new Error('Agent has no active release. Please publish the agent first.')
+            case 'tool_use_start': {
+              if (currentThoughtStepId) {
+                store.updateStep(currentThoughtStepId, { status: 'success', endTime: Date.now() })
+                currentThoughtStepId = null
               }
-
-              // Every run belongs to a Thread. Build-page "Run" button is a
-              // one-off interaction, so we mint a fresh Thread per click — it
-              // becomes the session root for container + CLI + Trace.
-              const thread = await threadService.create({
-                agent_id: agentId,
-                title: `Run – ${new Date().toLocaleString()}`,
-                workspace_id: workspaceId,
+              const toolUseId = (payload.tool_use_id as string) ?? ''
+              const toolName = (payload.tool_name as string) ?? 'tool'
+              const toolInput = (payload.input as Record<string, unknown>) ?? {}
+              const stepId = generateId('tool')
+              toolStepMap.set(toolUseId, stepId)
+              store.addStep({
+                id: stepId,
+                nodeId: 'tool',
+                nodeLabel: toolName,
+                stepType: 'tool_execution',
+                title: toolName,
+                status: 'running',
+                startTime: Date.now(),
+                data: { request: toolInput },
               })
+              break
+            }
 
-              return executionAdapter.startRun({
-                releaseId,
+            case 'tool_use_end': {
+              const toolUseId = (payload.tool_use_id as string) ?? ''
+              const isError = (payload.is_error as boolean) ?? false
+              const output = payload.output ?? payload.result ?? ''
+              const stepId = toolStepMap.get(toolUseId)
+              if (stepId) {
+                store.updateStep(stepId, {
+                  status: isError ? 'error' : 'success',
+                  endTime: Date.now(),
+                  data: { response: output as string | Record<string, unknown> },
+                })
+                toolStepMap.delete(toolUseId)
+              }
+              break
+            }
+
+            case 'error': {
+              const code = (payload.code as string) ?? ''
+              const message =
+                (payload.message as string) ?? String(payload.error ?? 'Unknown error')
+              if (code === 'stopped') {
+                // User-initiated stop — mark workflow as stopped, don't add error step
+                store.updateStep(workflowId, { status: 'error', endTime: Date.now() })
+              } else {
+                store.addStep({
+                  id: generateId('error'),
+                  nodeId: 'system',
+                  nodeLabel: 'Error',
+                  stepType: 'system_log',
+                  title: 'Error',
+                  status: 'error',
+                  startTime: Date.now(),
+                  content: message,
+                })
+              }
+              break
+            }
+
+            case 'artifact_created': {
+              const artifactName = (payload.name as string) ?? 'Artifact'
+              store.addStep({
+                id: generateId('artifact'),
+                nodeId: 'artifact',
+                nodeLabel: artifactName,
+                stepType: 'artifact',
+                title: artifactName,
+                status: 'success',
+                startTime: Date.now(),
+                data: payload,
+              })
+              break
+            }
+
+            case 'approval_requested': {
+              const nodeId = (payload.node_id as string) ?? 'unknown'
+              const nodeLabel = (payload.node_label as string) ?? nodeId
+              const threadId = (payload.thread_id as string) ?? ''
+              store.addInterrupt({
+                nodeId,
+                nodeLabel,
+                state: payload as Record<string, unknown>,
+                threadId,
+              })
+              break
+            }
+
+            case 'approval_resolved': {
+              const nodeId = (payload.node_id as string) ?? 'unknown'
+              store.removeInterrupt(nodeId)
+              break
+            }
+
+            // Lifecycle events — handled by onCompleted / noop here
+            case 'execution_started':
+            case 'execution_status_change':
+            case 'execution_completed':
+            case 'user_message':
+              break
+
+            // Copilot events — handled by separate copilot pipeline
+            case 'copilot_status':
+            case 'copilot_content':
+            case 'copilot_thought_step':
+            case 'copilot_tool_call':
+            case 'copilot_tool_result':
+            case 'copilot_result':
+              break
+
+            default:
+              // Unknown event types — ignore
+              break
+          }
+        }
+
+        const EXECUTION_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
+        try {
+          const run = draftInput
+            ? await executionAdapter.startDraftRun({
+                agentId,
+                versionId: draftInput.versionId,
                 prompt: input,
                 workspaceId,
-                threadId: thread.id,
+                threadId: draftInput.threadId,
               })
-            })()
-        store.setRunId(graphId, run.id)
-
-        const executionId = run.current_execution_id
-
-        const timeoutId = setTimeout(() => {
-          const context = getOrCreateContext(get().contexts, graphId)
-          if (context.runId) {
-            executionAdapter.cancelRun(context.runId).catch(() => {})
-          }
-          if (context.subscribedExecutionId) {
-            try {
-              getExecutionWsClient().unsubscribe(context.subscribedExecutionId)
-            } catch {
-              /* ignore */
-            }
-          }
-          store.addStep({
-            id: generateId('timeout'),
-            nodeId: 'system',
-            nodeLabel: 'System',
-            stepType: 'system_log',
-            title: 'Execution Timeout',
-            status: 'error',
-            startTime: Date.now(),
-            content: 'Execution timed out after 10 minutes',
-          })
-          store.updateGraphState(graphId, { isExecuting: false })
-        }, EXECUTION_TIMEOUT_MS)
-        store.setTimeoutId(graphId, timeoutId)
-
-        await new Promise<void>((resolve, reject) => {
-          const onAbort = () => {
-            try {
-              getExecutionWsClient().unsubscribe(executionId)
-            } catch {
-              /* ignore */
-            }
-            resolve()
-          }
-          abortController.signal.addEventListener('abort', onAbort, { once: true })
-
-          getExecutionWsClient()
-            .subscribe(executionId, 0, {
-              onEvent: (frame: ExecutionEventFrame) => {
-                try {
-                  handleExecutionEvent(frame)
-                } catch (err) {
-                  console.warn('[executionStore] Failed to handle execution event:', err)
+            : await (async () => {
+                const agent = await globalAgentService.get(agentId, workspaceId)
+                const releaseId = agent.active_release_id
+                if (!releaseId) {
+                  throw new Error('Agent has no active release. Please publish the agent first.')
                 }
-              },
 
-              onSnapshot: (frame: ExecutionSnapshotFrame) => {
-                for (const evt of frame.events) {
-                  try {
-                    handleExecutionEvent({
-                      type: 'event',
-                      execution_id: frame.execution_id,
-                      seq: evt.seq,
-                      event_type: evt.event_type,
-                      payload: evt.payload,
-                      created_at: evt.created_at,
-                    })
-                  } catch (err) {
-                    console.warn('[executionStore] Failed to replay snapshot event:', err)
-                  }
-                }
-              },
-
-              onCompleted: (frame: ExecutionCompletedFrame) => {
-                abortController.signal.removeEventListener('abort', onAbort)
-                if (currentThoughtStepId) {
-                  store.updateStep(currentThoughtStepId, { status: 'success', endTime: Date.now() })
-                  currentThoughtStepId = null
-                }
-                const now = Date.now()
-                const graphContext = store.getContext(graphId)
-                const workflowStep = graphContext.state.steps.find((s) => s.id === workflowId)
-                const status =
-                  frame.status === 'succeeded' || frame.status === 'completed'
-                    ? 'success'
-                    : ('error' as const)
-                store.updateStep(workflowId, {
-                  status,
-                  endTime: now,
-                  duration: now - (workflowStep?.startTime || now),
+                // Every run belongs to a Thread. Build-page "Run" button is a
+                // one-off interaction, so we mint a fresh Thread per click — it
+                // becomes the session root for container + CLI + Trace.
+                const thread = await threadService.create({
+                  agent_id: agentId,
+                  title: `Run – ${new Date().toLocaleString()}`,
+                  workspace_id: workspaceId,
                 })
-                if (frame.error) {
-                  store.addStep({
-                    id: generateId('error'),
-                    nodeId: 'system',
-                    nodeLabel: 'Error',
-                    stepType: 'system_log',
-                    title: frame.error.code,
-                    status: 'error',
-                    startTime: now,
-                    content: frame.error.message,
-                    data: { ...frame.error },
+
+                return executionAdapter.startRun({
+                  releaseId,
+                  prompt: input,
+                  workspaceId,
+                  threadId: thread.id,
+                })
+              })()
+          store.setRunId(graphId, run.id)
+
+          const executionId = run.current_execution_id
+
+          const timeoutId = setTimeout(() => {
+            const context = getOrCreateContext(get().contexts, graphId)
+            if (context.runId) {
+              executionAdapter.cancelRun(context.runId).catch(() => {})
+            }
+            if (context.subscribedExecutionId) {
+              try {
+                getExecutionWsClient().unsubscribe(context.subscribedExecutionId)
+              } catch {
+                /* ignore */
+              }
+            }
+            store.addStep({
+              id: generateId('timeout'),
+              nodeId: 'system',
+              nodeLabel: 'System',
+              stepType: 'system_log',
+              title: 'Execution Timeout',
+              status: 'error',
+              startTime: Date.now(),
+              content: 'Execution timed out after 10 minutes',
+            })
+            store.updateGraphState(graphId, { isExecuting: false })
+          }, EXECUTION_TIMEOUT_MS)
+          store.setTimeoutId(graphId, timeoutId)
+
+          await new Promise<void>((resolve, reject) => {
+            const onAbort = () => {
+              try {
+                getExecutionWsClient().unsubscribe(executionId)
+              } catch {
+                /* ignore */
+              }
+              resolve()
+            }
+            abortController.signal.addEventListener('abort', onAbort, { once: true })
+
+            getExecutionWsClient()
+              .subscribe(executionId, 0, {
+                onEvent: (frame: ExecutionEventFrame) => {
+                  try {
+                    handleExecutionEvent(frame)
+                  } catch (err) {
+                    console.warn('[executionStore] Failed to handle execution event:', err)
+                  }
+                },
+
+                onSnapshot: (frame: ExecutionSnapshotFrame) => {
+                  for (const evt of frame.events) {
+                    try {
+                      handleExecutionEvent({
+                        type: 'event',
+                        execution_id: frame.execution_id,
+                        seq: evt.seq,
+                        event_type: evt.event_type,
+                        payload: evt.payload,
+                        created_at: evt.created_at,
+                      })
+                    } catch (err) {
+                      console.warn('[executionStore] Failed to replay snapshot event:', err)
+                    }
+                  }
+                },
+
+                onCompleted: (frame: ExecutionCompletedFrame) => {
+                  abortController.signal.removeEventListener('abort', onAbort)
+                  if (currentThoughtStepId) {
+                    store.updateStep(currentThoughtStepId, {
+                      status: 'success',
+                      endTime: Date.now(),
+                    })
+                    currentThoughtStepId = null
+                  }
+                  const now = Date.now()
+                  const graphContext = store.getContext(graphId)
+                  const workflowStep = graphContext.state.steps.find((s) => s.id === workflowId)
+                  const status =
+                    frame.status === 'succeeded' || frame.status === 'completed'
+                      ? 'success'
+                      : ('error' as const)
+                  store.updateStep(workflowId, {
+                    status,
+                    endTime: now,
+                    duration: now - (workflowStep?.startTime || now),
                   })
-                }
-                resolve()
-              },
+                  if (frame.error) {
+                    store.addStep({
+                      id: generateId('error'),
+                      nodeId: 'system',
+                      nodeLabel: 'Error',
+                      stepType: 'system_log',
+                      title: frame.error.code,
+                      status: 'error',
+                      startTime: now,
+                      content: frame.error.message,
+                      data: { ...frame.error },
+                    })
+                  }
+                  resolve()
+                },
 
-              onError: (error: AppErrorPayload) => {
+                onError: (error: AppErrorPayload) => {
+                  abortController.signal.removeEventListener('abort', onAbort)
+                  reject(new Error(`Execution WebSocket error: ${error.message}`))
+                },
+              })
+              .catch((err) => {
                 abortController.signal.removeEventListener('abort', onAbort)
-                reject(new Error(`Execution WebSocket error: ${error.message}`))
-              },
-            })
-            .catch((err) => {
-              abortController.signal.removeEventListener('abort', onAbort)
-              reject(err)
-            })
+                reject(err)
+              })
 
-          store.setSubscribedExecutionId(graphId, executionId)
-        })
-      } catch (e: unknown) {
-        const error = e as { name?: string; message?: string }
-        store.updateStep(workflowId, { status: 'error', endTime: Date.now() })
-        if (error?.name !== 'AbortError') {
-          store.addStep({
-            id: generateId('error'),
-            nodeId: 'system',
-            nodeLabel: 'Error',
-            stepType: 'system_log',
-            title: 'Execution Error',
-            status: 'error',
-            startTime: Date.now(),
-            content: String(error?.message || e),
+            store.setSubscribedExecutionId(graphId, executionId)
           })
-        }
-      } finally {
-        // Clear the execution timeout on any completion path
-        const finalContext = store.getContext(graphId)
-        if (finalContext.timeoutId !== null) {
-          clearTimeout(finalContext.timeoutId)
-        }
-        // Unsubscribe if still subscribed
-        if (finalContext.subscribedExecutionId) {
-          try {
-            getExecutionWsClient().unsubscribe(finalContext.subscribedExecutionId)
-          } catch {
-            /* ignore */
+        } catch (e: unknown) {
+          const error = e as { name?: string; message?: string }
+          store.updateStep(workflowId, { status: 'error', endTime: Date.now() })
+          if (error?.name !== 'AbortError') {
+            store.addStep({
+              id: generateId('error'),
+              nodeId: 'system',
+              nodeLabel: 'Error',
+              stepType: 'system_log',
+              title: 'Execution Error',
+              status: 'error',
+              startTime: Date.now(),
+              content: String(error?.message || e),
+            })
           }
+        } finally {
+          // Clear the execution timeout on any completion path
+          const finalContext = store.getContext(graphId)
+          if (finalContext.timeoutId !== null) {
+            clearTimeout(finalContext.timeoutId)
+          }
+          // Unsubscribe if still subscribed
+          if (finalContext.subscribedExecutionId) {
+            try {
+              getExecutionWsClient().unsubscribe(finalContext.subscribedExecutionId)
+            } catch {
+              /* ignore */
+            }
+          }
+          store.updateGraphState(graphId, { isExecuting: false })
+          store.setAbortController(graphId, null)
+          store.setRunId(graphId, null)
+          store.setSubscribedExecutionId(graphId, null)
+          store.setTimeoutId(graphId, null)
         }
-        store.updateGraphState(graphId, { isExecuting: false })
-        store.setAbortController(graphId, null)
-        store.setRunId(graphId, null)
-        store.setSubscribedExecutionId(graphId, null)
-        store.setTimeoutId(graphId, null)
-      }
       } finally {
         startInFlight.delete(graphId)
       }

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from app.core.observation.collector import ObservationCollector
 from app.core.observation.otel.span_wrapper import ObservationSpan
+from app.core.ports.observation import ObservationCollectorPort
 
 
 class CopilotObservationExtractor:
     def __init__(
         self,
-        collector: ObservationCollector,
+        collector: ObservationCollectorPort,
         model_name: str,
         parent_span: ObservationSpan | None = None,
     ):

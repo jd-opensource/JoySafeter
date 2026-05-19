@@ -47,4 +47,3 @@ class Thread(BaseModel):
             postgresql_ops={"last_active_at": "DESC"},
         ),
     )
-

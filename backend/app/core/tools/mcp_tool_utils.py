@@ -8,12 +8,13 @@ Provide unified utility functions for:
 """
 
 import uuid
-from typing import Any, Optional, Tuple
+from typing import Optional, Tuple
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.app_errors import AccessDeniedError, InvalidRequestError, NotFoundError, ServiceUnavailableError
+from app.core.ports.mcp import McpServerPort
 from app.core.tools.tool import EnhancedTool
 from app.core.tools.tool_registry import MCP_TOOL_KEY_SEPARATOR, get_global_registry
 from app.models.mcp import McpServer
@@ -81,7 +82,11 @@ def parse_mcp_tool_name(tool_name: str) -> Tuple[Optional[str], Optional[str]]:
 
 
 async def resolve_mcp_server_instance(
-    server_name: str, user_id: str, db: AsyncSession, *, mcp_port: Any = None,
+    server_name: str,
+    user_id: str,
+    db: AsyncSession,
+    *,
+    mcp_port: McpServerPort | None = None,
 ) -> Optional[McpServer]:
     """Resolve the actual MCP server instance by server_name.
 

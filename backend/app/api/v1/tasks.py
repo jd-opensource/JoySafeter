@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.app_errors import AccessDeniedError, InvalidRequestError, NotFoundError
 from app.common.dependencies import CurrentUser, require_workspace_role
+from app.common.workspace_permission import check_workspace_access
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.models.task import Task, TaskPriority
@@ -23,7 +24,6 @@ from app.schemas.task import (
     UpdateTaskRequest,
 )
 from app.services.task_service import TaskService
-from app.common.workspace_permission import check_workspace_access
 
 router = APIRouter(prefix="/v1/tasks", tags=["Tasks"])
 

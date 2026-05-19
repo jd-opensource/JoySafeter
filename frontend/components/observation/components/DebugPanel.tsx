@@ -51,7 +51,11 @@ function DebugPanelInner({ agentId, agentVersionId, workspaceId }: DebugPanelPro
   useEffect(() => {
     if (threadId || createThread.isPending) return
     createThread
-      .mutateAsync({ agent_id: agentId, title: `Debug session – ${new Date().toLocaleString()}`, workspace_id: workspaceId })
+      .mutateAsync({
+        agent_id: agentId,
+        title: `Debug session – ${new Date().toLocaleString()}`,
+        workspace_id: workspaceId,
+      })
       .then((thread) => setThreadId(thread.id))
       .catch((err) => console.error('DebugPanel: thread provisioning failed', err))
     // mutate* identities from useMutation are stable; we only need to react to

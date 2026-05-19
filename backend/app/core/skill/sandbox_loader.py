@@ -20,6 +20,7 @@ from app.utils.path_utils import sanitize_skill_name
 
 if TYPE_CHECKING:
     from app.models.skill import Skill
+    from app.services.skill_service import SkillService
 
 
 class SkillSandboxLoader:

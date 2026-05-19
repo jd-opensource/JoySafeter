@@ -8,6 +8,8 @@ API automatically delegates to the global provider — callers just need
 
 from __future__ import annotations
 
+from typing import Any
+
 from loguru import logger
 from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
@@ -15,6 +17,16 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 _provider: TracerProvider | None = None
+
+
+def _load_otlp_exporter(protocol: str) -> Any:
+    import importlib
+
+    if protocol == "http/protobuf":
+        mod = importlib.import_module("opentelemetry.exporter.otlp.proto.http.trace_exporter")
+    else:
+        mod = importlib.import_module("opentelemetry.exporter.otlp.proto.grpc.trace_exporter")
+    return mod.OTLPSpanExporter
 
 
 def init_global_provider(
@@ -52,16 +64,8 @@ def _maybe_attach_otlp_exporter(provider: TracerProvider) -> None:
     protocol = settings.otel_exporter_otlp_protocol
 
     try:
-        if protocol == "http/protobuf":
-            from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
-                OTLPSpanExporter,
-            )
-        else:
-            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
-                OTLPSpanExporter,
-            )
-
-        exporter = OTLPSpanExporter(endpoint=endpoint)
+        exporter_cls = _load_otlp_exporter(protocol)
+        exporter = exporter_cls(endpoint=endpoint)
         provider.add_span_processor(BatchSpanProcessor(exporter))
         logger.info(f"   ✓ OTLP trace exporter → {endpoint} ({protocol})")
     except ImportError:

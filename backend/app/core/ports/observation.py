@@ -13,8 +13,35 @@ class ObservationCollectorPort(Protocol):
     Used by: engines via ExecutionContext.collector
     """
 
-    def start_span(self, obs_type: Any, name: str, **kw: Any) -> Any: ...
+    def start_span(
+        self,
+        obs_type: Any,
+        name: str,
+        *,
+        parent: Any = None,
+        input: Any = None,
+        metadata: dict | None = None,
+        level: Any = ...,
+    ) -> Any: ...
+
     def start_agent(self, name: str, **kw: Any) -> Any: ...
-    def record_event(self, name: str, **kw: Any) -> Any: ...
+
+    def child_span(self, parent: Any, obs_type: Any, name: str, **kw: Any) -> Any: ...
+
+    def record_generation(self, name: str, **kw: Any) -> Any: ...
+
+    def record_tool(self, name: str, **kw: Any) -> Any: ...
+
+    def record_event(
+        self,
+        name: str,
+        *,
+        parent: Any = None,
+        input: Any = None,
+        metadata: dict | None = None,
+        level: Any = ...,
+    ) -> Any: ...
+
     def create_langchain_handler(self) -> Any: ...
+
     async def finalize(self, status: str = "complete") -> None: ...

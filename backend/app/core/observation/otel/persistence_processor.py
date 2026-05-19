@@ -269,9 +269,7 @@ class PersistenceProcessor(SpanProcessor):
         db_session_factory: Callable[..., Coroutine[Any, Any, Any]],
         event_loop: asyncio.AbstractEventLoop,
     ) -> None:
-        bucket = _ExecutionBucket(
-            execution_id, trace_id, workspace_id, db_session_factory, event_loop
-        )
+        bucket = _ExecutionBucket(execution_id, trace_id, workspace_id, db_session_factory, event_loop)
         self._registry.put(execution_id, bucket)
 
     def get_execution_aggregates(self, execution_id: uuid.UUID) -> dict:

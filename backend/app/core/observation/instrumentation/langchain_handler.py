@@ -107,7 +107,9 @@ class _TokenBuffer:
 
 
 class ObservationCallbackHandler(AsyncCallbackHandler):
-    def __init__(self, tracer: Tracer, provider: ObservationTracerProvider, execution_id: uuid.UUID | None = None) -> None:
+    def __init__(
+        self, tracer: Tracer, provider: ObservationTracerProvider, execution_id: uuid.UUID | None = None
+    ) -> None:
         self._tracer = tracer
         self._provider = provider
         self._execution_id = execution_id

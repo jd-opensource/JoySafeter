@@ -49,6 +49,7 @@ class CLIEngine:
         )
 
         async with AsyncSessionLocal() as db:
+            assert context.runner_factory is not None, "CLIEngine requires runner_factory"
             runner = context.runner_factory(db)
             await runner.run(
                 execution_id=execution_id,

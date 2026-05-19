@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.app_errors import AccessDeniedError
 from app.common.dependencies import CurrentUser, require_workspace_role
+from app.common.workspace_permission import check_workspace_access
 from app.core.database import get_db
 from app.models.agent import Agent, AgentRelease, AgentVersion
 from app.models.auth import AuthUser as User
@@ -36,7 +37,6 @@ from app.services.agent_publish_service import AgentPublishService
 from app.services.agent_release_service import AgentReleaseService
 from app.services.agent_service import AgentService
 from app.services.agent_version_service import AgentVersionService
-from app.common.workspace_permission import check_workspace_access
 
 
 class RollbackRequest(PydanticBaseModel):

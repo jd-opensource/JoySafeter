@@ -22,9 +22,9 @@ from sqlalchemy import text  # noqa: E402
 from app.api import api_router  # noqa: E402
 from app.common.exceptions import register_exception_handlers  # noqa: E402
 from app.common.logging import TracingMiddleware, setup_logging  # noqa: E402
+from app.core.database import AsyncSessionLocal, close_db, engine  # noqa: E402
 from app.core.observation.otel.global_provider import init_global_provider  # noqa: E402
 from app.core.observation.otel.provider import init_global_processors  # noqa: E402
-from app.core.database import AsyncSessionLocal, close_db, engine  # noqa: E402
 from app.core.redis import RedisClient  # noqa: E402
 from app.core.settings import settings  # noqa: E402
 from app.websocket.auth import WebSocketCloseCode, authenticate_websocket, reject_websocket  # noqa: E402

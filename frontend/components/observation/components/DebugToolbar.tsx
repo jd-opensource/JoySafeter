@@ -69,7 +69,9 @@ export function DebugToolbar({
       </div>
 
       <Textarea
-        placeholder={isMultiTurn ? 'Follow-up message (context preserved)...' : 'Enter test prompt...'}
+        placeholder={
+          isMultiTurn ? 'Follow-up message (context preserved)...' : 'Enter test prompt...'
+        }
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         rows={2}

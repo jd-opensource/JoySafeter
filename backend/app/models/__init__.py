@@ -2,8 +2,6 @@
 Data models
 """
 
-from app.models.message import Message
-
 from .access_control import (
     Permission,
     PermissionType,
@@ -15,12 +13,13 @@ from .agent_run import AgentRun
 from .auth import AuthSession, AuthUser
 from .auth import AuthUser as User
 from .base import BaseModel, SoftDeleteMixin, TimestampMixin
-from .chat import Chat
+from .chat import Chat  # noqa: F401 — alembic discovery
 from .custom_tool import CustomTool
 from .execution import Artifact, Execution, ExecutionEvent
 from .execution_trace import ExecutionObservation, ExecutionTrace  # noqa: F401 — alembic discovery
 from .mcp import McpServer
 from .memory import Memory
+from .message import Message  # noqa: F401 — alembic discovery
 from .model_credential import ModelCredential
 from .model_instance import ModelInstance
 from .model_provider import ModelProvider
@@ -42,7 +41,6 @@ from .workspace import Workspace, WorkspaceMember, WorkspaceMemberRole, Workspac
 __all__ = [
     "BaseModel",
     "AgentRun",
-    "Message",
     "TimestampMixin",
     "SoftDeleteMixin",
     "User",
@@ -54,7 +52,6 @@ __all__ = [
     "WorkspaceStatus",
     "WorkspaceMemberRole",
     "UserSandbox",
-    "Chat",
     "Organization",
     "Member",
     "PermissionType",

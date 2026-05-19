@@ -16,15 +16,12 @@ from app.common.app_errors import InternalServiceError, NotFoundError
 from app.core.events import ExecutionEventEnvelope, execution_event_bus
 from app.core.events.event_types import ExecutionEventType
 from app.core.ports.execution import EventContext
-from app.core.state_machines.definitions import EXECUTION_TERMINAL
 from app.models.execution import (
     Execution,
     ExecutionEvent,
 )
 from app.repositories.execution import ExecutionEventRepository, ExecutionRepository
 from app.utils.datetime import utc_now
-
-TERMINAL_EXECUTION_STATUSES = EXECUTION_TERMINAL
 
 
 class ExecutionService:

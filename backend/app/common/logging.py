@@ -64,11 +64,7 @@ class TracingMiddleware:
         path = scope.get("path", "-")
         client_host = scope["client"][0] if scope.get("client") else "unknown"
 
-        carrier = {
-            k.decode(): v.decode()
-            for k, v in scope.get("headers", [])
-            if k in (b"traceparent", b"tracestate")
-        }
+        carrier = {k.decode(): v.decode() for k, v in scope.get("headers", []) if k in (b"traceparent", b"tracestate")}
         parent_ctx = propagate.extract(carrier) if carrier else None
 
         tracer = trace.get_tracer("joysafeter.http")

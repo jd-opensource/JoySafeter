@@ -34,9 +34,7 @@ def upgrade():
     op.execute(
         "DELETE FROM artifacts WHERE execution_id IN (SELECT id FROM executions WHERE run_id IN (SELECT id FROM agent_runs WHERE thread_id IS NULL))"
     )
-    op.execute(
-        "DELETE FROM executions WHERE run_id IN (SELECT id FROM agent_runs WHERE thread_id IS NULL)"
-    )
+    op.execute("DELETE FROM executions WHERE run_id IN (SELECT id FROM agent_runs WHERE thread_id IS NULL)")
     op.execute("DELETE FROM agent_runs WHERE thread_id IS NULL")
 
     # 2. threads: add pool persistence columns

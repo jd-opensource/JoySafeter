@@ -280,9 +280,7 @@ class ExecutionLauncher:
             execution_id=execution.id,
             agent_version_id=agent_version_id,
             user_id=(
-                uuid.UUID(run.created_by)
-                if run.created_by and isinstance(run.created_by, str)
-                else run.created_by
+                uuid.UUID(run.created_by) if run.created_by and isinstance(run.created_by, str) else run.created_by
             ),
             session_id=str(run.thread_id),
             input={"prompt": prompt},

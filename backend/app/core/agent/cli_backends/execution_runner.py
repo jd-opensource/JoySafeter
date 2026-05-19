@@ -187,13 +187,9 @@ class ExecutionRunner:
                             level=ObservationLevel.WARNING,
                         )
                     except Exception as exc:
-                        logger.warning(
-                            f"[exec:{execution_id}] collector.record_event failed: {exc}"
-                        )
+                        logger.warning(f"[exec:{execution_id}] collector.record_event failed: {exc}")
 
-                history = await self._reader.load_thread_history(
-                    run.thread_id, before_run_id=run.id
-                )
+                history = await self._reader.load_thread_history(run.thread_id, before_run_id=run.id)
                 rebuilt_prompt = _rebuild_prompt(history, prompt)
                 session_registry.unregister(execution_id)
                 # NOTE: container remains acquired — the retry reuses the
@@ -216,9 +212,7 @@ class ExecutionRunner:
             # 9. Store session_id so the next turn on this thread can --resume
             if result.session_id:
                 await container_pool.store_session(thread_id, result.session_id)
-                logger.info(
-                    f"[exec:{execution_id}] Stored session {result.session_id} for thread {thread_id}"
-                )
+                logger.info(f"[exec:{execution_id}] Stored session {result.session_id} for thread {thread_id}")
 
             return result
 
@@ -301,9 +295,7 @@ class ExecutionRunner:
         session_registry.register(execution.id, session)
         self._session = session
 
-        await self._drain_to_events(
-            execution.id, collector=collector, engine_kind=execution.engine_kind
-        )
+        await self._drain_to_events(execution.id, collector=collector, engine_kind=execution.engine_kind)
         result: CLIResult = await session.result
         return result
 
@@ -535,8 +527,7 @@ def _rebuild_prompt(history: list[tuple[str, str]], current_prompt: str) -> str:
         return current_prompt
 
     lines: list[str] = [
-        "Earlier conversation (CLI session was reset; context is replayed "
-        "below to restore continuity):",
+        "Earlier conversation (CLI session was reset; context is replayed below to restore continuity):",
         "",
     ]
     for role, content in history:
