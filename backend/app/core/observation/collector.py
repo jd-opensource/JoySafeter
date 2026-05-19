@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 import uuid
 from typing import Any, Callable, Coroutine
 
@@ -10,6 +11,7 @@ import sqlalchemy as sa
 from loguru import logger
 from opentelemetry import context as otel_context
 from opentelemetry import trace
+from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 
 from app.core.observation.instrumentation.langchain_handler import (
     ObservationCallbackHandler,
@@ -44,11 +46,18 @@ class ObservationCollector:
         self._execution_id = execution_id
         self._db_session_factory = db_session_factory
 
-        # Attach a lightweight context span so get_current_span() returns a
-        # valid span throughout the execution lifetime.  This makes loguru's
-        # _get_otel_trace_id() and propagate.inject() work inside engine tasks.
+        # Force the OTel trace_id for this execution scope to equal
+        # execution_id so logs, Jaeger, and DB all share one 128-bit ID.
+        parent_span_ctx = SpanContext(
+            trace_id=execution_id.int,
+            span_id=random.getrandbits(64),
+            is_remote=False,
+            trace_flags=TraceFlags(TraceFlags.SAMPLED),
+        )
+        forced_ctx = trace.set_span_in_context(NonRecordingSpan(parent_span_ctx))
         self._ctx_span = trace.get_tracer("joysafeter.execution").start_span(
             "execution",
+            context=forced_ctx,
         )
         self._ctx_token = otel_context.attach(
             trace.set_span_in_context(self._ctx_span)
