@@ -22,6 +22,8 @@ from sqlalchemy import text  # noqa: E402
 from app.api import api_router  # noqa: E402
 from app.common.exceptions import register_exception_handlers  # noqa: E402
 from app.common.logging import LoggingMiddleware, setup_logging  # noqa: E402
+from app.core.observation.otel.global_provider import init_global_provider  # noqa: E402
+from app.core.observation.otel.provider import init_global_processors  # noqa: E402
 from app.core.database import AsyncSessionLocal, close_db, engine  # noqa: E402
 from app.core.redis import RedisClient  # noqa: E402
 from app.core.settings import settings  # noqa: E402
@@ -77,6 +79,10 @@ async def _check_docker_availability():
 async def lifespan(app: FastAPI) -> AsyncGenerator:
     """Application Lifecycle"""
     # Startup
+    # OTel must be ready before any request is processed
+    init_global_provider()
+    init_global_processors()
+
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"   Environment: {settings.environment}")
     logger.info(f"   Debug: {settings.debug}")

@@ -107,9 +107,10 @@ class _TokenBuffer:
 
 
 class ObservationCallbackHandler(AsyncCallbackHandler):
-    def __init__(self, tracer: Tracer, provider: ObservationTracerProvider) -> None:
+    def __init__(self, tracer: Tracer, provider: ObservationTracerProvider, execution_id: uuid.UUID | None = None) -> None:
         self._tracer = tracer
         self._provider = provider
+        self._execution_id = execution_id
         self._runs: dict[uuid.UUID, ObservationSpan] = {}
         self._run_states: dict[uuid.UUID, RunState] = {}
         self._root_run_states: dict[uuid.UUID, RootRunState] = {}
@@ -150,14 +151,17 @@ class ObservationCallbackHandler(AsyncCallbackHandler):
             parent_span = self._runs[parent_run_id]
             parent_ctx = parent_span.get_context()
 
+        attrs: dict[str, str] = {
+            "observation.id": str(obs_id),
+            "observation.type": obs_type.value,
+            "observation.level": ObservationLevel.DEFAULT.value,
+        }
+        if self._execution_id:
+            attrs["execution.id"] = str(self._execution_id)
         otel_span = self._tracer.start_span(
             name,
             context=parent_ctx,
-            attributes={
-                "observation.id": str(obs_id),
-                "observation.type": obs_type.value,
-                "observation.level": ObservationLevel.DEFAULT.value,
-            },
+            attributes=attrs,
         )
         obs = ObservationSpan(otel_span, obs_id, self._provider)
         self._runs[run_id] = obs

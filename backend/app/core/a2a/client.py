@@ -8,7 +8,7 @@ Production features:
 - Retry with exponential backoff
 - Connection pooling
 - Structured logging with context
-- Optional Langfuse tracing (via trace_id in extra)
+- OTel distributed tracing (W3C traceparent propagation)
 """
 
 from __future__ import annotations
@@ -88,12 +88,10 @@ async def close_all_clients():
 
 
 def _inject_trace_header(headers: dict[str, str]) -> None:
-    """Add X-Request-ID from the current trace context if available."""
-    from app.core.trace_context import get_trace_id
+    """Inject W3C traceparent into outgoing headers for distributed tracing."""
+    from opentelemetry import propagate
 
-    trace_id = get_trace_id()
-    if trace_id:
-        headers["X-Request-ID"] = trace_id
+    propagate.inject(headers)
 
 
 # ==================== Result Types ====================
@@ -359,7 +357,7 @@ async def send_message(
 
     client = _get_client(url, config)
 
-    # Log request (structured) - compatible with Langfuse via trace_id
+    # Log request (structured)
     logger.info(
         f"{LOG_PREFIX} message/send request",
         extra={

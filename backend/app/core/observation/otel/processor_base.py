@@ -23,6 +23,13 @@ class LiveSpanProcessor(SpanProcessor):
         return None
 
 
+def resolve_execution_id(span: Any) -> str | None:
+    """Extract ``execution.id`` string from a span's attributes, or *None*."""
+    attrs = getattr(span, "attributes", None) or {}
+    val = attrs.get("execution.id")
+    return str(val) if val else None
+
+
 def parse_json_attr(val: Any) -> Any:
     if val is None:
         return None

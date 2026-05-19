@@ -1,8 +1,9 @@
-"""BroadcastProcessor — instant WebSocket relay via LiveSpanProcessor."""
+"""BroadcastProcessor — global SpanProcessor that routes live events to per-execution buckets."""
 
 from __future__ import annotations
 
 import asyncio
+import threading
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine
@@ -15,12 +16,22 @@ from app.core.observation.otel.processor_base import (
     build_usage,
     ns_to_iso,
     parse_json_attr,
+    resolve_execution_id,
 )
 from app.core.observation.otel.span_wrapper import ObservationSpan
 from app.core.observation.types import ObservationLevel, ObservationType
 
 
-class BroadcastProcessor(LiveSpanProcessor):
+class _BroadcastBucket:
+    __slots__ = (
+        "_execution_id",
+        "_trace_id",
+        "_broadcast_fn",
+        "_loop",
+        "_lock",
+        "_otel_span_id_to_observation_id",
+    )
+
     def __init__(
         self,
         execution_id: uuid.UUID,
@@ -32,6 +43,7 @@ class BroadcastProcessor(LiveSpanProcessor):
         self._trace_id = trace_id
         self._broadcast_fn = broadcast_fn
         self._loop = event_loop
+        self._lock = threading.Lock()
         self._otel_span_id_to_observation_id: dict[int, str] = {}
 
     def _resolve_parent_obs_id(self, span: Any) -> str | None:
@@ -64,24 +76,26 @@ class BroadcastProcessor(LiveSpanProcessor):
         }
         return obs
 
-    def on_start(self, span: Any, parent_context: Any = None) -> None:
+    def on_start(self, span: Any) -> None:
         attrs = span.attributes or {}
         obs_id = str(attrs.get("observation.id", ""))
         if obs_id and hasattr(span, "context"):
-            self._otel_span_id_to_observation_id[span.context.span_id] = obs_id
+            with self._lock:
+                self._otel_span_id_to_observation_id[span.context.span_id] = obs_id
         self._emit("span_open", self._build_observation(span))
 
     def on_end(self, span: Any) -> None:
         self._emit("span_close", self._build_observation(span, include_end=True))
-
         if hasattr(span, "context") and span.context:
-            self._otel_span_id_to_observation_id.pop(span.context.span_id, None)
+            with self._lock:
+                self._otel_span_id_to_observation_id.pop(span.context.span_id, None)
 
     def on_event(self, span: ObservationSpan, event_name: str, attributes: dict) -> None:
         parent_obs_id: str | None = None
         parent_span_id = span.get_parent_span_id()
         if parent_span_id is not None:
-            parent_obs_id = self._otel_span_id_to_observation_id.get(parent_span_id)
+            with self._lock:
+                parent_obs_id = self._otel_span_id_to_observation_id.get(parent_span_id)
         self._emit(
             event_name,
             {
@@ -125,10 +139,69 @@ class BroadcastProcessor(LiveSpanProcessor):
     def _log_if_failed(future: Any) -> None:
         exc = future.exception()
         if exc:
-            logger.warning("broadcast failed: %s", exc)
+            logger.warning("broadcast failed: {}", exc)
 
-    def shutdown(self) -> None:
-        pass
+
+class BroadcastProcessor(LiveSpanProcessor):
+    """Global singleton that routes broadcast events to per-execution buckets."""
+
+    def __init__(self) -> None:
+        self._buckets: dict[str, _BroadcastBucket] = {}
+        self._lock = threading.Lock()
+
+    def register_execution(
+        self,
+        execution_id: uuid.UUID,
+        trace_id: uuid.UUID,
+        broadcast_fn: Callable[..., Coroutine[Any, Any, None]] | None,
+        event_loop: asyncio.AbstractEventLoop,
+    ) -> None:
+        bucket = _BroadcastBucket(execution_id, trace_id, broadcast_fn, event_loop)
+        with self._lock:
+            self._buckets[str(execution_id)] = bucket
+
+    def unregister_execution(self, execution_id: uuid.UUID) -> None:
+        with self._lock:
+            self._buckets.pop(str(execution_id), None)
+
+    def _get_bucket(self, span: Any) -> _BroadcastBucket | None:
+        exec_id = resolve_execution_id(span)
+        if exec_id is None:
+            return None
+        with self._lock:
+            return self._buckets.get(exec_id)
+
+    def _get_bucket_by_id(self, execution_id: uuid.UUID) -> _BroadcastBucket | None:
+        with self._lock:
+            return self._buckets.get(str(execution_id))
+
+    def on_start(self, span: Any, parent_context: Any = None) -> None:
+        bucket = self._get_bucket(span)
+        if bucket:
+            bucket.on_start(span)
+
+    def on_end(self, span: Any) -> None:
+        bucket = self._get_bucket(span)
+        if bucket:
+            bucket.on_end(span)
+
+    def on_event(self, span: ObservationSpan, event_name: str, attributes: dict) -> None:
+        exec_id_str = attributes.get("execution.id") or ""
+        bucket: _BroadcastBucket | None = None
+        if exec_id_str:
+            with self._lock:
+                bucket = self._buckets.get(str(exec_id_str))
+        if bucket:
+            bucket.on_event(span, event_name, attributes)
+
+    def emit_trace_complete(self, execution_id: uuid.UUID, status: str, trace_id: str, aggregates: dict) -> None:
+        bucket = self._get_bucket_by_id(execution_id)
+        if bucket:
+            bucket.emit_trace_complete(status, trace_id, aggregates)
 
     def force_flush(self, timeout_millis: int = 30000) -> bool:
         return True
+
+    def shutdown(self, timeout_millis: int = 30000) -> None:
+        with self._lock:
+            self._buckets.clear()

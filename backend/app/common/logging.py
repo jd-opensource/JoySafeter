@@ -2,6 +2,8 @@
 Logging middleware.
 
 Log detailed information for each request, including method, path, duration, status code, etc.
+Uses OpenTelemetry for trace-context propagation so that HTTP request logs, engine
+observations, and outgoing A2A calls share the same trace_id.
 """
 # mypy: ignore-errors
 
@@ -10,9 +12,17 @@ import os
 import time
 
 from loguru import logger
+from opentelemetry import trace
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.core.trace_context import get_trace_id, set_trace_id
+
+def _get_otel_trace_id() -> str:
+    """Read trace_id from the current OTel span context (hex, 32-char)."""
+    span = trace.get_current_span()
+    ctx = span.get_span_context()
+    if ctx and ctx.trace_id:
+        return format(ctx.trace_id, "032x")
+    return ""
 
 
 class InterceptHandler(logging.Handler):
@@ -34,7 +44,7 @@ class InterceptHandler(logging.Handler):
 
 
 class LoggingMiddleware:
-    """Pure ASGI logging middleware (avoids BaseHTTPMiddleware re-raise issues)."""
+    """Pure ASGI logging middleware with OTel trace-context propagation."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -50,47 +60,51 @@ class LoggingMiddleware:
         client = scope.get("client")
         client_host = client[0] if client else "unknown"
 
-        request_id = None
-        for key, value in scope.get("headers", []):
-            if key == b"x-request-id":
-                request_id = value.decode()
-                break
-        trace_id = set_trace_id(request_id)
+        tracer = trace.get_tracer("joysafeter.http")
+        with tracer.start_as_current_span(
+            "http.request",
+            attributes={
+                "http.method": method,
+                "http.path": path,
+                "http.client": client_host,
+            },
+        ) as span:
+            trace_id = format(span.get_span_context().trace_id, "032x")
 
-        log = logger.bind(trace_id=trace_id, method=method, path=path, client=client_host)
-        log.info("request.start")
+            log = logger.bind(trace_id=trace_id, method=method, path=path, client=client_host)
+            log.info("request.start")
 
-        status_code = 500
-        response_process_time = 0.0
+            status_code = 500
+            response_process_time = 0.0
 
-        async def send_wrapper(message: Message) -> None:
-            nonlocal status_code, response_process_time
-            if message["type"] == "http.response.start":
-                status_code = message["status"]
-                response_process_time = time.time() - start_time
-                if "headers" not in message:
-                    message["headers"] = []
-                message["headers"] = list(message["headers"]) + [
-                    [b"x-process-time", str(response_process_time).encode()],
-                    [b"x-trace-id", trace_id.encode()],
-                ]
-            await send(message)
+            async def send_wrapper(message: Message) -> None:
+                nonlocal status_code, response_process_time
+                if message["type"] == "http.response.start":
+                    status_code = message["status"]
+                    response_process_time = time.time() - start_time
+                    if "headers" not in message:
+                        message["headers"] = []
+                    message["headers"] = list(message["headers"]) + [
+                        [b"x-process-time", str(response_process_time).encode()],
+                        [b"x-trace-id", trace_id.encode()],
+                    ]
+                await send(message)
 
-        try:
-            await self.app(scope, receive, send_wrapper)
-        except Exception as e:
-            process_time = time.time() - start_time
-            log.opt(exception=True).error(f"request.failed duration={process_time:.3f}s error={type(e).__name__}")
-            raise
+            try:
+                await self.app(scope, receive, send_wrapper)
+            except Exception as e:
+                process_time = time.time() - start_time
+                log.opt(exception=True).error(f"request.failed duration={process_time:.3f}s error={type(e).__name__}")
+                raise
 
-        process_time = response_process_time or (time.time() - start_time)
-        message = f"request.completed status={status_code} duration={process_time:.3f}s"
-        if status_code >= 500:
-            log.error(message)
-        elif status_code >= 400:
-            log.warning(message)
-        else:
-            log.info(message)
+            process_time = response_process_time or (time.time() - start_time)
+            message = f"request.completed status={status_code} duration={process_time:.3f}s"
+            if status_code >= 500:
+                log.error(message)
+            elif status_code >= 400:
+                log.warning(message)
+            else:
+                log.info(message)
 
 
 def setup_logging():
@@ -102,10 +116,11 @@ def setup_logging():
     try:
         os.makedirs("logs", exist_ok=True)
     except PermissionError:
-        # if unable to create logs directory (e.g. insufficient permissions in Docker), use console only
         pass
     logger.configure(
-        patcher=lambda record: record["extra"].update(trace_id=get_trace_id() or record["extra"].get("trace_id", "-")),
+        patcher=lambda record: record["extra"].update(
+            trace_id=_get_otel_trace_id() or record["extra"].get("trace_id", "-")
+        ),
         extra={"trace_id": "-", "method": "-", "path": "-", "client": "-"},
     )
 
@@ -131,9 +146,9 @@ def setup_logging():
     try:
         logger.add(
             "logs/app.log",
-            rotation="100 MB",  # rotate when file reaches 100 MB
-            retention="30 days",  # retain logs for 30 days
-            compression="zip",  # compress old logs
+            rotation="100 MB",
+            retention="30 days",
+            compression="zip",
             format=(
                 "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | trace_id={extra[trace_id]} | "
                 "{extra[method]} {extra[path]} | {name}:{function}:{line} | {message}"
@@ -154,7 +169,6 @@ def setup_logging():
             level="ERROR",
         )
     except (PermissionError, OSError):
-        # if unable to create log files (e.g. insufficient permissions), use console only
         pass
 
     # intercept ALL standard logging into loguru (root + named loggers)

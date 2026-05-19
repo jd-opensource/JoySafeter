@@ -8,6 +8,8 @@ from typing import Any, Callable, Coroutine
 
 import sqlalchemy as sa
 from loguru import logger
+from opentelemetry import context as otel_context
+from opentelemetry import trace
 
 from app.core.observation.instrumentation.langchain_handler import (
     ObservationCallbackHandler,
@@ -39,7 +41,18 @@ class ObservationCollector:
         )
         self._tracer = self._provider.get_tracer()
         self._trace_id = trace_id
+        self._execution_id = execution_id
         self._db_session_factory = db_session_factory
+
+        # Attach a lightweight context span so get_current_span() returns a
+        # valid span throughout the execution lifetime.  This makes loguru's
+        # _get_otel_trace_id() and propagate.inject() work inside engine tasks.
+        self._ctx_span = trace.get_tracer("joysafeter.execution").start_span(
+            "execution",
+        )
+        self._ctx_token = otel_context.attach(
+            trace.set_span_in_context(self._ctx_span)
+        )
 
     def start_span(
         self,
@@ -61,6 +74,7 @@ class ObservationCollector:
             name,
             context=parent_ctx,
             attributes={
+                "execution.id": str(self._execution_id),
                 "observation.id": str(obs_id),
                 "observation.type": obs_type.value,
                 "observation.level": level.value,
@@ -166,13 +180,15 @@ class ObservationCollector:
         return span
 
     def create_langchain_handler(self) -> ObservationCallbackHandler:
-        return ObservationCallbackHandler(self._tracer, self._provider)
+        return ObservationCallbackHandler(self._tracer, self._provider, self._execution_id)
 
     async def finalize(self, status: str = "complete") -> None:
         agg = self._provider.get_persistence_aggregates()
         final_status = "error" if agg["has_error"] else status
         self._provider.broadcast_trace_complete(final_status, agg)
         await self._provider.shutdown()
+        self._ctx_span.end()
+        otel_context.detach(self._ctx_token)
         await self._update_trace_row(final_status, agg)
 
     async def _update_trace_row(self, status: str, agg: dict) -> None:
