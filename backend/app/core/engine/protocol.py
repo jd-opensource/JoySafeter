@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Callable, Protocol, runtime_checkable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,7 +42,7 @@ class ExecutionContext:
     # Ports — injected by launcher, used by engines.
     collector: ObservationCollectorPort | None = None
     model_port: ModelPort | None = None
-    runner_factory: Any = None  # Callable[[AsyncSession], ExecutionRunner]
+    runner_factory: Callable[..., Any] | None = None
     _event_bridge: ContextEventBridge | None = None
 
     async def emit(self, event_type: ExecutionEventType, payload: dict | None = None) -> None:
