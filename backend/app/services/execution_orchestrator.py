@@ -8,6 +8,7 @@ Creates AgentRun + Execution, resolves the engine, builds context, and starts ex
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
@@ -34,6 +35,30 @@ from app.utils.safe_task import safe_create_task
 # Status values that count as an "active" AgentRun — mirrored in the
 # partial unique index `uq_agent_runs_active_per_thread`.
 ACTIVE_RUN_STATUSES: tuple[str, ...] = ("pending", "running")
+
+
+@dataclass
+class RunSpec:
+    """Everything needed to create an AgentRun + Execution and fire an engine.
+
+    ``release`` being set (vs None) determines whether this is a
+    release-based production run or a draft test-lab run.
+    """
+
+    agent: Agent
+    version: AgentVersion
+    workspace_id: uuid.UUID
+    prompt: str
+    trigger_medium: str
+    run_purpose: str
+    user_id: str
+    thread_id: uuid.UUID
+    release: AgentRelease | None = None
+    task_id: uuid.UUID | None = None
+    input_payload: dict | None = None
+    engine_kind_override: str | None = None
+    definition_kind_override: str | None = None
+    definition_payload_override: dict | None = None
 
 
 class ExecutionOrchestrator:
@@ -89,17 +114,20 @@ class ExecutionOrchestrator:
             )
 
         prompt = prompt_override or task.goal or task.title
-        run = await self._create_and_fire(
+        release = await self._get_release(agent.active_release_id)
+        version = await self._get_version(release.agent_version_id)
+        run = await self._create_run_and_fire(RunSpec(
             agent=agent,
-            release_id=agent.active_release_id,
+            version=version,
+            release=release,
             workspace_id=agent.workspace_id,
             prompt=prompt,
             trigger_medium="system",
             run_purpose="production",
+            user_id=user_id,
             thread_id=task.thread_id,
             task_id=task_id,
-            user_id=user_id,
-        )
+        ))
 
         # Update task status
         await transition_task(task, "in_progress", self.db, latest_run_id=run.id)
@@ -126,16 +154,19 @@ class ExecutionOrchestrator:
                 data={"agent_id": str(agent.id), "agent_name": agent.name},
             )
 
-        return await self._create_and_fire(
+        release = await self._get_release(agent.active_release_id)
+        version = await self._get_version(release.agent_version_id)
+        return await self._create_run_and_fire(RunSpec(
             agent=agent,
-            release_id=agent.active_release_id,
+            version=version,
+            release=release,
             workspace_id=agent.workspace_id,
             prompt=message,
             trigger_medium="api",
             run_purpose="production",
-            thread_id=thread_id,
             user_id=user_id,
-        )
+            thread_id=thread_id,
+        ))
 
     async def dispatch_direct(
         self,
@@ -153,18 +184,19 @@ class ExecutionOrchestrator:
         version = await self._get_version(release.agent_version_id)
         agent = await self._get_agent(version.agent_id)
 
-        return await self._create_and_fire(
+        return await self._create_run_and_fire(RunSpec(
             agent=agent,
-            release_id=release_id,
+            version=version,
+            release=release,
             workspace_id=agent.workspace_id,
             prompt=prompt,
             trigger_medium=trigger_medium,
             run_purpose=run_purpose,
+            user_id=user_id,
             thread_id=thread_id,
             task_id=task_id,
-            user_id=user_id,
             input_payload=input_payload,
-        )
+        ))
 
     async def dispatch_draft(
         self,
@@ -193,7 +225,7 @@ class ExecutionOrchestrator:
                 data={"agent_id": str(agent_id), "workspace_id": str(workspace_id)},
             )
 
-        return await self._create_and_fire_draft(
+        return await self._create_run_and_fire(RunSpec(
             agent=agent,
             version=version,
             workspace_id=workspace_id,
@@ -203,7 +235,7 @@ class ExecutionOrchestrator:
             user_id=user_id,
             thread_id=thread_id,
             input_payload=input_payload,
-        )
+        ))
 
     async def dispatch_copilot_draft(
         self,
@@ -257,7 +289,7 @@ class ExecutionOrchestrator:
         self.db.add(thread)
         await self.db.flush()
 
-        return await self._create_and_fire_draft(
+        return await self._create_run_and_fire(RunSpec(
             agent=agent,
             version=version,
             workspace_id=workspace_id,
@@ -270,7 +302,7 @@ class ExecutionOrchestrator:
             engine_kind_override="build_copilot",
             definition_kind_override="build_copilot",
             definition_payload_override=copilot_payload,
-        )
+        ))
 
     async def dispatch_debug(
         self,
@@ -299,7 +331,7 @@ class ExecutionOrchestrator:
                 data={"agent_id": str(agent_id), "workspace_id": str(workspace_id)},
             )
 
-        run = await self._create_and_fire_draft(
+        return await self._create_run_and_fire(RunSpec(
             agent=agent,
             version=version,
             workspace_id=workspace_id,
@@ -309,9 +341,7 @@ class ExecutionOrchestrator:
             user_id=user_id,
             thread_id=thread_id,
             input_payload={"debug": True, "variables": variables or {}},
-        )
-
-        return run
+        ))
 
     def _resolve_engine(self, execution: Execution, release: AgentRelease):
         return engine_registry.get(execution.engine_kind)
@@ -516,54 +546,34 @@ class ExecutionOrchestrator:
     # Internal: create Run + Execution, fire engine
     # ------------------------------------------------------------------
 
-    async def _create_and_fire(
-        self,
-        agent: Agent,
-        release_id: uuid.UUID,
-        workspace_id: uuid.UUID,
-        prompt: str,
-        trigger_medium: str,
-        run_purpose: str,
-        user_id: str,
-        thread_id: uuid.UUID,
-        task_id: uuid.UUID | None = None,
-        input_payload: dict | None = None,
-        *,
-        engine_kind_override: str | None = None,
-        definition_kind_override: str | None = None,
-        definition_payload_override: dict | None = None,
-    ) -> AgentRun:
-        release = await self._get_release(release_id)
-        version = await self._get_version(release.agent_version_id)
+    async def _create_run_and_fire(self, spec: RunSpec) -> AgentRun:
+        """Create AgentRun + Execution and fire the engine in a background task."""
+        await self._require_no_active_run(spec.thread_id)
 
-        await self._require_no_active_run(thread_id)
-
-        # Create Run in pending state — bus will transition to running
         run = AgentRun(
-            release_id=release_id,
-            workspace_id=workspace_id,
-            thread_id=thread_id,
-            task_id=task_id,
-            trigger_medium=trigger_medium,
-            run_purpose=run_purpose,
-            goal=prompt[:500] if prompt else None,
-            input_payload=input_payload,
+            release_id=spec.release.id if spec.release else None,
+            agent_version_id=None if spec.release else spec.version.id,
+            workspace_id=spec.workspace_id,
+            thread_id=spec.thread_id,
+            task_id=spec.task_id,
+            trigger_medium=spec.trigger_medium,
+            run_purpose=spec.run_purpose,
+            goal=spec.prompt[:500] if spec.prompt else None,
+            input_payload=spec.input_payload,
             status="pending",
-            created_by=user_id,
+            created_by=spec.user_id,
         )
         self.db.add(run)
         try:
             await self.db.flush()
         except IntegrityError:
-            # uq_agent_runs_active_per_thread kicked in — another dispatch
-            # beat us to the insert. Surface the same error as the fast path.
             await self.db.rollback()
-            raise self._raise_active_run_conflict(thread_id)
+            raise self._raise_active_run_conflict(spec.thread_id)
 
         execution = Execution(
             run_id=run.id,
             attempt_index=1,
-            engine_kind=engine_kind_override or version.engine_kind,
+            engine_kind=spec.engine_kind_override or spec.version.engine_kind,
             status="pending",
         )
         self.db.add(execution)
@@ -580,18 +590,17 @@ class ExecutionOrchestrator:
         )
         await self.db.refresh(run)
 
-        # Fire engine in background
         try:
             await self._fire_engine(
                 execution=execution,
-                release=release,
-                version=version,
-                agent=agent,
-                workspace_id=workspace_id,
-                prompt=prompt,
-                engine_kind_override=engine_kind_override,
-                definition_kind_override=definition_kind_override,
-                definition_payload_override=definition_payload_override,
+                version=spec.version,
+                agent=spec.agent,
+                workspace_id=spec.workspace_id,
+                prompt=spec.prompt,
+                release=spec.release,
+                engine_kind_override=spec.engine_kind_override,
+                definition_kind_override=spec.definition_kind_override,
+                definition_payload_override=spec.definition_payload_override,
             )
         except Exception as exc:
             logger.error(f"[Orchestrator] _fire_engine failed: {exc}")
@@ -602,7 +611,7 @@ class ExecutionOrchestrator:
                 ExecutionEventEnvelope(
                     execution_id=execution.id,
                     run_id=run.id,
-                    workspace_id=workspace_id,
+                    workspace_id=spec.workspace_id,
                     event_type=ExecutionEventType.EXECUTION_COMPLETED,
                     payload={
                         "status": "failed",
@@ -618,131 +627,6 @@ class ExecutionOrchestrator:
             await self.db.refresh(run)
 
         return run
-
-    async def _create_and_fire_draft(
-        self,
-        agent: Agent,
-        version: AgentVersion,
-        workspace_id: uuid.UUID,
-        prompt: str,
-        trigger_medium: str,
-        run_purpose: str,
-        user_id: str,
-        thread_id: uuid.UUID,
-        input_payload: dict | None = None,
-        *,
-        engine_kind_override: str | None = None,
-        definition_kind_override: str | None = None,
-        definition_payload_override: dict | None = None,
-    ) -> AgentRun:
-        self._validate_draft_overrides(
-            engine_kind_override=engine_kind_override,
-            definition_kind_override=definition_kind_override,
-            definition_payload_override=definition_payload_override,
-        )
-        runtime_binding: dict = {}
-
-        await self._require_no_active_run(thread_id)
-
-        run = AgentRun(
-            release_id=None,
-            agent_version_id=version.id,
-            workspace_id=workspace_id,
-            thread_id=thread_id,
-            trigger_medium=trigger_medium,
-            run_purpose=run_purpose,
-            goal=prompt[:500] if prompt else None,
-            input_payload=input_payload,
-            status="pending",
-            created_by=user_id,
-        )
-        self.db.add(run)
-        try:
-            await self.db.flush()
-        except IntegrityError:
-            await self.db.rollback()
-            raise self._raise_active_run_conflict(thread_id)
-
-        execution = Execution(
-            run_id=run.id,
-            attempt_index=1,
-            engine_kind=engine_kind_override or version.engine_kind,
-            status="pending",
-        )
-        self.db.add(execution)
-        await self.db.flush()
-
-        run.current_execution_id = execution.id
-        await self.db.commit()
-
-        await self.publish_run_status_change(
-            self.db,
-            run,
-            execution_id=execution.id,
-            target_status="running",
-        )
-        await self.db.refresh(run)
-
-        try:
-            await self._fire_engine(
-                execution=execution,
-                release_runtime_binding=runtime_binding,
-                version=version,
-                agent=agent,
-                workspace_id=workspace_id,
-                prompt=prompt,
-                engine_kind_override=engine_kind_override,
-                definition_kind_override=definition_kind_override,
-                definition_payload_override=definition_payload_override,
-            )
-        except Exception as exc:
-            logger.error(f"[Orchestrator] _fire_engine failed for draft run: {exc}")
-            app_error = normalize_app_error(exc, default_code="EXECUTION_FAILED", source="engine")
-            error_payload = app_error.to_payload()
-            error_payload.setdefault("data", {})["reason"] = "engine_fire_failed"
-            await execution_event_bus.publish(
-                ExecutionEventEnvelope(
-                    execution_id=execution.id,
-                    run_id=run.id,
-                    workspace_id=workspace_id,
-                    event_type=ExecutionEventType.EXECUTION_COMPLETED,
-                    payload={
-                        "status": "failed",
-                        "error": error_payload,
-                        "result_summary": str(exc)[:2000],
-                    },
-                    terminal_status="failed",
-                    error=error_payload,
-                    result_summary=str(exc)[:2000],
-                ),
-                self.db,
-            )
-            await self.db.refresh(run)
-
-        return run
-
-    def _validate_draft_overrides(
-        self,
-        *,
-        engine_kind_override: str | None,
-        definition_kind_override: str | None,
-        definition_payload_override: dict | None,
-    ) -> None:
-        override_presence = (
-            engine_kind_override is not None,
-            definition_kind_override is not None,
-            definition_payload_override is not None,
-        )
-        if any(override_presence) and not all(override_presence):
-            raise InvalidRequestError(
-                "Draft override parameters must be all absent or all present.",
-                code="DRAFT_OVERRIDE_PARAMETERS_INVALID",
-                data={
-                    "engine_kind_override": engine_kind_override is not None,
-                    "definition_kind_override": definition_kind_override is not None,
-                    "definition_payload_override": definition_payload_override is not None,
-                },
-            )
 
     async def _fire_engine(
         self,
@@ -753,7 +637,6 @@ class ExecutionOrchestrator:
         prompt: str,
         *,
         release: AgentRelease | None = None,
-        release_runtime_binding: dict | None = None,
         engine_kind_override: str | None = None,
         definition_kind_override: str | None = None,
         definition_payload_override: dict | None = None,
@@ -791,7 +674,7 @@ class ExecutionOrchestrator:
         )
         self._wire_context(context, **run_meta)  # type: ignore[arg-type]
 
-        runtime_binding = release_runtime_binding or (release.runtime_binding if release else {})
+        runtime_binding = release.runtime_binding if release else {}
         engine = engine_registry.get(engine_kind_override or execution.engine_kind)
         _def_kind = definition_kind_override or version.engine_kind
         _def_payload = definition_payload_override or version.definition_payload
