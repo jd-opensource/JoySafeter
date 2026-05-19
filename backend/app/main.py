@@ -281,6 +281,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         await RedisClient.close()
     except Exception:
         logger.debug("Failed to close Redis client during shutdown", exc_info=True)
+
+    # Shutdown: Flush OTel span processors (drain pending observations)
+    try:
+        from app.core.observation.otel.global_provider import get_global_provider
+
+        get_global_provider().shutdown()
+        logger.info("   ✓ OTel TracerProvider shut down")
+    except Exception:
+        logger.debug("Failed to shut down TracerProvider during shutdown", exc_info=True)
+
     await close_db()
     logger.info("Application shutdown")
 

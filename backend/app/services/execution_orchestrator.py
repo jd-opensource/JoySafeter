@@ -449,7 +449,14 @@ class ExecutionOrchestrator:
 
     async def retry_run(self, run_id: uuid.UUID, user_id: str) -> AgentRun:
         """Retry a failed/cancelled run with a new Execution attempt."""
-        run = await self._get_run(run_id)
+        # SELECT ... FOR UPDATE prevents concurrent retries on the same run
+        run = (
+            await self.db.execute(
+                select(AgentRun).where(AgentRun.id == run_id).with_for_update()
+            )
+        ).scalar_one_or_none()
+        if not run:
+            raise NotFoundError("Agent run not found", code="AGENT_RUN_NOT_FOUND", data={"run_id": str(run_id)})
         if run.status not in ("failed", "cancelled"):
             raise InvalidRequestError(
                 "Can only retry failed or cancelled runs",

@@ -91,6 +91,10 @@ async def execution_reaper_loop() -> None:
             get_broadcast_processor().reap_stale()
         except Exception as exc:
             logger.debug(f"Observation bucket reap failed: {exc}")
+        try:
+            await _reap_orphan_traces()
+        except Exception as exc:
+            logger.debug(f"Orphan trace reap failed: {exc}")
 
 
 async def recover_stale_on_startup() -> None:
@@ -116,3 +120,27 @@ async def _reap_stale_executions() -> int:
 
         svc = ExecutionService(db)
         return await svc.reap_stale_executions(_STALE_THRESHOLDS)
+
+
+async def _reap_orphan_traces() -> None:
+    """Mark Trace rows as 'error' if their execution is already terminal but the Trace is still 'running'."""
+    import sqlalchemy as sa
+
+    from app.core.observation.model import Trace
+    from app.models.execution import Execution
+    from app.utils.datetime import utc_now
+
+    terminal = ("succeeded", "failed", "cancelled")
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            sa.update(Trace)
+            .where(
+                Trace.status == "running",
+                Trace.execution_id == Execution.id,
+                Execution.status.in_(terminal),
+            )
+            .values(status="error", end_time=utc_now())
+        )
+        if result.rowcount:
+            await db.commit()
+            logger.info(f"Scheduler: fixed {result.rowcount} orphan Trace rows")
