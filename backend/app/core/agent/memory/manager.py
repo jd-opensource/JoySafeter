@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from textwrap import dedent
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Optional, Type, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Type, Union
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages.chat import ChatMessage as Message
@@ -24,9 +24,6 @@ from app.utils.prompts import get_json_output_prompt
 from app.utils.string import parse_response_model_str
 
 from app.core.ports.memory import MemoryPort
-
-if TYPE_CHECKING:
-    pass
 
 
 def _is_memory_port(obj: Any) -> bool:

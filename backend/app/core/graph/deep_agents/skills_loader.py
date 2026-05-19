@@ -142,16 +142,16 @@ async def preload_skills(
                     skills_base_dir=skills_path,
                 )
 
-            successful = sum(1 for v in results.values() if v)
-            newly_loaded = {sid for sid, ok in results.items() if ok}
+        successful = sum(1 for v in results.values() if v)
+        newly_loaded = {sid for sid, ok in results.items() if ok}
 
-            if newly_loaded:
-                setattr(backend, "_loaded_skill_ids", loaded_ids | newly_loaded)
+        if newly_loaded:
+            setattr(backend, "_loaded_skill_ids", loaded_ids | newly_loaded)
 
-            logger.info(
-                f"{LOG_PREFIX} Loaded {successful}/{len(to_load)} skills for {ctx} ({len(loaded_ids)} previously loaded)"
-            )
-            return successful
+        logger.info(
+            f"{LOG_PREFIX} Loaded {successful}/{len(to_load)} skills for {ctx} ({len(loaded_ids)} previously loaded)"
+        )
+        return successful
 
     except Exception as e:
         logger.error(f"{LOG_PREFIX} Skills preload failed for {ctx}: {e}")

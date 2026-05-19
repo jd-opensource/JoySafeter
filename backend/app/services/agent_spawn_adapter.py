@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from typing import Any
 
 from loguru import logger
 from sqlalchemy import select
@@ -23,7 +24,7 @@ EXECUTION_STATUS_FAILED = "failed"
 class AgentSpawnAdapter:
     """Implements AgentSpawnPort — manages sub-agent lifecycle through orchestrator + runner."""
 
-    def __init__(self, db_factory: any) -> None:
+    def __init__(self, db_factory: Any) -> None:
         self._db_factory = db_factory
 
     async def spawn_and_wait(
