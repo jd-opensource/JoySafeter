@@ -28,9 +28,30 @@ class ObservationCollectorPort(Protocol):
 
     def child_span(self, parent: Any, obs_type: Any, name: str, **kw: Any) -> Any: ...
 
-    def record_generation(self, name: str, **kw: Any) -> Any: ...
+    def record_generation(
+        self,
+        name: str,
+        *,
+        parent: Any = None,
+        input: Any = None,
+        output: Any = None,
+        model: str | None = None,
+        usage_details: dict | None = None,
+        cost_details: dict | None = None,
+        metadata: dict | None = None,
+        level: Any = ...,
+    ) -> Any: ...
 
-    def record_tool(self, name: str, **kw: Any) -> Any: ...
+    def record_tool(
+        self,
+        name: str,
+        *,
+        parent: Any = None,
+        input: Any = None,
+        output: Any = None,
+        metadata: dict | None = None,
+        level: Any = ...,
+    ) -> Any: ...
 
     def record_event(
         self,
