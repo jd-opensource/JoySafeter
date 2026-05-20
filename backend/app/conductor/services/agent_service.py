@@ -111,8 +111,11 @@ class AgentService:
         self,
         limit: int = 20,
         after_id: Optional[uuid.UUID] = None,
+        include_archived: bool = False,
     ) -> tuple[list[ConductorAgent], bool]:
         q = select(ConductorAgent).where(ConductorAgent.deleted_at.is_(None))
+        if not include_archived:
+            q = q.where(ConductorAgent.archived_at.is_(None))
         if after_id:
             q = q.where(ConductorAgent.id < after_id)
         q = q.order_by(ConductorAgent.created_at.desc()).limit(limit + 1)

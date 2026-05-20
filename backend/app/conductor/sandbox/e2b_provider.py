@@ -49,10 +49,17 @@ class E2bSandboxProvider(SandboxProvider):
         env: dict[str, str],
         work_dir: str,
         labels: Optional[dict[str, str]] = None,
+        *,
+        timeout: Optional[int] = None,
+        **kwargs,
     ) -> str:
+        from app.conductor.config import conductor_config
+
+        eff_timeout = timeout or conductor_config.task_default_timeout
+
         body: dict = {
             "templateId": self._template_id,
-            "timeout": 7200,
+            "timeout": eff_timeout,
             "metadata": {**(labels or {}), "conductor": "true"},
         }
         if env:
@@ -188,5 +195,5 @@ class E2bSandboxProvider(SandboxProvider):
                 "status": self._map_state(s.get("state", "unknown")),
             }
             for s in sandboxes
-            if self._map_state(s.get("state", "unknown")) == "running"
+            if self._map_state(s.get("state", "unknown")) in ("running", "creating")
         ]

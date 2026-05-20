@@ -11,42 +11,51 @@ router = APIRouter(tags=["conductor-health"])
 @router.get("")
 @router.get("/ready")
 async def health_ready():
-    checks: dict[str, str] = {}
-    healthy = True
+    postgres_ok = True
+    redis_ok = True
 
-    # Probe PostgreSQL
+    # Probe PostgreSQL — equivalent to Rust PgStore.health_check()
     try:
         from app.core.database import AsyncSessionLocal
         from sqlalchemy import text
 
         async with AsyncSessionLocal() as db:
             await db.execute(text("SELECT 1"))
-        checks["postgres"] = "up"
     except Exception as e:
         logger.warning("Health check: postgres down: %s", e)
-        checks["postgres"] = "down"
-        healthy = False
+        postgres_ok = False
 
-    # Probe Redis
+    # Probe Redis via RedisCoordinator.is_healthy() if available
     try:
-        from app.core.redis import RedisClient
+        from app.conductor.lifespan import get_redis_coordinator
 
-        client = RedisClient.get_client()
-        if client:
-            await client.ping()
-            checks["redis"] = "up"
+        coordinator = get_redis_coordinator()
+        if coordinator:
+            redis_ok = await coordinator.is_healthy()
         else:
-            checks["redis"] = "not_configured"
+            # No coordinator — fall back to direct ping
+            from app.core.redis import RedisClient
+
+            client = RedisClient.get_client()
+            if client:
+                await client.ping()
+            else:
+                # Redis not configured — treat as healthy (optional dependency)
+                redis_ok = True
     except Exception as e:
         logger.warning("Health check: redis down: %s", e)
-        checks["redis"] = "down"
-        healthy = False
+        redis_ok = False
 
+    healthy = postgres_ok and redis_ok
     status = "ok" if healthy else "degraded"
     code = 200 if healthy else 503
     return JSONResponse(
         status_code=code,
-        content={"status": status, "checks": checks},
+        content={
+            "status": status,
+            "postgres": "ok" if postgres_ok else "error",
+            "redis": "ok" if redis_ok else "error",
+        },
     )
 
 

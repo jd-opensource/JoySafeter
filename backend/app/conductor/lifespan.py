@@ -1,8 +1,9 @@
 import asyncio
 import logging
+import signal
 from typing import Optional
 
-from app.conductor.config import conductor_config
+from app.conductor.config import ConductorConfig, conductor_config
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ _redis_coordinator = None
 _runtime_config = None
 _grpc_server = None
 _grpc_servicer = None
+_vault_provider = None
 
 
 def get_scheduler():
@@ -77,6 +79,10 @@ def get_grpc_servicer():
     return _grpc_servicer
 
 
+def get_vault_provider():
+    return _vault_provider
+
+
 def _create_sandbox_provider():
     from app.conductor.sandbox.docker_provider import DockerSandboxProvider
 
@@ -104,6 +110,27 @@ def _create_sandbox_provider():
     )
 
 
+def _setup_sighup_handler(runtime_config, config: ConductorConfig) -> None:
+    """Register a SIGHUP handler that hot-reloads runtime-tunable config."""
+
+    def _handler(signum, frame):  # noqa: ARG001
+        logger.info("SIGHUP received, reloading conductor runtime config...")
+        new_cfg = ConductorConfig()
+        runtime_config.update(
+            idle_timeout_sec=new_cfg.sandbox_idle_timeout,
+            stopped_max_age_sec=new_cfg.sandbox_stopped_ttl,
+            heartbeat_timeout_sec=new_cfg.heartbeat_ttl,
+            sandbox_failure_threshold=new_cfg.sandbox_failure_threshold,
+            pool_min_size=new_cfg.sandbox_pool_min_size,
+            pool_max_age_sec=new_cfg.sandbox_pool_max_age,
+            event_batch_max_size=new_cfg.event_batch_max_size,
+            event_batch_max_delay_ms=new_cfg.event_batch_max_delay_ms,
+        )
+        logger.info("Runtime config reloaded successfully")
+
+    signal.signal(signal.SIGHUP, _handler)
+
+
 async def conductor_startup() -> None:
     global _scheduler, _task_controller, _sandbox_controller
     global _session_broadcaster, _adapter_registry
@@ -111,6 +138,7 @@ async def conductor_startup() -> None:
     global _envoy_manager, _memory_subscribers, _image_builder
     global _sandbox_provider, _redis_coordinator
     global _runtime_config, _grpc_server, _grpc_servicer
+    global _vault_provider
 
     if not conductor_config.enabled:
         logger.info("Conductor kernel disabled (CONDUCTOR_ENABLED=false)")
@@ -172,9 +200,9 @@ async def conductor_startup() -> None:
     )
 
     _event_buffer = EventBatchSender(EventBatchConfig(
-        enabled=True,
-        max_size=50,
-        max_delay_ms=50,
+        enabled=conductor_config.event_batch_enabled,
+        max_size=conductor_config.event_batch_max_size,
+        max_delay_ms=conductor_config.event_batch_max_delay_ms,
     ))
     _event_buffer.start()
 
@@ -236,10 +264,24 @@ async def conductor_startup() -> None:
         sandbox_failure_threshold=conductor_config.sandbox_failure_threshold,
         pool_min_size=conductor_config.sandbox_pool_min_size,
         pool_max_age_sec=conductor_config.sandbox_pool_max_age,
+        event_batch_max_size=conductor_config.event_batch_max_size,
+        event_batch_max_delay_ms=conductor_config.event_batch_max_delay_ms,
     )
+
+    _setup_sighup_handler(_runtime_config, conductor_config)
 
     _adapter_registry = await AdapterRegistry.discover()
     logger.info("Discovered adapters: %s", _adapter_registry.provider_names())
+
+    # Vault provider (encryption layer for credential storage)
+    if conductor_config.vault_encryption_key:
+        from app.conductor.services.vault_cipher import VaultCipher
+
+        _vault_provider = VaultCipher(conductor_config.vault_encryption_key)
+        logger.info("   ✓ VaultCipher initialized (encryption %s)",
+                     "enabled" if _vault_provider.is_enabled else "passthrough")
+    else:
+        logger.info("   Vault encryption key not configured, vault provider disabled")
 
     # gRPC server for runner connections
     try:
@@ -251,6 +293,7 @@ async def conductor_startup() -> None:
             queue=queue,
             host=conductor_config.grpc_host,
             port=conductor_config.grpc_port,
+            vault_provider=_vault_provider,
         )
     except Exception as e:
         logger.warning("Failed to start gRPC server: %s", e)

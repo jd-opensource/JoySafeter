@@ -49,6 +49,9 @@ class DockerSandboxProvider(SandboxProvider):
 
         env = dict(env)
 
+        sandbox_id = (labels or {}).get("conductor.sandbox_id", name)
+        env.setdefault("CONDUCTOR_SANDBOX_ID", sandbox_id)
+
         net_type = None
         if networking:
             net_type = networking.get("type") or networking.get("net_type")
@@ -56,8 +59,8 @@ class DockerSandboxProvider(SandboxProvider):
         if net_type == "limited":
             cmd.extend(["--network", "none"])
             if self._socket_volume:
-                cmd.extend(["-v", f"{self._socket_volume}:/tmp/conductor-sockets:ro"])
-            env["CONDUCTOR_ORCHESTRATOR_URL"] = "unix:///tmp/conductor-sockets/grpc.sock"
+                cmd.extend(["-v", f"{self._socket_volume}:/sockets:ro"])
+            env["CONDUCTOR_ORCHESTRATOR_URL"] = f"unix:///sockets/{sandbox_id}/grpc.sock"
         else:
             if self._network:
                 cmd.extend(["--network", self._network])
@@ -65,9 +68,6 @@ class DockerSandboxProvider(SandboxProvider):
                 env["CONDUCTOR_ORCHESTRATOR_URL"] = (
                     f"http://host.docker.internal:{conductor_config.grpc_port}"
                 )
-
-        sandbox_id = (labels or {}).get("conductor.sandbox_id", name)
-        env.setdefault("CONDUCTOR_SANDBOX_ID", sandbox_id)
 
         for mount in memory_mounts or []:
             host_path = mount.get("host_path", "")
@@ -87,7 +87,7 @@ class DockerSandboxProvider(SandboxProvider):
         for k, v in env.items():
             cmd.extend(["-e", f"{k}={v}"])
 
-        all_labels = {"conductor.managed": "true"}
+        all_labels = {"conductor": "true"}
         if labels:
             all_labels.update(labels)
         for k, v in all_labels.items():
@@ -114,6 +114,8 @@ class DockerSandboxProvider(SandboxProvider):
         )
         _, stderr = await proc.communicate()
         if proc.returncode != 0:
+            logger.warning("docker start failed for %s, rolling back container", external_id)
+            await self.destroy(external_id)
             raise RuntimeError(f"docker start failed: {stderr.decode()}")
 
     async def stop(self, external_id: str) -> None:
@@ -163,7 +165,7 @@ class DockerSandboxProvider(SandboxProvider):
     async def list_active(self) -> list[dict]:
         proc = await asyncio.create_subprocess_exec(
             "docker", "ps", "-a",
-            "--filter", "label=conductor.managed=true",
+            "--filter", "label=conductor=true",
             "--format", "{{json .}}",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -196,19 +198,19 @@ class DockerSandboxProvider(SandboxProvider):
         )
         stdout, _ = await proc.communicate()
         if proc.returncode != 0:
-            return {"stage": "unknown", "progress": 0, "message": "Container not found", "complete": False, "error": True}
+            return {"stage": "provider_failed", "progress": 0, "message": "Container not found", "complete": False, "error": True}
         try:
             state = json.loads(stdout.decode().strip())
             docker_status = state.get("Status", "unknown")
             running = state.get("Running", False)
             error_msg = state.get("Error", "")
             if running:
-                return {"stage": "running", "progress": 100, "message": "Container running", "complete": True, "error": False}
+                return {"stage": "runtime_booting", "progress": 100, "message": "Container running", "complete": True, "error": False}
             if error_msg:
-                return {"stage": "error", "progress": 0, "message": error_msg, "complete": False, "error": True}
-            return {"stage": docker_status, "progress": 50, "message": f"Container {docker_status}", "complete": False, "error": False}
+                return {"stage": "provider_failed", "progress": 0, "message": error_msg, "complete": False, "error": True}
+            return {"stage": "container_starting", "progress": 50, "message": f"Container {docker_status}", "complete": False, "error": False}
         except json.JSONDecodeError:
-            return {"stage": "unknown", "progress": 0, "message": "Failed to parse state", "complete": False, "error": True}
+            return {"stage": "provider_failed", "progress": 0, "message": "Failed to parse state", "complete": False, "error": True}
 
     async def setup_networking(self, sandbox_id: uuid.UUID, networking: dict) -> None:
         net_type = networking.get("type") or networking.get("net_type")

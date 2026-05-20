@@ -35,10 +35,12 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
         bridge_registry: SandboxBridgeRegistry,
         event_buffer: EventBatchSender,
         queue: QueueBackend,
+        vault_provider: Optional[Any] = None,
     ):
         self._bridge_registry = bridge_registry
         self._event_buffer = event_buffer
         self._queue = queue
+        self._vault_provider = vault_provider
 
     async def Session(self, request_iterator, context):
         """Bidirectional streaming RPC — 1:1 port of agentd's grpc.rs Session handler.
@@ -96,6 +98,12 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
             bridge.runner_connected.set()
             bridge.status = SandboxBridgeStatus.IDLE
 
+            # --- Handle reconnection with active_task_id ---
+            if ready.HasField("active_task_id") and ready.active_task_id:
+                await self._handle_reconnect_active_task(
+                    bridge, sandbox_id, ready.active_task_id, context, stream_cancel,
+                )
+
             # --- Send SetupSandbox ---
             await self._send_setup(bridge, sandbox_id)
 
@@ -116,6 +124,50 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                 logger.info("Runner disconnected: sandbox=%s", sandbox_id)
             if sandbox_id:
                 await self._cleanup_sandbox(sandbox_id)
+
+    async def _handle_reconnect_active_task(
+        self,
+        bridge: SandboxBridge,
+        sandbox_id: uuid.UUID,
+        active_task_id_str: str,
+        context,
+        stream_cancel: asyncio.Event,
+    ) -> None:
+        """Handle RunnerReady.active_task_id: the runner reconnected while still
+        executing a task.  Re-attach the bridge so events continue flowing."""
+        from app.core.database import AsyncSessionLocal
+        from app.conductor.models.task import TaskStatus
+        from app.conductor.services.task_service import TaskService
+
+        try:
+            active_task_id = uuid.UUID(active_task_id_str)
+        except ValueError:
+            logger.warning(
+                "Invalid active_task_id on reconnect: %s", active_task_id_str,
+            )
+            return
+
+        async with AsyncSessionLocal() as db:
+            task_svc = TaskService(db)
+            task = await task_svc.get_task(active_task_id)
+            if not task:
+                logger.warning(
+                    "Reconnect: active task %s not found, ignoring", active_task_id,
+                )
+                return
+            if TaskStatus.from_str_lossy(task.status).is_terminal():
+                logger.info(
+                    "Reconnect: active task %s already terminal (%s), ignoring",
+                    active_task_id, task.status,
+                )
+                return
+
+        logger.info(
+            "Reconnect: resuming in-flight task %s on sandbox %s",
+            active_task_id, sandbox_id,
+        )
+        bridge.status = SandboxBridgeStatus.BUSY
+        bridge.current_task_id = active_task_id
 
     async def _multi_task_loop(
         self,
@@ -231,13 +283,28 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
 
                 await sandbox_svc.touch(sandbox_id, task_id)
 
+                # Fetch session for work_dir and environment for setup_commands/repos
+                session = None
+                environment = None
+                if session_id:
+                    session = await session_svc.get_session(session_id)
+
+                env_ref = getattr(agent, "environment_ref", None)
+                if env_ref:
+                    from app.conductor.services.environment_service import EnvironmentService
+                    env_svc = EnvironmentService(db)
+                    environment = await env_svc.get_environment_by_ref(env_ref)
+
             harness_input = await build_harness_input(
                 task, agent, session_id, bridge.external_id, sandbox_id,
             )
 
             custom_names, mcp_names = extract_tool_name_sets(agent)
 
-            start_msg = _build_start_task(task_id, harness_input, task, conductor_config)
+            start_msg = _build_start_task(
+                task_id, harness_input, task, conductor_config,
+                agent=agent, session=session, environment=environment,
+            )
             orch_msg = conductor_pb2.OrchestratorMessage(start=start_msg)
             await context.write(orch_msg)
             logger.info("StartTask sent: task=%s sandbox=%s", task_id, sandbox_id)
@@ -526,6 +593,19 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                 "cache_write_tokens": result.usage.cache_write_tokens,
             }
 
+            # Parse per-model breakdown from repeated ModelUsageEntry
+            if result.usage.by_model:
+                by_model_list = []
+                for entry in result.usage.by_model:
+                    by_model_list.append({
+                        "model": entry.model,
+                        "input_tokens": entry.input_tokens,
+                        "output_tokens": entry.output_tokens,
+                        "cache_read_tokens": entry.cache_read_tokens,
+                        "cache_write_tokens": entry.cache_write_tokens,
+                    })
+                usage["by_model"] = by_model_list
+
         error = result.error if result.HasField("error") else None
         final_status = TaskStatus.COMPLETED if not error else TaskStatus.FAILED
 
@@ -541,7 +621,23 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
             if session_id:
                 session_svc = SessionService(db)
                 if usage:
-                    await session_svc.accumulate_usage(session_id, usage)
+                    by_model = usage.get("by_model", [])
+                    if by_model:
+                        # Accumulate per-model entries individually. Each call
+                        # to accumulate_usage adds to the session aggregate AND
+                        # to the per-model map, so the aggregate is the natural
+                        # sum of all model entries.
+                        for model_entry in by_model:
+                            await session_svc.accumulate_usage(session_id, {
+                                "input_tokens": model_entry["input_tokens"],
+                                "output_tokens": model_entry["output_tokens"],
+                                "cache_creation_input_tokens": model_entry.get("cache_read_tokens", 0),
+                                "cache_read_input_tokens": model_entry.get("cache_write_tokens", 0),
+                                "model": model_entry["model"],
+                            })
+                    else:
+                        # No per-model breakdown; accumulate aggregate only
+                        await session_svc.accumulate_usage(session_id, usage)
 
                 if not bridge._requires_action_pending:
                     stop_reason = (
@@ -632,7 +728,15 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                     bridge.external_id, sandbox_id,
                 )
 
-            setup_msg = _build_setup_sandbox(harness_input, agent)
+                # Load environment for setup_commands
+                environment = None
+                env_ref = getattr(agent, "environment_ref", None)
+                if env_ref:
+                    from app.conductor.services.environment_service import EnvironmentService
+                    env_svc = EnvironmentService(db)
+                    environment = await env_svc.get_environment_by_ref(env_ref)
+
+            setup_msg = _build_setup_sandbox(harness_input, agent, environment)
             orch_msg = conductor_pb2.OrchestratorMessage(setup=setup_msg)
             await bridge.runner_stream.write(orch_msg)
             bridge.setup_done = True
@@ -689,8 +793,37 @@ async def _handle_memory_sync_standalone(
         logger.warning("Memory sync failed: %s", e)
 
 
+def _extract_setup_commands(agent=None, environment=None) -> list[str]:
+    """Extract setup_commands from environment config (packages.install_commands)
+    and agent metadata.  Returns a combined list."""
+    commands: list[str] = []
+
+    # From environment config packages
+    if environment and getattr(environment, "config", None):
+        env_config = environment.config
+        if isinstance(env_config, dict):
+            packages = env_config.get("packages", {})
+            if isinstance(packages, dict):
+                from app.conductor.schemas.environment import Packages
+                try:
+                    pkg = Packages(**packages)
+                    commands.extend(pkg.install_commands())
+                except Exception:
+                    pass
+
+    # From agent metadata setup_commands
+    if agent and getattr(agent, "metadata_", None):
+        agent_cmds = agent.metadata_.get("setup_commands")
+        if isinstance(agent_cmds, list):
+            for cmd in agent_cmds:
+                if isinstance(cmd, str) and cmd.strip():
+                    commands.append(cmd.strip())
+
+    return commands
+
+
 def _build_setup_sandbox(
-    harness_input, agent
+    harness_input, agent, environment=None,
 ) -> conductor_pb2.SetupSandbox:
     skills = []
     for sa in harness_input.skill_archives:
@@ -741,10 +874,13 @@ def _build_setup_sandbox(
             files=files,
         ))
 
+    setup_commands = _extract_setup_commands(agent, environment)
+
     return conductor_pb2.SetupSandbox(
         skills=skills,
         mcp_servers=mcp_servers,
         custom_tools=custom_tools,
+        setup_commands=setup_commands,
         env=harness_input.env,
         secrets=harness_input.secrets,
         permission_mode=harness_input.permission_mode,
@@ -760,6 +896,9 @@ def _build_start_task(
     harness_input,
     task,
     config,
+    agent=None,
+    session=None,
+    environment=None,
 ) -> conductor_pb2.StartTask:
     skills = []
     for sa in harness_input.skill_archives:
@@ -823,6 +962,41 @@ def _build_start_task(
     )
     if harness_input.session_id:
         kwargs["session_id"] = harness_input.session_id
+
+    # max_turns: from agent metadata or default
+    max_turns = 100
+    if agent and getattr(agent, "metadata_", None):
+        mt = agent.metadata_.get("max_turns")
+        if mt is not None:
+            try:
+                max_turns = int(mt)
+            except (ValueError, TypeError):
+                pass
+    kwargs["max_turns"] = max_turns
+
+    # work_dir: from session's last_work_dir (for continuation)
+    if session and getattr(session, "last_work_dir", None):
+        kwargs["work_dir"] = session.last_work_dir
+
+    # repos: from agent metadata (if applicable)
+    repos = []
+    if agent and getattr(agent, "metadata_", None):
+        agent_repos = agent.metadata_.get("repos")
+        if isinstance(agent_repos, list):
+            for repo_cfg in agent_repos:
+                if isinstance(repo_cfg, dict) and repo_cfg.get("url"):
+                    repos.append(conductor_pb2.RepoConfig(
+                        url=repo_cfg.get("url", ""),
+                        branch=repo_cfg.get("branch", ""),
+                        path=repo_cfg.get("path", ""),
+                    ))
+    if repos:
+        kwargs["repos"] = repos
+
+    # setup_commands: from environment config packages
+    setup_commands = _extract_setup_commands(agent, environment)
+    if setup_commands:
+        kwargs["setup_commands"] = setup_commands
 
     return conductor_pb2.StartTask(**kwargs)
 
@@ -916,9 +1090,10 @@ async def start_grpc_server(
     queue: QueueBackend,
     host: str = "0.0.0.0",
     port: int = 9090,
+    vault_provider: Optional[Any] = None,
 ) -> tuple[grpc_aio.Server, "AgentBridgeServicer"]:
     server = grpc_aio.server()
-    servicer = AgentBridgeServicer(bridge_registry, event_buffer, queue)
+    servicer = AgentBridgeServicer(bridge_registry, event_buffer, queue, vault_provider=vault_provider)
     conductor_pb2_grpc.add_AgentBridgeServicer_to_server(servicer, server)
     server.add_insecure_port(f"{host}:{port}")
     await server.start()

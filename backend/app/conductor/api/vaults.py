@@ -14,6 +14,7 @@ from app.conductor.schemas.vault import (
     VaultResponse,
 )
 from app.conductor.schemas.common import PaginatedResponse
+from app.conductor.schemas.id_utils import serialize_vault_id, serialize_credential_id
 from app.conductor.services.vault_service import VaultService
 
 router = APIRouter(tags=["conductor-vaults"])
@@ -40,8 +41,8 @@ async def list_vaults(
     return PaginatedResponse(
         data=data,
         has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
+        first_id=serialize_vault_id(vaults[0].id) if data else None,
+        last_id=serialize_vault_id(vaults[-1].id) if data else None,
     )
 
 
@@ -63,20 +64,21 @@ async def update_vault(
     db: AsyncSession = Depends(get_db),
 ) -> VaultResponse:
     svc = VaultService(db)
-    vault = await svc.update_vault(vault_id, req.name, req.description, req.metadata)
+    vault = await svc.update_vault(vault_id, description=req.description, metadata=req.metadata)
     if not vault:
         raise HTTPException(404, "Vault not found")
     return VaultResponse.model_validate(vault)
 
 
-@router.delete("/{vault_id}", status_code=204)
+@router.delete("/{vault_id}")
 async def delete_vault(
     vault_id: uuid.UUID, db: AsyncSession = Depends(get_db)
-) -> None:
+) -> dict:
     svc = VaultService(db)
     ok = await svc.delete_vault(vault_id)
     if not ok:
         raise HTTPException(404, "Vault not found")
+    return {"deleted": True}
 
 
 @router.post("/{vault_id}/archive")
@@ -126,8 +128,8 @@ async def list_credentials(
     return PaginatedResponse(
         data=data,
         has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
+        first_id=serialize_credential_id(creds[0].id) if data else None,
+        last_id=serialize_credential_id(creds[-1].id) if data else None,
     )
 
 
@@ -166,13 +168,14 @@ async def update_credential(
     return VaultCredentialResponse.model_validate(updated)
 
 
-@router.delete("/{vault_id}/credentials/{cred_id}", status_code=204)
+@router.delete("/{vault_id}/credentials/{cred_id}")
 async def delete_credential(
     vault_id: uuid.UUID,
     cred_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-) -> None:
+) -> dict:
     svc = VaultService(db)
     ok = await svc.delete_credential(cred_id)
     if not ok:
         raise HTTPException(404, "Credential not found")
+    return {"deleted": True}

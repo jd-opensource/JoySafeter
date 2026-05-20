@@ -20,6 +20,15 @@ class ConductorConfig(BaseSettings):
     task_retry_base_ms: int = 2000
     task_retry_max_ms: int = 30000
 
+    # Multi-image map: per-model sandbox images
+    image_claude: str = "joysafeter/cli-agent:latest"
+    image_codex: str = "joysafeter/cli-agent:codex-latest"
+
+    # Event batching
+    event_batch_enabled: bool = True
+    event_batch_max_size: int = 50
+    event_batch_max_delay_ms: int = 50
+
     # Sandbox - Docker (default)
     sandbox_provider: str = "docker"
     sandbox_image: str = "joysafeter/cli-agent:latest"
@@ -32,6 +41,7 @@ class ConductorConfig(BaseSettings):
     sandbox_failure_threshold: int = 5
     sandbox_cpu: Optional[float] = None
     sandbox_memory_mb: Optional[int] = None
+    sandbox_disk_mb: Optional[int] = None
 
     # Sandbox - Daytona
     daytona_api_url: str = ""
@@ -47,6 +57,7 @@ class ConductorConfig(BaseSettings):
     # gRPC server
     grpc_port: int = 9090
     grpc_host: str = "0.0.0.0"
+    grpc_public_url: Optional[str] = None
 
     # Envoy network isolation
     envoy_enabled: bool = False

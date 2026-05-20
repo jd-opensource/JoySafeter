@@ -84,6 +84,13 @@ class RetriesExhaustedStopReason(BaseModel):
 StopReason = Union[EndTurnStopReason, RequiresActionStopReason, RetriesExhaustedStopReason]
 
 
+class AgentRef(BaseModel):
+    """Agent reference supporting pinned versions: {type, id, version}."""
+    type: str = "agent"
+    id: uuid.UUID
+    version: Optional[int] = None
+
+
 class SessionResourceRequest(BaseModel):
     memory_store_id: uuid.UUID
     access: str = "read_write"
@@ -91,13 +98,17 @@ class SessionResourceRequest(BaseModel):
     mount_name: Optional[str] = None
 
 
+MAX_MEMORY_STORE_RESOURCES = 8
+
+
 class CreateSessionRequest(BaseModel):
+    agent: Optional[AgentRef] = None
     agent_id: Optional[uuid.UUID] = None
     agent_name: Optional[str] = None
     title: Optional[str] = None
     metadata: dict[str, str] = Field(default_factory=dict)
     vault_ids: list[str] = Field(default_factory=list)
-    environment_ref: Optional[str] = None
+    environment_id: str
     resources: list[SessionResourceRequest] = Field(default_factory=list)
 
 

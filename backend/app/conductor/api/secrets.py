@@ -34,7 +34,16 @@ async def list_secrets(
 ) -> PaginatedResponse[SecretListItem]:
     svc = SecretService(db)
     secrets, has_more = await svc.list_secrets(limit, after_id)
-    data = [SecretListItem.model_validate(s) for s in secrets]
+    data = [
+        SecretListItem(
+            id=s.id,
+            name=s.name,
+            keys=list(s.data.keys()) if s.data else [],
+            created_at=s.created_at,
+            updated_at=s.updated_at,
+        )
+        for s in secrets
+    ]
     return PaginatedResponse(
         data=data,
         has_more=has_more,
@@ -69,9 +78,22 @@ async def update_secret(
 
 @router.delete("/{secret_id}", status_code=204)
 async def delete_secret(
-    secret_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    secret_id: uuid.UUID,
+    force: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
 ) -> None:
     svc = SecretService(db)
+    secret = await svc.get_secret(secret_id)
+    if not secret:
+        raise HTTPException(404, "Secret not found")
+
+    if not force and await svc.secret_is_referenced(secret.name):
+        raise HTTPException(
+            409,
+            "Secret is referenced by one or more agents. "
+            "Use ?force=true to delete anyway.",
+        )
+
     ok = await svc.delete_secret(secret_id)
     if not ok:
         raise HTTPException(404, "Secret not found")

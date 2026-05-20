@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import uuid
 from typing import Optional
 
@@ -11,6 +12,8 @@ from app.conductor.schemas.task import CreateTaskRequest, CreateTaskResponse, Ta
 from app.conductor.schemas.common import PaginatedResponse
 from app.conductor.services.agent_service import AgentService
 from app.conductor.services.task_service import TaskService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["conductor-tasks"])
 
@@ -28,12 +31,37 @@ async def create_task(
     if not agent:
         raise HTTPException(404, "Agent not found")
 
+    # Resolve environment_ref: prefer request field, fall back to agent default
+    environment_ref = req.environment_ref or getattr(agent, "environment_ref", None)
+
+    # Validate environment_ref if provided
+    if environment_ref:
+        from app.conductor.services.environment_service import EnvironmentService
+        env_svc = EnvironmentService(db)
+        env = await env_svc.get_environment_by_ref(environment_ref)
+        if not env:
+            raise HTTPException(422, f"Environment not found: {environment_ref}")
+
+    # Auto-create a ChatSession for the task if none provided
+    chat_session_id = req.chat_session_id
+    if not chat_session_id:
+        from app.conductor.services.session_service import SessionService
+        session_svc = SessionService(db)
+        session = await session_svc.create_session(
+            agent_id=agent.id,
+            title=f"Task: {req.prompt[:80]}",
+            environment_ref=environment_ref,
+            agent_version=getattr(agent, "version", None),
+            agent_snapshot={"name": agent.name, "model": getattr(agent, "model", None)},
+        )
+        chat_session_id = session.id
+
     svc = TaskService(db)
     task = await svc.create_task(
         agent_id=agent.id,
         prompt=req.prompt,
         system_prompt=req.system_prompt,
-        chat_session_id=req.chat_session_id,
+        chat_session_id=chat_session_id,
         timeout_sec=req.timeout_sec,
         max_retries=req.max_retries,
     )
@@ -86,20 +114,87 @@ async def cancel_task(
     task_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 ) -> TaskResponse:
     svc = TaskService(db)
+
+    # Fetch task first (we need chat_session_id for post-cancel work)
+    task = await svc.get_task(task_id)
+    if not task:
+        raise HTTPException(404, "Task not found")
+
     try:
         task = await svc.cancel_task(task_id)
     except ValueError as e:
         raise HTTPException(409, str(e))
-    if not task:
-        raise HTTPException(404, "Task not found")
+    # cancel_task returns None only if the task doesn't exist, which we
+    # already checked above.
+    assert task is not None
 
-    # Signal sandbox bridge to cancel if running
-    from app.conductor.lifespan import get_bridge_registry
+    from app.conductor.lifespan import get_bridge_registry, get_redis_coordinator, get_session_broadcaster
+    from app.conductor.proto import conductor_pb2
+
+    # Send gRPC CancelTask to the sandbox bridge if the task is running locally
     registry = get_bridge_registry()
+    grpc_cancel_sent = False
     if registry:
         bridge = registry.get_by_task(task_id)
         if bridge:
             bridge.request_cancel()
+            # Send CancelTask message over gRPC so the runner actually stops
+            if bridge.runner_stream:
+                try:
+                    cancel_msg = conductor_pb2.OrchestratorMessage(
+                        cancel=conductor_pb2.CancelTask(reason="Cancelled via API")
+                    )
+                    await bridge.runner_stream.write(cancel_msg)
+                    grpc_cancel_sent = True
+                except Exception:
+                    logger.warning("Failed to send gRPC CancelTask for task %s", task_id)
+
+    # Cross-instance: if the task wasn't found on this instance, route via Redis
+    if not grpc_cancel_sent:
+        coordinator = get_redis_coordinator()
+        if coordinator:
+            sandbox_id = await coordinator.get_task_sandbox(task_id)
+            if sandbox_id:
+                owner = await coordinator.get_sandbox_owner(sandbox_id)
+                if owner:
+                    # Decode bytes from Redis if needed
+                    if isinstance(owner, bytes):
+                        owner = owner.decode()
+                    await coordinator.send_instance_command(
+                        owner,
+                        {"action": "cancel", "sandbox_id": str(sandbox_id)},
+                    )
+
+    # Transition the linked ChatSession to idle with cancellation stop_reason
+    session_id = task.chat_session_id
+    if session_id:
+        from app.conductor.services.session_service import SessionService
+        from app.conductor.models.session import SessionStatus
+        session_svc = SessionService(db)
+        stop_reason = {"type": "cancelled"}
+        try:
+            await session_svc.update_session_status(
+                session_id, SessionStatus.IDLE.value, stop_reason=stop_reason,
+            )
+        except Exception:
+            # Session may already be idle or terminated -- ignore transition errors
+            pass
+
+        # Emit SSE event so connected clients learn about the cancellation
+        broadcaster = get_session_broadcaster()
+        if broadcaster:
+            await broadcaster.broadcast(
+                session_id,
+                {"type": "session.status_idle", "payload": {"stop_reason": stop_reason}},
+            )
+
+    # Publish cancellation over Redis pub/sub for cross-instance WebSocket streams
+    coordinator = get_redis_coordinator()
+    if coordinator:
+        await coordinator.publish_event(
+            task_id,
+            json.dumps({"type": "complete", "output": "", "error": "Cancelled via API", "status": "cancelled"}),
+        )
 
     return TaskResponse.model_validate(task)
 
@@ -179,30 +274,67 @@ async def task_stream(websocket: WebSocket, task_id: uuid.UUID):
 
 
 async def _stream_via_redis(websocket: WebSocket, task_id: uuid.UUID, coordinator):
-    """Stream task events via Redis pub/sub (cross-instance fallback)."""
+    """Stream task events via Redis pub/sub (cross-instance fallback).
+
+    Subscribes to the Redis channel first, then checks the DB for terminal
+    state to avoid missing a completion event between the DB check in the
+    caller and the subscribe call here.
+    """
     channel = f"conductor:events:{task_id}"
     pubsub = coordinator._redis.pubsub()
     try:
         await pubsub.subscribe(channel)
+
+        # After subscribing, check if task already reached a terminal state.
+        # Any completion event published concurrently will be caught by the
+        # subscription, so there is no missed-message window.
+        from app.core.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            svc = TaskService(db)
+            task = await svc.get_task(task_id)
+            if task:
+                from app.conductor.models.task import TaskStatus
+                if TaskStatus(task.status).is_terminal():
+                    await websocket.send_json({
+                        "type": "complete",
+                        "output": task.output,
+                        "error": task.error,
+                        "status": task.status,
+                    })
+                    return
+
         while True:
-            msg = await asyncio.wait_for(pubsub.get_message(ignore_subscribe_messages=True, timeout=30), timeout=35)
+            try:
+                msg = await pubsub.get_message(
+                    ignore_subscribe_messages=True, timeout=30
+                )
+            except asyncio.CancelledError:
+                break
+
             if msg and msg["type"] == "message":
                 data = msg["data"]
                 if isinstance(data, bytes):
                     data = data.decode()
-                event = json.loads(data)
+                try:
+                    event = json.loads(data)
+                except (json.JSONDecodeError, TypeError):
+                    continue
                 await websocket.send_json(event)
                 if event.get("type") == "complete":
                     break
             else:
+                # No message within timeout -- send keepalive ping
                 await websocket.send_json({"type": "ping"})
     except (WebSocketDisconnect, asyncio.TimeoutError):
         pass
     except Exception:
         pass
     finally:
-        await pubsub.unsubscribe(channel)
-        await pubsub.close()
+        try:
+            await pubsub.unsubscribe(channel)
+            await pubsub.close()
+        except Exception:
+            pass
         try:
             await websocket.close()
         except Exception:

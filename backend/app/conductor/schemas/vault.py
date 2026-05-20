@@ -32,7 +32,6 @@ class CreateVaultRequest(BaseModel):
 
 
 class UpdateVaultRequest(BaseModel):
-    name: Optional[str] = None
     description: Optional[str] = None
     metadata: Optional[dict[str, str]] = None
 
@@ -73,6 +72,7 @@ class VaultCredentialResponse(BaseModel):
     name: str
     credential_type: str
     mcp_server_url: str
+    token_value: str = ""
     oauth_config: Optional[dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
@@ -87,12 +87,19 @@ class VaultCredentialResponse(BaseModel):
     def serialize_vault_id(self, v: uuid.UUID) -> str:
         return f"vault_{v}"
 
+    @field_serializer("token_value")
+    def redact_token(self, v: str) -> str:
+        if not v:
+            return v
+        return v[:6] + "***" if len(v) > 6 else v + "***"
+
     @field_serializer("oauth_config")
     def redact_oauth_secrets(self, v: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
         if not v:
             return v
         redacted = dict(v)
         for key in ("client_secret", "refresh_token"):
-            if key in redacted:
-                redacted[key] = "***"
+            if key in redacted and redacted[key]:
+                val = str(redacted[key])
+                redacted[key] = val[:6] + "***" if len(val) > 6 else val + "***"
         return redacted

@@ -116,6 +116,18 @@ class EnvoyManager:
         await self._exec_in_envoy(f"rm -rf /sockets/{sandbox_id}")
         logger.info("Sandbox %s removed from Envoy proxy", sandbox_id)
 
+    async def setup_for_sandbox(
+        self,
+        sandbox_id: uuid.UUID,
+        networking: dict,
+    ) -> None:
+        """Alias used by DockerSandboxProvider.setup_networking."""
+        await self.add_sandbox(sandbox_id, networking)
+
+    async def teardown_for_sandbox(self, sandbox_id: uuid.UUID) -> None:
+        """Alias used by DockerSandboxProvider.teardown_networking."""
+        await self.remove_sandbox(sandbox_id)
+
     async def _regenerate_lds(self) -> None:
         sandboxes = self._load_sandboxes_from_disk()
         await self._write_lds_config(sandboxes)

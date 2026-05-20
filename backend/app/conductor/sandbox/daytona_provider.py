@@ -62,7 +62,13 @@ class DaytonaSandboxProvider(SandboxProvider):
         env: dict[str, str],
         work_dir: str,
         labels: Optional[dict[str, str]] = None,
+        *,
+        memory_mb: Optional[int] = None,
+        disk_mb: Optional[int] = None,
+        **kwargs,
     ) -> str:
+        from app.conductor.config import conductor_config
+
         has_snapshot = bool(self._snapshot)
 
         body: dict = {
@@ -77,9 +83,11 @@ class DaytonaSandboxProvider(SandboxProvider):
         if has_snapshot:
             body["snapshot"] = self._snapshot
         else:
+            eff_memory_mb = memory_mb or conductor_config.sandbox_memory_mb or 4096
+            eff_disk_mb = disk_mb or conductor_config.sandbox_disk_mb or 20480
             body["cpu"] = 2
-            body["memory"] = 4
-            body["disk"] = 20
+            body["memory"] = eff_memory_mb // 1024
+            body["disk"] = eff_disk_mb // 1024
 
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(

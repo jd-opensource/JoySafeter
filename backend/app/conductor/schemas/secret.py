@@ -17,6 +17,7 @@ class UpdateSecretRequest(BaseModel):
 class SecretListItem(BaseModel):
     id: uuid.UUID
     name: str
+    keys: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

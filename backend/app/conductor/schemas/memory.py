@@ -67,8 +67,10 @@ class CreateMemoryRequest(BaseModel):
             raise ValueError("Path must start with '/'")
         if len(v.encode("utf-8")) > MEMORY_MAX_PATH_BYTES:
             raise ValueError(f"Path exceeds {MEMORY_MAX_PATH_BYTES} bytes")
-        if ".." in v.split("/"):
-            raise ValueError("Path must not contain '..' segments")
+        segments = v.split("/")
+        for segment in segments:
+            if segment in (".", ".."):
+                raise ValueError("Path must not contain '.' or '..' segments")
         if "//" in v:
             raise ValueError("Path must not contain '//'")
         if _CONTROL_CHAR_RE.search(v):
@@ -84,13 +86,14 @@ class CreateMemoryRequest(BaseModel):
 
 
 class UpdateMemoryRequest(BaseModel):
-    content: str
+    content: Optional[str] = None
     if_sha256: Optional[str] = None
+    precondition: Optional[dict[str, Any]] = None
 
     @field_validator("content")
     @classmethod
-    def validate_content_size(cls, v: str) -> str:
-        if len(v.encode("utf-8")) > MEMORY_MAX_CONTENT_BYTES:
+    def validate_content_size(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and len(v.encode("utf-8")) > MEMORY_MAX_CONTENT_BYTES:
             raise ValueError(f"Content exceeds {MEMORY_MAX_CONTENT_BYTES} bytes (100 KB)")
         return v
 

@@ -70,9 +70,14 @@ class EnvironmentService:
         return result.scalar_one_or_none()
 
     async def list_environments(
-        self, limit: int = 20, after_id: Optional[uuid.UUID] = None
+        self,
+        limit: int = 20,
+        after_id: Optional[uuid.UUID] = None,
+        include_archived: bool = False,
     ) -> tuple[list[ConductorEnvironment], bool]:
         q = select(ConductorEnvironment).where(ConductorEnvironment.deleted_at.is_(None))
+        if not include_archived:
+            q = q.where(ConductorEnvironment.archived_at.is_(None))
         if after_id:
             q = q.where(ConductorEnvironment.id < after_id)
         q = q.order_by(ConductorEnvironment.created_at.desc()).limit(limit + 1)
