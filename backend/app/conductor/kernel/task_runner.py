@@ -790,14 +790,10 @@ class TaskRunner:
 
                 broadcaster = get_session_broadcaster()
                 if broadcaster:
-                    await broadcaster.broadcast(
-                        session_id,
-                        {
-                            "type": mapped_type,
-                            "payload": mapped_payload,
-                            "seq": seq,
-                        },
-                    )
+                    broadcast_data = {"type": mapped_type, "seq": seq}
+                    if isinstance(mapped_payload, dict):
+                        broadcast_data.update(mapped_payload)
+                    await broadcaster.broadcast(session_id, broadcast_data)
 
             if mapped_type in (
                 "agent.tool_use",
@@ -838,7 +834,7 @@ class TaskRunner:
                         session_id,
                         {
                             "type": "session.status_idle",
-                            "payload": {"stop_reason": stop_reason},
+                            "stop_reason": stop_reason,
                             "seq": seq + 1,
                         },
                     )
@@ -868,7 +864,6 @@ class TaskRunner:
                         session_id,
                         {
                             "type": "session.status_running",
-                            "payload": {},
                             "seq": seq + 1,
                         },
                     )

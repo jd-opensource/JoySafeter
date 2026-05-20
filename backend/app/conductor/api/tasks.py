@@ -185,7 +185,7 @@ async def cancel_task(
         if broadcaster:
             await broadcaster.broadcast(
                 session_id,
-                {"type": "session.status_idle", "payload": {"stop_reason": stop_reason}},
+                {"type": "session.status_idle", "stop_reason": stop_reason},
             )
 
     # Publish cancellation over Redis pub/sub for cross-instance WebSocket streams

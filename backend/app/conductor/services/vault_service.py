@@ -144,7 +144,7 @@ class VaultService:
         cred = result.scalar_one_or_none()
         if cred and self._cipher.is_enabled:
             try:
-                cred.token_value = self._cipher.decrypt(cred.token_value)
+                cred.token_value = self._cipher.decrypt_or_passthrough(cred.token_value)
             except Exception:
                 pass
         return cred
@@ -238,7 +238,7 @@ class VaultService:
                 if c.mcp_server_url:
                     if self._cipher.is_enabled:
                         try:
-                            c.token_value = self._cipher.decrypt(c.token_value)
+                            c.token_value = self._cipher.decrypt_or_passthrough(c.token_value)
                         except Exception:
                             pass
                     creds_by_url[c.mcp_server_url] = c

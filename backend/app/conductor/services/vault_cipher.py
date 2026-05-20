@@ -46,8 +46,9 @@ class VaultCipher:
         aes = AESGCM(self._key)
         ciphertext = aes.encrypt(nonce, plaintext.encode("utf-8"), None)
 
-        # Format: base64(nonce + ciphertext_with_tag)
-        return base64.b64encode(nonce + ciphertext).decode("ascii")
+        # Format: enc:<base64(nonce + ciphertext_with_tag)>
+        # Matches Rust agentd AES-256-GCM wire format
+        return "enc:" + base64.b64encode(nonce + ciphertext).decode("ascii")
 
     def decrypt(self, encrypted: str) -> str:
         if not self._key:

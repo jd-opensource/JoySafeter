@@ -442,7 +442,7 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                             if broadcaster:
                                 await broadcaster.broadcast(
                                     session_id,
-                                    {"type": "session.status_idle", "payload": {"stop_reason": stop_reason}},
+                                    {"type": "session.status_idle", "stop_reason": stop_reason},
                                 )
                         continue
 
@@ -466,7 +466,7 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                             if broadcaster:
                                 await broadcaster.broadcast(
                                     session_id,
-                                    {"type": "session.status_idle", "payload": {"stop_reason": stop_reason}},
+                                    {"type": "session.status_idle", "stop_reason": stop_reason},
                                 )
 
                     # Broadcast event
@@ -497,7 +497,7 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                         if broadcaster:
                             await broadcaster.broadcast(
                                 session_id,
-                                {"type": mapped_type, "payload": mapped_payload, "seq": event.seq},
+                                {**{"type": mapped_type, "seq": event.seq}, **(mapped_payload if isinstance(mapped_payload, dict) else {})},
                             )
 
                         # Track last tool_use event for control_request mapping
@@ -670,7 +670,7 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                 )
                 await broadcaster.broadcast(
                     session_id,
-                    {"type": "session.status_idle", "payload": {"stop_reason": stop_reason}},
+                    {"type": "session.status_idle", "stop_reason": stop_reason},
                 )
 
         result_payload = {

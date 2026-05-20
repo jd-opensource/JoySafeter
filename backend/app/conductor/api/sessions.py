@@ -445,12 +445,14 @@ async def send_event(
         event = await svc.send_event(session_id, single.type, payload)
 
         if broadcaster:
-            await broadcaster.broadcast(session_id, {
-                "id": str(event.id),
+            broadcast_data = {
+                "id": f"evt_{event.id}",
                 "type": event.event_type,
-                "payload": event.payload,
                 "seq": event.seq,
-            })
+            }
+            if isinstance(event.payload, dict):
+                broadcast_data.update(event.payload)
+            await broadcaster.broadcast(session_id, broadcast_data)
 
         # ----------------------------------------------------------------
         # Dispatch by event type
@@ -477,12 +479,14 @@ async def send_event(
                         {"task_id": str(task.id)},
                     )
                     if broadcaster:
-                        await broadcaster.broadcast(session_id, {
-                            "id": str(running_event.id),
+                        running_broadcast = {
+                            "id": f"evt_{running_event.id}",
                             "type": running_event.event_type,
-                            "payload": running_event.payload,
                             "seq": running_event.seq,
-                        })
+                        }
+                        if isinstance(running_event.payload, dict):
+                            running_broadcast.update(running_event.payload)
+                        await broadcaster.broadcast(session_id, running_broadcast)
                     # Transition session to running
                     try:
                         await svc.update_session_status(session_id, "running")
@@ -663,12 +667,14 @@ async def session_event_stream(
                 events, _ = await replay_svc.list_events(session_id, 1000, after_seq)
                 for ev in events:
                     last_seq = max(last_seq, ev.seq)
-                    data = json.dumps({
+                    data_dict = {
                         "id": f"evt_{ev.id}",
                         "type": ev.event_type,
-                        "payload": ev.payload,
                         "seq": ev.seq,
-                    })
+                    }
+                    if isinstance(ev.payload, dict):
+                        data_dict.update(ev.payload)
+                    data = json.dumps(data_dict)
                     yield f"id: evt_{ev.id}\ndata: {data}\n\n"
 
         # Subscribe to live events
