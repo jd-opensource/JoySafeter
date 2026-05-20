@@ -6,6 +6,9 @@ from sqlalchemy import and_, select, update, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.conductor.models.agent import ConductorAgent, ConductorAgentVersion
+from app.conductor.models.memory import ConductorSessionMemoryStore
+from app.conductor.models.session import ConductorSession, ConductorSessionEvent
+from app.conductor.models.task import ConductorTask
 from app.conductor.schemas.agent import (
     AgentResponse,
     AgentVersionResponse,
@@ -260,3 +263,105 @@ class AgentService:
         )
         self.db.add(version)
         await self.db.flush()
+
+    async def hard_delete_agent(self, agent_id: uuid.UUID) -> None:
+        # Get all session IDs for this agent
+        session_ids_result = await self.db.execute(
+            select(ConductorSession.id).where(ConductorSession.agent_id == agent_id)
+        )
+        session_ids = list(session_ids_result.scalars().all())
+
+        if session_ids:
+            # Delete session events
+            await self.db.execute(
+                delete(ConductorSessionEvent).where(
+                    ConductorSessionEvent.session_id.in_(session_ids)
+                )
+            )
+            # Delete tasks linked to sessions
+            await self.db.execute(
+                delete(ConductorTask).where(
+                    ConductorTask.chat_session_id.in_(session_ids)
+                )
+            )
+            # Delete session memory stores
+            await self.db.execute(
+                delete(ConductorSessionMemoryStore).where(
+                    ConductorSessionMemoryStore.session_id.in_(session_ids)
+                )
+            )
+            # Delete sessions
+            await self.db.execute(
+                delete(ConductorSession).where(
+                    ConductorSession.agent_id == agent_id
+                )
+            )
+
+        # Delete any tasks directly linked to agent (not via session)
+        await self.db.execute(
+            delete(ConductorTask).where(ConductorTask.agent_id == agent_id)
+        )
+        # Delete agent versions
+        await self.db.execute(
+            delete(ConductorAgentVersion).where(
+                ConductorAgentVersion.agent_id == agent_id
+            )
+        )
+        # Delete agent
+        await self.db.execute(
+            delete(ConductorAgent).where(ConductorAgent.id == agent_id)
+        )
+        await self.db.commit()
+
+    async def archive_sessions_for_agent(
+        self, agent_id: uuid.UUID
+    ) -> list[uuid.UUID]:
+        # Find non-archived sessions for this agent
+        result = await self.db.execute(
+            select(ConductorSession.id).where(
+                and_(
+                    ConductorSession.agent_id == agent_id,
+                    ConductorSession.archived_at.is_(None),
+                )
+            )
+        )
+        session_ids = list(result.scalars().all())
+
+        if session_ids:
+            await self.db.execute(
+                update(ConductorSession)
+                .where(ConductorSession.id.in_(session_ids))
+                .values(archived_at=utc_now(), status="terminated")
+            )
+            await self.db.commit()
+
+        return session_ids
+
+    async def get_agent_version_snapshot(
+        self, agent_id: uuid.UUID, version: int
+    ) -> Optional[dict]:
+        result = await self.db.execute(
+            select(ConductorAgentVersion).where(
+                and_(
+                    ConductorAgentVersion.agent_id == agent_id,
+                    ConductorAgentVersion.version == version,
+                )
+            )
+        )
+        ver = result.scalar_one_or_none()
+        if ver is None:
+            return None
+        return ver.snapshot
+
+    async def list_active_tasks_for_agent(
+        self, agent_id: uuid.UUID
+    ) -> list:
+        result = await self.db.execute(
+            select(ConductorTask).where(
+                and_(
+                    ConductorTask.agent_id == agent_id,
+                    ConductorTask.status.in_(["pending", "scheduling", "running"]),
+                )
+            )
+        )
+        return list(result.scalars().all())

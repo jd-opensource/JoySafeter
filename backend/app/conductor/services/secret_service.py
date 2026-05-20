@@ -1,9 +1,10 @@
 import uuid
 from typing import Optional
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.conductor.models.agent import ConductorAgent
 from app.conductor.models.secret import ConductorSecret
 from app.conductor.schemas.secret import CreateSecretRequest, UpdateSecretRequest
 from app.utils.datetime import utc_now
@@ -14,6 +15,15 @@ class SecretService:
         self.db = db
 
     async def create_secret(self, req: CreateSecretRequest) -> ConductorSecret:
+        # Purge any soft-deleted row with the same name before inserting
+        await self.db.execute(
+            delete(ConductorSecret).where(
+                and_(
+                    ConductorSecret.name == req.name,
+                    ConductorSecret.deleted_at.is_not(None),
+                )
+            )
+        )
         secret = ConductorSecret(name=req.name, data=req.data)
         self.db.add(secret)
         await self.db.commit()
@@ -73,3 +83,22 @@ class SecretService:
         secret.deleted_at = utc_now()
         await self.db.commit()
         return True
+
+    async def hard_delete_secret(self, secret_id: uuid.UUID) -> None:
+        """Physical DELETE FROM conductor_secrets WHERE id = :id."""
+        await self.db.execute(
+            delete(ConductorSecret).where(ConductorSecret.id == secret_id)
+        )
+        await self.db.commit()
+
+    async def secret_is_referenced(self, name: str) -> bool:
+        """Check if any agent has secret_ref = name AND deleted_at IS NULL."""
+        result = await self.db.execute(
+            select(ConductorAgent.id).where(
+                and_(
+                    ConductorAgent.secret_ref == name,
+                    ConductorAgent.deleted_at.is_(None),
+                )
+            ).limit(1)
+        )
+        return result.scalar_one_or_none() is not None

@@ -129,14 +129,36 @@ class MemoryService:
     ) -> ConductorMemory:
         existing = await self.get_memory_by_path(store_id, path)
         if existing:
+            # Skip update if SHA256 matches (content unchanged)
+            new_sha = hashlib.sha256(content.encode()).hexdigest()
+            if existing.content_sha256 == new_sha:
+                return existing
             return await self.update_memory(store_id, existing.id, content, session_id)
         return await self.create_memory(store_id, path, content, session_id)
 
-    async def list_memories(self, store_id: uuid.UUID, limit: int = 20, after_id: Optional[uuid.UUID] = None) -> tuple[list[ConductorMemory], bool]:
+    async def list_memories(
+        self,
+        store_id: uuid.UUID,
+        limit: int = 20,
+        after_id: Optional[uuid.UUID] = None,
+        path_prefix: Optional[str] = None,
+        order_by: str = "path",
+        order: str = "asc",
+    ) -> tuple[list[ConductorMemory], bool]:
         q = select(ConductorMemory).where(ConductorMemory.store_id == store_id)
         if after_id:
             q = q.where(ConductorMemory.id < after_id)
-        q = q.order_by(ConductorMemory.created_at.desc()).limit(limit + 1)
+        if path_prefix:
+            q = q.where(ConductorMemory.path.like(path_prefix + "%"))
+
+        # Apply ordering
+        order_col = getattr(ConductorMemory, order_by, ConductorMemory.path)
+        if order == "desc":
+            q = q.order_by(order_col.desc())
+        else:
+            q = q.order_by(order_col.asc())
+
+        q = q.limit(limit + 1)
         result = await self.db.execute(q)
         memories = list(result.scalars().all())
         has_more = len(memories) > limit
@@ -192,10 +214,36 @@ class MemoryService:
 
     # --- Versions ---
 
-    async def list_versions(self, store_id: uuid.UUID, limit: int = 20, after_id: Optional[uuid.UUID] = None) -> tuple[list[ConductorMemoryVersion], bool]:
+    async def is_live_version(self, store_id: uuid.UUID, version_id: uuid.UUID) -> bool:
+        """Check if any memory in this store has current_version_id == version_id."""
+        result = await self.db.execute(
+            select(ConductorMemory).where(
+                and_(
+                    ConductorMemory.store_id == store_id,
+                    ConductorMemory.current_version_id == version_id,
+                )
+            )
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def list_versions(
+        self,
+        store_id: uuid.UUID,
+        limit: int = 20,
+        after_id: Optional[uuid.UUID] = None,
+        memory_id: Optional[uuid.UUID] = None,
+        session_id: Optional[uuid.UUID] = None,
+        operation: Optional[str] = None,
+    ) -> tuple[list[ConductorMemoryVersion], bool]:
         q = select(ConductorMemoryVersion).where(ConductorMemoryVersion.store_id == store_id)
         if after_id:
             q = q.where(ConductorMemoryVersion.id < after_id)
+        if memory_id is not None:
+            q = q.where(ConductorMemoryVersion.memory_id == memory_id)
+        if session_id is not None:
+            q = q.where(ConductorMemoryVersion.session_id == session_id)
+        if operation is not None:
+            q = q.where(ConductorMemoryVersion.operation == operation)
         q = q.order_by(ConductorMemoryVersion.created_at.desc()).limit(limit + 1)
         result = await self.db.execute(q)
         versions = list(result.scalars().all())
@@ -215,6 +263,9 @@ class MemoryService:
         if not ver:
             return False
         ver.content = None
+        ver.content_sha256 = None
+        ver.content_size_bytes = None
+        ver.path = None
         ver.redacted_at = utc_now()
         ver.redacted_by = redacted_by
         await self.db.commit()

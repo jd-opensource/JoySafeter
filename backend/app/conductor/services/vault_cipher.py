@@ -69,3 +69,9 @@ class VaultCipher:
     @staticmethod
     def generate_key() -> str:
         return base64.b64encode(secrets.token_bytes(_AES_KEY_SIZE)).decode("ascii")
+
+    def decrypt_or_passthrough(self, stored: str) -> str:
+        """Decrypt if stored starts with 'enc:' prefix, otherwise return as-is (plaintext passthrough)."""
+        if stored.startswith("enc:"):
+            return self.decrypt(stored[4:])
+        return stored

@@ -1,8 +1,9 @@
 import logging
 import uuid
+from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.conductor.models.vault import ConductorVault, ConductorVaultCredential
@@ -30,6 +31,12 @@ class VaultService:
     # --- Vault ---
 
     async def create_vault(self, name: str, description: str = "", metadata: Optional[dict] = None) -> ConductorVault:
+        # Purge soft-deleted rows with the same name before insert
+        await self.db.execute(
+            delete(ConductorVault).where(
+                ConductorVault.name == name, ConductorVault.deleted_at.isnot(None)
+            )
+        )
         vault = ConductorVault(name=name, description=description, metadata_=metadata or {})
         self.db.add(vault)
         await self.db.commit()
@@ -75,7 +82,12 @@ class VaultService:
         vault = await self.get_vault(vault_id)
         if not vault:
             return False
-        vault.deleted_at = utc_now()
+        await self.db.execute(
+            delete(ConductorVaultCredential).where(ConductorVaultCredential.vault_id == vault_id)
+        )
+        await self.db.execute(
+            delete(ConductorVault).where(ConductorVault.id == vault_id)
+        )
         await self.db.commit()
         return True
 
@@ -86,6 +98,15 @@ class VaultService:
         if vault.archived_at:
             return True
         vault.archived_at = utc_now()
+        # Soft-delete all credentials in the vault
+        await self.db.execute(
+            update(ConductorVaultCredential)
+            .where(
+                ConductorVaultCredential.vault_id == vault_id,
+                ConductorVaultCredential.deleted_at.is_(None),
+            )
+            .values(deleted_at=func.now())
+        )
         await self.db.commit()
         return True
 
@@ -164,6 +185,35 @@ class VaultService:
         cred.deleted_at = utc_now()
         await self.db.commit()
         return True
+
+    async def update_credential_token(
+        self, cred_id: uuid.UUID, new_token: str, new_expires_at: Optional[datetime] = None
+    ) -> None:
+        encrypted_token = self._cipher.encrypt(new_token)
+        values: dict = {"token_value": encrypted_token}
+        stmt = (
+            update(ConductorVaultCredential)
+            .where(ConductorVaultCredential.id == cred_id)
+            .values(**values)
+        )
+        await self.db.execute(stmt)
+        if new_expires_at is not None:
+            from sqlalchemy import cast, literal
+            from sqlalchemy.types import Text as TextType
+
+            expires_str = new_expires_at.isoformat()
+            await self.db.execute(
+                update(ConductorVaultCredential)
+                .where(ConductorVaultCredential.id == cred_id)
+                .values(
+                    oauth_config=func.jsonb_set(
+                        ConductorVaultCredential.oauth_config,
+                        "{expires_at}",
+                        func.to_jsonb(cast(literal(expires_str), TextType)),
+                    )
+                )
+            )
+        await self.db.commit()
 
     # --- MCP Credential Resolution ---
 

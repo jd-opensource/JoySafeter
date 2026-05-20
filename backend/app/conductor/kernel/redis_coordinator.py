@@ -172,8 +172,15 @@ class RedisCoordinator:
         except Exception as e:
             logger.warning("Failed to publish session event: %s", e)
 
+    async def is_healthy(self) -> bool:
+        try:
+            await self._redis.ping()
+            return True
+        except Exception:
+            return False
+
     async def remove_sandbox_queue(self, sandbox_id: uuid.UUID) -> None:
-        key = f"conductor:queue:sandbox:{sandbox_id}"
+        key = f"conductor:sandbox_queue:{sandbox_id}"
         try:
             await self._redis.delete(key)
         except Exception as e:

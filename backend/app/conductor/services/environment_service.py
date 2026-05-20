@@ -1,10 +1,11 @@
 import uuid
 from typing import Optional
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.conductor.models.environment import ConductorEnvironment
+from app.conductor.models.session import ConductorSession
 from app.conductor.schemas.environment import (
     CreateEnvironmentRequest,
     UpdateEnvironmentRequest,
@@ -17,6 +18,15 @@ class EnvironmentService:
         self.db = db
 
     async def create_environment(self, req: CreateEnvironmentRequest) -> ConductorEnvironment:
+        # Purge any soft-deleted rows with the same name before inserting
+        await self.db.execute(
+            delete(ConductorEnvironment).where(
+                and_(
+                    ConductorEnvironment.name == req.name,
+                    ConductorEnvironment.deleted_at.is_not(None),
+                )
+            )
+        )
         env = ConductorEnvironment(
             name=req.name,
             description=req.description,
@@ -40,6 +50,15 @@ class EnvironmentService:
         return result.scalar_one_or_none()
 
     async def get_environment_by_ref(self, ref: str) -> Optional[ConductorEnvironment]:
+        """If ref starts with 'env_', try to parse as UUID and query by ID.
+        Otherwise query by name. Filter deleted_at IS NULL."""
+        if ref.startswith("env_"):
+            try:
+                env_id = uuid.UUID(ref[len("env_"):])
+                return await self.get_environment(env_id)
+            except ValueError:
+                pass
+        # Fall back to name lookup
         result = await self.db.execute(
             select(ConductorEnvironment).where(
                 and_(
@@ -98,3 +117,20 @@ class EnvironmentService:
         env.archived_at = utc_now()
         await self.db.commit()
         return True
+
+    async def environment_is_referenced_by_sessions(self, env_name: str, env_id: uuid.UUID) -> bool:
+        """Check if any session has environment_ref matching either the name or
+        env_<uuid> format AND archived_at IS NULL."""
+        env_prefixed = f"env_{env_id}"
+        result = await self.db.execute(
+            select(ConductorSession.id).where(
+                and_(
+                    or_(
+                        ConductorSession.environment_ref == env_name,
+                        ConductorSession.environment_ref == env_prefixed,
+                    ),
+                    ConductorSession.archived_at.is_(None),
+                )
+            ).limit(1)
+        )
+        return result.scalar_one_or_none() is not None

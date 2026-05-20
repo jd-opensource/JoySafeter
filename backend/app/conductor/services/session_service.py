@@ -1,16 +1,30 @@
 import uuid
+from collections import defaultdict
 from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import and_, select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.conductor.errors import ConflictError
 from app.conductor.models.session import (
     ConductorSession,
     ConductorSessionEvent,
     SessionStatus,
 )
 from app.utils.datetime import utc_now
+
+# State machine: maps target status -> set of allowed source statuses
+_VALID_TRANSITIONS: dict[str, set[str]] = {
+    SessionStatus.RUNNING.value: {SessionStatus.IDLE.value, SessionStatus.RESCHEDULING.value},
+    SessionStatus.IDLE.value: {SessionStatus.RUNNING.value, SessionStatus.RESCHEDULING.value},
+    SessionStatus.TERMINATED.value: {
+        SessionStatus.IDLE.value,
+        SessionStatus.RUNNING.value,
+        SessionStatus.RESCHEDULING.value,
+    },
+    SessionStatus.RESCHEDULING.value: {SessionStatus.RUNNING.value},
+}
 
 
 class SessionService:
@@ -94,6 +108,8 @@ class SessionService:
         session = await self.get_session(session_id)
         if not session:
             return False
+        if session.status == SessionStatus.RUNNING.value:
+            raise ConflictError("Cannot archive running session")
         if session.archived_at:
             return True
         session.archived_at = utc_now()
@@ -114,6 +130,14 @@ class SessionService:
         session = result.scalar_one_or_none()
         if not session:
             return False
+
+        # State machine guard
+        allowed_from = _VALID_TRANSITIONS.get(status)
+        if allowed_from is not None and session.status not in allowed_from:
+            raise ConflictError(
+                f"Cannot transition from '{session.status}' to '{status}'"
+            )
+
         session.status = status
         if stop_reason is not None:
             session.stop_reason = stop_reason
@@ -282,3 +306,96 @@ class SessionService:
         ).order_by(ConductorSessionEvent.seq.asc())
         result = await self.db.execute(q)
         return list(result.scalars().all())
+
+    async def batch_insert_session_events(self, events: list[dict]) -> list:
+        if not events:
+            return []
+
+        # Group events by session_id
+        groups: dict[uuid.UUID, list[dict]] = defaultdict(list)
+        for ev in events:
+            groups[ev["session_id"]].append(ev)
+
+        created = []
+        for session_id, group in groups.items():
+            # Lock session row and compute max seq
+            await self.db.execute(
+                select(ConductorSession)
+                .where(ConductorSession.id == session_id)
+                .with_for_update()
+            )
+            result = await self.db.execute(
+                select(func.coalesce(func.max(ConductorSessionEvent.seq), 0)).where(
+                    ConductorSessionEvent.session_id == session_id
+                )
+            )
+            max_seq = result.scalar()
+
+            # Assign sequential seq numbers and bulk insert
+            for i, ev in enumerate(group, start=1):
+                event = ConductorSessionEvent(
+                    session_id=session_id,
+                    event_type=ev["event_type"],
+                    payload=ev["payload"],
+                    seq=max_seq + i,
+                )
+                self.db.add(event)
+                created.append(event)
+
+        await self.db.commit()
+        for event in created:
+            await self.db.refresh(event)
+        return created
+
+    async def list_session_events_filtered(
+        self,
+        session_id: uuid.UUID,
+        after_seq: Optional[int],
+        limit: int,
+        event_types: list[str],
+    ) -> list[ConductorSessionEvent]:
+        q = select(ConductorSessionEvent).where(
+            ConductorSessionEvent.session_id == session_id
+        )
+        if after_seq is not None:
+            q = q.where(ConductorSessionEvent.seq > after_seq)
+        if event_types:
+            q = q.where(ConductorSessionEvent.event_type.in_(event_types))
+        q = q.order_by(ConductorSessionEvent.seq.asc()).limit(limit)
+        result = await self.db.execute(q)
+        return list(result.scalars().all())
+
+    async def list_all_memories_for_session(self, session_id: uuid.UUID) -> list[dict]:
+        from app.conductor.models.memory import (
+            ConductorMemory,
+            ConductorSessionMemoryStore,
+        )
+
+        # Get all mounted stores for this session
+        result = await self.db.execute(
+            select(ConductorSessionMemoryStore).where(
+                ConductorSessionMemoryStore.session_id == session_id
+            )
+        )
+        mounts = list(result.scalars().all())
+
+        output = []
+        for mount in mounts:
+            # Load all memories for this store
+            mem_result = await self.db.execute(
+                select(ConductorMemory).where(
+                    ConductorMemory.store_id == mount.store_id
+                )
+            )
+            memories = list(mem_result.scalars().all())
+            output.append(
+                {
+                    "store_id": mount.store_id,
+                    "mount_name": mount.mount_name,
+                    "access": mount.access,
+                    "memories": [
+                        {"path": m.path, "content": m.content} for m in memories
+                    ],
+                }
+            )
+        return output

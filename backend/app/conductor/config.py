@@ -12,7 +12,7 @@ class ConductorConfig(BaseSettings):
 
     api_prefix: str = "/api/v2/conductor"
 
-    redis_queue_prefix: str = "conductor:queue"
+    redis_queue_prefix: str = "conductor"
 
     max_concurrent_tasks: int = 10
     task_default_timeout: int = 7200

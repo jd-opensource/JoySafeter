@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import and_, select, update, func
+from sqlalchemy import and_, select, update, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.conductor.models.task import ConductorTask, TaskStatus, TERMINAL_STATUSES
@@ -105,10 +105,55 @@ class TaskService:
                     ConductorTask.status == TaskStatus.PENDING.value,
                 )
             )
-            .values(status=TaskStatus.SCHEDULING.value, updated_at=utc_now())
+            .values(status=TaskStatus.SCHEDULING.value, started_at=func.now(), updated_at=utc_now())
         )
         await self.db.commit()
         return result.rowcount > 0
+
+    async def append_task_output(self, task_id: uuid.UUID, chunk: str) -> None:
+        await self.db.execute(
+            text("UPDATE conductor_tasks SET output = output || :chunk, updated_at = now() WHERE id = :id"),
+            {"chunk": chunk, "id": task_id},
+        )
+        await self.db.commit()
+
+    async def update_task_chat_session(self, task_id: uuid.UUID, session_id: uuid.UUID) -> None:
+        await self.db.execute(
+            update(ConductorTask)
+            .where(ConductorTask.id == task_id)
+            .values(chat_session_id=session_id, updated_at=utc_now())
+        )
+        await self.db.commit()
+
+    async def reset_sandbox_tasks_to_pending(self, sandbox_id: uuid.UUID) -> int:
+        result = await self.db.execute(
+            update(ConductorTask)
+            .where(
+                and_(
+                    ConductorTask.status == TaskStatus.SCHEDULING.value,
+                    ConductorTask.sandbox_id == sandbox_id,
+                )
+            )
+            .values(status=TaskStatus.PENDING.value, started_at=None, sandbox_id=None, updated_at=utc_now())
+        )
+        await self.db.commit()
+        return result.rowcount
+
+    async def list_running_tasks(self) -> list:
+        result = await self.db.execute(
+            select(ConductorTask)
+            .where(ConductorTask.status == TaskStatus.RUNNING.value)
+            .order_by(ConductorTask.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def list_pending_tasks(self) -> list:
+        result = await self.db.execute(
+            select(ConductorTask)
+            .where(ConductorTask.status == TaskStatus.PENDING.value)
+            .order_by(ConductorTask.created_at.asc())
+        )
+        return list(result.scalars().all())
 
     async def update_task_status(
         self,
