@@ -5,14 +5,20 @@ Alembic environment configuration
 import asyncio
 from logging.config import fileConfig
 
+from dotenv import load_dotenv
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
-from app import models  # noqa: F401 - Import all models to ensure they are registered with Base.metadata
-from app.core.database import Base
-from app.core.settings import settings
+from app.core.settings import ENV_FILE
+
+load_dotenv(ENV_FILE, override=False)
+
+from app import models  # noqa: F401,E402 - Import all models to ensure they are registered with Base.metadata
+from app.conductor import models as conductor_models  # noqa: F401,E402 - Register Conductor models with Base.metadata
+from app.core.database import Base  # noqa: E402
+from app.core.settings import settings  # noqa: E402
 
 config = context.config
 
