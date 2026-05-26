@@ -1,16 +1,6 @@
 'use client'
 
-import {
-  Check,
-  Copy,
-  MoreHorizontal,
-  Pencil,
-  Plus,
-  Search,
-  Trash2,
-  Users,
-  X,
-} from 'lucide-react'
+import { Check, Copy, MoreHorizontal, Pencil, Plus, Search, Trash2, Users, X } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 
@@ -222,9 +212,7 @@ export function WorkspaceDropdown({
                               handleCloseDropdown()
                             }}
                           >
-                            <span className="truncate">
-                              {getWorkspaceDisplayName(workspace)}
-                            </span>
+                            <span className="truncate">{getWorkspaceDisplayName(workspace)}</span>
                           </button>
                         </TooltipTrigger>
                         <TooltipContent
@@ -286,50 +274,46 @@ export function WorkspaceDropdown({
         </div>
       </div>
 
-      {showWorkspaceMenu && menuPosition && (() => {
-        const workspace = workspaces.find((w) => w.id === showWorkspaceMenu)
-        if (!workspace || workspace.type === 'personal') return null
+      {showWorkspaceMenu &&
+        menuPosition &&
+        (() => {
+          const workspace = workspaces.find((w) => w.id === showWorkspaceMenu)
+          if (!workspace || workspace.type === 'personal') return null
 
-        const closeMenu = () => {
-          setShowWorkspaceMenu(null)
-          setMenuPosition(null)
-        }
+          const closeMenu = () => {
+            setShowWorkspaceMenu(null)
+            setMenuPosition(null)
+          }
 
-        const items: MenuItemConfig[] = []
-        if (workspace.role === 'owner' || workspace.role === 'admin') {
+          const items: MenuItemConfig[] = []
+          if (workspace.role === 'owner' || workspace.role === 'admin') {
+            items.push({
+              label: t('workspace.membersManagement'),
+              icon: <Users className="h-3 w-3" />,
+              onClick: () => router.push(`/workspace/${workspace.id}/settings/members`),
+            })
+          }
           items.push({
-            label: t('workspace.membersManagement'),
-            icon: <Users className="h-3 w-3" />,
-            onClick: () => router.push(`/workspace/${workspace.id}/settings/members`),
+            label: t('workspace.rename'),
+            icon: <Pencil className="h-3 w-3" />,
+            onClick: () => onStartRenameWithClose(workspace),
+            separator: items.length > 0,
           })
-        }
-        items.push({
-          label: t('workspace.rename'),
-          icon: <Pencil className="h-3 w-3" />,
-          onClick: () => onStartRenameWithClose(workspace),
-          separator: items.length > 0,
-        })
-        items.push({
-          label: t('workspace.duplicate'),
-          icon: <Copy className="h-3 w-3" />,
-          onClick: () => onDuplicateWorkspace(workspace.id),
-        })
-        items.push({
-          label: t('workspace.delete'),
-          icon: <Trash2 className="h-3 w-3" />,
-          onClick: () => onDeleteWorkspace(workspace.id),
-          variant: 'destructive',
-          separator: true,
-        })
+          items.push({
+            label: t('workspace.duplicate'),
+            icon: <Copy className="h-3 w-3" />,
+            onClick: () => onDuplicateWorkspace(workspace.id),
+          })
+          items.push({
+            label: t('workspace.delete'),
+            icon: <Trash2 className="h-3 w-3" />,
+            onClick: () => onDeleteWorkspace(workspace.id),
+            variant: 'destructive',
+            separator: true,
+          })
 
-        return (
-          <SidebarContextMenu
-            items={items}
-            onClose={closeMenu}
-            position={menuPosition}
-          />
-        )
-      })()}
+          return <SidebarContextMenu items={items} onClose={closeMenu} position={menuPosition} />
+        })()}
     </>
   )
 }

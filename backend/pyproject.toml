@@ -50,6 +50,7 @@ dependencies = [
     "requests>=2.32.5",
     "websockets>=13.0",
     # Utils
+    "uuid-utils>=0.9.0",
     "python-dotenv>=1.0.0",
     "tenacity>=9.0.0",
     "aiofiles>=24.0.0",
@@ -70,6 +71,10 @@ dependencies = [
     # System & Docker
     "psutil>=7.1.3",
     "docker>=7.1.0",
+    # gRPC
+    "grpcio>=1.80.0",
+    "grpcio-tools>=1.80.0",
+    "protobuf>=5.0.0",
     # Search
     "tavily-python>=0.3.0",
     "langchain-google-genai>=4.2.0",

@@ -275,7 +275,10 @@ export function NewFileDialog({
             </div>
           </div>
           <DialogFooter>
-            <Button type="submit" className="w-full bg-[var(--skill-brand-600)] hover:bg-[var(--skill-brand-700)]">
+            <Button
+              type="submit"
+              className="w-full bg-[var(--skill-brand-600)] hover:bg-[var(--skill-brand-700)]"
+            >
               <Plus size={16} className="mr-2" />
               Create File
             </Button>
@@ -316,18 +319,10 @@ export function DeleteFileDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button
-            variant="outline"
-            onClick={onClose}
-            disabled={loading}
-          >
+          <Button variant="outline" onClick={onClose} disabled={loading}>
             {t('common.cancel')}
           </Button>
-          <Button
-            variant="destructive"
-            onClick={onConfirm}
-            disabled={loading}
-          >
+          <Button variant="destructive" onClick={onConfirm} disabled={loading}>
             {loading ? (
               <Loader2 size={16} className="mr-2 animate-spin" />
             ) : (
@@ -363,10 +358,7 @@ export function RenameFileDialog({
   const { t } = useTranslation()
 
   return (
-    <Dialog
-      open={!!fileToRename}
-      onOpenChange={() => onClose()}
-    >
+    <Dialog open={!!fileToRename} onOpenChange={() => onClose()}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -397,11 +389,7 @@ export function RenameFileDialog({
           )}
         </div>
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button
-            variant="outline"
-            onClick={onClose}
-            disabled={loading}
-          >
+          <Button variant="outline" onClick={onClose} disabled={loading}>
             {t('common.cancel')}
           </Button>
           <Button

@@ -170,7 +170,19 @@ export function useCopilotActions({
         activeRequestIdRef.current = null
       }
     },
-    [state.loading, state.messages, actions, refs, graphId, copilotMode, selectedProviderName, selectedModelName, getGraphContext, t, onCopilotEvent],
+    [
+      state.loading,
+      state.messages,
+      actions,
+      refs,
+      graphId,
+      copilotMode,
+      selectedProviderName,
+      selectedModelName,
+      getGraphContext,
+      t,
+      onCopilotEvent,
+    ],
   )
 
   const handleSend = useCallback(async () => {

@@ -28,8 +28,8 @@ This document provides detailed instructions for setting up and running the JoyS
 Using Docker (recommended):
 
 ```bash
-cd backend/docker
-./start.sh
+cd deploy
+docker compose -f docker-compose-middleware.yml up -d
 ```
 
 Or manually start PostgreSQL and Redis on your system.

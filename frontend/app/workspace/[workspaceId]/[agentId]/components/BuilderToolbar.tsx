@@ -32,7 +32,7 @@ import { cn } from '@/lib/utils'
 import { useDeploymentStore } from '@/stores/deploymentStore'
 
 import { useBuilderStore } from '../stores/builderStore'
-import { useExecutionStore } from '../stores/executionStore'
+import { useExecutionStore } from '../stores/execution/executionStore'
 
 import { ApiAccessDialog } from './ApiAccessDialog'
 import { DeploymentHistoryPanel } from './DeploymentHistoryPanel'
@@ -69,9 +69,7 @@ export function BuilderToolbar({
   // Get UI state and operation methods from Zustand store
   const { isDeploying, deploy } = useDeploymentStore()
 
-  const {
-    setDeployedAt,
-  } = useBuilderStore()
+  const { setDeployedAt } = useBuilderStore()
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [showDeploymentHistory, setShowDeploymentHistory] = useState(false)

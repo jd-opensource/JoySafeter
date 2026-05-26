@@ -3,7 +3,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Chrome, Github, Globe, Key, Shield } from 'lucide-react'
 
-
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { API_BASE } from '@/lib/api-client'

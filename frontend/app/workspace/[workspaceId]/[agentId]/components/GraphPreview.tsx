@@ -214,7 +214,10 @@ export function GraphPreview({
     <ReactFlowProvider>
       <div
         style={{ height, width }}
-        className={cn('relative overflow-hidden rounded-lg border border-[var(--border)]', className)}
+        className={cn(
+          'relative overflow-hidden rounded-lg border border-[var(--border)]',
+          className,
+        )}
       >
         <PreviewContent nodes={nodes} edges={edges} />
       </div>

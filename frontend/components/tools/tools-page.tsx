@@ -3,7 +3,6 @@
 import { Plus, Loader2 } from 'lucide-react'
 import { useState } from 'react'
 
-
 import { AddMcpDialog } from '@/components/settings/add-mcp-dialog'
 import { McpServerCard, BuiltinToolCard } from '@/components/settings/mcp-server-card'
 import { Button } from '@/components/ui/button'
@@ -90,8 +89,12 @@ export function ToolsPage() {
 
       <div className="flex items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-elevated)] p-6">
         <div>
-          <h2 className="text-lg font-bold text-[var(--text-primary)]">{t('settings.toolsAndMcpTitle')}</h2>
-          <p className="mt-1 text-xs text-[var(--text-tertiary)]">{t('settings.toolsAndMcpDescription')}</p>
+          <h2 className="text-lg font-bold text-[var(--text-primary)]">
+            {t('settings.toolsAndMcpTitle')}
+          </h2>
+          <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+            {t('settings.toolsAndMcpDescription')}
+          </p>
         </div>
         <Button
           onClick={() => setShowAddMcp(true)}

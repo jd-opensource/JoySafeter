@@ -21,21 +21,21 @@ interface ModelRowProps {
 
 export function ModelRow({ model, onEditParams }: ModelRowProps) {
   const unavailableLabel = model.unavailable_reason
-    ? UNAVAILABLE_REASON_LABELS[model.unavailable_reason] ?? model.unavailable_reason
+    ? (UNAVAILABLE_REASON_LABELS[model.unavailable_reason] ?? model.unavailable_reason)
     : null
 
   return (
-    <div className="flex items-center justify-between rounded-lg border border-[var(--border-muted)] bg-[var(--surface-elevated)] px-4 py-3 hover:bg-[var(--surface-3)] transition-colors">
-      <div className="flex items-center gap-3 min-w-0">
+    <div className="flex items-center justify-between rounded-lg border border-[var(--border-muted)] bg-[var(--surface-elevated)] px-4 py-3 transition-colors hover:bg-[var(--surface-3)]">
+      <div className="flex min-w-0 items-center gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-[var(--text-primary)] truncate">
+          <p className="truncate text-sm font-medium text-[var(--text-primary)]">
             {model.display_name || model.name}
           </p>
           {model.description && (
-            <p className="text-xs text-[var(--text-tertiary)] truncate">{model.description}</p>
+            <p className="truncate text-xs text-[var(--text-tertiary)]">{model.description}</p>
           )}
           {model.model_parameters && Object.keys(model.model_parameters).length > 0 && (
-            <p className="text-xs text-[var(--text-muted)] truncate">
+            <p className="truncate text-xs text-[var(--text-muted)]">
               {Object.entries(model.model_parameters)
                 .slice(0, 3)
                 .map(([k, v]) => `${k}: ${v}`)
@@ -45,16 +45,22 @@ export function ModelRow({ model, onEditParams }: ModelRowProps) {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 shrink-0 ml-3">
+      <div className="ml-3 flex shrink-0 items-center gap-2">
         {model.is_available ? (
-          <Badge variant="outline" className="text-[var(--status-success)] border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-xs">
+          <Badge
+            variant="outline"
+            className="border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-xs text-[var(--status-success)]"
+          >
             Available
           </Badge>
         ) : (
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Badge variant="outline" className="text-[var(--status-error)] border-[var(--status-error-border)] bg-[var(--status-error-bg)] text-xs cursor-help">
+                <Badge
+                  variant="outline"
+                  className="cursor-help border-[var(--status-error-border)] bg-[var(--status-error-bg)] text-xs text-[var(--status-error)]"
+                >
                   Unavailable
                 </Badge>
               </TooltipTrigger>
@@ -63,7 +69,13 @@ export function ModelRow({ model, onEditParams }: ModelRowProps) {
           </TooltipProvider>
         )}
 
-        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onEditParams} aria-label="Edit model parameters">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0"
+          onClick={onEditParams}
+          aria-label="Edit model parameters"
+        >
           <Settings className="h-3.5 w-3.5" />
         </Button>
       </div>

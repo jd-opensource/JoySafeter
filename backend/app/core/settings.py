@@ -19,6 +19,12 @@ from app import __version__
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 ENV_FILE = BASE_DIR / ".env"
 
+# Load .env into os.environ early so that @property helpers using os.getenv()
+# (e.g. database_url) pick up .env values even at module-import time.
+from dotenv import load_dotenv  # noqa: E402
+
+load_dotenv(ENV_FILE, override=False)
+
 
 def _is_tcp_port_open(host: str, port: int, timeout_seconds: float = 0.5) -> bool:
     """Check whether a TCP port is open."""
@@ -367,11 +373,6 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("WORKSPACE_ROOT", "WORKSPACE_PATH"),
         description="Workspace root directory for storing session files and workspace data",
     )
-
-    @property
-    def WORKSPACE_ROOT(self) -> str:
-        """Alias for workspace_root for backward compatibility"""
-        return self.workspace_root
 
     # OAuth Configuration
     oauth_config_path: Optional[str] = Field(

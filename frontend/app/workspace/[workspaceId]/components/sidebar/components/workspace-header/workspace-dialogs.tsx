@@ -38,7 +38,9 @@ export function WorkspaceDialogs({
             {workspaceToDelete ? (
               <>
                 {t('workspace.deleteConfirmMessagePrefix')}{' '}
-                <span className="font-semibold text-[var(--status-error)]">{workspaceToDelete.name}</span>
+                <span className="font-semibold text-[var(--status-error)]">
+                  {workspaceToDelete.name}
+                </span>
                 {t('workspace.deleteConfirmMessageSuffix')}
               </>
             ) : (

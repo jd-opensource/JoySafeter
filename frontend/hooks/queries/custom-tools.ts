@@ -7,15 +7,7 @@
  */
 import { apiGet } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
-import { useCustomToolsStore } from '@/stores/custom-tools/store'
-import type {
-  CustomToolDefinition,
-  CustomToolSchema,
-  CustomTool as LegacyCustomTool,
-  LegacyCustomToolSchema,
-  CustomToolParameter,
-} from '@/stores/custom-tools/types'
-
+import type { CustomToolDefinition, CustomToolSchema } from '@/stores/custom-tools/types'
 
 const logger = createLogger('CustomToolsQueries')
 
@@ -28,9 +20,6 @@ export const customToolsKeys = {
   list: () => [...customToolsKeys.lists()] as const,
   detail: (toolId: string) => [...customToolsKeys.all, 'detail', toolId] as const,
 }
-
-// Re-export CustomToolDefinition as CustomTool for backward compatibility
-export type CustomTool = CustomToolDefinition
 
 type ApiCustomTool = Partial<CustomToolDefinition> & {
   id: string
@@ -75,55 +64,6 @@ function normalizeCustomTool(tool: ApiCustomTool): CustomToolDefinition {
       },
     },
   }
-}
-
-/**
- * Convert CustomToolDefinition (OpenAI format) to CustomTool (legacy format) for store
- */
-function convertToLegacyTool(definition: CustomToolDefinition): LegacyCustomTool {
-  const functionSchema = definition.schema.function
-  const name = functionSchema?.name || definition.title
-  const description = functionSchema?.description || ''
-
-  // Convert OpenAI-style parameters to legacy format
-  const parameters: CustomToolParameter[] = []
-  if (functionSchema?.parameters?.properties) {
-    const required = new Set(functionSchema.parameters.required || [])
-    for (const [paramName, paramDef] of Object.entries(functionSchema.parameters.properties)) {
-      if (typeof paramDef === 'object' && paramDef !== null) {
-        parameters.push({
-          name: paramName,
-          type: (paramDef as any).type || 'string',
-          description: (paramDef as any).description,
-          required: required.has(paramName),
-          default: (paramDef as any).default,
-        })
-      }
-    }
-  }
-
-  const legacySchema: LegacyCustomToolSchema = {
-    id: definition.id,
-    name,
-    description,
-    parameters,
-    code: definition.code,
-  }
-
-  return {
-    id: definition.id,
-    name,
-    description,
-    schema: legacySchema,
-    createdAt: new Date(definition.createdAt),
-    updatedAt: definition.updatedAt ? new Date(definition.updatedAt) : new Date(),
-    userId: definition.userId || undefined,
-  }
-}
-
-function syncCustomToolsToStore(tools: CustomToolDefinition[]) {
-  const legacyTools = tools.map(convertToLegacyTool)
-  useCustomToolsStore.getState().setTools(legacyTools)
 }
 
 // Raw API response type (backend may return name or title)

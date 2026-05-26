@@ -57,7 +57,7 @@ export function CopilotChat({
   if (loadingHistory) {
     return (
       <div className="flex items-center justify-center py-4">
-      <span className="text-xs text-[var(--text-tertiary)]">{t('workspace.loadingHistory')}</span>
+        <span className="text-xs text-[var(--text-tertiary)]">{t('workspace.loadingHistory')}</span>
       </div>
     )
   }
@@ -92,7 +92,9 @@ export function CopilotChat({
                     size={16}
                     className="shrink-0 text-[var(--brand-600)] group-hover:text-[var(--brand-500)]"
                   />
-                  <span className="text-sm font-semibold text-[var(--text-primary)]">{t(bp.titleKey)}</span>
+                  <span className="text-sm font-semibold text-[var(--text-primary)]">
+                    {t(bp.titleKey)}
+                  </span>
                 </div>
                 <p className="line-clamp-2 text-xs text-[var(--text-tertiary)]">{t(bp.descKey)}</p>
               </button>

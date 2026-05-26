@@ -165,7 +165,9 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                     <div className="flex items-center justify-between">
                       <FormLabel className="text-xs font-bold uppercase text-[var(--text-muted)]">
                         Compatibility
-                        <span className="ml-1 font-normal text-[var(--text-muted)]">(optional)</span>
+                        <span className="ml-1 font-normal text-[var(--text-muted)]">
+                          (optional)
+                        </span>
                       </FormLabel>
                       <span
                         className={`text-xs ${
@@ -236,7 +238,9 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                   <FormItem>
                     <FormLabel className="text-xs font-bold uppercase text-[var(--text-muted)]">
                       Metadata
-                      <span className="ml-1 font-normal text-[var(--text-muted)]">(optional, JSON)</span>
+                      <span className="ml-1 font-normal text-[var(--text-muted)]">
+                        (optional, JSON)
+                      </span>
                     </FormLabel>
                     <FormControl>
                       <Textarea

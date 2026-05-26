@@ -41,7 +41,14 @@ export function CopilotPanel() {
   const graphId = params.agentId as string | undefined
 
   const [copilotMode, setCopilotMode] = useState<CopilotMode>('deepagents')
-  const { modelOptions, selectedModel, setSelectedModel, selectedProviderName, selectedModelName, modelLabel } = useModelSelector()
+  const {
+    modelOptions,
+    selectedModel,
+    setSelectedModel,
+    selectedProviderName,
+    selectedModelName,
+    modelLabel,
+  } = useModelSelector()
 
   // Unified state management
   const { state, actions, refs } = useCopilotState(graphId)
@@ -114,7 +121,9 @@ export function CopilotPanel() {
           {state.loadingHistory && (
             <div className="flex items-center justify-center py-4">
               <Loader2 size={16} className="mr-2 animate-spin text-[var(--brand-500)]" />
-              <span className="text-xs text-[var(--text-tertiary)]">{t('workspace.loadingHistory')}</span>
+              <span className="text-xs text-[var(--text-tertiary)]">
+                {t('workspace.loadingHistory')}
+              </span>
             </div>
           )}
 

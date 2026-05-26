@@ -33,7 +33,11 @@ export function createSimpleModeHandler(metadata: ModeMetadata): ModeHandler {
       }
     },
 
-    async onSubmit(input: string, _files: UploadedFile[], _context: ModeContext): Promise<SubmitResult> {
+    async onSubmit(
+      input: string,
+      _files: UploadedFile[],
+      _context: ModeContext,
+    ): Promise<SubmitResult> {
       return {
         success: true,
         processedInput: input,
@@ -46,6 +50,3 @@ export function createSimpleModeHandler(metadata: ModeMetadata): ModeHandler {
     },
   }
 }
-
-// Note: These handlers are now created from config via handlerFactory
-// Keeping these exports for backward compatibility, but recommend using createHandlerFromConfig

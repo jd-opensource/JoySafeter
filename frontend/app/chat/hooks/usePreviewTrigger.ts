@@ -4,10 +4,7 @@ import React, { useEffect, useRef } from 'react'
 
 import type { ChatState, ChatAction } from './useChatReducer'
 
-export function usePreviewTrigger(
-  state: ChatState,
-  dispatch: React.Dispatch<ChatAction>,
-) {
+export function usePreviewTrigger(state: ChatState, dispatch: React.Dispatch<ChatAction>) {
   const prevFileCountRef = useRef(0)
 
   // Auto-show when new files appear (unless user dismissed)

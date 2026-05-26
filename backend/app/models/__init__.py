@@ -11,12 +11,14 @@ from .access_control import (
     WorkspaceInvitation,
     WorkspaceInvitationStatus,
 )
+from .agent_profile import AgentProfile, AgentStatus
 from .agent_run import AgentRun, AgentRunEvent, AgentRunSnapshot, AgentRunStatus
 from .auth import AuthSession, AuthUser
 from .auth import AuthUser as User
 from .base import BaseModel, SoftDeleteMixin, TimestampMixin
 from .chat import Chat
 from .custom_tool import CustomTool
+from .execution import Execution, ExecutionEvent, ExecutionSnapshot, ExecutionSource, MissionExecutionStatus
 from .execution_trace import (
     ExecutionObservation,
     ExecutionTrace,
@@ -30,6 +32,8 @@ from .graph_deployment_version import GraphDeploymentVersion
 from .graph_execution import ExecutionStatus, GraphExecution
 from .mcp import McpServer
 from .memory import Memory
+from .mission import Mission, MissionPriority, MissionStatus
+from .mission_comment import CommentAuthorType, CommentType, MissionComment
 from .model_credential import ModelCredential
 from .model_instance import ModelInstance
 from .model_provider import ModelProvider
@@ -106,4 +110,17 @@ __all__ = [
     "SkillVersion",
     "SkillVersionFile",
     "PlatformToken",
+    "Mission",
+    "MissionStatus",
+    "MissionPriority",
+    "AgentProfile",
+    "AgentStatus",
+    "Execution",
+    "ExecutionEvent",
+    "ExecutionSnapshot",
+    "ExecutionSource",
+    "MissionExecutionStatus",
+    "MissionComment",
+    "CommentAuthorType",
+    "CommentType",
 ]

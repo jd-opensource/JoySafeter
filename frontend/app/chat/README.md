@@ -133,6 +133,7 @@ onStartChat() (调用父组件回调)
 ### 步骤
 
 1. **在 `modeConfig.ts` 中添加配置**
+
    ```typescript
    {
      id: 'new-mode',
@@ -144,6 +145,7 @@ onStartChat() (调用父组件回调)
    ```
 
 2. **创建处理器**（如果需要特殊逻辑）
+
    ```typescript
    // 在相应的 handler 文件中实现
    export const newModeHandler: ModeHandler = {
@@ -154,6 +156,7 @@ onStartChat() (调用父组件回调)
    ```
 
 3. **在 `handlerFactory.ts` 中处理**（如果是特殊处理器）
+
    ```typescript
    if (config.id === 'new-mode') {
      return newModeHandler

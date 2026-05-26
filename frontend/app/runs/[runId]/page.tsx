@@ -1,14 +1,6 @@
 'use client'
 
-import {
-  Activity,
-  ArrowLeft,
-  Bot,
-  Clock3,
-  Loader2,
-  Sparkles,
-  Square,
-} from 'lucide-react'
+import { Activity, ArrowLeft, Bot, Clock3, Loader2, Sparkles, Square } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -64,62 +56,83 @@ interface ChatTurnProjection {
   user_message?: { content: string }
   assistant_message?: {
     content: string
-    tool_calls?: Array<{ id?: string; name: string; status: string; args?: Record<string, unknown>; result?: string }>
+    tool_calls?: Array<{
+      id?: string
+      name: string
+      status: string
+      args?: Record<string, unknown>
+      result?: string
+    }>
   }
   file_tree?: Record<string, { action: string; size?: number; timestamp?: number }>
   preview_data?: Record<string, unknown>
   node_execution_log?: Array<{ status: string; node_name: string }>
 }
 
-function ChatTurnOverview({ projection: p, t }: { projection: Record<string, unknown>; t: (key: string) => string }) {
+function ChatTurnOverview({
+  projection: p,
+  t,
+}: {
+  projection: Record<string, unknown>
+  t: (key: string) => string
+}) {
   const projection = p as unknown as ChatTurnProjection
   return (
     <div className="space-y-4">
       {projection.user_message && (
         <Card className="p-4">
-          <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('runs.chat.userMessage')}</h4>
-          <p className="text-sm whitespace-pre-wrap">{projection.user_message.content}</p>
+          <h4 className="mb-2 text-sm font-medium text-muted-foreground">
+            {t('runs.chat.userMessage')}
+          </h4>
+          <p className="whitespace-pre-wrap text-sm">{projection.user_message.content}</p>
         </Card>
       )}
 
       {projection.assistant_message && (
         <Card className="p-4">
-          <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('runs.chat.assistantResponse')}</h4>
-          <p className="text-sm whitespace-pre-wrap">{projection.assistant_message.content}</p>
+          <h4 className="mb-2 text-sm font-medium text-muted-foreground">
+            {t('runs.chat.assistantResponse')}
+          </h4>
+          <p className="whitespace-pre-wrap text-sm">{projection.assistant_message.content}</p>
 
-          {projection.assistant_message.tool_calls && projection.assistant_message.tool_calls.length > 0 && (
-            <div className="mt-3 space-y-2">
-              <h5 className="text-xs font-medium text-muted-foreground">{t('runs.chat.toolCalls')}</h5>
-              {projection.assistant_message.tool_calls.map((tool, i) => (
-                <details key={tool.id || i} className="text-xs border rounded p-2">
-                  <summary className="cursor-pointer font-medium">
-                    {tool.name} — {tool.status}
-                  </summary>
-                  {tool.args && (
-                    <pre className="mt-1 text-muted-foreground overflow-x-auto">
-                      {JSON.stringify(tool.args, null, 2)}
-                    </pre>
-                  )}
-                  {tool.result && (
-                    <pre className="mt-1 text-muted-foreground overflow-x-auto">
-                      {JSON.stringify(tool.result, null, 2)}
-                    </pre>
-                  )}
-                </details>
-              ))}
-            </div>
-          )}
+          {projection.assistant_message.tool_calls &&
+            projection.assistant_message.tool_calls.length > 0 && (
+              <div className="mt-3 space-y-2">
+                <h5 className="text-xs font-medium text-muted-foreground">
+                  {t('runs.chat.toolCalls')}
+                </h5>
+                {projection.assistant_message.tool_calls.map((tool, i) => (
+                  <details key={tool.id || i} className="rounded border p-2 text-xs">
+                    <summary className="cursor-pointer font-medium">
+                      {tool.name} — {tool.status}
+                    </summary>
+                    {tool.args && (
+                      <pre className="mt-1 overflow-x-auto text-muted-foreground">
+                        {JSON.stringify(tool.args, null, 2)}
+                      </pre>
+                    )}
+                    {tool.result && (
+                      <pre className="mt-1 overflow-x-auto text-muted-foreground">
+                        {JSON.stringify(tool.result, null, 2)}
+                      </pre>
+                    )}
+                  </details>
+                ))}
+              </div>
+            )}
         </Card>
       )}
 
       {projection.file_tree && Object.keys(projection.file_tree).length > 0 && (
         <Card className="p-4">
-          <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('runs.chat.files')}</h4>
-          <ul className="text-xs space-y-1">
+          <h4 className="mb-2 text-sm font-medium text-muted-foreground">{t('runs.chat.files')}</h4>
+          <ul className="space-y-1 text-xs">
             {Object.entries(projection.file_tree).map(([path, info]) => (
               <li key={path} className="flex items-center gap-2">
-                <Badge variant="outline" className="text-xs">{info.action}</Badge>
-                <span className="font-mono truncate">{path}</span>
+                <Badge variant="outline" className="text-xs">
+                  {info.action}
+                </Badge>
+                <span className="truncate font-mono">{path}</span>
               </li>
             ))}
           </ul>
@@ -128,8 +141,10 @@ function ChatTurnOverview({ projection: p, t }: { projection: Record<string, unk
 
       {projection.preview_data && (
         <Card className="p-4">
-          <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('runs.chat.preview')}</h4>
-          <pre className="text-xs overflow-x-auto">
+          <h4 className="mb-2 text-sm font-medium text-muted-foreground">
+            {t('runs.chat.preview')}
+          </h4>
+          <pre className="overflow-x-auto text-xs">
             {JSON.stringify(projection.preview_data, null, 2)}
           </pre>
         </Card>
@@ -137,11 +152,16 @@ function ChatTurnOverview({ projection: p, t }: { projection: Record<string, unk
 
       {projection.node_execution_log && projection.node_execution_log.length > 0 && (
         <Card className="p-4">
-          <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('runs.chat.executionLog')}</h4>
-          <ul className="text-xs space-y-1">
+          <h4 className="mb-2 text-sm font-medium text-muted-foreground">
+            {t('runs.chat.executionLog')}
+          </h4>
+          <ul className="space-y-1 text-xs">
             {projection.node_execution_log.map((entry, i) => (
               <li key={i} className="flex items-center gap-2">
-                <Badge variant={entry.status === 'completed' ? 'default' : 'secondary'} className="text-xs">
+                <Badge
+                  variant={entry.status === 'completed' ? 'default' : 'secondary'}
+                  className="text-xs"
+                >
                   {entry.status}
                 </Badge>
                 <span className="font-mono">{entry.node_name}</span>
@@ -154,8 +174,13 @@ function ChatTurnOverview({ projection: p, t }: { projection: Record<string, unk
   )
 }
 
-function CopilotTurnOverview({ projection, t }: { projection: CopilotTurnProjection; t: (key: string) => string }) {
-
+function CopilotTurnOverview({
+  projection,
+  t,
+}: {
+  projection: CopilotTurnProjection
+  t: (key: string) => string
+}) {
   return (
     <div className="space-y-4">
       {/* Stage indicator */}
@@ -231,7 +256,8 @@ function CopilotTurnOverview({ projection, t }: { projection: CopilotTurnProject
               </p>
               {projection.result_actions.map((action, i) => (
                 <div key={i} className="mt-1 text-xs text-muted-foreground">
-                  {action.type}{action.reasoning ? ` — ${action.reasoning}` : ''}
+                  {action.type}
+                  {action.reasoning ? ` — ${action.reasoning}` : ''}
                 </div>
               ))}
             </div>
@@ -310,7 +336,10 @@ export default function RunDetailPage() {
       onSnapshot: (frame: RunSnapshotFrame) => {
         setSnapshot((current) => ({
           run_id: frame.run_id,
-          status: typeof frame.data?.status === 'string' ? frame.data.status : current?.status || 'running',
+          status:
+            typeof frame.data?.status === 'string'
+              ? frame.data.status
+              : current?.status || 'running',
           last_seq: frame.last_seq,
           projection: frame.data,
         }))
@@ -321,7 +350,9 @@ export default function RunDetailPage() {
                 status: typeof frame.data?.status === 'string' ? frame.data.status : current.status,
                 last_seq: frame.last_seq,
                 thread_id:
-                  typeof frame.data?.thread_id === 'string' ? frame.data.thread_id : current.thread_id,
+                  typeof frame.data?.thread_id === 'string'
+                    ? frame.data.thread_id
+                    : current.thread_id,
               }
             : current,
         )
@@ -408,9 +439,7 @@ export default function RunDetailPage() {
                 {run?.title || t('runs.detailTitle')}
               </h1>
             </div>
-            <p className="mt-1 text-sm text-[var(--text-muted)]">
-              {runId}
-            </p>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">{runId}</p>
           </div>
 
           {run && (
@@ -480,7 +509,9 @@ export default function RunDetailPage() {
                     {t('runs.startedAt')}
                   </span>
                 </div>
-                <div className="text-sm text-[var(--text-primary)]">{formatDateTime(run.started_at)}</div>
+                <div className="text-sm text-[var(--text-primary)]">
+                  {formatDateTime(run.started_at)}
+                </div>
               </Card>
 
               <Card className="border-[var(--border)] bg-[var(--surface-1)] p-4">
@@ -561,7 +592,9 @@ export default function RunDetailPage() {
                     <dl className="grid gap-4 lg:grid-cols-2">
                       <div>
                         <dt className="text-xs text-[var(--text-muted)]">Run ID</dt>
-                        <dd className="mt-1 break-all text-sm text-[var(--text-primary)]">{run.run_id}</dd>
+                        <dd className="mt-1 break-all text-sm text-[var(--text-primary)]">
+                          {run.run_id}
+                        </dd>
                       </div>
                       <div>
                         <dt className="text-xs text-[var(--text-muted)]">{t('runs.typeLabel')}</dt>
@@ -569,39 +602,60 @@ export default function RunDetailPage() {
                       </div>
                       <div>
                         <dt className="text-xs text-[var(--text-muted)]">{t('runs.startedAt')}</dt>
-                        <dd className="mt-1 text-sm text-[var(--text-primary)]">{formatDateTime(run.started_at)}</dd>
+                        <dd className="mt-1 text-sm text-[var(--text-primary)]">
+                          {formatDateTime(run.started_at)}
+                        </dd>
                       </div>
                       <div>
                         <dt className="text-xs text-[var(--text-muted)]">{t('runs.finishedAt')}</dt>
-                        <dd className="mt-1 text-sm text-[var(--text-primary)]">{formatDateTime(run.finished_at)}</dd>
+                        <dd className="mt-1 text-sm text-[var(--text-primary)]">
+                          {formatDateTime(run.finished_at)}
+                        </dd>
                       </div>
                       <div>
-                        <dt className="text-xs text-[var(--text-muted)]">{t('runs.lastHeartbeat')}</dt>
+                        <dt className="text-xs text-[var(--text-muted)]">
+                          {t('runs.lastHeartbeat')}
+                        </dt>
                         <dd className="mt-1 text-sm text-[var(--text-primary)]">
                           {formatDateTime(run.last_heartbeat_at)}
                         </dd>
                       </div>
                       <div>
                         <dt className="text-xs text-[var(--text-muted)]">Thread ID</dt>
-                        <dd className="mt-1 break-all text-sm text-[var(--text-primary)]">{run.thread_id || '-'}</dd>
+                        <dd className="mt-1 break-all text-sm text-[var(--text-primary)]">
+                          {run.thread_id || '-'}
+                        </dd>
                       </div>
                       <div className="lg:col-span-2">
                         <dt className="text-xs text-[var(--text-muted)]">Graph ID</dt>
-                        <dd className="mt-1 break-all text-sm text-[var(--text-primary)]">{run.graph_id || '-'}</dd>
+                        <dd className="mt-1 break-all text-sm text-[var(--text-primary)]">
+                          {run.graph_id || '-'}
+                        </dd>
                       </div>
                       <div className="lg:col-span-2">
                         <dt className="text-xs text-[var(--text-muted)]">{t('runs.errorLabel')}</dt>
-                        <dd className="mt-1 text-sm text-[var(--text-primary)]">{run.error_message || '-'}</dd>
+                        <dd className="mt-1 text-sm text-[var(--text-primary)]">
+                          {run.error_message || '-'}
+                        </dd>
                       </div>
                     </dl>
                   </Card>
 
-                  {snapshot?.projection && (snapshot.projection as Record<string, unknown>).run_type === 'chat_turn' && (
-                    <ChatTurnOverview projection={snapshot.projection as Record<string, unknown>} t={t} />
-                  )}
-                  {snapshot?.projection && (snapshot.projection as Record<string, unknown>).run_type === 'copilot_turn' && (
-                    <CopilotTurnOverview projection={snapshot.projection as unknown as CopilotTurnProjection} t={t} />
-                  )}
+                  {snapshot?.projection &&
+                    (snapshot.projection as Record<string, unknown>).run_type === 'chat_turn' && (
+                      <ChatTurnOverview
+                        projection={snapshot.projection as Record<string, unknown>}
+                        t={t}
+                      />
+                    )}
+                  {snapshot?.projection &&
+                    (snapshot.projection as Record<string, unknown>).run_type ===
+                      'copilot_turn' && (
+                      <CopilotTurnOverview
+                        projection={snapshot.projection as unknown as CopilotTurnProjection}
+                        t={t}
+                      />
+                    )}
                 </div>
               </TabsContent>
             </Tabs>

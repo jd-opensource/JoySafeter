@@ -100,7 +100,9 @@ export function useWorkspaces() {
  * Fetch single workspace
  */
 async function fetchWorkspace(id: string): Promise<Workspace> {
-  const response = await apiGet<{ workspace: BackendWorkspace }>(`${API_ENDPOINTS.workspaces}/${id}`)
+  const response = await apiGet<{ workspace: BackendWorkspace }>(
+    `${API_ENDPOINTS.workspaces}/${id}`,
+  )
   return mapWorkspace(response.workspace)
 }
 
@@ -133,7 +135,10 @@ export function useCreateWorkspace() {
 
   return useMutation({
     mutationFn: async (variables: CreateWorkspaceVariables): Promise<Workspace> => {
-      const response = await apiPost<{ workspace: BackendWorkspace }>(API_ENDPOINTS.workspaces, variables)
+      const response = await apiPost<{ workspace: BackendWorkspace }>(
+        API_ENDPOINTS.workspaces,
+        variables,
+      )
       return mapWorkspace(response.workspace)
     },
     onSuccess: (newWorkspace) => {

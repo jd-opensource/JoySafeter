@@ -189,7 +189,9 @@ export function FileListBox({ title, files, maxShow = 20, moreText }: FileListBo
             {file.icon && <span className="shrink-0 text-[var(--text-muted)]">{file.icon}</span>}
             <span className="truncate font-mono">{file.name}</span>
             {file.size !== undefined && (
-              <span className="shrink-0 text-[var(--text-muted)]">({(file.size / 1024).toFixed(1)} KB)</span>
+              <span className="shrink-0 text-[var(--text-muted)]">
+                ({(file.size / 1024).toFixed(1)} KB)
+              </span>
             )}
           </div>
         ))}

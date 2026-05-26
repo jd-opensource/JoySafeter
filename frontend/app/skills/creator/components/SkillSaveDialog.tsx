@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { API_BASE } from '@/lib/api-client'
-import { toastSuccess, toastError } from '@/lib/utils/toast'
+import { toastSuccess, toastError, getErrorMessage } from '@/lib/utils/toast'
 import { getFilenameFromPath } from '@/services/skillService'
 
 import type { SkillPreviewData } from '../page'
@@ -75,9 +75,8 @@ export default function SkillSaveDialog({
         size: f.size,
       }))
 
-      const skillMdContent = files.find(f => f.path === 'SKILL.md')?.content
-      const effectiveDescription =
-        description.trim() || extractDescription(skillMdContent) || name
+      const skillMdContent = files.find((f) => f.path === 'SKILL.md')?.content
+      const effectiveDescription = description.trim() || extractDescription(skillMdContent) || name
 
       const body = {
         name: name.trim(),
@@ -111,7 +110,7 @@ export default function SkillSaveDialog({
       onSaved?.(skillId)
     } catch (err: unknown) {
       console.error('Failed to save skill:', err)
-      toastError(err instanceof Error ? err.message : 'Failed to save skill')
+      toastError(getErrorMessage(err, 'Failed to save skill'))
     } finally {
       setIsSaving(false)
     }
@@ -173,7 +172,9 @@ export default function SkillSaveDialog({
 
           {/* Name input */}
           <div>
-            <label className="mb-1 block text-sm font-medium text-[var(--text-secondary)]">Skill Name</label>
+            <label className="mb-1 block text-sm font-medium text-[var(--text-secondary)]">
+              Skill Name
+            </label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -198,7 +199,8 @@ export default function SkillSaveDialog({
           {/* File count */}
           {previewData && (
             <p className="text-xs text-[var(--text-tertiary)]">
-              {previewData.files.length} file{previewData.files.length !== 1 ? 's' : ''} will be saved.
+              {previewData.files.length} file{previewData.files.length !== 1 ? 's' : ''} will be
+              saved.
             </p>
           )}
         </div>

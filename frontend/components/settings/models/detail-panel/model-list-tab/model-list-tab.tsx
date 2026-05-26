@@ -29,13 +29,9 @@ export function ModelListTab({ providerName, provider }: ModelListTabProps) {
   }
 
   return (
-    <div className="p-4 space-y-2">
+    <div className="space-y-2 p-4">
       {providerModels.map((model) => (
-        <ModelRow
-          key={model.name}
-          model={model}
-          onEditParams={() => setEditingModel(model)}
-        />
+        <ModelRow key={model.name} model={model} onEditParams={() => setEditingModel(model)} />
       ))}
 
       {editingModel && (

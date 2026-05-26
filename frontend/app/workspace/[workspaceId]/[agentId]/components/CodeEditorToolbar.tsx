@@ -5,6 +5,7 @@ import { useState, useRef } from 'react'
 import { useCodeEditorStore } from '../stores/codeEditorStore'
 import { apiPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
+import { getErrorMessage } from '@/lib/utils/toast'
 
 interface Props {
   graphId: string
@@ -38,7 +39,7 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
       const result = await apiPost<any>(`graphs/${graphId}/code/run`, { input: {} })
       setRunResult(result?.result ?? result)
     } catch (e: unknown) {
-      setRunError(e instanceof Error ? e.message : t('common.operationFailed'))
+      setRunError(getErrorMessage(e, t('common.operationFailed')))
     } finally {
       setRunDuration(Date.now() - startTimeRef.current)
       setIsRunning(false)
@@ -46,11 +47,11 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
   }
 
   return (
-    <div className="flex flex-col shrink-0">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border)] bg-[var(--surface-1)]">
+    <div className="flex shrink-0 flex-col">
+      <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-1)] px-4 py-2">
         {/* Left: graph name */}
         <input
-          className="text-sm font-medium bg-transparent border-none outline-none min-w-0 flex-1 max-w-xs text-[var(--text-primary)]"
+          className="min-w-0 max-w-xs flex-1 border-none bg-transparent text-sm font-medium text-[var(--text-primary)] outline-none"
           value={graphName ?? ''}
           onChange={(e) => setGraphName(e.target.value)}
           placeholder={t('workspace.untitledGraph')}
@@ -59,32 +60,22 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
         {/* Right: actions */}
         <div className="flex items-center gap-2">
           <button
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[var(--border)] rounded-md hover:bg-[var(--surface-2)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-1.5 text-xs transition-colors hover:bg-[var(--surface-2)] disabled:cursor-not-allowed disabled:opacity-40"
             onClick={() => save()}
             disabled={!isDirty || isSaving}
           >
-            {isSaving ? (
-              <Loader2 size={13} className="animate-spin" />
-            ) : (
-              <Save size={13} />
-            )}
+            {isSaving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
             {isSaving ? t('workspace.savingEllipsis') : t('workspace.save')}
           </button>
 
           <button
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-              isRunning
-                ? 'bg-[var(--status-warning)]'
-                : 'bg-primary hover:bg-primary/90'
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-white transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+              isRunning ? 'bg-[var(--status-warning)]' : 'bg-primary hover:bg-primary/90'
             }`}
             onClick={handleRun}
             disabled={isRunning}
           >
-            {isRunning ? (
-              <Loader2 size={13} className="animate-spin" />
-            ) : (
-              <Play size={13} />
-            )}
+            {isRunning ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
             {isRunning ? t('workspace.runningEllipsis') : t('workspace.runButton')}
           </button>
         </div>
@@ -92,28 +83,34 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
 
       {/* Run result / error panel */}
       {(runResult || runError) && (
-        <div className={`border-b border-[var(--border)] px-4 py-3 text-sm ${
-          runError
-            ? 'bg-[var(--status-error-bg)] text-[var(--status-error)]'
-            : 'bg-[var(--status-success-bg)] text-[var(--status-success)]'
-        }`}>
-          <div className="flex items-center justify-between mb-1.5">
+        <div
+          className={`border-b border-[var(--border)] px-4 py-3 text-sm ${
+            runError
+              ? 'bg-[var(--status-error-bg)] text-[var(--status-error)]'
+              : 'bg-[var(--status-success-bg)] text-[var(--status-success)]'
+          }`}
+        >
+          <div className="mb-1.5 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="font-medium text-xs">{runError ? t('workspace.error') : t('workspace.result')}</span>
+              <span className="text-xs font-medium">
+                {runError ? t('workspace.error') : t('workspace.result')}
+              </span>
               {runDuration !== null && (
-                <span className="text-xs opacity-60">
-                  {(runDuration / 1000).toFixed(1)}s
-                </span>
+                <span className="text-xs opacity-60">{(runDuration / 1000).toFixed(1)}s</span>
               )}
             </div>
             <button
-              className="text-xs opacity-50 hover:opacity-100 transition-opacity"
-              onClick={() => { setRunResult(null); setRunError(null); setRunDuration(null) }}
+              className="text-xs opacity-50 transition-opacity hover:opacity-100"
+              onClick={() => {
+                setRunResult(null)
+                setRunError(null)
+                setRunDuration(null)
+              }}
             >
               {t('workspace.close')}
             </button>
           </div>
-          <pre className="whitespace-pre-wrap font-mono text-sm max-h-60 overflow-auto leading-relaxed">
+          <pre className="max-h-60 overflow-auto whitespace-pre-wrap font-mono text-sm leading-relaxed">
             {runError || JSON.stringify(runResult, null, 2)}
           </pre>
         </div>

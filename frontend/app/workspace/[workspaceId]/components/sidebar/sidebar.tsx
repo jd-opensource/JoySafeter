@@ -107,16 +107,25 @@ export function Sidebar() {
   const { data: workspacesData, isLoading: isWorkspacesLoading } = useWorkspaces()
   const { data: graphsData, isLoading: isAgentsLoading } = useGraphs(workspaceId)
 
-  const agents: AgentMetadata[] = useMemo(() => graphsData?.map(graphToAgentMetadata) || [], [graphsData])
+  const agents: AgentMetadata[] = useMemo(
+    () => graphsData?.map(graphToAgentMetadata) || [],
+    [graphsData],
+  )
 
   const {
-    createAgentMutation, updateAgentMutation, deleteAgentMutation,
-    duplicateAgentMutation, handleMoveAgentToFolder,
+    createAgentMutation,
+    updateAgentMutation,
+    deleteAgentMutation,
+    duplicateAgentMutation,
+    handleMoveAgentToFolder,
   } = useAgentMutations(workspaceId)
 
   const {
-    createFolderMutation, handleCreateFolder, handleRenameFolder,
-    handleDeleteFolder, handleDuplicateFolder: handleDuplicateFolderBase,
+    createFolderMutation,
+    handleCreateFolder,
+    handleRenameFolder,
+    handleDeleteFolder,
+    handleDuplicateFolder: handleDuplicateFolderBase,
   } = useFolderHandlers(workspaceId, userPermissions.canEdit)
 
   const handleDuplicateFolder = useCallback(
@@ -125,8 +134,12 @@ export function Sidebar() {
   )
 
   const {
-    createWorkspaceMutation, handleWorkspaceSwitch, handleCreateWorkspace,
-    handleRenameWorkspace, handleDeleteWorkspace, handleDuplicateWorkspace,
+    createWorkspaceMutation,
+    handleWorkspaceSwitch,
+    handleCreateWorkspace,
+    handleRenameWorkspace,
+    handleDeleteWorkspace,
+    handleDuplicateWorkspace,
   } = useWorkspaceHandlers(router)
 
   const folders: Folder[] = Object.values(folderStoreData)
@@ -138,15 +151,29 @@ export function Sidebar() {
 
   const generateRandomColor = useCallback(() => {
     const colors = [
-      '#3972F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899',
-      '#06B6D4', '#84CC16', '#F97316', '#6366F1', '#14B8A6', '#A855F7',
+      '#3972F6',
+      '#10B981',
+      '#F59E0B',
+      '#EF4444',
+      '#8B5CF6',
+      '#EC4899',
+      '#06B6D4',
+      '#84CC16',
+      '#F97316',
+      '#6366F1',
+      '#14B8A6',
+      '#A855F7',
     ]
     return colors[Math.floor(Math.random() * colors.length)]
   }, [])
 
   const handleCreateAgent = useCallback(() => {
     if (!userPermissions.canEdit) {
-      toast({ title: t('workspace.noPermission'), description: t('workspace.cannotCreateAgent'), variant: 'destructive' })
+      toast({
+        title: t('workspace.noPermission'),
+        description: t('workspace.cannotCreateAgent'),
+        variant: 'destructive',
+      })
       return
     }
     setNewAgentName(t('workspace.defaultAgentName'))
@@ -158,19 +185,33 @@ export function Sidebar() {
     if (!newAgentName.trim()) return
     setShowCreateDialog(false)
     createAgentMutation.mutate(
-      { name: newAgentName.trim(), description: '', color: generateRandomColor(), mode: createAgentMode },
-      { onSuccess: (graph: AgentGraph) => { if (graph?.id) router.push(`/workspace/${workspaceId}/${graph.id}`) } },
+      {
+        name: newAgentName.trim(),
+        description: '',
+        color: generateRandomColor(),
+        mode: createAgentMode,
+      },
+      {
+        onSuccess: (graph: AgentGraph) => {
+          if (graph?.id) router.push(`/workspace/${workspaceId}/${graph.id}`)
+        },
+      },
     )
   }, [newAgentName, createAgentMode, createAgentMutation, generateRandomColor, router, workspaceId])
 
-  const handleToggleFolder = useCallback((folderId: string) => toggleExpanded(folderId), [toggleExpanded])
+  const handleToggleFolder = useCallback(
+    (folderId: string) => toggleExpanded(folderId),
+    [toggleExpanded],
+  )
 
   useEffect(() => {
     if (searchQuery.trim() && folders.length > 0 && agents.length > 0) {
       const query = searchQuery.toLowerCase().trim()
       folders.forEach((folder) => {
         const agentsInFolder = agents.filter((a) => a.folderId === folder.id)
-        const hasMatchingAgents = agentsInFolder.some((agent) => agent.name.toLowerCase().includes(query))
+        const hasMatchingAgents = agentsInFolder.some((agent) =>
+          agent.name.toLowerCase().includes(query),
+        )
         const folderNameMatches = folder.name.toLowerCase().includes(query)
         if ((hasMatchingAgents || folderNameMatches) && !expandedFolders.has(folder.id)) {
           toggleExpanded(folder.id)
@@ -180,14 +221,19 @@ export function Sidebar() {
   }, [searchQuery, folders, agents, expandedFolders, toggleExpanded])
 
   const handleRenameAgent = useCallback(
-    (agentId: string, newName: string) => updateAgentMutation.mutate({ id: agentId, name: newName }),
+    (agentId: string, newName: string) =>
+      updateAgentMutation.mutate({ id: agentId, name: newName }),
     [updateAgentMutation],
   )
 
   const handleDeleteAgent = useCallback(
     (agentId: string) => {
       if (!userPermissions.canEdit) {
-        toast({ title: t('workspace.noPermission'), description: t('workspace.cannotDeleteAgent'), variant: 'destructive' })
+        toast({
+          title: t('workspace.noPermission'),
+          description: t('workspace.cannotDeleteAgent'),
+          variant: 'destructive',
+        })
         return
       }
       const agent = agents.find((a) => a.id === agentId)
@@ -208,7 +254,11 @@ export function Sidebar() {
   const handleDuplicateAgent = useCallback(
     (agentId: string) => {
       if (!userPermissions.canEdit) {
-        toast({ title: t('workspace.noPermission'), description: t('workspace.cannotCreateAgent'), variant: 'destructive' })
+        toast({
+          title: t('workspace.noPermission'),
+          description: t('workspace.cannotCreateAgent'),
+          variant: 'destructive',
+        })
         return
       }
       duplicateAgentMutation.mutate(agentId)
@@ -216,7 +266,10 @@ export function Sidebar() {
     [duplicateAgentMutation, userPermissions.canEdit, toast, t],
   )
 
-  const handleToggleCollapse = useCallback(() => setIsCollapsed(!isCollapsed), [isCollapsed, setIsCollapsed])
+  const handleToggleCollapse = useCallback(
+    () => setIsCollapsed(!isCollapsed),
+    [isCollapsed, setIsCollapsed],
+  )
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -258,7 +311,11 @@ export function Sidebar() {
     return (
       <div
         className="fixed top-[14px] z-10 max-w-[232px] rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 transition-all duration-300"
-        style={{ left: isAppSidebarCollapsed ? 'calc(var(--sidebar-width-collapsed) + 14px)' : 'calc(var(--sidebar-width) + 14px)' }}
+        style={{
+          left: isAppSidebarCollapsed
+            ? 'calc(var(--sidebar-width-collapsed) + 14px)'
+            : 'calc(var(--sidebar-width) + 14px)',
+        }}
       >
         <WorkspaceHeader {...workspaceHeaderProps} />
       </div>
@@ -274,7 +331,11 @@ export function Sidebar() {
           isCollapsed ? 'pointer-events-none z-0' : 'z-10',
         )}
         style={{
-          left: isCollapsed ? '-1000px' : isAppSidebarCollapsed ? 'var(--sidebar-width-collapsed)' : 'var(--sidebar-width)',
+          left: isCollapsed
+            ? '-1000px'
+            : isAppSidebarCollapsed
+              ? 'var(--sidebar-width-collapsed)'
+              : 'var(--sidebar-width)',
           width: isCollapsed ? '0px' : `${sidebarWidth}px`,
           opacity: isCollapsed ? 0 : 1,
           visibility: isCollapsed ? 'hidden' : 'visible',
@@ -288,12 +349,18 @@ export function Sidebar() {
           </div>
 
           <div className="mx-[5px] mt-[10px]">
-            <SearchInput value={searchQuery} onValueChange={setSearchQuery} placeholder={t('workspace.searchAgents')} />
+            <SearchInput
+              value={searchQuery}
+              onValueChange={setSearchQuery}
+              placeholder={t('workspace.searchAgents')}
+            />
           </div>
 
           <div className="relative mt-[14px] flex flex-1 flex-col overflow-hidden">
             <div className="flex flex-shrink-0 items-center justify-between px-2.5">
-              <span className="text-sm font-medium text-[var(--text-tertiary)]">{t('workspace.agents')}</span>
+              <span className="text-sm font-medium text-[var(--text-tertiary)]">
+                {t('workspace.agents')}
+              </span>
               <div className="flex items-center gap-2">
                 <TooltipProvider delayDuration={100}>
                   <Tooltip>
@@ -307,7 +374,11 @@ export function Sidebar() {
                         <FolderPlus className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom" sideOffset={4} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg">
+                    <TooltipContent
+                      side="bottom"
+                      sideOffset={4}
+                      className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg"
+                    >
                       {t('workspace.createFolder')}
                     </TooltipContent>
                   </Tooltip>
@@ -324,7 +395,11 @@ export function Sidebar() {
                         <Plus className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom" sideOffset={4} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg">
+                    <TooltipContent
+                      side="bottom"
+                      sideOffset={4}
+                      className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] shadow-lg"
+                    >
                       {t('workspace.createAgent')}
                     </TooltipContent>
                   </Tooltip>
@@ -332,7 +407,10 @@ export function Sidebar() {
               </div>
             </div>
 
-            <div ref={scrollContainerRef} className="mt-[8px] flex-1 overflow-y-auto overflow-x-hidden px-[5px]">
+            <div
+              ref={scrollContainerRef}
+              className="mt-[8px] flex-1 overflow-y-auto overflow-x-hidden px-[5px]"
+            >
               <AgentList
                 regularAgents={agents}
                 folders={folders}
@@ -357,7 +435,9 @@ export function Sidebar() {
       {isOnAgentPage && (
         <div
           className="fixed bottom-0 top-0 z-20 w-[8px] cursor-ew-resize"
-          style={{ left: `calc(${isAppSidebarCollapsed ? 'var(--sidebar-width-collapsed)' : 'var(--sidebar-width)'} + ${sidebarWidth - 4}px)` }}
+          style={{
+            left: `calc(${isAppSidebarCollapsed ? 'var(--sidebar-width-collapsed)' : 'var(--sidebar-width)'} + ${sidebarWidth - 4}px)`,
+          }}
           onMouseDown={handleMouseDown}
           role="separator"
           aria-orientation="vertical"
@@ -370,7 +450,10 @@ export function Sidebar() {
         onOpenChange={setDeleteAgentConfirmOpen}
         agentToDelete={agentToDelete}
         onConfirm={handleConfirmDeleteAgent}
-        onCancel={() => { setDeleteAgentConfirmOpen(false); setAgentToDelete(null) }}
+        onCancel={() => {
+          setDeleteAgentConfirmOpen(false)
+          setAgentToDelete(null)
+        }}
       />
 
       <CreateAgentDialog

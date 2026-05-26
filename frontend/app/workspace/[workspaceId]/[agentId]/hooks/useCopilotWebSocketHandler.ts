@@ -175,10 +175,7 @@ export function useCopilotWebSocketHandler({
 
       switch (type) {
         case 'status':
-          callbacks.onStatus(
-            (data.stage as string) ?? evt.type,
-            (data.message as string) ?? '',
-          )
+          callbacks.onStatus((data.stage as string) ?? evt.type, (data.message as string) ?? '')
           break
         case 'content':
           callbacks.onContent((data.content as string) ?? '')
@@ -187,10 +184,7 @@ export function useCopilotWebSocketHandler({
           callbacks.onThoughtStep?.(data.step as { index: number; content: string })
           break
         case 'tool_call':
-          callbacks.onToolCall(
-            data.tool as string,
-            data.input as Record<string, unknown>,
-          )
+          callbacks.onToolCall(data.tool as string, data.input as Record<string, unknown>)
           break
         case 'tool_result':
           callbacks.onToolResult(

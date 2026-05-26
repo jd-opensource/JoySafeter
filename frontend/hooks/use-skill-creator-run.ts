@@ -97,7 +97,8 @@ function normalizeProjection(input?: Record<string, any> | null): SkillCreatorRu
           : null,
     file_tree:
       candidate.file_tree && typeof candidate.file_tree === 'object' ? candidate.file_tree : {},
-    interrupt: candidate.interrupt && typeof candidate.interrupt === 'object' ? candidate.interrupt : null,
+    interrupt:
+      candidate.interrupt && typeof candidate.interrupt === 'object' ? candidate.interrupt : null,
     meta: candidate.meta && typeof candidate.meta === 'object' ? candidate.meta : {},
   })
 }
@@ -174,7 +175,8 @@ function applySkillCreatorEvent(
         ...toolCalls[targetIndex],
         status: 'completed',
         result: payload.tool_output,
-        endTime: typeof payload.end_time === 'number' ? payload.end_time : toolCalls[targetIndex]?.endTime,
+        endTime:
+          typeof payload.end_time === 'number' ? payload.end_time : toolCalls[targetIndex]?.endTime,
       }
       return { ...message, tool_calls: toolCalls }
     })
@@ -204,7 +206,8 @@ function applySkillCreatorEvent(
   }
 
   if (eventType === 'interrupt') {
-    next.interrupt = payload.interrupt && typeof payload.interrupt === 'object' ? payload.interrupt : null
+    next.interrupt =
+      payload.interrupt && typeof payload.interrupt === 'object' ? payload.interrupt : null
     next.current_assistant_message_id = null
     return next
   }
@@ -323,12 +326,21 @@ function mapConversationMessageToUi(message: ConversationMessage): Message {
 }
 
 function areMessagesEquivalent(left: Message, right: Message): boolean {
-  const leftToolNames = (left.tool_calls || []).map((tool) => tool.args?._rawName || tool.name).join('|')
-  const rightToolNames = (right.tool_calls || []).map((tool) => tool.args?._rawName || tool.name).join('|')
-  return left.role === right.role && left.content === right.content && leftToolNames === rightToolNames
+  const leftToolNames = (left.tool_calls || [])
+    .map((tool) => tool.args?._rawName || tool.name)
+    .join('|')
+  const rightToolNames = (right.tool_calls || [])
+    .map((tool) => tool.args?._rawName || tool.name)
+    .join('|')
+  return (
+    left.role === right.role && left.content === right.content && leftToolNames === rightToolNames
+  )
 }
 
-function mergeHistoryWithRunMessages(historyMessages: Message[], runMessages: Message[]): Message[] {
+function mergeHistoryWithRunMessages(
+  historyMessages: Message[],
+  runMessages: Message[],
+): Message[] {
   if (!historyMessages.length) return runMessages
   if (!runMessages.length) return historyMessages
 
@@ -337,7 +349,12 @@ function mergeHistoryWithRunMessages(historyMessages: Message[], runMessages: Me
   for (let size = maxOverlap; size > 0; size -= 1) {
     let matched = true
     for (let index = 0; index < size; index += 1) {
-      if (!areMessagesEquivalent(historyMessages[historyMessages.length - size + index], runMessages[index])) {
+      if (
+        !areMessagesEquivalent(
+          historyMessages[historyMessages.length - size + index],
+          runMessages[index],
+        )
+      ) {
         matched = false
         break
       }
@@ -401,7 +418,9 @@ export function useSkillCreatorRun(): UseSkillCreatorRunReturn {
   const [isProcessing, setIsProcessing] = useState(false)
   const [threadId, setThreadId] = useState<string | null>(null)
   const [previewData, setPreviewData] = useState<SkillPreviewData | null>(null)
-  const [fileTree, setFileTree] = useState<Record<string, { action: string; size?: number; timestamp?: number }>>({})
+  const [fileTree, setFileTree] = useState<
+    Record<string, { action: string; size?: number; timestamp?: number }>
+  >({})
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [graphReady, setGraphReady] = useState(false)
   const [graphError, setGraphError] = useState<string | null>(null)
@@ -463,19 +482,27 @@ export function useSkillCreatorRun(): UseSkillCreatorRunReturn {
         const response = await apiGet<{ workspaces: Array<{ id: string; type?: string }> }>(
           API_ENDPOINTS.workspaces,
         )
-        const personal = (response.workspaces || []).find((workspace) => workspace.type === 'personal')
+        const personal = (response.workspaces || []).find(
+          (workspace) => workspace.type === 'personal',
+        )
         if (!personal) {
           if (isMountedRef.current) setGraphError('Personal workspace not found')
           return
         }
 
-        const graph = await findOrCreateGraphByTemplate('Skill Creator', 'skill-creator', personal.id)
+        const graph = await findOrCreateGraphByTemplate(
+          'Skill Creator',
+          'skill-creator',
+          personal.id,
+        )
         graphIdRef.current = graph.id
         if (isMountedRef.current) setGraphReady(true)
       } catch (error) {
         console.error('Failed to resolve skill-creator graph:', error)
         if (isMountedRef.current) {
-          setGraphError(error instanceof Error ? error.message : 'Failed to initialize Skill Creator')
+          setGraphError(
+            error instanceof Error ? error.message : 'Failed to initialize Skill Creator',
+          )
         }
       }
     }
@@ -486,7 +513,10 @@ export function useSkillCreatorRun(): UseSkillCreatorRunReturn {
   // ---- derive UI state from projection ----
   useEffect(() => {
     const normalized = normalizeProjection(projection)
-    const nextMessages = mergeHistoryWithRunMessages(historyMessages, mapProjectionMessages(normalized))
+    const nextMessages = mergeHistoryWithRunMessages(
+      historyMessages,
+      mapProjectionMessages(normalized),
+    )
     const nextPreviewData = normalizePreviewData(normalized.preview_data)
     const nextThreadId = normalized.thread_id || null
     const nextStatus = normalized.status || 'idle'
@@ -550,13 +580,16 @@ export function useSkillCreatorRun(): UseSkillCreatorRunReturn {
   }, [threadId])
 
   // ---- run WS handlers ----
-  const handleRunSnapshot = useCallback((frame: RunSnapshotFrame) => {
-    if (activeRunIdRef.current !== frame.run_id) return
-    lastSeqRef.current = frame.last_seq
-    setIsSubmitting(false)
-    resolvePendingAcceptance(frame.run_id)
-    setProjection(normalizeProjection(frame.data))
-  }, [resolvePendingAcceptance])
+  const handleRunSnapshot = useCallback(
+    (frame: RunSnapshotFrame) => {
+      if (activeRunIdRef.current !== frame.run_id) return
+      lastSeqRef.current = frame.last_seq
+      setIsSubmitting(false)
+      resolvePendingAcceptance(frame.run_id)
+      setProjection(normalizeProjection(frame.data))
+    },
+    [resolvePendingAcceptance],
+  )
 
   const handleRunEvent = useCallback((frame: RunEventFrame) => {
     if (activeRunIdRef.current !== frame.run_id) return
@@ -564,19 +597,22 @@ export function useSkillCreatorRun(): UseSkillCreatorRunReturn {
     setProjection((current) => applySkillCreatorEvent(current, frame.event_type, frame.data || {}))
   }, [])
 
-  const handleRunStatus = useCallback((frame: RunStatusFrame) => {
-    if (activeRunIdRef.current !== frame.run_id) return
-    setIsSubmitting(false)
-    resolvePendingAcceptance(frame.run_id)
-    setProjection((current) => {
-      const next = cloneProjection(current)
-      next.status = frame.status
-      if (frame.error_message) {
-        next.meta = { ...next.meta, error: frame.error_message }
-      }
-      return next
-    })
-  }, [resolvePendingAcceptance])
+  const handleRunStatus = useCallback(
+    (frame: RunStatusFrame) => {
+      if (activeRunIdRef.current !== frame.run_id) return
+      setIsSubmitting(false)
+      resolvePendingAcceptance(frame.run_id)
+      setProjection((current) => {
+        const next = cloneProjection(current)
+        next.status = frame.status
+        if (frame.error_message) {
+          next.meta = { ...next.meta, error: frame.error_message }
+        }
+        return next
+      })
+    },
+    [resolvePendingAcceptance],
+  )
 
   // ---- run subscription ----
   useEffect(() => {
@@ -615,7 +651,8 @@ export function useSkillCreatorRun(): UseSkillCreatorRunReturn {
   // ---- actions ----
   const sendMessage = useCallback(
     async (userPrompt: string) => {
-      if (!userPrompt.trim() || sendLockRef.current || !graphReady || !graphIdRef.current) return false
+      if (!userPrompt.trim() || sendLockRef.current || !graphReady || !graphIdRef.current)
+        return false
       sendLockRef.current = true
       setIsSubmitting(true)
       let pendingRunId: string | null = null
@@ -642,7 +679,12 @@ export function useSkillCreatorRun(): UseSkillCreatorRunReturn {
 
         const acceptedPromise = new Promise<void>((resolve, reject) => {
           const timeoutId = window.setTimeout(() => {
-            if (!rejectPendingAcceptance(new Error('Timed out waiting for Skill Creator acceptance'), nextRunId)) {
+            if (
+              !rejectPendingAcceptance(
+                new Error('Timed out waiting for Skill Creator acceptance'),
+                nextRunId,
+              )
+            ) {
               reject(new Error('Timed out waiting for Skill Creator acceptance'))
             }
           }, 10000)
@@ -684,10 +726,7 @@ export function useSkillCreatorRun(): UseSkillCreatorRunReturn {
           })
           .then(async (result) => {
             if (result.terminal === 'error') {
-              rejectPendingAcceptance(
-                new Error('Skill creator execution failed'),
-                nextRunId,
-              )
+              rejectPendingAcceptance(new Error('Skill creator execution failed'), nextRunId)
               setIsProcessing(false)
               setIsSubmitting(false)
               try {
@@ -699,7 +738,9 @@ export function useSkillCreatorRun(): UseSkillCreatorRunReturn {
           })
           .catch(async (error) => {
             rejectPendingAcceptance(
-              error instanceof Error ? error : new Error('Failed to dispatch skill creator chat command'),
+              error instanceof Error
+                ? error
+                : new Error('Failed to dispatch skill creator chat command'),
               nextRunId,
             )
             console.error('Failed to dispatch skill creator chat command:', error)
@@ -753,7 +794,9 @@ export function useSkillCreatorRun(): UseSkillCreatorRunReturn {
   }, [runId])
 
   const handleRegenerate = useCallback(() => {
-    void sendMessage('Please regenerate the skill with improvements based on the validation feedback.')
+    void sendMessage(
+      'Please regenerate the skill with improvements based on the validation feedback.',
+    )
   }, [sendMessage])
 
   const handleSaved = useCallback(

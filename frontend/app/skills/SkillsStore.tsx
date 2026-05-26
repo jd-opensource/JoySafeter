@@ -37,7 +37,6 @@ import { Skill, SkillFile } from '@/types'
 
 import { SkillCard } from './components/SkillCard'
 
-
 interface SkillsStoreProps {
   currentUserId?: string
   onSkillCopied?: () => void
@@ -195,7 +194,7 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
       {/* Header with search and filters */}
       <div className="flex-shrink-0 border-b border-[var(--border-muted)] bg-[var(--surface-elevated)] px-6 py-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-4 flex-1 min-w-0">
+          <div className="flex min-w-0 flex-1 items-center gap-4">
             {/* Search bar */}
             <div className="relative max-w-sm flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
@@ -209,7 +208,7 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
 
             {/* Tag filters */}
             {allTags.length > 0 && (
-              <div className="hide-scrollbar flex items-center gap-2 overflow-x-auto min-w-0 hidden md:flex">
+              <div className="hide-scrollbar flex hidden min-w-0 items-center gap-2 overflow-x-auto md:flex">
                 <Filter className="h-4 w-4 flex-shrink-0 text-[var(--text-muted)]" />
                 {allTags.slice(0, 5).map((tag) => (
                   <Badge
@@ -235,8 +234,8 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
             )}
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
-            <Badge variant="secondary" className="text-xs shrink-0">
+          <div className="flex shrink-0 items-center gap-3">
+            <Badge variant="secondary" className="shrink-0 text-xs">
               {filteredSkills.length} {t('skills.skillsAvailable')}
             </Badge>
 
@@ -245,7 +244,7 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
                 variant="ghost"
                 size="sm"
                 onClick={clearFilters}
-                className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] px-2 h-8"
+                className="h-8 px-2 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
               >
                 <X className="mr-1 h-3 w-3" />
                 {t('skills.clearFilters')}
@@ -309,7 +308,10 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
           }
         }}
       >
-        <SheetContent side="right" className="flex w-full flex-col overflow-hidden p-0 sm:max-w-4xl">
+        <SheetContent
+          side="right"
+          className="flex w-full flex-col overflow-hidden p-0 sm:max-w-4xl"
+        >
           {viewSkill && (
             <div className="flex h-full flex-1 flex-col overflow-hidden bg-[var(--surface-elevated)] p-6">
               <SheetHeader className="flex-shrink-0 text-left">
@@ -335,7 +337,9 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
                 {/* Tags */}
                 {viewSkill.tags && viewSkill.tags.length > 0 && (
                   <div className="flex-shrink-0">
-                    <h4 className="mb-2 text-xs font-medium text-[var(--text-tertiary)]">{t('skills.tags')}</h4>
+                    <h4 className="mb-2 text-xs font-medium text-[var(--text-tertiary)]">
+                      {t('skills.tags')}
+                    </h4>
                     <div className="flex flex-wrap gap-1.5">
                       {viewSkill.tags.map((tag, i) => (
                         <Badge key={i} variant="secondary" className="text-xs">

@@ -7,7 +7,6 @@ import { useChatState } from '../ChatProvider'
 import ArtifactPanel from '../components/ArtifactPanel'
 import { ToolCallDetail } from '../shared/ToolCallDisplay'
 
-
 export default function PreviewPanel() {
   const { state, dispatch } = useChatState()
   const { preview, ui, threadId } = state

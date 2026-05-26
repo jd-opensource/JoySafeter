@@ -36,12 +36,7 @@ export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreat
       description={t('settings.tokens.tokenCreatedMessage')}
       footer={
         <>
-          <Button
-            type="button"
-            onClick={handleCopy}
-            className="gap-2"
-            disabled={!tokenData?.token}
-          >
+          <Button type="button" onClick={handleCopy} className="gap-2" disabled={!tokenData?.token}>
             {copied ? (
               <>
                 <Check size={16} />
@@ -54,33 +49,31 @@ export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreat
               </>
             )}
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-          >
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             {t('settings.cancel')}
           </Button>
         </>
       }
     >
-      <p className="text-sm text-[var(--status-warning)] bg-[var(--status-warning-bg)] rounded-lg px-4 py-3 border border-[var(--status-warning-border)]">
+      <p className="rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-4 py-3 text-sm text-[var(--status-warning)]">
         {t('settings.tokens.tokenCreatedMessage')}
       </p>
 
       {tokenData && (
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] shadow-sm overflow-hidden">
+        <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] shadow-sm">
           <table className="w-full text-sm">
             <tbody className="divide-y divide-[var(--border-muted)]">
               <tr>
-                <td className="px-4 py-3 font-medium text-[var(--text-secondary)] w-32">{t('settings.tokens.name')}</td>
+                <td className="w-32 px-4 py-3 font-medium text-[var(--text-secondary)]">
+                  {t('settings.tokens.name')}
+                </td>
                 <td className="px-4 py-3 text-[var(--text-primary)]">{tokenData.name}</td>
               </tr>
               <tr>
                 <td className="px-4 py-3 font-medium text-[var(--text-secondary)]">Key</td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs text-[var(--text-secondary)] break-all select-all flex-1">
+                    <span className="flex-1 select-all break-all font-mono text-xs text-[var(--text-secondary)]">
                       {tokenData.token}
                     </span>
                     <Button
@@ -91,17 +84,27 @@ export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreat
                       className="h-8 w-8 shrink-0 text-[var(--text-tertiary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)]"
                       aria-label="Copy token"
                     >
-                      {copied ? <Check size={15} className="text-[var(--status-success)]" /> : <Copy size={15} />}
+                      {copied ? (
+                        <Check size={15} className="text-[var(--status-success)]" />
+                      ) : (
+                        <Copy size={15} />
+                      )}
                     </Button>
                   </div>
                 </td>
               </tr>
               <tr>
-                <td className="px-4 py-3 font-medium text-[var(--text-secondary)]">{t('settings.tokens.type')}</td>
-                <td className="px-4 py-3 text-[var(--text-primary)]">{formatResourceType(tokenData.resourceType)}</td>
+                <td className="px-4 py-3 font-medium text-[var(--text-secondary)]">
+                  {t('settings.tokens.type')}
+                </td>
+                <td className="px-4 py-3 text-[var(--text-primary)]">
+                  {formatResourceType(tokenData.resourceType)}
+                </td>
               </tr>
               <tr>
-                <td className="px-4 py-3 font-medium text-[var(--text-secondary)]">{t('settings.tokens.permissions')}</td>
+                <td className="px-4 py-3 font-medium text-[var(--text-secondary)]">
+                  {t('settings.tokens.permissions')}
+                </td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap gap-1.5">
                     {tokenData.scopes.map((scope) => (
@@ -117,15 +120,17 @@ export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreat
                 </td>
               </tr>
               <tr>
-                <td className="px-4 py-3 font-medium text-[var(--text-secondary)]">{t('settings.tokens.createdAt')}</td>
+                <td className="px-4 py-3 font-medium text-[var(--text-secondary)]">
+                  {t('settings.tokens.createdAt')}
+                </td>
                 <td className="px-4 py-3 text-[var(--text-primary)]">
-                  {tokenData.createdAt
-                    ? new Date(tokenData.createdAt).toLocaleString()
-                    : '-'}
+                  {tokenData.createdAt ? new Date(tokenData.createdAt).toLocaleString() : '-'}
                 </td>
               </tr>
               <tr>
-                <td className="px-4 py-3 font-medium text-[var(--text-secondary)]">{t('settings.tokens.expiresAt')}</td>
+                <td className="px-4 py-3 font-medium text-[var(--text-secondary)]">
+                  {t('settings.tokens.expiresAt')}
+                </td>
                 <td className="px-4 py-3 text-[var(--text-primary)]">
                   {tokenData.expiresAt
                     ? new Date(tokenData.expiresAt).toLocaleString()

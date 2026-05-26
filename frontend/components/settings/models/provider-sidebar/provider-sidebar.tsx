@@ -4,7 +4,11 @@ import { Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { useModelCredentials, useModelProviders, useModelProvidersByConfig } from '@/hooks/queries/models'
+import {
+  useModelCredentials,
+  useModelProviders,
+  useModelProvidersByConfig,
+} from '@/hooks/queries/models'
 
 import { ProviderItem } from './provider-item'
 import { ProviderSearch } from './provider-search'
@@ -15,7 +19,11 @@ interface ProviderSidebarProps {
   onAddCustomModel?: () => void
 }
 
-export function ProviderSidebar({ selectedProvider, onSelectProvider, onAddCustomModel }: ProviderSidebarProps) {
+export function ProviderSidebar({
+  selectedProvider,
+  onSelectProvider,
+  onAddCustomModel,
+}: ProviderSidebarProps) {
   const [search, setSearch] = useState('')
   const { data: providers = [] } = useModelProviders()
   const { data: credentials = [] } = useModelCredentials()
@@ -25,9 +33,7 @@ export function ProviderSidebar({ selectedProvider, onSelectProvider, onAddCusto
     if (!search.trim()) return providers
     const q = search.toLowerCase()
     return providers.filter(
-      (p) =>
-        p.display_name.toLowerCase().includes(q) ||
-        p.provider_name.toLowerCase().includes(q),
+      (p) => p.display_name.toLowerCase().includes(q) || p.provider_name.toLowerCase().includes(q),
     )
   }, [providers, search])
 
@@ -47,7 +53,7 @@ export function ProviderSidebar({ selectedProvider, onSelectProvider, onAddCusto
         <ProviderSearch value={search} onChange={setSearch} />
       </div>
 
-      <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-1">
+      <div className="flex-1 space-y-1 overflow-y-auto px-2 pb-2">
         {systemProviders.length > 0 && (
           <div>
             <p className="px-2 py-1 text-xs font-semibold text-[var(--text-muted)]">Built-in</p>
@@ -81,7 +87,9 @@ export function ProviderSidebar({ selectedProvider, onSelectProvider, onAddCusto
         )}
 
         {filtered.length === 0 && (
-          <p className="px-2 py-4 text-center text-xs text-[var(--text-muted)]">No matching providers</p>
+          <p className="px-2 py-4 text-center text-xs text-[var(--text-muted)]">
+            No matching providers
+          </p>
         )}
       </div>
     </div>

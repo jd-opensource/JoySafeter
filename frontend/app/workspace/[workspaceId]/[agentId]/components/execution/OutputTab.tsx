@@ -41,7 +41,10 @@ export const OutputTab = React.memo(function OutputTab() {
       return (
         <div className="space-y-3 p-4">
           {(step.data as Record<string, unknown>)?.output ? (
-            <ViewComponent data={(step.data as Record<string, unknown>).output} label="Model Output" />
+            <ViewComponent
+              data={(step.data as Record<string, unknown>).output}
+              label="Model Output"
+            />
           ) : step.data?.response ? (
             <ViewComponent data={step.data.response} label="Model Output" />
           ) : (
@@ -62,7 +65,10 @@ export const OutputTab = React.memo(function OutputTab() {
       return (
         <div className="space-y-3 p-4">
           {(step.data as Record<string, unknown>)?.output ? (
-            <ViewComponent data={(step.data as Record<string, unknown>).output} label="Node Output" />
+            <ViewComponent
+              data={(step.data as Record<string, unknown>).output}
+              label="Node Output"
+            />
           ) : step.endTime ? (
             <div className="space-y-2">
               <FormattedView

@@ -5,6 +5,7 @@ import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
+import { getErrorMessage } from '@/lib/utils/toast'
 import { TokenList } from '@/components/tokens/TokenList'
 import { usePlatformTokens, useCreateToken } from '@/hooks/queries/platformTokens'
 import type { PlatformTokenCreateResponse } from '@/hooks/queries/platformTokens'
@@ -38,7 +39,7 @@ export const TokensPage = () => {
     } catch (error) {
       toast({
         title: t('common.error'),
-        description: error instanceof Error ? error.message : t('common.operationFailed'),
+        description: getErrorMessage(error, t('common.operationFailed')),
         variant: 'destructive',
       })
     }
@@ -54,7 +55,9 @@ export const TokensPage = () => {
           <h2 className="text-lg font-bold tracking-tight text-[var(--text-primary)]">
             {t('settings.tokens.title')}
           </h2>
-          <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">{t('settings.tokens.description')}</p>
+          <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">
+            {t('settings.tokens.description')}
+          </p>
         </div>
       </div>
       <Button
@@ -65,7 +68,9 @@ export const TokensPage = () => {
       >
         <Key className="h-3.5 w-3.5" />
         <span className="text-xs font-medium">
-          {(tokens?.length ?? 0) >= 50 ? t('settings.tokens.limitReached') : t('settings.tokens.create')}
+          {(tokens?.length ?? 0) >= 50
+            ? t('settings.tokens.limitReached')
+            : t('settings.tokens.create')}
         </span>
       </Button>
     </div>

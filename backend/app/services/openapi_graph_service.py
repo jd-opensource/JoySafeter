@@ -25,6 +25,7 @@ from app.models.graph_execution import ExecutionStatus, GraphExecution
 from app.repositories.graph import GraphRepository
 from app.repositories.graph_execution import GraphExecutionRepository
 from app.services.graph_service import GraphService
+from app.utils.safe_task import safe_create_task
 from app.utils.task_manager import task_manager
 
 from .base import BaseService
@@ -71,13 +72,14 @@ class OpenApiGraphService(BaseService):
         logger.info(f"[OpenAPI] Graph execution created | execution_id={execution_id} graph_id={graph_id}")
 
         # start background execution task
-        asyncio.create_task(
+        safe_create_task(
             self._execute_graph_background(
                 execution_id=execution_id,
                 graph_id=graph_id,
                 user_id=user_id,
                 variables=variables or {},
-            )
+            ),
+            name=f"graph-exec-{execution_id}",
         )
 
         return {

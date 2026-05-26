@@ -45,30 +45,28 @@ describe('onNodesChange — dirty state filtering', () => {
   beforeEach(resetStore)
 
   it('does NOT set hasPendingChanges for dimensions change', () => {
-    useBuilderStore.getState().onNodesChange([
-      { type: 'dimensions', id: 'n1', dimensions: { width: 100, height: 50 }, resizing: false },
-    ])
+    useBuilderStore
+      .getState()
+      .onNodesChange([
+        { type: 'dimensions', id: 'n1', dimensions: { width: 100, height: 50 }, resizing: false },
+      ])
     expect(useBuilderStore.getState().hasPendingChanges).toBe(false)
   })
 
   it('does NOT set hasPendingChanges for select change', () => {
-    useBuilderStore.getState().onNodesChange([
-      { type: 'select', id: 'n1', selected: true },
-    ])
+    useBuilderStore.getState().onNodesChange([{ type: 'select', id: 'n1', selected: true }])
     expect(useBuilderStore.getState().hasPendingChanges).toBe(false)
   })
 
   it('DOES set hasPendingChanges for position change', () => {
-    useBuilderStore.getState().onNodesChange([
-      { type: 'position', id: 'n1', position: { x: 10, y: 20 } },
-    ])
+    useBuilderStore
+      .getState()
+      .onNodesChange([{ type: 'position', id: 'n1', position: { x: 10, y: 20 } }])
     expect(useBuilderStore.getState().hasPendingChanges).toBe(true)
   })
 
   it('DOES set hasPendingChanges for remove change', () => {
-    useBuilderStore.getState().onNodesChange([
-      { type: 'remove', id: 'n1' },
-    ])
+    useBuilderStore.getState().onNodesChange([{ type: 'remove', id: 'n1' }])
     expect(useBuilderStore.getState().hasPendingChanges).toBe(true)
   })
 })
@@ -77,16 +75,12 @@ describe('onEdgesChange — dirty state filtering', () => {
   beforeEach(resetStore)
 
   it('does NOT set hasPendingChanges for select change', () => {
-    useBuilderStore.getState().onEdgesChange([
-      { type: 'select', id: 'e1', selected: true },
-    ])
+    useBuilderStore.getState().onEdgesChange([{ type: 'select', id: 'e1', selected: true }])
     expect(useBuilderStore.getState().hasPendingChanges).toBe(false)
   })
 
   it('DOES set hasPendingChanges for remove change', () => {
-    useBuilderStore.getState().onEdgesChange([
-      { type: 'remove', id: 'e1' },
-    ])
+    useBuilderStore.getState().onEdgesChange([{ type: 'remove', id: 'e1' }])
     expect(useBuilderStore.getState().hasPendingChanges).toBe(true)
   })
 })
@@ -95,25 +89,50 @@ describe('hasPendingChanges — derived from hash', () => {
   it('is false when currentHash equals lastSavedStateHash', () => {
     const nodes = [{ id: 'n1', type: 'custom', position: { x: 0, y: 0 }, data: {} }] as any
     const hash = computeGraphStateHash(nodes, [], [], null)
-    useBuilderStore.setState({ nodes, edges: [], graphStateFields: [], fallbackNodeId: null, lastSavedStateHash: hash })
+    useBuilderStore.setState({
+      nodes,
+      edges: [],
+      graphStateFields: [],
+      fallbackNodeId: null,
+      lastSavedStateHash: hash,
+    })
     expect(useBuilderStore.getState().hasPendingChanges).toBe(false)
   })
 
   it('is true when nodes differ from lastSavedStateHash', () => {
     const nodes = [{ id: 'n1', type: 'custom', position: { x: 0, y: 0 }, data: {} }] as any
     const hash = computeGraphStateHash([], [], [], null) // hash of empty state
-    useBuilderStore.setState({ nodes, edges: [], graphStateFields: [], fallbackNodeId: null, lastSavedStateHash: hash })
+    useBuilderStore.setState({
+      nodes,
+      edges: [],
+      graphStateFields: [],
+      fallbackNodeId: null,
+      lastSavedStateHash: hash,
+    })
     expect(useBuilderStore.getState().hasPendingChanges).toBe(true)
   })
 
   it('is true when lastSavedStateHash is null (never saved)', () => {
-    useBuilderStore.setState({ nodes: [], edges: [], graphStateFields: [], fallbackNodeId: null, lastSavedStateHash: null })
+    useBuilderStore.setState({
+      nodes: [],
+      edges: [],
+      graphStateFields: [],
+      fallbackNodeId: null,
+      lastSavedStateHash: null,
+    })
     expect(useBuilderStore.getState().hasPendingChanges).toBe(true)
   })
 
   it('is false when lastSavedStateHash is null AND nodes/edges are empty (new unsaved graph)', () => {
     // New empty graph: no graphId, no hash, no content — not dirty
-    useBuilderStore.setState({ nodes: [], edges: [], graphStateFields: [], fallbackNodeId: null, lastSavedStateHash: null, graphId: null })
+    useBuilderStore.setState({
+      nodes: [],
+      edges: [],
+      graphStateFields: [],
+      fallbackNodeId: null,
+      lastSavedStateHash: null,
+      graphId: null,
+    })
     expect(useBuilderStore.getState().hasPendingChanges).toBe(false)
   })
 })

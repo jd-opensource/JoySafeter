@@ -131,7 +131,12 @@ export default function PropertiesPanel({
     const errors: { field: string; message: string; severity?: string }[] = []
     if (!def) return errors
     def.schema.forEach((field) => {
-      if (field.required && !config[field.key] && config[field.key] !== 0 && config[field.key] !== false) {
+      if (
+        field.required &&
+        !config[field.key] &&
+        config[field.key] !== 0 &&
+        config[field.key] !== false
+      ) {
         if (field.showWhen) {
           const dependentValue = config[field.showWhen.field]
           if (!field.showWhen.values.includes(String(dependentValue))) return
@@ -146,27 +151,40 @@ export default function PropertiesPanel({
     return errors
   }, [def, config, t])
 
-  const updateConfig = useCallback((key: string, value: unknown) => {
-    if (!userPermissions.canEdit) {
-      toast({ title: t('workspace.noPermission'), description: t('workspace.cannotEditNode'), variant: 'destructive' })
-      return
-    }
-    onUpdate(node.id, { label: nodeData?.label || '', config: { ...config, [key]: value } })
-  }, [userPermissions.canEdit, toast, t, onUpdate, node.id, nodeData?.label, config])
+  const updateConfig = useCallback(
+    (key: string, value: unknown) => {
+      if (!userPermissions.canEdit) {
+        toast({
+          title: t('workspace.noPermission'),
+          description: t('workspace.cannotEditNode'),
+          variant: 'destructive',
+        })
+        return
+      }
+      onUpdate(node.id, { label: nodeData?.label || '', config: { ...config, [key]: value } })
+    },
+    [userPermissions.canEdit, toast, t, onUpdate, node.id, nodeData?.label, config],
+  )
 
-  const updateModelConfig = useCallback((modelName: string, providerName: string) => {
-    onUpdate(node.id, {
-      label: nodeData?.label || '',
-      config: { ...config, provider_name: providerName, model_name: modelName },
-    })
-  }, [onUpdate, node.id, nodeData?.label, config])
+  const updateModelConfig = useCallback(
+    (modelName: string, providerName: string) => {
+      onUpdate(node.id, {
+        label: nodeData?.label || '',
+        config: { ...config, provider_name: providerName, model_name: modelName },
+      })
+    },
+    [onUpdate, node.id, nodeData?.label, config],
+  )
 
-  const handleMemoryModelChange = useCallback((modelName: string, providerName: string) => {
-    onUpdate(node.id, {
-      label: nodeData?.label || '',
-      config: { ...config, memory_provider_name: providerName, memory_model_name: modelName },
-    })
-  }, [onUpdate, node.id, nodeData?.label, config])
+  const handleMemoryModelChange = useCallback(
+    (modelName: string, providerName: string) => {
+      onUpdate(node.id, {
+        label: nodeData?.label || '',
+        config: { ...config, memory_provider_name: providerName, memory_model_name: modelName },
+      })
+    },
+    [onUpdate, node.id, nodeData?.label, config],
+  )
 
   if (!node || !nodeData) return null
 
@@ -182,12 +200,19 @@ export default function PropertiesPanel({
     return pd?.config?.useDeepAgents === true
   })
 
-  const basicFields = def?.schema.filter(
-    (s) => !['enableMemory', 'memory_model_name', 'memoryPrompt', 'description'].includes(s.key) && s.type !== 'toolSelector' && !(s.type === 'skillSelector' && !s.showWhen),
-  ) || []
+  const basicFields =
+    def?.schema.filter(
+      (s) =>
+        !['enableMemory', 'memory_model_name', 'memoryPrompt', 'description'].includes(s.key) &&
+        s.type !== 'toolSelector' &&
+        !(s.type === 'skillSelector' && !s.showWhen),
+    ) || []
   const toolsFields = def?.schema.filter((s) => s.type === 'toolSelector') || []
   const skillsFields = def?.schema.filter((s) => s.type === 'skillSelector' && !s.showWhen) || []
-  const memoryFields = def?.schema.filter((s) => ['enableMemory', 'memory_model_name', 'memoryPrompt'].includes(s.key)) || []
+  const memoryFields =
+    def?.schema.filter((s) =>
+      ['enableMemory', 'memory_model_name', 'memoryPrompt'].includes(s.key),
+    ) || []
   const descriptionField = def?.schema.find((s) => s.key === 'description')
 
   return (
@@ -195,15 +220,31 @@ export default function PropertiesPanel({
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface-1)] px-4 py-3.5">
         <div className="flex items-center gap-3 overflow-hidden text-[var(--text-primary)]">
-          <div className={cn('shrink-0 rounded-lg border border-[var(--border)] p-1.5 shadow-sm', def?.style.bg, def?.style.color)}>
+          <div
+            className={cn(
+              'shrink-0 rounded-lg border border-[var(--border)] p-1.5 shadow-sm',
+              def?.style.bg,
+              def?.style.color,
+            )}
+          >
             <Icon size={14} />
           </div>
           <div className="flex min-w-0 flex-col">
-            <h3 className="truncate text-sm font-bold leading-tight">{nodeData.label || def?.label}</h3>
-            <span className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">{def?.label}</span>
+            <h3 className="truncate text-sm font-bold leading-tight">
+              {nodeData.label || def?.label}
+            </h3>
+            <span className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">
+              {def?.label}
+            </span>
           </div>
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose} className="h-7 w-7 text-[var(--text-disabled)] hover:bg-[var(--surface-2)] hover:text-[var(--text-secondary)]" aria-label={t('workspace.closePanel', { defaultValue: 'Close panel' })}>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onClose}
+          className="h-7 w-7 text-[var(--text-disabled)] hover:bg-[var(--surface-2)] hover:text-[var(--text-secondary)]"
+          aria-label={t('workspace.closePanel', { defaultValue: 'Close panel' })}
+        >
           <X size={16} />
         </Button>
       </div>
@@ -213,11 +254,19 @@ export default function PropertiesPanel({
         {/* Validation Errors */}
         {validationErrors.length > 0 && (
           <div className="space-y-2">
-            <Label className="text-xs font-bold uppercase tracking-wider text-[var(--status-error)]">Configuration Errors</Label>
+            <Label className="text-xs font-bold uppercase tracking-wider text-[var(--status-error)]">
+              Configuration Errors
+            </Label>
             <div className="space-y-1">
               {validationErrors.map((error, idx) => (
-                <div key={idx} className="flex items-start gap-2 rounded border border-[var(--status-error-border)] bg-[var(--status-error-bg)] p-2 text-xs">
-                  <AlertCircle size={14} className="mt-0.5 flex-shrink-0 text-[var(--status-error)]" />
+                <div
+                  key={idx}
+                  className="flex items-start gap-2 rounded border border-[var(--status-error-border)] bg-[var(--status-error-bg)] p-2 text-xs"
+                >
+                  <AlertCircle
+                    size={14}
+                    className="mt-0.5 flex-shrink-0 text-[var(--status-error)]"
+                  />
                   <div className="text-[var(--status-error-strong)]">
                     <div className="font-medium">{error.field}</div>
                     <div className="text-[var(--status-error)]">{error.message}</div>
@@ -233,12 +282,18 @@ export default function PropertiesPanel({
           <SectionHeader icon={Settings} title={t('workspace.general')} />
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">{t('workspace.displayName')}</Label>
+              <Label className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                {t('workspace.displayName')}
+              </Label>
               <Input
                 value={nodeData.label || ''}
                 onChange={(e) => {
                   if (!userPermissions.canEdit) {
-                    toast({ title: t('workspace.noPermission'), description: t('workspace.cannotEditNode'), variant: 'destructive' })
+                    toast({
+                      title: t('workspace.noPermission'),
+                      description: t('workspace.cannotEditNode'),
+                      variant: 'destructive',
+                    })
                     return
                   }
                   onUpdate(node.id, { label: e.target.value, config })
@@ -340,7 +395,8 @@ export default function PropertiesPanel({
       <div className="flex items-center justify-between border-t border-[var(--border)] bg-[var(--surface-2)] px-4 py-2 font-mono text-xs text-[var(--text-muted)]">
         <span className="truncate">TYPE: {nodeData.type}</span>
         <span className="flex items-center gap-1">
-          <div className="h-1.5 w-1.5 rounded-full bg-[var(--status-success)]" /> {t('workspace.synced')}
+          <div className="h-1.5 w-1.5 rounded-full bg-[var(--status-success)]" />{' '}
+          {t('workspace.synced')}
         </span>
       </div>
     </div>

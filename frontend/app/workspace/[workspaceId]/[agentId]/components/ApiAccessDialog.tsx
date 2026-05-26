@@ -55,7 +55,10 @@ export function ApiAccessDialog({
   const [tokenScope, setTokenScope] = useState('graphs:execute')
   const [createdToken, setCreatedToken] = useState<PlatformTokenCreateResponse | null>(null)
 
-  const { data: tokens = [] } = usePlatformTokens({ resourceType: 'graph', resourceId: workspaceId })
+  const { data: tokens = [] } = usePlatformTokens({
+    resourceType: 'graph',
+    resourceId: workspaceId,
+  })
   const createMutation = useCreateToken()
 
   const apiUrl = `${API_BASE}/openapi/graph/${agentId}`
@@ -79,16 +82,17 @@ export function ApiAccessDialog({
       setTokenName('')
       setShowCreateForm(false)
     } catch (error: unknown) {
-      toast({ title: error instanceof Error ? error.message : String(error), variant: 'destructive' })
+      toast({
+        title: error instanceof Error ? error.message : String(error),
+        variant: 'destructive',
+      })
     }
   }
 
   const tokenHeader = (
     <div>
       <div className="mb-4">
-        <h3 className="text-sm font-medium text-[var(--text-primary)]">
-          {t('workspace.apiKeys')}
-        </h3>
+        <h3 className="text-sm font-medium text-[var(--text-primary)]">{t('workspace.apiKeys')}</h3>
         <p className="mt-1 text-xs text-[var(--text-tertiary)]">
           {t('workspace.apiKeysDescription')}
         </p>
@@ -104,7 +108,9 @@ export function ApiAccessDialog({
         {t('settings.tokens.create')}
       </Button>
       {tokens.length >= 50 && (
-        <p className="mt-1 text-xs text-[var(--status-warning)]">{t('settings.tokens.limitReached')}</p>
+        <p className="mt-1 text-xs text-[var(--status-warning)]">
+          {t('settings.tokens.limitReached')}
+        </p>
       )}
       {showCreateForm && (
         <div className="mt-3 flex items-end gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-4">
@@ -124,12 +130,8 @@ export function ApiAccessDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="graphs:execute">
-                  {t('settings.tokens.scopeRead')}
-                </SelectItem>
-                <SelectItem value="graphs:read">
-                  {t('settings.tokens.scopeRead')}
-                </SelectItem>
+                <SelectItem value="graphs:execute">{t('settings.tokens.scopeRead')}</SelectItem>
+                <SelectItem value="graphs:read">{t('settings.tokens.scopeRead')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -150,12 +152,8 @@ export function ApiAccessDialog({
               <Terminal className="h-4 w-4 text-[var(--brand-600)]" />
             </div>
             <div>
-              <DialogTitle className="text-xl">
-                {t('workspace.apiAccess')}
-              </DialogTitle>
-              <DialogDescription>
-                {t('workspace.apiAccessDescription')}
-              </DialogDescription>
+              <DialogTitle className="text-xl">{t('workspace.apiAccess')}</DialogTitle>
+              <DialogDescription>{t('workspace.apiAccessDescription')}</DialogDescription>
             </div>
           </div>
         </DialogHeader>
@@ -176,7 +174,9 @@ export function ApiAccessDialog({
             <TabsContent value="integration" className="space-y-6">
               {/* Endpoint Information */}
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t('workspace.baseUrl')}</h3>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                  {t('workspace.baseUrl')}
+                </h3>
                 <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-2.5">
                   <div className="flex flex-col gap-1 overflow-hidden">
                     <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
@@ -205,9 +205,7 @@ export function ApiAccessDialog({
                           )}
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>
-                        {t('workspace.copy')}
-                      </TooltipContent>
+                      <TooltipContent>{t('workspace.copy')}</TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
                 </div>
@@ -215,7 +213,9 @@ export function ApiAccessDialog({
 
               {/* Authentication */}
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t('workspace.authentication')}</h3>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                  {t('workspace.authentication')}
+                </h3>
                 <p className="text-sm text-[var(--text-tertiary)]">
                   {t('workspace.authenticationDescription', { header: '' })}
                   <code className="rounded bg-[var(--surface-3)] px-1 py-0.5 text-[var(--text-primary)]">
@@ -231,10 +231,14 @@ export function ApiAccessDialog({
 
               {/* Example Request */}
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t('workspace.exampleRequest')}</h3>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                  {t('workspace.exampleRequest')}
+                </h3>
                 <div className="relative overflow-hidden rounded-lg border border-[var(--border)]">
                   <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-3)] px-4 py-2">
-                    <span className="text-mono text-xs font-semibold text-[var(--text-secondary)]">cURL</span>
+                    <span className="text-mono text-xs font-semibold text-[var(--text-secondary)]">
+                      cURL
+                    </span>
                     <TooltipProvider delayDuration={300}>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -251,9 +255,7 @@ export function ApiAccessDialog({
                             )}
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>
-                          {t('workspace.copyCode')}
-                        </TooltipContent>
+                        <TooltipContent>{t('workspace.copyCode')}</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                   </div>

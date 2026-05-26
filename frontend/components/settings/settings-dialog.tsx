@@ -38,7 +38,10 @@ const MenuItem = ({
         : 'text-[var(--text-tertiary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]',
     )}
   >
-    <Icon size={16} className={cn(isActive ? 'text-[var(--brand-600)]' : 'text-[var(--text-muted)]')} />
+    <Icon
+      size={16}
+      className={cn(isActive ? 'text-[var(--brand-600)]' : 'text-[var(--text-muted)]')}
+    />
     {label}
   </button>
 )
@@ -50,7 +53,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] h-[700px] max-w-5xl flex-row gap-0 overflow-hidden border-0 bg-[var(--surface-elevated)] p-0 shadow-2xl">
+      <DialogContent className="flex h-[700px] max-h-[85vh] max-w-5xl flex-row gap-0 overflow-hidden border-0 bg-[var(--surface-elevated)] p-0 shadow-2xl">
         <DialogTitle className="sr-only">{t('settings.title')}</DialogTitle>
         <DialogDescription className="sr-only">{t('settings.description')}</DialogDescription>
 

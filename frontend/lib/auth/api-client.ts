@@ -12,9 +12,6 @@ import { setCsrfToken, getCsrfToken, clearCsrfToken } from './csrf'
 
 const logger = createLogger('AuthAPI')
 
-// ==================== Re-export CSRF functions (maintain backward compatibility) ====================
-export { setCsrfToken, getCsrfToken, clearCsrfToken }
-
 // ==================== Type Definitions ====================
 export interface AuthUser {
   id: string

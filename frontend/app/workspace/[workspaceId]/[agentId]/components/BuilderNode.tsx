@@ -26,8 +26,7 @@ import { cn } from '@/lib/utils'
 
 import { nodeRegistry, type FieldSchema } from '../services/nodeRegistry'
 import { useBuilderStore } from '../stores/builderStore'
-import { useExecutionStore } from '../stores/executionStore'
-
+import { useExecutionStore } from '../stores/execution/executionStore'
 
 interface BuilderNodeProps {
   id: string
@@ -230,9 +229,14 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
     const importantFields = def.schema.filter((field) => {
       // Skip fields that shouldn't be displayed
       if (
-        ['systemPrompt', 'memoryPrompt', 'description', 'useDeepAgents', 'enableMemory', 'skills'].includes(
-          field.key,
-        )
+        [
+          'systemPrompt',
+          'memoryPrompt',
+          'description',
+          'useDeepAgents',
+          'enableMemory',
+          'skills',
+        ].includes(field.key)
       ) {
         return false
       }
@@ -258,7 +262,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
         key: field.key,
       }
     })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [def?.schema, data.config, t, models, builtinTools])
 
   return (

@@ -50,6 +50,15 @@
   - `workspaceId`: 工作空间ID（可选）
 - **返回**: 模型输出结果
 
+#### 5. 测试模型输出（流式）
+- **端点**: `POST /api/v1/models/test-output-stream`
+- **功能**: 以 SSE 流式方式测试指定模型的输出
+- **请求体**:
+  - `model_name`: 模型名称
+  - `input`: 输入文本
+  - `workspaceId`: 工作空间ID（可选）
+- **返回**: SSE 事件流
+
 ### 模型供应商 API (`model_providers.py`)
 
 #### 1. 获取所有供应商列表
@@ -78,6 +87,11 @@
   - 同步模型信息（从工厂同步到 model_instance 表，全局记录）
   - 同步认证信息（从 .env 读取并同步到 model_credential 表，全局记录）
 - **返回**: 同步结果统计
+
+#### 4. 添加自定义供应商
+- **端点**: `POST /api/v1/model-providers/custom`
+- **功能**: 一步创建自定义供应商（含 provider + credential + model_instance）
+- **返回**: 创建结果
 
 ### 模型凭据 API (`model_credentials.py`)
 
@@ -140,7 +154,7 @@ Repository 层 (ModelInstanceRepository, ModelProviderRepository, ModelCredentia
 
 ## 注意事项
 
-1. **认证**: 当前代码中用户认证部分被注释，使用匿名用户ID，后续需要恢复认证机制
+1. **认证**: 所有 API 端点使用 `get_current_user` 依赖进行用户认证
 2. **全局可见性**: 模型实例和凭据对所有用户和工作空间可见（user_id 和 workspace_id 为 NULL 的记录）
 3. **凭据加密**: 所有凭据在存储前都会进行加密处理
 4. **同步机制**: 供应商和模型信息通过工厂模式从代码同步到数据库

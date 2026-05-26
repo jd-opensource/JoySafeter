@@ -10,7 +10,6 @@ import { artifactService } from '@/services/artifactService'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-
 function fileTreeToNodes(
   tree: Record<string, { action: string; size?: number; timestamp?: number }>,
 ): FileNode[] {
@@ -34,7 +33,7 @@ function fileTreeToNodes(
       } else {
         // Directory node — find or create
         const dirPath = parts.slice(0, i + 1).join('/')
-        let dir = current.find(n => n.type === 'directory' && n.path === dirPath)
+        let dir = current.find((n) => n.type === 'directory' && n.path === dirPath)
         if (!dir) {
           dir = { name, path: dirPath, type: 'directory', children: [] }
           current.push(dir)
@@ -50,7 +49,7 @@ function fileTreeToNodes(
       if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
       return a.name.localeCompare(b.name)
     })
-    nodes.filter(n => n.children).forEach(n => sortNodes(n.children!))
+    nodes.filter((n) => n.children).forEach((n) => sortNodes(n.children!))
   }
   sortNodes(root)
 
@@ -80,7 +79,13 @@ interface ArtifactPanelProps {
   autoPreview?: boolean
 }
 
-export function ArtifactPanel({ threadId, fileTree, className, filePathResolver, autoPreview }: ArtifactPanelProps) {
+export function ArtifactPanel({
+  threadId,
+  fileTree,
+  className,
+  filePathResolver,
+  autoPreview,
+}: ArtifactPanelProps) {
   const files = useMemo(() => {
     if (fileTree && Object.keys(fileTree).length > 0) {
       return fileTreeToNodes(fileTree)
@@ -149,15 +154,20 @@ export function ArtifactPanel({ threadId, fileTree, className, filePathResolver,
   }, [fileTree, autoPreview, fetchContent])
 
   // Cleanup debounce timer on unmount
-  useEffect(() => () => {
-    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
-  }, [])
+  useEffect(
+    () => () => {
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
+    },
+    [],
+  )
 
   const selectedFile = selectedPath ? findFileNode(files, selectedPath) : null
   const ext = selectedFile?.extension?.toLowerCase() ?? ''
 
   return (
-    <div className={cn('flex flex-col bg-[var(--surface-2)] text-[var(--text-primary)]', className)}>
+    <div
+      className={cn('flex flex-col bg-[var(--surface-2)] text-[var(--text-primary)]', className)}
+    >
       <div className="flex min-h-0 flex-1">
         <div className="custom-scrollbar w-[168px] flex-shrink-0 overflow-y-auto border-r border-[var(--border)]">
           <FileBrowser files={files} selectedPath={selectedPath} onSelect={handleSelectFile} />

@@ -20,7 +20,9 @@ export function useWorkspaceRename(
   const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
-  const [workspaceToDelete, setWorkspaceToDelete] = useState<{ id: string; name: string } | null>(null)
+  const [workspaceToDelete, setWorkspaceToDelete] = useState<{ id: string; name: string } | null>(
+    null,
+  )
 
   const handleStartHeaderRename = useCallback(() => {
     if (activeWorkspace?.type === 'personal') return
@@ -135,7 +137,12 @@ export function useWorkspaceRename(
         else handleCancelWorkspaceRename()
       }
     },
-    [handleSaveHeaderRename, handleCancelHeaderRename, handleSaveWorkspaceRename, handleCancelWorkspaceRename],
+    [
+      handleSaveHeaderRename,
+      handleCancelHeaderRename,
+      handleSaveWorkspaceRename,
+      handleCancelWorkspaceRename,
+    ],
   )
 
   return {

@@ -60,20 +60,25 @@ const getPrismLanguage = (lang: string): string => {
 
 function LanguageBadge({ language }: { language: string }) {
   const colors: Record<string, string> = {
-    python: 'bg-[var(--skill-brand-100)] text-[var(--skill-brand-700)] border-[var(--skill-brand-200)]',
+    python:
+      'bg-[var(--skill-brand-100)] text-[var(--skill-brand-700)] border-[var(--skill-brand-200)]',
     typescript: 'bg-[var(--brand-100)] text-[var(--brand-700)] border-[var(--brand-200)]',
-    javascript: 'bg-[var(--status-warning-bg)] text-[var(--status-warning)] border-[var(--status-warning-border)]',
+    javascript:
+      'bg-[var(--status-warning-bg)] text-[var(--status-warning)] border-[var(--status-warning-border)]',
     json: 'bg-[var(--brand-50)] text-[var(--brand-600)] border-[var(--brand-200)]',
     markdown: 'bg-[var(--surface-3)] text-[var(--text-secondary)] border-[var(--border)]',
     bash: 'bg-[var(--status-error-bg)] text-[var(--status-error)] border-[var(--status-error-border)]',
-    shell: 'bg-[var(--status-error-bg)] text-[var(--status-error)] border-[var(--status-error-border)]',
+    shell:
+      'bg-[var(--status-error-bg)] text-[var(--status-error)] border-[var(--status-error-border)]',
     yaml: 'bg-[var(--status-error-bg)] text-[var(--status-error)] border-[var(--status-error-border)]',
     html: 'bg-[var(--status-warning-bg)] text-[var(--status-warning)] border-[var(--status-warning-border)]',
     css: 'bg-[var(--brand-100)] text-[var(--brand-700)] border-[var(--brand-200)]',
     sql: 'bg-[var(--brand-100)] text-[var(--brand-600)] border-[var(--brand-200)]',
   }
 
-  const colorClass = colors[language.toLowerCase()] || 'bg-[var(--surface-3)] text-[var(--text-secondary)] border-[var(--border)]'
+  const colorClass =
+    colors[language.toLowerCase()] ||
+    'bg-[var(--surface-3)] text-[var(--text-secondary)] border-[var(--border)]'
 
   return (
     <span className={cn('rounded border px-2 py-0.5 text-xs font-medium', colorClass)}>
@@ -140,7 +145,9 @@ export default function CodeViewer({
             {filename || t('chat.untitled')}
           </span>
           <LanguageBadge language={prismLanguage} />
-          <span className="text-xs text-[var(--text-muted)]">{lineCount} {t('chat.lines')}</span>
+          <span className="text-xs text-[var(--text-muted)]">
+            {lineCount} {t('chat.lines')}
+          </span>
         </div>
         <Button
           variant="ghost"
@@ -208,7 +215,11 @@ export default function CodeViewer({
             {lines[0]?.slice(0, 60)}
             {lines[0]?.length > 60 ? '...' : ''}
           </span>
-          {lineCount > 1 && <span className="ml-2 text-[var(--text-muted)]">{t('chat.moreLines', { count: lineCount - 1 })}</span>}
+          {lineCount > 1 && (
+            <span className="ml-2 text-[var(--text-muted)]">
+              {t('chat.moreLines', { count: lineCount - 1 })}
+            </span>
+          )}
         </div>
       )}
     </div>

@@ -13,8 +13,6 @@
  * Save Management:
  * - All save operations are managed by SaveManager (see utils/saveManager.ts)
  * - SaveManager handles: manual saves, auto-saves, and debounced saves
- * - Timer fields (autoSaveTimer, autoSaveDebounceTimer) are kept for backward compatibility
- *   but are actually managed by SaveManager internally
  */
 
 import {
@@ -130,8 +128,6 @@ interface BuilderState {
   workspaceId: string | null
   graphId: string | null
   graphName: string | null
-  autoSaveTimer: NodeJS.Timeout | null // Managed by SaveManager, kept for backward compatibility
-  autoSaveDebounceTimer: NodeJS.Timeout | null // Managed by SaveManager, kept for backward compatibility
   lastSavedStateHash: string | null
   hasPendingChanges: boolean
   saveRetryCount: number
@@ -194,7 +190,6 @@ interface BuilderState {
     edges: { source: string; target: string }[]
   }
 
-
   // State Schema Actions
   graphStateFields: import('../types/graph').StateField[]
   addStateField: (field: import('../types/graph').StateField) => void
@@ -248,8 +243,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     graphName: null,
     lastAutoSaveTime: null,
     deployedAt: null,
-    autoSaveTimer: null,
-    autoSaveDebounceTimer: null,
     lastSavedStateHash: null,
     hasPendingChanges: false,
     saveRetryCount: 0,
@@ -454,9 +447,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     onNodesChange: (changes: NodeChange[]) => {
       if (changes.some((c) => c.type === 'remove')) get().takeSnapshot()
       set({ nodes: applyNodeChanges(changes, get().nodes) })
-      const isContentChange = changes.some(
-        (c) => c.type !== 'select' && c.type !== 'dimensions',
-      )
+      const isContentChange = changes.some((c) => c.type !== 'select' && c.type !== 'dimensions')
       if (isContentChange) get().triggerAutoSave()
     },
 
@@ -566,7 +557,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         }),
       })
 
-
       get().triggerAutoSave()
     },
 
@@ -656,7 +646,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       return get().edges.filter((e) => e.source === nodeId)
     },
 
-
     loadGraph: async (graphId?: string) => {
       set({ isInitializing: true })
       try {
@@ -713,7 +702,12 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         })
         // Save state using SaveManager
         await saveManager.save('manual')
-        const currentStateHash = computeGraphStateHash(nodes, edges, get().graphStateFields, get().fallbackNodeId)
+        const currentStateHash = computeGraphStateHash(
+          nodes,
+          edges,
+          get().graphStateFields,
+          get().fallbackNodeId,
+        )
         set({
           graphId,
           graphName: name,
@@ -745,11 +739,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
 
     stopAutoSave: () => {
       saveManager.stopAll()
-      // Clear timer references in state for backward compatibility
-      set({
-        autoSaveTimer: null,
-        autoSaveDebounceTimer: null,
-      })
     },
 
     setDeployedAt: (deployedAt: string | null) => {
@@ -844,7 +833,8 @@ useBuilderStore.subscribe((state, prevState) => {
     state.fallbackNodeId === prevState.fallbackNodeId &&
     state.lastSavedStateHash === prevState.lastSavedStateHash &&
     state.graphId === prevState.graphId
-  ) return
+  )
+    return
 
   const { graphId, nodes, edges, graphStateFields, fallbackNodeId, lastSavedStateHash } = state
   let hasPendingChanges: boolean

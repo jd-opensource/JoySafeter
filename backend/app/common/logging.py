@@ -8,11 +8,9 @@ Log detailed information for each request, including method, path, duration, sta
 import logging
 import os
 import time
-from collections.abc import Callable
 
-from fastapi import Request, Response
 from loguru import logger
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.trace_context import get_trace_id, set_trace_id
 
@@ -35,44 +33,64 @@ class InterceptHandler(logging.Handler):
         logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
 
 
-class LoggingMiddleware(BaseHTTPMiddleware):
-    """HTTP request logging middleware."""
+class LoggingMiddleware:
+    """Pure ASGI logging middleware (avoids BaseHTTPMiddleware re-raise issues)."""
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        """Process the request and log details."""
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
         start_time = time.time()
-        method = request.method
-        path = request.url.path
-        client_host = request.client.host if request.client else "unknown"
+        method = scope.get("method", "-")
+        path = scope.get("path", "-")
+        client = scope.get("client")
+        client_host = client[0] if client else "unknown"
 
-        trace_id = set_trace_id(request.headers.get("X-Request-ID") or None)
-        request.state.trace_id = trace_id
+        request_id = None
+        for key, value in scope.get("headers", []):
+            if key == b"x-request-id":
+                request_id = value.decode()
+                break
+        trace_id = set_trace_id(request_id)
+
         log = logger.bind(trace_id=trace_id, method=method, path=path, client=client_host)
-
         log.info("request.start")
 
+        status_code = 500
+        response_process_time = 0.0
+
+        async def send_wrapper(message: Message) -> None:
+            nonlocal status_code, response_process_time
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+                response_process_time = time.time() - start_time
+                if "headers" not in message:
+                    message["headers"] = []
+                message["headers"] = list(message["headers"]) + [
+                    [b"x-process-time", str(response_process_time).encode()],
+                    [b"x-trace-id", trace_id.encode()],
+                ]
+            await send(message)
+
         try:
-            response = await call_next(request)
-
-            process_time = time.time() - start_time
-            status_code = response.status_code
-            message = f"request.completed status={status_code} duration={process_time:.3f}s"
-
-            if status_code >= 500:
-                log.error(message)
-            elif status_code >= 400:
-                log.warning(message)
-            else:
-                log.info(message)
-
-            response.headers["X-Process-Time"] = str(process_time)
-            response.headers["X-Trace-Id"] = trace_id
-            return response
-
+            await self.app(scope, receive, send_wrapper)
         except Exception as e:
             process_time = time.time() - start_time
             log.opt(exception=True).error(f"request.failed duration={process_time:.3f}s error={type(e).__name__}")
             raise
+
+        process_time = response_process_time or (time.time() - start_time)
+        message = f"request.completed status={status_code} duration={process_time:.3f}s"
+        if status_code >= 500:
+            log.error(message)
+        elif status_code >= 400:
+            log.warning(message)
+        else:
+            log.info(message)
 
 
 def setup_logging():

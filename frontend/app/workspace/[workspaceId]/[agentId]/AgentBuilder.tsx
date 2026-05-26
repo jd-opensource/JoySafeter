@@ -32,7 +32,7 @@ import { useCodeEditorStore } from './stores/codeEditorStore'
 import { ErrorBoundary } from './error-boundary'
 import { agentService, AgentGraph } from './services/agentService'
 import { useBuilderStore } from './stores/builderStore'
-import { useExecutionStore } from './stores/executionStore'
+import { useExecutionStore } from './stores/execution/executionStore'
 import type { StateField } from './types/graph'
 
 /** Typed shape of graph variables stored alongside canvas state. */
@@ -143,18 +143,13 @@ const AgentBuilderContent = () => {
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      const { hasPendingChanges, autoSaveDebounceTimer, nodes, edges, rfInstance, graphId } =
-        useBuilderStore.getState()
+      const { hasPendingChanges, nodes, edges, rfInstance, graphId } = useBuilderStore.getState()
 
       if (!graphId || graphId !== agentId || !isValidUUID(graphId)) {
         return
       }
 
-      if (hasPendingChanges || autoSaveDebounceTimer) {
-        if (autoSaveDebounceTimer) {
-          clearTimeout(autoSaveDebounceTimer)
-        }
-
+      if (hasPendingChanges) {
         try {
           const viewport = rfInstance?.getViewport() || { x: 0, y: 0, zoom: 1 }
           const payload = JSON.stringify({
@@ -230,11 +225,9 @@ const AgentBuilderContent = () => {
     const graphMode = loadedVars.graph_mode
     if (graphMode === 'code' && agentId) {
       const currentGraph = graphsData?.find((g) => g.id === agentId)
-      useCodeEditorStore.getState().hydrate(
-        agentId,
-        loadedVars.code_content ?? '',
-        currentGraph?.name ?? '',
-      )
+      useCodeEditorStore
+        .getState()
+        .hydrate(agentId, loadedVars.code_content ?? '', currentGraph?.name ?? '')
       loadedGraphIdRef.current = agentId
       useBuilderStore.setState({ isInitializing: false })
       return
@@ -270,7 +263,11 @@ const AgentBuilderContent = () => {
       if (Object.keys(ctx).length === 0) return []
       return Object.entries(ctx).map(([key, v]) => ({
         name: key,
-        type: (v?.type === 'number' ? 'int' : v?.type === 'boolean' ? 'bool' : v?.type || 'string') as StateField['type'],
+        type: (v?.type === 'number'
+          ? 'int'
+          : v?.type === 'boolean'
+            ? 'bool'
+            : v?.type || 'string') as StateField['type'],
         description: v?.description || '',
         defaultValue: v?.value,
       }))
@@ -390,7 +387,11 @@ const AgentBuilderContent = () => {
         if (Object.keys(ctx).length === 0) return []
         return Object.entries(ctx).map(([key, v]) => ({
           name: key,
-          type: (v?.type === 'number' ? 'int' : v?.type === 'boolean' ? 'bool' : v?.type || 'string') as StateField['type'],
+          type: (v?.type === 'number'
+            ? 'int'
+            : v?.type === 'boolean'
+              ? 'bool'
+              : v?.type || 'string') as StateField['type'],
           description: v?.description || '',
           defaultValue: v?.value,
         }))

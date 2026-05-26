@@ -3,7 +3,11 @@
 import { useState } from 'react'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useDeleteModelProvider, useModelCredentials, useModelProviders } from '@/hooks/queries/models'
+import {
+  useDeleteModelProvider,
+  useModelCredentials,
+  useModelProviders,
+} from '@/hooks/queries/models'
 import { useToast } from '@/hooks/use-toast'
 
 import { CredentialDialog } from '../credential-dialog'
@@ -37,7 +41,11 @@ export function DetailPanel({ selectedProvider, onProviderDeleted }: DetailPanel
   }
 
   const handleDeleteProvider = () => {
-    if (confirm(`Are you sure you want to delete provider "${provider.display_name}"? This action cannot be undone.`)) {
+    if (
+      confirm(
+        `Are you sure you want to delete provider "${provider.display_name}"? This action cannot be undone.`,
+      )
+    ) {
       deleteProvider.mutate(provider.provider_name, {
         onSuccess: () => {
           toast({ title: `Deleted provider ${provider.display_name}` })
@@ -66,27 +74,36 @@ export function DetailPanel({ selectedProvider, onProviderDeleted }: DetailPanel
       <Tabs defaultValue="models" className="flex flex-1 flex-col overflow-hidden">
         <div className="border-b border-[var(--border-muted)] px-6">
           <TabsList className="h-10 bg-transparent p-0">
-            <TabsTrigger value="models" className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--text-primary)] data-[state=active]:bg-transparent">
+            <TabsTrigger
+              value="models"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--text-primary)] data-[state=active]:bg-transparent"
+            >
               Model List
             </TabsTrigger>
-            <TabsTrigger value="playground" className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--text-primary)] data-[state=active]:bg-transparent">
+            <TabsTrigger
+              value="playground"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--text-primary)] data-[state=active]:bg-transparent"
+            >
               Playground
             </TabsTrigger>
-            <TabsTrigger value="stats" className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--text-primary)] data-[state=active]:bg-transparent">
+            <TabsTrigger
+              value="stats"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--text-primary)] data-[state=active]:bg-transparent"
+            >
               Stats
             </TabsTrigger>
           </TabsList>
         </div>
 
-        <TabsContent value="models" className="flex-1 overflow-y-auto m-0">
+        <TabsContent value="models" className="m-0 flex-1 overflow-y-auto">
           <ModelListTab providerName={selectedProvider} provider={provider} />
         </TabsContent>
 
-        <TabsContent value="playground" className="flex-1 overflow-y-auto m-0 p-6">
+        <TabsContent value="playground" className="m-0 flex-1 overflow-y-auto p-6">
           <PlaygroundTab providerName={selectedProvider} provider={provider} />
         </TabsContent>
 
-        <TabsContent value="stats" className="flex-1 overflow-y-auto m-0 p-6">
+        <TabsContent value="stats" className="m-0 flex-1 overflow-y-auto p-6">
           <StatsTab providerName={selectedProvider} />
         </TabsContent>
       </Tabs>

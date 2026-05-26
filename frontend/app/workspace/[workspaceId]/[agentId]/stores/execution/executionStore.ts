@@ -22,9 +22,9 @@ import type { GraphState, TraceStep } from '../../services/eventProcessor'
 import {
   processEvent,
   createEventProcessorContext,
-  generateId as genId,
   type EventProcessorStore,
 } from '../../services/eventProcessor'
+import { generateId as genId } from './utils'
 
 import {
   createEmptyGraphState,
@@ -375,10 +375,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
     addRouteDecision: (nodeId, decision) => {
       const state = getCurrentState()
       updateCurrentState({
-        routeDecisions: [
-          ...state.routeDecisions,
-          { nodeId, decision, timestamp: Date.now() },
-        ],
+        routeDecisions: [...state.routeDecisions, { nodeId, decision, timestamp: Date.now() }],
       })
     },
 

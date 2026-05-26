@@ -122,7 +122,10 @@ export const runService = {
     return apiGet<RunSnapshot>(`${API_ENDPOINTS.runs}/${runId}/snapshot`)
   },
 
-  async getRunEvents(runId: string, params?: { afterSeq?: number; limit?: number }): Promise<RunEventsPage> {
+  async getRunEvents(
+    runId: string,
+    params?: { afterSeq?: number; limit?: number },
+  ): Promise<RunEventsPage> {
     const afterSeq = params?.afterSeq ?? 0
     const limit = params?.limit ?? 500
     return apiGet<RunEventsPage>(
@@ -143,7 +146,10 @@ export const runService = {
     return apiGet<RunSummary | null>(`${API_ENDPOINTS.runs}/active?${query.toString()}`)
   },
 
-  async findActiveSkillCreatorRun(params: { graphId: string; threadId?: string | null }): Promise<RunSummary | null> {
+  async findActiveSkillCreatorRun(params: {
+    graphId: string
+    threadId?: string | null
+  }): Promise<RunSummary | null> {
     return this.findActiveRun({
       agentName: 'skill_creator',
       graphId: params.graphId,

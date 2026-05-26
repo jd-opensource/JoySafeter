@@ -37,7 +37,7 @@ class SessionService:
         session_id = str(uuid.uuid4())
 
         # Create workspace directory
-        workspace_root = Path(settings.WORKSPACE_ROOT)
+        workspace_root = Path(settings.workspace_root)
         workspace_path = session_data.workspace_path or str(workspace_root / session_id)
         workspace = Path(workspace_path)
         workspace.mkdir(parents=True, exist_ok=True)
@@ -117,7 +117,7 @@ class SessionService:
             if workspace_path:
                 workspace = Path(workspace_path)
             else:
-                workspace = Path(settings.WORKSPACE_ROOT) / session_id
+                workspace = Path(settings.workspace_root) / session_id
             if workspace.exists() and workspace.is_dir():
                 import shutil
 
@@ -173,7 +173,7 @@ class SessionService:
             return None
         workspace_path = (conversation.meta_data or {}).get("workspace_path")
         if not workspace_path:
-            workspace_path = str(Path(settings.WORKSPACE_ROOT) / session_id)
+            workspace_path = str(Path(settings.workspace_root) / session_id)
         # Construct adapter using the decoupled AgentBridge (engine may be injected elsewhere)
         return AgentBridge(session_id, workspace_path)
 
@@ -184,7 +184,7 @@ class SessionService:
         )
         message_count = count_result.scalar() or 0
         workspace_path = (conversation.meta_data or {}).get("workspace_path") or str(
-            Path(settings.WORKSPACE_ROOT) / conversation.thread_id
+            Path(settings.workspace_root) / conversation.thread_id
         )
 
         return SessionResponse(

@@ -8,8 +8,6 @@
 import type { ChatStreamEvent } from '@/services/chatBackend'
 import type { ExecutionStep } from '@/types'
 
-// --- Inline types (formerly in components/visualization/types.ts) ---
-
 /** Execution graph state snapshot for Command Mode tracing */
 export interface GraphState {
   context?: Record<string, any>
@@ -27,12 +25,8 @@ export interface TraceStep {
   routeDecision?: { result: boolean | string; reason: string; goto: string }
 }
 import type { InterruptState } from '../stores/execution/types'
-import { generateId } from '../stores/execution/utils'
 
 import { mapChatEventToExecutionStep, type AdapterResult } from './eventAdapter'
-
-// Re-export generateId for backwards compatibility
-export { generateId }
 
 /**
  * Event processing context

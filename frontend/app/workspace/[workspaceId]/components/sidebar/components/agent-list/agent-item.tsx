@@ -1,10 +1,6 @@
 'use client'
 
-import {
-  Bot,
-  GripVertical,
-  MoreHorizontal,
-} from 'lucide-react'
+import { Bot, GripVertical, MoreHorizontal } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import React, { useCallback, useState } from 'react'
@@ -51,11 +47,21 @@ const AgentItem = React.memo(function AgentItem({
   const [showMenu, setShowMenu] = useState(false)
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 })
 
-  const handleRename = useCallback((newName: string) => {
-    onRename?.(agent.id, newName)
-  }, [agent.id, onRename])
+  const handleRename = useCallback(
+    (newName: string) => {
+      onRename?.(agent.id, newName)
+    },
+    [agent.id, onRename],
+  )
 
-  const { isEditing, editName, setEditName, startEditing, handleSave: handleSaveRename, handleCancel: handleCancelRename } = useInlineRename(agent.name, handleRename)
+  const {
+    isEditing,
+    editName,
+    setEditName,
+    startEditing,
+    handleSave: handleSaveRename,
+    handleCancel: handleCancelRename,
+  } = useInlineRename(agent.name, handleRename)
 
   const handleDragStart = (e: React.DragEvent) => {
     if (isEditing) {

@@ -16,7 +16,11 @@ interface InstanceStatus {
 
 function getApiBaseUrl(): string {
   const url = runtimeEnv('NEXT_PUBLIC_API_URL') || process.env.NEXT_PUBLIC_API_URL
-  return url?.replace(/\/api\/?$/, '') || process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/?$/, '') || 'http://localhost:8000'
+  return (
+    url?.replace(/\/api\/?$/, '') ||
+    process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/?$/, '') ||
+    'http://localhost:8000'
+  )
 }
 
 export function OpenClawWebUI() {
@@ -57,7 +61,8 @@ export function OpenClawWebUI() {
           {instance?.exists ? 'OpenClaw instance not running' : 'No OpenClaw instance created'}
         </h3>
         <p className="mb-8 max-w-md text-center leading-relaxed text-[var(--text-secondary)]">
-          You need to start an OpenClaw instance first to use the native Web UI for interacting with the Agent and managing devices.
+          You need to start an OpenClaw instance first to use the native Web UI for interacting with
+          the Agent and managing devices.
           <br />
           <span className="mt-2 block text-sm text-[var(--status-warning)]">
             Note: Instance startup takes about 4 minutes. Please be patient.

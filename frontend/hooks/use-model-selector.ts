@@ -66,9 +66,7 @@ export function useModelSelector() {
     [modelOptions],
   )
 
-  const selectedModel = selected
-    ? `${selected.provider_name}:${selected.model_name}`
-    : undefined
+  const selectedModel = selected ? `${selected.provider_name}:${selected.model_name}` : undefined
 
   const modelLabel = useMemo(() => {
     if (selectedModel) {
@@ -78,5 +76,12 @@ export function useModelSelector() {
     return modelOptions[0]?.label ?? ''
   }, [modelOptions, selectedModel])
 
-  return { modelOptions, selectedModel, setSelectedModel, selectedProviderName: selected?.provider_name, selectedModelName: selected?.model_name, modelLabel }
+  return {
+    modelOptions,
+    selectedModel,
+    setSelectedModel,
+    selectedProviderName: selected?.provider_name,
+    selectedModelName: selected?.model_name,
+    modelLabel,
+  }
 }

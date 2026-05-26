@@ -15,14 +15,17 @@ export function useDropZone(onDrop?: (agentId: string) => void) {
     setIsDragOver(false)
   }, [])
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
-    const agentId = e.dataTransfer.getData('agentId')
-    if (agentId) {
-      onDrop?.(agentId)
-    }
-  }, [onDrop])
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      setIsDragOver(false)
+      const agentId = e.dataTransfer.getData('agentId')
+      if (agentId) {
+        onDrop?.(agentId)
+      }
+    },
+    [onDrop],
+  )
 
   return { isDragOver, handleDragOver, handleDragLeave, handleDrop }
 }

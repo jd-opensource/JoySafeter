@@ -1,15 +1,11 @@
-/**
- * Global Toast utility functions
- * Used to display error and success messages anywhere in the application
- */
-
 import { toast as showToast } from '@/hooks/use-toast'
 
-/**
- * Display error toast
- * @param message Error message
- * @param title Optional title
- */
+export function getErrorMessage(err: unknown, fallback = 'Operation failed'): string {
+  if (err instanceof Error) return err.message || fallback
+  if (typeof err === 'string') return err
+  return fallback
+}
+
 export function toastError(message: string, title?: string) {
   showToast({
     variant: 'destructive',
@@ -19,11 +15,6 @@ export function toastError(message: string, title?: string) {
   })
 }
 
-/**
- * Display success toast
- * @param message Success message
- * @param title Optional title
- */
 export function toastSuccess(message: string, title?: string) {
   showToast({
     variant: 'success',

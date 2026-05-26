@@ -2,9 +2,19 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { STALE_TIME } from './constants'
 import { platformTokenService } from '@/services/platformTokenService'
-import type { PlatformToken, PlatformTokenCreateResponse, TokenCreateRequest, TokenListParams } from '@/services/platformTokenService'
+import type {
+  PlatformToken,
+  PlatformTokenCreateResponse,
+  TokenCreateRequest,
+  TokenListParams,
+} from '@/services/platformTokenService'
 
-export { type PlatformToken, type PlatformTokenCreateResponse, type TokenCreateRequest, type TokenListParams } from '@/services/platformTokenService'
+export {
+  type PlatformToken,
+  type PlatformTokenCreateResponse,
+  type TokenCreateRequest,
+  type TokenListParams,
+} from '@/services/platformTokenService'
 
 export const platformTokenKeys = {
   all: ['platform-tokens'] as const,
@@ -23,8 +33,7 @@ export function usePlatformTokens(params?: TokenListParams) {
 export function useCreateToken() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (payload: TokenCreateRequest) =>
-      platformTokenService.createToken(payload),
+    mutationFn: (payload: TokenCreateRequest) => platformTokenService.createToken(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: platformTokenKeys.all })
     },

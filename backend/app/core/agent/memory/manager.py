@@ -394,9 +394,9 @@ class MemoryManager:
         if self.db:
             result = self.db.clear_memories()
             if hasattr(result, "__await__"):
-                import asyncio
+                from app.utils.safe_task import safe_create_task
 
-                asyncio.create_task(result)  # type: ignore[unused-coroutine]
+                safe_create_task(result, name="memory-clear")  # type: ignore[arg-type]
 
     def delete_user_memory(
         self,
@@ -683,13 +683,13 @@ class MemoryManager:
                 raise ValueError("Memory db not initialized")
             result = self.db.upsert_user_memory(memory=memory)
             if hasattr(result, "__await__"):
-                import asyncio
+                from app.utils.safe_task import safe_create_task
 
-                asyncio.create_task(result)  # type: ignore[unused-coroutine]
-            return "Memory added successfully"
+                safe_create_task(result, name="memory-upsert")  # type: ignore[arg-type]
         except Exception as e:
             logger.warning(f"Error storing memory in db: {e}")
             return f"Error adding memory: {e}"
+        return ""
 
     def _delete_db_memory(self, memory_id: str, user_id: Optional[str] = None) -> str:
         """Use this function to delete a memory from the database."""
@@ -702,13 +702,13 @@ class MemoryManager:
 
             result = self.db.delete_user_memory(memory_id=memory_id, user_id=user_id)
             if hasattr(result, "__await__"):
-                import asyncio
+                from app.utils.safe_task import safe_create_task
 
-                asyncio.create_task(result)  # type: ignore[unused-coroutine]
-            return "Memory deleted successfully"
+                safe_create_task(result, name="memory-delete")  # type: ignore[arg-type]
         except Exception as e:
             logger.warning(f"Error deleting memory in db: {e}")
             return f"Error deleting memory: {e}"
+        return ""
 
     # -*- Utility Functions
     def search_user_memories(

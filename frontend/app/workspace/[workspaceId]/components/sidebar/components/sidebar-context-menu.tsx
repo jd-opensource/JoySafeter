@@ -19,7 +19,12 @@ interface SidebarContextMenuProps {
   className?: string // for absolute positioning (button-triggered)
 }
 
-export function SidebarContextMenu({ items, onClose, position, className }: SidebarContextMenuProps) {
+export function SidebarContextMenu({
+  items,
+  onClose,
+  position,
+  className,
+}: SidebarContextMenuProps) {
   const menu = (
     <>
       <div className="fixed inset-0 z-popover" onClick={onClose} />
@@ -43,7 +48,10 @@ export function SidebarContextMenu({ items, onClose, position, className }: Side
                   ? 'text-[var(--status-error)]'
                   : 'text-[var(--text-secondary)]',
               )}
-              onClick={() => { item.onClick(); onClose() }}
+              onClick={() => {
+                item.onClick()
+                onClose()
+              }}
             >
               {item.icon}
               {item.label}

@@ -3,7 +3,6 @@
 import { PanelLeft } from 'lucide-react'
 import { useCallback, useRef } from 'react'
 
-
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -58,7 +57,9 @@ export function Sidebar() {
       <div
         className="fixed top-[14px] z-10 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 transition-all duration-300"
         style={{
-          left: isAppSidebarCollapsed ? 'calc(var(--sidebar-width-collapsed) + 14px)' : 'calc(var(--sidebar-width) + 14px)',
+          left: isAppSidebarCollapsed
+            ? 'calc(var(--sidebar-width-collapsed) + 14px)'
+            : 'calc(var(--sidebar-width) + 14px)',
         }}
       >
         <div className="flex items-center gap-1.5">
@@ -97,7 +98,11 @@ export function Sidebar() {
         isCollapsed ? 'pointer-events-none z-0' : 'z-10',
       )}
       style={{
-        left: isCollapsed ? '-1000px' : isAppSidebarCollapsed ? 'var(--sidebar-width-collapsed)' : 'var(--sidebar-width)',
+        left: isCollapsed
+          ? '-1000px'
+          : isAppSidebarCollapsed
+            ? 'var(--sidebar-width-collapsed)'
+            : 'var(--sidebar-width)',
         width: isCollapsed ? '0px' : `${sidebarWidth}px`,
         opacity: isCollapsed ? 0 : 1,
         visibility: isCollapsed ? 'hidden' : 'visible',
@@ -145,7 +150,7 @@ export function Sidebar() {
 
       {/* Resize Handle */}
       <div
-        className="hover:bg-[var(--brand-500)] absolute inset-y-0 right-0 w-[4px] cursor-col-resize transition-colors active:bg-[var(--brand-500)]"
+        className="absolute inset-y-0 right-0 w-[4px] cursor-col-resize transition-colors hover:bg-[var(--brand-500)] active:bg-[var(--brand-500)]"
         onMouseDown={handleMouseDown}
       />
     </aside>

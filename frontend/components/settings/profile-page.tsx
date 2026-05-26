@@ -270,7 +270,7 @@ export function ProfilePage() {
         <div className="flex flex-col gap-6 border-b border-border pb-8 sm:flex-row sm:items-center sm:justify-between">
           {/* User Avatar and Info */}
           <div className="flex items-center gap-5">
-            <Avatar className="h-16 w-16 flex-shrink-0 shadow-sm ring-1 ring-border/50">
+            <Avatar className="ring-border/50 h-16 w-16 flex-shrink-0 shadow-sm ring-1">
               {user?.image && <AvatarImage src={user.image} alt={user?.name || t('user.user')} />}
               <AvatarFallback className="bg-gradient-to-br from-[var(--brand-500)] to-[var(--brand-700)] text-lg font-medium text-white">
                 {getInitials(user?.name, user?.email)}
@@ -310,7 +310,11 @@ export function ProfilePage() {
             </div>
           </div>
 
-          <Button variant="secondary" onClick={handleResetPasswordClick} className="gap-2 self-start sm:self-center">
+          <Button
+            variant="secondary"
+            onClick={handleResetPasswordClick}
+            className="gap-2 self-start sm:self-center"
+          >
             <KeyRound size={16} className="text-muted-foreground" />
             {t('auth.resetPassword')}
           </Button>
@@ -319,14 +323,16 @@ export function ProfilePage() {
         {/* Preferences */}
         <div className="space-y-6 pt-2">
           <div className="space-y-1">
-            <h3 className="text-lg font-semibold tracking-tight text-foreground">{t('settings.preferences')}</h3>
+            <h3 className="text-lg font-semibold tracking-tight text-foreground">
+              {t('settings.preferences')}
+            </h3>
           </div>
 
-          <div className="flex flex-col rounded-2xl bg-muted/30 ring-1 ring-border/20 p-1">
-            <div className="flex items-center justify-between rounded-xl px-4 py-3 hover:bg-muted/50 transition-colors">
+          <div className="ring-border/20 flex flex-col rounded-2xl bg-muted/30 p-1 ring-1">
+            <div className="flex items-center justify-between rounded-xl px-4 py-3 transition-colors hover:bg-muted/50">
               <Label className="text-sm font-medium text-foreground">{t('common.language')}</Label>
               <Select value={i18n.language} onValueChange={(lang) => i18n.changeLanguage(lang)}>
-                <SelectTrigger className="w-40 bg-background border-border/50 shadow-sm">
+                <SelectTrigger className="border-border/50 w-40 bg-background shadow-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -336,9 +342,9 @@ export function ProfilePage() {
               </Select>
             </div>
 
-            <div className="mx-4 h-px bg-border/40" />
+            <div className="bg-border/40 mx-4 h-px" />
 
-            <div className="flex items-center justify-between rounded-xl px-4 py-3 hover:bg-muted/50 transition-colors">
+            <div className="flex items-center justify-between rounded-xl px-4 py-3 transition-colors hover:bg-muted/50">
               <Label className="text-sm font-medium text-foreground">{t('settings.theme')}</Label>
               <ToggleGroup
                 type="single"
@@ -346,20 +352,34 @@ export function ProfilePage() {
                 onValueChange={(val) => {
                   if (val) {
                     setTheme(val)
-                    useGeneralStore.getState().setSettings({ theme: val as 'light' | 'dark' | 'system' })
+                    useGeneralStore
+                      .getState()
+                      .setSettings({ theme: val as 'light' | 'dark' | 'system' })
                   }
                 }}
-                className="bg-background border border-border/50 shadow-sm rounded-lg p-0.5"
+                className="border-border/50 rounded-lg border bg-background p-0.5 shadow-sm"
               >
-                <ToggleGroupItem value="light" aria-label={t('settings.themeLight')} className="gap-2 h-8 px-3 rounded-md">
+                <ToggleGroupItem
+                  value="light"
+                  aria-label={t('settings.themeLight')}
+                  className="h-8 gap-2 rounded-md px-3"
+                >
                   <Sun size={14} />
                   <span className="text-xs font-medium">{t('settings.themeLight')}</span>
                 </ToggleGroupItem>
-                <ToggleGroupItem value="dark" aria-label={t('settings.themeDark')} className="gap-2 h-8 px-3 rounded-md">
+                <ToggleGroupItem
+                  value="dark"
+                  aria-label={t('settings.themeDark')}
+                  className="h-8 gap-2 rounded-md px-3"
+                >
                   <Moon size={14} />
                   <span className="text-xs font-medium">{t('settings.themeDark')}</span>
                 </ToggleGroupItem>
-                <ToggleGroupItem value="system" aria-label={t('settings.themeSystem')} className="gap-2 h-8 px-3 rounded-md">
+                <ToggleGroupItem
+                  value="system"
+                  aria-label={t('settings.themeSystem')}
+                  className="h-8 gap-2 rounded-md px-3"
+                >
                   <Monitor size={14} />
                   <span className="text-xs font-medium">{t('settings.themeSystem')}</span>
                 </ToggleGroupItem>
@@ -370,7 +390,11 @@ export function ProfilePage() {
 
         {/* Action Buttons */}
         <div className="flex items-center pt-8">
-          <Button variant="ghost" onClick={handleLogout} className="gap-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+          <Button
+            variant="ghost"
+            onClick={handleLogout}
+            className="gap-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          >
             <LogOut size={16} />
             {t('user.logout')}
           </Button>

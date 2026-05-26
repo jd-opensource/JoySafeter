@@ -33,7 +33,10 @@ export function SummaryCards({ summary, loading }: SummaryCardsProps) {
     return (
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface-1)] p-4">
+          <div
+            key={i}
+            className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface-1)] p-4"
+          >
             <Skeleton className="mb-2 h-3 w-20" />
             <Skeleton className="h-6 w-16" />
           </div>
@@ -52,10 +55,7 @@ export function SummaryCards({ summary, loading }: SummaryCardsProps) {
         label="Avg Response Time"
         value={`${(summary?.avg_response_time_ms ?? 0).toFixed(0)} ms`}
       />
-      <StatCard
-        label="Error Rate"
-        value={`${((summary?.error_rate ?? 0) * 100).toFixed(1)}%`}
-      />
+      <StatCard label="Error Rate" value={`${((summary?.error_rate ?? 0) * 100).toFixed(1)}%`} />
     </div>
   )
 }

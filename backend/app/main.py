@@ -2,29 +2,37 @@
 FastAPI Main Application
 """
 
-import asyncio
-from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
-from typing import AsyncGenerator
+from __future__ import annotations
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from loguru import logger
-from sqlalchemy import text
+import asyncio  # noqa: E402
+from contextlib import asynccontextmanager  # noqa: E402
+from datetime import datetime, timedelta, timezone  # noqa: E402
+from typing import AsyncGenerator, Optional  # noqa: E402
 
-from app.api import api_router
-from app.api.v1.sessions import router as sessions_router
-from app.common.exceptions import register_exception_handlers
-from app.common.logging import LoggingMiddleware, setup_logging
-from app.core.database import AsyncSessionLocal, close_db, engine
-from app.core.redis import RedisClient
-from app.core.settings import settings
-from app.websocket.auth import WebSocketCloseCode, authenticate_websocket, reject_websocket
-from app.websocket.chat_ws_handler import ChatWsHandler
-from app.websocket.notification_manager import NotificationType, notification_manager
-from app.websocket.openclaw_handler import openclaw_bridge_handler
-from app.websocket.run_subscription_handler import run_subscription_handler
+from dotenv import load_dotenv  # noqa: E402
+
+from app.core.settings import ENV_FILE  # noqa: E402
+
+load_dotenv(ENV_FILE, override=False)
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from loguru import logger  # noqa: E402
+from sqlalchemy import text  # noqa: E402
+
+from app.api import api_router  # noqa: E402
+from app.api.v1.sessions import router as sessions_router  # noqa: E402
+from app.common.exceptions import register_exception_handlers  # noqa: E402
+from app.common.logging import LoggingMiddleware, setup_logging  # noqa: E402
+from app.core.database import AsyncSessionLocal, close_db, engine  # noqa: E402
+from app.core.redis import RedisClient  # noqa: E402
+from app.core.settings import settings  # noqa: E402
+from app.websocket.auth import WebSocketCloseCode, authenticate_websocket, reject_websocket  # noqa: E402
+from app.websocket.chat_ws_handler import ChatWsHandler  # noqa: E402
+from app.websocket.execution_subscription_handler import execution_subscription_handler  # noqa: E402
+from app.websocket.notification_manager import NotificationType, notification_manager  # noqa: E402
+from app.websocket.openclaw_handler import openclaw_bridge_handler  # noqa: E402
+from app.websocket.run_subscription_handler import run_subscription_handler  # noqa: E402
 
 setup_logging()
 
@@ -191,7 +199,85 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         logger.warning(f"   ⚠️  Checkpointer initialization failed: {e}")
         logger.warning("   App will continue starting, checkpoint features may be unavailable")
 
+    # Initialize CLI runtime providers
+    try:
+        from app.core.agent.cli_backends.registry import init_providers
+
+        init_providers()
+        logger.info("   ✓ CLI runtime providers initialized")
+    except Exception as e:
+        logger.warning(f"   ⚠️  CLI runtime provider initialization failed: {e}")
+
+    # Start container pool reaper (idle containers cleaned up every 5 min)
+    _reaper_task: Optional[asyncio.Task] = None
+    try:
+        from app.core.agent.cli_backends.container_pool import container_pool
+
+        async def _container_reaper() -> None:
+            while True:
+                await asyncio.sleep(300)
+                try:
+                    removed = await container_pool.cleanup_idle()
+                    if removed:
+                        logger.info(f"Container reaper: removed {removed} idle containers")
+                except Exception as e:
+                    logger.warning(f"Container reaper error: {e}")
+
+        _reaper_task = asyncio.create_task(_container_reaper(), name="container-reaper")
+        logger.info("   ✓ Container pool reaper started (idle_timeout=30m)")
+    except Exception as e:
+        logger.warning(f"   ⚠️  Container pool reaper failed to start: {e}")
+
+    # Scheduler: stale execution recovery (one-shot) + periodic loops
+    _dispatcher_task: Optional[asyncio.Task] = None
+    _exec_reaper_task: Optional[asyncio.Task] = None
+    try:
+        from app.core.scheduler import (
+            execution_reaper_loop,
+            mission_dispatcher_loop,
+            recover_stale_on_startup,
+        )
+
+        await recover_stale_on_startup()
+        _dispatcher_task = asyncio.create_task(mission_dispatcher_loop(), name="mission-dispatcher")
+        _exec_reaper_task = asyncio.create_task(execution_reaper_loop(), name="execution-reaper")
+        logger.info("   ✓ Mission dispatcher and execution reaper started (interval=30s)")
+    except Exception as e:
+        logger.warning(f"   ⚠️  Scheduler startup failed: {e}")
+
+    # Conductor Kernel (independent task orchestration engine)
+    try:
+        from app.conductor.lifespan import conductor_startup
+
+        await conductor_startup()
+    except Exception as e:
+        logger.warning(f"   ⚠️  Conductor kernel startup failed: {e}")
+
     yield
+
+    # Shutdown: Conductor Kernel
+    try:
+        from app.conductor.lifespan import conductor_shutdown
+
+        await conductor_shutdown()
+    except Exception as e:
+        logger.warning(f"   ⚠️  Conductor kernel shutdown failed: {e}")
+
+    # Shutdown: Cancel scheduler loops
+    for task in (_dispatcher_task, _exec_reaper_task):
+        if task:
+            task.cancel()
+
+    # Shutdown: Cancel container pool reaper and mark pool as shut down
+    try:
+        if _reaper_task:
+            _reaper_task.cancel()
+        from app.core.agent.cli_backends.container_pool import container_pool as _cp
+
+        await _cp.shutdown()
+        logger.info("   ✓ Container pool shut down (containers left running)")
+    except Exception as e:
+        logger.warning(f"   ⚠️  Container pool shutdown failed: {e}")
 
     # Shutdown: Drain sandbox pool (stop all containers gracefully)
     try:
@@ -254,20 +340,18 @@ app.add_middleware(
 )
 
 
-@app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    """Global exception handler"""
-    logger.opt(exception=True).error(f"Unhandled exception: {exc}")
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal server error"},
-    )
-
-
 app.include_router(api_router, prefix="/api")
 
 # Sessions router mounted outside /api/v1 to keep /api/sessions path compatible
 app.include_router(sessions_router, prefix="/api/sessions", tags=["sessions"])
+
+# Conductor Kernel API (independent, all under /api/v2/conductor)
+from app.conductor.api.router import conductor_router  # noqa: E402
+from app.conductor.config import conductor_config  # noqa: E402
+
+if conductor_config.enabled:
+    app.include_router(conductor_router, prefix=conductor_config.api_prefix)
+    app.include_router(conductor_router, prefix="/v1")
 
 
 # Register Router
@@ -345,6 +429,18 @@ async def runs_websocket_endpoint(websocket: WebSocket):
         return
 
     await run_subscription_handler.handle_connection(websocket, str(user_id))
+
+
+@app.websocket("/ws/executions")
+async def executions_websocket_endpoint(websocket: WebSocket):
+    """Subscription endpoint for CLI execution snapshot/replay/live events."""
+    is_authenticated, user_id = await authenticate_websocket(websocket)
+
+    if not is_authenticated or not user_id:
+        await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
+        return
+
+    await execution_subscription_handler.handle_connection(websocket, str(user_id))
 
 
 @app.websocket("/ws/openclaw/dashboard")

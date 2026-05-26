@@ -78,7 +78,9 @@ export function EdgePropertiesPanel({
         <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
           <div className="flex items-center gap-2">
             <ArrowRight size={14} className="text-[var(--text-muted)]" />
-            <span className="text-sm font-medium">{t('workspace.edgeProperties', { defaultValue: 'Edge Properties' })}</span>
+            <span className="text-sm font-medium">
+              {t('workspace.edgeProperties', { defaultValue: 'Edge Properties' })}
+            </span>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} className="h-6 w-6">
             <X size={14} />
@@ -89,9 +91,13 @@ export function EdgePropertiesPanel({
         <div className="space-y-4 p-4">
           {/* Connection info */}
           <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-            <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">{sourceLabel}</span>
+            <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
+              {sourceLabel}
+            </span>
             <ArrowRight size={12} />
-            <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">{targetLabel}</span>
+            <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
+              {targetLabel}
+            </span>
           </div>
 
           {/* Label */}
@@ -126,14 +132,21 @@ export function EdgePropertiesPanel({
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t('workspace.deleteEdgeConfirmTitle', { defaultValue: 'Delete Edge?' })}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t('workspace.deleteEdgeConfirmTitle', { defaultValue: 'Delete Edge?' })}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              {t('workspace.deleteEdgeConfirmMessage', { defaultValue: 'This will remove the connection between nodes.' })}
+              {t('workspace.deleteEdgeConfirmMessage', {
+                defaultValue: 'This will remove the connection between nodes.',
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('workspace.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
               {t('workspace.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>

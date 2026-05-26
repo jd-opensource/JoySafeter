@@ -193,10 +193,3 @@ def create_copilot_manager(
     logger.info(f"[DeepAgentsCopilot] Created manager run_id={run_id} run_dir={run_dir}")
 
     return manager, store
-
-
-# ==================== Schema Validation Helpers (Moved to .utils) ====================
-
-# Re-exporting from .utils if needed, but better to import directly from .utils
-
-# ==================== Helpers (Moved to .utils) ====================

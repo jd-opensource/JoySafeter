@@ -50,7 +50,11 @@ export function formatRelativeTime(value: string, t?: TFn): string {
 // URL helpers
 // ---------------------------------------------------------------------------
 
-export function buildRunHref(run: { run_id: string; run_type?: string; agent_name?: string | null }): string {
+export function buildRunHref(run: {
+  run_id: string
+  run_type?: string
+  agent_name?: string | null
+}): string {
   if (run.agent_name === 'skill_creator' || run.run_type === 'skill_creator') {
     return `/skills/creator?run=${encodeURIComponent(run.run_id)}`
   }

@@ -18,10 +18,7 @@ import {
   useRestoreDraft,
 } from '@/hooks/queries/skillVersions'
 import { useTranslation } from '@/lib/i18n'
-import {
-  versionPublishSchema,
-  type VersionPublishFormData,
-} from '../schemas/versionPublishSchema'
+import { versionPublishSchema, type VersionPublishFormData } from '../schemas/versionPublishSchema'
 
 interface VersionHistoryTabProps {
   skillId: string
@@ -79,7 +76,10 @@ export function VersionHistoryTab({ skillId, userRole }: VersionHistoryTabProps)
         toast({ title: t('skillVersions.deletedSuccess', { version }) })
       }
     } catch (error: unknown) {
-      toast({ title: error instanceof Error ? error.message : String(error), variant: 'destructive' })
+      toast({
+        title: error instanceof Error ? error.message : String(error),
+        variant: 'destructive',
+      })
     }
     setConfirmDialog((prev) => ({ ...prev, open: false }))
   }
@@ -218,9 +218,7 @@ export function VersionHistoryTab({ skillId, userRole }: VersionHistoryTabProps)
             : t('skillVersions.deleteConfirmMessage')
         }
         confirmLabel={
-          confirmDialog.type === 'restore'
-            ? t('skillVersions.restore')
-            : t('skillVersions.delete')
+          confirmDialog.type === 'restore' ? t('skillVersions.restore') : t('skillVersions.delete')
         }
         cancelLabel={t('common.cancel')}
         variant={confirmDialog.type === 'delete' ? 'destructive' : 'default'}

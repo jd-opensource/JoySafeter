@@ -145,12 +145,16 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
                   <div className="flex items-center gap-1.5">
                     <Sparkles
                       size={11}
-                      className={isSelected ? 'text-[var(--skill-brand)]' : 'text-[var(--text-subtle)]'}
+                      className={
+                        isSelected ? 'text-[var(--skill-brand)]' : 'text-[var(--text-subtle)]'
+                      }
                     />
                     <span
                       className={cn(
                         'truncate text-xs font-medium',
-                        isSelected ? 'text-[var(--skill-brand-700)]' : 'text-[var(--text-secondary)]',
+                        isSelected
+                          ? 'text-[var(--skill-brand-700)]'
+                          : 'text-[var(--text-secondary)]',
                       )}
                     >
                       {skill.name}
@@ -173,7 +177,9 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
                         </span>
                       ))}
                       {skill.tags.length > 3 && (
-                        <span className="text-2xs text-[var(--text-muted)]">+{skill.tags.length - 3}</span>
+                        <span className="text-2xs text-[var(--text-muted)]">
+                          +{skill.tags.length - 3}
+                        </span>
                       )}
                     </div>
                   )}

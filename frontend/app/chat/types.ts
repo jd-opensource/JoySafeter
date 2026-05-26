@@ -44,7 +44,6 @@ export interface MessageMetadata {
   lastRouteDecision?: RouteDecisionEventData
   lastLoopIteration?: LoopIterationEventData
   error?: string
-  [key: string]: unknown // keep backwards compat
 }
 
 export interface InterruptState {
@@ -73,20 +72,6 @@ export interface ToolCall {
   result?: string | Record<string, unknown>
   startTime: number
   endTime?: number
-}
-
-// Legacy CanvasNode for Builder (keeping for compatibility with Builder)
-export interface CanvasNode {
-  id: string
-  parentId: string | null
-  type: NodeType
-  content: string
-  position: Position
-  width: number
-  isStreaming?: boolean
-  createdAt: number
-  toolCalls?: ToolCall[]
-  data?: Record<string, unknown>
 }
 
 export interface Edge {

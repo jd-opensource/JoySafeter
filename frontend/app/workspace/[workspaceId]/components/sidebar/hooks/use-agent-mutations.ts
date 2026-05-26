@@ -21,7 +21,12 @@ export function useAgentMutations(workspaceId: string) {
   const queryClient = useQueryClient()
 
   const createAgentMutation = useMutation({
-    mutationFn: async (data: { name: string; description?: string; color?: string; mode?: 'canvas' | 'code' }) => {
+    mutationFn: async (data: {
+      name: string
+      description?: string
+      color?: string
+      mode?: 'canvas' | 'code'
+    }) => {
       // Create Graph
       const graph = await agentService.createGraph({
         name: data.name,

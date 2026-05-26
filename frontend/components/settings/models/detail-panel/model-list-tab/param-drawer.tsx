@@ -5,7 +5,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { useToast } from '@/hooks/use-toast'
@@ -80,8 +87,7 @@ export function ParamDrawer({
     setParams((prev) => ({ ...prev, [key]: value }))
   }
 
-  const isNumericField = (field: SchemaField) =>
-    field.type === 'number' || field.type === 'integer'
+  const isNumericField = (field: SchemaField) => field.type === 'number' || field.type === 'integer'
 
   const getEffectiveValue = (field: SchemaField): unknown => {
     if (useDefaults[field.key]) {
@@ -115,10 +121,12 @@ export function ParamDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-[400px] sm:w-[480px] flex flex-col">
+      <SheetContent side="right" className="flex w-[400px] flex-col sm:w-[480px]">
         <SheetHeader>
           <SheetTitle>Parameters — {modelName}</SheetTitle>
-          <SheetDescription>Adjust model runtime parameters such as temperature, max_tokens, etc.</SheetDescription>
+          <SheetDescription>
+            Adjust model runtime parameters such as temperature, max_tokens, etc.
+          </SheetDescription>
         </SheetHeader>
 
         <div className="mt-4 flex-1 space-y-5 overflow-y-auto pr-1">
@@ -127,9 +135,7 @@ export function ParamDrawer({
             const hasProviderDefault = providerDefaults[field.key] !== undefined
             const effectiveValue = getEffectiveValue(field)
             const isSlider =
-              isNumericField(field) &&
-              field.minimum !== undefined &&
-              field.maximum !== undefined
+              isNumericField(field) && field.minimum !== undefined && field.maximum !== undefined
 
             return (
               <div key={field.key} className="space-y-2">
@@ -137,11 +143,11 @@ export function ParamDrawer({
                   <div>
                     <Label className="text-sm font-medium">{field.title}</Label>
                     {field.description && (
-                      <p className="text-xs text-[var(--text-muted)] mt-0.5">{field.description}</p>
+                      <p className="mt-0.5 text-xs text-[var(--text-muted)]">{field.description}</p>
                     )}
                   </div>
                   {hasProviderDefault && (
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex shrink-0 items-center gap-1.5">
                       <span className="text-xs text-[var(--text-muted)]">Default</span>
                       <Switch
                         checked={isUsingDefault}
@@ -164,14 +170,18 @@ export function ParamDrawer({
                       onValueChange={([v]) => setParam(field.key, v)}
                       className="flex-1"
                     />
-                    <span className="text-sm text-[var(--text-secondary)] w-12 text-right tabular-nums">
+                    <span className="w-12 text-right text-sm tabular-nums text-[var(--text-secondary)]">
                       {getNumericValue(field).toFixed(field.type === 'integer' ? 0 : 1)}
                     </span>
                   </div>
                 ) : (
                   <Input
                     type={isNumericField(field) ? 'number' : 'text'}
-                    value={effectiveValue !== undefined && effectiveValue !== null ? String(effectiveValue) : ''}
+                    value={
+                      effectiveValue !== undefined && effectiveValue !== null
+                        ? String(effectiveValue)
+                        : ''
+                    }
                     disabled={isUsingDefault}
                     placeholder={
                       field.default !== undefined && field.default !== null
@@ -186,7 +196,9 @@ export function ParamDrawer({
                         setParam(field.key, raw)
                       }
                     }}
-                    className={isUsingDefault ? 'bg-[var(--surface-3)] text-[var(--text-muted)]' : ''}
+                    className={
+                      isUsingDefault ? 'bg-[var(--surface-3)] text-[var(--text-muted)]' : ''
+                    }
                   />
                 )}
               </div>
@@ -194,7 +206,7 @@ export function ParamDrawer({
           })}
         </div>
 
-        <SheetFooter className="mt-4 pt-4 border-t border-[var(--border-muted)]">
+        <SheetFooter className="mt-4 border-t border-[var(--border-muted)] pt-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>

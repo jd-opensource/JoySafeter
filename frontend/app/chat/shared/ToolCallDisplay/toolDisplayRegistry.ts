@@ -39,7 +39,10 @@ export function formatToolDisplay(toolName: string, toolInput: Record<string, an
   if (toolName === 'execute' || toolName === 'bash' || toolName === 'run_command') {
     const cmd = toolInput?.command || toolInput?.code || ''
     const shortCmd = typeof cmd === 'string' ? cmd.slice(0, 60) : ''
-    return { label: 'Executing command', detail: shortCmd ? (shortCmd.length < cmd.length ? shortCmd + '...' : shortCmd) : '' }
+    return {
+      label: 'Executing command',
+      detail: shortCmd ? (shortCmd.length < cmd.length ? shortCmd + '...' : shortCmd) : '',
+    }
   }
 
   if (toolName === 'python' || toolName === 'python_interpreter') {
@@ -69,7 +72,10 @@ export function formatToolDisplay(toolName: string, toolInput: Record<string, an
 
   if (toolName === 'ls' || toolName === 'list_directory') {
     const path = toolInput?.path || ''
-    return { label: `Listing ${basename(path) || 'directory'}`, detail: path ? shortenPath(path) : '' }
+    return {
+      label: `Listing ${basename(path) || 'directory'}`,
+      detail: path ? shortenPath(path) : '',
+    }
   }
 
   if (toolName === 'write_todos' || toolName === 'todo_write') {

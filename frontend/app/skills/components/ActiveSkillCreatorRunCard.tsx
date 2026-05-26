@@ -41,8 +41,12 @@ export function ActiveSkillCreatorRunCard() {
         ...activeRun,
         status: wsIsFresher ? current.status : activeRun.status,
         last_seq: Math.max(current.last_seq, activeRun.last_seq),
-        error_code: wsIsFresher ? (current.error_code ?? activeRun.error_code) : activeRun.error_code,
-        error_message: wsIsFresher ? (current.error_message ?? activeRun.error_message) : activeRun.error_message,
+        error_code: wsIsFresher
+          ? (current.error_code ?? activeRun.error_code)
+          : activeRun.error_code,
+        error_message: wsIsFresher
+          ? (current.error_message ?? activeRun.error_message)
+          : activeRun.error_message,
       }
     })
   }, [activeRun])
@@ -102,7 +106,11 @@ export function ActiveSkillCreatorRunCard() {
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="flex min-w-0 items-start gap-3">
             <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-[var(--skill-brand-200)] bg-[var(--surface-elevated)] text-[var(--skill-brand-600)]">
-              {liveRun.status === 'running' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Bot className="h-5 w-5" />}
+              {liveRun.status === 'running' ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <Bot className="h-5 w-5" />
+              )}
             </div>
             <div className="min-w-0">
               <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -121,7 +129,8 @@ export function ActiveSkillCreatorRunCard() {
               </p>
               <p className="mt-1 flex items-center gap-1 text-xs text-[var(--text-muted)]">
                 <Sparkles className="h-3.5 w-3.5" />
-                {t('runs.startedAt', 'Started')} {liveRun.started_at ? formatRelativeTime(liveRun.started_at, t) : ''}
+                {t('runs.startedAt', 'Started')}{' '}
+                {liveRun.started_at ? formatRelativeTime(liveRun.started_at, t) : ''}
               </p>
             </div>
           </div>

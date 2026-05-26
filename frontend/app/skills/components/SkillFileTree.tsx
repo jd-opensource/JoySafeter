@@ -36,11 +36,14 @@ export const getFileIcon = (path: string, _fileType: string) => {
 
   if (filename === 'SKILL.md') return <FileText size={14} className="text-[var(--skill-brand)]" />
   if (filename.endsWith('.md')) return <FileText size={14} className="text-[var(--brand-400)]" />
-  if (filename.endsWith('.py')) return <Terminal size={14} className="text-[var(--status-warning)]" />
+  if (filename.endsWith('.py'))
+    return <Terminal size={14} className="text-[var(--status-warning)]" />
   if (filename.endsWith('.js') || filename.endsWith('.ts'))
     return <FileCode size={14} className="text-[var(--status-warning)]" />
-  if (filename.endsWith('.json')) return <FileCode size={14} className="text-[var(--status-success)]" />
-  if (filename.endsWith('.sh')) return <Terminal size={14} className="text-[var(--text-tertiary)]" />
+  if (filename.endsWith('.json'))
+    return <FileCode size={14} className="text-[var(--status-success)]" />
+  if (filename.endsWith('.sh'))
+    return <Terminal size={14} className="text-[var(--text-tertiary)]" />
   if (filename.endsWith('.yaml') || filename.endsWith('.yml'))
     return <FileCode size={14} className="text-[var(--brand-400)]" />
   if (filename.endsWith('.html') || filename.endsWith('.css'))

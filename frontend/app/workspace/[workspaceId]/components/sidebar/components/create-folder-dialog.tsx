@@ -38,7 +38,9 @@ export function DeleteAgentDialog({
             {agentToDelete ? (
               <>
                 {t('workspace.deleteAgentConfirmMessagePrefix')}{' '}
-                <span className="font-semibold text-[var(--status-error)]">{agentToDelete.name}</span>{' '}
+                <span className="font-semibold text-[var(--status-error)]">
+                  {agentToDelete.name}
+                </span>{' '}
                 {t('workspace.deleteAgentConfirmMessageSuffix')}
               </>
             ) : (
@@ -47,9 +49,7 @@ export function DeleteAgentDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel onClick={onCancel}>
-            {t('workspace.cancel')}
-          </AlertDialogCancel>
+          <AlertDialogCancel onClick={onCancel}>{t('workspace.cancel')}</AlertDialogCancel>
           <AlertDialogAction
             onClick={onConfirm}
             className="bg-[var(--status-error)] text-white hover:bg-[var(--status-error-hover)]"

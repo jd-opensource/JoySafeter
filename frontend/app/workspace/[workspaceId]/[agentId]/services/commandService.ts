@@ -7,7 +7,7 @@
 import type { ChatStreamEvent } from '@/services/chatBackend'
 
 import { generateId } from '../stores/execution/utils'
-import { useExecutionStore } from '../stores/executionStore'
+import { useExecutionStore } from '../stores/execution/executionStore'
 
 import {
   processEvent,

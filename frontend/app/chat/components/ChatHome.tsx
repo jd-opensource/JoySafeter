@@ -144,53 +144,59 @@ export default function ChatHome({
   }, [state.input])
 
   // Handle mode selection
-  const handleModeSelect = useCallback(async (modeId: string): Promise<ModeSelectionResult | null> => {
-    const handler = chatModeService.getHandler(modeId)
-    if (!handler) {
-      console.warn(`No handler found for mode: ${modeId}`)
-      return null
-    }
-
-    setIsRedirecting(true)
-    try {
-      const result = await handler.onSelect(modeContextRef.current)
-      if (result.success) {
-        // Apply state updates
-        if (result.stateUpdates) {
-          if (result.stateUpdates.input !== undefined) {
-            setInput(result.stateUpdates.input)
-          }
-          if (result.stateUpdates.mode !== undefined || result.stateUpdates.graphId !== undefined) {
-            setMode({
-              type: result.stateUpdates.mode || modeId,
-              graphId: result.stateUpdates.graphId,
-            })
-          }
-        } else {
-          // If no special handling, just set the mode
-          setMode({ type: modeId })
-        }
-        return result
-      } else if (result.error) {
-        toastError(
-          result.error,
-          t('chat.modeSelectionFailed', { defaultValue: 'Mode selection failed' }),
-        )
-        return result
+  const handleModeSelect = useCallback(
+    async (modeId: string): Promise<ModeSelectionResult | null> => {
+      const handler = chatModeService.getHandler(modeId)
+      if (!handler) {
+        console.warn(`No handler found for mode: ${modeId}`)
+        return null
       }
-      return null
-    } catch (error) {
-      console.error('Failed to select mode:', error)
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : t('chat.modeSelectionFailed', { defaultValue: 'Mode selection failed' })
-      toastError(errorMessage, t('chat.retry', { defaultValue: 'Please try again' }))
-      return null
-    } finally {
-      setIsRedirecting(false)
-    }
-  }, [setIsRedirecting, setInput, setMode, t])
+
+      setIsRedirecting(true)
+      try {
+        const result = await handler.onSelect(modeContextRef.current)
+        if (result.success) {
+          // Apply state updates
+          if (result.stateUpdates) {
+            if (result.stateUpdates.input !== undefined) {
+              setInput(result.stateUpdates.input)
+            }
+            if (
+              result.stateUpdates.mode !== undefined ||
+              result.stateUpdates.graphId !== undefined
+            ) {
+              setMode({
+                type: result.stateUpdates.mode || modeId,
+                graphId: result.stateUpdates.graphId,
+              })
+            }
+          } else {
+            // If no special handling, just set the mode
+            setMode({ type: modeId })
+          }
+          return result
+        } else if (result.error) {
+          toastError(
+            result.error,
+            t('chat.modeSelectionFailed', { defaultValue: 'Mode selection failed' }),
+          )
+          return result
+        }
+        return null
+      } catch (error) {
+        console.error('Failed to select mode:', error)
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : t('chat.modeSelectionFailed', { defaultValue: 'Mode selection failed' })
+        toastError(errorMessage, t('chat.retry', { defaultValue: 'Please try again' }))
+        return null
+      } finally {
+        setIsRedirecting(false)
+      }
+    },
+    [setIsRedirecting, setInput, setMode, t],
+  )
 
   // Default chat: auto-select default-chat mode on first load (create_deep_agent + skills + Docker)
   useEffect(() => {
@@ -592,7 +598,9 @@ export default function ChatHome({
                       <h3
                         className={cn(
                           'text-sm font-medium',
-                          isSelected ? 'text-primary' : 'text-[var(--text-primary)] group-hover:text-primary',
+                          isSelected
+                            ? 'text-primary'
+                            : 'text-[var(--text-primary)] group-hover:text-primary',
                         )}
                       >
                         {mode.label}
@@ -606,10 +614,7 @@ export default function ChatHome({
 
             {starterPrompts && (
               <div className="mt-4">
-                <StarterPrompts
-                  prompts={starterPrompts}
-                  onSelect={(prompt) => setInput(prompt)}
-                />
+                <StarterPrompts prompts={starterPrompts} onSelect={(prompt) => setInput(prompt)} />
               </div>
             )}
           </div>

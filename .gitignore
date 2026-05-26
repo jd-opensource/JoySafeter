@@ -281,7 +281,7 @@ frontend/typings
 frontend/.DS_Store
 Thumbs.db
 
-executions
+/executions
 openai-realtime-console
 src/django_app/staticfiles/*
 

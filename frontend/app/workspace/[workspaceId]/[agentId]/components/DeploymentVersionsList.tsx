@@ -22,7 +22,10 @@ import { Pagination } from '@/components/ui/pagination'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
-import type { GraphDeploymentVersion, GraphDeploymentStatus } from '@/services/graphDeploymentService'
+import type {
+  GraphDeploymentVersion,
+  GraphDeploymentStatus,
+} from '@/services/graphDeploymentService'
 
 function formatDeploymentDate(dateString: string): string {
   const date = new Date(dateString)
@@ -90,13 +93,13 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
               <Rocket
                 size={14}
                 className={
-                  deploymentStatus.isDeployed ? 'text-[var(--status-success)]' : 'text-[var(--text-muted)]'
+                  deploymentStatus.isDeployed
+                    ? 'text-[var(--status-success)]'
+                    : 'text-[var(--text-muted)]'
                 }
               />
               <span className="font-medium">
-                {deploymentStatus.isDeployed
-                  ? t('workspace.deployed')
-                  : t('workspace.notDeployed')}
+                {deploymentStatus.isDeployed ? t('workspace.deployed') : t('workspace.notDeployed')}
               </span>
               {deploymentStatus.deployment && (
                 <span className="text-xs text-[var(--text-tertiary)]">
@@ -151,8 +154,7 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
                 version.isActive
                   ? 'border-[var(--status-success)] bg-[var(--status-success-bg)] shadow-sm shadow-[var(--status-success-border)]'
                   : 'border-[var(--border)] bg-[var(--surface-elevated)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)]',
-                selectedVersion === version.version &&
-                  'ring-2 ring-primary ring-offset-1',
+                selectedVersion === version.version && 'ring-2 ring-primary ring-offset-1',
               )}
               onClick={() => onSelectVersion(version.version)}
             >
@@ -235,10 +237,7 @@ export const DeploymentVersionsList = React.memo(function DeploymentVersionsList
                 </div>
 
                 {/* Action buttons */}
-                <div
-                  className="flex items-center gap-0.5"
-                  onClick={(e) => e.stopPropagation()}
-                >
+                <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
                   <Button
                     size="sm"
                     variant="ghost"

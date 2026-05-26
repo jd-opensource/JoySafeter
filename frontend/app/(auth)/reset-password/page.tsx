@@ -76,7 +76,9 @@ function ResetPasswordContent() {
   return (
     <>
       <div className="space-y-1 text-center">
-        <h1 className={`${soehne.className} text-3xl font-medium tracking-tight text-[var(--text-primary)]`}>
+        <h1
+          className={`${soehne.className} text-3xl font-medium tracking-tight text-[var(--text-primary)]`}
+        >
           Reset your password
         </h1>
         <p className={`${inter.className} text-lg font-[380] text-muted-foreground`}>

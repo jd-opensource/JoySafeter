@@ -32,22 +32,22 @@ interface AddCustomModelDialogProps {
   onCreated?: (providerName: string) => void
 }
 
-export function AddCustomModelDialog({ open, onOpenChange, credentialSchema, onCreated }: AddCustomModelDialogProps) {
+export function AddCustomModelDialog({
+  open,
+  onOpenChange,
+  credentialSchema,
+  onCreated,
+}: AddCustomModelDialogProps) {
   const createCustomProvider = useCreateCustomProvider()
   const { toast } = useToast()
   const [modelName, setModelName] = useState('')
   const [credFields, setCredFields] = useState<Record<string, string>>({})
 
-  const formFields = useMemo(
-    () => parseJsonSchema(credentialSchema),
-    [credentialSchema],
-  )
+  const formFields = useMemo(() => parseJsonSchema(credentialSchema), [credentialSchema])
 
   const canSubmit =
     modelName.trim() !== '' &&
-    formFields
-      .filter((f) => f.required)
-      .every((f) => credFields[f.key]?.trim())
+    formFields.filter((f) => f.required).every((f) => credFields[f.key]?.trim())
 
   const handleAdd = async () => {
     if (!canSubmit) return
@@ -81,16 +81,14 @@ export function AddCustomModelDialog({ open, onOpenChange, credentialSchema, onC
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle>Add Custom Model</DialogTitle>
-          <DialogDescription>
-            Add a new custom model instance
-          </DialogDescription>
+          <DialogDescription>Add a new custom model instance</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
             <Label htmlFor="model-name">
               Model Name
-              <span className="text-destructive ml-1">*</span>
+              <span className="ml-1 text-destructive">*</span>
             </Label>
             <Input
               id="model-name"
@@ -104,14 +102,12 @@ export function AddCustomModelDialog({ open, onOpenChange, credentialSchema, onC
             <div key={field.key} className="space-y-1.5">
               <Label htmlFor={`custom-${field.key}`}>
                 {field.title}
-                {field.required && <span className="text-destructive ml-1">*</span>}
+                {field.required && <span className="ml-1 text-destructive">*</span>}
               </Label>
               {field.enum ? (
                 <Select
                   value={credFields[field.key] || ''}
-                  onValueChange={(val) =>
-                    setCredFields((f) => ({ ...f, [field.key]: val }))
-                  }
+                  onValueChange={(val) => setCredFields((f) => ({ ...f, [field.key]: val }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder={`Select ${field.title}`} />
@@ -135,9 +131,7 @@ export function AddCustomModelDialog({ open, onOpenChange, credentialSchema, onC
                   }
                   placeholder={field.description}
                   value={credFields[field.key] ?? ''}
-                  onChange={(e) =>
-                    setCredFields((f) => ({ ...f, [field.key]: e.target.value }))
-                  }
+                  onChange={(e) => setCredFields((f) => ({ ...f, [field.key]: e.target.value }))}
                 />
               )}
               {field.description && !field.enum && (

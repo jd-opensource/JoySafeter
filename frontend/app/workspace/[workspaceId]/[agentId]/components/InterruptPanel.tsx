@@ -27,7 +27,8 @@ import { useTranslation } from '@/lib/i18n'
 
 import { resumeWithCommand } from '../services/commandService'
 import { useBuilderStore } from '../stores/builderStore'
-import { useExecutionStore, type InterruptInfo } from '../stores/executionStore'
+import { useExecutionStore } from '../stores/execution/executionStore'
+import type { InterruptInfo } from '../stores/execution/types'
 import { getNodeNameFromFlowNode } from '../utils/nodeNameUtils'
 
 interface InterruptPanelProps {
@@ -285,7 +286,9 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
       removeInterrupt(interrupt.nodeId)
       toast({
         title: t('workspace.executionJumped'),
-        description: t('workspace.jumpedToNode', { nodeLabel: (targetNode?.data as { label?: string })?.label || nodeName }),
+        description: t('workspace.jumpedToNode', {
+          nodeLabel: (targetNode?.data as { label?: string })?.label || nodeName,
+        }),
       })
       setShowGotoSelector(false)
       onClose?.()
@@ -319,11 +322,15 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
         {/* State Summary */}
         {!isEditing && keyStateFields.length > 0 && (
           <div className="space-y-2">
-            <label className="text-sm font-medium text-[var(--text-secondary)]">{t('workspace.stateSummary')}</label>
+            <label className="text-sm font-medium text-[var(--text-secondary)]">
+              {t('workspace.stateSummary')}
+            </label>
             <div className="space-y-1 rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] p-3">
               {keyStateFields.slice(0, 5).map((field, idx) => (
                 <div key={idx} className="text-xs">
-                  <span className="font-mono font-semibold text-[var(--text-secondary)]">{field.key}:</span>{' '}
+                  <span className="font-mono font-semibold text-[var(--text-secondary)]">
+                    {field.key}:
+                  </span>{' '}
                   <span className="text-[var(--text-tertiary)]">{String(field.value)}</span>
                 </div>
               ))}
@@ -419,7 +426,9 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
 
         {showGotoSelector && (
           <div className="space-y-2 rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] p-3">
-            <label className="text-sm font-medium text-[var(--text-secondary)]">{t('workspace.selectNodeToJumpTo')}</label>
+            <label className="text-sm font-medium text-[var(--text-secondary)]">
+              {t('workspace.selectNodeToJumpTo')}
+            </label>
             <Select value={selectedNodeId} onValueChange={setSelectedNodeId}>
               <SelectTrigger>
                 <SelectValue placeholder={t('workspace.selectNodePlaceholder')} />

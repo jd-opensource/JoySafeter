@@ -76,7 +76,14 @@ export function FolderItem({
   const canCreateSubfolder = depth < maxDepth - 1
   const [showMenu, setShowMenu] = useState(false)
 
-  const { isEditing, editName, setEditName, startEditing, handleSave: handleSaveRename, handleCancel: handleCancelRename } = useInlineRename(folder.name, onRename)
+  const {
+    isEditing,
+    editName,
+    setEditName,
+    startEditing,
+    handleSave: handleSaveRename,
+    handleCancel: handleCancelRename,
+  } = useInlineRename(folder.name, onRename)
   const { isDragOver, handleDragOver, handleDragLeave, handleDrop } = useDropZone(onDropAgent)
 
   const indentPadding = depth * 12
@@ -150,11 +157,31 @@ export function FolderItem({
             <SidebarContextMenu
               items={[
                 ...(canCreateSubfolder
-                  ? [{ label: t('workspace.newSubfolder'), icon: <FolderPlus className="h-3 w-3" />, onClick: () => onCreateSubfolder?.() }]
+                  ? [
+                      {
+                        label: t('workspace.newSubfolder'),
+                        icon: <FolderPlus className="h-3 w-3" />,
+                        onClick: () => onCreateSubfolder?.(),
+                      },
+                    ]
                   : []),
-                { label: t('workspace.duplicate'), icon: <Copy className="h-3 w-3" />, onClick: () => onDuplicate?.() },
-                { label: t('workspace.rename'), icon: <Pencil className="h-3 w-3" />, onClick: () => startEditing(), separator: true },
-                { label: t('workspace.delete'), icon: <Trash2 className="h-3 w-3" />, onClick: onDelete, variant: 'destructive' as const },
+                {
+                  label: t('workspace.duplicate'),
+                  icon: <Copy className="h-3 w-3" />,
+                  onClick: () => onDuplicate?.(),
+                },
+                {
+                  label: t('workspace.rename'),
+                  icon: <Pencil className="h-3 w-3" />,
+                  onClick: () => startEditing(),
+                  separator: true,
+                },
+                {
+                  label: t('workspace.delete'),
+                  icon: <Trash2 className="h-3 w-3" />,
+                  onClick: onDelete,
+                  variant: 'destructive' as const,
+                },
               ]}
               onClose={() => setShowMenu(false)}
               className="right-0 top-[24px] min-w-[140px]"

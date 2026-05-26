@@ -9,7 +9,6 @@ import type { Message } from '@/app/chat/types'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
-
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
@@ -35,7 +34,9 @@ function summarizeToolResult(rawName: string, result: unknown): string | null {
       validation?: { valid?: boolean; errors?: Array<unknown> }
     }
     const fileCount = Array.isArray(preview.files) ? preview.files.length : 0
-    const errorCount = Array.isArray(preview.validation?.errors) ? preview.validation.errors.length : 0
+    const errorCount = Array.isArray(preview.validation?.errors)
+      ? preview.validation.errors.length
+      : 0
 
     if (preview.validation?.valid === true) {
       return `Preview ready: ${fileCount} file${fileCount === 1 ? '' : 's'}, validation passed`
@@ -97,14 +98,10 @@ function MessageBubble({ message }: { message: Message }) {
                 <div key={tc.id}>
                   <ToolCallBadge
                     name={rawName}
-                    args={tc.args as Record<string, any> || {}}
+                    args={(tc.args as Record<string, any>) || {}}
                     status={tc.status}
                   />
-                  {summary && (
-                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {summary}
-                    </p>
-                  )}
+                  {summary && <p className="mt-1 text-xs text-[var(--text-tertiary)]">{summary}</p>}
                 </div>
               )
             })}
@@ -218,7 +215,11 @@ export default function SkillCreatorChat({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={inputDisabled ? 'Initializing Skill Creator...' : 'Describe the skill you want to create...'}
+            placeholder={
+              inputDisabled
+                ? 'Initializing Skill Creator...'
+                : 'Describe the skill you want to create...'
+            }
             className="max-h-[160px] min-h-[24px] flex-1 resize-none border-none bg-transparent text-sm shadow-none placeholder:text-[var(--text-muted)] focus:outline-none"
             rows={1}
             disabled={isProcessing || isSubmitting || inputDisabled}
@@ -246,7 +247,10 @@ export default function SkillCreatorChat({
                   : 'cursor-not-allowed bg-[var(--surface-5)]',
               )}
             >
-              <ArrowRight size={14} className={input.trim() ? 'text-white' : 'text-[var(--text-muted)]'} />
+              <ArrowRight
+                size={14}
+                className={input.trim() ? 'text-white' : 'text-[var(--text-muted)]'}
+              />
             </Button>
           )}
         </div>

@@ -104,7 +104,9 @@ export default function FileBrowser({
             </span>
           )}
           <span className="flex-shrink-0">{getFileIcon(node)}</span>
-          <span className={cn('flex-1 truncate', isSelected && 'font-medium text-[var(--brand-700)]')}>
+          <span
+            className={cn('flex-1 truncate', isSelected && 'font-medium text-[var(--brand-700)]')}
+          >
             {node.name}
           </span>
         </div>

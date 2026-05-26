@@ -125,4 +125,4 @@ export {
   ToastTitle,
   ToastViewport,
 } from './toast'
-export { toast, useToast } from './use-toast'
+export { toast, useToast } from '@/hooks/use-toast'

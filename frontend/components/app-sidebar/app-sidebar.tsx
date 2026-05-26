@@ -8,6 +8,8 @@ import {
   Brain,
   Clapperboard,
   Activity,
+  Target,
+  Bot,
 } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -21,48 +23,42 @@ import { AppLogo } from './app-logo'
 import { UserInfo } from './user-info'
 import { VersionBadge } from './version-badge'
 
-const menuItems = [
+interface MenuItem {
+  id: string
+  labelKey: string
+  icon: typeof LayoutDashboard
+  href: string
+}
+
+interface MenuGroup {
+  label?: string // optional small group label (hidden when collapsed)
+  items: MenuItem[]
+}
+
+const menuGroups: MenuGroup[] = [
   {
-    id: 'dashboard',
-    labelKey: 'sidebar.dashboard',
-    icon: LayoutDashboard,
-    href: '/chat',
+    // WORK — daily workflows
+    items: [
+      { id: 'dashboard', labelKey: 'sidebar.dashboard', icon: LayoutDashboard, href: '/chat' },
+      { id: 'missions', labelKey: 'sidebar.missions', icon: Target, href: '/missions' },
+    ],
   },
   {
-    id: 'agent',
-    labelKey: 'sidebar.agentBuilder',
-    icon: Blocks,
-    href: '/workspace',
+    // CONFIGURE — agents, skills, tools
+    items: [
+      { id: 'agents', labelKey: 'sidebar.agents', icon: Bot, href: '/agents' },
+      { id: 'agent', labelKey: 'sidebar.agentBuilder', icon: Blocks, href: '/workspace' },
+      { id: 'skills', labelKey: 'sidebar.skillsHub', icon: ShieldCheck, href: '/skills' },
+      { id: 'tools', labelKey: 'sidebar.toolsAndMcp', icon: Wrench, href: '/tools' },
+    ],
   },
   {
-    id: 'tools',
-    labelKey: 'sidebar.toolsAndMcp',
-    icon: Wrench,
-    href: '/tools',
-  },
-  {
-    id: 'skills',
-    labelKey: 'sidebar.skillsHub',
-    icon: ShieldCheck,
-    href: '/skills',
-  },
-  {
-    id: 'runs',
-    labelKey: 'sidebar.runCenter',
-    icon: Activity,
-    href: '/runs',
-  },
-  {
-    id: 'memory',
-    labelKey: 'sidebar.memory',
-    icon: Brain,
-    href: '/memory',
-  },
-  {
-    id: 'openclaw',
-    labelKey: 'sidebar.openclaw',
-    icon: Clapperboard,
-    href: '/openclaw',
+    // MONITOR — execution history, memory
+    items: [
+      { id: 'runs', labelKey: 'sidebar.runCenter', icon: Activity, href: '/runs' },
+      { id: 'memory', labelKey: 'sidebar.memory', icon: Brain, href: '/memory' },
+      { id: 'openclaw', labelKey: 'sidebar.openclaw', icon: Clapperboard, href: '/openclaw' },
+    ],
   },
 ]
 
@@ -80,9 +76,11 @@ export function AppSidebar({ isCollapsed = false }: AppSidebarProps) {
     runtimeEnv('NEXT_PUBLIC_OPENCLAW_ENABLED') || process.env.NEXT_PUBLIC_OPENCLAW_ENABLED
   const openclawEnabled = openclawEnv?.toLowerCase() === 'true' || openclawEnv === '1'
 
-  const visibleMenuItems = openclawEnabled
-    ? menuItems
-    : menuItems.filter((item) => item.id !== 'openclaw')
+  // Filter out openclaw if disabled
+  const visibleGroups = menuGroups.map((group) => ({
+    ...group,
+    items: openclawEnabled ? group.items : group.items.filter((item) => item.id !== 'openclaw'),
+  }))
 
   return (
     <TooltipProvider>
@@ -91,42 +89,50 @@ export function AppSidebar({ isCollapsed = false }: AppSidebarProps) {
           <AppLogo isCollapsed={isCollapsed} />
 
           <nav className="flex-1 px-2 py-2">
-            <ul className="space-y-1">
-              {visibleMenuItems.map((item) => {
-                const Icon = item.icon
-                const isActive = pathname?.startsWith(item.href)
-                const label = t(item.labelKey)
+            {visibleGroups.map((group, groupIdx) => (
+              <div key={groupIdx}>
+                {groupIdx > 0 && <div className="mx-2 my-2 border-t border-[var(--border)]" />}
+                <ul className="space-y-1">
+                  {group.items.map((item) => {
+                    const Icon = item.icon
+                    const isActive = pathname?.startsWith(item.href)
+                    const label = t(item.labelKey)
 
-                const menuItem = (
-                  <Link
-                    href={item.href}
-                    className={cn(
-                      'flex items-center gap-2 rounded-lg px-2 py-1.5 text-base leading-[16px] transition-colors',
-                      isCollapsed ? 'justify-center' : '',
-                      isActive
-                        ? 'bg-[var(--surface-5)] text-[var(--text-primary)] font-medium'
-                        : 'text-[var(--text-tertiary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)] font-normal',
-                    )}
-                  >
-                    <Icon className="h-3.5 w-3.5 flex-shrink-0" strokeWidth={isActive ? 2 : 1.75} />
-                    {!isCollapsed && <span className="truncate">{label}</span>}
-                  </Link>
-                )
+                    const menuItem = (
+                      <Link
+                        href={item.href}
+                        className={cn(
+                          'flex items-center gap-2 rounded-lg px-2 py-1.5 text-base leading-[16px] transition-colors',
+                          isCollapsed ? 'justify-center' : '',
+                          isActive
+                            ? 'bg-[var(--surface-5)] font-medium text-[var(--text-primary)]'
+                            : 'font-normal text-[var(--text-tertiary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]',
+                        )}
+                      >
+                        <Icon
+                          className="h-3.5 w-3.5 flex-shrink-0"
+                          strokeWidth={isActive ? 2 : 1.75}
+                        />
+                        {!isCollapsed && <span className="truncate">{label}</span>}
+                      </Link>
+                    )
 
-                return (
-                  <li key={item.id}>
-                    {isCollapsed ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>{menuItem}</TooltipTrigger>
-                        <TooltipContent side="right">{label}</TooltipContent>
-                      </Tooltip>
-                    ) : (
-                      menuItem
-                    )}
-                  </li>
-                )
-              })}
-            </ul>
+                    return (
+                      <li key={item.id}>
+                        {isCollapsed ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>{menuItem}</TooltipTrigger>
+                            <TooltipContent side="right">{label}</TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          menuItem
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            ))}
           </nav>
 
           <UserInfo isCollapsed={isCollapsed} showContent={!isCollapsed} />

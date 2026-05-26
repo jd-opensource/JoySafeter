@@ -34,7 +34,9 @@ export default function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [isDragOver, setIsDragOver] = useState(false)
 
-  const apkAutoSubmitRef = useRef<((uploadedFile: UploadedFile, rawFile: File) => void) | undefined>(undefined)
+  const apkAutoSubmitRef = useRef<
+    ((uploadedFile: UploadedFile, rawFile: File) => void) | undefined
+  >(undefined)
 
   const { files, isUploading, fileInputRef, uploadFile, handleFileSelect, removeFile, clearFiles } =
     useFileUpload({
@@ -182,7 +184,11 @@ export default function ChatInput({
               )}
               title={t('chat.uploadFile')}
             >
-              {isUploading ? <Loader2 size={14} className="animate-spin" /> : <Paperclip size={14} />}
+              {isUploading ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Paperclip size={14} />
+              )}
             </Button>
             {isProcessing && onStop ? (
               <Button
@@ -208,7 +214,9 @@ export default function ChatInput({
                 <ArrowRight
                   size={14}
                   className={
-                    canSubmit && !isProcessing && !isUploading ? 'text-white' : 'text-[var(--text-subtle)]'
+                    canSubmit && !isProcessing && !isUploading
+                      ? 'text-white'
+                      : 'text-[var(--text-subtle)]'
                   }
                 />
               </Button>

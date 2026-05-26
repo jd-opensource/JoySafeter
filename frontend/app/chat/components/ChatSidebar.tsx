@@ -6,7 +6,7 @@ import React, { useState, useMemo, useCallback } from 'react'
 
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import { toastSuccess, toastError } from '@/lib/utils/toast'
+import { toastSuccess, toastError, getErrorMessage } from '@/lib/utils/toast'
 import { conversationService, type Conversation } from '@/services/conversationService'
 
 import ConversationGroup from './ConversationGroup'
@@ -79,7 +79,7 @@ export default function ChatSidebar({
     },
     onError: (error) => {
       console.error('Failed to delete conversation:', error)
-      toastError(t('chat.deleteFailed'))
+      toastError(getErrorMessage(error, t('chat.deleteFailed')))
       setDeleteConfirmOpen(false)
       setConversationToDelete(null)
     },
@@ -102,26 +102,41 @@ export default function ChatSidebar({
     setConversationToDelete(null)
   }
 
-  const monthNames = useMemo(() => [
-    t('chat.jan'), t('chat.feb'), t('chat.mar'), t('chat.apr'),
-    t('chat.may'), t('chat.jun'), t('chat.jul'), t('chat.aug'),
-    t('chat.sep'), t('chat.oct'), t('chat.nov'), t('chat.dec'),
-  ], [t])
+  const monthNames = useMemo(
+    () => [
+      t('chat.jan'),
+      t('chat.feb'),
+      t('chat.mar'),
+      t('chat.apr'),
+      t('chat.may'),
+      t('chat.jun'),
+      t('chat.jul'),
+      t('chat.aug'),
+      t('chat.sep'),
+      t('chat.oct'),
+      t('chat.nov'),
+      t('chat.dec'),
+    ],
+    [t],
+  )
 
-  const formatTime = useCallback((dateString: string) => {
-    try {
-      const date = new Date(dateString)
-      const now = new Date()
-      const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / 60000)
+  const formatTime = useCallback(
+    (dateString: string) => {
+      try {
+        const date = new Date(dateString)
+        const now = new Date()
+        const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / 60000)
 
-      if (diffInMinutes < 1) return t('chat.now')
-      if (diffInMinutes < 60) return t('chat.minutesAgo', { m: diffInMinutes })
-      if (diffInMinutes < 1440) return t('chat.hoursAgo', { h: Math.floor(diffInMinutes / 60) })
-      return `${monthNames[date.getMonth()]} ${date.getDate()}`
-    } catch {
-      return ''
-    }
-  }, [t, monthNames])
+        if (diffInMinutes < 1) return t('chat.now')
+        if (diffInMinutes < 60) return t('chat.minutesAgo', { m: diffInMinutes })
+        if (diffInMinutes < 1440) return t('chat.hoursAgo', { h: Math.floor(diffInMinutes / 60) })
+        return `${monthNames[date.getMonth()]} ${date.getDate()}`
+      } catch {
+        return ''
+      }
+    },
+    [t, monthNames],
+  )
 
   return (
     <div className="flex h-full flex-col bg-[var(--surface-1)]">
@@ -134,7 +149,9 @@ export default function ChatSidebar({
       >
         <div className={cn('flex items-center', isCollapsed ? 'justify-center' : 'justify-start')}>
           {!isCollapsed && (
-            <h2 className="text-sm font-semibold text-[var(--text-primary)]">{t('chat.history')}</h2>
+            <h2 className="text-sm font-semibold text-[var(--text-primary)]">
+              {t('chat.history')}
+            </h2>
           )}
         </div>
       </div>
@@ -150,10 +167,10 @@ export default function ChatSidebar({
           <div className="space-y-2 px-2 py-3">
             {[0, 1, 2].map((i) => (
               <div key={i} className="flex items-center gap-2 rounded-md px-2 py-1.5">
-                <div className="h-4 w-4 flex-shrink-0 rounded bg-[var(--surface-3)] animate-pulse" />
+                <div className="h-4 w-4 flex-shrink-0 animate-pulse rounded bg-[var(--surface-3)]" />
                 <div className="flex-1 space-y-1.5">
-                  <div className="h-3 w-3/4 rounded bg-[var(--surface-3)] animate-pulse" />
-                  <div className="h-2.5 w-1/2 rounded bg-[var(--surface-2)] animate-pulse" />
+                  <div className="h-3 w-3/4 animate-pulse rounded bg-[var(--surface-3)]" />
+                  <div className="h-2.5 w-1/2 animate-pulse rounded bg-[var(--surface-2)]" />
                 </div>
               </div>
             ))}

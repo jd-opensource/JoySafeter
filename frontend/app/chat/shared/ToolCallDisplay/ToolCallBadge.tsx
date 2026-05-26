@@ -1,6 +1,15 @@
 'use client'
 
-import { Check, Loader2, Search, ListTodo, Terminal, FileText, Code2, FolderSearch } from 'lucide-react'
+import {
+  Check,
+  Loader2,
+  Search,
+  ListTodo,
+  Terminal,
+  FileText,
+  Code2,
+  FolderSearch,
+} from 'lucide-react'
 import React from 'react'
 
 import { cn } from '@/lib/utils'

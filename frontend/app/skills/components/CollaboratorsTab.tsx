@@ -83,7 +83,10 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
       setNewRole('viewer')
       setShowAddForm(false)
     } catch (error: unknown) {
-      toast({ title: error instanceof Error ? error.message : String(error), variant: 'destructive' })
+      toast({
+        title: error instanceof Error ? error.message : String(error),
+        variant: 'destructive',
+      })
     }
   }
 
@@ -92,7 +95,10 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
       await updateRoleMutation.mutateAsync({ userId, role })
       toast({ title: t('skillCollaborators.updatedSuccess') })
     } catch (error: unknown) {
-      toast({ title: error instanceof Error ? error.message : String(error), variant: 'destructive' })
+      toast({
+        title: error instanceof Error ? error.message : String(error),
+        variant: 'destructive',
+      })
     }
   }
 
@@ -101,7 +107,10 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
       await removeMutation.mutateAsync(removeTarget.userId)
       toast({ title: t('skillCollaborators.removedSuccess') })
     } catch (error: unknown) {
-      toast({ title: error instanceof Error ? error.message : String(error), variant: 'destructive' })
+      toast({
+        title: error instanceof Error ? error.message : String(error),
+        variant: 'destructive',
+      })
     }
     setRemoveTarget({ userId: '', open: false })
   }
@@ -114,7 +123,10 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
       setTransferDialog(false)
       setTransferTargetId('')
     } catch (error: unknown) {
-      toast({ title: error instanceof Error ? error.message : String(error), variant: 'destructive' })
+      toast({
+        title: error instanceof Error ? error.message : String(error),
+        variant: 'destructive',
+      })
     }
   }
 
@@ -158,10 +170,7 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
               </div>
               <div className="w-32">
                 <Label className="text-xs">{t('skillCollaborators.role')}</Label>
-                <Select
-                  value={newRole}
-                  onValueChange={(v) => setNewRole(v as CollaboratorRole)}
-                >
+                <Select value={newRole} onValueChange={(v) => setNewRole(v as CollaboratorRole)}>
                   <SelectTrigger className="mt-1">
                     <SelectValue />
                   </SelectTrigger>
@@ -174,7 +183,12 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
                   </SelectContent>
                 </Select>
               </div>
-              <Button size="sm" onClick={handleAdd} disabled={addMutation.isPending} aria-label="Add collaborator">
+              <Button
+                size="sm"
+                onClick={handleAdd}
+                disabled={addMutation.isPending}
+                aria-label="Add collaborator"
+              >
                 <Plus size={14} />
               </Button>
             </div>
@@ -194,9 +208,7 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
               {ownerDisplayName}
             </p>
             {ownerDisplayEmail && ownerInfo?.name && (
-              <p className="truncate text-xs text-[var(--text-tertiary)]">
-                {ownerDisplayEmail}
-              </p>
+              <p className="truncate text-xs text-[var(--text-tertiary)]">{ownerDisplayEmail}</p>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -228,9 +240,7 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
                   {displayName}
                 </p>
                 {displayEmail && c.userName && (
-                  <p className="truncate text-xs text-[var(--text-tertiary)]">
-                    {displayEmail}
-                  </p>
+                  <p className="truncate text-xs text-[var(--text-tertiary)]">{displayEmail}</p>
                 )}
               </div>
               {canManage ? (
@@ -312,9 +322,7 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('skillCollaborators.transferConfirmTitle')}</DialogTitle>
-            <DialogDescription>
-              {t('skillCollaborators.transferConfirmMessage')}
-            </DialogDescription>
+            <DialogDescription>{t('skillCollaborators.transferConfirmMessage')}</DialogDescription>
           </DialogHeader>
           <div className="py-4">
             <Label>{t('skillCollaborators.newOwner')}</Label>

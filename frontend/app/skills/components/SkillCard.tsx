@@ -1,15 +1,6 @@
 'use client'
 
-import {
-  ShieldCheck,
-  FileText,
-  Clock,
-  User,
-  Scale,
-  Copy,
-  Eye,
-  MoreHorizontal,
-} from 'lucide-react'
+import { ShieldCheck, FileText, Clock, User, Scale, Copy, Eye, MoreHorizontal } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -107,7 +98,9 @@ export function SkillCard({
                     </Badge>
                   ))}
                   {skill.tags.length > 3 && (
-                    <span className="text-xs text-[var(--text-muted)]">+{skill.tags.length - 3}</span>
+                    <span className="text-xs text-[var(--text-muted)]">
+                      +{skill.tags.length - 3}
+                    </span>
                   )}
                 </div>
               )}
@@ -126,7 +119,7 @@ export function SkillCard({
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+        <div className="flex items-center gap-2 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
           <Button
             variant="ghost"
             size="sm"
@@ -201,7 +194,7 @@ export function SkillCard({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 text-[var(--text-muted)] opacity-0 transition-opacity hover:text-[var(--text-primary)] group-hover:opacity-100 focus-visible:opacity-100"
+                className="h-7 w-7 text-[var(--text-muted)] opacity-0 transition-opacity hover:text-[var(--text-primary)] focus-visible:opacity-100 group-hover:opacity-100"
                 aria-label={t('skills.moreOptions', { defaultValue: 'More options' })}
               >
                 <MoreHorizontal size={14} />

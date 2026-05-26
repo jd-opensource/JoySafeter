@@ -68,7 +68,7 @@
     --border-focus: #7c3aed;
 
     /* Brand */
-    --brand-50:  #f5f3ff;
+    --brand-50: #f5f3ff;
     --brand-100: #ede9fe;
     --brand-200: #ddd6fe;
     --brand-400: #8e4cfb;
@@ -79,23 +79,23 @@
     --brand-tertiary: #22c55e;
 
     /* Status */
-    --status-success:        #16a34a;
-    --status-success-bg:     #f0fdf4;
+    --status-success: #16a34a;
+    --status-success-bg: #f0fdf4;
     --status-success-border: #bbf7d0;
-    --status-success-hover:  #15803d;
+    --status-success-hover: #15803d;
     --status-success-strong: #14532d;
-    --status-warning:        #d97706;
-    --status-warning-bg:     #fffbeb;
+    --status-warning: #d97706;
+    --status-warning-bg: #fffbeb;
     --status-warning-border: #fde68a;
-    --status-error:        #dc2626;
-    --status-error-bg:     #fef2f2;
+    --status-error: #dc2626;
+    --status-error-bg: #fef2f2;
     --status-error-border: #fecaca;
-    --status-error-hover:  #b91c1c;
+    --status-error-hover: #b91c1c;
     --status-error-strong: #991b1b;
 
     /* Skill brand (emerald) */
-    --skill-brand:     #059669;
-    --skill-brand-50:  #ecfdf5;
+    --skill-brand: #059669;
+    --skill-brand-50: #ecfdf5;
     --skill-brand-100: #d1fae5;
     --skill-brand-200: #a7f3d0;
     --skill-brand-600: #059669;
@@ -162,7 +162,7 @@
     --border-focus: #38bdf8;
 
     /* Brand (sky/cyan) */
-    --brand-50:  #0c1a24;
+    --brand-50: #0c1a24;
     --brand-100: #0d2535;
     --brand-200: #0f3347;
     --brand-400: #38bdf8;
@@ -173,23 +173,23 @@
     --brand-tertiary: #10b981;
 
     /* Status */
-    --status-success:        #4ade80;
-    --status-success-bg:     #052e16;
+    --status-success: #4ade80;
+    --status-success-bg: #052e16;
     --status-success-border: #166534;
-    --status-success-hover:  #86efac;
+    --status-success-hover: #86efac;
     --status-success-strong: #bbf7d0;
-    --status-warning:        #fbbf24;
-    --status-warning-bg:     #1c0f00;
+    --status-warning: #fbbf24;
+    --status-warning-bg: #1c0f00;
     --status-warning-border: #78350f;
-    --status-error:        #f87171;
-    --status-error-bg:     #1c0505;
+    --status-error: #f87171;
+    --status-error-bg: #1c0505;
     --status-error-border: #7f1d1d;
-    --status-error-hover:  #fca5a5;
+    --status-error-hover: #fca5a5;
     --status-error-strong: #fecaca;
 
     /* Skill brand (emerald) */
-    --skill-brand:     #34d399;
-    --skill-brand-50:  #022c22;
+    --skill-brand: #34d399;
+    --skill-brand-50: #022c22;
     --skill-brand-100: #064e3b;
     --skill-brand-200: #065f46;
     --skill-brand-600: #34d399;
@@ -232,10 +232,18 @@
 
 @layer utilities {
   .brand-gradient {
-    background-image: linear-gradient(to bottom right, var(--gradient-brand-from), var(--gradient-brand-to));
+    background-image: linear-gradient(
+      to bottom right,
+      var(--gradient-brand-from),
+      var(--gradient-brand-to)
+    );
   }
   .brand-gradient-text {
-    background-image: linear-gradient(to right, var(--gradient-brand-from), var(--gradient-brand-to));
+    background-image: linear-gradient(
+      to right,
+      var(--gradient-brand-from),
+      var(--gradient-brand-to)
+    );
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
