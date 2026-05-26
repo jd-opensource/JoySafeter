@@ -25,6 +25,7 @@ class HarnessInput:
     skills: list[dict[str, Any]] = field(default_factory=list)
     tools: list[dict[str, Any]] = field(default_factory=list)
     secrets: dict[str, str] = field(default_factory=dict)
+    workspace_path: Optional[str] = None
     custom_tools: list[dict[str, Any]] = field(default_factory=list)
     memory_mounts: list[dict[str, Any]] = field(default_factory=list)
     memory_system_prompt: Optional[str] = None

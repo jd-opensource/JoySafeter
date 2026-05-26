@@ -7,7 +7,7 @@ from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, Text, Index, f
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import BaseModel
+from app.conductor.models.base import ConductorBaseModel
 from app.core.database import Base
 from app.models.base import TimestampMixin
 
@@ -15,7 +15,6 @@ from app.models.base import TimestampMixin
 class TaskStatus(str, enum.Enum):
     PENDING = "pending"
     SCHEDULING = "scheduling"
-    CLAIMED = "claimed"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -43,7 +42,7 @@ class TaskStatus(str, enum.Enum):
 TERMINAL_STATUSES = frozenset(s for s in TaskStatus if s.is_terminal())
 
 
-class ConductorTask(BaseModel):
+class ConductorTask(ConductorBaseModel):
     __tablename__ = "conductor_tasks"
     __table_args__ = (
         Index("idx_ct_status", "status"),

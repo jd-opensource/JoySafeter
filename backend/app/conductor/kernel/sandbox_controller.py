@@ -77,30 +77,58 @@ class SandboxController:
         if not bridges:
             return
 
+        from app.core.database import AsyncSessionLocal
+        from app.conductor.services.sandbox_service import SandboxService
+
         for bridge in bridges:
             try:
-                status = await self._provider.status(bridge.external_id)
-                if status not in ("running", "created"):
+                async with AsyncSessionLocal() as db:
+                    svc = SandboxService(db)
+                    record = await svc.get_sandbox(bridge.sandbox_db_id)
+                    if not record or record.status in ("destroyed", "stopped", "stopping"):
+                        continue
+
+                # Skip health check if bridge has active gRPC connection or pending HITL
+                if bridge.runner_connected.is_set() or bridge._requires_action_pending:
+                    continue
+
+                is_running = False
+                try:
+                    status = await self._provider.status(bridge.external_id)
+                    is_running = status == "running"
+                except Exception:
+                    # Provider error: treat as dead (Rust matches on Err => cleanup)
+                    is_running = False
+
+                if not is_running:
                     logger.warning(
-                        "Sandbox %s container %s dead (status=%s), cleaning up",
+                        "Sandbox %s container %s not running, cleaning up",
                         bridge.sandbox_db_id,
                         bridge.external_id,
-                        status,
                     )
                     await self._bridge_registry.remove(bridge.sandbox_db_id)
-                    await self._queue.drain_and_requeue_sandbox(bridge.sandbox_db_id)
 
-                    from app.core.database import AsyncSessionLocal
-                    from app.conductor.services.sandbox_service import SandboxService
+                    try:
+                        await self._provider.destroy(bridge.external_id)
+                    except Exception as e:
+                        logger.warning(
+                            "provider.destroy(%s) failed during health check: %s",
+                            bridge.external_id, e,
+                        )
 
                     async with AsyncSessionLocal() as db:
                         svc = SandboxService(db)
-                        if not await svc.update_status_cas(
-                            bridge.sandbox_db_id, "running", "stopped"
-                        ):
-                            await svc.update_status_cas(
-                                bridge.sandbox_db_id, "idle", "stopped"
-                            )
+                        await svc.mark_destroyed(bridge.sandbox_db_id)
+
+                    try:
+                        await self._provider.teardown_networking(bridge.sandbox_db_id)
+                    except Exception as e:
+                        logger.warning(
+                            "Phase 0 teardown_networking for %s failed: %s",
+                            bridge.sandbox_db_id, e,
+                        )
+
+                    await self._queue.drain_and_requeue_sandbox(bridge.sandbox_db_id)
             except Exception as e:
                 logger.warning(
                     "Health check for sandbox %s failed: %s",
@@ -123,12 +151,12 @@ class SandboxController:
             result = await db.execute(
                 select(ConductorSandbox).where(
                     and_(
-                        ConductorSandbox.status.in_(["running", "idle"]),
+                        ConductorSandbox.status == "idle",
                         text(
-                            f"last_used_at < NOW() - INTERVAL '{idle_timeout} seconds'"
+                            "last_used_at < NOW() - make_interval(secs => :timeout)"
                         ),
                     )
-                )
+                ).params(timeout=idle_timeout)
             )
             sandboxes = [
                 (sb.id, sb.external_id) for sb in result.scalars().all()
@@ -154,27 +182,32 @@ class SandboxController:
                     svc = SandboxService(db)
                     cas_ok = await svc.update_status_cas(sb_id, "idle", "stopping")
                     if not cas_ok:
-                        cas_ok = await svc.update_status_cas(
-                            sb_id, "running", "stopping"
-                        )
-                    if not cas_ok:
                         return
 
                 bridge = await self._bridge_registry.get(sb_id)
                 if bridge:
-                    bridge.request_cancel()
+                    from app.conductor.proto import conductor_pb2
+                    shutdown_msg = conductor_pb2.OrchestratorMessage(
+                        shutdown=conductor_pb2.Shutdown(
+                            reason="idle timeout",
+                        )
+                    )
+                    try:
+                        bridge.runner_tx.put_nowait(shutdown_msg)
+                    except asyncio.QueueFull:
+                        pass
+                    await self._bridge_registry.remove(sb_id)
 
-                await self._queue.drain_and_requeue_sandbox(sb_id)
                 await asyncio.sleep(3)
-
-                await self._bridge_registry.remove(sb_id)
 
                 try:
                     await self._provider.stop(external_id)
                 except Exception as e:
-                    err = str(e).lower()
-                    if "no such container" in err or "not found" in err:
-                        pass
+                    err = str(e)
+                    if "No such container" in err:
+                        async with AsyncSessionLocal() as db:
+                            svc = SandboxService(db)
+                            await svc.update_status(sb_id, "stopped")
                     else:
                         logger.warning(
                             "provider.stop(%s) failed: %s, reverting to idle",
@@ -186,14 +219,11 @@ class SandboxController:
                             await svc.update_status_cas(
                                 sb_id, "stopping", "idle"
                             )
-                        return
+                    return
 
                 async with AsyncSessionLocal() as db:
                     svc = SandboxService(db)
-                    await svc.update_status_cas(sb_id, "stopping", "stopped")
-
-                if self._coordinator:
-                    await self._coordinator.remove_sandbox_owner(sb_id)
+                    await svc.update_status(sb_id, "stopped")
 
                 logger.info("Sandbox %s stopped after idle expiry", sb_id)
 
@@ -216,33 +246,52 @@ class SandboxController:
                 select(ConductorSandbox).where(
                     and_(
                         ConductorSandbox.status == "stopping",
-                        text("updated_at < NOW() - INTERVAL '60 seconds'"),
+                        text("last_used_at < NOW() - make_interval(secs => :timeout)"),
                     )
-                )
+                ).params(timeout=60)
             )
             stuck = [
                 (sb.id, sb.external_id) for sb in result.scalars().all()
             ]
 
-        for sb_id, external_id in stuck:
+        async def _force_stop_one(sb_id: uuid.UUID, external_id: str) -> None:
             async with self._stop_semaphore:
                 logger.warning(
                     "Sandbox %s stuck stopping >60s, force stopping", sb_id
                 )
                 await self._bridge_registry.remove(sb_id)
 
+                stop_succeeded = False
                 try:
                     await self._provider.stop(external_id)
+                    stop_succeeded = True
                 except Exception as e:
-                    err = str(e).lower()
-                    if "no such container" not in err and "not found" not in err:
+                    err = str(e)
+                    if "No such container" in err:
+                        stop_succeeded = True  # container already gone
+                    else:
                         logger.warning(
                             "Force stop failed for %s: %s", sb_id, e
                         )
 
-                async with AsyncSessionLocal() as db:
-                    svc = SandboxService(db)
-                    await svc.update_status_cas(sb_id, "stopping", "stopped")
+                if stop_succeeded:
+                    async with AsyncSessionLocal() as db:
+                        svc = SandboxService(db)
+                        await svc.update_status(sb_id, "stopped")
+
+                    try:
+                        await self._provider.teardown_networking(sb_id)
+                    except Exception as e:
+                        logger.warning(
+                            "Phase 2 teardown_networking for %s failed: %s", sb_id, e
+                        )
+
+        tasks = [
+            asyncio.create_task(_force_stop_one(sb_id, ext_id))
+            for sb_id, ext_id in stuck
+        ]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     # -- Phase 3: Destroy stopped sandboxes past TTL --
 
@@ -261,59 +310,143 @@ class SandboxController:
                     and_(
                         ConductorSandbox.status == "stopped",
                         text(
-                            f"updated_at < NOW() - INTERVAL '{stopped_ttl} seconds'"
+                            "last_used_at < NOW() - make_interval(secs => :ttl)"
                         ),
                     )
-                )
+                ).params(ttl=stopped_ttl)
             )
             sandboxes = [
                 (sb.id, sb.external_id) for sb in result.scalars().all()
             ]
 
-        for sb_id, external_id in sandboxes:
+        async def _destroy_one(sb_id: uuid.UUID, external_id: str) -> None:
             async with self._stop_semaphore:
+                destroy_ok = False
                 try:
                     await self._provider.destroy(external_id)
+                    destroy_ok = True
                 except Exception as e:
-                    err = str(e).lower()
-                    if "no such container" not in err and "not found" not in err:
+                    err = str(e)
+                    if "No such container" in err or "404" in err:
+                        destroy_ok = True
+                    else:
                         logger.warning(
                             "provider.destroy(%s) failed: %s", external_id, e
                         )
 
-                if self._envoy_manager:
+                if destroy_ok:
+                    async with AsyncSessionLocal() as db:
+                        svc = SandboxService(db)
+                        await svc.mark_destroyed(sb_id)
+
                     try:
-                        await self._envoy_manager.remove_sandbox(sb_id)
+                        await self._provider.teardown_networking(sb_id)
                     except Exception as e:
                         logger.warning(
-                            "Envoy teardown for %s failed: %s", sb_id, e
+                            "Phase 3 teardown_networking for %s failed: %s", sb_id, e
                         )
 
-                async with AsyncSessionLocal() as db:
-                    svc = SandboxService(db)
-                    await svc.update_status_cas(sb_id, "stopped", "destroyed")
+                    logger.info("Sandbox %s destroyed", sb_id)
 
-                logger.info("Sandbox %s destroyed", sb_id)
+        tasks = [
+            asyncio.create_task(_destroy_one(sb_id, ext_id))
+            for sb_id, ext_id in sandboxes
+        ]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     # -- Provisioning poll (unchanged logic) --
 
     async def _check_provisioning_timeout(self) -> None:
         from app.core.database import AsyncSessionLocal
         from app.conductor.models.sandbox import ConductorSandbox
-        from sqlalchemy import update, and_, text
+        from app.conductor.services.sandbox_service import SandboxService
+        from sqlalchemy import select, and_, text
 
         async with AsyncSessionLocal() as db:
-            await db.execute(
-                update(ConductorSandbox)
-                .where(
-                    and_(
-                        ConductorSandbox.status == "provisioning",
-                        text("created_at < NOW() - INTERVAL '5 minutes'"),
-                    )
+            result = await db.execute(
+                select(ConductorSandbox).where(
+                    ConductorSandbox.status == "provisioning",
                 )
-                .values(status="stopped")
             )
-            await db.commit()
+            provisioning = list(result.scalars().all())
+
+        for sandbox in provisioning:
+            # Bridge fast-path: if bridge already registered, transition to idle
+            bridge = await self._bridge_registry.get(sandbox.id)
+            if bridge:
+                async with AsyncSessionLocal() as db:
+                    svc = SandboxService(db)
+                    transitioned = await svc.update_status_cas(sandbox.id, "provisioning", "idle")
+                    if transitioned:
+                        await svc.touch(sandbox.id)
+                        logger.info("Provisioning sandbox %s -> idle (bridge registered)", sandbox.id)
+                continue
+
+            # Check timeouts: 180s relative (last_used_at) OR 300s absolute (created_at)
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            age_from_last_used = (now - sandbox.last_used_at).total_seconds() if sandbox.last_used_at else 999
+            absolute_age = (now - sandbox.created_at).total_seconds() if sandbox.created_at else 999
+
+            if age_from_last_used <= 180 and absolute_age <= 300:
+                # Not timed out yet; check provisioning_status from provider
+                if sandbox.external_id:
+                    try:
+                        pstatus = await self._provider.provisioning_status(
+                            sandbox.external_id
+                        )
+                    except Exception:
+                        pstatus = None
+
+                    if pstatus is not None:
+                        if pstatus.get("error"):
+                            logger.error(
+                                "Sandbox %s provisioning failed: %s",
+                                sandbox.id,
+                                pstatus.get("error_message"),
+                            )
+                            try:
+                                await self._provider.stop(sandbox.external_id)
+                            except Exception as e:
+                                logger.warning(
+                                    "Failed to stop errored sandbox %s: %s",
+                                    sandbox.id, e,
+                                )
+                            async with AsyncSessionLocal() as db:
+                                svc = SandboxService(db)
+                                await svc.update_status(sandbox.id, "stopped")
+                        else:
+                            config = {
+                                "provisioning": {
+                                    "stage": pstatus.get("stage", "unknown"),
+                                    "progress": pstatus.get("progress", 0),
+                                    "message": pstatus.get("message", ""),
+                                    "complete": pstatus.get("complete", False),
+                                    "error": False,
+                                }
+                            }
+                            async with AsyncSessionLocal() as db:
+                                svc = SandboxService(db)
+                                await svc.update_status_and_config(
+                                    sandbox.id, "provisioning", config
+                                )
+                continue
+
+            logger.error(
+                "Provisioning sandbox %s timed out, stopping container",
+                sandbox.id,
+            )
+            if sandbox.external_id:
+                try:
+                    await self._provider.stop(sandbox.external_id)
+                except Exception as e:
+                    logger.warning(
+                        "Failed to stop timed-out sandbox %s: %s", sandbox.id, e
+                    )
+            async with AsyncSessionLocal() as db:
+                svc = SandboxService(db)
+                await svc.update_status(sandbox.id, "stopped")
 
     # -- Pool manager (unchanged logic) --
 
@@ -335,42 +468,73 @@ class SandboxController:
         from app.core.database import AsyncSessionLocal
         from app.conductor.models.sandbox import ConductorSandbox
         from app.conductor.services.sandbox_service import SandboxService
-        from sqlalchemy import select, func, and_, update, text
+        from sqlalchemy import select, func, and_, text
 
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(
-                select(func.count())
-                .select_from(ConductorSandbox)
-                .where(ConductorSandbox.status == "pooled")
-            )
-            pool_count = result.scalar()
+        from app.conductor.lifespan import get_runtime_config, get_sandbox_resolver
+        rc = get_runtime_config()
+        min_size = rc.pool_min_size if rc else conductor_config.sandbox_pool_min_size
+        max_age = rc.pool_max_age_sec if rc else conductor_config.sandbox_pool_max_age
 
-            from app.conductor.lifespan import get_runtime_config
-            rc = get_runtime_config()
-            min_size = rc.pool_min_size if rc else conductor_config.sandbox_pool_min_size
+        resolver = get_sandbox_resolver()
+        if not resolver:
+            logger.warning("Pool manager: no sandbox resolver available, skipping")
+            return
+
+        pool_images = conductor_config.sandbox_pool_images
+        if not pool_images:
+            pool_images = [conductor_config.sandbox_image]
+
+        for image in pool_images:
+            async with AsyncSessionLocal() as db:
+                svc = SandboxService(db)
+                pool_count = await svc.count_pool_by_provider_image(
+                    conductor_config.sandbox_provider, image
+                )
+
             deficit = min_size - pool_count
             if deficit > 0:
-                svc = SandboxService(db)
+                logger.info("Topping up pool for image=%s (count=%d, deficit=%d)", image, pool_count, deficit)
                 for _ in range(deficit):
-                    await svc.create_sandbox(
-                        image=conductor_config.sandbox_image,
-                        provider=conductor_config.sandbox_provider,
-                    )
-                    logger.info(
-                        "Pre-warmed pooled sandbox (pool deficit: %d)", deficit
-                    )
+                    try:
+                        await resolver.provision_pool_sandbox(image=image)
+                        logger.info("Created pooled sandbox for image=%s", image)
+                    except Exception as e:
+                        logger.warning("Failed to provision pool sandbox for image=%s: %s", image, e)
+                        break
 
-            max_age = rc.pool_max_age_sec if rc else conductor_config.sandbox_pool_max_age
-            await db.execute(
-                update(ConductorSandbox)
-                .where(
+        # Destroy stale pooled sandboxes
+        async with AsyncSessionLocal() as db:
+            stale_result = await db.execute(
+                select(ConductorSandbox).where(
                     and_(
                         ConductorSandbox.status == "pooled",
                         text(
-                            f"created_at < NOW() - INTERVAL '{max_age} seconds'"
+                            "created_at < NOW() - make_interval(secs => :max_age)"
                         ),
                     )
-                )
-                .values(status="stopped")
+                ).params(max_age=max_age)
             )
-            await db.commit()
+            stale_pooled = [
+                (sb.id, sb.external_id) for sb in stale_result.scalars().all()
+            ]
+
+        for sb_id, external_id in stale_pooled:
+            logger.info("Destroying stale pooled sandbox %s", sb_id)
+            destroy_ok = False
+            if external_id:
+                try:
+                    await self._provider.destroy(external_id)
+                    destroy_ok = True
+                except Exception as e:
+                    err = str(e)
+                    if "No such container" in err or "404" in err:
+                        destroy_ok = True
+                    else:
+                        logger.warning("Pool stale destroy(%s) failed: %s", external_id, e)
+            else:
+                destroy_ok = True
+
+            if destroy_ok:
+                async with AsyncSessionLocal() as db:
+                    svc = SandboxService(db)
+                    await svc.mark_destroyed(sb_id)

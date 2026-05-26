@@ -1,5 +1,6 @@
 import base64
 import logging
+import os
 import uuid
 from typing import Any, Optional
 
@@ -14,6 +15,7 @@ async def build_harness_input(
     session_id: Optional[uuid.UUID],
     sandbox_external_id: str,
     sandbox_db_id: uuid.UUID,
+    provider_name: Optional[str] = None,
 ) -> HarnessInput:
     from app.core.database import AsyncSessionLocal
     from app.conductor.services.secret_service import SecretService
@@ -36,6 +38,15 @@ async def build_harness_input(
     memory_system_prompt: Optional[str] = None
     mcp_configs = list(agent.mcp_configs or [])
     harness_session_id: Optional[str] = None
+
+    from app.conductor.config import conductor_config
+    workspace_path: Optional[str] = None
+    if conductor_config.sandbox_workspace_root and session_id:
+        workspace_path = os.path.join(
+            conductor_config.sandbox_workspace_root, str(session_id)
+        )
+
+    engine_kind = getattr(agent, "engine_kind", None)
 
     async with AsyncSessionLocal() as db:
         if getattr(agent, "secret_ref", None):
@@ -93,18 +104,21 @@ async def build_harness_input(
                         )
 
                     files = []
-                    memories, _ = await mem_svc.list_memories(
-                        ms.store_id, limit=500
-                    )
-                    for mem in memories:
-                        files.append(
-                            {"path": mem.path, "content": mem.content}
+                    # Skip file preloading for docker provider (Rust parity: docker uses FUSE)
+                    if provider_name != "docker":
+                        memories, _ = await mem_svc.list_memories(
+                            ms.store_id, limit=10000
                         )
+                        for mem in memories:
+                            files.append(
+                                {"path": mem.path, "content": mem.content}
+                            )
 
                     memory_mounts.append(
                         {
                             "mount_name": ms.mount_name,
-                            "store_id": str(ms.store_id),
+                            "store_id": f"memstore_{ms.store_id}",
+                            "raw_store_id": str(ms.store_id),
                             "access": ms.access,
                             "instructions": ms.instructions,
                             "files": files,
@@ -121,7 +135,7 @@ async def build_harness_input(
         if subs:
             for mm in memory_mounts:
                 await subs.register(
-                    uuid.UUID(mm["store_id"]),
+                    uuid.UUID(mm["raw_store_id"]),
                     MemorySessionEntry(
                         session_id=session_id,
                         sandbox_db_id=sandbox_db_id,
@@ -157,8 +171,15 @@ async def build_harness_input(
     else:
         combined_system = base_system or None
 
+    prompt = task.prompt
+    if engine_kind == "codex" and session_id:
+        history = await _build_codex_conversation_history(session_id, task.id)
+        if history:
+            logger.debug("Codex history injected (%d chars) for session=%s", len(history), session_id)
+            prompt = f"{history}\n\n{prompt}"
+
     return HarnessInput(
-        prompt=task.prompt,
+        prompt=prompt,
         system_prompt=combined_system,
         env=env,
         work_dir=sandbox_external_id,
@@ -169,6 +190,7 @@ async def build_harness_input(
         skills=agent.skills or [],
         tools=agent.tools or [],
         secrets=secrets,
+        workspace_path=workspace_path,
         custom_tools=custom_tools,
         memory_mounts=memory_mounts,
         memory_system_prompt=memory_system_prompt,
@@ -214,3 +236,86 @@ def extract_tool_name_sets(agent) -> tuple[set[str], set[str]]:
                 mcp_names.add(name)
 
     return custom_names, mcp_names
+
+
+async def _build_codex_conversation_history(
+    session_id: uuid.UUID, current_task_id: uuid.UUID
+) -> Optional[str]:
+    """Build conversation history for codex agents from session events.
+
+    Uses persisted session events (user.message + agent.message) rather than
+    tasks, since tasks may be retried/re-queued after sandbox death.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.conductor.services.session_service import SessionService
+
+    async with AsyncSessionLocal() as db:
+        session_svc = SessionService(db)
+        events, _ = await session_svc.list_events(session_id, limit=500)
+
+    if not events:
+        return None
+
+    # Find the current turn's status_running event to know where prior history ends
+    # The user.message event immediately before status_running is part of the CURRENT turn
+    current_turn_start_seq = None
+    current_turn_user_msg_seq = None
+    for evt in events:
+        if evt.event_type == "session.status_running":
+            payload = evt.payload if isinstance(evt.payload, dict) else {}
+            if payload.get("task_id") == str(current_task_id):
+                current_turn_start_seq = evt.seq
+                break
+        if evt.event_type == "user.message":
+            current_turn_user_msg_seq = evt.seq
+
+    # The user.message right before current turn's status_running is the current prompt
+    # Exclude it from history by using its seq as the boundary
+    boundary_seq = current_turn_user_msg_seq if current_turn_user_msg_seq else current_turn_start_seq
+
+    # Build conversation from user.message and agent.message events BEFORE current turn
+    lines = []
+    current_user_msg = None
+    current_agent_parts: list[str] = []
+
+    for evt in events:
+        # Stop at the current turn's boundary (user.message for current turn)
+        if boundary_seq and evt.seq >= boundary_seq:
+            break
+
+        if evt.event_type == "user.message":
+            # Flush previous exchange
+            if current_user_msg is not None:
+                lines.append(f"\nUser: {current_user_msg}")
+                if current_agent_parts:
+                    lines.append(f"Assistant: {''.join(current_agent_parts)}")
+                current_agent_parts = []
+
+            # Extract user message text
+            payload = evt.payload if isinstance(evt.payload, dict) else {}
+            content = payload.get("content", [])
+            text_parts = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    text_parts.append(block.get("text", ""))
+            current_user_msg = "".join(text_parts) if text_parts else None
+
+        elif evt.event_type == "agent.message" and current_user_msg is not None:
+            payload = evt.payload if isinstance(evt.payload, dict) else {}
+            content = payload.get("content", [])
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    current_agent_parts.append(block.get("text", ""))
+
+    # Flush last exchange
+    if current_user_msg is not None:
+        lines.append(f"\nUser: {current_user_msg}")
+        if current_agent_parts:
+            lines.append(f"Assistant: {''.join(current_agent_parts)}")
+
+    if not lines:
+        return None
+
+    header = "[CONVERSATION HISTORY - Prior turns in this session]"
+    footer = "\n[END CONVERSATION HISTORY]\n"
+    return f"{header}\n{''.join(lines)}\n{footer}"

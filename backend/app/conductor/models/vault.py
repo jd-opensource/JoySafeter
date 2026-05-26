@@ -6,10 +6,10 @@ from sqlalchemy import DateTime, ForeignKey, Text, UniqueConstraint, Index
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import BaseModel
+from app.conductor.models.base import ConductorBaseModel
 
 
-class ConductorVault(BaseModel):
+class ConductorVault(ConductorBaseModel):
     __tablename__ = "conductor_vaults"
     __table_args__ = (
         UniqueConstraint("name", name="idx_cv_name"),
@@ -32,7 +32,7 @@ class ConductorVault(BaseModel):
     )
 
 
-class ConductorVaultCredential(BaseModel):
+class ConductorVaultCredential(ConductorBaseModel):
     __tablename__ = "conductor_vault_credentials"
     __table_args__ = (
         UniqueConstraint(

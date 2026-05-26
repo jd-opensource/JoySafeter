@@ -7,12 +7,13 @@ from sqlalchemy import DateTime, ForeignKey, Integer, Text, UniqueConstraint, In
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import BaseModel
+from uuid_utils import uuid7
+from app.conductor.models.base import ConductorBaseModel
 from app.core.database import Base
 from app.models.base import TimestampMixin
 
 
-class ConductorMemoryStore(BaseModel):
+class ConductorMemoryStore(ConductorBaseModel):
     __tablename__ = "conductor_memory_stores"
 
     name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -25,7 +26,7 @@ class ConductorMemoryStore(BaseModel):
     )
 
 
-class ConductorMemory(BaseModel):
+class ConductorMemory(ConductorBaseModel):
     __tablename__ = "conductor_memories"
     __table_args__ = (UniqueConstraint("store_id", "path"),)
 
@@ -47,7 +48,7 @@ class ConductorMemoryVersion(Base):
     __tablename__ = "conductor_memory_versions"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        UUID(as_uuid=True), primary_key=True, default=lambda ctx=None: uuid7()
     )
     store_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -80,7 +81,7 @@ class ConductorSessionMemoryStore(Base):
     __table_args__ = (UniqueConstraint("session_id", "store_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        UUID(as_uuid=True), primary_key=True, default=lambda ctx=None: uuid7()
     )
     session_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

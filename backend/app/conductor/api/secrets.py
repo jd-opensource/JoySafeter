@@ -11,7 +11,6 @@ from app.conductor.schemas.secret import (
     SecretResponse,
     UpdateSecretRequest,
 )
-from app.conductor.schemas.common import PaginatedResponse
 from app.conductor.services.secret_service import SecretService
 
 router = APIRouter(tags=["conductor-secrets"])
@@ -23,7 +22,13 @@ async def create_secret(
 ) -> SecretResponse:
     svc = SecretService(db)
     secret = await svc.create_secret(req)
-    return SecretResponse.model_validate(secret)
+    return SecretResponse(
+        id=secret.id,
+        name=secret.name,
+        data=secret.data or {},
+        created_at=secret.created_at,
+        updated_at=secret.updated_at,
+    )
 
 
 @router.get("")
@@ -31,10 +36,10 @@ async def list_secrets(
     limit: int = Query(20, ge=1, le=100),
     after_id: Optional[uuid.UUID] = Query(None),
     db: AsyncSession = Depends(get_db),
-) -> PaginatedResponse[SecretListItem]:
+) -> list[SecretListItem]:
     svc = SecretService(db)
     secrets, has_more = await svc.list_secrets(limit, after_id)
-    data = [
+    return [
         SecretListItem(
             id=s.id,
             name=s.name,
@@ -44,12 +49,6 @@ async def list_secrets(
         )
         for s in secrets
     ]
-    return PaginatedResponse(
-        data=data,
-        has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
-    )
 
 
 @router.get("/{secret_id}")
@@ -60,7 +59,13 @@ async def get_secret(
     secret = await svc.get_secret(secret_id)
     if not secret:
         raise HTTPException(404, "Secret not found")
-    return SecretResponse.model_validate(secret)
+    return SecretResponse(
+        id=secret.id,
+        name=secret.name,
+        data=secret.data or {},
+        created_at=secret.created_at,
+        updated_at=secret.updated_at,
+    )
 
 
 @router.put("/{secret_id}")
@@ -73,7 +78,13 @@ async def update_secret(
     secret = await svc.update_secret(secret_id, req)
     if not secret:
         raise HTTPException(404, "Secret not found")
-    return SecretResponse.model_validate(secret)
+    return SecretResponse(
+        id=secret.id,
+        name=secret.name,
+        data=secret.data or {},
+        created_at=secret.created_at,
+        updated_at=secret.updated_at,
+    )
 
 
 @router.delete("/{secret_id}", status_code=204)
@@ -87,13 +98,18 @@ async def delete_secret(
     if not secret:
         raise HTTPException(404, "Secret not found")
 
-    if not force and await svc.secret_is_referenced(secret.name):
-        raise HTTPException(
-            409,
-            "Secret is referenced by one or more agents. "
-            "Use ?force=true to delete anyway.",
-        )
+    if not force:
+        agent_name = await svc.secret_is_referenced_by_agent(secret.name)
+        if agent_name:
+            raise HTTPException(
+                409,
+                f"Secret is referenced by agent '{agent_name}'. "
+                "Use ?force=true to force delete.",
+            )
 
-    ok = await svc.delete_secret(secret_id)
-    if not ok:
-        raise HTTPException(404, "Secret not found")
+    if force:
+        await svc.hard_delete_secret(secret_id)
+    else:
+        ok = await svc.delete_secret(secret_id)
+        if not ok:
+            raise HTTPException(404, "Secret not found")

@@ -102,3 +102,15 @@ class SecretService:
             ).limit(1)
         )
         return result.scalar_one_or_none() is not None
+
+    async def secret_is_referenced_by_agent(self, name: str) -> Optional[str]:
+        """Return the name of the first agent referencing this secret, or None."""
+        result = await self.db.execute(
+            select(ConductorAgent.name).where(
+                and_(
+                    ConductorAgent.secret_ref == name,
+                    ConductorAgent.deleted_at.is_(None),
+                )
+            ).limit(1)
+        )
+        return result.scalar_one_or_none()

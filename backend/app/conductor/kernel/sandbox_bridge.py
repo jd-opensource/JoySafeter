@@ -82,7 +82,10 @@ class SandboxBridge:
         self.confirmation_event.set()
 
     async def send_to_runner(self, message) -> None:
-        await self.runner_tx.put(message)
+        try:
+            self.runner_tx.put_nowait(message)
+        except asyncio.QueueFull:
+            logger.warning("Runner TX queue full for sandbox %s, dropping message", self.sandbox_db_id)
 
     def request_cancel(self) -> None:
         self._cancel_event.set()
@@ -99,8 +102,17 @@ class SandboxBridgeRegistry:
         self, sandbox_db_id: uuid.UUID, external_id: str
     ) -> SandboxBridge:
         async with self._lock:
-            if sandbox_db_id in self._bridges:
-                return self._bridges[sandbox_db_id]
+            bridge = SandboxBridge(sandbox_db_id, external_id)
+            self._bridges[sandbox_db_id] = bridge
+            return bridge
+
+    async def get_or_register(
+        self, sandbox_db_id: uuid.UUID, external_id: str
+    ) -> SandboxBridge:
+        async with self._lock:
+            existing = self._bridges.get(sandbox_db_id)
+            if existing is not None:
+                return existing
             bridge = SandboxBridge(sandbox_db_id, external_id)
             self._bridges[sandbox_db_id] = bridge
             return bridge

@@ -48,13 +48,15 @@ async def health_ready():
 
     healthy = postgres_ok and redis_ok
     status = "ok" if healthy else "degraded"
-    code = 200 if healthy else 503
+    code = 200 if postgres_ok else 503
     return JSONResponse(
         status_code=code,
         content={
             "status": status,
-            "postgres": "ok" if postgres_ok else "error",
-            "redis": "ok" if redis_ok else "error",
+            "checks": {
+                "postgres": "up" if postgres_ok else "down",
+                "redis": "up" if redis_ok else "down",
+            },
         },
     )
 

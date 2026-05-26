@@ -7,7 +7,8 @@ from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, Text, I
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import BaseModel
+from uuid_utils import uuid7
+from app.conductor.models.base import ConductorBaseModel
 from app.core.database import Base
 from app.models.base import TimestampMixin
 
@@ -23,10 +24,10 @@ class SessionStatus(str, enum.Enum):
         try:
             return cls(s)
         except ValueError:
-            return cls.IDLE
+            return cls.TERMINATED
 
 
-class ConductorSession(BaseModel):
+class ConductorSession(ConductorBaseModel):
     __tablename__ = "conductor_sessions"
     __table_args__ = (
         Index("idx_csess_agent", "agent_id"),
@@ -77,7 +78,7 @@ class ConductorSessionEvent(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        UUID(as_uuid=True), primary_key=True, default=lambda ctx=None: uuid7()
     )
     session_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

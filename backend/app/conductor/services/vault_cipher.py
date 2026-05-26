@@ -18,11 +18,16 @@ class VaultCipher:
     If no key is configured, encrypt/decrypt are pass-through (development mode).
     """
 
-    def __init__(self, key_b64: Optional[str] = None):
+    def __init__(self, key_str: Optional[str] = None):
         self._key: Optional[bytes] = None
-        if key_b64:
+        if key_str:
             try:
-                self._key = base64.b64decode(key_b64)
+                # Try hex first (Rust-compatible), fall back to base64
+                try:
+                    key_bytes = bytes.fromhex(key_str)
+                except ValueError:
+                    key_bytes = base64.b64decode(key_str)
+                self._key = key_bytes
                 if len(self._key) != _AES_KEY_SIZE:
                     logger.error(
                         "Vault encryption key must be %d bytes, got %d",

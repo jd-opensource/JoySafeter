@@ -3,6 +3,8 @@ import logging
 import uuid
 from typing import Optional
 
+from uuid_utils import uuid7
+
 from app.conductor.runtime.adapter import (
     HarnessAdapter,
     HarnessEvent,
@@ -54,7 +56,7 @@ class MockAdapter(HarnessAdapter):
         )
 
     async def _simulate(self, harness: RunningHarness, input: HarnessInput) -> None:
-        session_id = input.session_id or str(uuid.uuid4())
+        session_id = input.session_id or str(uuid7())
 
         try:
             # Simulate initial processing

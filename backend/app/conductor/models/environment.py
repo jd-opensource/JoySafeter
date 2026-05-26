@@ -6,10 +6,10 @@ from sqlalchemy import DateTime, Integer, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import BaseModel
+from app.conductor.models.base import ConductorBaseModel
 
 
-class ConductorEnvironment(BaseModel):
+class ConductorEnvironment(ConductorBaseModel):
     __tablename__ = "conductor_environments"
 
     name: Mapped[str] = mapped_column(Text, unique=True, nullable=False)

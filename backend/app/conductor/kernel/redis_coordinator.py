@@ -21,7 +21,7 @@ end
 
 REFRESH_IF_OWNER_LUA = """
 if redis.call("get", KEYS[1]) == ARGV[1] then
-    return redis.call("expire", KEYS[1], ARGV[2])
+    return redis.call("expire", KEYS[1], 300)
 else
     return 0
 end
@@ -84,7 +84,7 @@ class RedisCoordinator:
     async def refresh_sandbox_owner(self, sandbox_id: uuid.UUID) -> None:
         key = f"conductor:sandbox_owner:{sandbox_id}"
         await self._redis.eval(
-            REFRESH_IF_OWNER_LUA, 1, key, self.instance_id, "300"
+            REFRESH_IF_OWNER_LUA, 1, key, self.instance_id
         )
 
     async def remove_sandbox_owner(self, sandbox_id: uuid.UUID) -> None:
@@ -185,6 +185,60 @@ class RedisCoordinator:
             await self._redis.delete(key)
         except Exception as e:
             logger.warning("Failed to remove sandbox queue: %s", e)
+
+    # --- Task Queues ---
+
+    async def push_to_global_queue(self, task_id: uuid.UUID) -> None:
+        await self._redis.rpush("conductor:global_queue", str(task_id))
+
+    async def pop_from_global_queue(
+        self, timeout_secs: float
+    ) -> Optional[uuid.UUID]:
+        result = await self._redis.blpop("conductor:global_queue", timeout=int(timeout_secs))
+        if result:
+            _, val = result
+            val_str = val if isinstance(val, str) else val.decode()
+            try:
+                return uuid.UUID(val_str)
+            except ValueError:
+                return None
+        return None
+
+    async def push_to_sandbox_queue(
+        self, sandbox_id: uuid.UUID, task_id: uuid.UUID
+    ) -> None:
+        key = f"conductor:sandbox_queue:{sandbox_id}"
+        await self._redis.rpush(key, str(task_id))
+
+    async def pop_from_sandbox_queue(
+        self, sandbox_id: uuid.UUID, timeout_secs: float
+    ) -> Optional[uuid.UUID]:
+        key = f"conductor:sandbox_queue:{sandbox_id}"
+        result = await self._redis.blpop(key, timeout=int(timeout_secs))
+        if result:
+            _, val = result
+            val_str = val if isinstance(val, str) else val.decode()
+            try:
+                return uuid.UUID(val_str)
+            except ValueError:
+                return None
+        return None
+
+    async def drain_sandbox_queue(
+        self, sandbox_id: uuid.UUID
+    ) -> list[uuid.UUID]:
+        key = f"conductor:sandbox_queue:{sandbox_id}"
+        result = []
+        while True:
+            val = await self._redis.lpop(key)
+            if val is None:
+                break
+            val_str = val if isinstance(val, str) else val.decode()
+            try:
+                result.append(uuid.UUID(val_str))
+            except ValueError:
+                pass
+        return result
 
     # --- Cross-Instance Commands ---
 

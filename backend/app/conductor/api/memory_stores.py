@@ -28,6 +28,34 @@ router = APIRouter(tags=["conductor-memory-stores"])
 
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
 
+
+def _is_unicode_format_char(ch: str) -> bool:
+    """Check if a character is a Unicode format character that should be rejected
+    in memory paths. Matches the Rust is_unicode_format_char logic."""
+    cp = ord(ch)
+    return (
+        cp == 0x00AD  # SOFT HYPHEN
+        or 0x0600 <= cp <= 0x0605  # Arabic format chars
+        or cp == 0x061C  # ARABIC LETTER MARK
+        or cp == 0x06DD  # ARABIC END OF AYAH
+        or cp == 0x070F  # SYRIAC ABBREVIATION MARK
+        or 0x0890 <= cp <= 0x0891  # Arabic format chars
+        or cp == 0x08E2  # ARABIC DISPUTED END OF AYAH
+        or cp == 0x180E  # MONGOLIAN VOWEL SEPARATOR
+        or 0x200B <= cp <= 0x200F  # Zero-width and directional marks
+        or 0x202A <= cp <= 0x202E  # Directional formatting
+        or 0x2060 <= cp <= 0x2064  # Word joiner, invisible chars
+        or 0x2066 <= cp <= 0x2069  # Directional isolates
+        or cp == 0xFEFF  # BOM / ZERO WIDTH NO-BREAK SPACE
+        or 0xFFF9 <= cp <= 0xFFFB  # Interlinear annotations
+        or cp == 0x110BD or cp == 0x110CD  # Kaithi number signs
+        or 0x13430 <= cp <= 0x1343F  # Egyptian hieroglyph format
+        or 0x1BCA0 <= cp <= 0x1BCA3  # Shorthand format controls
+        or 0x1D173 <= cp <= 0x1D17A  # Musical symbol formatting
+        or cp == 0xE0001  # LANGUAGE TAG
+        or 0xE0020 <= cp <= 0xE007F  # TAG characters
+    )
+
 # --- Metadata validation helpers ---
 
 _META_MAX_KEYS = 16
@@ -83,6 +111,9 @@ def _normalize_and_validate_path(path: str) -> str:
         raise HTTPException(400, "Path must not contain '//'")
     if _CONTROL_CHAR_RE.search(path):
         raise HTTPException(400, "Path must not contain control characters")
+    for ch in path:
+        if _is_unicode_format_char(ch):
+            raise HTTPException(400, "Path must not contain control or format characters")
     return path
 
 
@@ -360,7 +391,7 @@ async def update_memory(
             raise HTTPException(404, "Memory not found")
         if precondition_sha256 is not None and mem.content_sha256 != precondition_sha256:
             raise HTTPException(
-                412,
+                409,
                 f"SHA256 mismatch: expected {precondition_sha256}, got {mem.content_sha256}",
             )
         # Move: update the path on the memory object
@@ -376,7 +407,7 @@ async def update_memory(
                     store_id, memory_id, req.content, if_sha256=None
                 )
             except PreconditionFailed as e:
-                raise HTTPException(412, str(e))
+                raise HTTPException(409, str(e))
             if not mem:
                 raise HTTPException(404, "Memory not found")
         return _memory_to_response(mem, view=view)
@@ -393,7 +424,7 @@ async def update_memory(
             store_id, memory_id, req.content, if_sha256=precondition_sha256
         )
     except PreconditionFailed as e:
-        raise HTTPException(412, str(e))
+        raise HTTPException(409, str(e))
     if not mem:
         raise HTTPException(404, "Memory not found")
     return _memory_to_response(mem, view=view)
@@ -415,7 +446,7 @@ async def delete_memory(
     if expected_content_sha256 is not None:
         if mem.content_sha256 != expected_content_sha256:
             raise HTTPException(
-                412,
+                409,
                 f"SHA256 mismatch: expected {expected_content_sha256}, got {mem.content_sha256}",
             )
 

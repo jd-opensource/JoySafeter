@@ -104,8 +104,8 @@ class TaskRunner:
 
                 agent = await agent_svc.get_agent(task.agent_id)
                 if not agent:
-                    await task_svc.update_task_status(
-                        task_id, TaskStatus.FAILED, error="Agent not found"
+                    await task_svc.update_task_error(
+                        task_id, "Agent not found", TaskStatus.FAILED
                     )
                     return
 
@@ -149,13 +149,19 @@ class TaskRunner:
                 session_svc = SessionService(db)
                 sandbox_svc = SandboxService(db)
 
-                await task_svc.update_task_status(
-                    task_id,
-                    final_status,
-                    output=result.get("output", ""),
-                    error=result.get("error"),
-                    usage=result.get("usage"),
-                )
+                error_msg = result.get("error")
+                if error_msg:
+                    await task_svc.update_task_error(
+                        task_id, error_msg, final_status,
+                    )
+                else:
+                    await task_svc.update_task_status(
+                        task_id, final_status,
+                    )
+                await task_svc.update_task_output(task_id, result.get("output", ""))
+                task_usage = result.get("usage")
+                if task_usage:
+                    await task_svc.update_task_usage(task_id, task_usage)
 
                 if task.chat_session_id:
                     harness_session_id = result.get("session_id")
@@ -225,8 +231,8 @@ class TaskRunner:
             self._consecutive_failures += 1
             async with AsyncSessionLocal() as db:
                 task_svc = TaskService(db)
-                await task_svc.update_task_status(
-                    task_id, TaskStatus.ABORTED, error="Cancelled"
+                await task_svc.update_task_error(
+                    task_id, "Cancelled", TaskStatus.ABORTED
                 )
         except TimeoutError:
             logger.warning(
@@ -240,10 +246,10 @@ class TaskRunner:
                     pass
             async with AsyncSessionLocal() as db:
                 task_svc = TaskService(db)
-                await task_svc.update_task_status(
+                await task_svc.update_task_error(
                     task_id,
+                    "Task timed out (server-side deadline)",
                     TaskStatus.TIMEOUT,
-                    error="Task timed out (server-side deadline)",
                 )
             await self._bridge.broadcast_to_task(
                 task_id,
@@ -341,7 +347,7 @@ class TaskRunner:
 
     async def _delayed_requeue(self, task_id: uuid.UUID, delay: float) -> None:
         await asyncio.sleep(delay)
-        await self._queue.push_global(task_id)
+        await self._queue.push_to_global(task_id)
         logger.info("Task %s re-enqueued after %.1fs retry delay", task_id, delay)
 
     async def _probe_and_cleanup(self, sandbox_id: uuid.UUID) -> None:
@@ -793,7 +799,7 @@ class TaskRunner:
                     broadcast_data = {"type": mapped_type, "seq": seq}
                     if isinstance(mapped_payload, dict):
                         broadcast_data.update(mapped_payload)
-                    await broadcaster.broadcast(session_id, broadcast_data)
+                    await broadcaster.send(session_id, broadcast_data)
 
             if mapped_type in (
                 "agent.tool_use",
@@ -830,7 +836,7 @@ class TaskRunner:
 
                 broadcaster = get_session_broadcaster()
                 if broadcaster:
-                    await broadcaster.broadcast(
+                    await broadcaster.send(
                         session_id,
                         {
                             "type": "session.status_idle",
@@ -860,7 +866,7 @@ class TaskRunner:
 
                 broadcaster = get_session_broadcaster()
                 if broadcaster:
-                    await broadcaster.broadcast(
+                    await broadcaster.send(
                         session_id,
                         {
                             "type": "session.status_running",
@@ -901,7 +907,7 @@ class TaskRunner:
                         "agent.tool_use",
                         "agent.mcp_tool_use",
                     ) and is_control_request(mapped_payload):
-                        call_id = mapped_payload.get("id", "")
+                        call_id = mapped_payload.get("_call_id") or mapped_payload.get("id", "")
                         ref_id = last_tool_use_event_id or str(seq + 1)
                         self._bridge.pending_control_request_ids[ref_id] = (
                             call_id

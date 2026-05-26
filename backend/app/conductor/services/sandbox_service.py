@@ -20,15 +20,23 @@ class SandboxService:
         config: Optional[dict] = None,
         chat_session_id: Optional[uuid.UUID] = None,
         workspace_path: Optional[str] = None,
+        external_id: Optional[str] = None,
+        sandbox_id: Optional[uuid.UUID] = None,
+        status: str = "creating",
     ) -> ConductorSandbox:
-        sandbox = ConductorSandbox(
+        kwargs: dict = dict(
             provider=provider,
-            status="creating",
+            status=status,
             image=image,
             config=config or {},
             chat_session_id=chat_session_id,
             workspace_path=workspace_path,
         )
+        if sandbox_id is not None:
+            kwargs["id"] = sandbox_id
+        if external_id is not None:
+            kwargs["external_id"] = external_id
+        sandbox = ConductorSandbox(**kwargs)
         self.db.add(sandbox)
         await self.db.commit()
         await self.db.refresh(sandbox)
@@ -59,13 +67,7 @@ class SandboxService:
         sandbox_id: uuid.UUID,
         expected_status: str,
         new_status: str,
-        external_id: Optional[str] = None,
     ) -> bool:
-        values: dict = {"status": new_status, "updated_at": utc_now()}
-        if external_id is not None:
-            values["external_id"] = external_id
-        if new_status == "destroyed":
-            values["destroyed_at"] = utc_now()
         result = await self.db.execute(
             update(ConductorSandbox)
             .where(
@@ -74,7 +76,7 @@ class SandboxService:
                     ConductorSandbox.status == expected_status,
                 )
             )
-            .values(**values)
+            .values(status=new_status)
         )
         await self.db.commit()
         return result.rowcount > 0
@@ -97,7 +99,7 @@ class SandboxService:
                 and_(
                     ConductorSandbox.chat_session_id == session_id,
                     ConductorSandbox.status.in_(
-                        ["idle", "provisioning", "stopped", "stopping", "error"]
+                        ["idle", "running", "creating", "provisioning", "stopped", "stopping", "error"]
                     ),
                 )
             )
@@ -106,10 +108,17 @@ class SandboxService:
         )
         return result.scalar_one_or_none()
 
-    async def claim_from_pool(self, session_id: uuid.UUID) -> Optional[ConductorSandbox]:
+    async def claim_from_pool(
+        self, image: str, session_id: uuid.UUID
+    ) -> Optional[ConductorSandbox]:
         result = await self.db.execute(
             select(ConductorSandbox)
-            .where(ConductorSandbox.status == "pooled")
+            .where(
+                and_(
+                    ConductorSandbox.status == "pooled",
+                    ConductorSandbox.image == image,
+                )
+            )
             .order_by(ConductorSandbox.created_at.asc())
             .limit(1)
             .with_for_update(skip_locked=True)
@@ -117,7 +126,7 @@ class SandboxService:
         sandbox = result.scalar_one_or_none()
         if not sandbox:
             return None
-        sandbox.status = "running"
+        sandbox.status = "provisioning"
         sandbox.chat_session_id = session_id
         sandbox.last_used_at = utc_now()
         await self.db.commit()
@@ -125,19 +134,21 @@ class SandboxService:
         return sandbox
 
     async def stop_sandbox(self, sandbox_id: uuid.UUID) -> bool:
-        sandbox = await self.get_sandbox(sandbox_id)
-        if not sandbox or sandbox.destroyed_at:
-            return False
-        sandbox.status = "stopping"
-        sandbox.updated_at = utc_now()
-        await self.db.commit()
-        return True
+        return await self.update_status_cas(sandbox_id, "idle", "stopping")
 
     async def update_status(self, sandbox_id: uuid.UUID, status: str) -> None:
         await self.db.execute(
             update(ConductorSandbox)
             .where(ConductorSandbox.id == sandbox_id)
-            .values(status=status, updated_at=utc_now())
+            .values(status=status)
+        )
+        await self.db.commit()
+
+    async def mark_destroyed(self, sandbox_id: uuid.UUID) -> None:
+        await self.db.execute(
+            update(ConductorSandbox)
+            .where(ConductorSandbox.id == sandbox_id)
+            .values(status="destroyed", destroyed_at=utc_now())
         )
         await self.db.commit()
 
@@ -147,7 +158,7 @@ class SandboxService:
         await self.db.execute(
             update(ConductorSandbox)
             .where(ConductorSandbox.id == sandbox_id)
-            .values(status=status, config=config, last_used_at=utc_now(), updated_at=utc_now())
+            .values(status=status, config=config, last_used_at=utc_now())
         )
         await self.db.commit()
 
@@ -193,7 +204,6 @@ class SandboxService:
         result = await self.db.execute(
             select(ConductorSandbox)
             .where(ConductorSandbox.status == "pooled")
-            .order_by(ConductorSandbox.created_at.asc())
         )
         return list(result.scalars().all())
 
@@ -213,7 +223,6 @@ class SandboxService:
                 status=status,
                 last_task_id=task_id,
                 last_used_at=utc_now(),
-                updated_at=utc_now(),
             )
         )
         await self.db.commit()
@@ -224,7 +233,7 @@ class SandboxService:
             select(ConductorSandbox).where(
                 and_(
                     ConductorSandbox.status == "stopping",
-                    ConductorSandbox.updated_at < cutoff,
+                    ConductorSandbox.last_used_at < cutoff,
                 )
             )
         )
@@ -235,9 +244,8 @@ class SandboxService:
         result = await self.db.execute(
             select(ConductorSandbox).where(
                 and_(
-                    ConductorSandbox.status == "stopped",
-                    ConductorSandbox.updated_at < cutoff,
-                    ConductorSandbox.destroyed_at.is_(None),
+                    ConductorSandbox.status.in_(["stopped", "error"]),
+                    ConductorSandbox.last_used_at < cutoff,
                 )
             )
         )

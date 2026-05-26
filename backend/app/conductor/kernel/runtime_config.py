@@ -11,11 +11,11 @@ class RuntimeConfig:
     def __init__(
         self,
         idle_timeout_sec: int = 600,
-        stopped_max_age_sec: int = 300,
-        heartbeat_timeout_sec: int = 120,
-        sandbox_failure_threshold: int = 5,
-        pool_min_size: int = 3,
-        pool_max_age_sec: int = 3600,
+        stopped_max_age_sec: int = 3600,
+        heartbeat_timeout_sec: int = 30,
+        sandbox_failure_threshold: int = 3,
+        pool_min_size: int = 2,
+        pool_max_age_sec: int = 1800,
         event_batch_max_size: int = 50,
         event_batch_max_delay_ms: int = 50,
     ):

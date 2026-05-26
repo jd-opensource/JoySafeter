@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_serializer, model_validator
 
 
 class ModelUsage(BaseModel):
@@ -81,7 +81,42 @@ class RetriesExhaustedStopReason(BaseModel):
     type: Literal["retries_exhausted"] = "retries_exhausted"
 
 
-StopReason = Union[EndTurnStopReason, RequiresActionStopReason, RetriesExhaustedStopReason]
+class InterruptedStopReason(BaseModel):
+    type: Literal["interrupted"] = "interrupted"
+
+
+class ErrorStopReason(BaseModel):
+    type: Literal["error"] = "error"
+    message: Optional[str] = None
+
+
+class TimeoutStopReason(BaseModel):
+    type: Literal["timeout"] = "timeout"
+
+
+class CancelledStopReason(BaseModel):
+    type: Literal["cancelled"] = "cancelled"
+
+
+class SandboxDisconnectedStopReason(BaseModel):
+    type: Literal["sandbox_disconnected"] = "sandbox_disconnected"
+
+
+class SandboxFailedStopReason(BaseModel):
+    type: Literal["sandbox_failed"] = "sandbox_failed"
+
+
+StopReason = Union[
+    EndTurnStopReason,
+    RequiresActionStopReason,
+    RetriesExhaustedStopReason,
+    InterruptedStopReason,
+    ErrorStopReason,
+    TimeoutStopReason,
+    CancelledStopReason,
+    SandboxDisconnectedStopReason,
+    SandboxFailedStopReason,
+]
 
 
 class AgentRef(BaseModel):
@@ -101,15 +136,31 @@ class SessionResourceRequest(BaseModel):
 MAX_MEMORY_STORE_RESOURCES = 8
 
 
+def _parse_agent_id(raw: str) -> uuid.UUID:
+    """Strip optional 'agent_' prefix and parse UUID."""
+    s = raw.removeprefix("agent_")
+    return uuid.UUID(s)
+
+
 class CreateSessionRequest(BaseModel):
-    agent: Optional[AgentRef] = None
+    agent: Optional[Union[AgentRef, str]] = None
     agent_id: Optional[uuid.UUID] = None
     agent_name: Optional[str] = None
     title: Optional[str] = None
     metadata: dict[str, str] = Field(default_factory=dict)
     vault_ids: list[str] = Field(default_factory=list)
-    environment_id: str
+    environment_id: Optional[str] = None
     resources: list[SessionResourceRequest] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_agent_string(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            agent = data.get("agent")
+            if isinstance(agent, str):
+                data["agent_id"] = str(_parse_agent_id(agent))
+                data["agent"] = None
+        return data
 
 
 class SessionResourceResponse(BaseModel):
@@ -149,7 +200,7 @@ class SessionResponse(BaseModel):
 
 class SingleEventRequest(BaseModel):
     type: str
-    content: Optional[str] = None
+    content: Optional[Union[str, list[Any]]] = None
     tool_use_id: Optional[str] = None
     custom_tool_use_id: Optional[str] = None
     tool_use_event_id: Optional[str] = None
@@ -170,7 +221,7 @@ class SingleEventRequest(BaseModel):
 class SendEventRequest(BaseModel):
     type: Optional[str] = None
     events: Optional[list[SingleEventRequest]] = None
-    content: Optional[str] = None
+    content: Optional[Union[str, list[Any]]] = None
     tool_use_id: Optional[str] = None
     custom_tool_use_id: Optional[str] = None
     tool_use_event_id: Optional[str] = None
@@ -207,9 +258,21 @@ class SessionEventResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"evt_{v}"
+    @model_serializer
+    def _flatten(self) -> dict[str, Any]:
+        base: dict[str, Any] = {
+            "id": f"evt_{self.id}",
+            "type": self.event_type,
+            "seq": self.seq,
+            "processed_at": self.processed_at.isoformat() if self.processed_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+        if self.payload:
+            _reserved = {"id", "type", "seq", "processed_at", "created_at"}
+            for k, v in self.payload.items():
+                if k not in _reserved:
+                    base[k] = v
+        return base
 
 
 class EventListParams(BaseModel):

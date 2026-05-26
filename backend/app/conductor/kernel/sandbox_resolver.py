@@ -4,6 +4,9 @@ import os
 import uuid
 from typing import Optional
 
+from uuid_utils import uuid7 as _uuid7
+
+from app.conductor.config import conductor_config
 from app.conductor.sandbox.provider import SandboxProvider
 
 logger = logging.getLogger(__name__)
@@ -12,9 +15,9 @@ logger = logging.getLogger(__name__)
 # Multi-image map: per-engine-kind image resolution
 # ---------------------------------------------------------------------------
 
-_IMAGE_ENV_MAP: dict[str, str] = {
-    "claude": "CONDUCTOR_IMAGE_CLAUDE",
-    "codex": "CONDUCTOR_IMAGE_CODEX",
+_IMAGE_CONFIG_MAP: dict[str, str] = {
+    "claude": "image_claude",
+    "codex": "image_codex",
 }
 
 
@@ -22,18 +25,14 @@ def image_for_provider(engine_kind: str, fallback: str) -> str:
     """Return the container image for a given engine kind.
 
     Resolution order:
-      1. Engine-specific env var (CONDUCTOR_IMAGE_CLAUDE / CONDUCTOR_IMAGE_CODEX)
-      2. Generic CONDUCTOR_SANDBOX_IMAGE env var
-      3. The *fallback* value (typically ``conductor_config.sandbox_image``)
+      1. Engine-specific config (conductor_config.image_claude / .image_codex)
+      2. The *fallback* value (typically ``conductor_config.sandbox_image``)
     """
-    env_key = _IMAGE_ENV_MAP.get(engine_kind)
-    if env_key:
-        val = os.environ.get(env_key)
+    attr = _IMAGE_CONFIG_MAP.get(engine_kind)
+    if attr:
+        val = getattr(conductor_config, attr, None)
         if val:
             return val
-    generic = os.environ.get("CONDUCTOR_SANDBOX_IMAGE")
-    if generic:
-        return generic
     return fallback
 
 
@@ -43,19 +42,39 @@ class SandboxResolver:
     Ported from conductor-sandbox/src/resolver.rs.
     """
 
+    @staticmethod
+    def _provisioning_config(stage: str, progress: int, message: str) -> dict:
+        return {
+            "provisioning": {
+                "stage": stage,
+                "progress": progress,
+                "message": message,
+                "complete": False,
+                "error": False,
+            }
+        }
+
     def __init__(
         self,
         default_provider: str = "docker",
         default_image: str = "joysafeter/cli-agent:latest",
         pool_enabled: bool = False,
-        workspace_host_root: str = "/tmp/conductor/workspaces",
+        pool_env: Optional[dict[str, str]] = None,
+        workspace_host_root: Optional[str] = None,
         provider: Optional[SandboxProvider] = None,
+        grpc_public_url: Optional[str] = None,
     ):
         self._default_provider = default_provider
         self._default_image = default_image
         self._pool_enabled = pool_enabled
+        self._pool_env: dict[str, str] = dict(pool_env) if pool_env else {}
         self._workspace_host_root = workspace_host_root
         self._provider = provider
+        self._grpc_public_url = (
+            grpc_public_url
+            or conductor_config.grpc_public_url
+            or f"http://host.docker.internal:{conductor_config.grpc_port}"
+        )
         self._session_locks: dict[uuid.UUID, asyncio.Lock] = {}
         self._session_locks_guard = asyncio.Lock()
 
@@ -118,17 +137,50 @@ class SandboxResolver:
             svc = SandboxService(db)
             existing = await svc.find_by_session(session_id)
             if existing:
-                if existing.status in ("running", "idle"):
+                if existing.status in ("idle", "running", "creating"):
                     logger.info(
                         "Reusing existing sandbox %s (status=%s) for session %s",
                         existing.id, existing.status, session_id,
                     )
+                    await svc.touch(existing.id)
                     return {
                         "sandbox_id": existing.id,
                         "external_id": existing.external_id,
                         "status": existing.status,
                         "created": False,
                     }
+                elif existing.status == "provisioning":
+                    logger.info(
+                        "Sandbox %s is still provisioning for session %s, reusing",
+                        existing.id, session_id,
+                    )
+                    await svc.touch(existing.id)
+                    return {
+                        "sandbox_id": existing.id,
+                        "external_id": existing.external_id,
+                        "status": existing.status,
+                        "created": False,
+                    }
+                elif existing.status == "error":
+                    logger.info(
+                        "Sandbox %s in error state for session %s, destroying",
+                        existing.id, session_id,
+                    )
+                    provider = self._get_provider()
+                    try:
+                        await provider.destroy(existing.external_id)
+                    except Exception:
+                        pass
+                    await svc.mark_destroyed(existing.id)
+                    try:
+                        await provider.teardown_networking(existing.id)
+                    except Exception:
+                        pass
+                elif existing.status == "stopping":
+                    logger.info(
+                        "Sandbox %s is being stopped for session %s, creating new",
+                        existing.id, session_id,
+                    )
 
         # Stage 1b: Try to restart a stopped sandbox for this session
         async with AsyncSessionLocal() as db:
@@ -140,83 +192,92 @@ class SandboxResolver:
                     return {
                         "sandbox_id": stopped.id,
                         "external_id": stopped.external_id,
-                        "status": "running",
+                        "status": "provisioning",
                         "created": False,
                     }
 
         # Stage 2: Claim from pool + liveness check
-        if self._pool_enabled:
+        # Skip pool claim if net_type is "limited" (requires dedicated container)
+        net_type = (networking or {}).get("type", "unrestricted")
+        if self._pool_enabled and net_type != "limited":
             async with AsyncSessionLocal() as db:
                 svc = SandboxService(db)
-                pooled = await svc.claim_from_pool(session_id)
+                pooled = await svc.claim_from_pool(resolved_image, session_id)
                 if pooled:
-                    live = await self._pool_claim_liveness_check(
+                    claim_result = await self._pool_claim_liveness_check(
                         svc, pooled, session_id
                     )
-                    if live:
+                    if claim_result is not None:
                         logger.info(
                             "Claimed sandbox %s from pool for session %s",
                             pooled.id, session_id,
                         )
-                        return {
-                            "sandbox_id": pooled.id,
-                            "external_id": pooled.external_id,
-                            "status": "running",
-                            "created": False,
-                        }
+                        return claim_result
                     # Liveness check failed; fall through to Stage 3
 
         # Stage 3: Create new sandbox
-        workspace_path = os.path.join(self._workspace_host_root, str(session_id))
-        async with AsyncSessionLocal() as db:
-            svc = SandboxService(db)
-            sandbox = await svc.create_sandbox(
-                image=resolved_image,
-                provider=self._default_provider,
-                chat_session_id=session_id,
-                workspace_path=workspace_path,
-                config={
-                    "provisioning": {
-                        "stage": "creating",
-                        "progress": 0,
-                        "message": "Creating sandbox container",
-                        "complete": False,
-                        "error": False,
-                    }
-                },
-            )
+        workspace_path = (
+            os.path.join(self._workspace_host_root, str(session_id))
+            if self._workspace_host_root is not None
+            else None
+        )
 
         # Preload memory files into the workspace before container start
-        memory_mounts = await self._preload_memory(session_id, workspace_path)
+        memory_mounts = await self._preload_memory(session_id, workspace_path) if workspace_path else []
 
-        # Provision the sandbox (create + start container)
+        # Setup networking (e.g. Envoy proxy) before creating the container (Rust line 291)
+        sandbox_id = _uuid7()
+        provider = self._get_provider()
+        await provider.setup_networking(sandbox_id, networking or {})
+
+        # Provision the sandbox (create + start container) BEFORE DB record
         try:
             external_id = await self._provision_sandbox(
-                sandbox.id, resolved_image, agent_env, workspace_path,
+                sandbox_id, resolved_image, agent_env, workspace_path,
                 networking=networking,
                 memory_mounts=memory_mounts,
+                engine_kind=engine_kind,
             )
+        except Exception as e:
+            logger.error("Failed to provision sandbox container: %s", e)
+            await provider.teardown_networking(sandbox_id)
+            raise
+
+        # Now create the DB record with the real external_id
+        try:
             async with AsyncSessionLocal() as db:
                 svc = SandboxService(db)
-                await svc.update_status_cas(
-                    sandbox.id, "creating", "running", external_id=external_id
+                sandbox = await svc.create_sandbox(
+                    image=resolved_image,
+                    provider=self._default_provider,
+                    chat_session_id=session_id,
+                    workspace_path=workspace_path,
+                    external_id=external_id,
+                    sandbox_id=sandbox_id,
+                    status="provisioning",
+                    config=self._provisioning_config(
+                        "container_started",
+                        70,
+                        "Sandbox created, waiting for runner ready",
+                    ),
                 )
-
-            # Register with Envoy for network isolation
-            await self._register_with_envoy(sandbox.id, networking)
 
             logger.info("Provisioned sandbox %s (ext=%s)", sandbox.id, external_id)
             return {
                 "sandbox_id": sandbox.id,
                 "external_id": external_id,
-                "status": "running",
+                "status": "provisioning",
                 "created": True,
             }
         except Exception as e:
-            logger.error("Failed to provision sandbox %s: %s", sandbox.id, e)
-            async with AsyncSessionLocal() as db:
-                svc = SandboxService(db)
-                await svc.update_status_cas(sandbox.id, "creating", "destroyed")
+            logger.error("Failed to create DB record for sandbox %s: %s", sandbox_id, e)
+            # Destroy the already-provisioned container
+            try:
+                provider = self._get_provider()
+                await provider.destroy(external_id)
+            except Exception:
+                pass
+            await provider.teardown_networking(sandbox_id)
             raise
 
     # ------------------------------------------------------------------
@@ -265,7 +326,7 @@ class SandboxResolver:
                     {
                         "name": mount_name,
                         "host_path": mount_dir,
-                        "read_only": access == "read",
+                        "access": access,
                     }
                 )
 
@@ -293,12 +354,13 @@ class SandboxResolver:
         svc,
         sandbox,
         session_id: uuid.UUID,
-    ) -> bool:
+    ) -> Optional[dict]:
         """Verify a claimed pool sandbox is actually alive.
 
-        Returns ``True`` when the sandbox is ready to use.
-        Returns ``False`` when the sandbox is broken and has been destroyed
-        (caller should fall through to Stage 3).
+        Returns a resolve result dict when the sandbox is usable (status
+        always ``"provisioning"`` to match Rust), or ``None`` when the
+        sandbox is broken and has been destroyed (caller should fall
+        through to Stage 3).
         """
         provider = self._get_provider()
         if not sandbox.external_id:
@@ -307,8 +369,8 @@ class SandboxResolver:
                 "Pooled sandbox %s has no external_id, destroying",
                 sandbox.id,
             )
-            await svc.update_status_cas(sandbox.id, "running", "destroyed")
-            return False
+            await svc.mark_destroyed(sandbox.id)
+            return None
 
         try:
             status = await provider.status(sandbox.external_id)
@@ -320,38 +382,50 @@ class SandboxResolver:
                 e,
             )
             await self._destroy_broken_pooled(svc, provider, sandbox)
-            return False
+            return None
 
         if status == "running":
-            return True
+            await svc.update_status_and_config(
+                sandbox.id,
+                "provisioning",
+                self._provisioning_config(
+                    "pool_claimed",
+                    80,
+                    "Claimed from warm pool, waiting for runner readiness",
+                ),
+            )
+        elif status in ("exited", "paused"):
+            await provider.start(sandbox.external_id)
+            await svc.update_status_and_config(
+                sandbox.id,
+                "provisioning",
+                self._provisioning_config(
+                    "pool_restarting",
+                    75,
+                    "Claimed stopped pooled sandbox, restarting runtime",
+                ),
+            )
+            logger.info(
+                "Restarted stopped pooled sandbox %s for session %s",
+                sandbox.id,
+                session_id,
+            )
+        else:
+            # Unknown / dead status -- destroy and let caller create fresh
+            logger.warning(
+                "Pooled sandbox %s has unexpected status '%s', destroying",
+                sandbox.id,
+                status,
+            )
+            await self._destroy_broken_pooled(svc, provider, sandbox)
+            return None
 
-        if status in ("exited", "stopped", "created"):
-            # Try to restart
-            try:
-                await provider.start(sandbox.external_id)
-                logger.info(
-                    "Restarted stopped pooled sandbox %s for session %s",
-                    sandbox.id,
-                    session_id,
-                )
-                return True
-            except Exception as e:
-                logger.warning(
-                    "Failed to restart pooled sandbox %s: %s",
-                    sandbox.id,
-                    e,
-                )
-                await self._destroy_broken_pooled(svc, provider, sandbox)
-                return False
-
-        # Unknown / dead status -- destroy and let caller create fresh
-        logger.warning(
-            "Pooled sandbox %s has unexpected status '%s', destroying",
-            sandbox.id,
-            status,
-        )
-        await self._destroy_broken_pooled(svc, provider, sandbox)
-        return False
+        return {
+            "sandbox_id": sandbox.id,
+            "external_id": sandbox.external_id,
+            "status": "provisioning",
+            "created": False,
+        }
 
     async def _destroy_broken_pooled(
         self, svc, provider: SandboxProvider, sandbox
@@ -365,7 +439,7 @@ class SandboxResolver:
                 sandbox.id,
                 e,
             )
-        await svc.update_status_cas(sandbox.id, "running", "destroyed")
+        await svc.mark_destroyed(sandbox.id)
 
     # ------------------------------------------------------------------
     # Pool provisioning (called from SandboxController._manage_pool_inner)
@@ -378,7 +452,7 @@ class SandboxResolver:
     ) -> dict:
         """Create and start a real sandbox container for the warm pool.
 
-        Returns dict with sandbox_id, external_id, status.
+        Matches Rust create_pooled: container first, then DB record as "pooled".
         """
         from app.core.database import AsyncSessionLocal
         from app.conductor.services.sandbox_service import SandboxService
@@ -390,56 +464,64 @@ class SandboxResolver:
         else:
             resolved_image = self._default_image
 
-        sandbox_id = uuid.uuid4()
-        workspace_path = os.path.join(
-            self._workspace_host_root, "pool", str(sandbox_id)
+        sandbox_id = _uuid7()
+        workspace_path = (
+            os.path.join(self._workspace_host_root, str(sandbox_id))
+            if self._workspace_host_root is not None
+            else None
         )
 
-        async with AsyncSessionLocal() as db:
-            svc = SandboxService(db)
-            sandbox = await svc.create_sandbox(
-                image=resolved_image,
-                provider=self._default_provider,
-                workspace_path=workspace_path,
-                config={
-                    "provisioning": {
-                        "stage": "creating",
-                        "progress": 0,
-                        "message": "Pool pre-warm",
-                        "complete": False,
-                        "error": False,
-                    }
-                },
-            )
+        pool_env = dict(self._pool_env)
+        pool_env["CONDUCTOR_SANDBOX_ID"] = str(sandbox_id)
+        pool_env["CONDUCTOR_ORCHESTRATOR_URL"] = self._grpc_public_url
 
-        try:
-            external_id = await self._provision_sandbox(
-                sandbox.id,
-                resolved_image,
-                env={},
-                workspace_path=workspace_path,
-            )
-            async with AsyncSessionLocal() as db:
-                svc = SandboxService(db)
-                await svc.update_status_cas(
-                    sandbox.id, "creating", "pooled", external_id=external_id
-                )
-            logger.info(
-                "Pool sandbox %s provisioned (ext=%s)", sandbox.id, external_id
-            )
-            return {
-                "sandbox_id": sandbox.id,
-                "external_id": external_id,
-                "status": "pooled",
+        # Step 1: Create container FIRST (Rust: provider.create then store.create)
+        external_id = await self._provision_sandbox(
+            sandbox_id,
+            resolved_image,
+            env=pool_env,
+            workspace_path=workspace_path,
+        )
+
+        # Step 2: Insert DB record as "pooled" with pool_warm config
+        pool_warm_config = {
+            "provisioning": {
+                "stage": "pool_warm",
+                "progress": 100,
+                "message": "Warm pooled sandbox ready for claim",
+                "complete": True,
+                "error": False,
             }
-        except Exception as e:
-            logger.error(
-                "Failed to provision pool sandbox %s: %s", sandbox.id, e
-            )
+        }
+        try:
             async with AsyncSessionLocal() as db:
                 svc = SandboxService(db)
-                await svc.update_status_cas(sandbox.id, "creating", "destroyed")
+                await svc.create_sandbox(
+                    image=resolved_image,
+                    provider=self._default_provider,
+                    workspace_path=workspace_path,
+                    sandbox_id=sandbox_id,
+                    external_id=external_id,
+                    status="pooled",
+                    config=pool_warm_config,
+                )
+        except Exception as e:
+            logger.warning("DB write failed for pooled sandbox %s: %s", sandbox_id, e)
+            try:
+                provider = self._get_provider()
+                await provider.destroy(external_id)
+            except Exception:
+                pass
             raise
+
+        logger.info(
+            "Pool sandbox %s provisioned (ext=%s)", sandbox_id, external_id
+        )
+        return {
+            "sandbox_id": sandbox_id,
+            "external_id": external_id,
+            "status": "pooled",
+        }
 
     # ------------------------------------------------------------------
     # Helpers
@@ -470,11 +552,21 @@ class SandboxResolver:
         try:
             provider = self._get_provider()
             await provider.start(sandbox.external_id)
-            await svc.update_status_cas(sandbox.id, "stopped", "running")
+            await svc.update_status_and_config(
+                sandbox.id,
+                "provisioning",
+                self._provisioning_config(
+                    "runtime_restarting",
+                    75,
+                    "Sandbox restarted, waiting for runner to reconnect",
+                ),
+            )
+            await svc.touch(sandbox.id)
             logger.info("Restarted stopped sandbox %s", sandbox.id)
             return True
         except Exception as e:
             logger.warning("Failed to restart sandbox %s: %s", sandbox.id, e)
+            await svc.mark_destroyed(sandbox.id)
             return False
 
     async def _provision_sandbox(
@@ -482,14 +574,21 @@ class SandboxResolver:
         sandbox_id: uuid.UUID,
         image: str,
         env: dict[str, str],
-        workspace_path: str,
+        workspace_path: Optional[str],
         networking: Optional[dict] = None,
         memory_mounts: Optional[list[dict]] = None,
+        engine_kind: Optional[str] = None,
     ) -> str:
-        os.makedirs(workspace_path, exist_ok=True)
+        if workspace_path:
+            os.makedirs(workspace_path, exist_ok=True)
+
+        # Inject orchestrator env vars (matches Rust create_new / create_pooled)
+        env = dict(env)  # copy to avoid mutating caller's dict
+        env["CONDUCTOR_SANDBOX_ID"] = str(sandbox_id)
+        env["CONDUCTOR_ORCHESTRATOR_URL"] = self._grpc_public_url
 
         provider = self._get_provider()
-        name = str(sandbox_id)[:8]
+        name = str(sandbox_id)[:18]
         labels = {
             "conductor.sandbox_id": str(sandbox_id),
             "conductor.managed": "true",
@@ -504,20 +603,5 @@ class SandboxResolver:
             networking=networking,
             memory_mounts=memory_mounts,
         )
-        await provider.start(external_id)
         return external_id
 
-    async def _register_with_envoy(
-        self, sandbox_id: uuid.UUID, networking: Optional[dict] = None
-    ) -> None:
-        from app.conductor.lifespan import get_envoy_manager
-
-        envoy = get_envoy_manager()
-        if not envoy:
-            return
-
-        try:
-            net_config = networking or {"allowed_hosts": [], "type": "unrestricted"}
-            await envoy.add_sandbox(sandbox_id, net_config)
-        except Exception as e:
-            logger.warning("Failed to register sandbox %s with Envoy: %s", sandbox_id, e)

@@ -104,10 +104,29 @@ class CodexAdapter(HarnessAdapter):
         key = self._session_key(input)
         session = self._sessions.get(key)
         if session and session.process and session.process.returncode is None:
+            logger.info("Reusing existing codex session: key=%s thread_id=%s", key, session.thread_id)
+            print(f"[CODEX] Reusing session: key={key} thread_id={session.thread_id}", flush=True)
             return session
+        print(
+            f"[CODEX] Creating new session: key={key} input.session_id={input.session_id} "
+            f"workspace_path={input.workspace_path}",
+            flush=True,
+        )
+        logger.info(
+            "Creating new codex session: key=%s input.session_id=%s workspace_path=%s",
+            key, input.session_id, input.workspace_path,
+        )
 
         session = _CodexSession()
-        env = {**os.environ, **input.env}
+        env = {**os.environ, **input.env, **input.secrets}
+
+        if input.workspace_path:
+            codex_home = os.path.join(input.workspace_path, ".codex")
+            os.makedirs(codex_home, exist_ok=True)
+            env["CODEX_HOME"] = codex_home
+            logger.info("CODEX_HOME set to %s", codex_home)
+        else:
+            logger.warning("No workspace_path — CODEX_HOME not set, rollouts may not persist")
 
         cmd = [self._binary, "app-server", "--listen", "stdio://"]
         if input.model:
@@ -135,8 +154,32 @@ class CodexAdapter(HarnessAdapter):
 
         await self._send_notification(session, "initialized")
 
-        thread_result = await self._rpc_request(session, "thread/start", {})
-        session.thread_id = thread_result.get("thread_id") if isinstance(thread_result, dict) else None
+        if input.session_id:
+            try:
+                thread_result = await self._rpc_request(session, "thread/resume", {
+                    "threadId": input.session_id,
+                })
+                logger.info("Codex thread/resume succeeded for %s", input.session_id)
+            except Exception:
+                logger.warning(
+                    "Codex thread/resume failed for %s, falling back to thread/start",
+                    input.session_id,
+                )
+                thread_result = await self._rpc_request(session, "thread/start", {})
+        else:
+            thread_result = await self._rpc_request(session, "thread/start", {})
+
+        if isinstance(thread_result, dict):
+            thread = thread_result.get("thread", {})
+            session.thread_id = (
+                (thread.get("id") or thread.get("thread_id"))
+                if isinstance(thread, dict) else None
+            ) or thread_result.get("thread_id")
+        print(
+            f"[CODEX] Session established: key={key} thread_id={session.thread_id} "
+            f"thread_result_keys={list(thread_result.keys()) if isinstance(thread_result, dict) else type(thread_result).__name__}",
+            flush=True,
+        )
 
         self._sessions[key] = session
         return session
@@ -159,9 +202,16 @@ class CodexAdapter(HarnessAdapter):
         async def _wait_turn() -> HarnessResult:
             await turn.done.wait()
             duration = int((time.monotonic() - turn.start_time) * 1000)
+            output = "\n".join(turn.output_parts)
+            print(
+                f"[CODEX] Turn done: thread_id={session.thread_id} output_len={len(output)} "
+                f"status={turn.status} error={turn.error}",
+                flush=True,
+            )
             return HarnessResult(
-                output="\n".join(turn.output_parts),
+                output=output,
                 usage=turn.usage,
+                session_id=session.thread_id,
                 status=turn.status,
                 error=turn.error,
                 duration_ms=duration,

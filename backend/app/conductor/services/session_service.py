@@ -16,14 +16,14 @@ from app.utils.datetime import utc_now
 
 # State machine: maps target status -> set of allowed source statuses
 _VALID_TRANSITIONS: dict[str, set[str]] = {
-    SessionStatus.RUNNING.value: {SessionStatus.IDLE.value, SessionStatus.RESCHEDULING.value},
-    SessionStatus.IDLE.value: {SessionStatus.RUNNING.value, SessionStatus.RESCHEDULING.value},
+    SessionStatus.RUNNING.value: {SessionStatus.IDLE.value, SessionStatus.RESCHEDULING.value, SessionStatus.RUNNING.value},
+    SessionStatus.IDLE.value: {SessionStatus.RUNNING.value},
     SessionStatus.TERMINATED.value: {
         SessionStatus.IDLE.value,
         SessionStatus.RUNNING.value,
         SessionStatus.RESCHEDULING.value,
     },
-    SessionStatus.RESCHEDULING.value: {SessionStatus.RUNNING.value},
+    SessionStatus.RESCHEDULING.value: {SessionStatus.RUNNING.value, SessionStatus.IDLE.value},
 }
 
 
@@ -69,7 +69,10 @@ class SessionService:
     ) -> tuple[list[ConductorSession], bool]:
         q = select(ConductorSession).where(ConductorSession.archived_at.is_(None))
         if after_id:
-            q = q.where(ConductorSession.id < after_id)
+            cursor_created_at = select(ConductorSession.created_at).where(
+                ConductorSession.id == after_id
+            ).scalar_subquery()
+            q = q.where(ConductorSession.created_at < cursor_created_at)
         q = q.order_by(ConductorSession.created_at.desc()).limit(limit + 1)
         result = await self.db.execute(q)
         sessions = list(result.scalars().all())
@@ -89,7 +92,10 @@ class SessionService:
             )
         )
         if after_id:
-            q = q.where(ConductorSession.id < after_id)
+            cursor_created_at = select(ConductorSession.created_at).where(
+                ConductorSession.id == after_id
+            ).scalar_subquery()
+            q = q.where(ConductorSession.created_at < cursor_created_at)
         q = q.order_by(ConductorSession.created_at.desc()).limit(limit + 1)
         result = await self.db.execute(q)
         sessions = list(result.scalars().all())
@@ -112,6 +118,8 @@ class SessionService:
             raise ConflictError("Cannot archive running session")
         if session.archived_at:
             return True
+        if session.status != SessionStatus.TERMINATED.value:
+            await self.update_session_status(session_id, SessionStatus.TERMINATED.value)
         session.archived_at = utc_now()
         await self.db.commit()
         return True
@@ -139,7 +147,10 @@ class SessionService:
             )
 
         session.status = status
-        if stop_reason is not None:
+        if stop_reason is not None or status in (
+            SessionStatus.IDLE.value,
+            SessionStatus.TERMINATED.value,
+        ):
             session.stop_reason = stop_reason
         session.updated_at = utc_now()
         await self.db.commit()
@@ -184,20 +195,21 @@ class SessionService:
         ):
             current[key] = current.get(key, 0) + (task_usage.get(key, 0) or 0)
 
-        # Per-model breakdown
-        model_name = task_usage.get("model")
-        if model_name:
-            by_model = current.get("by_model", {})
-            model_entry = by_model.get(model_name, {})
+        by_model = current.get("by_model", {})
+        task_by_model = task_usage.get("by_model") or {}
+        for model_name, model_data in task_by_model.items():
+            if not isinstance(model_data, dict):
+                continue
+            existing = by_model.get(model_name, {})
             for key in (
                 "input_tokens",
                 "output_tokens",
                 "cache_creation_input_tokens",
                 "cache_read_input_tokens",
             ):
-                model_entry[key] = model_entry.get(key, 0) + (task_usage.get(key, 0) or 0)
-            by_model[model_name] = model_entry
-            current["by_model"] = by_model
+                existing[key] = existing.get(key, 0) + (model_data.get(key, 0) or 0)
+            by_model[model_name] = existing
+        current["by_model"] = by_model
 
         session.usage = current
         session.updated_at = utc_now()
@@ -233,11 +245,34 @@ class SessionService:
         )
         if after_seq is not None:
             q = q.where(ConductorSessionEvent.seq > after_seq)
-        q = q.order_by(ConductorSessionEvent.seq.asc()).limit(limit + 1)
+        q = q.order_by(ConductorSessionEvent.id.asc()).limit(limit + 1)
         result = await self.db.execute(q)
         events = list(result.scalars().all())
         has_more = len(events) > limit
         return events[:limit], has_more
+
+    async def task_has_agent_output(
+        self, task_id: uuid.UUID, session_id: uuid.UUID
+    ) -> bool:
+        """Check if a task has emitted agent.message events (produced output)."""
+        from sqlalchemy import text as sa_text
+        result = await self.db.execute(
+            sa_text(
+                "SELECT EXISTS("
+                "  SELECT 1 FROM conductor_session_events"
+                "  WHERE session_id = :sid"
+                "  AND event_type = 'agent.message'"
+                "  AND seq > ("
+                "    SELECT COALESCE(MAX(seq), 0) FROM conductor_session_events"
+                "    WHERE session_id = :sid"
+                "    AND event_type = 'session.status_running'"
+                "    AND payload->>'task_id' = :tid"
+                "  )"
+                ")"
+            ),
+            {"sid": session_id, "tid": str(task_id)},
+        )
+        return result.scalar() or False
 
     async def _next_seq(self, session_id: uuid.UUID) -> int:
         await self.db.execute(
@@ -295,7 +330,7 @@ class SessionService:
         await self.db.commit()
 
     async def list_unprocessed_events(
-        self, session_id: uuid.UUID, event_types: list[str]
+        self, session_id: uuid.UUID, event_types: list[str], limit: int = 100
     ) -> list[ConductorSessionEvent]:
         q = select(ConductorSessionEvent).where(
             and_(
@@ -303,7 +338,7 @@ class SessionService:
                 ConductorSessionEvent.processed_at.is_(None),
                 ConductorSessionEvent.event_type.in_(event_types),
             )
-        ).order_by(ConductorSessionEvent.seq.asc())
+        ).order_by(ConductorSessionEvent.id.asc()).limit(limit)
         result = await self.db.execute(q)
         return list(result.scalars().all())
 
@@ -361,7 +396,7 @@ class SessionService:
             q = q.where(ConductorSessionEvent.seq > after_seq)
         if event_types:
             q = q.where(ConductorSessionEvent.event_type.in_(event_types))
-        q = q.order_by(ConductorSessionEvent.seq.asc()).limit(limit)
+        q = q.order_by(ConductorSessionEvent.id.asc()).limit(limit)
         result = await self.db.execute(q)
         return list(result.scalars().all())
 

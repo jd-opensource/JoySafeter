@@ -112,7 +112,7 @@ async def get_task(
 @router.post("/{task_id}/cancel")
 async def cancel_task(
     task_id: uuid.UUID, db: AsyncSession = Depends(get_db)
-) -> TaskResponse:
+) -> dict:
     svc = TaskService(db)
 
     # Fetch task first (we need chat_session_id for post-cancel work)
@@ -162,7 +162,7 @@ async def cancel_task(
                         owner = owner.decode()
                     await coordinator.send_instance_command(
                         owner,
-                        {"action": "cancel", "sandbox_id": str(sandbox_id)},
+                        {"type": "cancel", "sandbox_id": str(sandbox_id)},
                     )
 
     # Transition the linked ChatSession to idle with cancellation stop_reason
@@ -183,7 +183,7 @@ async def cancel_task(
         # Emit SSE event so connected clients learn about the cancellation
         broadcaster = get_session_broadcaster()
         if broadcaster:
-            await broadcaster.broadcast(
+            await broadcaster.send(
                 session_id,
                 {"type": "session.status_idle", "stop_reason": stop_reason},
             )
@@ -196,7 +196,7 @@ async def cancel_task(
             json.dumps({"type": "complete", "output": "", "error": "Cancelled via API", "status": "cancelled"}),
         )
 
-    return TaskResponse.model_validate(task)
+    return {"id": str(task_id), "status": "cancelled"}
 
 
 @router.websocket("/{task_id}/stream")

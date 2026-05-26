@@ -117,7 +117,10 @@ class AgentService:
         if not include_archived:
             q = q.where(ConductorAgent.archived_at.is_(None))
         if after_id:
-            q = q.where(ConductorAgent.id < after_id)
+            cursor_created_at = select(ConductorAgent.created_at).where(
+                ConductorAgent.id == after_id
+            ).scalar_subquery()
+            q = q.where(ConductorAgent.created_at < cursor_created_at)
         q = q.order_by(ConductorAgent.created_at.desc()).limit(limit + 1)
         result = await self.db.execute(q)
         agents = list(result.scalars().all())
@@ -223,6 +226,7 @@ class AgentService:
         if agent.archived_at:
             return True
         agent.archived_at = utc_now()
+        agent.updated_at = utc_now()
         await self.db.commit()
         return True
 

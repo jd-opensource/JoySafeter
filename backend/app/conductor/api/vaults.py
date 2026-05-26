@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.conductor.api.id_helpers import parse_vault_id, parse_cred_id
 from app.conductor.schemas.vault import (
     CreateCredentialRequest,
     CreateVaultRequest,
@@ -13,11 +14,21 @@ from app.conductor.schemas.vault import (
     VaultCredentialResponse,
     VaultResponse,
 )
-from app.conductor.schemas.common import PaginatedResponse
-from app.conductor.schemas.id_utils import serialize_vault_id, serialize_credential_id
 from app.conductor.services.vault_service import VaultService
 
 router = APIRouter(tags=["conductor-vaults"])
+
+
+def _vault_to_response(vault) -> VaultResponse:
+    return VaultResponse(
+        id=vault.id,
+        name=vault.name,
+        description=vault.description,
+        metadata=vault.metadata_,
+        created_at=vault.created_at,
+        updated_at=vault.updated_at,
+        archived_at=vault.archived_at,
+    )
 
 
 @router.post("", status_code=201)
@@ -26,7 +37,7 @@ async def create_vault(
 ) -> VaultResponse:
     svc = VaultService(db)
     vault = await svc.create_vault(req.name, req.description, req.metadata)
-    return VaultResponse.model_validate(vault)
+    return _vault_to_response(vault)
 
 
 @router.get("")
@@ -34,45 +45,41 @@ async def list_vaults(
     limit: int = Query(20, ge=1, le=100),
     after_id: Optional[uuid.UUID] = Query(None),
     db: AsyncSession = Depends(get_db),
-) -> PaginatedResponse[VaultResponse]:
+) -> list[VaultResponse]:
     svc = VaultService(db)
     vaults, has_more = await svc.list_vaults(limit, after_id)
-    data = [VaultResponse.model_validate(v) for v in vaults]
-    return PaginatedResponse(
-        data=data,
-        has_more=has_more,
-        first_id=serialize_vault_id(vaults[0].id) if data else None,
-        last_id=serialize_vault_id(vaults[-1].id) if data else None,
-    )
+    return [_vault_to_response(v) for v in vaults]
 
 
 @router.get("/{vault_id}")
 async def get_vault(
-    vault_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    vault_id: uuid.UUID = Depends(parse_vault_id),
 ) -> VaultResponse:
     svc = VaultService(db)
     vault = await svc.get_vault(vault_id)
     if not vault:
         raise HTTPException(404, "Vault not found")
-    return VaultResponse.model_validate(vault)
+    return _vault_to_response(vault)
 
 
 @router.post("/{vault_id}")
 async def update_vault(
-    vault_id: uuid.UUID,
     req: UpdateVaultRequest,
     db: AsyncSession = Depends(get_db),
+    vault_id: uuid.UUID = Depends(parse_vault_id),
 ) -> VaultResponse:
     svc = VaultService(db)
     vault = await svc.update_vault(vault_id, description=req.description, metadata=req.metadata)
     if not vault:
         raise HTTPException(404, "Vault not found")
-    return VaultResponse.model_validate(vault)
+    return _vault_to_response(vault)
 
 
 @router.delete("/{vault_id}")
 async def delete_vault(
-    vault_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    vault_id: uuid.UUID = Depends(parse_vault_id),
 ) -> dict:
     svc = VaultService(db)
     ok = await svc.delete_vault(vault_id)
@@ -83,7 +90,8 @@ async def delete_vault(
 
 @router.post("/{vault_id}/archive")
 async def archive_vault(
-    vault_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    vault_id: uuid.UUID = Depends(parse_vault_id),
 ) -> dict:
     svc = VaultService(db)
     ok = await svc.archive_vault(vault_id)
@@ -96,9 +104,9 @@ async def archive_vault(
 
 @router.post("/{vault_id}/credentials", status_code=201)
 async def create_credential(
-    vault_id: uuid.UUID,
     req: CreateCredentialRequest,
     db: AsyncSession = Depends(get_db),
+    vault_id: uuid.UUID = Depends(parse_vault_id),
 ) -> VaultCredentialResponse:
     svc = VaultService(db)
     vault = await svc.get_vault(vault_id)
@@ -117,27 +125,21 @@ async def create_credential(
 
 @router.get("/{vault_id}/credentials")
 async def list_credentials(
-    vault_id: uuid.UUID,
     limit: int = Query(20, ge=1, le=100),
     after_id: Optional[uuid.UUID] = Query(None),
     db: AsyncSession = Depends(get_db),
-) -> PaginatedResponse[VaultCredentialResponse]:
+    vault_id: uuid.UUID = Depends(parse_vault_id),
+) -> list[VaultCredentialResponse]:
     svc = VaultService(db)
     creds, has_more = await svc.list_credentials(vault_id, limit, after_id)
-    data = [VaultCredentialResponse.model_validate(c) for c in creds]
-    return PaginatedResponse(
-        data=data,
-        has_more=has_more,
-        first_id=serialize_credential_id(creds[0].id) if data else None,
-        last_id=serialize_credential_id(creds[-1].id) if data else None,
-    )
+    return [VaultCredentialResponse.model_validate(c) for c in creds]
 
 
 @router.get("/{vault_id}/credentials/{cred_id}")
 async def get_credential(
-    vault_id: uuid.UUID,
-    cred_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    vault_id: uuid.UUID = Depends(parse_vault_id),
+    cred_id: uuid.UUID = Depends(parse_cred_id),
 ) -> VaultCredentialResponse:
     svc = VaultService(db)
     cred = await svc.get_credential(cred_id)
@@ -148,10 +150,10 @@ async def get_credential(
 
 @router.post("/{vault_id}/credentials/{cred_id}")
 async def update_credential(
-    vault_id: uuid.UUID,
-    cred_id: uuid.UUID,
     req: UpdateCredentialRequest,
     db: AsyncSession = Depends(get_db),
+    vault_id: uuid.UUID = Depends(parse_vault_id),
+    cred_id: uuid.UUID = Depends(parse_cred_id),
 ) -> VaultCredentialResponse:
     svc = VaultService(db)
     cred = await svc.get_credential(cred_id)
@@ -170,9 +172,9 @@ async def update_credential(
 
 @router.delete("/{vault_id}/credentials/{cred_id}")
 async def delete_credential(
-    vault_id: uuid.UUID,
-    cred_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    vault_id: uuid.UUID = Depends(parse_vault_id),
+    cred_id: uuid.UUID = Depends(parse_cred_id),
 ) -> dict:
     svc = VaultService(db)
     ok = await svc.delete_credential(cred_id)

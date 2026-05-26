@@ -10,6 +10,8 @@ import logging
 import uuid
 from typing import Any, Optional
 
+from uuid_utils import uuid7
+
 import grpc
 from grpc import aio as grpc_aio
 
@@ -25,8 +27,16 @@ from app.conductor.kernel.queue import QueueBackend
 
 logger = logging.getLogger(__name__)
 
-HEARTBEAT_TIMEOUT_SEC = 120
+_HEARTBEAT_TIMEOUT_DEFAULT = 120
 TASK_DEFAULT_TIMEOUT_SEC = 7200
+
+
+def _get_heartbeat_timeout() -> int:
+    from app.conductor.lifespan import get_runtime_config
+    rc = get_runtime_config()
+    if rc:
+        return rc.heartbeat_timeout_sec
+    return _HEARTBEAT_TIMEOUT_DEFAULT
 
 
 class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
@@ -36,11 +46,13 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
         event_buffer: EventBatchSender,
         queue: QueueBackend,
         vault_provider: Optional[Any] = None,
+        execution_semaphore: Optional[asyncio.Semaphore] = None,
     ):
         self._bridge_registry = bridge_registry
         self._event_buffer = event_buffer
         self._queue = queue
         self._vault_provider = vault_provider
+        self._execution_semaphore = execution_semaphore or asyncio.Semaphore(200)
 
     async def Session(self, request_iterator, context):
         """Bidirectional streaming RPC — 1:1 port of agentd's grpc.rs Session handler.
@@ -57,6 +69,10 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
         bridge: Optional[SandboxBridge] = None
         sandbox_id: Optional[uuid.UUID] = None
         stream_cancel = asyncio.Event()
+        # Track session_id at the Session level for cleanup
+        linked_session_id: Optional[uuid.UUID] = None
+        failover_pending_tasks: list[tuple[uuid.UUID, int]] = []
+        failure_ejected = False
 
         try:
             # --- Handshake: read RunnerReady ---
@@ -89,30 +105,126 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                 sandbox_id, ready.runner_version, ready.is_reconnect,
             )
 
-            # Register bridge
-            bridge = await self._bridge_registry.get(sandbox_id)
-            if not bridge:
-                bridge = await self._bridge_registry.register(sandbox_id, str(sandbox_id))
+            # Register bridge (always create fresh, matching Rust sandbox_bridges.insert)
+            bridge = await self._bridge_registry.register(sandbox_id, str(sandbox_id))
 
             bridge.runner_stream = context
             bridge.runner_connected.set()
+
+            # Register Redis owner (Rust: redis.register_sandbox_owner)
+            from app.conductor.lifespan import get_redis_coordinator as _get_rc_init
+            _coord_init = _get_rc_init()
+            if _coord_init:
+                await _coord_init.register_sandbox_owner(sandbox_id)
+
+            # DB status CAS: reject terminal sandboxes, skip CAS for pooled, otherwise CAS to idle
+            from app.core.database import AsyncSessionLocal as _ASL_init
+            from app.conductor.services.sandbox_service import SandboxService as _SbxSvc_init
+
+            async with _ASL_init() as _db_init:
+                _svc_init = _SbxSvc_init(_db_init)
+                _sandbox_rec = await _svc_init.get_sandbox(sandbox_id)
+                if _sandbox_rec:
+                    _current_status = _sandbox_rec.status
+                    if _current_status in ("destroyed", "error"):
+                        logger.warning(
+                            "Runner connected to terminal sandbox %s (status=%s), rejecting",
+                            sandbox_id, _current_status,
+                        )
+                        await self._bridge_registry.remove(sandbox_id)
+                        return
+                    if _current_status in ("stopping", "stopped"):
+                        logger.warning(
+                            "Runner connected to sandbox being stopped %s (status=%s), rejecting",
+                            sandbox_id, _current_status,
+                        )
+                        await self._bridge_registry.remove(sandbox_id)
+                        return
+                    if _current_status == "pooled":
+                        pass  # skip CAS for pooled
+                    else:
+                        await _svc_init.update_status_cas(sandbox_id, _current_status, "idle")
+                else:
+                    await _svc_init.update_status(sandbox_id, "idle")
+
+                await _svc_init.touch(sandbox_id)
+
             bridge.status = SandboxBridgeStatus.IDLE
 
-            # --- Handle reconnection with active_task_id ---
+            # --- Send SetupSandbox or resolve session (BEFORE active_task_id, matching Rust) ---
+            if not ready.is_reconnect and not bridge.setup_done:
+                # Poll up to 50 times (100ms each) waiting for sandbox.chat_session_id
+                _sandbox_linked = None
+                async with _ASL_init() as _db_poll:
+                    _svc_poll = _SbxSvc_init(_db_poll)
+                    for _attempt in range(50):
+                        _rec = await _svc_poll.get_sandbox(sandbox_id)
+                        if _rec and _rec.chat_session_id:
+                            _sandbox_linked = _rec
+                            linked_session_id = _rec.chat_session_id
+                            break
+                        if _attempt < 49:
+                            await asyncio.sleep(0.1)
+
+                if _sandbox_linked is None:
+                    logger.warning(
+                        "Timed out waiting for sandbox %s to link with session — SetupSandbox will be skipped",
+                        sandbox_id,
+                    )
+                else:
+                    await self._send_setup(bridge, sandbox_id)
+            else:
+                logger.info("Runner reconnecting sandbox %s, skipping setup", sandbox_id)
+                # Resolve session from DB on reconnect
+                async with _ASL_init() as _db_resolve:
+                    _svc_resolve = _SbxSvc_init(_db_resolve)
+                    _rec_resolve = await _svc_resolve.get_sandbox(sandbox_id)
+                    if _rec_resolve:
+                        linked_session_id = _rec_resolve.chat_session_id
+
+            # Register memory subscribers for this session
+            if linked_session_id:
+                from app.conductor.lifespan import get_memory_subscribers
+                from app.conductor.kernel.memory_sync import MemorySessionEntry
+                mem_subs = get_memory_subscribers()
+                if mem_subs:
+                    from app.conductor.services.session_service import SessionService as _SessSvc
+                    async with _ASL_init() as _db_mem:
+                        _sess_svc = _SessSvc(_db_mem)
+                        _mounts = await _sess_svc.list_session_memory_stores(linked_session_id)
+                        for _sms in _mounts:
+                            store_id = _sms.store_id
+                            await mem_subs.register(
+                                store_id,
+                                MemorySessionEntry(
+                                    session_id=linked_session_id,
+                                    sandbox_db_id=sandbox_id,
+                                    mount_name=_sms.mount_name,
+                                ),
+                            )
+
+            # --- Handle reconnection with active_task_id (AFTER session resolution, matching Rust line 479) ---
             if ready.HasField("active_task_id") and ready.active_task_id:
                 await self._handle_reconnect_active_task(
                     bridge, sandbox_id, ready.active_task_id, context, stream_cancel,
+                    failover_pending_tasks,
                 )
-
-            # --- Send SetupSandbox ---
-            await self._send_setup(bridge, sandbox_id)
+            elif ready.is_reconnect:
+                # Runner reconnected without active_task_id — rescue orphaned running tasks
+                await self._rescue_orphaned_tasks(sandbox_id)
 
             # --- Outer task-dispatch loop (matches agentd) ---
             # Blocks on pop_for_sandbox until a task arrives or stream disconnects.
-            await self._multi_task_loop(bridge, sandbox_id, context, stream_cancel)
+            # Shield from gRPC cancellation — we handle stream EOF internally.
+            failure_ejected = await asyncio.shield(self._multi_task_loop(
+                bridge, sandbox_id, context, stream_cancel,
+                failover_pending_tasks, linked_session_id,
+            ))
 
         except grpc_aio.AioRpcError as e:
-            logger.info("gRPC stream ended for sandbox %s: %s", sandbox_id, e.code())
+            logger.warning("gRPC AioRpcError for sandbox %s: code=%s details=%s", sandbox_id, e.code(), e.details())
+        except asyncio.CancelledError:
+            logger.warning("gRPC session cancelled for sandbox %s", sandbox_id)
         except Exception as e:
             logger.error("gRPC session error for sandbox %s: %s", sandbox_id, e, exc_info=True)
         finally:
@@ -123,7 +235,14 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                 bridge.status = SandboxBridgeStatus.DISCONNECTED
                 logger.info("Runner disconnected: sandbox=%s", sandbox_id)
             if sandbox_id:
-                await self._cleanup_sandbox(sandbox_id)
+                await self._cleanup_sandbox(
+                    sandbox_id,
+                    session_id=linked_session_id,
+                    failover_pending_tasks=failover_pending_tasks,
+                    is_error=failure_ejected,
+                )
+
+    # --- Fix 1: Full reconnect with active_task_id ---
 
     async def _handle_reconnect_active_task(
         self,
@@ -132,12 +251,26 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
         active_task_id_str: str,
         context,
         stream_cancel: asyncio.Event,
+        failover_pending_tasks: list,
     ) -> None:
-        """Handle RunnerReady.active_task_id: the runner reconnected while still
-        executing a task.  Re-attach the bridge so events continue flowing."""
+        """Handle RunnerReady.active_task_id -- full reconnect loop matching Rust lines 479-712.
+
+        Runs a complete inner event loop for the resumed task BEFORE returning
+        to the caller (which then enters the multi-task loop).  Sets
+        bridge.setup_done = True so that _send_setup is skipped on reconnect.
+        """
         from app.core.database import AsyncSessionLocal
         from app.conductor.models.task import TaskStatus
+        from app.conductor.models.session import SessionStatus
         from app.conductor.services.task_service import TaskService
+        from app.conductor.services.session_service import SessionService
+        from app.conductor.services.sandbox_service import SandboxService
+        from app.conductor.kernel.event_mapping import map_harness_event, is_control_request
+        from app.conductor.kernel.task_controller import TaskController
+        from app.conductor.lifespan import get_session_broadcaster, get_redis_coordinator
+        from app.conductor.kernel.harness_input_builder import extract_tool_name_sets
+
+        bridge.setup_done = True  # skip SetupSandbox on reconnect
 
         try:
             active_task_id = uuid.UUID(active_task_id_str)
@@ -147,6 +280,7 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
             )
             return
 
+        # Check if task is already terminal
         async with AsyncSessionLocal() as db:
             task_svc = TaskService(db)
             task = await task_svc.get_task(active_task_id)
@@ -162,12 +296,448 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                 )
                 return
 
-        logger.info(
-            "Reconnect: resuming in-flight task %s on sandbox %s",
-            active_task_id, sandbox_id,
-        )
-        bridge.status = SandboxBridgeStatus.BUSY
-        bridge.current_task_id = active_task_id
+        # Acquire execution semaphore
+        await self._execution_semaphore.acquire()
+        try:
+            logger.info(
+                "Resuming active task %s from reconnecting runner on sandbox %s",
+                active_task_id, sandbox_id,
+            )
+
+            # Set Redis task->sandbox mapping
+            coordinator = get_redis_coordinator()
+            if coordinator:
+                await coordinator.set_task_sandbox(active_task_id, sandbox_id)
+
+            bridge.status = SandboxBridgeStatus.BUSY
+            bridge.current_task_id = active_task_id
+
+            # Resolve session_id and timeout for the task
+            task_session_id: Optional[uuid.UUID] = None
+            task_timeout_sec = TASK_DEFAULT_TIMEOUT_SEC
+            custom_names: set[str] = set()
+            mcp_names: set[str] = set()
+            async with AsyncSessionLocal() as db:
+                task_svc = TaskService(db)
+                task = await task_svc.get_task(active_task_id)
+                if task:
+                    task_session_id = task.chat_session_id
+                    task_timeout_sec = task.timeout_sec or TASK_DEFAULT_TIMEOUT_SEC
+                    from app.conductor.services.agent_service import AgentService
+                    agent_svc = AgentService(db)
+                    agent = await agent_svc.get_agent(task.agent_id)
+                    if agent:
+                        custom_names, mcp_names = extract_tool_name_sets(agent)
+
+            # Replay pending control inputs submitted during disconnection
+            if task_session_id:
+                async with AsyncSessionLocal() as db:
+                    session_svc = SessionService(db)
+                    control_types = [
+                        "user.tool_confirmation",
+                        "user.custom_tool_result",
+                        "user.interrupt",
+                    ]
+                    pending_events = await session_svc.list_unprocessed_events(
+                        task_session_id, control_types
+                    )
+                    for evt in pending_events:
+                        content = ""
+                        if isinstance(evt.payload, dict):
+                            content = evt.payload.get("content", "")
+                        input_msg = conductor_pb2.OrchestratorMessage(
+                            input=conductor_pb2.SendInput(content=content)
+                        )
+                        await context.write(input_msg)
+                        await session_svc.mark_event_processed(evt.id)
+
+            # --- Inner event loop for resumed task ---
+            task_done = False
+            got_idle = False
+            heartbeat_timed_out = False
+            requires_action_pending = False
+            buffered_events: list[tuple[str, dict]] = []
+            last_tool_use_event_id: Optional[str] = None
+
+            import time as _time_reconnect
+            heartbeat_deadline_rc = _time_reconnect.monotonic() + _get_heartbeat_timeout()
+            task_deadline_rc = _time_reconnect.monotonic() + task_timeout_sec
+
+            while True:
+                read_fut = asyncio.ensure_future(context.read())
+                confirm_fut = asyncio.ensure_future(bridge.confirmation_event.wait())
+                cancel_fut = asyncio.ensure_future(bridge._cancel_event.wait())
+
+                hb_remaining_rc = max(heartbeat_deadline_rc - _time_reconnect.monotonic(), 0.01)
+                heartbeat_fut = asyncio.ensure_future(asyncio.sleep(hb_remaining_rc))
+
+                dl_remaining_rc = max(task_deadline_rc - _time_reconnect.monotonic(), 0.01)
+                deadline_fut = asyncio.ensure_future(asyncio.sleep(dl_remaining_rc))
+
+                waitables = [read_fut, heartbeat_fut, cancel_fut]
+                if requires_action_pending:
+                    waitables.append(confirm_fut)
+                else:
+                    waitables.append(deadline_fut)
+
+                done, pending = await asyncio.wait(
+                    waitables,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for p in pending:
+                    p.cancel()
+                    try:
+                        await p
+                    except (asyncio.CancelledError, Exception):
+                        pass
+
+                # Cancel requested
+                if cancel_fut in done:
+                    bridge._cancel_event.clear()
+                    logger.info("Cancel requested for resumed task %s, sending CancelTask", active_task_id)
+                    cancel_msg = conductor_pb2.OrchestratorMessage(
+                        cancel=conductor_pb2.CancelTask(reason="Cancelled by user")
+                    )
+                    await context.write(cancel_msg)
+                    continue
+
+                # Confirmation received
+                if confirm_fut in done and requires_action_pending:
+                    requires_action_pending = False
+                    bridge.confirmation_event.clear()
+                    bridge._requires_action_pending = False
+                    logger.info("Confirmation received for resumed task %s, resuming", active_task_id)
+                    while not bridge._control_queue.empty():
+                        try:
+                            content = bridge._control_queue.get_nowait()
+                            input_msg = conductor_pb2.OrchestratorMessage(
+                                input=conductor_pb2.SendInput(content=content)
+                            )
+                            await context.write(input_msg)
+                        except asyncio.QueueEmpty:
+                            break
+
+                    if task_session_id:
+                        async with AsyncSessionLocal() as db:
+                            svc = SessionService(db)
+                            await svc.update_session_status(task_session_id, SessionStatus.RUNNING.value)
+                            await svc.send_event(task_session_id, "session.status_running", {})
+                        broadcaster = get_session_broadcaster()
+                        if broadcaster:
+                            await broadcaster.send(task_session_id, {"type": "session.status_running"})
+
+                    if buffered_events and task_session_id:
+                        for buf_type, buf_payload in buffered_events:
+                            ws_msg = WsOutMessage(type="event", payload={"type": buf_type, **buf_payload})
+                            await bridge.broadcast_to_task(active_task_id, ws_msg)
+                            if coordinator:
+                                await coordinator.publish_event(
+                                    active_task_id, json.dumps({"type": ws_msg.type, **ws_msg.payload})
+                                )
+                            async with AsyncSessionLocal() as db:
+                                svc = SessionService(db)
+                                await svc.send_event(task_session_id, buf_type, buf_payload)
+                            broadcaster = get_session_broadcaster()
+                            if broadcaster:
+                                await broadcaster.send(
+                                    task_session_id,
+                                    {**{"type": buf_type}, **(buf_payload if isinstance(buf_payload, dict) else {})},
+                                )
+                    buffered_events.clear()
+                    continue
+
+                # Heartbeat timeout
+                if heartbeat_fut in done:
+                    logger.warning(
+                        "Heartbeat timeout during resumed task %s: sandbox=%s",
+                        active_task_id, sandbox_id,
+                    )
+                    heartbeat_timed_out = True
+                    break
+
+                # Task deadline
+                if deadline_fut in done and not requires_action_pending:
+                    logger.warning(
+                        "Task deadline exceeded for resumed task %s: timeout=%ds",
+                        active_task_id, task_timeout_sec,
+                    )
+                    cancel_msg = conductor_pb2.OrchestratorMessage(
+                        cancel=conductor_pb2.CancelTask(
+                            reason=f"Server-side deadline exceeded ({task_timeout_sec}s)"
+                        )
+                    )
+                    await context.write(cancel_msg)
+                    task_done = True
+                    break
+
+                # Stream message
+                if read_fut not in done:
+                    continue
+                msg = read_fut.result()
+                if msg == grpc_aio.EOF:
+                    break
+
+                # Reset heartbeat deadline on ANY message (Rust line 983)
+                heartbeat_deadline_rc = _time_reconnect.monotonic() + _get_heartbeat_timeout()
+
+                payload_type = msg.WhichOneof("payload")
+                if payload_type is None:
+                    continue
+
+                if payload_type == "heartbeat":
+                    continue
+                elif payload_type == "event":
+                    event = msg.event
+                    raw_event = _proto_event_to_dict(event)
+                    mapped_list = map_harness_event(raw_event, custom_names, mcp_names)
+
+                    for mapped_type, mapped_payload in mapped_list:
+                        if mapped_type == "memory_sync":
+                            asyncio.create_task(
+                                _handle_memory_sync_standalone(task_session_id, mapped_payload)
+                            )
+                            continue
+
+                        if mapped_type == "error":
+                            bridge.last_error = mapped_payload.get("error") or mapped_payload.get("message")
+
+                        if requires_action_pending:
+                            buffered_events.append((mapped_type, mapped_payload))
+                            continue
+
+                        if mapped_type in ("agent.tool_use", "agent.mcp_tool_use") and is_control_request(mapped_payload):
+                            call_id = mapped_payload.get("_call_id") or mapped_payload.get("request_id") or mapped_payload.get("id") or mapped_payload.get("call_id") or ""
+
+                            ws_msg = WsOutMessage(type="event", payload={"type": mapped_type, **mapped_payload})
+                            await bridge.broadcast_to_task(active_task_id, ws_msg)
+                            if coordinator:
+                                await coordinator.publish_event(
+                                    active_task_id, json.dumps({"type": ws_msg.type, **ws_msg.payload})
+                                )
+
+                            event_id = f"evt_{uuid7()}"
+                            if task_session_id:
+                                persisted_id = uuid7()
+                                buffered = BufferedEvent(
+                                    session_id=task_session_id,
+                                    event_type=mapped_type,
+                                    payload=mapped_payload,
+                                    seq=event.seq,
+                                    id=persisted_id,
+                                )
+                                await self._event_buffer.send(buffered)
+                                await self._event_buffer.flush()
+                                event_id = f"evt_{persisted_id}"
+                                last_tool_use_event_id = event_id
+                                broadcaster = get_session_broadcaster()
+                                if broadcaster:
+                                    await broadcaster.send(
+                                        task_session_id,
+                                        {**{"type": mapped_type, "seq": event.seq}, **(mapped_payload if isinstance(mapped_payload, dict) else {})},
+                                    )
+
+                            if call_id:
+                                bridge.pending_control_request_ids[event_id] = call_id
+                            requires_action_pending = True
+                            bridge._requires_action_pending = True
+                            if task_session_id:
+                                stop_reason = {"type": "requires_action", "event_ids": [event_id]}
+                                async with AsyncSessionLocal() as db:
+                                    svc = SessionService(db)
+                                    await svc.update_session_status(
+                                        task_session_id, SessionStatus.IDLE.value, stop_reason=stop_reason
+                                    )
+                                    await svc.send_event(
+                                        task_session_id, "session.status_idle", {"stop_reason": stop_reason}
+                                    )
+                                broadcaster = get_session_broadcaster()
+                                if broadcaster:
+                                    await broadcaster.send(
+                                        task_session_id,
+                                        {"type": "session.status_idle", "stop_reason": stop_reason},
+                                    )
+                            continue
+
+                        ws_msg = WsOutMessage(
+                            type="event",
+                            payload={"type": mapped_type, **mapped_payload},
+                        )
+                        await bridge.broadcast_to_task(active_task_id, ws_msg)
+
+                        if coordinator:
+                            await coordinator.publish_event(
+                                active_task_id,
+                                json.dumps({"type": ws_msg.type, **ws_msg.payload}),
+                            )
+
+                        if task_session_id:
+                            async with AsyncSessionLocal() as db:
+                                svc = SessionService(db)
+                                await svc.send_event(
+                                    task_session_id,
+                                    mapped_type,
+                                    mapped_payload,
+                                )
+
+                            broadcaster = get_session_broadcaster()
+                            if broadcaster:
+                                await broadcaster.send(
+                                    task_session_id,
+                                    {**{"type": mapped_type, "seq": event.seq}, **(mapped_payload if isinstance(mapped_payload, dict) else {})},
+                                )
+
+                        if mapped_type == "agent.custom_tool_use" and not requires_action_pending:
+                            call_id = mapped_payload.get("_call_id") or mapped_payload.get("request_id") or mapped_payload.get("id") or mapped_payload.get("call_id") or ""
+                            event_id = last_tool_use_event_id or f"evt_{uuid7()}"
+                            if call_id:
+                                bridge.pending_control_request_ids[event_id] = call_id
+                            requires_action_pending = True
+                            bridge._requires_action_pending = True
+                            if task_session_id:
+                                await self._event_buffer.flush()
+                                stop_reason = {"type": "requires_action", "event_ids": [event_id]}
+                                async with AsyncSessionLocal() as db:
+                                    svc = SessionService(db)
+                                    await svc.update_session_status(
+                                        task_session_id, SessionStatus.IDLE.value, stop_reason=stop_reason
+                                    )
+                                    await svc.send_event(
+                                        task_session_id, "session.status_idle", {"stop_reason": stop_reason}
+                                    )
+                                broadcaster = get_session_broadcaster()
+                                if broadcaster:
+                                    await broadcaster.send(
+                                        task_session_id,
+                                        {"type": "session.status_idle", "stop_reason": stop_reason},
+                                    )
+
+                elif payload_type == "result":
+                    result = msg.result
+                    await self._handle_reconnect_result(
+                        bridge, sandbox_id, active_task_id, task_session_id, result, coordinator,
+                    )
+                    task_done = True
+
+                elif payload_type == "idle":
+                    idle_msg = msg.idle
+                    bridge.status = SandboxBridgeStatus.IDLE
+                    bridge.current_task_id = None
+                    logger.info("Runner idle after resumed task: sandbox=%s", sandbox_id)
+
+                    async with AsyncSessionLocal() as db:
+                        sandbox_svc = SandboxService(db)
+                        await sandbox_svc.update_status(sandbox_id, "idle")
+                        await sandbox_svc.touch(sandbox_id)
+
+                    if coordinator:
+                        await coordinator.refresh_sandbox_owner(sandbox_id)
+
+                    async with AsyncSessionLocal() as db:
+                        sandbox_svc2 = SandboxService(db)
+                        sandbox_record = await sandbox_svc2.get_sandbox(sandbox_id)
+                        if sandbox_record and sandbox_record.chat_session_id:
+                            harness_session_id = idle_msg.session_id if idle_msg.HasField("session_id") else None
+                            work_dir = idle_msg.work_dir if idle_msg.HasField("work_dir") else None
+                            svc = SessionService(db)
+                            await svc.update_session_sandbox(
+                                sandbox_record.chat_session_id, sandbox_id,
+                                harness_session_id=harness_session_id,
+                                work_dir=work_dir,
+                            )
+
+                    got_idle = True
+
+                elif payload_type == "memory_sync":
+                    ms = msg.memory_sync
+                    asyncio.create_task(_handle_memory_sync_standalone(task_session_id, {
+                        "store_mount_name": ms.store_mount_name,
+                        "relative_path": ms.relative_path,
+                        "content": ms.content,
+                        "operation": ms.operation,
+                    }))
+
+                if task_done and got_idle:
+                    break
+
+            # --- Post resumed-task handling ---
+            if not task_done:
+                await self._event_buffer.flush()
+                last_err = bridge.last_error
+                if heartbeat_timed_out and last_err:
+                    reason = f"Heartbeat timeout — sandbox unresponsive after reconnect (last error: {last_err})"
+                elif heartbeat_timed_out:
+                    reason = "Heartbeat timeout — sandbox unresponsive (after reconnect)"
+                elif last_err:
+                    reason = f"Sandbox disconnected after reconnect (last error: {last_err})"
+                else:
+                    reason = "Sandbox disconnected after reconnect"
+                logger.warning(
+                    "Resumed task %s incomplete on sandbox %s: %s",
+                    active_task_id, sandbox_id, reason,
+                )
+                retry_count = await TaskController.failover_or_fail_task(
+                    active_task_id, reason
+                )
+                if retry_count is not None:
+                    failover_pending_tasks.append((active_task_id, retry_count))
+                bridge.remove_task_subscribers(active_task_id)
+                if coordinator:
+                    await coordinator.remove_task_sandbox(active_task_id)
+                if not got_idle:
+                    # Stream broken -- signal cleanup
+                    stream_cancel.set()
+
+            if task_done and not got_idle:
+                bridge.status = SandboxBridgeStatus.IDLE
+                bridge.current_task_id = None
+                async with AsyncSessionLocal() as db:
+                    sandbox_svc = SandboxService(db)
+                    await sandbox_svc.update_status(sandbox_id, "idle")
+                bridge.remove_task_subscribers(active_task_id)
+                if coordinator:
+                    await coordinator.remove_task_sandbox(active_task_id)
+
+        finally:
+            self._execution_semaphore.release()
+
+    async def _rescue_orphaned_tasks(self, sandbox_id: uuid.UUID) -> None:
+        """Re-queue running tasks orphaned by a runner that reconnected without active_task_id."""
+        from app.core.database import AsyncSessionLocal
+        from app.conductor.services.task_service import TaskService
+        from app.conductor.models.task import TaskStatus, ConductorTask
+        from sqlalchemy import select, and_
+
+        try:
+            async with AsyncSessionLocal() as db:
+                task_svc = TaskService(db)
+                result = await db.execute(
+                    select(ConductorTask.id)
+                    .where(
+                        and_(
+                            ConductorTask.sandbox_id == sandbox_id,
+                            ConductorTask.status == TaskStatus.RUNNING.value,
+                        )
+                    )
+                )
+                orphaned_ids = [row[0] for row in result.fetchall()]
+
+                if not orphaned_ids:
+                    return
+
+                logger.info(
+                    "Rescuing %d orphaned running task(s) for sandbox %s: %s",
+                    len(orphaned_ids), sandbox_id, orphaned_ids,
+                )
+
+                for tid in orphaned_ids:
+                    ok = await task_svc.increment_retry(tid)
+                    if ok:
+                        await self._queue.push_to_global(tid)
+                        logger.info("Orphaned task %s reset to pending and re-queued", tid)
+                    else:
+                        logger.warning("Could not reset orphaned task %s (may be terminal)", tid)
+        except Exception as e:
+            logger.error("Failed to rescue orphaned tasks for sandbox %s: %s", sandbox_id, e)
 
     async def _multi_task_loop(
         self,
@@ -175,54 +745,137 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
         sandbox_id: uuid.UUID,
         context,
         stream_cancel: asyncio.Event,
-    ) -> None:
+        failover_pending_tasks: list,
+        linked_session_id: Optional[uuid.UUID] = None,
+    ) -> bool:
         """Outer loop: block on pop_for_sandbox, dispatch tasks one at a time.
 
-        Matches agentd grpc.rs lines 651-680. Uses pop_for_sandbox which blocks
-        until a task arrives or stream_cancel is set. While waiting, a background
-        reader drains heartbeats and detects disconnect. The reader is CANCELLED
-        before entering the per-task loop (only one reader can be active at a time).
+        Returns True if the sandbox was failure-ejected.
+
+        Uses a single persistent read coroutine that is reused across idle and
+        task phases to avoid corrupting the gRPC stream. The pending read future
+        is passed into _run_single_task so it can consume the first message.
         """
+        import time as _time
+        from app.conductor.config import conductor_config
+
+        heartbeat_deadline = _time.monotonic() + _get_heartbeat_timeout()
+        consecutive_failures: int = 0
+        failure_ejected = False
+
+        pending_read: Optional[asyncio.Future] = None
+
+        logger.info("Entering multi-task loop for sandbox %s (stream_cancel=%s)", sandbox_id, stream_cancel.is_set())
         while not stream_cancel.is_set():
-            # Spawn background reader for idle phase (heartbeats + disconnect detect)
-            idle_cancel = asyncio.Event()
-
-            async def _idle_reader():
-                try:
-                    while not idle_cancel.is_set():
-                        msg = await context.read()
-                        if msg == grpc_aio.EOF:
-                            stream_cancel.set()
-                            return
-                        payload_type = msg.WhichOneof("payload")
-                        if payload_type == "heartbeat":
-                            continue
-                except Exception:
-                    stream_cancel.set()
-
-            reader_task = asyncio.create_task(
-                _idle_reader(), name=f"idle-reader-{sandbox_id}"
+            # Idle phase: wait for a task from the queue while reading heartbeats
+            pop_task = asyncio.create_task(
+                self._queue.pop_for_sandbox(sandbox_id, stream_cancel),
+                name=f"pop-{sandbox_id}",
             )
 
-            # Block on pop_for_sandbox — wakes when task arrives or stream dies
-            task_id = await self._queue.pop_for_sandbox(sandbox_id, stream_cancel)
+            task_id = None
+            while not stream_cancel.is_set():
+                if pending_read is None:
+                    pending_read = asyncio.ensure_future(context.read())
 
-            # Cancel the idle reader BEFORE entering per-task loop
-            idle_cancel.set()
-            reader_task.cancel()
-            try:
-                await reader_task
-            except (asyncio.CancelledError, Exception):
-                pass
+                waitables = {pop_task, pending_read}
 
+                hb_remaining = max(heartbeat_deadline - _time.monotonic(), 0.01)
+                hb_timer = asyncio.create_task(asyncio.sleep(hb_remaining))
+                waitables.add(hb_timer)
+
+                done, pending = await asyncio.wait(
+                    waitables, return_when=asyncio.FIRST_COMPLETED,
+                )
+                for p in pending:
+                    if p is not pending_read and p is not pop_task:
+                        p.cancel()
+                        try:
+                            await p
+                        except (asyncio.CancelledError, Exception):
+                            pass
+
+                if pending_read in done:
+                    msg = pending_read.result()
+                    pending_read = None
+                    if msg == grpc_aio.EOF:
+                        stream_cancel.set()
+                        pop_task.cancel()
+                        try:
+                            await pop_task
+                        except (asyncio.CancelledError, Exception):
+                            pass
+                        break
+                    payload_type = msg.WhichOneof("payload")
+                    if payload_type == "heartbeat":
+                        heartbeat_deadline = _time.monotonic() + _get_heartbeat_timeout()
+                    continue
+
+                if pop_task in done:
+                    task_id = pop_task.result()
+                    break
+
+                if hb_timer in done:
+                    now = _time.monotonic()
+                    if now >= heartbeat_deadline:
+                        logger.warning("Heartbeat timeout while idle: sandbox=%s", sandbox_id)
+                        stream_cancel.set()
+                        pop_task.cancel()
+                        try:
+                            await pop_task
+                        except (asyncio.CancelledError, Exception):
+                            pass
+                        break
+
+            if stream_cancel.is_set() and task_id is None:
+                logger.info("Multi-task loop: stream cancelled, no task for sandbox %s", sandbox_id)
+                break
             if task_id is None:
                 logger.info("Pop cancelled for sandbox %s (stream dead or shutdown)", sandbox_id)
                 break
+            logger.info("Multi-task loop: got task %s for sandbox %s", task_id, sandbox_id)
 
-            # Dispatch this task — has exclusive ownership of context.read()
-            success = await self._run_single_task(bridge, sandbox_id, context, task_id, stream_cancel)
-            if not success:
+            # Acquire execution semaphore before dispatching
+            await self._execution_semaphore.acquire()
+            try:
+                success, task_deadline_exceeded, task_error_status, task_completed = await self._run_single_task(
+                    bridge, sandbox_id, context, task_id, stream_cancel,
+                    failover_pending_tasks, linked_session_id,
+                    pending_read=pending_read,
+                )
+                pending_read = None  # _run_single_task consumed or cancelled it
+                heartbeat_deadline = _time.monotonic() + _get_heartbeat_timeout()
+            finally:
+                self._execution_semaphore.release()
+
+            # Track consecutive failures for sandbox ejection (Rust lines 1122-1133)
+            # Only reset on Completed; only increment on Failed/Aborted/Timeout.
+            # Other statuses (e.g. non-terminal) leave counter unchanged.
+            if task_completed:
+                consecutive_failures = 0
+                bridge.last_error = None
+            elif task_error_status or task_deadline_exceeded:
+                consecutive_failures += 1
+
+            if consecutive_failures >= conductor_config.sandbox_failure_threshold:
+                logger.warning(
+                    "Sandbox %s exceeded failure threshold (%d >= %d), ejecting",
+                    sandbox_id, consecutive_failures, conductor_config.sandbox_failure_threshold,
+                )
+                failure_ejected = True
                 break
+
+            if not success:
+                logger.warning("_multi_task_loop: task %s returned success=False, breaking", task_id)
+                break
+
+        if pending_read is not None:
+            pending_read.cancel()
+            try:
+                await pending_read
+            except (asyncio.CancelledError, Exception):
+                pass
+        return failure_ejected
 
     async def _run_single_task(
         self,
@@ -231,11 +884,17 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
         context,
         task_id: uuid.UUID,
         stream_cancel: asyncio.Event,
-    ) -> bool:
+        failover_pending_tasks: list,
+        linked_session_id: Optional[uuid.UUID] = None,
+        pending_read: Optional[asyncio.Future] = None,
+    ) -> tuple[bool, bool, bool, bool]:
         """Inner per-task loop: send StartTask, read events until Result+Idle.
 
-        Returns True if the task completed normally and outer loop should continue.
-        Returns False if the stream broke and outer loop should exit.
+        Returns a tuple of:
+          - continue_loop: True if outer loop should continue, False if stream broke.
+          - deadline_exceeded: True if the task was cancelled due to deadline.
+          - task_error_status: True if the task ended in a failed/aborted/timeout state.
+          - task_completed: True if the task ended with Completed status.
         """
         from app.core.database import AsyncSessionLocal
         from app.conductor.models.task import TaskStatus
@@ -247,8 +906,15 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
         from app.conductor.kernel.harness_input_builder import build_harness_input, extract_tool_name_sets
         from app.conductor.kernel.event_mapping import map_harness_event, is_control_request
         from app.conductor.config import conductor_config
+        from app.conductor.lifespan import get_session_broadcaster, get_redis_coordinator
+        from app.conductor.kernel.task_controller import TaskController
 
         logger.info("Dispatching task %s to sandbox %s", task_id, sandbox_id)
+
+        # Issue 3 fix: set task->sandbox mapping in Redis (matching Rust line 757)
+        coordinator = get_redis_coordinator()
+        if coordinator:
+            await coordinator.set_task_sandbox(task_id, sandbox_id)
 
         bridge.status = SandboxBridgeStatus.BUSY
         bridge.current_task_id = task_id
@@ -266,24 +932,29 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                     logger.error("Task %s not found for dispatch", task_id)
                     bridge.current_task_id = None
                     bridge.status = SandboxBridgeStatus.IDLE
-                    return True
+                    return (True, False, False, False)
 
                 agent = await agent_svc.get_agent(task.agent_id)
                 if not agent:
-                    await task_svc.update_task_status(task_id, TaskStatus.FAILED, error="Agent not found")
+                    await task_svc.update_task_error(task_id, "Agent not found", TaskStatus.FAILED)
                     bridge.current_task_id = None
                     bridge.status = SandboxBridgeStatus.IDLE
-                    return True
+                    return (True, False, True, False)
 
-                await task_svc.update_task_status(task_id, TaskStatus.RUNNING)
+                cas_ok = await task_svc.update_task_status(task_id, TaskStatus.RUNNING)
+                if not cas_ok:
+                    logger.warning("CAS conflict: task %s no longer pending, skipping dispatch", task_id)
+                    bridge.current_task_id = None
+                    bridge.status = SandboxBridgeStatus.IDLE
+                    coordinator = get_redis_coordinator()
+                    if coordinator:
+                        await coordinator.remove_task_sandbox(task_id)
+                    return (True, False, False, False)
 
                 session_id = task.chat_session_id
-                if session_id:
-                    await session_svc.update_session_status(session_id, SessionStatus.RUNNING.value)
 
                 await sandbox_svc.touch(sandbox_id, task_id)
 
-                # Fetch session for work_dir and environment for setup_commands/repos
                 session = None
                 environment = None
                 if session_id:
@@ -309,31 +980,59 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
             await context.write(orch_msg)
             logger.info("StartTask sent: task=%s sandbox=%s", task_id, sandbox_id)
 
+            if session_id:
+                async with AsyncSessionLocal() as db:
+                    session_svc2 = SessionService(db)
+                    await session_svc2.update_session_status(session_id, SessionStatus.RUNNING.value)
+                    await session_svc2.send_event(
+                        session_id, "session.status_running", {}
+                    )
+                    broadcaster = get_session_broadcaster()
+                    if broadcaster:
+                        await broadcaster.send(
+                            session_id,
+                            {"type": "session.status_running"},
+                        )
         except Exception as e:
-            logger.error("Failed to dispatch task %s: %s", task_id, e)
+            logger.error("Failed to dispatch task %s: %s", task_id, e, exc_info=True)
             bridge.current_task_id = None
             bridge.status = SandboxBridgeStatus.IDLE
-            from app.conductor.kernel.task_controller import TaskController
             await TaskController.failover_or_fail_task(task_id, str(e))
-            return True
+            return (True, False, True, False)
 
         # --- Inner per-task event loop ---
+        import time as _time
         task_done = False
         got_idle = False
         requires_action_pending = False
+        deadline_exceeded = False
+        task_error_status = False
+        task_completed = False
         timeout = task.timeout_sec or conductor_config.task_default_timeout
         last_tool_use_event_id: Optional[str] = None
+        buffered_events: list[tuple[str, dict]] = []
 
-        from app.conductor.lifespan import get_session_broadcaster, get_redis_coordinator
+        heartbeat_deadline = _time.monotonic() + _get_heartbeat_timeout()
+        task_deadline = _time.monotonic() + timeout
 
+        logger.info("Entering event loop for task %s on sandbox %s", task_id, sandbox_id)
+        _reuse_read = pending_read
         while True:
-            # Select: read stream message | confirmation | heartbeat timeout | task deadline
-            read_fut = asyncio.ensure_future(context.read())
+            if _reuse_read is not None:
+                read_fut = _reuse_read
+                _reuse_read = None
+            else:
+                read_fut = asyncio.ensure_future(context.read())
             confirm_fut = asyncio.ensure_future(bridge.confirmation_event.wait())
-            heartbeat_fut = asyncio.ensure_future(asyncio.sleep(HEARTBEAT_TIMEOUT_SEC))
-            deadline_fut = asyncio.ensure_future(asyncio.sleep(timeout))
+            cancel_fut = asyncio.ensure_future(bridge._cancel_event.wait())
 
-            waitables = [read_fut, heartbeat_fut]
+            hb_remaining = max(heartbeat_deadline - _time.monotonic(), 0.01)
+            heartbeat_fut = asyncio.ensure_future(asyncio.sleep(hb_remaining))
+
+            dl_remaining = max(task_deadline - _time.monotonic(), 0.01)
+            deadline_fut = asyncio.ensure_future(asyncio.sleep(dl_remaining))
+
+            waitables = [read_fut, heartbeat_fut, cancel_fut]
             if requires_action_pending:
                 waitables.append(confirm_fut)
             else:
@@ -349,13 +1048,22 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                 except (asyncio.CancelledError, Exception):
                     pass
 
-            # --- Confirmation received ---
+            # --- Cancel requested ---
+            if cancel_fut in done:
+                bridge._cancel_event.clear()
+                logger.info("Cancel requested for task %s, sending CancelTask", task_id)
+                cancel_msg = conductor_pb2.OrchestratorMessage(
+                    cancel=conductor_pb2.CancelTask(reason="Cancelled by user")
+                )
+                await context.write(cancel_msg)
+                continue
+
+            # --- Confirmation received (Rust lines 938-951 + loop-top flush 898-929) ---
             if confirm_fut in done and requires_action_pending:
                 requires_action_pending = False
                 bridge.confirmation_event.clear()
                 bridge._requires_action_pending = False
                 logger.info("Confirmation received for task %s, resuming", task_id)
-                # Send any queued control inputs
                 while not bridge._control_queue.empty():
                     try:
                         content = bridge._control_queue.get_nowait()
@@ -365,22 +1073,87 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                         await context.write(input_msg)
                     except asyncio.QueueEmpty:
                         break
+
+                # Rust confirmation handler: update status + emit running event
                 if session_id:
                     async with AsyncSessionLocal() as db:
                         svc = SessionService(db)
                         await svc.update_session_status(session_id, SessionStatus.RUNNING.value)
+                        await svc.send_event(session_id, "session.status_running", {})
+                    broadcaster = get_session_broadcaster()
+                    if broadcaster:
+                        await broadcaster.send(
+                            session_id,
+                            {"type": "session.status_running"},
+                        )
+
+                # Flush buffered events (Rust loop-top flush, lines 898-929)
+                if buffered_events:
+                    logger.info("Flushing %d buffered events after confirmation for task %s", len(buffered_events), task_id)
+                    if session_id:
+                        # Rust loop-top flush also emits session.status_running again
+                        async with AsyncSessionLocal() as db:
+                            svc = SessionService(db)
+                            await svc.update_session_status(session_id, SessionStatus.RUNNING.value)
+                            await svc.send_event(session_id, "session.status_running", {})
+                        broadcaster = get_session_broadcaster()
+                        if broadcaster:
+                            await broadcaster.send(
+                                session_id,
+                                {"type": "session.status_running"},
+                            )
+
+                        for buf_type, buf_payload in buffered_events:
+                            ws_msg = WsOutMessage(
+                                type="event",
+                                payload={"type": buf_type, **buf_payload},
+                            )
+                            await bridge.broadcast_to_task(task_id, ws_msg)
+
+                            coordinator = get_redis_coordinator()
+                            if coordinator:
+                                await coordinator.publish_event(
+                                    task_id,
+                                    json.dumps({"type": ws_msg.type, **ws_msg.payload}),
+                                )
+
+                            buffered = BufferedEvent(
+                                session_id=session_id,
+                                event_type=buf_type,
+                                payload=buf_payload,
+                                seq=0,
+                            )
+                            await self._event_buffer.send(buffered)
+
+                            broadcaster = get_session_broadcaster()
+                            if broadcaster:
+                                await broadcaster.send(
+                                    session_id,
+                                    {**{"type": buf_type}, **(buf_payload if isinstance(buf_payload, dict) else {})},
+                                )
+                    # When session_id is None, just discard buffered events (Rust line 928)
+                    buffered_events.clear()
+
                 continue
 
             # --- Heartbeat timeout ---
             if heartbeat_fut in done:
+                await self._event_buffer.flush()
+                last_err = bridge.last_error
+                if last_err:
+                    reason = f"Heartbeat timeout — sandbox unresponsive (last error: {last_err})"
+                else:
+                    reason = "Heartbeat timeout — sandbox unresponsive"
                 logger.warning("Heartbeat timeout during task %s: sandbox=%s", task_id, sandbox_id)
-                from app.conductor.kernel.task_controller import TaskController
-                await TaskController.failover_or_fail_task(task_id, "Heartbeat timeout — sandbox unresponsive")
-                bridge.current_task_id = None
-                bridge.status = SandboxBridgeStatus.IDLE
-                return False
-
-            # --- Task deadline ---
+                retry_count = await TaskController.failover_or_fail_task(task_id, reason)
+                if retry_count is not None:
+                    failover_pending_tasks.append((task_id, retry_count))
+                bridge.remove_task_subscribers(task_id)
+                from app.conductor.lifespan import get_redis_coordinator as _get_rc
+                _coord = _get_rc()
+                if _coord:
+                    await _coord.remove_task_sandbox(task_id)
+                return (False, False, False, False)
             if deadline_fut in done and not requires_action_pending:
                 logger.warning("Task deadline exceeded: task=%s timeout=%ds", task_id, timeout)
                 cancel_msg = conductor_pb2.OrchestratorMessage(
@@ -391,11 +1164,31 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                 await context.write(cancel_msg)
                 async with AsyncSessionLocal() as db:
                     task_svc = TaskService(db)
-                    await task_svc.update_task_status(
-                        task_id, TaskStatus.FAILED,
-                        error=f"Task timed out after {timeout}s (server-side deadline)",
+                    await task_svc.update_task_error(
+                        task_id,
+                        f"Task timed out after {timeout}s (server-side deadline)",
+                        TaskStatus.TIMEOUT,
                     )
+                if session_id:
+                    async with AsyncSessionLocal() as db:
+                        svc = SessionService(db)
+                        await svc.update_session_status(
+                            session_id, SessionStatus.IDLE.value,
+                            stop_reason={"type": "timeout"},
+                        )
+                        await svc.send_event(
+                            session_id,
+                            "session.status_idle",
+                            {"stop_reason": {"type": "timeout"}},
+                        )
+                    broadcaster = get_session_broadcaster()
+                    if broadcaster:
+                        await broadcaster.send(
+                            session_id,
+                            {"type": "session.status_idle", "stop_reason": {"type": "timeout"}},
+                        )
                 task_done = True
+                deadline_exceeded = True
                 break
 
             # --- Stream message ---
@@ -403,7 +1196,11 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                 continue
             msg = read_fut.result()
             if msg == grpc_aio.EOF:
+                logger.warning("EOF received in task event loop: task=%s task_done=%s got_idle=%s", task_id, task_done, got_idle)
                 break
+
+            # Reset heartbeat deadline on ANY received message (Rust line 983)
+            heartbeat_deadline = _time.monotonic() + _get_heartbeat_timeout()
 
             payload_type = msg.WhichOneof("payload")
             if payload_type is None:
@@ -423,12 +1220,58 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                         )
                         continue
 
-                    # control_request: pause for confirmation
+                    if mapped_type == "error":
+                        bridge.last_error = mapped_payload.get("error") or mapped_payload.get("message")
+
+                    if requires_action_pending:
+                        buffered_events.append((mapped_type, mapped_payload))
+                        continue
+
                     if mapped_type in ("agent.tool_use", "agent.mcp_tool_use") and is_control_request(mapped_payload):
-                        call_id = mapped_payload.get("request_id") or mapped_payload.get("id") or mapped_payload.get("call_id") or ""
-                        event_id = last_tool_use_event_id or f"evt_{uuid.uuid4()}"
+                        call_id = mapped_payload.get("_call_id") or mapped_payload.get("request_id") or mapped_payload.get("id") or mapped_payload.get("call_id") or ""
+
+                        # Persist the tool_use event to DB first so event_id is stable
+                        ws_msg = WsOutMessage(
+                            type="event",
+                            payload={"type": mapped_type, **mapped_payload},
+                        )
+                        await bridge.broadcast_to_task(task_id, ws_msg)
+
+                        coordinator = get_redis_coordinator()
+                        if coordinator:
+                            await coordinator.publish_event(
+                                task_id,
+                                json.dumps({"type": ws_msg.type, **ws_msg.payload}),
+                            )
+
+                        if session_id:
+                            persisted_event_id = uuid7()
+                            buffered = BufferedEvent(
+                                session_id=session_id,
+                                event_type=mapped_type,
+                                payload=mapped_payload,
+                                seq=event.seq,
+                                id=persisted_event_id,
+                            )
+                            await self._event_buffer.send(buffered)
+                            await self._event_buffer.flush()
+
+                            broadcaster = get_session_broadcaster()
+                            if broadcaster:
+                                await broadcaster.send(
+                                    session_id,
+                                    {**{"type": mapped_type, "seq": event.seq}, **(mapped_payload if isinstance(mapped_payload, dict) else {})},
+                                )
+
+                            event_id = f"evt_{persisted_event_id}"
+                            last_tool_use_event_id = event_id
+                        else:
+                            event_id = f"evt_{uuid7()}"
+
                         if call_id:
                             bridge.pending_control_request_ids[event_id] = call_id
+                        else:
+                            logger.warning("HITL-GRPC control_request: NO call_id found in payload: %s", mapped_payload)
                         requires_action_pending = True
                         bridge._requires_action_pending = True
                         if session_id:
@@ -438,38 +1281,19 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                                 await svc.update_session_status(
                                     session_id, SessionStatus.IDLE.value, stop_reason=stop_reason
                                 )
+                                await svc.send_event(
+                                    session_id,
+                                    "session.status_idle",
+                                    {"stop_reason": stop_reason},
+                                )
                             broadcaster = get_session_broadcaster()
                             if broadcaster:
-                                await broadcaster.broadcast(
+                                await broadcaster.send(
                                     session_id,
                                     {"type": "session.status_idle", "stop_reason": stop_reason},
                                 )
                         continue
 
-                    # custom_tool_use: also requires confirmation
-                    is_custom_tool = mapped_type == "agent.custom_tool_use"
-                    if is_custom_tool and not requires_action_pending:
-                        call_id = mapped_payload.get("request_id") or mapped_payload.get("id") or mapped_payload.get("call_id") or ""
-                        event_id = last_tool_use_event_id or f"evt_{uuid.uuid4()}"
-                        if call_id:
-                            bridge.pending_control_request_ids[event_id] = call_id
-                        requires_action_pending = True
-                        bridge._requires_action_pending = True
-                        if session_id:
-                            stop_reason = {"type": "requires_action", "event_ids": [event_id]}
-                            async with AsyncSessionLocal() as db:
-                                svc = SessionService(db)
-                                await svc.update_session_status(
-                                    session_id, SessionStatus.IDLE.value, stop_reason=stop_reason
-                                )
-                            broadcaster = get_session_broadcaster()
-                            if broadcaster:
-                                await broadcaster.broadcast(
-                                    session_id,
-                                    {"type": "session.status_idle", "stop_reason": stop_reason},
-                                )
-
-                    # Broadcast event
                     ws_msg = WsOutMessage(
                         type="event",
                         payload={"type": mapped_type, **mapped_payload},
@@ -483,46 +1307,88 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                             json.dumps({"type": ws_msg.type, **ws_msg.payload}),
                         )
 
-                    # Persist to session events
                     if session_id:
+                        persisted_event_id = uuid7()
                         buffered = BufferedEvent(
                             session_id=session_id,
                             event_type=mapped_type,
                             payload=mapped_payload,
                             seq=event.seq,
+                            id=persisted_event_id,
                         )
                         await self._event_buffer.send(buffered)
 
                         broadcaster = get_session_broadcaster()
                         if broadcaster:
-                            await broadcaster.broadcast(
+                            await broadcaster.send(
                                 session_id,
                                 {**{"type": mapped_type, "seq": event.seq}, **(mapped_payload if isinstance(mapped_payload, dict) else {})},
                             )
 
-                        # Track last tool_use event for control_request mapping
                         if mapped_type in ("agent.tool_use", "agent.mcp_tool_use", "agent.custom_tool_use"):
-                            last_tool_use_event_id = f"evt_{uuid.uuid4()}"
+                            last_tool_use_event_id = f"evt_{persisted_event_id}"
+
+                    is_custom_tool = mapped_type == "agent.custom_tool_use"
+                    if is_custom_tool and not requires_action_pending:
+                        call_id = mapped_payload.get("_call_id") or mapped_payload.get("request_id") or mapped_payload.get("id") or mapped_payload.get("call_id") or ""
+                        event_id = last_tool_use_event_id or f"evt_{uuid7()}"
+                        if call_id:
+                            bridge.pending_control_request_ids[event_id] = call_id
+                        requires_action_pending = True
+                        bridge._requires_action_pending = True
+                        if session_id:
+                            await self._event_buffer.flush()
+                            stop_reason = {"type": "requires_action", "event_ids": [event_id]}
+                            async with AsyncSessionLocal() as db:
+                                svc = SessionService(db)
+                                await svc.update_session_status(
+                                    session_id, SessionStatus.IDLE.value, stop_reason=stop_reason
+                                )
+                                await svc.send_event(
+                                    session_id,
+                                    "session.status_idle",
+                                    {"stop_reason": stop_reason},
+                                )
+                            broadcaster = get_session_broadcaster()
+                            if broadcaster:
+                                await broadcaster.send(
+                                    session_id,
+                                    {"type": "session.status_idle", "stop_reason": stop_reason},
+                                )
 
             elif payload_type == "result":
                 result = msg.result
+                logger.info("Result received: task=%s status=%s got_idle=%s", task_id, result.status, got_idle)
                 await self._handle_result(bridge, sandbox_id, task_id, session_id, result)
+                result_status = TaskStatus.from_str_lossy(result.status)
+                if result_status == TaskStatus.COMPLETED:
+                    task_completed = True
+                elif result_status in (TaskStatus.FAILED, TaskStatus.ABORTED, TaskStatus.TIMEOUT):
+                    task_error_status = True
                 task_done = True
+                logger.info("Result processed: task=%s task_done=%s got_idle=%s", task_id, task_done, got_idle)
 
             elif payload_type == "idle":
                 idle = msg.idle
                 bridge.status = SandboxBridgeStatus.IDLE
                 bridge.current_task_id = None
-                logger.info("Runner idle: sandbox=%s", sandbox_id)
+                logger.info("Runner idle received: sandbox=%s task_done=%s", sandbox_id, task_done)
 
-                # Update session resume info
-                if session_id:
-                    harness_session_id = idle.session_id if idle.HasField("session_id") else None
-                    work_dir = idle.work_dir if idle.HasField("work_dir") else None
-                    async with AsyncSessionLocal() as db:
+                # Fix 4: Update sandbox DB status to idle + touch (Rust lines 1271-1274)
+                async with AsyncSessionLocal() as db:
+                    sandbox_svc = SandboxService(db)
+                    await sandbox_svc.update_status(sandbox_id, "idle")
+                    await sandbox_svc.touch(sandbox_id)
+
+                async with AsyncSessionLocal() as db:
+                    sandbox_svc2 = SandboxService(db)
+                    sandbox_record = await sandbox_svc2.get_sandbox(sandbox_id)
+                    if sandbox_record and sandbox_record.chat_session_id:
+                        harness_session_id = idle.session_id if idle.HasField("session_id") else None
+                        work_dir = idle.work_dir if idle.HasField("work_dir") else None
                         svc = SessionService(db)
                         await svc.update_session_sandbox(
-                            session_id, sandbox_id,
+                            sandbox_record.chat_session_id, sandbox_id,
                             harness_session_id=harness_session_id,
                             work_dir=work_dir,
                         )
@@ -531,6 +1397,31 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                 coord = _get_rc()
                 if coord:
                     await coord.refresh_sandbox_owner(sandbox_id)
+
+                # Flush buffered events BEFORE setting session idle (Rust lines 1226-1230)
+                # This ensures all agent events are in PG when clients see session.status_idle
+                await self._event_buffer.flush()
+
+                if session_id and not bridge._requires_action_pending:
+                    final_status = getattr(bridge, "_last_result_status", None)
+                    last_error = getattr(bridge, "_last_result_error", None)
+                    stop_reason = self._stop_reason_from_result(final_status, last_error) if final_status else {"type": "end_turn"}
+                    async with AsyncSessionLocal() as db:
+                        svc = SessionService(db)
+                        await svc.update_session_status(
+                            session_id, SessionStatus.IDLE.value, stop_reason=stop_reason
+                        )
+                        await svc.send_event(
+                            session_id,
+                            "session.status_idle",
+                            {"stop_reason": stop_reason},
+                        )
+                    broadcaster = get_session_broadcaster()
+                    if broadcaster:
+                        await broadcaster.send(
+                            session_id,
+                            {"type": "session.status_idle", "stop_reason": stop_reason},
+                        )
 
                 got_idle = True
 
@@ -547,27 +1438,60 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                 break
 
         # --- Post-task ---
+        logger.info("Post-task: task=%s task_done=%s got_idle=%s deadline=%s error=%s completed=%s", task_id, task_done, got_idle, deadline_exceeded, task_error_status, task_completed)
         if not task_done:
-            # Stream broke before task completed
-            from app.conductor.kernel.task_controller import TaskController
-            await TaskController.failover_or_fail_task(
-                task_id, "Sandbox disconnected unexpectedly"
+            await self._event_buffer.flush()
+            last_err = bridge.last_error
+            if last_err:
+                reason = f"Sandbox disconnected unexpectedly (last error: {last_err})"
+            else:
+                reason = "Sandbox disconnected unexpectedly"
+            retry_count = await TaskController.failover_or_fail_task(
+                task_id, reason
             )
-            bridge.current_task_id = None
-            bridge.status = SandboxBridgeStatus.IDLE
-            return False
+            if retry_count is not None:
+                failover_pending_tasks.append((task_id, retry_count))
+            bridge.remove_task_subscribers(task_id)
+            from app.conductor.lifespan import get_redis_coordinator as _get_rc2
+            _coord2 = _get_rc2()
+            if _coord2:
+                await _coord2.remove_task_sandbox(task_id)
+            return (False, deadline_exceeded, False, False)
 
         if task_done and not got_idle:
-            # Got result but no idle — still OK, proceed
+            bridge.status = SandboxBridgeStatus.DISCONNECTED
             bridge.current_task_id = None
-            bridge.status = SandboxBridgeStatus.IDLE
+            bridge.remove_task_subscribers(task_id)
+            from app.conductor.lifespan import get_redis_coordinator
+            coordinator = get_redis_coordinator()
+            if coordinator:
+                await coordinator.remove_task_sandbox(task_id)
+            if linked_session_id:
+                stop_reason = {"type": "end_turn"}
+                if deadline_exceeded:
+                    stop_reason = {"type": "timeout"}
+                elif task_error_status:
+                    stop_reason = {"type": "error", "message": "Task failed"}
+                async with AsyncSessionLocal() as db:
+                    svc = SessionService(db)
+                    cas_ok = await svc.update_session_status(
+                        linked_session_id, SessionStatus.IDLE.value, stop_reason=stop_reason
+                    )
+                    if cas_ok:
+                        await svc.send_event(
+                            linked_session_id,
+                            "session.status_idle",
+                            {"stop_reason": stop_reason},
+                        )
+                        broadcaster = get_session_broadcaster()
+                        if broadcaster:
+                            await broadcaster.send(
+                                linked_session_id,
+                                {"type": "session.status_idle", "stop_reason": stop_reason},
+                            )
+            return (False, deadline_exceeded, task_error_status, task_completed)
 
-        # Check cancel event
-        if bridge._cancel_event.is_set():
-            bridge._cancel_event.clear()
-
-        await self._event_buffer.flush()
-        return True
+        return (True, deadline_exceeded, task_error_status, task_completed)
 
     async def _handle_result(
         self,
@@ -593,100 +1517,196 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                 "cache_write_tokens": result.usage.cache_write_tokens,
             }
 
-            # Parse per-model breakdown from repeated ModelUsageEntry
-            if result.usage.by_model:
-                by_model_list = []
-                for entry in result.usage.by_model:
-                    by_model_list.append({
-                        "model": entry.model,
-                        "input_tokens": entry.input_tokens,
-                        "output_tokens": entry.output_tokens,
-                        "cache_read_tokens": entry.cache_read_tokens,
-                        "cache_write_tokens": entry.cache_write_tokens,
-                    })
-                usage["by_model"] = by_model_list
-
         error = result.error if result.HasField("error") else None
-        final_status = TaskStatus.COMPLETED if not error else TaskStatus.FAILED
+        final_status = TaskStatus.from_str_lossy(result.status)
 
+        cas_ok = True
         async with AsyncSessionLocal() as db:
             task_svc = TaskService(db)
-            await task_svc.update_task_status(
-                task_id, final_status,
-                output=result.output,
-                error=error,
-                usage=usage,
-            )
+            if final_status.is_terminal():
+                if error:
+                    cas_ok = await task_svc.update_task_error(
+                        task_id, error, final_status,
+                    )
+                else:
+                    cas_ok = await task_svc.update_task_status(
+                        task_id, final_status,
+                    )
+                if not cas_ok:
+                    logger.warning("CAS conflict: task %s already terminal, ignoring runner result", task_id)
 
-            if session_id:
-                session_svc = SessionService(db)
+            if cas_ok:
+                await task_svc.update_task_output(task_id, result.output)
                 if usage:
-                    by_model = usage.get("by_model", [])
-                    if by_model:
-                        # Accumulate per-model entries individually. Each call
-                        # to accumulate_usage adds to the session aggregate AND
-                        # to the per-model map, so the aggregate is the natural
-                        # sum of all model entries.
-                        for model_entry in by_model:
-                            await session_svc.accumulate_usage(session_id, {
-                                "input_tokens": model_entry["input_tokens"],
-                                "output_tokens": model_entry["output_tokens"],
-                                "cache_creation_input_tokens": model_entry.get("cache_read_tokens", 0),
-                                "cache_read_input_tokens": model_entry.get("cache_write_tokens", 0),
-                                "model": model_entry["model"],
-                            })
-                    else:
-                        # No per-model breakdown; accumulate aggregate only
-                        await session_svc.accumulate_usage(session_id, usage)
-
-                if not bridge._requires_action_pending:
-                    stop_reason = (
-                        {"type": "end_turn"}
-                        if not error
-                        else {"type": "retries_exhausted", "error": error}
-                    )
-                    await session_svc.update_session_status(
-                        session_id, SessionStatus.IDLE.value, stop_reason=stop_reason
-                    )
-
-            sandbox_svc = SandboxService(db)
-            await sandbox_svc.update_status_cas(sandbox_id, "running", "idle")
+                    await task_svc.update_task_usage(task_id, usage)
 
         from app.conductor.lifespan import get_redis_coordinator, get_session_broadcaster
-        coordinator = get_redis_coordinator()
-        if coordinator:
-            await coordinator.remove_task_sandbox(task_id)
-
-        # Flush event buffer before broadcasting idle
-        await self._event_buffer.flush()
-
-        if session_id and not bridge._requires_action_pending:
-            broadcaster = get_session_broadcaster()
-            if broadcaster:
-                stop_reason = (
-                    {"type": "end_turn"}
-                    if not error
-                    else {"type": "retries_exhausted", "error": error}
-                )
-                await broadcaster.broadcast(
-                    session_id,
-                    {"type": "session.status_idle", "stop_reason": stop_reason},
-                )
 
         result_payload = {
+            "status": result.status,
             "output": result.output,
             "error": error,
-            "usage": usage,
-            "session_id": result.session_id if result.HasField("session_id") else None,
-            "work_dir": result.work_dir if result.HasField("work_dir") else None,
-            "status": result.status,
             "duration_ms": result.duration_ms,
         }
         await bridge.broadcast_to_task(
             task_id, WsOutMessage(type="complete", payload=result_payload)
         )
 
+        # Issue 4 fix: publish complete event to Redis (matching Rust lines 1197-1199)
+        coordinator = get_redis_coordinator()
+        if coordinator:
+            await coordinator.publish_event(
+                task_id,
+                json.dumps({"type": "complete", **result_payload}),
+            )
+
+        async with AsyncSessionLocal() as db:
+            sandbox_svc = SandboxService(db)
+            await sandbox_svc.complete_task(sandbox_id, task_id, "idle")
+
+        bridge.remove_task_subscribers(task_id)
+
+        if coordinator:
+            await coordinator.remove_task_sandbox(task_id)
+
+        if session_id:
+            # accumulate_usage: NOT guarded by requires_action_pending (Rust: lines 1230-1242)
+            if usage:
+                async with AsyncSessionLocal() as db:
+                    session_svc = SessionService(db)
+                    await session_svc.accumulate_usage(session_id, {
+                        "input_tokens": usage.get("input_tokens", 0),
+                        "output_tokens": usage.get("output_tokens", 0),
+                        "cache_creation_input_tokens": usage.get("cache_write_tokens", 0),
+                        "cache_read_input_tokens": usage.get("cache_read_tokens", 0),
+                    })
+
+        # Store result info so the idle handler can compute stop_reason
+        bridge._last_result_status = final_status
+        bridge._last_result_error = error
+
         logger.info("Task %s completed: status=%s", task_id, result.status)
+
+    @staticmethod
+    def _stop_reason_from_result(status: "TaskStatus", error: Optional[str]) -> dict:
+        from app.conductor.models.task import TaskStatus
+        if status == TaskStatus.COMPLETED:
+            return {"type": "end_turn"}
+        elif status == TaskStatus.TIMEOUT:
+            return {"type": "timeout"}
+        elif status == TaskStatus.CANCELLED:
+            return {"type": "cancelled"}
+        elif status in (TaskStatus.FAILED, TaskStatus.ABORTED):
+            return {"type": "error", "message": error}
+        return {"type": "end_turn"}
+
+    async def _handle_reconnect_result(
+        self,
+        bridge: SandboxBridge,
+        sandbox_id: uuid.UUID,
+        task_id: uuid.UUID,
+        session_id: Optional[uuid.UUID],
+        result,
+        coordinator,
+    ) -> None:
+        """Reconnect result handler — with CAS check and event buffer flush."""
+        from app.core.database import AsyncSessionLocal
+        from app.conductor.models.task import TaskStatus
+        from app.conductor.services.task_service import TaskService
+        from app.conductor.services.session_service import SessionService
+        from app.conductor.services.sandbox_service import SandboxService
+        from app.conductor.lifespan import get_session_broadcaster
+
+        usage = None
+        if result.usage:
+            usage = {
+                "input_tokens": result.usage.input_tokens,
+                "output_tokens": result.usage.output_tokens,
+                "cache_read_tokens": result.usage.cache_read_tokens,
+                "cache_write_tokens": result.usage.cache_write_tokens,
+            }
+
+        error = result.error if result.HasField("error") else None
+        final_status = TaskStatus.from_str_lossy(result.status)
+
+        cas_ok = True
+        async with AsyncSessionLocal() as db:
+            task_svc = TaskService(db)
+            if final_status.is_terminal():
+                if error:
+                    cas_ok = await task_svc.update_task_error(task_id, error, final_status)
+                else:
+                    cas_ok = await task_svc.update_task_status(task_id, final_status)
+                if not cas_ok:
+                    logger.warning("CAS conflict: reconnect task %s already terminal, ignoring result", task_id)
+            if cas_ok:
+                await task_svc.update_task_output(task_id, result.output)
+                if usage:
+                    await task_svc.update_task_usage(task_id, usage)
+
+        result_payload = {
+            "status": result.status,
+            "output": result.output,
+            "error": error,
+            "duration_ms": result.duration_ms,
+        }
+        await bridge.broadcast_to_task(
+            task_id, WsOutMessage(type="complete", payload=result_payload)
+        )
+
+        if coordinator:
+            await coordinator.publish_event(
+                task_id,
+                json.dumps({"type": "complete", **result_payload}),
+            )
+
+        async with AsyncSessionLocal() as db:
+            sandbox_svc = SandboxService(db)
+            await sandbox_svc.complete_task(sandbox_id, task_id, "idle")
+
+        bridge.remove_task_subscribers(task_id)
+
+        if coordinator:
+            await coordinator.remove_task_sandbox(task_id)
+
+        await self._event_buffer.flush()
+
+        if session_id:
+            if not bridge._requires_action_pending:
+                stop_reason = self._stop_reason_from_result(final_status, error)
+                async with AsyncSessionLocal() as db:
+                    session_svc = SessionService(db)
+                    await session_svc.update_session_status(
+                        session_id, SessionStatus.IDLE.value, stop_reason=stop_reason
+                    )
+
+            if usage:
+                async with AsyncSessionLocal() as db:
+                    session_svc = SessionService(db)
+                    await session_svc.accumulate_usage(session_id, {
+                        "input_tokens": usage.get("input_tokens", 0),
+                        "output_tokens": usage.get("output_tokens", 0),
+                        "cache_creation_input_tokens": usage.get("cache_write_tokens", 0),
+                        "cache_read_input_tokens": usage.get("cache_read_tokens", 0),
+                    })
+
+            if not bridge._requires_action_pending:
+                stop_reason = self._stop_reason_from_result(final_status, error)
+                async with AsyncSessionLocal() as db:
+                    session_svc = SessionService(db)
+                    await session_svc.send_event(
+                        session_id,
+                        "session.status_idle",
+                        {"stop_reason": stop_reason},
+                    )
+                broadcaster = get_session_broadcaster()
+                if broadcaster:
+                    await broadcaster.send(
+                        session_id,
+                        {"type": "session.status_idle", "stop_reason": stop_reason},
+                    )
+
+        logger.info("Reconnect task %s completed: status=%s", task_id, result.status)
 
     async def _send_setup(self, bridge: SandboxBridge, sandbox_id: uuid.UUID) -> None:
         if bridge.setup_done:
@@ -728,7 +1748,6 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                     bridge.external_id, sandbox_id,
                 )
 
-                # Load environment for setup_commands
                 environment = None
                 env_ref = getattr(agent, "environment_ref", None)
                 if env_ref:
@@ -736,7 +1755,12 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
                     env_svc = EnvironmentService(db)
                     environment = await env_svc.get_environment_by_ref(env_ref)
 
-            setup_msg = _build_setup_sandbox(harness_input, agent, environment)
+                # workspace_path on the record is the HOST path; inside the container it's always /workspace
+                work_dir = session.last_work_dir or (
+                    "/workspace" if getattr(sandbox, "workspace_path", None) else None
+                )
+
+            setup_msg = _build_setup_sandbox(harness_input, agent, environment, work_dir=work_dir)
             orch_msg = conductor_pb2.OrchestratorMessage(setup=setup_msg)
             await bridge.runner_stream.write(orch_msg)
             bridge.setup_done = True
@@ -746,9 +1770,231 @@ class AgentBridgeServicer(conductor_pb2_grpc.AgentBridgeServicer):
             logger.warning("Failed to send SetupSandbox for %s: %s", sandbox_id, e)
             bridge.setup_done = True
 
-    async def _cleanup_sandbox(self, sandbox_id: uuid.UUID) -> None:
+    # --- Fix 2: Full execute_sandbox_cleanup matching Rust lines 46-127 + grace period ---
+
+    async def _cleanup_sandbox(
+        self,
+        sandbox_id: uuid.UUID,
+        session_id: Optional[uuid.UUID] = None,
+        failover_pending_tasks: Optional[list] = None,
+        is_error: bool = False,
+    ) -> None:
+        """Post-disconnect cleanup: probe container, then either fast-cleanup or start 120s grace period."""
+        from app.conductor.lifespan import get_sandbox_provider
+
+        if failover_pending_tasks is None:
+            failover_pending_tasks = []
+
+        provider = get_sandbox_provider()
+        if not provider:
+            await self._execute_sandbox_cleanup(sandbox_id, session_id, failover_pending_tasks, is_error)
+            return
+
+        # Fast path: probe container status -- if confirmed dead, skip 120s wait
+        await asyncio.sleep(3)
+        container_dead = await self._probe_container(provider, sandbox_id)
+        if container_dead:
+            logger.info("Container confirmed dead for sandbox %s, fast recovery", sandbox_id)
+            await self._execute_sandbox_cleanup(sandbox_id, session_id, failover_pending_tasks, is_error, container_dead=True)
+            return
+
+        # Second probe after 2s
+        await asyncio.sleep(2)
+        container_dead = await self._probe_container(provider, sandbox_id)
+        if container_dead:
+            logger.info("Container dead on retry for sandbox %s", sandbox_id)
+            await self._execute_sandbox_cleanup(sandbox_id, session_id, failover_pending_tasks, is_error, container_dead=True)
+            return
+
+        # Container is alive -- start 120s reconnection grace period
+        logger.info("Runner disconnected from sandbox %s, starting 120s grace period", sandbox_id)
+
+        current_bridge = await self._bridge_registry.get(sandbox_id)
+
+        asyncio.create_task(
+            self._grace_period_cleanup(
+                sandbox_id, session_id, failover_pending_tasks, is_error, current_bridge
+            ),
+            name=f"grace-{sandbox_id}",
+        )
+
+    async def _execute_sandbox_cleanup(
+        self,
+        sandbox_id: uuid.UUID,
+        session_id: Optional[uuid.UUID],
+        failover_pending_tasks: list,
+        is_error: bool,
+        container_dead: bool = False,
+    ) -> None:
+        """Full sandbox cleanup matching Rust execute_sandbox_cleanup (lines 46-127)."""
+        from app.core.database import AsyncSessionLocal
+        from app.conductor.services.sandbox_service import SandboxService
+        from app.conductor.services.task_service import TaskService
+        from app.conductor.services.session_service import SessionService
+        from app.conductor.kernel.task_controller import TaskController
+        from app.conductor.lifespan import (
+            get_redis_coordinator,
+            get_session_broadcaster,
+            get_memory_subscribers,
+        )
+
+        sandbox_status = "error" if is_error else "stopped"
+
+        # 1. CAS sandbox status -- skip if already terminal
+        async with AsyncSessionLocal() as db:
+            sandbox_svc = SandboxService(db)
+            sandbox = await sandbox_svc.get_sandbox(sandbox_id)
+            if sandbox:
+                current = sandbox.status
+                if container_dead and current != "destroyed":
+                    await sandbox_svc.mark_destroyed(sandbox_id)
+                elif current not in ("destroyed", "stopped", "error"):
+                    await sandbox_svc.update_status_cas(sandbox_id, current, sandbox_status)
+
+        # 2. Remove bridge from registry
+        await self._bridge_registry.remove(sandbox_id)
+
+        # 3. Reset scheduling tasks to pending
+        async with AsyncSessionLocal() as db:
+            task_svc = TaskService(db)
+            n = await task_svc.reset_sandbox_tasks_to_pending(sandbox_id)
+            if n > 0:
+                logger.info(
+                    "Reset %d scheduling tasks to pending for dead sandbox %s", n, sandbox_id
+                )
+
+        # 4. Drain and requeue sandbox queue
         await self._queue.drain_and_requeue_sandbox(sandbox_id)
 
+        # 5. Schedule delayed retry for failover_pending_tasks
+        has_retries = len(failover_pending_tasks) > 0
+        for tid, retry_count in failover_pending_tasks:
+            delay = TaskController.compute_retry_delay(retry_count, tid)
+            logger.info(
+                "Scheduling delayed retry for task %s: retry_count=%d delay=%.1fs",
+                tid, retry_count, delay,
+            )
+
+            async def _delayed_retry(_task_id, _delay_sec):
+                await asyncio.sleep(_delay_sec)
+                await self._queue.push_to_global(_task_id)
+
+            asyncio.create_task(
+                _delayed_retry(tid, delay),
+                name=f"retry-{tid}",
+            )
+
+        # 6. Remove Redis owner and queue keys
+        coordinator = get_redis_coordinator()
+        if coordinator:
+            await coordinator.remove_sandbox_owner(sandbox_id)
+            await coordinator.remove_sandbox_queue(sandbox_id)
+
+        # 7. Emit session status event BEFORE removing broadcaster
+        if session_id:
+            broadcaster = get_session_broadcaster()
+            if has_retries:
+                async with AsyncSessionLocal() as db:
+                    session_svc = SessionService(db)
+                    await session_svc.update_session_status(session_id, "rescheduling")
+                    # Issue 8 fix: persist session event (matching Rust line 99)
+                    await session_svc.send_event(
+                        session_id,
+                        "session.status_rescheduling",
+                        {"stop_reason": {"type": "sandbox_failed"}},
+                    )
+                if broadcaster:
+                    await broadcaster.send(
+                        session_id,
+                        {"type": "session.status_rescheduling", "stop_reason": {"type": "sandbox_failed"}},
+                    )
+            else:
+                async with AsyncSessionLocal() as db:
+                    session_svc = SessionService(db)
+                    session_rec = await session_svc.get_session(session_id)
+                    session_is_idle = (
+                        session_rec is not None
+                        and session_rec.status == "idle"
+                    )
+                    if not session_is_idle:
+                        await session_svc.update_session_status(session_id, "terminated")
+                        await session_svc.send_event(
+                            session_id,
+                            "session.status_terminated",
+                            {"stop_reason": {"type": "sandbox_disconnected"}},
+                        )
+                if not session_is_idle and broadcaster:
+                    await broadcaster.send(
+                        session_id,
+                        {"type": "session.status_terminated", "stop_reason": {"type": "sandbox_disconnected"}},
+                    )
+
+        # 8. Unregister memory subscribers
+        if session_id:
+            mem_subs = get_memory_subscribers()
+            if mem_subs:
+                await mem_subs.unregister_session(session_id)
+
+        # 9. Remove session broadcaster (no-op in Python -- broadcaster is shared)
+
+        logger.info(
+            "SandboxBridge cleanup completed: sandbox=%s status=%s", sandbox_id, sandbox_status
+        )
+
+    async def _probe_container(self, provider, sandbox_id: uuid.UUID) -> bool:
+        from app.core.database import AsyncSessionLocal
+        from app.conductor.services.sandbox_service import SandboxService
+
+        try:
+            async with AsyncSessionLocal() as db:
+                svc = SandboxService(db)
+                sandbox = await svc.get_sandbox(sandbox_id)
+                if not sandbox or not sandbox.external_id:
+                    return True
+                status = await provider.status(sandbox.external_id)
+                return status != "running"
+        except Exception:
+            return True
+
+    async def _grace_period_cleanup(
+        self,
+        sandbox_id: uuid.UUID,
+        session_id: Optional[uuid.UUID],
+        failover_pending_tasks: list,
+        is_error: bool,
+        original_bridge: Optional[SandboxBridge],
+    ) -> None:
+        """120s grace period for reconnection, matching Rust lines 1441-1500."""
+        from app.conductor.kernel.task_controller import TaskController
+
+        # Check early for reconnection before waiting the full 120s
+        for early_check in (5, 10, 15):
+            await asyncio.sleep(early_check)
+            current_bridge = await self._bridge_registry.get(sandbox_id)
+            if current_bridge is not None and current_bridge is not original_bridge:
+                logger.info("Bridge replaced by early reconnection for sandbox %s, re-queuing %d task(s)", sandbox_id, len(failover_pending_tasks))
+                for tid, _retry_count in failover_pending_tasks:
+                    await self._queue.push_to_global(tid)
+                    logger.info("Re-queued orphaned task %s immediately after reconnect", tid)
+                return
+
+        remaining = 120 - 30
+        await asyncio.sleep(remaining)
+
+        # Check if a new connection replaced this bridge
+        current_bridge = await self._bridge_registry.get(sandbox_id)
+        if current_bridge is not None and current_bridge is not original_bridge:
+            logger.info("Bridge replaced by reconnection for sandbox %s, skipping cleanup", sandbox_id)
+            for tid, _retry_count in failover_pending_tasks:
+                await self._queue.push_to_global(tid)
+                logger.info("Re-queued orphaned task %s after reconnect", tid)
+            return
+
+        logger.warning("No reconnection within grace period for sandbox %s, cleaning up", sandbox_id)
+        await self._execute_sandbox_cleanup(sandbox_id, session_id, failover_pending_tasks, is_error)
+
+
+# --- Fix 3: Memory sync with cross-session peer broadcast ---
 
 async def _handle_memory_sync_standalone(
     session_id: Optional[uuid.UUID], payload: dict
@@ -765,6 +2011,8 @@ async def _handle_memory_sync_standalone(
         from app.core.database import AsyncSessionLocal
         from app.conductor.services.session_service import SessionService
         from app.conductor.services.memory_service import MemoryService
+
+        store_id_for_broadcast: Optional[uuid.UUID] = None
 
         async with AsyncSessionLocal() as db:
             session_svc = SessionService(db)
@@ -788,7 +2036,37 @@ async def _handle_memory_sync_standalone(
                     await mem_svc.upsert_memory_from_agent(
                         sms.store_id, rel_path, content, session_id
                     )
-                return
+
+                store_id_for_broadcast = sms.store_id
+                break
+
+        # Cross-session broadcast: notify peer sessions sharing this store (Rust lines 1330-1352)
+        if store_id_for_broadcast is not None:
+            from app.conductor.lifespan import get_memory_subscribers, get_bridge_registry
+            mem_subs = get_memory_subscribers()
+            bridge_registry = get_bridge_registry()
+
+            if mem_subs and bridge_registry:
+                peers = await mem_subs.get_peers(store_id_for_broadcast, session_id)
+                for peer in peers:
+                    peer_bridge = await bridge_registry.get(peer.sandbox_db_id)
+                    if peer_bridge and peer_bridge.runner_stream:
+                        try:
+                            update_msg = conductor_pb2.OrchestratorMessage(
+                                memory_update=conductor_pb2.MemoryFileUpdate(
+                                    store_mount_name=peer.mount_name,
+                                    relative_path=rel_path,
+                                    content=content.encode("utf-8") if isinstance(content, str) else content,
+                                    operation=operation,
+                                )
+                            )
+                            await peer_bridge.runner_stream.write(update_msg)
+                        except Exception as e:
+                            logger.warning(
+                                "Failed to send MemoryFileUpdate to peer session %s: %s",
+                                peer.session_id, e,
+                            )
+
     except Exception as e:
         logger.warning("Memory sync failed: %s", e)
 
@@ -798,7 +2076,6 @@ def _extract_setup_commands(agent=None, environment=None) -> list[str]:
     and agent metadata.  Returns a combined list."""
     commands: list[str] = []
 
-    # From environment config packages
     if environment and getattr(environment, "config", None):
         env_config = environment.config
         if isinstance(env_config, dict):
@@ -811,7 +2088,6 @@ def _extract_setup_commands(agent=None, environment=None) -> list[str]:
                 except Exception:
                     pass
 
-    # From agent metadata setup_commands
     if agent and getattr(agent, "metadata_", None):
         agent_cmds = agent.metadata_.get("setup_commands")
         if isinstance(agent_cmds, list):
@@ -823,7 +2099,7 @@ def _extract_setup_commands(agent=None, environment=None) -> list[str]:
 
 
 def _build_setup_sandbox(
-    harness_input, agent, environment=None,
+    harness_input, agent, environment=None, work_dir=None,
 ) -> conductor_pb2.SetupSandbox:
     skills = []
     for sa in harness_input.skill_archives:
@@ -874,21 +2150,22 @@ def _build_setup_sandbox(
             files=files,
         ))
 
-    setup_commands = _extract_setup_commands(agent, environment)
-
-    return conductor_pb2.SetupSandbox(
+    kwargs = dict(
         skills=skills,
         mcp_servers=mcp_servers,
         custom_tools=custom_tools,
-        setup_commands=setup_commands,
+        setup_commands=[],
         env=harness_input.env,
         secrets=harness_input.secrets,
         permission_mode=harness_input.permission_mode,
-        provider="claude",
+        provider=str(agent.engine_kind) if agent else "",
         model=harness_input.model or "",
         memory_system_prompt=harness_input.memory_system_prompt or "",
         memory_mounts=memory_mounts,
     )
+    if work_dir:
+        kwargs["work_dir"] = work_dir
+    return conductor_pb2.SetupSandbox(**kwargs)
 
 
 def _build_start_task(
@@ -944,9 +2221,10 @@ def _build_start_task(
 
     timeout = task.timeout_sec or config.task_default_timeout
 
+    engine_kind = str(agent.engine_kind) if agent else ""
     kwargs: dict[str, Any] = dict(
         task_id=str(task_id),
-        provider="claude",
+        provider=engine_kind,
         prompt=harness_input.prompt,
         system_prompt=harness_input.system_prompt or "",
         model=harness_input.model or "",
@@ -963,7 +2241,6 @@ def _build_start_task(
     if harness_input.session_id:
         kwargs["session_id"] = harness_input.session_id
 
-    # max_turns: from agent metadata or default
     max_turns = 100
     if agent and getattr(agent, "metadata_", None):
         mt = agent.metadata_.get("max_turns")
@@ -974,11 +2251,9 @@ def _build_start_task(
                 pass
     kwargs["max_turns"] = max_turns
 
-    # work_dir: from session's last_work_dir (for continuation)
     if session and getattr(session, "last_work_dir", None):
         kwargs["work_dir"] = session.last_work_dir
 
-    # repos: from agent metadata (if applicable)
     repos = []
     if agent and getattr(agent, "metadata_", None):
         agent_repos = agent.metadata_.get("repos")
@@ -993,7 +2268,6 @@ def _build_start_task(
     if repos:
         kwargs["repos"] = repos
 
-    # setup_commands: from environment config packages
     setup_commands = _extract_setup_commands(agent, environment)
     if setup_commands:
         kwargs["setup_commands"] = setup_commands
@@ -1091,9 +2365,14 @@ async def start_grpc_server(
     host: str = "0.0.0.0",
     port: int = 9090,
     vault_provider: Optional[Any] = None,
+    execution_semaphore: Optional[asyncio.Semaphore] = None,
 ) -> tuple[grpc_aio.Server, "AgentBridgeServicer"]:
     server = grpc_aio.server()
-    servicer = AgentBridgeServicer(bridge_registry, event_buffer, queue, vault_provider=vault_provider)
+    servicer = AgentBridgeServicer(
+        bridge_registry, event_buffer, queue,
+        vault_provider=vault_provider,
+        execution_semaphore=execution_semaphore,
+    )
     conductor_pb2_grpc.add_AgentBridgeServicer_to_server(servicer, server)
     server.add_insecure_port(f"{host}:{port}")
     await server.start()

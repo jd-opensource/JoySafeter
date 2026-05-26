@@ -51,31 +51,29 @@ def map_harness_event(
             results.append(("control_request", event))
 
     elif event_type == "result":
-        stop_reason = {"type": "end_turn"}
-        results.append((
-            "session.status_idle",
-            {"stop_reason": stop_reason, **event},
-        ))
+        pass  # Handled separately in gRPC loop, not in event mapping (matches Rust)
 
     elif event_type == "error":
         error_msg = event.get("error", {})
         if isinstance(error_msg, str):
             error_msg = {"type": "unknown_error", "message": error_msg}
+        # Ensure retry_status is always present (matches Rust behaviour)
+        if "retry_status" not in error_msg:
+            error_msg["retry_status"] = {"type": "terminal"}
         results.append(("session.error", {"error": error_msg}))
 
     elif event_type == "system":
         subtype = event.get("subtype", event.get("status", ""))
         if subtype in ("running",):
             results.append(("session.status_running", {}))
-        elif subtype in ("idle", "completed", "done"):
-            results.append((
-                "session.status_idle",
-                {"stop_reason": {"type": "end_turn"}},
-            ))
+        elif subtype in ("idle", "completed"):
+            results.append(("session.status_idle", {"stop_reason": {"type": "end_turn"}}))
         elif subtype in ("rescheduling", "rescheduled"):
             results.append(("session.status_rescheduled", {}))
         elif subtype in ("terminated", "failed"):
             results.append(("session.status_terminated", {}))
+        else:
+            results.append(("session.status_idle", {"stop_reason": {"type": "end_turn"}}))
 
     elif event_type == "model_request_start":
         results.append((
@@ -130,12 +128,22 @@ def _map_content_block(
 
     if block_type == "tool_use":
         tool_name = block.get("name", "")
-        payload = dict(block)
+        call_id = block.get("id", block.get("request_id", ""))
+
+        # Build payload to match Rust: {"name": tool, "input": input, "_call_id": call_id}
+        payload: dict[str, Any] = {
+            "name": tool_name,
+            "input": block.get("input", {}),
+            "_call_id": call_id,
+        }
         if is_control_request or block.get("is_control_request"):
             payload["is_control_request"] = True
+
         if tool_name in custom_tool_names:
             return ("agent.custom_tool_use", payload)
-        if _is_mcp_tool(tool_name, mcp_server_names):
+        if tool_name in mcp_server_names:
+            # Rust: mcp_server_names.contains(tool) — direct name match
+            payload["mcp_server_name"] = tool_name
             return ("agent.mcp_tool_use", payload)
         return ("agent.tool_use", payload)
 
@@ -149,9 +157,10 @@ def _map_content_block(
         payload = {
             "tool_use_id": block.get("tool_use_id", block.get("call_id", "")),
             "content": content,
-            "is_error": block.get("is_error", False),
+            "is_error": False,
         }
-        if _is_mcp_tool(tool_name, mcp_server_names):
+        # Rust: mcp_server_names.contains(tool) — direct name match
+        if tool_name in mcp_server_names:
             return ("agent.mcp_tool_result", payload)
         return ("agent.tool_result", payload)
 
@@ -159,6 +168,12 @@ def _map_content_block(
 
 
 def _is_mcp_tool(tool_name: str, mcp_server_names: set[str]) -> bool:
+    """Legacy helper kept for backwards-compat callers outside this module.
+
+    The canonical check (matching Rust) is a direct ``tool_name in mcp_server_names``
+    membership test.  This prefix-based heuristic is retained only for external
+    consumers that may rely on it.
+    """
     if not tool_name.startswith("mcp__"):
         return False
     parts = tool_name.split("__", 2)

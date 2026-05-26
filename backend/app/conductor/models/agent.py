@@ -7,11 +7,13 @@ from sqlalchemy import DateTime, ForeignKey, Integer, Text, UniqueConstraint, fu
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import BaseModel, TimestampMixin
+from uuid_utils import uuid7
+from app.conductor.models.base import ConductorBaseModel
+from app.models.base import TimestampMixin
 from app.core.database import Base
 
 
-class ConductorAgent(BaseModel):
+class ConductorAgent(ConductorBaseModel):
     __tablename__ = "conductor_agents"
     __table_args__ = (
         UniqueConstraint("name", name="idx_ca_name_unique"),
@@ -56,7 +58,7 @@ class ConductorAgentVersion(Base, TimestampMixin):
     __table_args__ = (UniqueConstraint("agent_id", "version"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        UUID(as_uuid=True), primary_key=True, default=lambda ctx=None: uuid7()
     )
     agent_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

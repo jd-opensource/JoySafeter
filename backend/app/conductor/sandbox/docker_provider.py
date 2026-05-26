@@ -43,14 +43,16 @@ class DockerSandboxProvider(SandboxProvider):
         cmd = [
             "docker", "create",
             "--name", container_name,
-            "-w", "/workspace",
-            "-v", f"{work_dir}:/workspace",
+            "--add-host", "host.docker.internal:host-gateway",
         ]
+
+        if work_dir:
+            cmd.extend(["-w", "/workspace"])
+            cmd.extend(["-v", f"{work_dir}:/workspace"])
 
         env = dict(env)
 
         sandbox_id = (labels or {}).get("conductor.sandbox_id", name)
-        env.setdefault("CONDUCTOR_SANDBOX_ID", sandbox_id)
 
         net_type = None
         if networking:
@@ -58,8 +60,8 @@ class DockerSandboxProvider(SandboxProvider):
 
         if net_type == "limited":
             cmd.extend(["--network", "none"])
-            if self._socket_volume:
-                cmd.extend(["-v", f"{self._socket_volume}:/sockets:ro"])
+            socket_vol = self._socket_volume or "conductor-sockets"
+            cmd.extend(["-v", f"{socket_vol}:/sockets:ro"])
             env["CONDUCTOR_ORCHESTRATOR_URL"] = f"unix:///sockets/{sandbox_id}/grpc.sock"
         else:
             if self._network:
@@ -72,12 +74,10 @@ class DockerSandboxProvider(SandboxProvider):
         for mount in memory_mounts or []:
             host_path = mount.get("host_path", "")
             mount_name = mount.get("name", "default")
-            read_only = mount.get("read_only", False)
+            access = mount.get("access", "read_write")
+            ro_flag = ":ro" if access == "read_only" else ""
             target = f"/mnt/memory/{mount_name}"
-            vol = f"{host_path}:{target}"
-            if read_only:
-                vol += ":ro"
-            cmd.extend(["-v", vol])
+            cmd.extend(["-v", f"{host_path}:{target}{ro_flag}"])
 
         if cpu is not None:
             cmd.extend(["--cpus", str(cpu)])
@@ -94,7 +94,6 @@ class DockerSandboxProvider(SandboxProvider):
             cmd.extend(["--label", f"{k}={v}"])
 
         cmd.append(image)
-        cmd.extend(["sleep", "infinity"])
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -104,9 +103,11 @@ class DockerSandboxProvider(SandboxProvider):
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
             raise RuntimeError(f"docker create failed: {stderr.decode()}")
+
+        await self._start_container(container_name)
         return container_name
 
-    async def start(self, external_id: str) -> None:
+    async def _start_container(self, external_id: str) -> None:
         proc = await asyncio.create_subprocess_exec(
             "docker", "start", external_id,
             stdout=asyncio.subprocess.PIPE,
@@ -118,21 +119,37 @@ class DockerSandboxProvider(SandboxProvider):
             await self.destroy(external_id)
             raise RuntimeError(f"docker start failed: {stderr.decode()}")
 
+    async def start(self, external_id: str) -> None:
+        await self._start_container(external_id)
+
     async def stop(self, external_id: str) -> None:
         proc = await asyncio.create_subprocess_exec(
             "docker", "stop", "-t", "10", external_id,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        await proc.communicate()
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            msg = stderr.decode()
+            if "No such container" in msg or "304" in msg or "not running" in msg:
+                return
+            raise RuntimeError(f"docker stop failed: {msg}")
 
     async def destroy(self, external_id: str) -> None:
+        stop_proc = await asyncio.create_subprocess_exec(
+            "docker", "stop", "-t", "10", external_id,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await stop_proc.communicate()
         proc = await asyncio.create_subprocess_exec(
             "docker", "rm", "-f", external_id,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        await proc.communicate()
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"docker rm failed: {stderr.decode()}")
 
     async def status(self, external_id: str) -> str:
         proc = await asyncio.create_subprocess_exec(
@@ -166,6 +183,8 @@ class DockerSandboxProvider(SandboxProvider):
         proc = await asyncio.create_subprocess_exec(
             "docker", "ps", "-a",
             "--filter", "label=conductor=true",
+            "--filter", "status=running",
+            "--filter", "status=exited",
             "--format", "{{json .}}",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -201,14 +220,37 @@ class DockerSandboxProvider(SandboxProvider):
             return {"stage": "provider_failed", "progress": 0, "message": "Container not found", "complete": False, "error": True}
         try:
             state = json.loads(stdout.decode().strip())
-            docker_status = state.get("Status", "unknown")
+            docker_status = state.get("Status", "unknown").lower()
             running = state.get("Running", False)
-            error_msg = state.get("Error", "")
+            restarting = state.get("Restarting", False)
+            exit_code = state.get("ExitCode", 0)
+            error_str = state.get("Error", "")
+
             if running:
-                return {"stage": "runtime_booting", "progress": 100, "message": "Container running", "complete": True, "error": False}
-            if error_msg:
-                return {"stage": "provider_failed", "progress": 0, "message": error_msg, "complete": False, "error": True}
-            return {"stage": "container_starting", "progress": 50, "message": f"Container {docker_status}", "complete": False, "error": False}
+                return {
+                    "stage": "runtime_booting", "progress": 90,
+                    "message": "Container is running, waiting for runner ready",
+                    "complete": True, "error": False,
+                }
+            elif restarting or "created" in docker_status or "starting" in docker_status:
+                return {
+                    "stage": "container_starting", "progress": 60,
+                    "message": "Container is starting",
+                    "complete": False, "error": False,
+                }
+            elif "exited" in docker_status or "dead" in docker_status:
+                msg = error_str if error_str else f"Container exited with code {exit_code}"
+                return {
+                    "stage": "provider_failed", "progress": 100,
+                    "message": "Container exited before runtime ready",
+                    "complete": True, "error": True, "error_message": msg,
+                }
+            else:
+                return {
+                    "stage": "provider_pending", "progress": 40,
+                    "message": f"Provider state: {docker_status}",
+                    "complete": False, "error": False,
+                }
         except json.JSONDecodeError:
             return {"stage": "provider_failed", "progress": 0, "message": "Failed to parse state", "complete": False, "error": True}
 

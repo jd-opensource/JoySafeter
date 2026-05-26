@@ -6,10 +6,10 @@ from sqlalchemy import DateTime, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import BaseModel
+from app.conductor.models.base import ConductorBaseModel
 
 
-class ConductorSecret(BaseModel):
+class ConductorSecret(ConductorBaseModel):
     __tablename__ = "conductor_secrets"
     __table_args__ = (
         UniqueConstraint("name", name="idx_cs_name_unique"),

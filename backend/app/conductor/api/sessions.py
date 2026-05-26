@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.conductor.api.id_helpers import parse_session_id as _parse_session_id
 from app.core.database import get_db
 from app.conductor.schemas.session import (
     CreateSessionRequest,
@@ -29,6 +30,7 @@ from app.conductor.services.session_service import SessionService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["conductor-sessions"])
+
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 
@@ -88,7 +90,7 @@ async def create_session(
         )
 
     # --- Parse environment_id: strip env_ prefix and store raw ref ---
-    env_id_raw = req.environment_id
+    env_id_raw = req.environment_id or ""
     environment_ref = env_id_raw
     if env_id_raw.startswith("env_"):
         environment_ref = env_id_raw[len("env_"):]
@@ -175,7 +177,8 @@ async def create_session(
                     if net_cfg and isinstance(net_cfg, dict):
                         networking = net_cfg
             resolved = await resolver.resolve(
-                session.id, agent_env, image=resolved_image, networking=networking
+                session.id, agent_env, image=resolved_image, networking=networking,
+                engine_kind=getattr(agent, "engine_kind", None),
             )
             if resolved.get("sandbox_id"):
                 await svc.update_session_sandbox(session.id, resolved["sandbox_id"])
@@ -211,7 +214,7 @@ async def list_sessions(
 
 @router.get("/{session_id}")
 async def get_session(
-    session_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    session_id: uuid.UUID = Depends(_parse_session_id), db: AsyncSession = Depends(get_db)
 ) -> SessionResponse:
     svc = SessionService(db)
     session = await svc.get_session(session_id)
@@ -221,35 +224,92 @@ async def get_session(
     return _session_to_response(session, resources=resources)
 
 
-@router.delete("/{session_id}", status_code=204)
+@router.delete("/{session_id}", status_code=200)
 async def delete_session(
-    session_id: uuid.UUID, db: AsyncSession = Depends(get_db)
-) -> None:
+    session_id: uuid.UUID = Depends(_parse_session_id), db: AsyncSession = Depends(get_db)
+) -> dict:
     svc = SessionService(db)
     session = await svc.get_session(session_id)
     if not session:
         raise HTTPException(404, "Session not found")
     if session.status == "running":
-        raise HTTPException(409, "Cannot delete a running session")
+        raise HTTPException(409, "Running session cannot be deleted. Send user.interrupt first.")
 
     # Emit session.deleted event via broadcaster before deleting
-    from app.conductor.lifespan import get_session_broadcaster
+    from app.conductor.lifespan import (
+        get_session_broadcaster,
+        get_bridge_registry,
+        get_sandbox_provider,
+        get_envoy_manager,
+    )
     broadcaster = get_session_broadcaster()
     if broadcaster:
-        await broadcaster.broadcast(session_id, {
+        await broadcaster.send(session_id, {
             "type": "session.deleted",
             "session_id": str(session_id),
         })
+
+    # Clean up sandbox container linked to this session
+    from app.conductor.services.sandbox_service import SandboxService
+    sandbox_svc = SandboxService(db)
+    sandbox = await sandbox_svc.find_by_session(session_id)
+    if sandbox:
+        # Send gRPC Shutdown to runner via bridge (not cancel)
+        bridge_registry = get_bridge_registry()
+        if bridge_registry:
+            bridge = await bridge_registry.get(sandbox.id)
+            if bridge:
+                from app.conductor.proto import conductor_pb2
+                shutdown_msg = conductor_pb2.OrchestratorMessage(
+                    shutdown=conductor_pb2.Shutdown(reason="session deleted")
+                )
+                try:
+                    await bridge.runner_tx.put(shutdown_msg)
+                except Exception:
+                    pass
+            await bridge_registry.remove(sandbox.id)
+
+        # Stop and destroy container
+        provider = get_sandbox_provider()
+        if provider and sandbox.external_id:
+            try:
+                await provider.stop(sandbox.external_id)
+            except Exception:
+                pass
+            try:
+                await provider.destroy(sandbox.external_id)
+            except Exception:
+                pass
+
+        # Mark as destroyed in DB
+        await sandbox_svc.update_status_cas(sandbox.id, sandbox.status, "destroyed")
+
+        # Envoy teardown
+        envoy = get_envoy_manager()
+        if envoy:
+            try:
+                await envoy.remove_sandbox(sandbox.id)
+            except Exception:
+                pass
 
     # Hard delete the session
     ok = await svc.delete_session(session_id)
     if not ok:
         raise HTTPException(404, "Session not found")
 
+    # Cleanup broadcaster subscriptions for this session
+    if broadcaster:
+        # Remove all subscriber queues for this session
+        if session_id in broadcaster._channels:
+            del broadcaster._channels[session_id]
+
+    session_id_str = f"sess_{session_id}"
+    return {"id": session_id_str, "object": "session", "deleted": True}
+
 
 @router.post("/{session_id}/archive")
 async def archive_session(
-    session_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    session_id: uuid.UUID = Depends(_parse_session_id), db: AsyncSession = Depends(get_db)
 ) -> dict:
     svc = SessionService(db)
     ok = await svc.archive_session(session_id)
@@ -310,7 +370,12 @@ def _build_resume_prompt(event: SingleEventRequest, event_id: str) -> Optional[s
     elif event_type == "user.interrupt":
         return "User requested interruption. Stop the current operation."
     elif event_type == "user.message":
-        return event.content
+        c = event.content
+        if isinstance(c, list):
+            return " ".join(
+                b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text"
+            )
+        return c
     return None
 
 
@@ -388,8 +453,8 @@ async def _replay_pending_control_inputs(
 
 @router.post("/{session_id}/events", status_code=201)
 async def send_event(
-    session_id: uuid.UUID,
     req: SendEventRequest,
+    session_id: uuid.UUID = Depends(_parse_session_id),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     svc = SessionService(db)
@@ -399,9 +464,9 @@ async def send_event(
 
     # --- gate: reject events on archived / terminated / rescheduling sessions ---
     if session.archived_at:
-        raise HTTPException(400, "Session is archived")
+        raise HTTPException(409, "Session is archived")
     if session.status == "terminated":
-        raise HTTPException(400, "Session is terminated")
+        raise HTTPException(409, "Session is terminated")
     if session.status == "rescheduling":
         raise HTTPException(409, "Session is rescheduling, try again later")
 
@@ -444,6 +509,15 @@ async def send_event(
 
         event = await svc.send_event(session_id, single.type, payload)
 
+        event_response = SessionEventResponse(
+            id=event.id,
+            event_type=event.event_type,
+            payload=event.payload,
+            seq=event.seq,
+            processed_at=event.processed_at,
+            created_at=event.created_at,
+        )
+
         if broadcaster:
             broadcast_data = {
                 "id": f"evt_{event.id}",
@@ -452,7 +526,7 @@ async def send_event(
             }
             if isinstance(event.payload, dict):
                 broadcast_data.update(event.payload)
-            await broadcaster.broadcast(session_id, broadcast_data)
+            await broadcaster.send(session_id, broadcast_data)
 
         # ----------------------------------------------------------------
         # Dispatch by event type
@@ -486,7 +560,7 @@ async def send_event(
                         }
                         if isinstance(running_event.payload, dict):
                             running_broadcast.update(running_event.payload)
-                        await broadcaster.broadcast(session_id, running_broadcast)
+                        await broadcaster.send(session_id, running_broadcast)
                     # Transition session to running
                     try:
                         await svc.update_session_status(session_id, "running")
@@ -597,6 +671,7 @@ async def send_event(
 
         elif single.type == "user.interrupt":
             # Encode interrupt as a live-input with source_event_id
+            injected = False
             if bridge_registry and session.last_sandbox_id:
                 bridge = await bridge_registry.get(session.last_sandbox_id)
                 if bridge:
@@ -604,14 +679,38 @@ async def send_event(
                     if live_input:
                         try:
                             await bridge.send_control_input(live_input)
+                            injected = True
                             await svc.mark_event_processed(event.id)
                         except Exception:
                             logger.debug(
                                 "Bridge injection failed for interrupt on session %s",
                                 session_id,
                             )
+            # Fallback: create a retry task when bridge injection was not possible
+            if not injected:
+                resume_prompt = _build_resume_prompt(single, str(event.id))
+                if resume_prompt and session.status != "running":
+                    try:
+                        from app.conductor.lifespan import get_scheduler
+                        scheduler = get_scheduler()
+                        if scheduler:
+                            from app.conductor.services.task_service import TaskService
+                            from app.core.database import AsyncSessionLocal
+                            async with AsyncSessionLocal() as task_db:
+                                task_svc = TaskService(task_db)
+                                task = await task_svc.create_task(
+                                    agent_id=session.agent_id,
+                                    prompt=resume_prompt,
+                                    chat_session_id=session_id,
+                                )
+                                await scheduler.push_to_global(task.id)
+                    except Exception:
+                        logger.debug(
+                            "Failed to create fallback task for interrupt on session %s",
+                            session_id,
+                        )
 
-        results.append(SessionEventResponse.model_validate(event))
+        results.append(event_response)
 
     # --- After all events: replay pending control inputs for the session ---
     if bridge_registry and session.last_sandbox_id:
@@ -624,7 +723,7 @@ async def send_event(
 
 @router.get("/{session_id}/events")
 async def list_events(
-    session_id: uuid.UUID,
+    session_id: uuid.UUID = Depends(_parse_session_id),
     limit: int = Query(50, ge=1, le=200),
     after_seq: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
@@ -642,8 +741,8 @@ async def list_events(
 
 @router.get("/{session_id}/events/stream")
 async def session_event_stream(
-    session_id: uuid.UUID,
     request: Request,
+    session_id: uuid.UUID = Depends(_parse_session_id),
     after_seq: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):

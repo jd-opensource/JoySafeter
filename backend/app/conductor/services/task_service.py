@@ -105,14 +105,14 @@ class TaskService:
                     ConductorTask.status == TaskStatus.PENDING.value,
                 )
             )
-            .values(status=TaskStatus.SCHEDULING.value, started_at=func.now(), updated_at=utc_now())
+            .values(status=TaskStatus.SCHEDULING.value, started_at=func.now())
         )
         await self.db.commit()
         return result.rowcount > 0
 
     async def append_task_output(self, task_id: uuid.UUID, chunk: str) -> None:
         await self.db.execute(
-            text("UPDATE conductor_tasks SET output = output || :chunk, updated_at = now() WHERE id = :id"),
+            text("UPDATE conductor_tasks SET output = output || :chunk WHERE id = :id"),
             {"chunk": chunk, "id": task_id},
         )
         await self.db.commit()
@@ -121,7 +121,7 @@ class TaskService:
         await self.db.execute(
             update(ConductorTask)
             .where(ConductorTask.id == task_id)
-            .values(chat_session_id=session_id, updated_at=utc_now())
+            .values(chat_session_id=session_id)
         )
         await self.db.commit()
 
@@ -134,7 +134,11 @@ class TaskService:
                     ConductorTask.sandbox_id == sandbox_id,
                 )
             )
-            .values(status=TaskStatus.PENDING.value, started_at=None, sandbox_id=None, updated_at=utc_now())
+            .values(
+                status=TaskStatus.PENDING.value,
+                started_at=None,
+                retry_count=ConductorTask.retry_count + 1,
+            )
         )
         await self.db.commit()
         return result.rowcount
@@ -159,36 +163,68 @@ class TaskService:
         self,
         task_id: uuid.UUID,
         new_status: TaskStatus,
-        output: Optional[str] = None,
-        error: Optional[str] = None,
-        usage: Optional[dict] = None,
-        sandbox_id: Optional[uuid.UUID] = None,
     ) -> bool:
         terminal_values = [s.value for s in TERMINAL_STATUSES]
-        values: dict = {
-            "status": new_status.value,
-            "updated_at": utc_now(),
-        }
-        if output is not None:
-            values["output"] = output
-        if error is not None:
-            values["error"] = error
-        if usage is not None:
-            values["usage"] = usage
-        if sandbox_id is not None:
-            values["sandbox_id"] = sandbox_id
+        now = utc_now()
 
         if new_status == TaskStatus.RUNNING:
-            values["started_at"] = utc_now()
-        if new_status.is_terminal():
-            now = utc_now()
-            values["completed_at"] = now
-            from sqlalchemy import cast, extract, Integer as SAInteger
-            values["duration_ms"] = cast(
-                extract("epoch", func.now() - ConductorTask.started_at) * 1000,
-                SAInteger,
+            result = await self.db.execute(
+                update(ConductorTask)
+                .where(
+                    and_(
+                        ConductorTask.id == task_id,
+                        ConductorTask.status.in_([TaskStatus.PENDING.value, TaskStatus.SCHEDULING.value]),
+                    )
+                )
+                .values(status=new_status.value, started_at=now)
             )
+        elif new_status.is_terminal():
+            task_row = (await self.db.execute(
+                select(ConductorTask.started_at).where(ConductorTask.id == task_id)
+            )).scalar_one_or_none()
+            duration_ms = None
+            if task_row is not None:
+                duration_ms = int((now - task_row).total_seconds() * 1000)
+            result = await self.db.execute(
+                update(ConductorTask)
+                .where(
+                    and_(
+                        ConductorTask.id == task_id,
+                        ConductorTask.status.notin_(terminal_values),
+                    )
+                )
+                .values(status=new_status.value, completed_at=now, duration_ms=duration_ms)
+            )
+        else:
+            result = await self.db.execute(
+                update(ConductorTask)
+                .where(
+                    and_(
+                        ConductorTask.id == task_id,
+                        ConductorTask.status.notin_(terminal_values),
+                    )
+                )
+                .values(status=new_status.value)
+            )
+        await self.db.commit()
+        return result.rowcount > 0
 
+    async def update_task_error(
+        self,
+        task_id: uuid.UUID,
+        error: str,
+        new_status: TaskStatus,
+    ) -> bool:
+        """CAS-guarded error update. Status must be terminal. Returns True if the row was updated."""
+        assert new_status.is_terminal(), f"update_task_error called with non-terminal status: {new_status}"
+        terminal_values = [s.value for s in TERMINAL_STATUSES]
+        now = utc_now()
+        task_row = (await self.db.execute(
+            select(ConductorTask.started_at).where(ConductorTask.id == task_id)
+        )).scalar_one_or_none()
+        duration_ms = None
+        if task_row is not None:
+            duration_ms = int((now - task_row).total_seconds() * 1000)
         result = await self.db.execute(
             update(ConductorTask)
             .where(
@@ -197,19 +233,50 @@ class TaskService:
                     ConductorTask.status.notin_(terminal_values),
                 )
             )
-            .values(**values)
+            .values(error=error, status=new_status.value, completed_at=now, duration_ms=duration_ms)
         )
         await self.db.commit()
         return result.rowcount > 0
 
-    async def increment_retry(self, task_id: uuid.UUID) -> bool:
-        result = await self.db.execute(
+    async def update_task_output(self, task_id: uuid.UUID, output: str) -> None:
+        await self.db.execute(
             update(ConductorTask)
             .where(ConductorTask.id == task_id)
+            .values(output=output)
+        )
+        await self.db.commit()
+
+    async def update_task_usage(self, task_id: uuid.UUID, usage: dict) -> None:
+        await self.db.execute(
+            update(ConductorTask)
+            .where(ConductorTask.id == task_id)
+            .values(usage=usage)
+        )
+        await self.db.commit()
+
+    async def update_task_sandbox(self, task_id: uuid.UUID, sandbox_id: uuid.UUID) -> None:
+        await self.db.execute(
+            update(ConductorTask)
+            .where(ConductorTask.id == task_id)
+            .values(sandbox_id=sandbox_id)
+        )
+        await self.db.commit()
+
+    async def increment_retry(self, task_id: uuid.UUID) -> bool:
+        terminal_values = [s.value for s in TERMINAL_STATUSES]
+        result = await self.db.execute(
+            update(ConductorTask)
+            .where(
+                and_(
+                    ConductorTask.id == task_id,
+                    ConductorTask.status.notin_(terminal_values),
+                )
+            )
             .values(
                 retry_count=ConductorTask.retry_count + 1,
                 status=TaskStatus.PENDING.value,
-                updated_at=utc_now(),
+                started_at=None,
+                sandbox_id=None,
             )
         )
         await self.db.commit()
@@ -235,7 +302,9 @@ class TaskService:
                 and_(
                     ConductorTask.status == TaskStatus.RUNNING.value,
                     ConductorTask.started_at.isnot(None),
-                    ConductorTask.started_at < cutoff,
+                    text(
+                        "started_at + (COALESCE(timeout_sec, 7200) * interval '1 second') < NOW()"
+                    ),
                 )
             )
         )

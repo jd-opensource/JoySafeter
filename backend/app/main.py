@@ -351,6 +351,7 @@ from app.conductor.config import conductor_config  # noqa: E402
 
 if conductor_config.enabled:
     app.include_router(conductor_router, prefix=conductor_config.api_prefix)
+    app.include_router(conductor_router, prefix="/v1")
 
 
 # Register Router

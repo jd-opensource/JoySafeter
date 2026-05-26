@@ -100,7 +100,7 @@ class CreateAgentRequest(BaseModel):
 
 
 class UpdateAgentRequest(BaseModel):
-    version: int
+    version: Optional[int] = None
     name: Optional[str] = None
     engine_kind: Optional[EngineKind] = None
     model: Union[str, ModelConfig, None] = None

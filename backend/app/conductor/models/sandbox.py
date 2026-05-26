@@ -6,10 +6,10 @@ from sqlalchemy import DateTime, Text, Index, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import BaseModel
+from app.conductor.models.base import ConductorBaseModel
 
 
-class ConductorSandbox(BaseModel):
+class ConductorSandbox(ConductorBaseModel):
     __tablename__ = "conductor_sandboxes"
     __table_args__ = (
         Index("idx_csb_status", "status"),

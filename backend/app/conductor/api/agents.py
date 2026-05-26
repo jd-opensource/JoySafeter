@@ -1,10 +1,12 @@
 import json
+import logging
 import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.conductor.api.id_helpers import parse_agent_id
 from app.core.database import get_db
 from app.conductor.schemas.agent import (
     AgentResponse,
@@ -17,6 +19,8 @@ from app.conductor.schemas.task import TaskResponse
 from app.conductor.schemas.session import SessionResponse
 from app.conductor.services.agent_service import AgentService, _split_packed_items
 from app.conductor.services.session_service import SessionService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["conductor-agents"])
 
@@ -119,7 +123,7 @@ async def list_agents(
 
 @router.get("/{agent_id}")
 async def get_agent(
-    agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    agent_id: uuid.UUID = Depends(parse_agent_id), db: AsyncSession = Depends(get_db)
 ) -> AgentResponse:
     svc = AgentService(db)
     agent = await svc.get_agent(agent_id)
@@ -130,8 +134,8 @@ async def get_agent(
 
 @router.post("/{agent_id}")
 async def update_agent(
-    agent_id: uuid.UUID,
     req: UpdateAgentRequest,
+    agent_id: uuid.UUID = Depends(parse_agent_id),
     db: AsyncSession = Depends(get_db),
 ) -> AgentResponse:
     svc = AgentService(db)
@@ -140,8 +144,14 @@ async def update_agent(
     if not current_agent:
         raise HTTPException(404, "Agent not found")
 
-    # Optimistic concurrency check
-    if current_agent.version != req.version:
+    # Archived guard: reject updates on archived agents
+    if current_agent.archived_at is not None:
+        raise HTTPException(
+            409, "Agent is archived and read-only. Updates are not allowed."
+        )
+
+    # Optimistic concurrency check -- only if version is provided
+    if req.version is not None and current_agent.version != req.version:
         raise HTTPException(
             409,
             f"Version conflict: expected {req.version}, got {current_agent.version}",
@@ -199,19 +209,132 @@ async def update_agent(
 
 @router.delete("/{agent_id}", status_code=204)
 async def delete_agent(
-    agent_id: uuid.UUID,
+    agent_id: uuid.UUID = Depends(parse_agent_id),
+    force: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     svc = AgentService(db)
     agent = await svc.get_agent(agent_id)
     if not agent:
         raise HTTPException(404, "Agent not found")
+
+    if not force:
+        # Check for active tasks before soft delete
+        active_tasks = await svc.list_active_tasks_for_agent(agent_id)
+        if active_tasks:
+            raise HTTPException(
+                409,
+                "Agent has active tasks (pending/running). Use ?force=true to force delete.",
+            )
+        await svc.hard_delete_agent(agent_id)
+        return
+
+    # Force delete: cascade cleanup
+    await _cancel_active_tasks_for_agent(agent_id, db)
     await svc.hard_delete_agent(agent_id)
+
+
+async def _cancel_active_tasks_for_agent(
+    agent_id: uuid.UUID, db: AsyncSession
+) -> None:
+    """Cancel all active tasks, send gRPC Shutdown to sandboxes, archive sessions,
+    stop containers. Mirrors the Rust cancel_active_tasks_for_agent."""
+    from app.conductor.services.task_service import TaskService
+    from app.conductor.services.sandbox_service import SandboxService
+    from app.conductor.lifespan import (
+        get_bridge_registry,
+        get_sandbox_provider,
+        get_session_broadcaster,
+    )
+
+    svc = AgentService(db)
+    task_svc = TaskService(db)
+    sandbox_svc = SandboxService(db)
+
+    active_tasks = await svc.list_active_tasks_for_agent(agent_id)
+    sandbox_ids_to_stop: set[uuid.UUID] = set()
+    cancelled = 0
+    bridge_registry = get_bridge_registry()
+
+    for task in active_tasks:
+        # Send CancelTask to the sandbox bridge
+        sandbox_id = getattr(task, "sandbox_id", None)
+        if sandbox_id and bridge_registry:
+            bridge = await bridge_registry.get(sandbox_id)
+            if bridge:
+                from app.conductor.proto import conductor_pb2
+                cancel_msg = conductor_pb2.OrchestratorMessage(
+                    cancel=conductor_pb2.CancelTask(reason="Agent archived")
+                )
+                try:
+                    await bridge.runner_tx.put(cancel_msg)
+                except Exception:
+                    pass
+            sandbox_ids_to_stop.add(sandbox_id)
+
+        # Mark task as cancelled in DB
+        try:
+            await task_svc.cancel_task(task.id)
+            cancelled += 1
+        except Exception:
+            logger.debug("Failed to cancel task %s during agent force delete", task.id)
+
+    # Archive sessions for the agent
+    session_broadcaster = get_session_broadcaster()
+    try:
+        archived_session_ids = await svc.archive_sessions_for_agent(agent_id)
+        if archived_session_ids and session_broadcaster:
+            session_svc = SessionService(db)
+            for sid in archived_session_ids:
+                stop_reason_event = {
+                    "type": "session.status_terminated",
+                    "stop_reason": {"type": "agent_archived"},
+                }
+                await session_broadcaster.send(sid, stop_reason_event)
+    except Exception:
+        logger.warning("Failed to archive sessions for agent %s", agent_id, exc_info=True)
+
+    # Send Shutdown to each sandbox and stop containers
+    provider = get_sandbox_provider()
+    for sandbox_id in sandbox_ids_to_stop:
+        if bridge_registry:
+            bridge = await bridge_registry.get(sandbox_id)
+            if bridge:
+                from app.conductor.proto import conductor_pb2
+                shutdown_msg = conductor_pb2.OrchestratorMessage(
+                    shutdown=conductor_pb2.Shutdown(reason="Agent archived")
+                )
+                try:
+                    await bridge.runner_tx.put(shutdown_msg)
+                except Exception:
+                    pass
+            await bridge_registry.remove(sandbox_id)
+
+        # Stop container via provider
+        if provider:
+            sandbox = await sandbox_svc.get_sandbox(sandbox_id)
+            if sandbox and sandbox.external_id:
+                status = getattr(sandbox, "status", "")
+                if status not in ("destroyed", "stopped", "error"):
+                    try:
+                        await provider.stop(sandbox.external_id)
+                    except Exception:
+                        pass
+                    try:
+                        await sandbox_svc.update_status_cas(sandbox_id, status, "stopped")
+                    except Exception:
+                        pass
+
+    if cancelled > 0:
+        logger.info(
+            "Cancelled %d active tasks and stopped %d sandboxes for agent %s",
+            cancelled, len(sandbox_ids_to_stop), agent_id,
+        )
 
 
 @router.post("/{agent_id}/archive", status_code=200)
 async def archive_agent(
-    agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    agent_id: uuid.UUID = Depends(parse_agent_id), db: AsyncSession = Depends(get_db)
 ) -> dict:
     svc = AgentService(db)
     agent = await svc.get_agent(agent_id)
@@ -226,7 +349,7 @@ async def archive_agent(
 
 @router.get("/{agent_id}/tasks")
 async def list_agent_tasks(
-    agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    agent_id: uuid.UUID = Depends(parse_agent_id), db: AsyncSession = Depends(get_db)
 ) -> list[TaskResponse]:
     svc = AgentService(db)
     agent = await svc.get_agent(agent_id)
@@ -238,7 +361,7 @@ async def list_agent_tasks(
 
 @router.get("/{agent_id}/sessions")
 async def list_agent_sessions(
-    agent_id: uuid.UUID,
+    agent_id: uuid.UUID = Depends(parse_agent_id),
     limit: int = Query(20, ge=1, le=100),
     after_id: Optional[uuid.UUID] = Query(None),
     db: AsyncSession = Depends(get_db),
@@ -265,7 +388,7 @@ async def list_agent_sessions(
 
 @router.get("/{agent_id}/versions")
 async def list_agent_versions(
-    agent_id: uuid.UUID,
+    agent_id: uuid.UUID = Depends(parse_agent_id),
     limit: int = Query(20, ge=1, le=100),
     before_version: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),

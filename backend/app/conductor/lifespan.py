@@ -3,6 +3,8 @@ import logging
 import signal
 from typing import Optional
 
+from uuid_utils import uuid7
+
 from app.conductor.config import ConductorConfig, conductor_config
 
 logger = logging.getLogger(__name__)
@@ -93,14 +95,14 @@ def _create_sandbox_provider():
         return DaytonaSandboxProvider(
             api_url=conductor_config.daytona_api_url,
             api_key=conductor_config.daytona_api_key,
-            target=conductor_config.daytona_target,
+            target=conductor_config.daytona_target if conductor_config.daytona_target is not None else "us",
             snapshot=conductor_config.daytona_snapshot,
         )
     elif provider_name == "e2b":
         from app.conductor.sandbox.e2b_provider import E2bSandboxProvider
 
         return E2bSandboxProvider(
-            api_url=conductor_config.e2b_api_url,
+            api_url=conductor_config.e2b_api_url if conductor_config.e2b_api_url is not None else "https://api.e2b.app",
             api_key=conductor_config.e2b_api_key,
             template_id=conductor_config.e2b_template_id,
         )
@@ -146,7 +148,7 @@ async def conductor_startup() -> None:
 
     logger.info("Starting Conductor kernel...")
 
-    from app.conductor.kernel.queue import InMemoryQueueBackend, RedisQueueBackend
+    from app.conductor.kernel.queue import InMemoryRedisQueueBackend
     from app.conductor.kernel.scheduler import TaskScheduler
     from app.conductor.kernel.task_controller import TaskController
     from app.conductor.kernel.sandbox_controller import SandboxController
@@ -164,12 +166,7 @@ async def conductor_startup() -> None:
     except Exception:
         logger.info("Redis not available, using in-memory queue")
 
-    if redis_client:
-        queue = RedisQueueBackend(redis_client, conductor_config.redis_queue_prefix)
-    else:
-        queue = InMemoryQueueBackend()
-
-    # HA: Redis coordinator for cross-instance coordination
+    # HA: Redis coordinator for cross-instance coordination (created first, queue depends on it)
     if redis_client:
         from app.conductor.kernel.redis_coordinator import RedisCoordinator
 
@@ -179,6 +176,9 @@ async def conductor_startup() -> None:
         logger.info("   ✓ RedisCoordinator registered (instance=%s)", conductor_config.instance_id)
     else:
         logger.info("   Redis not available, HA coordination disabled")
+
+    # Queue: in-memory primary with optional Redis coordinator for HA (matches Rust architecture)
+    queue = InMemoryRedisQueueBackend(redis_coord=_redis_coordinator)
 
     _scheduler = TaskScheduler(queue, conductor_config.max_concurrent_tasks)
     _task_controller = TaskController(queue)
@@ -206,13 +206,17 @@ async def conductor_startup() -> None:
     ))
     _event_buffer.start()
 
-    _sandbox_resolver = SandboxResolver(
+    _resolver_kwargs = dict(
         default_provider=conductor_config.sandbox_provider,
         default_image=conductor_config.sandbox_image,
         pool_enabled=conductor_config.sandbox_pool_enabled,
-        workspace_host_root=conductor_config.sandbox_workspace_root,
         provider=_sandbox_provider,
+        grpc_public_url=conductor_config.grpc_public_url,
     )
+    if conductor_config.sandbox_workspace_root is not None:
+        _resolver_kwargs["workspace_host_root"] = conductor_config.sandbox_workspace_root
+
+    _sandbox_resolver = SandboxResolver(**_resolver_kwargs)
 
     _memory_subscribers = MemoryStoreSubscribers()
     logger.info("   ✓ MemoryStoreSubscribers initialized")
@@ -270,6 +274,10 @@ async def conductor_startup() -> None:
 
     _setup_sighup_handler(_runtime_config, conductor_config)
 
+    # Wire RuntimeConfig into EventBatchSender for hot-reload support
+    if _event_buffer:
+        _event_buffer._runtime_config = _runtime_config
+
     _adapter_registry = await AdapterRegistry.discover()
     logger.info("Discovered adapters: %s", _adapter_registry.provider_names())
 
@@ -294,6 +302,7 @@ async def conductor_startup() -> None:
             host=conductor_config.grpc_host,
             port=conductor_config.grpc_port,
             vault_provider=_vault_provider,
+            execution_semaphore=_scheduler.execution_semaphore,
         )
     except Exception as e:
         logger.warning("Failed to start gRPC server: %s", e)
@@ -340,14 +349,21 @@ async def conductor_shutdown() -> None:
 
     logger.info("Shutting down Conductor kernel...")
 
-    # Notify all active sandbox bridges to cancel in-flight processes
+    # Send Shutdown protobuf to all connected runners (Rust main.rs lines 332-343)
     if _bridge_registry:
+        from app.conductor.proto import conductor_pb2
+
         for bridge in _bridge_registry.all_bridges():
             try:
-                bridge.request_cancel()
+                shutdown_msg = conductor_pb2.OrchestratorMessage(
+                    shutdown=conductor_pb2.Shutdown(
+                        reason="orchestrator shutting down",
+                    )
+                )
+                await bridge.send_to_runner(shutdown_msg)
             except Exception:
                 pass
-        logger.info("Notified %d sandbox bridges to shut down", _bridge_registry.count())
+        logger.info("Sent Shutdown to %d sandbox bridges", _bridge_registry.count())
 
     if _scheduler:
         _scheduler.stop()

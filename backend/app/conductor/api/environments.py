@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.conductor.api.id_helpers import parse_env_id
 from app.core.database import get_db
 from app.conductor.schemas.environment import (
     CreateEnvironmentRequest,
@@ -79,8 +80,8 @@ async def create_environment(
         # Roll back the created environment on build failure
         await svc.delete_environment(env.id)
         raise HTTPException(
-            400,
-            f"Package validation failed: {exc}",
+            500,
+            f"Image build failed: {exc}",
         )
 
     return _env_to_response(env)
@@ -106,7 +107,7 @@ async def list_environments(
 
 @router.get("/{env_id}")
 async def get_environment(
-    env_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    env_id: uuid.UUID = Depends(parse_env_id), db: AsyncSession = Depends(get_db)
 ) -> EnvironmentResponse:
     svc = EnvironmentService(db)
     env = await svc.get_environment(env_id)
@@ -117,8 +118,8 @@ async def get_environment(
 
 @router.post("/{env_id}")
 async def update_environment(
-    env_id: uuid.UUID,
     req: UpdateEnvironmentRequest,
+    env_id: uuid.UUID = Depends(parse_env_id),
     db: AsyncSession = Depends(get_db),
 ) -> EnvironmentResponse:
     svc = EnvironmentService(db)
@@ -139,8 +140,8 @@ async def update_environment(
             await _validate_and_build_image(env)
         except Exception as exc:
             raise HTTPException(
-                400,
-                f"Package validation failed: {exc}",
+                500,
+                f"Image build failed: {exc}",
             )
 
     return _env_to_response(env)
@@ -148,7 +149,7 @@ async def update_environment(
 
 @router.delete("/{env_id}", status_code=204)
 async def delete_environment(
-    env_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    env_id: uuid.UUID = Depends(parse_env_id), db: AsyncSession = Depends(get_db)
 ) -> None:
     svc = EnvironmentService(db)
     env = await svc.get_environment(env_id)
@@ -169,7 +170,7 @@ async def delete_environment(
 
 @router.post("/{env_id}/archive")
 async def archive_environment(
-    env_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    env_id: uuid.UUID = Depends(parse_env_id), db: AsyncSession = Depends(get_db)
 ) -> dict:
     svc = EnvironmentService(db)
     env = await svc.get_environment(env_id)
