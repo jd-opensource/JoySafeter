@@ -300,3 +300,42 @@ def normalize_app_error(
         if str(exc)
         else (dict(default_data) if default_data is not None else None),
     )
+
+
+# ---------------------------------------------------------------------------
+# Conductor Kernel Errors
+# ---------------------------------------------------------------------------
+
+
+class ConductorError(Exception):
+    def __init__(self, message: str = ""):
+        self.message = message
+        super().__init__(message)
+
+
+class ConductorNotFoundError(ConductorError):
+    pass
+
+
+class AlreadyExistsError(ConductorError):
+    pass
+
+
+class InvalidInputError(ConductorError):
+    pass
+
+
+class ConductorConflictError(ConductorError):
+    pass
+
+
+class DatabaseError(ConductorError):
+    pass
+
+
+class ConductorRedisError(ConductorError):
+    pass
+
+
+class SandboxError(ConductorError):
+    pass

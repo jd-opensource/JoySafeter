@@ -242,7 +242,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     except Exception as e:
         logger.warning(f"   ⚠️  Scheduler startup failed: {e}")
 
+    # Conductor Kernel (independent task orchestration engine)
+    try:
+        from app.core.lifespan import conductor_startup
+
+        await conductor_startup()
+    except Exception as e:
+        logger.warning(f"   ⚠️  Conductor kernel startup failed: {e}")
+
     yield
+
+    # Shutdown: Conductor Kernel
+    try:
+        from app.core.lifespan import conductor_shutdown
+
+        await conductor_shutdown()
+    except Exception as e:
+        logger.warning(f"   ⚠️  Conductor kernel shutdown failed: {e}")
 
     # Shutdown: Cancel scheduler loops
     for task in (_dispatcher_task, _exec_reaper_task):
@@ -332,6 +348,12 @@ app.add_middleware(
 
 
 app.include_router(api_router, prefix="/api")
+
+from app.api.v2.router import conductor_router  # noqa: E402
+from app.core.settings import conductor_config  # noqa: E402
+
+app.include_router(conductor_router, prefix=conductor_config.api_prefix)
+app.include_router(conductor_router, prefix="/v1")
 
 
 # Register Router

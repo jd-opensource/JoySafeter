@@ -10,20 +10,36 @@ down_revision = "bb1cc2dd3ee4"
 
 
 def upgrade():
-    op.add_column("executions", sa.Column("error", postgresql.JSONB(astext_type=sa.Text()), nullable=True))
-    op.execute(
-        """
-        UPDATE executions
-        SET error = jsonb_build_object(
-            'code', COALESCE(error_code, 'EXECUTION_FAILED'),
-            'message', COALESCE(error_message, 'Execution failed'),
-            'data', NULL
+    conn = op.get_bind()
+    has_error = conn.execute(
+        sa.text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name='executions' AND column_name='error'"
         )
-        WHERE error_code IS NOT NULL OR error_message IS NOT NULL
-        """
-    )
-    op.drop_column("executions", "error_code")
-    op.drop_column("executions", "error_message")
+    ).scalar()
+    if not has_error:
+        op.add_column("executions", sa.Column("error", postgresql.JSONB(astext_type=sa.Text()), nullable=True))
+
+    has_error_code = conn.execute(
+        sa.text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name='executions' AND column_name='error_code'"
+        )
+    ).scalar()
+    if has_error_code:
+        op.execute(
+            """
+            UPDATE executions
+            SET error = jsonb_build_object(
+                'code', COALESCE(error_code, 'EXECUTION_FAILED'),
+                'message', COALESCE(error_message, 'Execution failed'),
+                'data', NULL
+            )
+            WHERE error_code IS NOT NULL OR error_message IS NOT NULL
+            """
+        )
+        op.drop_column("executions", "error_code")
+        op.drop_column("executions", "error_message")
 
 
 def downgrade():

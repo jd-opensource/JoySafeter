@@ -10,6 +10,7 @@ from sqlalchemy import DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import UserDefinedType
+from uuid_utils import uuid7
 
 from app.core.database import Base
 from app.utils.datetime import utc_now
@@ -77,4 +78,16 @@ class BaseModel(Base, TimestampMixin):
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
+    )
+
+
+class ConductorBaseModel(BaseModel):
+    """Conductor-specific base model using UUID v7 (matching Rust's Uuid::now_v7)."""
+
+    __abstract__ = True
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=lambda ctx=None: uuid7(),
     )

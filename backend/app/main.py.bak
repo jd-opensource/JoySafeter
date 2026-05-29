@@ -1,0 +1,472 @@
+"""
+FastAPI Main Application
+"""
+
+from __future__ import annotations
+
+import asyncio  # noqa: E402
+from contextlib import asynccontextmanager  # noqa: E402
+from typing import AsyncGenerator, Optional  # noqa: E402
+
+from dotenv import load_dotenv  # noqa: E402
+
+from app.core.settings import ENV_FILE  # noqa: E402
+
+load_dotenv(ENV_FILE, override=False)
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from loguru import logger  # noqa: E402
+from sqlalchemy import text  # noqa: E402
+
+from app.api import api_router  # noqa: E402
+from app.common.exceptions import register_exception_handlers  # noqa: E402
+from app.common.logging import TracingMiddleware, setup_logging  # noqa: E402
+from app.core.database import AsyncSessionLocal, close_db, engine  # noqa: E402
+from app.core.observation.otel.global_provider import init_global_provider  # noqa: E402
+from app.core.observation.otel.provider import init_global_processors  # noqa: E402
+from app.core.redis import RedisClient  # noqa: E402
+from app.core.settings import settings  # noqa: E402
+from app.websocket.auth import WebSocketCloseCode, authenticate_websocket, reject_websocket  # noqa: E402
+from app.websocket.execution_subscription_handler import execution_subscription_handler  # noqa: E402
+from app.websocket.notification_manager import NotificationType, notification_manager  # noqa: E402
+from app.websocket.openclaw_handler import openclaw_bridge_handler  # noqa: E402
+
+setup_logging()
+
+
+async def _check_db_connection():
+    """Quickly check database connectivity on startup."""
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("select 1"))
+        logger.info("   Database connection check: OK")
+    except Exception as e:
+        logger.opt(exception=True).error(f"   Database connection check failed: {e}")
+
+
+async def _check_redis_connection():
+    """Quickly check Redis connectivity on startup."""
+    if not settings.redis_url:
+        logger.info("   Redis connection check: Skipped (not configured)")
+        return
+
+    try:
+        is_healthy = await RedisClient.health_check()
+        if is_healthy:
+            logger.info("   Redis connection check: OK")
+        else:
+            logger.error("   ⚠️  Redis connection check failed: Health check returned False")
+    except Exception as e:
+        logger.opt(exception=True).error(f"   Redis connection check failed: {e}")
+
+
+async def _check_docker_availability():
+    """Check Docker daemon availability on startup."""
+    from app.core.agent.backends.docker_check import is_docker_available
+
+    docker_ok = await asyncio.to_thread(is_docker_available)
+    if docker_ok:
+        logger.info("   Docker connection check: OK")
+    else:
+        logger.warning(
+            "   ⚠️  Docker is not available. Code execution sandboxes and "
+            "skill preloading will be disabled until Docker Desktop is started."
+        )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator:
+    """Application Lifecycle"""
+    # Startup
+    # OTel must be ready before any request is processed
+    init_global_provider()
+    init_global_processors()
+
+    logger.info(f"Starting {settings.app_name} v{settings.app_version}")
+    logger.info(f"   Environment: {settings.environment}")
+    logger.info(f"   Debug: {settings.debug}")
+    logger.info("   Architecture: MVC (Model-View-Controller)")
+
+    # Database tables are managed by Alembic migrations; run: alembic upgrade head
+
+    # Warning for misconfigured FRONTEND_URL in production
+    if settings.environment == "production" and "localhost" in settings.frontend_url:
+        logger.warning(
+            "⚠️  WARNING: You are running in 'production' environment, but FRONTEND_URL "
+            "contains 'localhost'. This will break email links, OAuth callbacks, "
+            "and other frontend integrations! Please update FRONTEND_URL in your .env file."
+        )
+
+    # Initialize Redis
+    if settings.redis_url:
+        try:
+            await RedisClient.init()
+            logger.info(f"   Redis connected (pool_size={settings.redis_pool_size})")
+        except Exception as e:
+            logger.error(f"   ⚠️  Redis connection failed: {e}")
+    else:
+        logger.info("   Redis not configured (caching/rate-limiting disabled)")
+
+    # Check database connection (regardless of environment)
+    await _check_db_connection()
+
+    # Check Redis connection (if configured)
+    await _check_redis_connection()
+
+    # Check Docker availability (non-blocking, just warn)
+    await _check_docker_availability()
+
+    # Durable run recovery is no longer needed. AgentRun lifecycle is now managed
+    # by AgentRunService which does not require startup recovery.
+
+    # Automatically sync providers and models to database on startup (if not present)
+    try:
+        from app.repositories.model_provider import ModelProviderRepository
+        from app.services.model_provider_service import ModelProviderService
+
+        # Use distributed lock to prevent concurrent execution by multiple instances/workers
+        async with RedisClient.lock("init:model_providers", timeout=60, blocking_timeout=60):
+            async with AsyncSessionLocal() as db:
+                provider_repo = ModelProviderRepository(db)
+                # Check if providers already exist in database
+                provider_count = await provider_repo.count()
+
+                from app.core.model.factory import get_factory
+
+                factory_provider_count = len(get_factory().get_all_providers())
+
+                if provider_count != factory_provider_count:
+                    logger.info(
+                        f"   Provider count mismatch (DB: {provider_count}, Factory: {factory_provider_count}), starting auto-sync..."
+                    )
+                provider_service = ModelProviderService(db)
+                result = await provider_service.sync_all()
+                if provider_count != factory_provider_count:
+                    logger.info(f"   ✓ Auto-sync completed: {result['providers']} providers, {result['models']} models")
+                    if result.get("errors"):
+                        for error in result["errors"]:
+                            logger.warning(f"   ⚠️  {error}")
+                else:
+                    logger.info(f"   ✓ Provider sync completed ({result['providers']} providers updated)")
+    except Exception as e:
+        logger.warning(f"   ⚠️  Auto-sync providers failed: {e}")
+        logger.warning("   App will continue starting, you can manually call /api/v1/model-providers/sync later")
+
+    # Initialize MCP tools on startup (load tools from all enabled MCP servers to registry)
+    try:
+        from app.services.tool_service import initialize_mcp_tools_on_startup
+
+        # Use distributed lock. Although initialize_mcp_tools_on_startup might only load to memory,
+        # if it involves DB updates or to avoid concurrent external service queries, locking is safe.
+        async with RedisClient.lock("init:mcp_tools", timeout=60, blocking_timeout=60):
+            async with AsyncSessionLocal() as db:
+                total_tools = await initialize_mcp_tools_on_startup(db)
+                if total_tools > 0:
+                    logger.info(f"   ✓ Loaded {total_tools} MCP tools to registry")
+                else:
+                    logger.info("   ✓ MCP tools initialization completed (no enabled servers)")
+    except Exception as e:
+        logger.warning(f"   ⚠️  MCP tools initialization failed: {e}")
+        logger.warning("   App will continue starting, MCP tools will be loaded on first use")
+
+    # Initialize Checkpointer connection pool
+    try:
+        from app.core.agent.checkpointer.checkpointer import CheckpointerManager
+
+        await CheckpointerManager.initialize()
+        logger.info("   ✓ Checkpointer connection pool initialized")
+    except Exception as e:
+        logger.warning(f"   ⚠️  Checkpointer initialization failed: {e}")
+        logger.warning("   App will continue starting, checkpoint features may be unavailable")
+
+    # Initialize CLI runtime providers
+    try:
+        from app.core.agent.cli_backends.registry import init_providers
+
+        init_providers()
+        logger.info("   ✓ CLI runtime providers initialized")
+    except Exception as e:
+        logger.warning(f"   ⚠️  CLI runtime provider initialization failed: {e}")
+
+    # Register execution event bus subscribers
+    try:
+        from app.core.events.bus import execution_event_bus
+        from app.core.events.subscribers.persistence import PersistenceSubscriber
+        from app.core.events.subscribers.state_transition import StateTransitionSubscriber
+        from app.core.events.subscribers.task_sync import TaskSyncSubscriber
+        from app.core.events.subscribers.websocket import WebSocketSubscriber
+
+        execution_event_bus.register(PersistenceSubscriber())
+        execution_event_bus.register(StateTransitionSubscriber())
+        execution_event_bus.register(WebSocketSubscriber())
+        execution_event_bus.register(TaskSyncSubscriber())
+        logger.info("   ✓ Execution event bus subscribers registered")
+    except Exception as e:
+        logger.error(f"   ⚠️  Event bus subscriber registration failed: {e}")
+
+    # Start container pool reaper (idle containers cleaned up every 5 min)
+    _reaper_task: Optional[asyncio.Task] = None
+    try:
+        from app.core.agent.cli_backends.container_pool import container_pool
+
+        async def _container_reaper() -> None:
+            while True:
+                await asyncio.sleep(300)
+                try:
+                    removed = await container_pool.cleanup_idle()
+                    if removed:
+                        logger.info(f"Container reaper: removed {removed} idle containers")
+                except Exception as e:
+                    logger.warning(f"Container reaper error: {e}")
+
+        _reaper_task = asyncio.create_task(_container_reaper(), name="container-reaper")
+        logger.info("   ✓ Container pool reaper started (idle_timeout=30m)")
+    except Exception as e:
+        logger.warning(f"   ⚠️  Container pool reaper failed to start: {e}")
+
+    # Scheduler: stale execution recovery (one-shot) + periodic loops
+    _dispatcher_task: Optional[asyncio.Task] = None
+    _exec_reaper_task: Optional[asyncio.Task] = None
+    try:
+        from app.core.scheduler import (
+            execution_reaper_loop,
+            recover_stale_on_startup,
+            task_dispatcher_loop,
+        )
+
+        await recover_stale_on_startup()
+        _dispatcher_task = asyncio.create_task(task_dispatcher_loop(), name="task-dispatcher")
+        _exec_reaper_task = asyncio.create_task(execution_reaper_loop(), name="execution-reaper")
+        logger.info("   ✓ Task dispatcher and execution reaper started (interval=30s)")
+    except Exception as e:
+        logger.warning(f"   ⚠️  Scheduler startup failed: {e}")
+
+    # Conductor Kernel (independent task orchestration engine)
+    try:
+        from app.conductor.lifespan import conductor_startup
+
+        await conductor_startup()
+    except Exception as e:
+        logger.warning(f"   ⚠️  Conductor kernel startup failed: {e}")
+
+    yield
+
+    # Shutdown: Conductor Kernel
+    try:
+        from app.conductor.lifespan import conductor_shutdown
+
+        await conductor_shutdown()
+    except Exception as e:
+        logger.warning(f"   ⚠️  Conductor kernel shutdown failed: {e}")
+
+    # Shutdown: Cancel scheduler loops
+    for task in (_dispatcher_task, _exec_reaper_task):
+        if task:
+            task.cancel()
+
+    # Shutdown: Cancel container pool reaper and mark pool as shut down
+    try:
+        if _reaper_task:
+            _reaper_task.cancel()
+        from app.core.agent.cli_backends.container_pool import container_pool as _cp
+
+        await _cp.shutdown()
+        logger.info("   ✓ Container pool shut down (containers left running)")
+    except Exception as e:
+        logger.warning(f"   ⚠️  Container pool shutdown failed: {e}")
+
+    # Shutdown: Drain sandbox pool (stop all containers gracefully)
+    try:
+        from app.services.sandbox_manager import _sandbox_pool
+
+        await _sandbox_pool.shutdown()
+        logger.info("   ✓ Sandbox pool shut down")
+    except Exception as e:
+        logger.warning(f"   ⚠️  Sandbox pool shutdown failed: {e}")
+
+    # Shutdown: Close Checkpointer connection pool
+    try:
+        from app.core.agent.checkpointer.checkpointer import CheckpointerManager
+
+        await CheckpointerManager.close()
+    except Exception:
+        logger.debug("Failed to close CheckpointerManager during shutdown", exc_info=True)
+
+    try:
+        await RedisClient.close()
+    except Exception:
+        logger.debug("Failed to close Redis client during shutdown", exc_info=True)
+
+    # Shutdown: Flush OTel span processors (drain pending observations)
+    try:
+        from app.core.observation.otel.global_provider import get_global_provider
+
+        get_global_provider().shutdown()
+        logger.info("   ✓ OTel TracerProvider shut down")
+    except Exception:
+        logger.debug("Failed to shut down TracerProvider during shutdown", exc_info=True)
+
+    await close_db()
+    logger.info("Application shutdown")
+
+
+# Create application
+app = FastAPI(
+    title=settings.app_name,
+    version=settings.app_version,
+    description="""
+## JoySafeter - Agent Platform Backend Service
+### Tech Stack
+- **FastAPI** - Web Framework
+- **PostgreSQL** - Database
+- **SQLAlchemy 2.0** - ORM (Async)
+- **LangChain 1.0 + LangGraph 1.0** - AI Framework
+    """,
+    docs_url="/docs" if settings.debug or settings.environment == "development" else None,
+    redoc_url="/redoc" if settings.debug or settings.environment == "development" else None,
+    lifespan=lifespan,
+)
+
+
+# Exception handling
+register_exception_handlers(app)
+
+
+# Add logging middleware
+app.add_middleware(TracingMiddleware)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_origin_regex=settings.cors_origin_regex,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+app.include_router(api_router, prefix="/api")
+
+# Conductor Kernel API (independent, all under /api/v2/conductor)
+from app.conductor.api.router import conductor_router  # noqa: E402
+from app.conductor.config import conductor_config  # noqa: E402
+
+if conductor_config.enabled:
+    app.include_router(conductor_router, prefix=conductor_config.api_prefix)
+    app.include_router(conductor_router, prefix="/v1")
+
+# Conductor Kernel API (independent, all under /api/v2/conductor)
+from app.conductor.api.router import conductor_router  # noqa: E402
+from app.conductor.config import conductor_config  # noqa: E402
+
+if conductor_config.enabled:
+    app.include_router(conductor_router, prefix=conductor_config.api_prefix)
+    app.include_router(conductor_router, prefix="/v1")
+
+
+# Register Router
+@app.get("/", tags=["Root"])
+async def root():
+    """Root path, health check"""
+    return {
+        "status": "ok",
+        "message": "JoySafeter backend is running!",
+        "docs": "/docs",
+        "redoc": "/redoc",
+    }
+
+
+async def _run_notification_loop(websocket: WebSocket, user_id: str) -> None:
+    """Shared ping/pong loop for notification WebSocket endpoints."""
+    import json
+
+    try:
+        await websocket.accept()
+        await notification_manager.connect(websocket, user_id)
+
+        while True:
+            try:
+                data = await websocket.receive_text()
+                message = json.loads(data)
+                if message.get("type") == "ping":
+                    await notification_manager.send_to_connection(
+                        websocket,
+                        {"type": NotificationType.PONG.value},
+                    )
+            except WebSocketDisconnect:
+                break
+            except Exception:
+                break
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.error(f"WebSocket notification error for user {user_id}: {e}")
+    finally:
+        notification_manager.disconnect(websocket)
+        logger.info(f"WebSocket notification disconnected for user {user_id}")
+
+
+@app.websocket("/ws/notifications")
+async def notification_websocket_endpoint(websocket: WebSocket):
+    is_authenticated, user_id = await authenticate_websocket(websocket)
+    if not is_authenticated or not user_id:
+        await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
+        return
+    await _run_notification_loop(websocket, user_id)
+
+
+@app.websocket("/ws/executions")
+async def executions_websocket_endpoint(websocket: WebSocket):
+    """Subscription endpoint for CLI execution snapshot/replay/live events."""
+    is_authenticated, user_id = await authenticate_websocket(websocket)
+
+    if not is_authenticated or not user_id:
+        await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
+        return
+
+    await execution_subscription_handler.handle_connection(websocket, str(user_id))
+
+
+@app.websocket("/ws/openclaw/dashboard")
+async def openclaw_dashboard_websocket_endpoint(websocket: WebSocket):
+    """WebSocket proxy for Control UI — auth from cookie, no user_id in path."""
+    is_authenticated, user_id = await authenticate_websocket(websocket)
+
+    if not is_authenticated or not user_id:
+        await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
+        return
+
+    await openclaw_bridge_handler.handle_bridge(websocket, str(user_id))
+
+
+@app.websocket("/ws/openclaw/bridge/{user_id}")
+async def openclaw_bridge_websocket_endpoint(websocket: WebSocket, user_id: str):
+    """Bidirectional WS bridge between client and OpenClaw Gateway."""
+    is_authenticated, token_user_id = await authenticate_websocket(websocket)
+
+    if not is_authenticated or not token_user_id:
+        await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
+        return
+
+    if str(token_user_id) != str(user_id):
+        await reject_websocket(websocket, code=WebSocketCloseCode.FORBIDDEN, reason="User ID mismatch")
+        return
+
+    await openclaw_bridge_handler.handle_bridge(websocket, user_id)
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=settings.backend_port,
+        reload=settings.reload,
+        workers=settings.workers,
+        ws_ping_interval=30,
+        ws_ping_timeout=30,
+    )

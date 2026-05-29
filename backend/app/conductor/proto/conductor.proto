@@ -1,0 +1,206 @@
+syntax = "proto3";
+package conductor;
+
+service AgentBridge {
+  rpc Session(stream RunnerMessage) returns (stream OrchestratorMessage);
+}
+
+// ============ runner → orchestrator (upstream) ============
+
+message RunnerMessage {
+  oneof payload {
+    RunnerReady ready = 1;
+    RunnerHarnessEvent event = 2;
+    RunnerHarnessResult result = 3;
+    RunnerHeartbeat heartbeat = 4;
+    RunnerIdle idle = 5;
+    MemoryFileSync memory_sync = 6;
+  }
+}
+
+message RunnerReady {
+  string runner_version = 1;
+  repeated string available_providers = 2;
+  string sandbox_id = 3;
+  bool is_reconnect = 4;
+  optional string active_task_id = 5;
+}
+
+message RunnerIdle {
+  string sandbox_id = 1;
+  optional string work_dir = 2;
+  optional string session_id = 3;
+}
+
+message RunnerHarnessEvent {
+  uint64 seq = 1;
+  int64 timestamp_ms = 2;
+  oneof event {
+    TextEvent text = 3;
+    ThinkingEvent thinking = 4;
+    ToolUseEvent tool_use = 5;
+    ToolResultEvent tool_result = 6;
+    ErrorEvent error = 7;
+    StatusEvent status = 8;
+    LogEvent log = 9;
+    ModelRequestStartEvent model_request_start = 10;
+    ModelRequestEndEvent model_request_end = 11;
+  }
+}
+
+message TextEvent { string content = 1; }
+message ThinkingEvent { string content = 1; }
+message ToolUseEvent { string tool = 1; string call_id = 2; string input_json = 3; bool is_control_request = 4; }
+message ToolResultEvent { string tool = 1; string call_id = 2; string output = 3; }
+message ErrorEvent { string message = 1; }
+message StatusEvent { string state = 1; }
+message LogEvent { string level = 1; string message = 2; }
+message ModelRequestStartEvent { string model = 1; }
+message ModelRequestEndEvent { string model = 1; uint64 input_tokens = 2; uint64 output_tokens = 3; uint64 cache_read_tokens = 4; uint64 cache_write_tokens = 5; }
+
+message RunnerHarnessResult {
+  string status = 1;
+  string output = 2;
+  optional string error = 3;
+  optional string session_id = 4;
+  TokenUsage usage = 5;
+  int64 duration_ms = 6;
+  optional string work_dir = 7;
+}
+
+message TokenUsage {
+  uint64 input_tokens = 1;
+  uint64 output_tokens = 2;
+  uint64 cache_read_tokens = 3;
+  uint64 cache_write_tokens = 4;
+  repeated ModelUsageEntry by_model = 5;
+}
+
+message ModelUsageEntry {
+  string model = 1;
+  uint64 input_tokens = 2;
+  uint64 output_tokens = 3;
+  uint64 cache_read_tokens = 4;
+  uint64 cache_write_tokens = 5;
+}
+
+message RunnerHeartbeat {
+  int64 timestamp_ms = 1;
+}
+
+// ============ orchestrator → runner (downstream) ============
+
+message OrchestratorMessage {
+  oneof payload {
+    StartTask start = 1;
+    CancelTask cancel = 2;
+    SendInput input = 3;
+    Shutdown shutdown = 4;
+    SetupSandbox setup = 5;
+    MemoryFileUpdate memory_update = 6;
+  }
+}
+
+message MemoryFileUpdate {
+  string store_mount_name = 1;
+  string relative_path = 2;
+  bytes content = 3;
+  string operation = 4;
+}
+
+message SetupSandbox {
+  repeated SkillArchive skills = 1;
+  repeated McpConfig mcp_servers = 2;
+  repeated CustomTool custom_tools = 3;
+  repeated string setup_commands = 4;
+  optional string work_dir = 5;
+  map<string, string> env = 6;
+  map<string, string> secrets = 7;
+  optional string permission_mode = 8;
+  string provider = 9;
+  optional string model = 10;
+  optional string memory_system_prompt = 11;
+  repeated MemoryStoreMount memory_mounts = 12;
+}
+
+message MemoryStoreMount {
+  string store_id = 1;
+  string mount_name = 2;
+  string mount_path = 3;
+  string access = 4;
+  repeated MemoryFile files = 5;
+}
+
+message MemoryFile {
+  string relative_path = 1;
+  bytes content = 2;
+}
+
+message MemoryFileSync {
+  string store_mount_name = 1;
+  string relative_path = 2;
+  string content = 3;
+  string operation = 4;
+}
+
+message StartTask {
+  string task_id = 1;
+  string provider = 2;
+  string prompt = 3;
+  optional string system_prompt = 4;
+  optional string session_id = 5;
+  optional string model = 6;
+  optional uint32 max_turns = 7;
+  uint64 timeout_seconds = 8;
+  map<string, string> env = 9;
+  map<string, string> secrets = 10;
+  repeated McpConfig mcp_servers = 11;
+  repeated RepoConfig repos = 12;
+  optional string work_dir = 13;
+  repeated SkillArchive skills = 14;
+  repeated string allowed_tools = 15;
+  repeated string disallowed_tools = 16;
+  optional string permission_mode = 17;
+  repeated string setup_commands = 18;
+  repeated CustomTool custom_tools = 19;
+}
+
+message CustomTool {
+  string name = 1;
+  string description = 2;
+  string input_schema_json = 3;
+}
+
+message SkillArchive {
+  string name = 1;
+  bytes tar_gz = 2;
+  string target = 3;
+}
+
+message McpConfig {
+  string name = 1;
+  string command = 2;
+  repeated string args = 3;
+  map<string, string> env = 4;
+  string server_type = 5;
+  string url = 6;
+  map<string, string> headers = 7;
+}
+
+message RepoConfig {
+  string url = 1;
+  string branch = 2;
+  string path = 3;
+}
+
+message CancelTask {
+  string reason = 1;
+}
+
+message SendInput {
+  string content = 1;
+}
+
+message Shutdown {
+  string reason = 1;
+}

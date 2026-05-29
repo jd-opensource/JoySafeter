@@ -66,6 +66,14 @@ class SkillRepository(BaseRepository[Skill]):
         result = await self.db.execute(query)
         return result.scalar_one_or_none()  # type: ignore[return-value]
 
+    async def get_by_ids(self, skill_ids: List[uuid.UUID]) -> List[Skill]:
+        """Get multiple skills by their IDs, with files eagerly loaded."""
+        if not skill_ids:
+            return []
+        query = select(Skill).options(selectinload(Skill.files)).where(Skill.id.in_(skill_ids))
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
     async def get_by_name_and_owner(self, name: str, owner_id: Optional[str]) -> Optional[Skill]:
         """Get a skill by name and owner."""
         query = select(Skill).where(and_(Skill.name == name, Skill.owner_id == owner_id))

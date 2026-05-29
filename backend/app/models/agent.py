@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import enum
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
@@ -7,12 +8,13 @@ from typing import TYPE_CHECKING, List, Optional
 from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from uuid_utils import uuid7
 
 from app.core.contracts.agent import normalize_engine_kind, normalize_runtime_kind
 from app.core.database import Base
 from app.utils.datetime import utc_now
 
-from .base import BaseModel
+from .base import BaseModel, ConductorBaseModel, TimestampMixin
 
 if TYPE_CHECKING:
     pass
@@ -137,3 +139,66 @@ class AgentRelease(Base):
 
     # Relationships
     version: Mapped[AgentVersion] = relationship("AgentVersion")
+
+
+# ---------------------------------------------------------------------------
+# Conductor Agent models
+# ---------------------------------------------------------------------------
+
+
+class ConductorAgent(ConductorBaseModel):
+    __tablename__ = "conductor_agents"
+    __table_args__ = (
+        UniqueConstraint("name", name="idx_ca_name_unique"),
+        Index("idx_ca_created_at", "created_at"),
+    )
+
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    engine_kind: Mapped[str] = mapped_column(Text, nullable=False, default="claude")
+    model: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    env: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+    mcp_configs: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    skills: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    tools: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    agents: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    commands: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    permission_mode: Mapped[str] = mapped_column(
+        Text, nullable=False, default="bypassPermissions"
+    )
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default="{}"
+    )
+    multiagent: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    environment_ref: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    secret_ref: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    archived_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    versions: Mapped[list["ConductorAgentVersion"]] = relationship(
+        back_populates="agent", lazy="selectin"
+    )
+
+
+class ConductorAgentVersion(Base, TimestampMixin):
+    __tablename__ = "conductor_agent_versions"
+    __table_args__ = (UniqueConstraint("agent_id", "version"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=lambda ctx=None: uuid7()
+    )
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("conductor_agents.id"),
+        nullable=False,
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+    agent: Mapped["ConductorAgent"] = relationship(back_populates="versions")

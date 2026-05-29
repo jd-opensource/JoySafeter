@@ -2,14 +2,16 @@
 User Sandbox Model
 """
 
+import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.base import TimestampMixin
+from app.models.base import ConductorBaseModel, TimestampMixin
 from app.models.enums import InstanceStatus
 
 if TYPE_CHECKING:
@@ -54,3 +56,44 @@ class UserSandbox(Base, TimestampMixin):
 
     # relationship
     user: Mapped["AuthUser"] = relationship("AuthUser", back_populates="sandbox")
+
+
+# ---------------------------------------------------------------------------
+# Conductor Sandbox model
+# ---------------------------------------------------------------------------
+
+
+class ConductorSandbox(ConductorBaseModel):
+    __tablename__ = "conductor_sandboxes"
+    __table_args__ = (
+        Index("idx_csb_status", "status"),
+        Index(
+            "idx_csb_pool",
+            "created_at",
+            postgresql_where="status = 'pooled'",
+        ),
+        Index(
+            "idx_csb_session",
+            "chat_session_id",
+            postgresql_where="chat_session_id IS NOT NULL",
+        ),
+    )
+
+    external_id: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    provider: Mapped[str] = mapped_column(Text, nullable=False, default="docker")
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="creating")
+    config: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+    chat_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    image: Mapped[str] = mapped_column(Text, nullable=False)
+    last_task_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    last_used_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    destroyed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    workspace_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

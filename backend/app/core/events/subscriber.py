@@ -28,3 +28,19 @@ class EventSubscriber(Protocol):
         envelope: ExecutionEventEnvelope,
         db: Optional[AsyncSession] = None,
     ) -> None: ...
+
+
+# ---------------------------------------------------------------------------
+# Conductor event subscriber protocol
+# ---------------------------------------------------------------------------
+
+if TYPE_CHECKING:
+    from app.core.events.envelope import ConductorEventEnvelope
+
+
+@runtime_checkable
+class ConductorEventSubscriber(Protocol):
+    name: str
+    phase: SubscriberPhase
+
+    async def handle(self, envelope: ConductorEventEnvelope) -> None: ...

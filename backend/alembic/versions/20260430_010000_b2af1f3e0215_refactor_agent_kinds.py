@@ -31,7 +31,7 @@ def upgrade():
                 agent_version_id,
                 runtime_binding->>'runtime_type' AS runtime_type
             FROM agent_releases
-            ORDER BY agent_version_id, created_at DESC
+            ORDER BY agent_version_id, release_number DESC
         ) ar
         WHERE ar.agent_version_id = av.id
           AND av.engine_kind = 'sandbox_cli'
