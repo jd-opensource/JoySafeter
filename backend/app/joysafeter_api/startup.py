@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from loguru import logger
 
 from app.joysafeter_shared.database import AsyncSessionLocal
@@ -21,7 +23,7 @@ async def _initialize_session_broadcaster() -> None:
 
         ensure_session_broadcaster(
             redis_client=RedisClient.get_client(),
-            instance_id=joysafeter_config.instance_id,
+            instance_id=f"{joysafeter_config.instance_id}:api:{os.getpid()}",
         )
         logger.info("   ✓ Session broadcaster ready")
     except Exception as e:

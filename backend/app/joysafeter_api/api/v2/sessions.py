@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import re
 import uuid
 from typing import Any, Optional
@@ -976,7 +977,7 @@ async def session_event_stream(
 
             broadcaster = ensure_session_broadcaster(
                 redis_client=RedisClient.get_client(),
-                instance_id=joysafeter_config.instance_id,
+                instance_id=f"{joysafeter_config.instance_id}:api:{os.getpid()}",
             )
         except Exception:
             logger.debug("Failed to lazily initialize session broadcaster", exc_info=True)
@@ -1023,7 +1024,7 @@ async def session_event_stream(
                             data_dict.update(ev.payload)
                         yield f"id: evt_{ev.id}\ndata: {json.dumps(data_dict)}\n\n"
 
-                await asyncio.sleep(2)
+                await asyncio.sleep(15)
             return
 
         q = broadcaster.subscribe(session_id)
@@ -1032,7 +1033,7 @@ async def session_event_stream(
                 if await request.is_disconnected():
                     break
                 try:
-                    event = await asyncio.wait_for(q.get(), timeout=2)
+                    event = await asyncio.wait_for(q.get(), timeout=15)
                     event_seq = event.get("seq", 0)
                     if event_seq <= last_seq:
                         continue

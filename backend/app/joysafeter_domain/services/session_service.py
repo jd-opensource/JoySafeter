@@ -334,6 +334,15 @@ class SessionService:
         self.db.add(event)
         await self.db.commit()
         await self.db.refresh(event)
+        from app.joysafeter_domain.services.session_event_realtime import publish_session_event_realtime
+
+        await publish_session_event_realtime(
+            session_id=session_id,
+            event_id=event.id,
+            event_type=event.event_type,
+            seq=event.seq,
+            payload=event.payload,
+        )
         return event
 
     async def list_events(
@@ -476,6 +485,16 @@ class SessionService:
         await self.db.commit()
         for event in created:
             await self.db.refresh(event)
+        from app.joysafeter_domain.services.session_event_realtime import publish_session_event_realtime
+
+        for event in created:
+            await publish_session_event_realtime(
+                session_id=event.session_id,
+                event_id=event.id,
+                event_type=event.event_type,
+                seq=event.seq,
+                payload=event.payload,
+            )
         return created
 
     async def _max_seq_locked(self, session_id: uuid.UUID) -> int:

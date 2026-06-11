@@ -121,7 +121,9 @@ class EventBatchSender:
 
     async def send(self, event: BufferedEvent) -> None:
         if not self._config.enabled:
-            await self._write_single(event)
+            inserted = await self._write_single(event)
+            if inserted is not None:
+                await self._publish_inserted([inserted])
             return
         await self._queue.put(event)
 
@@ -229,7 +231,8 @@ class EventBatchSender:
         count = len(buffer)
         logger.debug("Flushing %d events to DB", count)
         try:
-            await self._batch_insert(buffer)
+            inserted = await self._batch_insert(buffer)
+            await self._publish_inserted(inserted)
         except Exception as e:
             logger.error(
                 "Batch insert failed (%d events), falling back to individual inserts: %s",
@@ -237,11 +240,13 @@ class EventBatchSender:
             )
             for event in buffer:
                 try:
-                    await self._write_single(event)
+                    inserted = await self._write_single(event)
+                    if inserted is not None:
+                        await self._publish_inserted([inserted])
                 except Exception as inner:
                     logger.error("Individual event insert failed: %s", inner)
 
-    async def _batch_insert(self, events: list[BufferedEvent]) -> None:
+    async def _batch_insert(self, events: list[BufferedEvent]) -> list[BufferedEvent]:
         from collections import defaultdict
         from sqlalchemy import text, func, select
         from app.joysafeter_shared.database import AsyncSessionLocal
@@ -251,6 +256,7 @@ class EventBatchSender:
         for e in events:
             groups[e.session_id].append(e)
 
+        inserted_objs = []
         async with AsyncSessionLocal() as db:
             # CRITICAL FIX: Sort session_ids to prevent deadlocks.
             # Deadlock occurs when two concurrent transactions acquire advisory locks
@@ -302,11 +308,25 @@ class EventBatchSender:
                         kwargs["id"] = e.id
                     obj = JoySafeterSessionEvent(**kwargs)
                     db.add(obj)
+                    inserted_objs.append(obj)
                     previous_event = e
 
             await db.commit()
+            inserted: list[BufferedEvent] = []
+            for obj in inserted_objs:
+                await db.refresh(obj)
+                inserted.append(
+                    BufferedEvent(
+                        session_id=obj.session_id,
+                        event_type=obj.event_type,
+                        payload=obj.payload or {},
+                        seq=obj.seq,
+                        id=obj.id,
+                    )
+                )
+            return inserted
 
-    async def _write_single(self, event: BufferedEvent) -> None:
+    async def _write_single(self, event: BufferedEvent) -> BufferedEvent | None:
         from sqlalchemy import text, func, select
         from app.joysafeter_shared.database import AsyncSessionLocal
         from app.joysafeter_domain.models.session import JoySafeterSessionEvent
@@ -342,15 +362,38 @@ class EventBatchSender:
                     else None
                 )
                 if _is_duplicate_event(latest_event, event):
-                    return
+                    return None
 
+                seq = base_seq + 1
                 kwargs: dict[str, Any] = dict(
                     session_id=event.session_id,
                     event_type=event.event_type,
                     payload=event.payload,
-                    seq=base_seq + 1,
+                    seq=seq,
                 )
                 if event.id is not None:
                     kwargs["id"] = event.id
                 obj = JoySafeterSessionEvent(**kwargs)
                 db.add(obj)
+            await db.refresh(obj)
+            return BufferedEvent(
+                session_id=obj.session_id,
+                event_type=obj.event_type,
+                payload=obj.payload or {},
+                seq=obj.seq,
+                id=obj.id,
+            )
+
+    async def _publish_inserted(self, events: list[BufferedEvent]) -> None:
+        if not events:
+            return
+        from app.joysafeter_domain.services.session_event_realtime import publish_session_event_realtime
+
+        for event in events:
+            await publish_session_event_realtime(
+                session_id=event.session_id,
+                event_id=event.id,
+                event_type=event.event_type,
+                seq=event.seq,
+                payload=event.payload,
+            )

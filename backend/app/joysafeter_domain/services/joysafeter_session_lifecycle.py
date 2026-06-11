@@ -119,6 +119,16 @@ class JoySafeterSessionLifecycleService:
         )
         self.db.add(event)
         await self.db.commit()
+        await self.db.refresh(event)
+        from app.joysafeter_domain.services.session_event_realtime import publish_session_event_realtime
+
+        await publish_session_event_realtime(
+            session_id=session_id,
+            event_id=event.id,
+            event_type=event.event_type,
+            seq=event.seq,
+            payload=event.payload,
+        )
         return True
 
     async def _lock_event_sequence(self, session_id: uuid.UUID) -> None:

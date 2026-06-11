@@ -43,7 +43,7 @@ class QuickstartAgentContext(BaseModel):
 
 class QuickstartChatRequest(BaseModel):
     messages: list[QuickstartMessage] = Field(..., max_length=50)
-    current_step: int = 1
+    current_step: int = Field(default=1, ge=1, le=5)
     secret_ref: str = ""
     agent_context: Optional[QuickstartAgentContext] = None
 
@@ -242,10 +242,9 @@ async def quickstart_chat(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ):
     svc = SecretService(db)
-    secrets, _ = await svc.list_secrets(100, None, project_id=auth_ctx.project_id)
-    secret = next((s for s in secrets if s.name == req.secret_ref), None)
+    secret = await svc.get_secret_by_name(req.secret_ref, project_id=auth_ctx.project_id)
     if not secret:
-        raise HTTPException(404, f"Secret '{req.secret_ref}' not found")
+        raise HTTPException(404, "Secret not found or missing required keys")
 
     data = secret.data or {}
     api_key = data.get("ANTHROPIC_AUTH_TOKEN") or data.get("ANTHROPIC_API_KEY") or ""

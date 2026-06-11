@@ -1,13 +1,15 @@
 """SSRF protection utilities — centralized URL validation for all outbound HTTP requests.
 
-Prevents Server-Side Request Forgery by:
-1. Blocking cloud metadata endpoints (169.254.169.254 etc.)
-2. Blocking private/reserved IP ranges (RFC-1918, link-local, loopback)
-3. Resolving DNS before request to prevent DNS rebinding attacks
-4. Optionally enforcing HTTPS-only scheme
+Prevents Server-Side Request Forgery by blocking truly dangerous endpoints:
+1. Cloud metadata endpoints (169.254.169.254, fd00:ec2::254, etc.)
+2. Known dangerous hostnames (metadata.google.internal, etc.)
 
-By default both HTTP and HTTPS are allowed — the primary defense is IP validation,
-not scheme restriction. Set JOYSAFETER_SSRF_HTTPS_ONLY=1 to enforce HTTPS in production.
+Private/internal IPs (10.x, 172.16.x, 192.168.x, 127.0.0.1) are ALLOWED by default
+because many legitimate services run on the internal network (LLM APIs, MCP servers,
+internal tooling). Only cloud metadata and link-local addresses are blocked.
+
+Set JOYSAFETER_SSRF_BLOCK_PRIVATE=1 to also block RFC-1918 private IPs when the
+deployment does not need internal network access from the backend.
 """
 
 from __future__ import annotations
@@ -20,20 +22,27 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
-# Cloud provider metadata IPs
+# Cloud provider metadata IPs — these are ALWAYS blocked
 _METADATA_IPS = frozenset({
-    "169.254.169.254",  # AWS, GCP, Azure
+    "169.254.169.254",  # AWS, GCP, Azure instance metadata
     "169.254.170.2",    # AWS ECS task metadata
+    "100.100.100.200",  # Alibaba Cloud metadata
     "fd00:ec2::254",    # AWS IPv6 metadata
 })
 
-# Blocked hostnames
+# Blocked hostnames — these are ALWAYS blocked
 _BLOCKED_HOSTNAMES = frozenset({
     "metadata.google.internal",
     "metadata.goog",
 })
 
-# Whether to enforce HTTPS-only (opt-in via env var for production)
+# Blocked scheme — file://, ftp://, gopher:// etc.
+_ALLOWED_SCHEMES = {"http", "https"}
+
+# Opt-in: also block RFC-1918 private IPs (for deployments that don't need internal access)
+_BLOCK_PRIVATE = os.getenv("JOYSAFETER_SSRF_BLOCK_PRIVATE", "").lower() in ("1", "true")
+
+# Opt-in: enforce HTTPS only
 _HTTPS_ONLY = os.getenv("JOYSAFETER_SSRF_HTTPS_ONLY", "").lower() in ("1", "true")
 
 
@@ -46,17 +55,22 @@ def validate_url(
     url: str,
     *,
     allow_http: bool = True,
-    allow_private: bool = False,
+    allow_private: bool = True,
     context: str = "",
 ) -> str:
     """Validate a URL is safe from SSRF attacks.
 
+    By default this allows HTTP, HTTPS, and private/internal IPs.
+    Only truly dangerous destinations (cloud metadata, link-local) are blocked.
+
     Args:
         url: The URL to validate.
-        allow_http: If True, allow http:// scheme. Default True.
-                    Overridden to False when JOYSAFETER_SSRF_HTTPS_ONLY=1.
-        allow_private: If True, allow private/internal IPs (for internal service calls).
-        context: Description of the calling context (for error messages).
+        allow_http: If True (default), allow http:// scheme.
+                    Overridden to False by JOYSAFETER_SSRF_HTTPS_ONLY=1.
+        allow_private: If True (default), allow private/internal IPs (10.x, 172.x, 192.168.x).
+                       Overridden to False by JOYSAFETER_SSRF_BLOCK_PRIVATE=1.
+                       Cloud metadata IPs are ALWAYS blocked regardless of this flag.
+        context: Description for error messages.
 
     Returns:
         The validated URL (unchanged).
@@ -72,12 +86,13 @@ def validate_url(
     # 1. Scheme validation
     if _HTTPS_ONLY:
         allow_http = False
+    if _BLOCK_PRIVATE:
+        allow_private = False
 
-    allowed_schemes = {"https", "http"} if allow_http else {"https"}
-
-    if parsed.scheme not in allowed_schemes:
+    allowed = {"https", "http"} if allow_http else {"https"}
+    if parsed.scheme not in allowed:
         raise SSRFError(
-            f"URL scheme '{parsed.scheme}' not allowed (allowed: {allowed_schemes}){_ctx(context)}"
+            f"URL scheme '{parsed.scheme}' not allowed{_ctx(context)}"
         )
 
     # 2. Hostname validation
@@ -89,35 +104,36 @@ def validate_url(
     if hostname.lower() in _BLOCKED_HOSTNAMES:
         raise SSRFError(f"Blocked hostname: {hostname}{_ctx(context)}")
 
-    # 3. IP validation (if hostname is already an IP)
+    # 3. IP validation (if hostname is already an IP literal)
     try:
         ip = ipaddress.ip_address(hostname)
-        if not allow_private and _is_dangerous_ip(ip):
-            raise SSRFError(
-                f"URL resolves to blocked IP: {ip}{_ctx(context)}"
-            )
+        if _is_metadata_ip(ip):
+            raise SSRFError(f"URL points to blocked metadata IP: {ip}{_ctx(context)}")
+        if not allow_private and ip.is_private:
+            raise SSRFError(f"URL points to private IP: {ip}{_ctx(context)}")
         return url
     except ValueError:
         pass  # Not an IP literal — continue to DNS resolution
 
-    # 4. DNS resolution + IP check (prevent DNS rebinding)
-    if not allow_private:
-        try:
-            resolved_ips = socket.getaddrinfo(hostname, parsed.port or 443, proto=socket.IPPROTO_TCP)
-            for family, _, _, _, sockaddr in resolved_ips:
-                ip_str = sockaddr[0]
-                try:
-                    ip = ipaddress.ip_address(ip_str)
-                    if _is_dangerous_ip(ip):
-                        raise SSRFError(
-                            f"URL hostname '{hostname}' resolves to blocked IP: {ip}{_ctx(context)}"
-                        )
-                except ValueError:
-                    continue
-        except socket.gaierror:
-            # DNS resolution failed — allow the request to proceed
-            # (the HTTP client will handle the connection error)
-            pass
+    # 4. DNS resolution + IP check (prevent DNS rebinding to metadata endpoints)
+    try:
+        resolved_ips = socket.getaddrinfo(hostname, parsed.port or 443, proto=socket.IPPROTO_TCP)
+        for family, _, _, _, sockaddr in resolved_ips:
+            ip_str = sockaddr[0]
+            try:
+                ip = ipaddress.ip_address(ip_str)
+                if _is_metadata_ip(ip):
+                    raise SSRFError(
+                        f"URL hostname '{hostname}' resolves to metadata IP: {ip}{_ctx(context)}"
+                    )
+                if not allow_private and ip.is_private:
+                    raise SSRFError(
+                        f"URL hostname '{hostname}' resolves to private IP: {ip}{_ctx(context)}"
+                    )
+            except ValueError:
+                continue
+    except socket.gaierror:
+        pass  # DNS resolution failed — let HTTP client handle it
 
     return url
 
@@ -132,17 +148,17 @@ def validate_url_or_none(
     return validate_url(url, **kwargs)
 
 
-def _is_dangerous_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """Check if an IP address is in a dangerous/private range."""
+def _is_metadata_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Check if an IP is a cloud metadata or link-local address (always dangerous)."""
     if str(ip) in _METADATA_IPS:
         return True
-    return (
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_reserved
-        or ip.is_multicast
-    )
+    # Link-local (169.254.x.x) — metadata range, always block
+    if ip.is_link_local:
+        return True
+    # Multicast — no reason to allow outbound requests to multicast
+    if ip.is_multicast:
+        return True
+    return False
 
 
 def _ctx(context: str) -> str:
