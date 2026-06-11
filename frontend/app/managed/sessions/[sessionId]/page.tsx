@@ -183,6 +183,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const [streamForced, setStreamForced] = useState(false)
   const queryClient = useQueryClient()
   const inputRef = useRef<HTMLInputElement>(null)
+  const { events: streamEvents, connected: sseConnected } = useSessionStream(stripIdPrefix(id || ''), !!id)
 
   const { data: session, isLoading, isError, error } = useQuery({
     queryKey: ['session', id],
@@ -272,7 +273,6 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const isIdle = session?.status === 'idle'
   const isArchived = !!session?.archived_at
   const canSendMessage = isIdle && !isArchived && !isSending
-  const { events: streamEvents, connected: sseConnected } = useSessionStream(stripIdPrefix(id || ''), !!id)
   const wasRunningRef = useRef(false)
 
   // Update session status from SSE events (no polling needed when SSE is connected)

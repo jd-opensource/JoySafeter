@@ -88,12 +88,10 @@ export default function SecretListPage() {
     const nextProtocol = getDefaultProtocol(provider)
     setNewProvider(provider)
     setNewProtocol(nextProtocol)
-    setPairs(getDefaultSecretPairs(provider, nextProtocol))
   }
 
   const updateProtocol = (protocol: string) => {
     setNewProtocol(protocol)
-    setPairs(getDefaultSecretPairs(newProvider, protocol))
   }
 
   const validPairs = pairs.filter((p) => p.key.trim())
@@ -187,7 +185,15 @@ export default function SecretListPage() {
         title={t('managed.secrets.title')}
         subtitle={t('managed.secrets.subtitle')}
         action={
-          <Button size="sm" onClick={() => setShowCreate(true)}>
+          <Button
+            size="sm"
+            onClick={() => {
+              setNewProvider('anthropic')
+              setNewProtocol('anthropic_messages')
+              setPairs(getDefaultSecretPairs('anthropic', 'anthropic_messages'))
+              setShowCreate(true)
+            }}
+          >
             <Plus className="w-4 h-4" />
             {t('managed.secrets.new')}
           </Button>

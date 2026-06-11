@@ -76,13 +76,11 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
     const nextProtocol = getDefaultProtocol(nextProvider)
     setProvider(nextProvider)
     setProtocol(nextProtocol)
-    setPairs(getDefaultSecretPairs(nextProvider, nextProtocol))
     setDirty(true)
   }
 
   const updateProtocol = (nextProtocol: string) => {
     setProtocol(nextProtocol)
-    setPairs(getDefaultSecretPairs(provider, nextProtocol))
     setDirty(true)
   }
 
