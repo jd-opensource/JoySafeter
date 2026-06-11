@@ -133,7 +133,7 @@ def validate_url(
             except ValueError:
                 continue
     except socket.gaierror:
-        pass  # DNS resolution failed — let HTTP client handle it
+        pass  # DNS resolution failed — allow for internal network services
 
     return url
 
@@ -163,3 +163,31 @@ def _is_metadata_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
 
 def _ctx(context: str) -> str:
     return f" (context: {context})" if context else ""
+
+
+# ---------------------------------------------------------------------------
+# Pydantic field validators — lightweight URL format checks for input schemas
+# (no DNS resolution, just scheme + basic structure validation)
+# ---------------------------------------------------------------------------
+
+
+def validate_url_scheme(url: str | None) -> str | None:
+    """Pydantic field validator: ensure URL uses http:// or https:// scheme.
+
+    Use as a Pydantic @field_validator for URL fields in request schemas.
+    This is a fast, input-time check — the full SSRF guard (with DNS resolution
+    and IP checks) runs at request-time in the service layer.
+    """
+    if url is None:
+        return None
+    url = url.strip()
+    if not url:
+        return url
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(
+            f"URL must use http:// or https:// scheme, got '{parsed.scheme}://'"
+        )
+    if not parsed.hostname:
+        raise ValueError("URL must have a valid hostname")
+    return url

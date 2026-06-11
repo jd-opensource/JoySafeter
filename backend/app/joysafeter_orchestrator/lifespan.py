@@ -7,6 +7,7 @@ for integrating the JoySafeter kernel into the application lifecycle.
 
 import asyncio
 import logging
+import os
 import signal
 import threading
 from typing import Optional
@@ -246,7 +247,7 @@ async def joysafeter_startup() -> None:
 
     _session_broadcaster = SessionBroadcaster(
         redis_client=redis_client,
-        instance_id=joysafeter_config.instance_id,
+        instance_id=f"{joysafeter_config.instance_id}:orchestrator:{os.getpid()}",
     )
 
     _event_buffer = EventBatchSender(EventBatchConfig(

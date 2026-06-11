@@ -1000,8 +1000,17 @@ async def session_event_stream(
                     }
                     if isinstance(ev.payload, dict):
                         data_dict.update(ev.payload)
+                    data_dict["_sse_source"] = "db_replay"
                     data = json.dumps(data_dict)
                     yield f"id: evt_{ev.id}\ndata: {data}\n\n"
+                if events:
+                    logger.info(
+                        "SSE db_replay session=%s count=%s from_seq=%s to_seq=%s",
+                        session_id,
+                        len(events),
+                        after_seq,
+                        last_seq,
+                    )
 
         # Subscribe to live events
         if not broadcaster:
@@ -1022,7 +1031,15 @@ async def session_event_stream(
                         }
                         if isinstance(ev.payload, dict):
                             data_dict.update(ev.payload)
+                        data_dict["_sse_source"] = "db_fallback_no_broadcaster"
                         yield f"id: evt_{ev.id}\ndata: {json.dumps(data_dict)}\n\n"
+                    if events:
+                        logger.warning(
+                            "SSE db_fallback_no_broadcaster session=%s count=%s to_seq=%s",
+                            session_id,
+                            len(events),
+                            last_seq,
+                        )
 
                 await asyncio.sleep(15)
             return
@@ -1041,6 +1058,13 @@ async def session_event_stream(
                     event_id = event.get("id", "")
                     if not event_id.startswith("evt_"):
                         event_id = f"evt_{event_id}"
+                    logger.debug(
+                        "SSE live_push session=%s source=%s seq=%s type=%s",
+                        session_id,
+                        event.get("_sse_source") or "unknown_live",
+                        event_seq,
+                        event.get("type"),
+                    )
                     yield f"id: {event_id}\ndata: {json.dumps(event)}\n\n"
                 except asyncio.TimeoutError:
                     from app.joysafeter_shared.database import AsyncSessionLocal
@@ -1057,7 +1081,15 @@ async def session_event_stream(
                             }
                             if isinstance(ev.payload, dict):
                                 data_dict.update(ev.payload)
+                            data_dict["_sse_source"] = "db_fallback_timeout"
                             yield f"id: evt_{ev.id}\ndata: {json.dumps(data_dict)}\n\n"
+                        if events:
+                            logger.warning(
+                                "SSE db_fallback_timeout session=%s count=%s to_seq=%s",
+                                session_id,
+                                len(events),
+                                last_seq,
+                            )
                     yield ": heartbeat\n\n"
         finally:
             broadcaster.unsubscribe(session_id, q)

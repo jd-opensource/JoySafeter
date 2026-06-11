@@ -56,9 +56,10 @@ class SessionBroadcaster:
         sync but spawns a tokio task for Redis publish.
         """
         if session_id in self._channels:
+            local_event = {**event, "_sse_source": event.get("_sse_source") or "local_broadcast"}
             for q in self._channels[session_id]:
                 try:
-                    q.put_nowait(event)
+                    q.put_nowait(local_event)
                 except asyncio.QueueFull:
                     pass
 
@@ -116,7 +117,10 @@ class SessionBroadcaster:
                     if payload.get("source_instance") == self._instance_id:
                         continue
                     try:
-                        q.put_nowait(payload["event"])
+                        event = payload["event"]
+                        if isinstance(event, dict):
+                            event = {**event, "_sse_source": "redis_pubsub"}
+                        q.put_nowait(event)
                     except asyncio.QueueFull:
                         pass
             except asyncio.CancelledError:

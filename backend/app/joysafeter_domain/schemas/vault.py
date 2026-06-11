@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 
 class CredentialType(str, Enum):
@@ -58,6 +58,12 @@ class CreateCredentialRequest(BaseModel):
     mcp_server_url: str
     token_value: str
     oauth_config: Optional[OAuthConfigSchema] = None
+
+    @field_validator("mcp_server_url")
+    @classmethod
+    def _validate_url(cls, v: str) -> str:
+        from app.joysafeter_shared.security.ssrf_guard import validate_url_scheme
+        return validate_url_scheme(v)
 
 
 class UpdateCredentialRequest(BaseModel):

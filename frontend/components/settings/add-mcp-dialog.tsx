@@ -141,6 +141,20 @@ export function AddMcpDialog({ open, onOpenChange, editingServer }: AddMcpDialog
       return
     }
 
+    // URL scheme validation: must be http:// or https://
+    if (transport !== 'stdio') {
+      const { validateUrlScheme } = await import('@/lib/utils/url-validation')
+      const urlError = validateUrlScheme(address.trim())
+      if (urlError) {
+        toast({
+          title: t('settings.validationError'),
+          description: urlError,
+          variant: 'destructive',
+        })
+        return
+      }
+    }
+
     try {
       // 1) Test connection first to avoid saving incorrect address/transport configuration
       // Note: backend supports both 'sse' and 'streamable-http' transport methods, do not convert

@@ -10,7 +10,9 @@ Responsibilities:
 
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.joysafeter_shared.security.ssrf_guard import validate_url_scheme
 
 # ==================== MCP Server ====================
 
@@ -27,6 +29,11 @@ class McpServerCreate(BaseModel):
     retries: int = Field(default=3, ge=0, le=10)
     enabled: bool = True
 
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, v: Optional[str]) -> Optional[str]:
+        return validate_url_scheme(v)
+
 
 class McpServerUpdate(BaseModel):
     """Update MCP server."""
@@ -39,6 +46,11 @@ class McpServerUpdate(BaseModel):
     timeout: Optional[int] = Field(None, ge=1000, le=300000)
     retries: Optional[int] = Field(None, ge=0, le=10)
     enabled: Optional[bool] = None
+
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, v: Optional[str]) -> Optional[str]:
+        return validate_url_scheme(v)
 
 
 class McpServerResponse(BaseModel):

@@ -145,6 +145,13 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
 
   const addMcpServer = () => {
     if (!mcpName.trim() || !mcpUrl.trim()) return
+    // Validate URL scheme
+    const { validateUrlScheme } = require('@/lib/utils/url-validation')
+    const urlError = validateUrlScheme(mcpUrl.trim())
+    if (urlError) {
+      toastOperationError(t, new Error(urlError), 'common.error')
+      return
+    }
     setMcpServers((prev) => [...prev, { name: mcpName.trim(), url: mcpUrl.trim() }])
     setMcpName('')
     setMcpUrl('')

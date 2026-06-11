@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError
@@ -41,6 +41,12 @@ class McpServerCreateRequest(BaseModel):
     retries: int = Field(default=3, ge=0, le=10)
     enabled: bool = True
 
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, v):
+        from app.joysafeter_shared.security.ssrf_guard import validate_url_scheme
+        return validate_url_scheme(v)
+
 
 class McpServerUpdateRequest(BaseModel):
     """Update MCP server."""
@@ -66,6 +72,12 @@ class McpTestRequest(BaseModel):
     url: Optional[str] = None
     headers: Optional[Dict[str, str]] = None
     timeout: int = 30000
+
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, v):
+        from app.joysafeter_shared.security.ssrf_guard import validate_url_scheme
+        return validate_url_scheme(v)
 
 
 class McpToolExecuteRequest(BaseModel):

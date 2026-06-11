@@ -32,9 +32,9 @@ class QuickstartAgentContext(BaseModel):
     model: Optional[str] = Field(default=None, max_length=100)
     engine_kind: Optional[str] = Field(default=None, max_length=50)
     system_prompt: Optional[str] = Field(default=None, max_length=5000)
-    tools: Optional[list] = None
-    mcp_servers: Optional[list] = None
-    skills: Optional[list] = None
+    tools: Optional[list] = Field(default=None, max_length=10)
+    mcp_servers: Optional[list] = Field(default=None, max_length=10)
+    skills: Optional[list] = Field(default=None, max_length=20)
     secret_ref: Optional[str] = Field(default=None, max_length=100)
 
     class Config:
@@ -250,15 +250,15 @@ async def quickstart_chat(
     api_key = data.get("ANTHROPIC_AUTH_TOKEN") or data.get("ANTHROPIC_API_KEY") or ""
     base_url = data.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
 
-    # SSRF protection: validate base_url before making outbound request
+    # SSRF protection: block cloud metadata endpoints only, allow internal network
     from app.joysafeter_shared.security.ssrf_guard import validate_url, SSRFError
     try:
-        validate_url(base_url, context="ANTHROPIC_BASE_URL")
-    except SSRFError as e:
-        raise HTTPException(400, f"Invalid ANTHROPIC_BASE_URL: {e}")
+        validate_url(base_url, allow_http=True, allow_private=True, context="ANTHROPIC_BASE_URL")
+    except SSRFError:
+        raise HTTPException(400, "Invalid ANTHROPIC_BASE_URL")
 
     if not api_key:
-        raise HTTPException(400, "No ANTHROPIC_API_KEY found in secret")
+        raise HTTPException(404, "Secret not found or missing required keys")
 
     system_prompt = _build_system_prompt(req.current_step, req.agent_context)
     tools = _build_tools(req.current_step)
@@ -299,9 +299,20 @@ async def quickstart_chat(
                     json=claude_body,
                 ) as response:
                     if response.status_code != 200:
-                        body = await response.aread()
-                        error_msg = body.decode(errors="replace")
-                        event = json.dumps({"type": "error", "message": f"Claude API error: {response.status_code} - {error_msg}"})
+                        status = response.status_code
+                        if status == 401:
+                            msg = "Authentication failed — check your API key."
+                        elif status == 429:
+                            msg = "Rate limited by upstream API. Please try again later."
+                        elif status == 400:
+                            msg = "Invalid request to upstream API. Check your configuration."
+                        elif status == 403:
+                            msg = "Access denied by upstream API."
+                        elif status >= 500:
+                            msg = "Upstream API is temporarily unavailable."
+                        else:
+                            msg = f"Upstream API error ({status})."
+                        event = json.dumps({"type": "error", "message": msg})
                         yield f"data: {event}\n\n"
                         return
 
@@ -368,8 +379,8 @@ async def quickstart_chat(
                                     event = json.dumps({"type": "error", "message": msg})
                                     yield f"data: {event}\n\n"
 
-            except httpx.HTTPError as e:
-                event = json.dumps({"type": "error", "message": str(e)})
+            except httpx.HTTPError:
+                event = json.dumps({"type": "error", "message": "Failed to connect to upstream API."})
                 yield f"data: {event}\n\n"
 
         event = json.dumps({"type": "done"})

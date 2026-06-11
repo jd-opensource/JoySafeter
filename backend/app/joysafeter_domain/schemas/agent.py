@@ -93,7 +93,7 @@ class AgentResponse(BaseModel):
 from enum import Enum
 from typing import Union
 
-from pydantic import ConfigDict, field_serializer, model_validator
+from pydantic import ConfigDict, field_serializer, field_validator, model_validator
 
 
 class JoySafeterEngineKind(str, Enum):
@@ -153,6 +153,12 @@ class McpServerConfig(BaseModel):
     type: str = "url"
     name: str
     url: str
+
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, v: str) -> str:
+        from app.joysafeter_shared.security.ssrf_guard import validate_url_scheme
+        return validate_url_scheme(v)
 
 
 class PackedItem(BaseModel):
