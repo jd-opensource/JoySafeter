@@ -23,18 +23,16 @@ This document provides detailed instructions for setting up and running the JoyS
 
 执行后，每次 `git commit` 将自动运行代码校验。手动全量检查：`./scripts/run-pre-commit.sh` 或 `backend/.venv/bin/python -m pre_commit run --all-files`。
 
-### 1. Start Database Services
-
-Using Docker (recommended):
+### 1. One-command local test
 
 ```bash
 cd deploy
-docker compose -f docker-compose-middleware.yml up -d
+./local-test.sh
 ```
 
-Or manually start PostgreSQL and Redis on your system.
+This starts PostgreSQL, Redis, API, orchestrator, worker, and frontend for local testing.
 
-### 2. Start Backend
+### 2. Start Backend Manually
 
 ```bash
 cd backend

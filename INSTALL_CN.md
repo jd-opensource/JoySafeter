@@ -8,131 +8,55 @@
 - Python 3.12+ 与 Node.js 20+（仅本地开发需要）
 - PostgreSQL/Redis 在 Docker 部署场景下会自动包含
 
-## 推荐：一键启动（Docker）
-
-```bash
-./deploy/quick-start.sh
-```
-
-> 生产与更多 Docker 场景（预构建镜像、自定义 registry、仅中间件等）请以 [deploy/README.md](deploy/README.md) 为准。
-
-## 手动部署
+## 推荐：Docker 三服务启动
 
 ```bash
 cd deploy
-
-# 1. 编译镜像
-sh deploy.sh build --all
-
-# 2. 初始化环境变量
-cp ../frontend/env.example ../frontend/.env
-cp ../backend/env.example ../backend/.env
-
-# 重要！！配置 TAVILY_API_KEY 搜索所用 key（自行注册 https://www.tavily.com/）
-# 请将 tvly-* 替换为您实际的 API Key
-echo 'TAVILY_API_KEY=tvly-*' >> ../backend/.env
-
-# 3. 初始化数据库
-docker compose --profile init up
-
-# 4. 启动服务
-docker compose -f docker-compose.yml up
-
-# 关闭服务
-docker compose -f docker-compose.yml down
-
-docker compose logs
+cp .env.example .env
+cd ../backend && cp env.example .env
+cd ../frontend && cp env.example .env
+cd ../deploy
+docker compose up -d --build
 ```
+
+访问地址：
+
+- 前端：`http://localhost:3000`
+- 后端 API：`http://localhost:8000`
+- API 文档：`http://localhost:8000/docs`
+
+后端容器拆分为 `api`、`orchestrator`、`worker`。生产、云数据库/云 Redis、镜像构建等场景请以 [deploy/README.md](deploy/README.md) 为准。
 
 ## 使用预构建的 Docker 镜像
 
-我们提供预构建镜像（Docker Hub）：
-
-- `docker.io/jdopensource/joysafeter-backend:latest`
-- `docker.io/jdopensource/joysafeter-frontend:latest`
-- `docker.io/jdopensource/joysafeter-mcp:latest`
-
-使用方式：
-
 ```bash
 cd deploy
+cp .env.example .env
 export DOCKER_REGISTRY=docker.io/jdopensource
-docker-compose -f docker-compose.yml up -d
+docker compose up -d
 ```
 
 所有镜像均支持多架构（amd64, arm64）。
 
-## 其他配置方式
-
-> Docker 部署场景的单一入口： [deploy/README.md](deploy/README.md)
-
-### 方式 1：交互式安装
-
-使用安装向导来配置您的环境：
+## 本地测试一键启动
 
 ```bash
 cd deploy
-
-# 交互式安装
-./install.sh
-
-# 或快速安装用于开发
-./install.sh --mode dev --non-interactive
+./local-test.sh
 ```
 
-安装完成后，使用针对特定场景的脚本运行服务：
+停止：
 
 ```bash
-# 开发环境
-./scripts/dev.sh
-
-# 生产环境
-./scripts/prod.sh
-
-# 测试环境
-./scripts/test.sh
-
-# 极简运行（仅中间件）
-./scripts/minimal.sh
-
-# 本地开发（后端和前端直接本地运行）
-./scripts/dev-local.sh
+docker compose down
 ```
 
-### 方式 2：手动执行 Docker Compose
-
-为希望获得完全控制权的高级用户准备：
+## 环境检查
 
 ```bash
 cd deploy
-
-# 1. 创建配置文件
-cp .env.example .env
-cd ../backend && cp env.example .env
-
-# 2. 启动中间件（PostgreSQL + Redis）
-cd ../deploy
-./scripts/start-middleware.sh
-
-# 3. 启动全量服务
-docker-compose up -d
+docker compose config
 ```
-
-### 方式 3：环境检查
-
-在启动之前，您可以检查您的环境情况：
-
-```bash
-cd deploy
-./scripts/check-env.sh
-```
-
-这将验证：
-- Docker 安装状态
-- Docker Compose 版本
-- 端口占用情况
-- 配置文件
-- 磁盘空间
 
 ## 手动安装（本地开发）
 

@@ -134,79 +134,47 @@
 
 ## 快速开始
 
-### 一键启动（推荐）
+### Docker 三服务启动（推荐）
 
 ```bash
-./deploy/quick-start.sh
+cd deploy
+cp .env.example .env
+cd ../backend && cp env.example .env
+cd ../frontend && cp env.example .env
+cd ../deploy
+docker compose up -d --build
 ```
 
-脚本提供交互式菜单，选择启动模式并自定义端口（自动检测冲突）：
+访问地址：
 
-| 模式 | 说明 | 配置的端口 |
-|------|------|-----------|
-| **(1) Docker Compose 全栈** | 所有服务容器化运行，支持本机或远程服务器 IP/域名 | 前端、后端、PostgreSQL、Redis |
-| **(2) 仅本地前端** | `bun run dev`，支持连接远程后端 | 前端（可指定远程后端地址） |
-| **(3) 仅本地后端** | `uvicorn --reload`，支持连接远程 DB/Redis | 后端（可指定远程 DB/Redis/前端地址） |
-| **(4) 本地前端 + 后端** | 自动启动中间件，支持对外暴露非 localhost 地址 | 前端、后端 |
+| 服务 | 地址 |
+|------|------|
+| 前端 | http://localhost:3000 |
+| 后端 API | http://localhost:8000 |
+| API 文档 | http://localhost:8000/docs |
 
-每种模式都支持远程部署场景：
-- **Docker Compose 全栈** — 询问部署地址（localhost 或 IP/域名）+ http/https 协议
-- **仅本地前端** — 可选连接远程后端 API（输入后端 IP + 端口 + 协议）
-- **仅本地后端** — 可选连接远程 PostgreSQL、Redis、前端（分别输入地址和端口）
-- **本地前端 + 后端** — 可选通过非 localhost 地址对外提供服务
-- 非 localhost 部署时自动更新 `frontend/.env` 的 CSP 白名单（`NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA`）
+后端默认拆成三个服务：
+
+- `api`：HTTP / WebSocket / 管理接口。
+- `orchestrator`：调度、gRPC、sandbox 生命周期。
+- `worker`：后台任务、reaper、事件落库。
+
+### 本地测试一键启动
 
 ```bash
-./deploy/quick-start.sh --skip-env       # 跳过 .env 文件初始化
-./deploy/quick-start.sh --skip-db-init   # 跳过数据库初始化
+cd deploy
+./local-test.sh
 ```
 
-### 按场景启动
+### 常用部署命令
 
 ```bash
-# ─── 开发场景 ───────────────────────────────────────────
-./deploy/scripts/dev.sh                  # Docker 全栈开发（前后端容器化，适合联调）
-./deploy/scripts/dev-local.sh            # 本地开发准备（启动中间件，后端/前端在本地跑）
-./deploy/scripts/dev-backend.sh          # 仅启动本地后端（需中间件已启动）
-./deploy/scripts/dev-frontend.sh         # 仅启动本地前端（需后端已启动）
-
-# ─── 生产场景 ───────────────────────────────────────────
-./deploy/scripts/prod.sh                 # 生产部署（预构建镜像 + docker-compose.prod.yml）
-./deploy/scripts/prod.sh --skip-mcp      # 生产部署，不启动 MCP 服务
-./deploy/scripts/prod.sh --skip-pull     # 跳过镜像拉取，使用本地已有镜像
-
-# ─── 中间件 / 基础设施 ─────────────────────────────────
-./deploy/scripts/start-middleware.sh     # 启动中间件（PostgreSQL + Redis + MCP）
-./deploy/scripts/minimal.sh             # 最小化启动（仅 PostgreSQL + Redis）
-./deploy/scripts/minimal.sh --with-mcp  # 最小化 + MCP 服务
-./deploy/scripts/stop-middleware.sh      # 停止中间件
-
-# ─── 测试 / CI ──────────────────────────────────────────
-./deploy/scripts/test.sh                 # 测试环境（最小依赖，适合自动化）
-
-# ─── 安装 / 检查 ────────────────────────────────────────
-./deploy/install.sh                      # 交互式安装向导（生成配置文件）
-./deploy/install.sh --mode dev --non-interactive  # 非交互式安装
-./deploy/scripts/check-env.sh           # 环境预检（Docker、端口、配置文件）
-
-# ─── 镜像管理 ───────────────────────────────────────────
-./deploy/deploy.sh build                 # 构建前后端镜像
-./deploy/deploy.sh build --all           # 构建所有镜像
-./deploy/deploy.sh push                  # 构建并推送到仓库
-./deploy/deploy.sh pull                  # 拉取最新预构建镜像
+./deploy/local-test.sh                    # 本地测试一键启动
+./deploy/deploy.sh build                   # 构建前后端镜像
+./deploy/deploy.sh build --all             # 构建全部镜像
 ```
 
-### 默认端口
-
-| 服务 | 端口 | 说明 |
-|------|------|------|
-| 前端 | `3000` | http://localhost:3000 |
-| 后端 API | `8000` | http://localhost:8000 |
-| API 文档 | `8000/docs` | Swagger UI |
-| PostgreSQL | `5432` | 数据库 |
-| Redis | `6379` | 缓存 |
-
-> **环境要求：** Docker + Docker Compose。详细安装指南请参考 [INSTALL_CN.md](INSTALL_CN.md)，生产部署请参考 [deploy/PRODUCTION_IP_GUIDE.md](deploy/PRODUCTION_IP_GUIDE.md)。
+> **环境要求：** Docker + Docker Compose。部署细节请参考 [deploy/README.md](deploy/README.md)。
 
 ---
 
@@ -290,7 +258,6 @@
 - [INSTALL_CN.md](INSTALL_CN.md) — 安装指南（Docker / 手动 / 预构建镜像）
 - [DEVELOPMENT.md](DEVELOPMENT.md) — 本地开发
 - [deploy/README.md](deploy/README.md) — Docker 部署
-- [deploy/PRODUCTION_IP_GUIDE.md](deploy/PRODUCTION_IP_GUIDE.md) — 生产环境部署
 
 ### 深入了解
 - [docs/ARCHITECTURE_CN.md](docs/ARCHITECTURE_CN.md) — 架构总览

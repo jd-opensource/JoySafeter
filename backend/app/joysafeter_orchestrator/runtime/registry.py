@@ -1,10 +1,10 @@
 import logging
+import os
 from typing import Optional
 
 from app.joysafeter_orchestrator.runtime.adapter import HarnessAdapter
 from app.joysafeter_orchestrator.runtime.claude_adapter import ClaudeAdapter
 from app.joysafeter_orchestrator.runtime.codex_adapter import CodexAdapter
-from app.joysafeter_orchestrator.runtime.mock_adapter import MockAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +27,13 @@ class AdapterRegistry:
             registry._adapters["codex"] = codex
             logger.info("Codex adapter registered")
 
-        mock = MockAdapter()
-        registry._adapters["mock"] = mock
-        logger.info("Mock adapter registered")
+        # Mock adapter only registered when explicitly enabled (matching Rust gate)
+        mock_enabled = os.getenv("JOYSAFETER_MOCK_ADAPTER", "").lower() in ("1", "true")
+        if mock_enabled:
+            from app.joysafeter_orchestrator.runtime.mock_adapter import MockAdapter
+            mock = MockAdapter()
+            registry._adapters["mock"] = mock
+            logger.info("Mock adapter registered (JOYSAFETER_MOCK_ADAPTER=1)")
 
         return registry
 

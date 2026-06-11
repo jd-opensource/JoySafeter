@@ -524,12 +524,10 @@ def create_simple_llm_call(model_name: str = "gpt-4"):
         return call_llm
 
     except ImportError:
-        logger.warning("langchain_openai not installed, returning mock LLM")
-
-        async def mock_call_llm(prompt: str) -> str:
-            return "Thought: This is a mock response.\n\nCode:\n```python\nfinal_answer('Mock response')\n```"
-
-        return mock_call_llm
+        raise RuntimeError(
+            "langchain_openai is required for code_agent but is not installed. "
+            "Install it with: pip install langchain_openai"
+        )
 
 
 __all__ = [

@@ -70,8 +70,7 @@ bun run test
 
 ## 部署入口（统一文档）
 
-- 一键启动 / 场景化脚本 / 生产部署：[`deploy/README.md`](../deploy/README.md)
-- 生产 IP/URL 配置最佳实践：[`deploy/PRODUCTION_IP_GUIDE.md`](../deploy/PRODUCTION_IP_GUIDE.md)
+- Docker 三服务 / 云部署 / 中间件脚本：[`deploy/README.md`](../deploy/README.md)
 
 ## 相关链接
 

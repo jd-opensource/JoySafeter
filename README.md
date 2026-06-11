@@ -134,79 +134,47 @@ This dynamic decision-making — where the agent adapts its next step based on w
 
 ## Quick Start
 
-### One-Click Launch (Recommended)
+### Docker 三服务启动（推荐）
 
 ```bash
-./deploy/quick-start.sh
+cd deploy
+cp .env.example .env
+cd ../backend && cp env.example .env
+cd ../frontend && cp env.example .env
+cd ../deploy
+docker compose up -d --build
 ```
 
-The script provides an interactive menu to choose your startup mode and customize ports (with conflict detection):
+访问地址：
 
-| Mode | Description | Ports Configured |
-|------|-------------|-----------------|
-| **(1) Docker Compose Full Stack** | All services in containers, supports localhost or remote server IP/domain | Frontend, Backend, PostgreSQL, Redis |
-| **(2) Local Frontend Only** | `bun run dev`, supports connecting to remote backend | Frontend (can specify remote backend address) |
-| **(3) Local Backend Only** | `uvicorn --reload`, supports remote DB/Redis | Backend (can specify remote DB/Redis/frontend address) |
-| **(4) Local Frontend + Backend** | Auto-starts middleware, supports exposing via non-localhost address | Frontend, Backend |
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:3000 |
+| Backend API | http://localhost:8000 |
+| API Docs | http://localhost:8000/docs |
 
-All modes support remote deployment scenarios:
-- **Docker Compose Full Stack** — choose deployment address (localhost or IP/domain) + http/https
-- **Local Frontend Only** — optionally connect to a remote backend API (enter backend IP + port + protocol)
-- **Local Backend Only** — optionally connect to remote PostgreSQL, Redis, and frontend (enter each address and port)
-- **Local Frontend + Backend** — optionally expose services via a non-localhost address
-- Non-localhost deployments automatically update `frontend/.env` CSP whitelist (`NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA`)
+后端默认拆成三个服务：
+
+- `api`：HTTP / WebSocket / 管理接口。
+- `orchestrator`：调度、gRPC、sandbox 生命周期。
+- `worker`：后台任务、reaper、事件落库。
+
+### 本地测试一键启动
 
 ```bash
-./deploy/quick-start.sh --skip-env       # Skip .env file initialization
-./deploy/quick-start.sh --skip-db-init   # Skip database initialization
+cd deploy
+./local-test.sh
 ```
 
-### Launch by Scenario
+### 常用部署命令
 
 ```bash
-# ─── Development ────────────────────────────────────────
-./deploy/scripts/dev.sh                  # Docker full-stack dev (containerized frontend + backend)
-./deploy/scripts/dev-local.sh            # Local dev prep (start middleware, run backend/frontend on host)
-./deploy/scripts/dev-backend.sh          # Local backend only (requires middleware running)
-./deploy/scripts/dev-frontend.sh         # Local frontend only (requires backend running)
-
-# ─── Production ─────────────────────────────────────────
-./deploy/scripts/prod.sh                 # Production deploy (pre-built images + docker-compose.prod.yml)
-./deploy/scripts/prod.sh --skip-mcp      # Production without MCP service
-./deploy/scripts/prod.sh --skip-pull     # Skip image pull, use local images
-
-# ─── Middleware / Infrastructure ────────────────────────
-./deploy/scripts/start-middleware.sh     # Start middleware (PostgreSQL + Redis + MCP)
-./deploy/scripts/minimal.sh             # Minimal startup (PostgreSQL + Redis only)
-./deploy/scripts/minimal.sh --with-mcp  # Minimal + MCP service
-./deploy/scripts/stop-middleware.sh      # Stop middleware
-
-# ─── Test / CI ──────────────────────────────────────────
-./deploy/scripts/test.sh                 # Test environment (minimal deps, automation-friendly)
-
-# ─── Install / Check ───────────────────────────────────
-./deploy/install.sh                      # Interactive installation wizard (generates config files)
-./deploy/install.sh --mode dev --non-interactive  # Non-interactive install
-./deploy/scripts/check-env.sh           # Environment preflight (Docker, ports, config files)
-
-# ─── Image Management ──────────────────────────────────
-./deploy/deploy.sh build                 # Build frontend + backend images
-./deploy/deploy.sh build --all           # Build all images
-./deploy/deploy.sh push                  # Build and push to registry
-./deploy/deploy.sh pull                  # Pull latest pre-built images
+./deploy/local-test.sh                    # 本地测试一键启动
+./deploy/deploy.sh build                   # 构建 frontend + backend 镜像
+./deploy/deploy.sh build --all             # 构建全部镜像
 ```
 
-### Default Ports
-
-| Service | Port | URL |
-|---------|------|-----|
-| Frontend | `3000` | http://localhost:3000 |
-| Backend API | `8000` | http://localhost:8000 |
-| API Docs | `8000/docs` | Swagger UI |
-| PostgreSQL | `5432` | Database |
-| Redis | `6379` | Cache |
-
-> **Prerequisites:** Docker + Docker Compose. See [INSTALL.md](INSTALL.md) for detailed installation guide, [deploy/PRODUCTION_IP_GUIDE.md](deploy/PRODUCTION_IP_GUIDE.md) for production deployment.
+> **Prerequisites:** Docker + Docker Compose. See [deploy/README.md](deploy/README.md) for deployment details.
 
 ---
 
@@ -290,7 +258,6 @@ All modes support remote deployment scenarios:
 - [INSTALL.md](INSTALL.md) — Installation guide (Docker / manual / pre-built images)
 - [DEVELOPMENT.md](DEVELOPMENT.md) — Local development setup
 - [deploy/README.md](deploy/README.md) — Docker deployment
-- [deploy/PRODUCTION_IP_GUIDE.md](deploy/PRODUCTION_IP_GUIDE.md) — Production deployment
 
 ### Deep Dive
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Architecture overview

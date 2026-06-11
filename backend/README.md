@@ -27,14 +27,14 @@ cp env.example .env
 
 ### 3) 准备数据库并迁移
 
-> 推荐：直接用 Docker 启动中间件（PostgreSQL + Redis），避免本地安装依赖。
+如果要一键启动本地测试环境，直接运行：
 
 ```bash
 cd ../deploy
-./scripts/minimal.sh
+./local-test.sh
 ```
 
-然后在另一个终端执行迁移：
+如果只想手动启动后端，请先自行准备 PostgreSQL/Redis，然后执行迁移：
 
 ```bash
 cd backend
@@ -89,7 +89,7 @@ Docker Compose 可使用覆盖文件启动三服务：
 
 ```bash
 cd deploy
-docker compose -f docker-compose.yml -f docker-compose.services.yml up -d backend runner worker frontend
+docker compose up -d api orchestrator worker frontend
 ```
 
 ## 项目结构
@@ -168,7 +168,6 @@ pytest --cov=app
 ## 部署入口（统一文档）
 
 - 一键启动 / 场景化脚本 / 生产部署：[`deploy/README.md`](../deploy/README.md)
-- 生产 IP/URL 配置最佳实践：[`deploy/PRODUCTION_IP_GUIDE.md`](../deploy/PRODUCTION_IP_GUIDE.md)
 
 ## License
 
