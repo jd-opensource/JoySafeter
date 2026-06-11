@@ -325,28 +325,6 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(['trace_id'], ['traces.id'], name=op.f('fk_observations_trace_id_traces'), ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_observations'))
         )
-        op.create_table('platform_tokens',
-        sa.Column('user_id', sa.String(length=255), nullable=False),
-        sa.Column('name', sa.String(length=255), nullable=False),
-        sa.Column('token_hash', sa.String(length=64), nullable=False),
-        sa.Column('token_prefix', sa.String(length=12), nullable=False),
-        sa.Column('scopes', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column('resource_type', sa.String(length=50), nullable=True),
-        sa.Column('resource_id', sa.UUID(), nullable=True),
-        sa.Column('expires_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('last_used_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('is_active', sa.Boolean(), nullable=False),
-        sa.Column('id', sa.UUID(), nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.ForeignKeyConstraint(['user_id'], ['joysafeter_users.id'], name=op.f('fk_platform_tokens_user_id_joysafeter_users'), ondelete='CASCADE'),
-        sa.PrimaryKeyConstraint('id', name=op.f('pk_platform_tokens')),
-        sa.UniqueConstraint('token_hash', name=op.f('uq_platform_tokens_token_hash'))
-        )
-        op.create_index('platform_tokens_active_idx', 'platform_tokens', ['is_active'], unique=False)
-        op.create_index('platform_tokens_hash_idx', 'platform_tokens', ['token_hash'], unique=False)
-        op.create_index('platform_tokens_resource_lookup_idx', 'platform_tokens', ['user_id', 'is_active', 'resource_type', 'resource_id'], unique=False)
-        op.create_index('platform_tokens_user_idx', 'platform_tokens', ['user_id'], unique=False)
         op.create_table('settings',
         sa.Column('user_id', sa.String(length=255), nullable=False),
         sa.Column('theme', sa.String(length=50), nullable=False),
@@ -1193,7 +1171,6 @@ def downgrade() -> None:
         op.drop_table('agents')
         op.drop_table('user_sandbox')
         op.drop_table('settings')
-        op.drop_table('platform_tokens')
         op.drop_table('observations')
         op.drop_table('mcp_servers')
         op.drop_table('joysafeter_permissions')

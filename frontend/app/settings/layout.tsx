@@ -1,6 +1,6 @@
 'use client'
 
-import { Cpu, Box, Key } from 'lucide-react'
+import { Cpu, Box } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
@@ -23,12 +23,6 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
       label: t('settings.sandboxes.title'),
       icon: Box,
       href: '/settings/sandboxes',
-    },
-    {
-      id: 'tokens',
-      label: t('settings.tokens.title'),
-      icon: Key,
-      href: '/settings/tokens',
     },
   ]
 

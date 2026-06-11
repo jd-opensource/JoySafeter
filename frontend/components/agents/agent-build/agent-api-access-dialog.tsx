@@ -1,6 +1,4 @@
-import { Key, Terminal, Copy, Check, Plus } from 'lucide-react'
-import { useState } from 'react'
-
+import { Terminal, Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -9,29 +7,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { TokenCreatedDialog } from '@/components/settings/token-created-dialog'
-import { TokenList } from '@/components/tokens/TokenList'
-import {
-  useCreateToken,
-  usePlatformTokens,
-  type PlatformTokenCreateResponse,
-} from '@/hooks/queries/platformTokens'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
-import { useToast } from '@/hooks/use-toast'
 import { API_BASE } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
-import type { TokenListParams } from '@/services/platformTokenService'
 
 interface AgentApiAccessDialogProps {
   open: boolean
@@ -39,9 +18,6 @@ interface AgentApiAccessDialogProps {
   agentId: string
   projectId: string
   endpointKind?: 'graph'
-  tokenResourceType?: NonNullable<TokenListParams['resourceType']>
-  executeScope?: string
-  readScope?: string
 }
 
 export function AgentApiAccessDialog({
@@ -50,24 +26,9 @@ export function AgentApiAccessDialog({
   agentId,
   projectId,
   endpointKind = 'graph',
-  tokenResourceType = 'graph',
-  executeScope = 'graphs:execute',
-  readScope = 'graphs:read',
 }: AgentApiAccessDialogProps) {
   const { t } = useTranslation()
-  const { toast } = useToast()
   const { copied, handleCopy } = useCopyToClipboard()
-
-  const [showCreateForm, setShowCreateForm] = useState(false)
-  const [tokenName, setTokenName] = useState('')
-  const [tokenScope, setTokenScope] = useState(executeScope)
-  const [createdToken, setCreatedToken] = useState<PlatformTokenCreateResponse | null>(null)
-
-  const { data: tokens = [] } = usePlatformTokens({
-    resourceType: tokenResourceType,
-    resourceId: projectId,
-  })
-  const createMutation = useCreateToken()
 
   const apiUrl = `${API_BASE}/openapi/${endpointKind}/${agentId}`
 
@@ -75,81 +36,6 @@ export function AgentApiAccessDialog({
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"inputs": {"your_input_key": "your_input_value"}}'`
-
-  const handleCreateToken = async () => {
-    if (!tokenName.trim()) return
-    try {
-      const result = await createMutation.mutateAsync({
-        name: tokenName.trim(),
-        scopes: [tokenScope],
-        resource_type: tokenResourceType,
-        resource_id: projectId,
-      })
-      setCreatedToken(result)
-      toast({ title: t('settings.tokens.createdSuccess') })
-      setTokenName('')
-      setShowCreateForm(false)
-    } catch (error: unknown) {
-      toast({
-        title: error instanceof Error ? error.message : String(error),
-        variant: 'destructive',
-      })
-    }
-  }
-
-  const tokenHeader = (
-    <div>
-      <div className="mb-4">
-        <h3 className="text-sm font-medium text-[var(--text-primary)]">{t('workspace.apiKeys')}</h3>
-        <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-          {t('workspace.apiKeysDescription')}
-        </p>
-      </div>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => setShowCreateForm(!showCreateForm)}
-        className="gap-2"
-        disabled={tokens.length >= 50}
-      >
-        <Plus size={14} />
-        {t('settings.tokens.create')}
-      </Button>
-      {tokens.length >= 50 && (
-        <p className="mt-1 text-xs text-[var(--status-warning)]">
-          {t('settings.tokens.limitReached')}
-        </p>
-      )}
-      {showCreateForm && (
-        <div className="mt-3 flex items-end gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-4">
-          <div className="flex-1">
-            <Label className="text-xs">{t('settings.tokens.name')}</Label>
-            <Input
-              value={tokenName}
-              onChange={(event) => setTokenName(event.target.value)}
-              placeholder={t('settings.tokens.namePlaceholder')}
-              className="mt-1"
-            />
-          </div>
-          <div className="w-32">
-            <Label className="text-xs">{t('settings.tokens.type')}</Label>
-            <Select value={tokenScope} onValueChange={setTokenScope}>
-              <SelectTrigger className="mt-1 bg-[var(--surface-elevated)]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={executeScope}>{t('settings.tokens.scopeRead')}</SelectItem>
-                <SelectItem value={readScope}>{t('settings.tokens.scopeRead')}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <Button size="sm" onClick={handleCreateToken} disabled={createMutation.isPending}>
-            <Plus size={14} />
-          </Button>
-        </div>
-      )}
-    </div>
-  )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -167,19 +53,7 @@ export function AgentApiAccessDialog({
         </DialogHeader>
 
         <div className="custom-scrollbar mt-4 flex-1 overflow-y-auto px-2">
-          <Tabs defaultValue="integration" className="w-full">
-            <TabsList className="mb-6 grid w-[400px] grid-cols-2">
-              <TabsTrigger value="integration">
-                <Terminal className="mr-2 h-4 w-4" />
-                {t('workspace.integrationGuide')}
-              </TabsTrigger>
-              <TabsTrigger value="keys">
-                <Key className="mr-2 h-4 w-4" />
-                {t('workspace.apiTokens')}
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="integration" className="space-y-6">
+          <div className="space-y-6">
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-[var(--text-primary)]">
                   {t('workspace.baseUrl')}
@@ -230,7 +104,7 @@ export function AgentApiAccessDialog({
                 </p>
                 <div className="rounded-lg border border-[var(--brand-100)] bg-[var(--brand-50)] p-4">
                   <code className="font-mono text-sm font-semibold text-[var(--brand-600)]">
-                    Authorization: Bearer YOUR_API_TOKEN
+                    Authorization: Bearer YOUR_API_KEY
                   </code>
                 </div>
               </div>
@@ -294,26 +168,10 @@ export function AgentApiAccessDialog({
                   </svg>
                 </a>
               </div>
-            </TabsContent>
+          </div>
 
-            <TabsContent value="keys" className="space-y-4">
-              <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 shadow-sm">
-                <TokenList
-                  resourceType={tokenResourceType}
-                  resourceId={projectId}
-                  header={tokenHeader}
-                />
-              </div>
-            </TabsContent>
-          </Tabs>
         </div>
       </DialogContent>
-
-      <TokenCreatedDialog
-        open={!!createdToken}
-        onOpenChange={(nextOpen) => !nextOpen && setCreatedToken(null)}
-        tokenData={createdToken}
-      />
     </Dialog>
   )
 }

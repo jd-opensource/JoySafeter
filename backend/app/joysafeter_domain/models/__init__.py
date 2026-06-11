@@ -35,7 +35,6 @@ from .model_instance import ModelInstance
 from .model_provider import ModelProvider
 from .oauth_account import OAuthAccount
 from .organization import Member, Organization
-from .platform_token import PlatformToken
 from .project import Project
 from .secret import JoySafeterSecret  # noqa: F401 — alembic discovery
 from .security_audit_log import SecurityAuditLog
@@ -81,7 +80,6 @@ __all__ = [
     "SkillCollaborator",
     "SkillVersion",
     "SkillVersionFile",
-    "PlatformToken",
     "Task",
     "TaskStatus",
     "TaskPriority",

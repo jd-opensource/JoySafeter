@@ -29,7 +29,7 @@ import { cn } from '@/lib/utils'
 import { useQuickstartChat, type StepId } from '@/hooks/managed/use-quickstart-chat'
 import { managedGet, managedPost } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
-import { stripIdPrefix } from '@/lib/managed/id'
+import { shortIdWithPrefix, stripIdPrefix } from '@/lib/managed/id'
 import { useQuery } from '@tanstack/react-query'
 import { useSessionStream } from '@/lib/managed/sse'
 import { useRouter } from 'next/navigation'
@@ -1333,19 +1333,19 @@ export default function QuickstartPage() {
                       <div>
                         <span className="text-muted-foreground">agent:</span>{' '}
                         {resourceIds[2]
-                          ? `agent_${resourceIds[2].slice(0, 8)}`
+                          ? shortIdWithPrefix(resourceIds[2], 'agent_')
                           : '—'}
                       </div>
                       {resourceIds[3] && (
                         <div>
                           <span className="text-muted-foreground">environment_id:</span>{' '}
-                          {`env_${resourceIds[3].slice(0, 8)}`}
+                          {shortIdWithPrefix(resourceIds[3], 'env_')}
                         </div>
                       )}
                       {resourceIds[4] && (
                         <div>
                           <span className="text-muted-foreground">vault_ids:</span>{' '}
-                          {`["vlt_${resourceIds[4].slice(0, 8)}"]`}
+                          {`["${shortIdWithPrefix(resourceIds[4], 'vlt_')}"]`}
                         </div>
                       )}
                     </div>
@@ -1551,7 +1551,7 @@ export default function QuickstartPage() {
                       onValueChange={setSelectedEnvId}
                       disabled={isSessionActive}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger className="w-[220px] max-w-[40vw]">
                         <SelectValue placeholder={t('managed.quickstart.selectEnv')} />
                       </SelectTrigger>
                       <SelectContent>

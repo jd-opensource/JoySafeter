@@ -32,7 +32,6 @@ from app.joysafeter_domain.services.model_service import ModelService
 from app.joysafeter_domain.services.model_usage_service import ModelUsageService
 from app.joysafeter_domain.services.oauth_service import OAuthService
 from app.joysafeter_domain.services.organization_service import OrganizationService
-from app.joysafeter_domain.services.platform_token_service import PlatformTokenService
 from app.joysafeter_domain.services.project_service import ProjectService
 from app.joysafeter_domain.services.sandbox_manager import SandboxManagerService, _sandbox_pool, get_sandbox_handle
 from app.joysafeter_domain.services.sandbox_service import SandboxService
@@ -77,7 +76,6 @@ __all__ = [
     "ModelUsageService",
     "OAuthService",
     "OrganizationService",
-    "PlatformTokenService",
     "PreconditionFailed",
     "ProjectService",
     "SandboxManagerService",

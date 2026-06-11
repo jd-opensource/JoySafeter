@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Optional
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_shared.common.app_errors import AccessDeniedError
-from app.joysafeter_shared.common.permissions import check_token_permission
 from app.joysafeter_domain.models.skill import Skill
 from app.joysafeter_domain.models.skill_collaborator import CollaboratorRole, SkillCollaborator
 
@@ -36,10 +35,6 @@ async def check_skill_access(
     min_role: CollaboratorRole,
     *,
     is_superuser: bool = False,
-    token_scopes: Optional[List[str]] = None,
-    token_resource_type: Optional[str] = None,
-    token_resource_id: Optional[str] = None,
-    required_scope: Optional[str] = None,
 ) -> None:
     """
     Unified permission check.
@@ -48,23 +43,19 @@ async def check_skill_access(
     """
     # 1. Superuser bypass
     if is_superuser:
-        _check_token_scope(token_scopes, required_scope, str(skill.id), token_resource_type, token_resource_id)
         return
 
     # 2. Owner always passes
     if skill.owner_id and skill.owner_id == user_id:
-        _check_token_scope(token_scopes, required_scope, str(skill.id), token_resource_type, token_resource_id)
         return
 
     # 3. Public skill + viewer access (skip DB query)
     if skill.is_public and min_role == CollaboratorRole.viewer:
-        _check_token_scope(token_scopes, required_scope, str(skill.id), token_resource_type, token_resource_id)
         return
 
     # 4. Check collaborator role
     collab = await _get_collaborator(db, skill.id, user_id)
     if collab and collab.role >= min_role:
-        _check_token_scope(token_scopes, required_scope, str(skill.id), token_resource_type, token_resource_id)
         return
 
     raise AccessDeniedError(
@@ -73,27 +64,3 @@ async def check_skill_access(
         data={"skill_id": str(skill.id), "user_id": user_id, "min_role": min_role.value},
     )
 
-
-def _check_token_scope(
-    token_scopes: Optional[List[str]],
-    required_scope: Optional[str],
-    skill_id: str,
-    token_resource_type: Optional[str] = None,
-    token_resource_id: Optional[str] = None,
-) -> None:
-    """If request came via PlatformToken, verify scope."""
-    if token_scopes is not None and required_scope is not None:
-        has_permission = check_token_permission(
-            token_scopes=token_scopes,
-            required_scope=required_scope,
-            resource_type="skill",
-            resource_id=str(skill_id),
-            token_resource_type=token_resource_type,
-            token_resource_id=str(token_resource_id) if token_resource_id else None,
-        )
-        if not has_permission:
-            raise AccessDeniedError(
-                f"Token missing required scope or resource binding: {required_scope}",
-                code="SKILL_TOKEN_SCOPE_FORBIDDEN",
-                data={"skill_id": skill_id, "required_scope": required_scope},
-            )

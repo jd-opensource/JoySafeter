@@ -53,7 +53,6 @@ export default function AgentListPage() {
 
   const filters: FilterDef[] = [
     {
-      key: 'created',
       ...createCreatedTimeFilter(t),
       value: createdFilter,
       onChange: setCreatedFilter,

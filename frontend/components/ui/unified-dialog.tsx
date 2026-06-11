@@ -65,7 +65,6 @@ export function UnifiedDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        hideCloseButton
         className={cn(
           'flex max-h-[85vh] flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-0 shadow-2xl',
           maxWidthClasses[maxWidth],

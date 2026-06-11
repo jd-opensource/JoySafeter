@@ -41,7 +41,6 @@ export default function SessionListPage() {
 
   const filters: FilterDef[] = [
     {
-      key: 'created',
       ...createCreatedTimeFilter(t),
       value: createdFilter,
       onChange: setCreatedFilter,

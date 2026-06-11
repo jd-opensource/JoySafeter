@@ -503,12 +503,6 @@ class SkillService(BaseService[Skill]):
         # Delete associated files
         await self.file_repo.delete_by_skill(skill_id)
 
-        # Revoke all tokens bound to this skill
-        from app.joysafeter_domain.services.platform_token_service import PlatformTokenService
-
-        token_service = PlatformTokenService(self.db)
-        await token_service.revoke_by_resource("skill", str(skill_id))
-
         # Delete Skill
         await self.repo.delete(skill_id)
         await self.db.commit()

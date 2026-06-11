@@ -964,8 +964,22 @@ async def session_event_stream(
     if session.project_id != auth_ctx.project_id:
         raise HTTPException(404, "Session not found")
 
-    from app.joysafeter_orchestrator.lifespan import get_session_broadcaster
+    from app.joysafeter_orchestrator.lifespan import (
+        ensure_session_broadcaster,
+        get_session_broadcaster,
+    )
     broadcaster = get_session_broadcaster()
+    if not broadcaster:
+        try:
+            from app.joysafeter_shared.cache.redis import RedisClient
+            from app.joysafeter_shared.config.settings import joysafeter_config
+
+            broadcaster = ensure_session_broadcaster(
+                redis_client=RedisClient.get_client(),
+                instance_id=joysafeter_config.instance_id,
+            )
+        except Exception:
+            logger.debug("Failed to lazily initialize session broadcaster", exc_info=True)
 
     async def event_generator():
         last_seq = after_seq or 0
@@ -990,7 +1004,11 @@ async def session_event_stream(
 
         # Subscribe to live events
         if not broadcaster:
-            yield "data: {\"type\": \"error\", \"message\": \"Broadcaster not available\"}\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                await asyncio.sleep(15)
+                yield ": heartbeat\n\n"
             return
 
         q = broadcaster.subscribe(session_id)

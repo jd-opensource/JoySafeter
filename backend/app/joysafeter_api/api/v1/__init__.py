@@ -29,7 +29,6 @@ from .skills import router as skills_router
 from .task_activities import router as task_activities_router
 from .tasks import router as tasks_router
 from .threads import router as threads_router
-from .tokens import router as tokens_router
 from .tools import router as tools_router
 from .traces import router as traces_router
 from .users import router as users_router
@@ -54,7 +53,6 @@ ROUTERS = [
     skills_router,
     skill_versions_router,
     skill_collaborators_router,
-    tokens_router,
     traces_router,
     users_router,
     environment_router,

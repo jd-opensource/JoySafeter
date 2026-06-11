@@ -9,8 +9,24 @@ from app.joysafeter_shared.cache.redis import RedisClient
 
 
 async def run_api_startup() -> None:
+    await _initialize_session_broadcaster()
     await _sync_model_providers()
     await _initialize_mcp_tools()
+
+
+async def _initialize_session_broadcaster() -> None:
+    try:
+        from app.joysafeter_orchestrator.lifespan import ensure_session_broadcaster
+        from app.joysafeter_shared.config.settings import joysafeter_config
+
+        ensure_session_broadcaster(
+            redis_client=RedisClient.get_client(),
+            instance_id=joysafeter_config.instance_id,
+        )
+        logger.info("   ✓ Session broadcaster ready")
+    except Exception as e:
+        logger.warning(f"   ⚠️  Session broadcaster initialization failed: {e}")
+        logger.warning("   SSE live events will be degraded until broadcaster is available")
 
 
 async def _sync_model_providers() -> None:

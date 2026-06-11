@@ -37,7 +37,6 @@ async def publish_version(
         version_str=payload.version,
         release_notes=payload.release_notes,
         is_superuser=auth.user.is_superuser,
-        token_scopes=auth.scopes,
     )
     return {
         "success": True,
@@ -56,7 +55,6 @@ async def list_versions(
         skill_id=skill_id,
         current_user_id=auth.user.id,
         is_superuser=auth.user.is_superuser,
-        token_scopes=auth.scopes,
     )
     return {
         "success": True,
@@ -75,7 +73,6 @@ async def get_latest_version(
         skill_id=skill_id,
         current_user_id=auth.user.id,
         is_superuser=auth.user.is_superuser,
-        token_scopes=auth.scopes,
     )
     return {
         "success": True,
@@ -96,7 +93,6 @@ async def get_version(
         version_str=version,
         current_user_id=auth.user.id,
         is_superuser=auth.user.is_superuser,
-        token_scopes=auth.scopes,
     )
     return {
         "success": True,

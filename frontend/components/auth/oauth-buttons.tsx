@@ -67,7 +67,7 @@ interface OAuthButtonsProps {
  * Dynamically fetches enabled OAuth providers from the backend and renders login buttons.
  */
 export function OAuthButtons({
-  callbackUrl = '/dashboard',
+  callbackUrl = '/managed/quickstart',
   showDivider = true,
 }: OAuthButtonsProps) {
   const { t } = useTranslation()

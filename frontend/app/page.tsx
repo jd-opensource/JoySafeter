@@ -12,7 +12,7 @@ export default function Page() {
   useEffect(() => {
     if (!session.isPending) {
       if (session.data?.user) {
-        router.replace('/dashboard')
+        router.replace('/managed/quickstart')
       } else {
         router.replace('/signin')
       }

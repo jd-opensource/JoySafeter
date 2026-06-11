@@ -5,6 +5,7 @@ import { useTranslation } from '@/lib/i18n'
 import { MANAGED_API_BASE } from '@/lib/api-client'
 import { getCsrfToken } from '@/lib/auth/csrf'
 import { getOperationErrorMessage } from '@/lib/managed/errors'
+import { stripIdPrefix } from '@/lib/managed/id'
 import { generateUUID } from '@/lib/utils/uuid'
 import { useProjectStore } from '@/stores/managed/project-store'
 
@@ -47,6 +48,33 @@ function getAuthHeaders(): Record<string, string> {
   if (currentOrgId) headers['X-Org-Id'] = currentOrgId
   if (currentProjectId) headers['X-Project-Id'] = currentProjectId
   return headers
+}
+
+function unwrapManagedResponse<T = Record<string, unknown>>(payload: unknown): T {
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'success' in payload &&
+    'data' in payload
+  ) {
+    return (payload as { data: T }).data
+  }
+  return payload as T
+}
+
+function getCreatedResourceId(payload: unknown): string | null {
+  const data = unwrapManagedResponse<Record<string, unknown>>(payload)
+  const id = data?.id
+  if (typeof id === 'string') return id
+
+  for (const key of ['agent', 'environment', 'vault', 'session']) {
+    const nested = data?.[key]
+    if (nested && typeof nested === 'object' && typeof (nested as { id?: unknown }).id === 'string') {
+      return (nested as { id: string }).id
+    }
+  }
+
+  return null
 }
 
 export function useQuickstartChat(secretRef: string) {
@@ -269,9 +297,9 @@ export function useQuickstartChat(secretRef: string) {
 
     setIsCreating(true)
     try {
-      const body: Record<string, unknown> = { agent: agentId }
-      if (envId) body.environment_id = envId
-      if (vaultId) body.vault_ids = [vaultId]
+      const body: Record<string, unknown> = { agent: stripIdPrefix(agentId) }
+      if (envId) body.environment_id = stripIdPrefix(envId)
+      if (vaultId) body.vault_ids = [stripIdPrefix(vaultId)]
 
       const resp = await fetch(`${MANAGED_API_BASE}/sessions`, {
         method: 'POST',
@@ -286,7 +314,7 @@ export function useQuickstartChat(secretRef: string) {
       }
 
       const result = await resp.json()
-      const sessionId = result.id || result.session?.id
+      const sessionId = getCreatedResourceId(result)
       if (sessionId) {
         setResourceIds((prev) => {
           const next = { ...prev, [5]: sessionId }
@@ -346,9 +374,10 @@ export function useQuickstartChat(secretRef: string) {
         }
 
         const result = await resp.json()
-        if (result.id) {
+        const environmentId = getCreatedResourceId(result)
+        if (environmentId) {
           setResourceIds((prev) => {
-            const next = { ...prev, [3]: result.id }
+            const next = { ...prev, [3]: environmentId }
             resourceIdsRef.current = next
             return next
           })
@@ -394,9 +423,10 @@ export function useQuickstartChat(secretRef: string) {
       }
 
       const result = await resp.json()
-      if (result.id) {
+      const vaultId = getCreatedResourceId(result)
+      if (vaultId) {
         setResourceIds((prev) => {
-            const next = { ...prev, [4]: result.id }
+          const next = { ...prev, [4]: vaultId }
           resourceIdsRef.current = next
           return next
         })
@@ -511,9 +541,10 @@ export function useQuickstartChat(secretRef: string) {
       }
 
       const result = await resp.json()
-      if (result.id) {
+      const resourceId = getCreatedResourceId(result)
+      if (resourceId) {
         setResourceIds((prev) => {
-          const next = { ...prev, [step]: result.id }
+          const next = { ...prev, [step]: resourceId }
           resourceIdsRef.current = next
           return next
         })

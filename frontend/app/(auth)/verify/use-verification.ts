@@ -260,7 +260,7 @@ export function useVerification({
           if (isInviteFlow && redirectUrl) {
             window.location.href = redirectUrl
           } else {
-            router.push('/dashboard')
+            router.push('/managed/quickstart')
           }
         }
 

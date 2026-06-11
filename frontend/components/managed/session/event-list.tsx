@@ -12,6 +12,16 @@ interface EventListProps {
   mode: "transcript" | "debug"
 }
 
+function getEventKey(event: SessionEvent, index: number): string {
+  const type = event.type || event.event_type || 'event'
+  const stablePart = event.id
+    || (event.seq != null ? `seq_${event.seq}` : '')
+    || event.created_at
+    || JSON.stringify(event.content ?? event.usage ?? event.stop_reason ?? event.tool ?? '')
+
+  return `${stablePart || type}:${type}:${index}`
+}
+
 export function EventList({ events, sessionStart, selectedId, onSelect, mode }: EventListProps) {
   const { t } = useTranslation()
 
@@ -25,9 +35,9 @@ export function EventList({ events, sessionStart, selectedId, onSelect, mode }: 
 
   return (
     <div className="divide-y divide-border">
-      {events.map((event) => (
+      {events.map((event, index) => (
         <EventRow
-          key={event.id || event.seq}
+          key={getEventKey(event, index)}
           event={event}
           sessionStart={sessionStart}
           selected={event.id === selectedId}

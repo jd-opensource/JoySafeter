@@ -131,7 +131,25 @@ function TranscriptContent({ event }: { event: SessionEvent }) {
     )
   }
 
-  return <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        pre: ({ children }) => (
+          <pre className="overflow-x-auto rounded-lg border border-border bg-muted p-3 text-xs leading-relaxed text-foreground">
+            {children}
+          </pre>
+        ),
+        code: ({ children, className }) => (
+          <code className={className ? "font-mono text-foreground" : "rounded bg-muted px-1 py-0.5 font-mono text-foreground"}>
+            {children}
+          </code>
+        ),
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  )
 }
 
 function extractText(event: SessionEvent): string | null {

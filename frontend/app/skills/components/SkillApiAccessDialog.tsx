@@ -1,6 +1,6 @@
 'use client'
 
-import { Key, Terminal, Copy, Check } from 'lucide-react'
+import { Terminal, Copy, Check } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -10,13 +10,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { API_BASE } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
-
-import { ApiTokensTab } from './ApiTokensTab'
 
 interface SkillApiAccessDialogProps {
   open: boolean
@@ -32,7 +29,7 @@ export function SkillApiAccessDialog({ open, onOpenChange, skillId }: SkillApiAc
   const apiUrl = `${API_BASE}/skills/${skillId}`
 
   const curlExample = `curl -X POST "${apiUrl}/execute" \\
-  -H "Authorization: Bearer YOUR_API_TOKEN" \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"inputs": {"your_input_key": "your_input_value"}}'`
 
@@ -52,19 +49,7 @@ export function SkillApiAccessDialog({ open, onOpenChange, skillId }: SkillApiAc
         </DialogHeader>
 
         <div className="custom-scrollbar mt-1 flex-1 overflow-y-auto px-2">
-          <Tabs defaultValue="integration" className="w-full">
-            <TabsList className="mb-3 grid w-[400px] grid-cols-2">
-              <TabsTrigger value="integration">
-                <Terminal className="mr-2 h-4 w-4" />
-                {t('skills.integrationGuide')}
-              </TabsTrigger>
-              <TabsTrigger value="tokens">
-                <Key className="mr-2 h-4 w-4" />
-                {t('skills.apiTokens')}
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="integration" className="space-y-6">
+          <div className="space-y-6">
               {/* Endpoint Information */}
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-[var(--text-primary)]">
@@ -112,7 +97,7 @@ export function SkillApiAccessDialog({ open, onOpenChange, skillId }: SkillApiAc
                 <p className="text-sm text-[var(--text-tertiary)]">{t('skills.authDescription')}</p>
                 <div className="rounded-lg border border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] p-4">
                   <code className="font-mono text-sm font-semibold text-[var(--skill-brand-700)]">
-                    Authorization: Bearer YOUR_API_TOKEN
+                    Authorization: Bearer YOUR_API_KEY
                   </code>
                 </div>
               </div>
@@ -152,22 +137,7 @@ export function SkillApiAccessDialog({ open, onOpenChange, skillId }: SkillApiAc
                   </pre>
                 </div>
               </div>
-            </TabsContent>
-
-            <TabsContent value="tokens" className="space-y-4">
-              <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 shadow-sm">
-                <div className="mb-4">
-                  <h3 className="text-sm font-medium text-[var(--text-primary)]">
-                    {t('skills.skillApiTokens')}
-                  </h3>
-                  <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                    {t('skills.skillApiTokensDescription')}
-                  </p>
-                </div>
-                <ApiTokensTab skillId={skillId} />
-              </div>
-            </TabsContent>
-          </Tabs>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

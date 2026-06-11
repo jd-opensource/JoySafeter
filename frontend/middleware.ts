@@ -16,6 +16,7 @@ const EMBEDDABLE_PATHS = ['']
 // Allowed redirect paths (prevent open redirect attacks)
 const ALLOWED_REDIRECT_PATHS = [
   '/dashboard',
+  '/managed',
   '/agents',
   '/tasks',
   '/skills',

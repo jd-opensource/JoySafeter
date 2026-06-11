@@ -34,7 +34,6 @@ class SkillVersionService(BaseService[SkillVersion]):
         version_str: str,
         release_notes: Optional[str] = None,
         is_superuser: bool = False,
-        token_scopes: Optional[List[str]] = None,
     ) -> SkillVersion:
         skill = await self._get_skill_with_files_or_404(skill_id)
         await check_skill_access(
@@ -43,8 +42,6 @@ class SkillVersionService(BaseService[SkillVersion]):
             current_user_id,
             CollaboratorRole.publisher,
             is_superuser=is_superuser,
-            token_scopes=token_scopes,
-            required_scope="skills:publish",
         )
 
         # Validate semver format
@@ -117,7 +114,6 @@ class SkillVersionService(BaseService[SkillVersion]):
         skill_id: uuid.UUID,
         current_user_id: str,
         is_superuser: bool = False,
-        token_scopes: Optional[List[str]] = None,
     ) -> List[SkillVersion]:
         skill = await self._get_skill_or_404(skill_id)
         await check_skill_access(
@@ -126,8 +122,6 @@ class SkillVersionService(BaseService[SkillVersion]):
             current_user_id,
             CollaboratorRole.viewer,
             is_superuser=is_superuser,
-            token_scopes=token_scopes,
-            required_scope="skills:read",
         )
         return await self.repo.list_by_skill(skill_id)  # type: ignore[return-value,no-any-return]
 
@@ -137,7 +131,6 @@ class SkillVersionService(BaseService[SkillVersion]):
         version_str: str,
         current_user_id: str,
         is_superuser: bool = False,
-        token_scopes: Optional[List[str]] = None,
     ) -> SkillVersion:
         skill = await self._get_skill_or_404(skill_id)
         await check_skill_access(
@@ -146,8 +139,6 @@ class SkillVersionService(BaseService[SkillVersion]):
             current_user_id,
             CollaboratorRole.viewer,
             is_superuser=is_superuser,
-            token_scopes=token_scopes,
-            required_scope="skills:read",
         )
         sv = await self.repo.get_by_version(skill_id, version_str)
         if not sv:
@@ -163,7 +154,6 @@ class SkillVersionService(BaseService[SkillVersion]):
         skill_id: uuid.UUID,
         current_user_id: str,
         is_superuser: bool = False,
-        token_scopes: Optional[List[str]] = None,
     ) -> SkillVersion:
         skill = await self._get_skill_or_404(skill_id)
         await check_skill_access(
@@ -172,8 +162,6 @@ class SkillVersionService(BaseService[SkillVersion]):
             current_user_id,
             CollaboratorRole.viewer,
             is_superuser=is_superuser,
-            token_scopes=token_scopes,
-            required_scope="skills:read",
         )
         sv = await self.repo.get_latest(skill_id)
         if not sv:
@@ -188,7 +176,6 @@ class SkillVersionService(BaseService[SkillVersion]):
         version_str: str,
         current_user_id: str,
         is_superuser: bool = False,
-        token_scopes: Optional[List[str]] = None,
     ) -> None:
         skill = await self._get_skill_or_404(skill_id)
         await check_skill_access(
@@ -197,8 +184,6 @@ class SkillVersionService(BaseService[SkillVersion]):
             current_user_id,
             CollaboratorRole.admin,
             is_superuser=is_superuser,
-            token_scopes=token_scopes,
-            required_scope="skills:admin",
         )
         sv = await self.repo.get_by_version(skill_id, version_str)
         if not sv:
@@ -216,7 +201,6 @@ class SkillVersionService(BaseService[SkillVersion]):
         version_str: str,
         current_user_id: str,
         is_superuser: bool = False,
-        token_scopes: Optional[List[str]] = None,
     ) -> Skill:
         skill = await self._get_skill_with_files_or_404(skill_id)
         await check_skill_access(
@@ -225,8 +209,6 @@ class SkillVersionService(BaseService[SkillVersion]):
             current_user_id,
             CollaboratorRole.publisher,
             is_superuser=is_superuser,
-            token_scopes=token_scopes,
-            required_scope="skills:write",
         )
         sv = await self.repo.get_by_version(skill_id, version_str)
         if not sv:

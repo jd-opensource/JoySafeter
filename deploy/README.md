@@ -18,7 +18,8 @@ deploy/
 │   ├── minimal.sh                   # 最小化场景启动
 │   ├── start-middleware.sh          # 启动中间件服务
 │   └── stop-middleware.sh           # 停止中间件服务
-├── docker-compose.yml               # 完整服务（开发环境）
+├── docker-compose.yml               # 基础服务（db/redis/frontend/backend 等）
+├── docker-compose.services.yml      # 三服务覆盖配置（api/runner/worker）
 ├── docker-compose.prod.yml          # 生产环境
 ├── docker-compose-middleware.yml    # 中间件（db + redis）
 ├── install.sh                       # 统一安装脚本
@@ -80,6 +81,38 @@ cd ../backend && cp env.example .env
 cd ../deploy
 docker-compose up -d
 ```
+
+### 方式四：三服务容器化部署（API + Runner + Worker）
+
+当前 JoySafeter 后端推荐拆成三个容器服务部署：
+
+- `backend`：API 服务，容器名 `joysafeter-api`，对外提供 HTTP / WebSocket / 管理接口。
+- `runner`：Orchestrator / Runner 服务，容器名 `joysafeter-runner`，提供 gRPC 并负责创建 sandbox 容器。
+- `worker`：后台任务服务，容器名 `joysafeter-worker`，处理异步任务、reaper、事件落库等。
+
+启动命令：
+
+```bash
+cd deploy
+cp .env.example .env
+cd ../backend && cp env.example .env
+cd ../deploy
+docker compose -f docker-compose.yml -f docker-compose.services.yml up -d db redis backend runner worker frontend
+```
+
+如需同时启动 MCP 服务：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.services.yml --profile mcp up -d mcpserver
+```
+
+端口策略：
+- API 默认映射 `0.0.0.0:8000`，由 `BACKEND_BIND_HOST/BACKEND_PORT_HOST` 控制。
+- Frontend 默认映射 `0.0.0.0:3000`，由 `FRONTEND_PORT_HOST` 控制。
+- Runner/Worker HTTP 健康检查端口默认只映射到 `127.0.0.1:8001/8002`，不建议公网开放。
+- Runner gRPC 默认映射 `0.0.0.0:9090`，sandbox 容器通过 `JOYSAFETER_GRPC_PUBLIC_URL` 回连；云上必须用安全组/防火墙限制来源。
+
+安全说明：`runner` 会挂载宿主机 Docker socket，通过 Docker-outside-of-Docker 创建 sandbox sibling containers。这不是 Docker-in-Docker，但权限很高，生产环境只能部署在可信内网主机上。
 
 ## 部署场景说明
 

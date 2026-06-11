@@ -367,7 +367,7 @@ function NavSection({
                 className={cn(
                   'flex items-center gap-2.5 px-4 py-1.5 mx-1 rounded-md text-sm transition-colors',
                   isActive
-                    ? 'bg-accent text-accent-foreground font-medium border-l-2 border-primary'
+                    ? 'bg-accent text-accent-foreground font-medium'
                     : 'text-muted-foreground hover:text-foreground hover:bg-accent/50',
                 )}
               >
@@ -487,7 +487,7 @@ export function AppSidebar() {
 
   if (isCollapsed) {
     return (
-      <aside className="joysafeter-sidebar fixed left-0 top-0 bottom-0 w-[52px] border-r border-border bg-card flex flex-col items-center z-30">
+      <aside className="joysafeter-sidebar fixed left-0 top-0 bottom-0 w-[52px] border-r border-border bg-card flex flex-col items-center z-50">
         <div className="p-3 border-b border-border w-full flex justify-center">
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleSidebar}>
             <PanelLeftOpen className="w-4 h-4" />
@@ -507,7 +507,7 @@ export function AppSidebar() {
   }
 
   return (
-    <aside className="joysafeter-sidebar fixed left-0 top-0 bottom-0 w-[220px] border-r border-border bg-card flex flex-col z-30">
+    <aside className="joysafeter-sidebar fixed left-0 top-0 bottom-0 w-[220px] border-r border-border bg-card flex flex-col z-50">
       <div className="p-4 border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 rounded-md bg-primary flex items-center justify-center">
