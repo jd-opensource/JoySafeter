@@ -1,7 +1,7 @@
 # JoySafeter Shared Layer
 
 `app.joysafeter_shared` contains cross-service infrastructure that is not owned
-by a single API, runner, or worker service.
+by a single API, orchestrator, or worker service.
 
 Current packages:
 

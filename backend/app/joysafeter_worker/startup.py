@@ -41,13 +41,11 @@ async def _initialize_cli_runtime_providers() -> None:
 
 async def _register_execution_event_subscribers() -> None:
     try:
-        from app.joysafeter_worker.services import (
-            PersistenceSubscriber,
-            StateTransitionSubscriber,
-            TaskSyncSubscriber,
-            WebSocketSubscriber,
-            execution_event_bus,
-        )
+        from app.joysafeter_worker.events.bus import execution_event_bus
+        from app.joysafeter_worker.events.subscribers.persistence import PersistenceSubscriber
+        from app.joysafeter_worker.events.subscribers.state_transition import StateTransitionSubscriber
+        from app.joysafeter_worker.events.subscribers.task_sync import TaskSyncSubscriber
+        from app.joysafeter_worker.events.subscribers.websocket import WebSocketSubscriber
 
         execution_event_bus.register(PersistenceSubscriber())
         execution_event_bus.register(StateTransitionSubscriber())

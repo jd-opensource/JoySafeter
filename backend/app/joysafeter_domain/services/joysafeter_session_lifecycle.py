@@ -1,7 +1,8 @@
+import asyncio
 import uuid
 from typing import Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_shared.common.app_errors import ConflictError
@@ -46,6 +47,33 @@ class JoySafeterSessionLifecycleService:
         payload: dict,
         stop_reason: Optional[dict] = None,
     ) -> bool:
+        for attempt in range(3):
+            try:
+                return await self._transition_and_emit_once(
+                    session_id,
+                    status,
+                    event_type,
+                    payload,
+                    stop_reason=stop_reason,
+                )
+            except Exception as exc:
+                if attempt >= 2 or not _is_retryable_db_error(exc):
+                    raise
+                await self.db.rollback()
+                await asyncio.sleep(0.05 * (2**attempt))
+
+        raise RuntimeError("unreachable")
+
+    async def _transition_and_emit_once(
+        self,
+        session_id: uuid.UUID,
+        status: str,
+        event_type: str,
+        payload: dict,
+        stop_reason: Optional[dict] = None,
+    ) -> bool:
+        await self._lock_event_sequence(session_id)
+
         result = await self.db.execute(
             select(JoySafeterSession)
             .where(JoySafeterSession.id == session_id)
@@ -92,3 +120,20 @@ class JoySafeterSessionLifecycleService:
         self.db.add(event)
         await self.db.commit()
         return True
+
+    async def _lock_event_sequence(self, session_id: uuid.UUID) -> None:
+        lock_key = int.from_bytes(session_id.bytes[8:], "big", signed=True)
+        await self.db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+
+
+_RETRYABLE_DB_ERROR_MARKERS = (
+    "DeadlockDetectedError",
+    "deadlock detected",
+    "SerializationError",
+    "could not serialize access",
+)
+
+
+def _is_retryable_db_error(exc: Exception) -> bool:
+    message = str(exc)
+    return any(marker in message for marker in _RETRYABLE_DB_ERROR_MARKERS)

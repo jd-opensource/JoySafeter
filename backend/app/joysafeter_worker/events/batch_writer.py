@@ -252,7 +252,11 @@ class EventBatchSender:
             groups[e.session_id].append(e)
 
         async with AsyncSessionLocal() as db:
-            for session_id, group in groups.items():
+            # CRITICAL FIX: Sort session_ids to prevent deadlocks.
+            # Deadlock occurs when two concurrent transactions acquire advisory locks
+            # on different sessions in opposite order. Sorting ensures all transactions
+            # acquire locks in the same order, preventing circular wait.
+            for session_id in sorted(groups.keys()):
                 lock_key = int.from_bytes(session_id.bytes[8:], "big", signed=True)
                 await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
 
@@ -283,7 +287,7 @@ class EventBatchSender:
                 )
                 next_seq = base_seq
 
-                for e in group:
+                for e in groups[session_id]:
                     if _is_duplicate_event(previous_event, e):
                         continue
 

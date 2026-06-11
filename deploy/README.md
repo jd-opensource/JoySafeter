@@ -19,7 +19,8 @@ deploy/
 │   ├── start-middleware.sh          # 启动中间件服务
 │   └── stop-middleware.sh           # 停止中间件服务
 ├── docker-compose.yml               # 基础服务（db/redis/frontend/backend 等）
-├── docker-compose.services.yml      # 三服务覆盖配置（api/runner/worker）
+├── docker-compose.services.yml      # 三服务覆盖配置（api/orchestrator/worker）
+├── docker-compose.cloud.yml         # 云 PostgreSQL/Redis 四服务部署（frontend/api/orchestrator/worker）
 ├── docker-compose.prod.yml          # 生产环境
 ├── docker-compose-middleware.yml    # 中间件（db + redis）
 ├── install.sh                       # 统一安装脚本
@@ -82,12 +83,12 @@ cd ../deploy
 docker-compose up -d
 ```
 
-### 方式四：三服务容器化部署（API + Runner + Worker）
+### 方式四：三服务容器化部署（API + Orchestrator + Worker）
 
 当前 JoySafeter 后端推荐拆成三个容器服务部署：
 
 - `backend`：API 服务，容器名 `joysafeter-api`，对外提供 HTTP / WebSocket / 管理接口。
-- `runner`：Orchestrator / Runner 服务，容器名 `joysafeter-runner`，提供 gRPC 并负责创建 sandbox 容器。
+- `orchestrator`：Orchestrator 服务，容器名 `joysafeter-orchestrator`，提供 gRPC 并负责创建 sandbox 容器。
 - `worker`：后台任务服务，容器名 `joysafeter-worker`，处理异步任务、reaper、事件落库等。
 
 启动命令：
@@ -97,7 +98,7 @@ cd deploy
 cp .env.example .env
 cd ../backend && cp env.example .env
 cd ../deploy
-docker compose -f docker-compose.yml -f docker-compose.services.yml up -d db redis backend runner worker frontend
+docker compose -f docker-compose.yml -f docker-compose.services.yml up -d db redis backend orchestrator worker frontend
 ```
 
 如需同时启动 MCP 服务：
@@ -109,10 +110,44 @@ docker compose -f docker-compose.yml -f docker-compose.services.yml --profile mc
 端口策略：
 - API 默认映射 `0.0.0.0:8000`，由 `BACKEND_BIND_HOST/BACKEND_PORT_HOST` 控制。
 - Frontend 默认映射 `0.0.0.0:3000`，由 `FRONTEND_PORT_HOST` 控制。
-- Runner/Worker HTTP 健康检查端口默认只映射到 `127.0.0.1:8001/8002`，不建议公网开放。
-- Runner gRPC 默认映射 `0.0.0.0:9090`，sandbox 容器通过 `JOYSAFETER_GRPC_PUBLIC_URL` 回连；云上必须用安全组/防火墙限制来源。
+- Orchestrator/Worker HTTP 健康检查端口默认只映射到 `127.0.0.1:8001/8002`，不建议公网开放。
+- Orchestrator gRPC 默认映射 `0.0.0.0:9090`，sandbox 容器通过 `JOYSAFETER_GRPC_PUBLIC_URL` 回连；云上必须用安全组/防火墙限制来源。
 
-安全说明：`runner` 会挂载宿主机 Docker socket，通过 Docker-outside-of-Docker 创建 sandbox sibling containers。这不是 Docker-in-Docker，但权限很高，生产环境只能部署在可信内网主机上。
+安全说明：`orchestrator` 会挂载宿主机 Docker socket，通过 Docker-outside-of-Docker 创建 sandbox sibling containers。这不是 Docker-in-Docker，但权限很高，生产环境只能部署在可信内网主机上。
+
+### 方式五：云数据库/云 Redis 四服务部署
+
+如果 PostgreSQL 和 Redis 使用云厂商托管版本，本地只部署四个应用容器：
+
+- `frontend`：前端 Next.js 服务。
+- `api`：后端 API 服务。
+- `orchestrator`：负责 gRPC、调度和 sandbox 生命周期。
+- `worker`：后台异步任务、reaper、事件落库。
+
+启动命令：
+
+```bash
+cd deploy
+cp .env.cloud.example .env
+# 修改 .env 中的云 PostgreSQL、云 Redis、FRONTEND_URL、BACKEND_URL 等配置
+docker compose -f docker-compose.cloud.yml up -d frontend api orchestrator worker
+```
+
+检查状态：
+
+```bash
+docker compose -f docker-compose.cloud.yml ps
+docker compose -f docker-compose.cloud.yml logs -f api orchestrator worker frontend
+```
+
+端口策略：
+- `frontend` 默认暴露 `0.0.0.0:3000`。
+- `api` 默认暴露 `0.0.0.0:8000`。
+- `orchestrator` HTTP 健康检查默认只绑定 `127.0.0.1:8001`。
+- `worker` HTTP 健康检查默认只绑定 `127.0.0.1:8002`。
+- `orchestrator` gRPC 默认暴露 `0.0.0.0:9090`，用于 sandbox 回连，生产环境必须用安全组/防火墙限制来源。
+
+注意：`orchestrator` 仍会挂载宿主机 Docker socket 来创建 sandbox 容器；如果后续切换到云 sandbox provider，可以移除 Docker socket/CLI 挂载并调整 `JOYSAFETER_SANDBOX_PROVIDER`。
 
 ## 部署场景说明
 

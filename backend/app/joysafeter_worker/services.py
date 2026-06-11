@@ -9,7 +9,7 @@ from __future__ import annotations
 from app.joysafeter_domain.services.dispatch_service import DispatchService
 from app.joysafeter_domain.services.execution_service import ExecutionService
 from app.joysafeter_domain.services.sandbox_manager import _sandbox_pool
-from app.joysafeter_worker.events.execution_bus import execution_event_bus
+from app.joysafeter_worker.events.bus import execution_event_bus
 from app.joysafeter_worker.events.subscribers.persistence import PersistenceSubscriber
 from app.joysafeter_worker.events.subscribers.state_transition import StateTransitionSubscriber
 from app.joysafeter_worker.events.subscribers.task_sync import TaskSyncSubscriber

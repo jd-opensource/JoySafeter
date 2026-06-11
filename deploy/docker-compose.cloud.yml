@@ -1,16 +1,20 @@
 # =============================================================================
-# JoySafeter 三服务容器化覆盖配置
+# JoySafeter 云数据库/云 Redis 四服务部署
 # =============================================================================
 # 用法：
 #   cd deploy
-#   docker compose -f docker-compose.yml -f docker-compose.services.yml up -d db redis backend orchestrator worker frontend
+#   cp .env.cloud.example .env
+#   docker compose -f docker-compose.cloud.yml up -d frontend api orchestrator worker
+#
+# 服务：
+# - frontend：前端 Next.js 服务
+# - api：JoySafeter API 服务
+# - orchestrator：负责 gRPC、调度和 sandbox 生命周期
+# - worker：后台异步任务、reaper、事件落库
 #
 # 说明：
-# - backend 服务在本覆盖文件中作为 API 服务运行，容器名为 joysafeter-api。
-# - orchestrator 是 Python orchestrator 服务，负责 gRPC、调度和创建 sandbox 容器。
-# - worker 是后台异步任务/事件落库服务，不需要 Docker socket。
-# - orchestrator 在容器内创建宿主机 sandbox 容器时采用 Docker-outside-of-Docker：挂载宿主机 /var/run/docker.sock。
-#   这不是 Docker-in-Docker，但安全权限很高，生产环境必须仅部署在可信内网机器上。
+# - 本文件不启动 PostgreSQL / Redis，必须在 .env 中配置云 PostgreSQL 和云 Redis。
+# - orchestrator 如使用 Docker sandbox，会挂载宿主机 Docker socket 创建 sandbox sibling containers。
 # =============================================================================
 
 x-backend-build: &backend-build
@@ -26,35 +30,33 @@ x-backend-env-files: &backend-env-files
   - ../frontend/.env
 
 x-backend-common-env: &backend-common-env
-  POSTGRES_USER: ${POSTGRES_USER:-postgres}
-  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-  POSTGRES_DB: ${POSTGRES_DB:-joysafeter}
-  POSTGRES_HOST: ${POSTGRES_HOST:-db}
+  POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+  POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
+  POSTGRES_HOST: ${POSTGRES_HOST:?set POSTGRES_HOST}
   POSTGRES_PORT: ${POSTGRES_PORT:-5432}
   POSTGRES_MIN_POOL_SIZE: ${POSTGRES_MIN_POOL_SIZE:-10}
-  POSTGRES_MAX_POOL_SIZE: ${POSTGRES_MAX_POOL_SIZE:-500}
-  POSTGRES_SSL: ${POSTGRES_SSL:-disable}
+  POSTGRES_MAX_POOL_SIZE: ${POSTGRES_MAX_POOL_SIZE:-100}
+  POSTGRES_SSL: ${POSTGRES_SSL:-require}
   DATABASE_ECHO: ${DATABASE_ECHO:-false}
   DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-10}
   DATABASE_MAX_OVERFLOW: ${DATABASE_MAX_OVERFLOW:-20}
-  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  REDIS_URL: ${REDIS_URL:?set REDIS_URL}
   REDIS_POOL_SIZE: ${REDIS_POOL_SIZE:-50}
-  FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
-  CORS_ORIGINS: ${CORS_ORIGINS:-["${FRONTEND_URL:-http://localhost:3000}"]}
+  FRONTEND_URL: ${FRONTEND_URL:?set FRONTEND_URL}
+  CORS_ORIGINS: ${CORS_ORIGINS:-["${FRONTEND_URL}"]}
   JOYSAFETER_EVENT_STREAM_ENABLED: ${JOYSAFETER_EVENT_STREAM_ENABLED:-true}
   JOYSAFETER_EVENT_STREAM_KEY: ${JOYSAFETER_EVENT_STREAM_KEY:-joysafeter:orchestrator:events}
   JOYSAFETER_EVENT_STREAM_GROUP: ${JOYSAFETER_EVENT_STREAM_GROUP:-joysafeter-orchestrator-event-workers}
+  JOYSAFETER_SANDBOX_PROVIDER: ${JOYSAFETER_SANDBOX_PROVIDER:-docker}
+  JOYSAFETER_SANDBOX_IMAGE: ${JOYSAFETER_SANDBOX_IMAGE:-joysafeter-claudecode:latest}
+  JOYSAFETER_IMAGE_CLAUDE: ${JOYSAFETER_IMAGE_CLAUDE:-joysafeter-claudecode:latest}
+  JOYSAFETER_IMAGE_CODEX: ${JOYSAFETER_IMAGE_CODEX:-joysafeter-codex:latest}
 
 x-backend-volumes: &backend-volumes
   - backend-logs:/app/app/logs
   - backend-files:/app/data/files
   - ../skills:/app/skills:ro
-
-x-backend-depends: &backend-depends
-  db:
-    condition: service_healthy
-  redis:
-    condition: service_healthy
 
 x-backend-health-common: &backend-health-common
   interval: 30s
@@ -63,8 +65,7 @@ x-backend-health-common: &backend-health-common
   start_period: 180s
 
 services:
-  # API：HTTP / WebSocket / 管理接口
-  backend:
+  api:
     image: ${DOCKER_REGISTRY:-docker.io/jdopensource}/${BACKEND_IMAGE:-joysafeter-backend}:${IMAGE_TAG:-latest}
     build: *backend-build
     container_name: joysafeter-api
@@ -77,8 +78,7 @@ services:
       BACKEND_PORT: 8000
       WORKERS: ${API_WORKERS:-1}
     ports:
-      - "${BACKEND_BIND_HOST:-0.0.0.0}:${BACKEND_PORT_HOST:-8000}:8000"
-    depends_on: *backend-depends
+      - "${API_BIND_HOST:-0.0.0.0}:${API_PORT_HOST:-8000}:8000"
     volumes: *backend-volumes
     healthcheck:
       <<: *backend-health-common
@@ -86,7 +86,6 @@ services:
     networks:
       - joysafeter-network
 
-  # Orchestrator：Python orchestrator / gRPC gateway / sandbox lifecycle
   orchestrator:
     image: ${DOCKER_REGISTRY:-docker.io/jdopensource}/${BACKEND_IMAGE:-joysafeter-backend}:${IMAGE_TAG:-latest}
     build: *backend-build
@@ -105,18 +104,15 @@ services:
       JOYSAFETER_GRPC_PORT: ${JOYSAFETER_GRPC_PORT:-9090}
       JOYSAFETER_GRPC_PUBLIC_URL: ${JOYSAFETER_GRPC_PUBLIC_URL:-http://host.docker.internal:9090}
     ports:
-      # HTTP 健康检查端口默认只绑定宿主机本地，避免公网访问 orchestrator HTTP。
+      # orchestrator HTTP 仅用于健康检查，默认只暴露到宿主机本地。
       - "${ORCHESTRATOR_HEALTH_BIND_HOST:-127.0.0.1}:${ORCHESTRATOR_HEALTH_PORT_HOST:-8001}:8001"
-      # gRPC 端口供 sandbox 容器访问；云上建议用安全组/防火墙限制，默认不应向公网开放。
+      # gRPC 供 sandbox 容器回连；云上必须用安全组/防火墙限制来源。
       - "${JOYSAFETER_GRPC_BIND_HOST:-0.0.0.0}:${JOYSAFETER_GRPC_PORT_HOST:-9090}:9090"
-    depends_on: *backend-depends
     volumes:
       - backend-logs:/app/app/logs
       - backend-files:/app/data/files
       - ../skills:/app/skills:ro
-      # Docker-outside-of-Docker：orchestrator 通过宿主机 Docker daemon 创建 sandbox sibling containers。
       - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
-      # 代码中仍有 docker CLI 调用（docker run/exec/cp/inspect），因此容器内需要 docker 客户端。
       - ${DOCKER_BIN_PATH:-/usr/bin/docker}:/usr/bin/docker:ro
     healthcheck:
       <<: *backend-health-common
@@ -124,7 +120,6 @@ services:
     networks:
       - joysafeter-network
 
-  # Worker：后台任务、reaper、Redis Stream 批量落库
   worker:
     image: ${DOCKER_REGISTRY:-docker.io/jdopensource}/${BACKEND_IMAGE:-joysafeter-backend}:${IMAGE_TAG:-latest}
     build: *backend-build
@@ -139,9 +134,8 @@ services:
       WORKER_HTTP_HOST: 0.0.0.0
       WORKERS: 1
     ports:
-      # Worker HTTP 仅用于健康检查，默认只绑定宿主机本地。
+      # worker HTTP 仅用于健康检查，默认只暴露到宿主机本地。
       - "${WORKER_HEALTH_BIND_HOST:-127.0.0.1}:${WORKER_HEALTH_PORT_HOST:-8002}:8002"
-    depends_on: *backend-depends
     volumes: *backend-volumes
     healthcheck:
       <<: *backend-health-common
@@ -150,12 +144,43 @@ services:
       - joysafeter-network
 
   frontend:
+    image: ${DOCKER_REGISTRY:-docker.io/jdopensource}/${FRONTEND_IMAGE:-joysafeter-frontend}:${IMAGE_TAG:-latest}
+    build:
+      context: ../frontend
+      dockerfile: ../deploy/docker/frontend.Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${BACKEND_URL:?set BACKEND_URL}
+    container_name: joysafeter-frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${BACKEND_URL:?set BACKEND_URL}
+      NEXT_PUBLIC_APP_URL: ${FRONTEND_URL:?set FRONTEND_URL}
+      NEXT_PUBLIC_CSP_NECESSARY_DOMAIN: ${NEXT_PUBLIC_CSP_NECESSARY_DOMAIN:-http://localhost:* http://127.0.0.1:*}
+      NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA: ${NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA:-}
+      NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA: ${NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA:-}
+    ports:
+      - "${FRONTEND_BIND_HOST:-0.0.0.0}:${FRONTEND_PORT_HOST:-3000}:3000"
     depends_on:
-      backend:
+      api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - joysafeter-network
 
-  # 三服务容器化部署时，mcpserver 默认占用宿主机 8001/8002，
-  # 会与 orchestrator/worker 健康检查端口冲突；需要时显式加 --profile mcp 启动。
-  mcpserver:
-    profiles:
-      - mcp
+volumes:
+  backend-logs:
+    driver: local
+  backend-files:
+    driver: local
+    name: joysafeter-backend-files
+
+networks:
+  joysafeter-network:
+    name: joysafeter-network
+    driver: bridge

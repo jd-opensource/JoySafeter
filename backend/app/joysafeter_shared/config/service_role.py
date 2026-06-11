@@ -10,7 +10,7 @@ from app.joysafeter_shared.config.settings import settings
 class ServiceRole(StrEnum):
     ALL = "all"
     API = "api"
-    RUNNER = "runner"
+    ORCHESTRATOR = "orchestrator"
     WORKER = "worker"
 
 
@@ -31,8 +31,8 @@ def is_api_role() -> bool:
     return current_role() in {ServiceRole.ALL, ServiceRole.API}
 
 
-def is_runner_role() -> bool:
-    return current_role() in {ServiceRole.ALL, ServiceRole.RUNNER}
+def is_orchestrator_role() -> bool:
+    return current_role() in {ServiceRole.ALL, ServiceRole.ORCHESTRATOR}
 
 
 def is_worker_role() -> bool:

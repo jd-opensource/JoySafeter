@@ -70,10 +70,10 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("BACKEND_PORT", "PORT"),
         description="Backend server port",
     )
-    runner_http_host: str = Field(
+    orchestrator_http_host: str = Field(
         default="127.0.0.1",
-        validation_alias=AliasChoices("RUNNER_HTTP_HOST", "JOYSAFETER_RUNNER_HTTP_HOST"),
-        description="Runner HTTP bind host for health/internal endpoints",
+        validation_alias=AliasChoices("ORCHESTRATOR_HTTP_HOST", "JOYSAFETER_ORCHESTRATOR_HTTP_HOST"),
+        description="Orchestrator HTTP bind host for health/internal endpoints",
     )
     worker_http_host: str = Field(
         default="127.0.0.1",
@@ -93,7 +93,7 @@ class Settings(BaseSettings):
     service_role: str = Field(
         default="all",
         validation_alias=AliasChoices("JOYSAFETER_SERVICE_ROLE", "SERVICE_ROLE", "APP_SERVICE_ROLE"),
-        description="Service role to start: all, api, runner, or worker",
+        description="Service role to start: all, api, orchestrator, or worker",
     )
     run_runtime_instance_id: str = Field(
         default=socket.gethostname(),

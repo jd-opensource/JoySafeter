@@ -586,7 +586,11 @@ async def memory_store_event_stream(
 
     async def event_generator():
         if not subscribers:
-            yield 'data: {"type": "error", "message": "Memory subscribers not available"}\n\n'
+            while True:
+                if await request.is_disconnected():
+                    break
+                yield ": heartbeat\n\n"
+                await asyncio.sleep(15)
             return
 
         q: asyncio.Queue = asyncio.Queue()

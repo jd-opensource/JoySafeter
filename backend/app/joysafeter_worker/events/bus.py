@@ -29,6 +29,10 @@ class ExecutionEventBus:
         self._broadcast_subs: list[EventSubscriber] = []
 
     def register(self, sub: EventSubscriber) -> None:
+        existing = self._persist_subs if sub.phase == SubscriberPhase.PERSIST else self._broadcast_subs
+        if any(registered.name == sub.name for registered in existing):
+            logger.debug(f"[EventBus] Subscriber already registered: {sub.name} (phase={sub.phase.name})")
+            return
         if sub.phase == SubscriberPhase.PERSIST:
             self._persist_subs.append(sub)
         else:
@@ -98,6 +102,10 @@ class JoySafeterEventBus:
         self._broadcast_subs: list[JoySafeterEventSubscriber] = []
 
     def register(self, sub: JoySafeterEventSubscriber) -> None:
+        existing = self._persist_subs if sub.phase == SubscriberPhase.PERSIST else self._broadcast_subs
+        if any(registered.name == sub.name for registered in existing):
+            logger.debug("JoySafeter event subscriber already registered: %s (phase=%s)", sub.name, sub.phase.name)
+            return
         if sub.phase == SubscriberPhase.PERSIST:
             self._persist_subs.append(sub)
         else:

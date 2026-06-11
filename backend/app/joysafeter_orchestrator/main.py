@@ -1,4 +1,4 @@
-"""JoySafeter runner service entrypoint."""
+"""JoySafeter orchestrator service entrypoint."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI
 
-os.environ.setdefault("JOYSAFETER_SERVICE_ROLE", "runner")
+os.environ.setdefault("JOYSAFETER_SERVICE_ROLE", "orchestrator")
 
 from app.joysafeter_shared.common.logging import setup_logging  # noqa: E402
 from app.joysafeter_shared.config.settings import settings  # noqa: E402
@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
             await _run_common_shutdown()
 
 
-app = create_app(lifespan=lifespan, title_suffix="Runner", expose_docs=False)
+app = create_app(lifespan=lifespan, title_suffix="Orchestrator", expose_docs=False)
 
 
 if __name__ == "__main__":
@@ -46,7 +46,7 @@ if __name__ == "__main__":
 
     uvicorn.run(
         "app.joysafeter_orchestrator.main:app",
-        host=settings.runner_http_host,
+        host=settings.orchestrator_http_host,
         port=settings.backend_port,
         reload=settings.reload,
         workers=1,

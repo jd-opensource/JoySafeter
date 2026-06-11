@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from loguru import logger
 
 from app.joysafeter_shared.common.logging import setup_logging
-from app.joysafeter_shared.config.service_role import is_runner_role, is_worker_role
+from app.joysafeter_shared.config.service_role import is_orchestrator_role, is_worker_role
 from app.joysafeter_shared.config.settings import ENV_FILE, settings
 from app.joysafeter_api.app import create_api_app
 from app.joysafeter_shared.runtime.lifecycle import _run_common_shutdown, _run_common_startup
@@ -41,12 +41,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     else:
         logger.info("   Worker loops skipped for service role")
 
-    if is_runner_role() and not is_worker_role():
+    if is_orchestrator_role() and not is_worker_role():
         from app.joysafeter_shared.runtime.lifecycle import _check_docker_availability
 
         await _check_docker_availability()
 
-    if is_runner_role():
+    if is_orchestrator_role():
         try:
             from app.joysafeter_orchestrator.lifespan import joysafeter_startup
 
@@ -59,7 +59,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     try:
         yield
     finally:
-        if is_runner_role():
+        if is_orchestrator_role():
             try:
                 from app.joysafeter_orchestrator.lifespan import joysafeter_shutdown
 

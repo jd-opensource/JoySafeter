@@ -1,9 +1,10 @@
 import uuid
+import asyncio
 from collections import defaultdict
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import and_, select, func, update
+from sqlalchemy import and_, select, func, update, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_shared.common.app_errors import ConflictError
@@ -36,6 +37,13 @@ _STATUS_EVENT_TYPES = {
     "session.thread_status_terminated",
 }
 
+_RETRYABLE_DB_ERROR_MARKERS = (
+    "DeadlockDetectedError",
+    "deadlock detected",
+    "SerializationError",
+    "could not serialize access",
+)
+
 
 def _normalized_stop_reason(stop_reason: Optional[dict]) -> dict:
     return stop_reason or {}
@@ -43,6 +51,11 @@ def _normalized_stop_reason(stop_reason: Optional[dict]) -> dict:
 
 def _status_event_key(payload: dict) -> tuple[object, object]:
     return payload.get("task_id"), payload.get("stop_reason") or {}
+
+
+def _is_retryable_db_error(exc: Exception) -> bool:
+    message = str(exc)
+    return any(marker in message for marker in _RETRYABLE_DB_ERROR_MARKERS)
 
 
 class SessionService:
@@ -171,6 +184,13 @@ class SessionService:
         status: str,
         stop_reason: Optional[dict] = None,
     ) -> bool:
+        # CRITICAL FIX: Acquire advisory lock BEFORE row lock to prevent deadlocks.
+        # The batch_writer acquires advisory lock then touches session rows via FK.
+        # If we acquire row lock first then advisory lock, we get AB-BA deadlock.
+        # Lock ordering must be: advisory lock → row lock (same as SessionLifecycleService).
+        lock_key = int.from_bytes(session_id.bytes[8:], "big", signed=True)
+        await self.db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+
         result = await self.db.execute(
             select(JoySafeterSession)
             .where(JoySafeterSession.id == session_id)
@@ -270,6 +290,25 @@ class SessionService:
         event_type: str,
         payload: dict,
     ) -> JoySafeterSessionEvent:
+        for attempt in range(3):
+            try:
+                return await self._send_event_once(session_id, event_type, payload)
+            except Exception as exc:
+                if attempt >= 2 or not _is_retryable_db_error(exc):
+                    raise
+                await self.db.rollback()
+                await asyncio.sleep(0.05 * (2**attempt))
+
+        raise RuntimeError("unreachable")
+
+    async def _send_event_once(
+        self,
+        session_id: uuid.UUID,
+        event_type: str,
+        payload: dict,
+    ) -> JoySafeterSessionEvent:
+        await self._lock_event_sequence(session_id)
+
         if event_type in _STATUS_EVENT_TYPES:
             latest_result = await self.db.execute(
                 select(JoySafeterSessionEvent)
@@ -285,7 +324,7 @@ class SessionService:
             ):
                 return latest
 
-        next_seq = await self._next_seq(session_id)
+        next_seq = await self._next_seq_locked(session_id)
         event = JoySafeterSessionEvent(
             session_id=session_id,
             event_type=event_type,
@@ -337,12 +376,15 @@ class SessionService:
         )
         return result.scalar() or False
 
-    async def _next_seq(self, session_id: uuid.UUID) -> int:
-        await self.db.execute(
-            select(JoySafeterSession)
-            .where(JoySafeterSession.id == session_id)
-            .with_for_update()
-        )
+    async def _lock_event_sequence(self, session_id: uuid.UUID) -> None:
+        # Keep seq allocation serialized with the worker batch writer, which
+        # uses the same per-session transaction advisory lock.  Mixing row locks
+        # and advisory locks for the same event stream can deadlock under
+        # concurrent status/event writes.
+        lock_key = int.from_bytes(session_id.bytes[8:], "big", signed=True)
+        await self.db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+
+    async def _next_seq_locked(self, session_id: uuid.UUID) -> int:
         result = await self.db.execute(
             select(func.coalesce(func.max(JoySafeterSessionEvent.seq), 0)).where(
                 JoySafeterSessionEvent.session_id == session_id
@@ -415,19 +457,10 @@ class SessionService:
             groups[ev["session_id"]].append(ev)
 
         created = []
-        for session_id, group in groups.items():
-            # Lock session row and compute max seq
-            await self.db.execute(
-                select(JoySafeterSession)
-                .where(JoySafeterSession.id == session_id)
-                .with_for_update()
-            )
-            result = await self.db.execute(
-                select(func.coalesce(func.max(JoySafeterSessionEvent.seq), 0)).where(
-                    JoySafeterSessionEvent.session_id == session_id
-                )
-            )
-            max_seq = result.scalar()
+        for session_id in sorted(groups.keys()):
+            group = groups[session_id]
+            await self._lock_event_sequence(session_id)
+            max_seq = await self._max_seq_locked(session_id)
 
             # Assign sequential seq numbers and bulk insert
             for i, ev in enumerate(group, start=1):
@@ -444,6 +477,14 @@ class SessionService:
         for event in created:
             await self.db.refresh(event)
         return created
+
+    async def _max_seq_locked(self, session_id: uuid.UUID) -> int:
+        result = await self.db.execute(
+            select(func.coalesce(func.max(JoySafeterSessionEvent.seq), 0)).where(
+                JoySafeterSessionEvent.session_id == session_id
+            )
+        )
+        return result.scalar() or 0
 
     async def list_session_events_filtered(
         self,
