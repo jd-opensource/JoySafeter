@@ -208,18 +208,6 @@ services:
     networks:
       - joysafeter-network
 
-  mcpserver:
-    image: docker.io/jdopensource/joysafeter-mcp:latest
-    container_name: joysafeter-mcpserver
-    restart: unless-stopped
-    profiles: ["mcp"]
-    ports:
-      - "${DEMO_MCP_SERVER_PORT:-8001}:8001"
-      - "${SCANNER_MCP_PORT:-8002}:8002"
-      - "${JEB_MCP_PORT:-8008}:8008"
-    networks:
-      - joysafeter-network
-
   db-init:
     image: ${DOCKER_REGISTRY:-docker.io/jdopensource}/${BACKEND_IMAGE:-joysafeter-backend}:${IMAGE_TAG:-latest}
     build: *backend-build

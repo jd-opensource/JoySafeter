@@ -2335,10 +2335,14 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                         session_id,
                     )
                 elif not session_is_idle:
+                    # A sandbox can be destroyed after a completed turn because of
+                    # idle cleanup, manual cleanup, or container failure. That must
+                    # not make the chat session terminal: a later user.message can
+                    # create a fresh sandbox for the same session.
                     if self._event_bus:
                         await self._event_bus.publish(JoySafeterEventEnvelope(
                             session_id=session_id,
-                            event_type="session.status_terminated",
+                            event_type="session.status_idle",
                             payload={"stop_reason": {"type": "sandbox_disconnected"}},
                             is_status_change=True,
                             stop_reason={"type": "sandbox_disconnected"},
@@ -2347,17 +2351,21 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     else:
                         async with AsyncSessionLocal() as db:
                             session_svc = SessionService(db)
-                            await session_svc.update_session_status(session_id, "terminated")
+                            await session_svc.update_session_status(
+                                session_id,
+                                "idle",
+                                stop_reason={"type": "sandbox_disconnected"},
+                            )
                             await session_svc.send_event(
                                 session_id,
-                                "session.status_terminated",
+                                "session.status_idle",
                                 {"stop_reason": {"type": "sandbox_disconnected"}},
                             )
                         broadcaster = get_session_broadcaster()
                         if broadcaster:
                             await broadcaster.send(
                                 session_id,
-                                {"type": "session.status_terminated", "stop_reason": {"type": "sandbox_disconnected"}},
+                                {"type": "session.status_idle", "stop_reason": {"type": "sandbox_disconnected"}},
                             )
 
         # 8. Unregister memory subscribers

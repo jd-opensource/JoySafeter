@@ -303,8 +303,12 @@ class OAuthConfigLoader:
 
         discovery_url = f"{issuer.rstrip('/')}/.well-known/openid-configuration"
 
+        # SSRF protection: validate OIDC issuer URL
+        from app.joysafeter_shared.security.ssrf_guard import validate_url
+        validate_url(discovery_url, context="OIDC discovery issuer")
+
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
                 response = await client.get(discovery_url)
                 response.raise_for_status()
                 config: Dict[str, Any] = response.json()

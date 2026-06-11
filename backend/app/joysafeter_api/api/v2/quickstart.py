@@ -5,7 +5,7 @@ Claude tool_use, streaming text deltas and config updates back to the frontend.
 """
 
 import json
-from typing import Optional
+from typing import Literal, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -21,18 +21,34 @@ router = APIRouter(tags=["joysafeter-quickstart"])
 
 
 class QuickstartMessage(BaseModel):
-    role: str
-    content: str
+    role: Literal["user", "assistant"]
+    content: str = Field(..., max_length=50000)
+
+
+class QuickstartAgentContext(BaseModel):
+    """Validated agent context — only known fields, values truncated."""
+    name: str = Field(default="", max_length=100)
+    description: Optional[str] = Field(default=None, max_length=500)
+    model: Optional[str] = Field(default=None, max_length=100)
+    engine_kind: Optional[str] = Field(default=None, max_length=50)
+    system_prompt: Optional[str] = Field(default=None, max_length=5000)
+    tools: Optional[list] = None
+    mcp_servers: Optional[list] = None
+    skills: Optional[list] = None
+    secret_ref: Optional[str] = Field(default=None, max_length=100)
+
+    class Config:
+        extra = "ignore"
 
 
 class QuickstartChatRequest(BaseModel):
-    messages: list[QuickstartMessage]
+    messages: list[QuickstartMessage] = Field(..., max_length=50)
     current_step: int = 1
     secret_ref: str = ""
-    agent_context: Optional[dict] = None
+    agent_context: Optional[QuickstartAgentContext] = None
 
 
-def _build_system_prompt(step: int, agent_context: Optional[dict] = None) -> str:
+def _build_system_prompt(step: int, agent_context: Optional[QuickstartAgentContext] = None) -> str:
     step_descriptions = {
         1: "Step 1: Choose Engine - The user selects claudecode or codex in the UI.",
         2: "Step 2: Create Agent - Help the user define their agent's purpose, capabilities, and configuration.",
@@ -44,7 +60,8 @@ def _build_system_prompt(step: int, agent_context: Optional[dict] = None) -> str
 
     agent_section = ""
     if agent_context:
-        pretty = json.dumps(agent_context, indent=2, ensure_ascii=False)
+        safe_data = agent_context.model_dump(exclude_none=True)
+        pretty = json.dumps(safe_data, indent=2, ensure_ascii=False)
         agent_section = f"\n\n## Agent configured in Step 2:\n```json\n{pretty}\n```\nUse this context to make informed recommendations for the current step."
 
     return f"""You are an elite AI agent architect specializing in crafting high-performance agent configurations for the JoySafeter platform. Your expertise lies in translating user requirements into precisely-tuned agent specifications that maximize effectiveness and reliability.
@@ -233,6 +250,13 @@ async def quickstart_chat(
     data = secret.data or {}
     api_key = data.get("ANTHROPIC_AUTH_TOKEN") or data.get("ANTHROPIC_API_KEY") or ""
     base_url = data.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
+
+    # SSRF protection: validate base_url before making outbound request
+    from app.joysafeter_shared.security.ssrf_guard import validate_url, SSRFError
+    try:
+        validate_url(base_url, context="ANTHROPIC_BASE_URL")
+    except SSRFError as e:
+        raise HTTPException(400, f"Invalid ANTHROPIC_BASE_URL: {e}")
 
     if not api_key:
         raise HTTPException(400, "No ANTHROPIC_API_KEY found in secret")

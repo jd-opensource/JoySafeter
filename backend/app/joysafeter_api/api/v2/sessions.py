@@ -1007,8 +1007,23 @@ async def session_event_stream(
             while True:
                 if await request.is_disconnected():
                     break
-                await asyncio.sleep(15)
-                yield ": heartbeat\n\n"
+                from app.joysafeter_shared.database import AsyncSessionLocal
+
+                async with AsyncSessionLocal() as poll_db:
+                    poll_svc = SessionService(poll_db)
+                    events, _ = await poll_svc.list_events(session_id, 1000, last_seq)
+                    for ev in events:
+                        last_seq = max(last_seq, ev.seq)
+                        data_dict = {
+                            "id": f"evt_{ev.id}",
+                            "type": ev.event_type,
+                            "seq": ev.seq,
+                        }
+                        if isinstance(ev.payload, dict):
+                            data_dict.update(ev.payload)
+                        yield f"id: evt_{ev.id}\ndata: {json.dumps(data_dict)}\n\n"
+
+                await asyncio.sleep(2)
             return
 
         q = broadcaster.subscribe(session_id)

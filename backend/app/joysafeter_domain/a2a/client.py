@@ -123,6 +123,10 @@ async def resolve_a2a_url(
     client = _get_client(agent_card_url, config)
     headers = dict(auth_headers or {})
     _inject_trace_header(headers)
+
+    from app.joysafeter_shared.security.ssrf_guard import validate_url
+    validate_url(agent_card_url, context="A2A agent_card_url")
+
     try:
         resp = await client.get(agent_card_url, headers=headers or None)
         resp.raise_for_status()

@@ -306,6 +306,14 @@ async def test_connection(
     current_user: User = Depends(get_current_user),
 ):
     """Test connection (before creation)."""
+    # SSRF protection: validate MCP server URL before connecting
+    if request.url:
+        from app.joysafeter_shared.security.ssrf_guard import validate_url, SSRFError
+        try:
+            validate_url(request.url, context="MCP server test URL")
+        except SSRFError as e:
+            raise HTTPException(400, f"Invalid MCP server URL: {e}")
+
     mcp_client = get_mcp_client()
     config = McpConnectionConfig(
         url=request.url or "",

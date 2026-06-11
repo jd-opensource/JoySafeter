@@ -25,7 +25,6 @@ cd "$PROJECT_ROOT"
 REGISTRY="${DOCKER_REGISTRY:-docker.io/jdopensource}"
 BACKEND_IMAGE="${BACKEND_IMAGE:-joysafeter-backend}"
 FRONTEND_IMAGE="${FRONTEND_IMAGE:-joysafeter-frontend}"
-MCP_IMAGE="${MCP_IMAGE:-joysafeter-mcp}"
 TAG="${IMAGE_TAG:-latest}"
 # 获取主机架构
 get_host_platform() {
@@ -116,7 +115,6 @@ show_usage() {
   DOCKER_REGISTRY        镜像仓库地址（默认: docker.io/jdopensource）
   BACKEND_IMAGE          后端镜像名称（默认: joysafeter-backend）
   FRONTEND_IMAGE         前端镜像名称（默认: joysafeter-frontend）
-  MCP_IMAGE              MCP 服务镜像名称（默认: joysafeter-mcp）
   IMAGE_TAG              镜像标签（默认: latest）
   BUILD_PLATFORMS        目标平台架构（默认: linux/amd64,linux/arm64）
   NEXT_PUBLIC_API_URL    前端API地址（默认优先使用 BACKEND_URL 或 http://localhost:8000）
@@ -137,9 +135,6 @@ show_usage() {
 
   # 构建所有镜像
   $0 build --all
-
-  # 注意：MCP 服务镜像使用预构建镜像 docker.io/jdopensource/joysafeter-mcp:latest
-  # 使用 pull 命令拉取 MCP 镜像
 
   # 构建并推送到仓库
   $0 push
@@ -442,11 +437,9 @@ build_all_images() {
     if [ -n "$NORMALIZED_REGISTRY" ]; then
         BACKEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${FRONTEND_IMAGE}:${TAG}"
-        MCP_FULL_IMAGE="${NORMALIZED_REGISTRY}/${MCP_IMAGE}:${TAG}"
     else
         BACKEND_FULL_IMAGE="${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${FRONTEND_IMAGE}:${TAG}"
-        MCP_FULL_IMAGE="${MCP_IMAGE}:${TAG}"
     fi
 
     # 初始化 Buildx（如果需要）
@@ -479,16 +472,12 @@ build_all_images() {
         echo ""
     fi
 
-    # 注意：MCP 服务镜像使用预构建镜像 docker.io/jdopensource/joysafeter-mcp:latest
-    # 如需拉取 MCP 镜像，请使用 pull 命令
-
 
     log_success "所有镜像构建完成！"
     echo ""
     echo "📦 镜像信息:"
     [ "$BUILD_BACKEND" = true ] && echo "   后端: $BACKEND_FULL_IMAGE"
     [ "$BUILD_FRONTEND" = true ] && echo "   前端: $FRONTEND_FULL_IMAGE"
-    echo "   注意: MCP 服务镜像使用预构建镜像 docker.io/jdopensource/joysafeter-mcp:latest"
     echo ""
     echo "🏗️  构建平台: $PLATFORMS"
     echo ""
@@ -510,11 +499,9 @@ pull_images() {
     if [ -n "$NORMALIZED_REGISTRY" ]; then
         BACKEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${FRONTEND_IMAGE}:${TAG}"
-        MCP_FULL_IMAGE="${NORMALIZED_REGISTRY}/${MCP_IMAGE}:${TAG}"
     else
         BACKEND_FULL_IMAGE="${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${FRONTEND_IMAGE}:${TAG}"
-        MCP_FULL_IMAGE="${MCP_IMAGE}:${TAG}"
     fi
 
     log_info "拉取后端镜像: $BACKEND_FULL_IMAGE"
@@ -530,14 +517,6 @@ pull_images() {
         log_success "前端镜像拉取成功"
     else
         log_error "前端镜像拉取失败"
-        exit 1
-    fi
-
-    log_info "拉取 MCP 服务镜像: $MCP_FULL_IMAGE"
-    if docker pull "$MCP_FULL_IMAGE"; then
-        log_success "MCP 服务镜像拉取成功"
-    else
-        log_error "MCP 服务镜像拉取失败"
         exit 1
     fi
 

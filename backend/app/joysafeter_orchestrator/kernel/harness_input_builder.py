@@ -112,7 +112,10 @@ async def _maybe_refresh_oauth(credential: dict, db_session) -> dict:
         return credential
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        from app.joysafeter_shared.security.ssrf_guard import validate_url
+        validate_url(token_url, context="OAuth token_url refresh")
+
+        async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
             resp = await client.post(token_url, data={
                 "grant_type": "refresh_token",
                 "refresh_token": oauth_config.get("refresh_token", ""),

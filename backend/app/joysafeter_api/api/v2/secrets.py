@@ -147,7 +147,7 @@ async def delete_secret(
         raise HTTPException(404, "Secret not found")
 
     if not force:
-        agent_name = await svc.secret_is_referenced_by_agent(secret.name)
+        agent_name = await svc.secret_is_referenced_by_agent(secret.name, project_id=auth_ctx.project_id)
         if agent_name:
             raise HTTPException(
                 409,

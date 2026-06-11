@@ -809,10 +809,13 @@ export default function QuickstartPage() {
 
   const handleSend = () => {
     const text = inputValue.trim()
-    if (!text || isStreaming) return
+    if (!text || isStreaming || isSessionRunning) return
     setInputValue('')
     sendMessage(text)
   }
+
+  const isMainInputDisabled = isStreaming || isSessionRunning || !secretRef
+  const isMainSendDisabled = isMainInputDisabled || !inputValue.trim()
 
   return (
     <div className="w-full">
@@ -933,18 +936,24 @@ export default function QuickstartPage() {
                       handleSend()
                     }
                   }}
-                  disabled={!secretRef}
+                  disabled={isMainInputDisabled}
                   placeholder={
-                    !secretRef ? t('managed.quickstart.noApiKey') : t('managed.quickstart.describeAgent')
+                    !secretRef
+                      ? t('managed.quickstart.noApiKey')
+                      : isSessionRunning
+                        ? t('managed.quickstart.agentProcessing')
+                        : isStreaming
+                          ? t('managed.quickstart.waitingForResponse')
+                          : t('managed.quickstart.describeAgent')
                   }
                   className="h-8 flex-1 border-0 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-50"
                 />
                 <button
                   onClick={handleSend}
-                  disabled={!inputValue.trim() || !secretRef}
+                  disabled={isMainSendDisabled}
                   className={cn(
                     'inline-flex h-6 w-6 items-center justify-center rounded-md text-xs font-semibold text-white transition-colors',
-                    !inputValue.trim() || !secretRef
+                    isMainSendDisabled
                       ? 'cursor-not-allowed bg-muted-foreground/30'
                       : 'bg-[#eba895] hover:bg-[#e09880]',
                   )}
@@ -1433,22 +1442,24 @@ export default function QuickstartPage() {
                         handleSend()
                       }
                     }}
-                    disabled={isStreaming || !secretRef}
+                    disabled={isMainInputDisabled}
                     placeholder={
                       !secretRef
                         ? t('managed.quickstart.noApiKey')
-                        : isStreaming
-                          ? t('managed.quickstart.waitingForResponse')
-                          : t('managed.quickstart.reply')
+                        : isSessionRunning
+                          ? t('managed.quickstart.agentProcessing')
+                          : isStreaming
+                            ? t('managed.quickstart.waitingForResponse')
+                            : t('managed.quickstart.reply')
                     }
                     className="h-8 flex-1 border-0 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-50"
                   />
                   <button
                     onClick={handleSend}
-                    disabled={isStreaming || !inputValue.trim() || !secretRef}
+                    disabled={isMainSendDisabled}
                     className={cn(
                       'inline-flex h-6 w-6 items-center justify-center rounded-md text-xs font-semibold text-white transition-colors',
-                      isStreaming || !inputValue.trim() || !secretRef
+                      isMainSendDisabled
                         ? 'cursor-not-allowed bg-muted-foreground/30'
                         : 'bg-[#eba895] hover:bg-[#e09880]',
                     )}

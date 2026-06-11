@@ -305,8 +305,11 @@ class VaultService:
 
         try:
             import httpx
+            from app.joysafeter_shared.security.ssrf_guard import validate_url
 
-            async with httpx.AsyncClient(timeout=15) as client:
+            validate_url(token_url, context="vault OAuth token_url")
+
+            async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
                 resp = await client.post(
                     token_url,
                     data={

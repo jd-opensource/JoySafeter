@@ -37,12 +37,6 @@ docker compose logs -f api orchestrator worker
 docker compose down
 ```
 
-可选 MCP：
-
-```bash
-docker compose --profile mcp up -d mcpserver
-```
-
 ## 2. 本地测试一键启动
 
 如果想在本机直接跑后端/前端，只让 Docker 提供 PostgreSQL/Redis：

@@ -26,9 +26,7 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
 
       try {
         const afterSeq = lastSeqRef.current
-        const url = afterSeq > 0
-          ? `${MANAGED_API_BASE}/sessions/${sessionId}/events/stream?after_seq=${afterSeq}`
-          : `${MANAGED_API_BASE}/sessions/${sessionId}/events/stream`
+        const url = `${MANAGED_API_BASE}/sessions/${sessionId}/events/stream?after_seq=${afterSeq}`
 
         const headers: Record<string, string> = {}
         const csrfToken = getCsrfToken()
@@ -65,7 +63,17 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
           if (batch.length > 0) {
             const toAdd = batch
             batch = []
-            setEvents((prev) => [...prev, ...toAdd])
+            setEvents((prev) => {
+              const seen = new Set(prev.map((event) => event.id || `${event.seq}:${event.type}`))
+              const next = [...prev]
+              for (const event of toAdd) {
+                const key = event.id || `${event.seq}:${event.type}`
+                if (seen.has(key)) continue
+                seen.add(key)
+                next.push(event)
+              }
+              return next
+            })
           }
           flushTimer = null
         }

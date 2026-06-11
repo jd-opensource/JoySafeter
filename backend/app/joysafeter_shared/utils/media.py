@@ -56,8 +56,9 @@ class Image(BaseModel):
             return self.content
         elif self.url:
             import httpx
-
-            return httpx.get(self.url).content
+            from app.joysafeter_shared.security.ssrf_guard import validate_url
+            validate_url(self.url, allow_http=True, context="media URL fetch")
+            return httpx.get(self.url, timeout=30, follow_redirects=False).content
         elif self.filepath:
             with open(self.filepath, "rb") as f:
                 return f.read()
@@ -158,8 +159,9 @@ class Audio(BaseModel):
             return self.content
         elif self.url:
             import httpx
-
-            return httpx.get(self.url).content
+            from app.joysafeter_shared.security.ssrf_guard import validate_url
+            validate_url(self.url, allow_http=True, context="media URL fetch")
+            return httpx.get(self.url, timeout=30, follow_redirects=False).content
         elif self.filepath:
             with open(self.filepath, "rb") as f:
                 return f.read()
@@ -276,8 +278,9 @@ class Video(BaseModel):
             return self.content
         elif self.url:
             import httpx
-
-            return httpx.get(self.url).content
+            from app.joysafeter_shared.security.ssrf_guard import validate_url
+            validate_url(self.url, allow_http=True, context="media URL fetch")
+            return httpx.get(self.url, timeout=30, follow_redirects=False).content
         elif self.filepath:
             with open(self.filepath, "rb") as f:
                 return f.read()
@@ -414,7 +417,9 @@ class File(BaseModel):
         import httpx
 
         if self.url:
-            response = httpx.get(self.url)
+            from app.joysafeter_shared.security.ssrf_guard import validate_url
+            validate_url(self.url, allow_http=True, context="File URL fetch")
+            response = httpx.get(self.url, timeout=30, follow_redirects=False)
             content = response.content
             mime_type = response.headers.get("Content-Type", "").split(";")[0]
             return content, mime_type
