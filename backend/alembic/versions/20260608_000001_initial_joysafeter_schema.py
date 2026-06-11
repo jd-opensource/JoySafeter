@@ -6,9 +6,9 @@ Create Date: 2026-06-08 00:00:00.000000+00:00
 """
 from typing import Sequence, Union
 
-from alembic import op
-import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
+from alembic import op  # type: ignore[attr-defined]
+import sqlalchemy as sa  # noqa: F401
+from sqlalchemy.dialects import postgresql  # noqa: F401
 
 
 revision: str = "20260608_000001"
