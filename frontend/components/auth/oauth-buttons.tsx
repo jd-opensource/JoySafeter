@@ -5,7 +5,7 @@ import { Chrome, Github, Globe, Key, Shield } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { apiGet, ApiError } from '@/lib/api-client'
+import { managedGet, ApiError } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { createLogger } from '@/lib/logs/console/logger'
 import { toastError } from '@/lib/utils/toast'
@@ -43,7 +43,10 @@ interface OAuthAuthorizationResponse {
  * Fetch the list of OAuth providers
  */
 async function fetchOAuthProviders(): Promise<OAuthProvider[]> {
-  const data = await apiGet<OAuthProvidersResponse>('auth/oauth/providers', { withAuth: false })
+  const data = await managedGet<OAuthProvidersResponse>('auth/oauth/providers', {
+    withAuth: false,
+    skipManagedContext: true,
+  })
   return data.providers
 }
 
@@ -147,7 +150,10 @@ export function OAuthButtons({
       const path = `auth/oauth/${providerId}${queryString ? `?${queryString}` : ''}`
 
       logger.info('Initiating OAuth login:', { provider: providerId, callbackUrl })
-      const response = await apiGet<OAuthAuthorizationResponse>(path, { withAuth: false })
+      const response = await managedGet<OAuthAuthorizationResponse>(path, {
+        withAuth: false,
+        skipManagedContext: true,
+      })
       window.location.href = response.authorization_url
     } catch (error) {
       logger.error('Failed to initiate OAuth login:', { providerId, error })

@@ -13,11 +13,13 @@ from app.joysafeter_api.api.v2.vaults import router as vaults_router
 from app.joysafeter_api.api.v2.files import router as files_router
 from app.joysafeter_api.api.v2.health import router as health_router
 from app.joysafeter_api.api.v2.organizations import router as organizations_router
+from app.joysafeter_api.api.v2.oauth import router as oauth_router
 from app.joysafeter_api.api.v2.quickstart import router as quickstart_router
 
 joysafeter_router = APIRouter()
 
 joysafeter_router.include_router(auth_router, prefix="/auth")
+joysafeter_router.include_router(oauth_router, prefix="/auth/oauth")
 joysafeter_router.include_router(agents_router, prefix="/agents")
 joysafeter_router.include_router(tasks_router, prefix="/tasks")
 joysafeter_router.include_router(sessions_router, prefix="/sessions")

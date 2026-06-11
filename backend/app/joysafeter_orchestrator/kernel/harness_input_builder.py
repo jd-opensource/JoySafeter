@@ -436,7 +436,8 @@ def extract_tool_name_sets(agent) -> tuple[set[str], set[str]]:
             if tool.get("type") == "custom":
                 custom_names.add(tool["name"])
             elif tool.get("type") == "mcp_toolset":
-                name = tool.get("mcp_server_name", "")
+                # I15 fix: Rust reads "name", Python historically read "mcp_server_name" — check both
+                name = tool.get("name") or tool.get("mcp_server_name", "")
                 if name:
                     mcp_names.add(name)
 

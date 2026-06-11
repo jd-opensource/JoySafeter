@@ -334,7 +334,7 @@ class SandboxController:
                 select(JoySafeterSandbox).where(
                     and_(
                         JoySafeterSandbox.status == "stopping",
-                        text("last_used_at < NOW() - make_interval(secs => :timeout)"),
+                        text("updated_at < NOW() - make_interval(secs => :timeout)"),
                     )
                 ).params(timeout=60)
             )

@@ -287,6 +287,12 @@ class SandboxResolver:
                 if not self._fingerprint_matches(stopped, expected_fingerprint):
                     await svc.mark_destroyed(stopped.id)
                     stopped = None
+                    # I14 fix: Rust skips pool after destroying mismatched stopped sandbox
+                    # and goes directly to create_new. Match that behavior.
+                    return await self._create_new_sandbox(
+                        session_id, expected_fingerprint, agent_env,
+                        networking, engine_kind, resolved_image,
+                    )
                 restarted = await self._restart_sandbox(svc, stopped) if stopped else False
                 if restarted:
                     return {
