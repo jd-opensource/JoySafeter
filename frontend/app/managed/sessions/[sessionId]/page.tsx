@@ -40,6 +40,18 @@ const TRANSCRIPT_TYPES = new Set([
   'span.model_request_end',
 ])
 
+const TRANSCRIPT_DISPLAY_TYPES = new Set([
+  'user.message',
+  'agent.message',
+  'agent.mcp_tool_use',
+  'agent.tool_use',
+  'agent.custom_tool_use',
+  'user.custom_tool_result',
+  'user.tool_result',
+  'span.model_request_start',
+  'span.model_request_end',
+])
+
 const ALL_EVENT_TYPES = new Set([
   'agent.custom_tool_use',
   'agent.error',
@@ -542,7 +554,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
         toolUseStartTime = new Date(evt.created_at).getTime()
       }
 
-      merged.push(evt)
+      if (TRANSCRIPT_DISPLAY_TYPES.has(t)) {
+        merged.push(evt)
+      }
     }
 
     return merged

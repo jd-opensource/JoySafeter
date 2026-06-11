@@ -107,6 +107,15 @@ class SandboxBridgeRegistry:
         self, sandbox_db_id: uuid.UUID, external_id: str
     ) -> SandboxBridge:
         async with self._lock:
+            # Fix 3.1: if an old bridge exists, disconnect it cleanly before replacing
+            old = self._bridges.get(sandbox_db_id)
+            if old is not None:
+                old.status = SandboxBridgeStatus.DISCONNECTED
+                old._cancel_event.set()
+                logger.warning(
+                    "Bridge replaced for sandbox %s (old session displaced by reconnect)",
+                    sandbox_db_id,
+                )
             bridge = SandboxBridge(sandbox_db_id, external_id)
             self._bridges[sandbox_db_id] = bridge
             return bridge

@@ -1199,6 +1199,10 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     await task_svc.update_task_error(task_id, "Agent not found", TaskStatus.FAILED)
                     bridge.current_task_id = None
                     bridge.status = SandboxBridgeStatus.IDLE
+                    # Fix 4.5: clean up Redis task mapping on early exit
+                    coordinator = get_redis_coordinator()
+                    if coordinator:
+                        await _best_effort_redis("remove_task_sandbox", coordinator.remove_task_sandbox(task_id))
                     return (True, False, True, False)
 
                 if task.status != TaskStatus.RUNNING.value:
@@ -2844,6 +2848,11 @@ async def start_grpc_server(
         ("grpc.max_receive_message_length", 8 * 1024 * 1024),
         ("grpc.max_send_message_length", 32 * 1024 * 1024),
         ("grpc.max_concurrent_streams", 200),
+        # Transport-level keepalive: detect dead connections through NAT/LB
+        ("grpc.keepalive_time_ms", 30000),           # ping every 30s
+        ("grpc.keepalive_timeout_ms", 10000),         # 10s to respond
+        ("grpc.keepalive_permit_without_calls", 1),   # ping even when idle
+        ("grpc.http2.min_recv_ping_interval_without_data_ms", 10000),
     ])
     servicer = AgentBridgeServicer(
         bridge_registry, event_buffer, queue,
