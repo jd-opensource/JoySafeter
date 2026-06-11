@@ -20,6 +20,10 @@ class V2ResponseWrapperMiddleware(BaseHTTPMiddleware):
         if not request.url.path.startswith("/api/v2"):
             return response
 
+        # Skip SSE / streaming endpoints — BaseHTTPMiddleware breaks long-lived streams
+        if "/stream" in request.url.path or "/chat" in request.url.path:
+            return response
+
         content_type = response.headers.get("content-type", "")
         if "application/json" not in content_type:
             return response

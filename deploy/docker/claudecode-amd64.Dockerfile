@@ -42,7 +42,7 @@ FROM base AS claudecode
 
 RUN npm install -g @anthropic-ai/claude-code@latest
 
-COPY target/x86_64-unknown-linux-musl/release/joysafeter-runner /usr/local/bin/joysafeter-runner
+COPY target/x86_64-unknown-linux-gnu/release/joysafeter-runner /usr/local/bin/joysafeter-runner
 RUN chmod +x /usr/local/bin/joysafeter-runner
 
 USER agent

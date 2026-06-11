@@ -27,8 +27,9 @@ from app.joysafeter_domain.models.skill import Skill, SkillFile
 
 
 class SkillPacker:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, project_id: Optional[str] = None):
         self.db = db
+        self._project_id = project_id
 
     async def resolve_and_pack(self, skill_items: list[dict], target: str = "skills") -> list[SkillArchive]:
         """Resolve a list of skill entries (refs or packed) into SkillArchive objects."""
@@ -80,9 +81,13 @@ class SkillPacker:
             return await self._pack_version(uid, version, target)
 
         # latest: use skill_files (working copy)
+        from sqlalchemy import select as sa_select, and_
+        conditions = [Skill.id == uid]
+        if self._project_id:
+            conditions.append(Skill.project_id == self._project_id)
         result = await self.db.execute(
-            select(Skill)
-            .where(Skill.id == uid)
+            sa_select(Skill)
+            .where(and_(*conditions))
             .options(selectinload(Skill.files))
         )
         skill = result.scalar_one_or_none()
@@ -100,6 +105,17 @@ class SkillPacker:
     async def _pack_version(self, skill_id: uuid.UUID, version: str, target: str) -> Optional[SkillArchive]:
         """Pack a specific published version of a skill."""
         from app.joysafeter_domain.models.skill_version import SkillVersion, SkillVersionFile
+        from sqlalchemy import and_
+
+        # Verify skill belongs to project before fetching version
+        if self._project_id:
+            from sqlalchemy import select as sa_select
+            owner_check = await self.db.execute(
+                sa_select(Skill.id).where(and_(Skill.id == skill_id, Skill.project_id == self._project_id))
+            )
+            if not owner_check.scalar_one_or_none():
+                logger.warning("Skill %s not found in project %s", skill_id, self._project_id)
+                return None
 
         result = await self.db.execute(
             select(SkillVersion)

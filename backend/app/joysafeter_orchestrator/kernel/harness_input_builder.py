@@ -327,7 +327,7 @@ async def build_harness_input(
             elif isinstance(item, dict) and item.get("skill_id"):
                 from app.joysafeter_orchestrator.services import SkillPacker
                 async with AsyncSessionLocal() as packer_db:
-                    packer = SkillPacker(packer_db)
+                    packer = SkillPacker(packer_db, project_id=str(agent.project_id) if agent.project_id else None)
                     archive = await packer._pack_custom(
                         item["skill_id"], item.get("version", "latest"), target
                     )

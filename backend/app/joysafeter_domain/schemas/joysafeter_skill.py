@@ -16,6 +16,22 @@ class CreateSkillRequest(BaseModel):
     license: str = ""
     files: Optional[list[dict[str, Any]]] = None
 
+    @field_validator("files")
+    @classmethod
+    def validate_file_paths(cls, v: Optional[list[dict[str, Any]]]) -> Optional[list[dict[str, Any]]]:
+        if not v:
+            return v
+        from pathlib import PurePosixPath
+        for f in v:
+            path = f.get("path", "")
+            if path:
+                p = PurePosixPath(path)
+                if p.is_absolute():
+                    raise ValueError(f"Skill file path must be relative: {path}")
+                if ".." in p.parts:
+                    raise ValueError(f"Skill file path must not contain '..': {path}")
+        return v
+
 
 class UpdateSkillRequest(BaseModel):
     name: Optional[str] = None

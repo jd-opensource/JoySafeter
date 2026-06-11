@@ -22,9 +22,11 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 # 默认配置
-REGISTRY="${DOCKER_REGISTRY:-docker.io/jdopensource}"
+REGISTRY="${DOCKER_REGISTRY:-}"
 BACKEND_IMAGE="${BACKEND_IMAGE:-joysafeter-backend}"
 FRONTEND_IMAGE="${FRONTEND_IMAGE:-joysafeter-frontend}"
+CLAUDECODE_IMAGE="${CLAUDECODE_IMAGE:-joysafeter-claudecode}"
+CODEX_IMAGE="${CODEX_IMAGE:-joysafeter-codex}"
 TAG="${IMAGE_TAG:-latest}"
 # 获取主机架构
 get_host_platform() {
@@ -56,6 +58,7 @@ NO_CACHE="${NO_CACHE:-false}"
 # pip/uv 镜像源配置（默认使用清华大学镜像源）
 PIP_INDEX_URL="${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}"
 UV_INDEX_URL="${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}"
+RUST_BUILDER_IMAGE="${RUST_BUILDER_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/rust:1-bookworm}"
 
 # 规范化镜像仓库地址
 normalize_registry() {
@@ -98,7 +101,7 @@ show_usage() {
 
 选项:
   -h, --help             显示帮助信息
-  -r, --registry REGISTRY 镜像仓库地址（默认: docker.io/jdopensource）
+  -r, --registry REGISTRY 镜像仓库地址（默认: 空，本地镜像）
   -t, --tag TAG          镜像标签（默认: latest）
   --platform PLATFORMS   目标平台架构，多个用逗号分隔（默认: linux/amd64,linux/arm64）
   --arch ARCH            简化的架构选项，可多次使用
@@ -106,20 +109,26 @@ show_usage() {
   --api-url URL          前端连接后端的API地址（构建时注入）
   --backend-only         只构建后端镜像
   --frontend-only        只构建前端镜像
-  --all                  构建所有镜像（包括 backend, frontend）
+  --runtime-only         只构建 agent 运行镜像（claudecode, codex）
+  --claudecode-only      只构建 Claude Code 运行镜像
+  --codex-only           只构建 Codex 运行镜像
+  --all                  构建所有镜像（backend, frontend, claudecode, codex）
   --no-cache             禁用 Docker 构建缓存（默认使用缓存）
   --mirror MIRROR        使用国内镜像源加速基础镜像（aliyun, tencent, huawei, docker-cn）
   --pip-mirror MIRROR    使用国内 pip 镜像源（aliyun, tencent, huawei, jd）
 
 环境变量:
-  DOCKER_REGISTRY        镜像仓库地址（默认: docker.io/jdopensource）
+  DOCKER_REGISTRY        镜像仓库地址（默认: 空，本地镜像）
   BACKEND_IMAGE          后端镜像名称（默认: joysafeter-backend）
   FRONTEND_IMAGE         前端镜像名称（默认: joysafeter-frontend）
+  CLAUDECODE_IMAGE       Claude Code 运行镜像名称（默认: joysafeter-claudecode）
+  CODEX_IMAGE            Codex 运行镜像名称（默认: joysafeter-codex）
   IMAGE_TAG              镜像标签（默认: latest）
   BUILD_PLATFORMS        目标平台架构（默认: linux/amd64,linux/arm64）
   NEXT_PUBLIC_API_URL    前端API地址（默认优先使用 BACKEND_URL 或 http://localhost:8000）
   PIP_INDEX_URL          pip 镜像源（默认: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple）
   UV_INDEX_URL           uv 镜像源（默认: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple）
+  RUST_BUILDER_IMAGE     runner 编译镜像（默认: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/rust:1-bookworm）
   BASE_IMAGE_REGISTRY    基础镜像仓库前缀
   NO_CACHE               是否禁用构建缓存（默认: false，使用缓存）
 
@@ -135,6 +144,9 @@ show_usage() {
 
   # 构建所有镜像
   $0 build --all
+
+  # 构建远程 amd64 服务器需要的四个镜像
+  $0 build --all --arch amd64
 
   # 构建并推送到仓库
   $0 push
@@ -404,6 +416,7 @@ build_image() {
             build_args_final+=("--no-cache")
         fi
         docker build \
+            --platform "$PLATFORMS" \
             -f "$dockerfile" \
             "${build_args_final[@]}" \
             -t "$image_name" \
@@ -413,21 +426,118 @@ build_image() {
     log_success "$service 镜像构建完成: $image_name"
 }
 
+runtime_dockerfile_for() {
+    local engine=$1
+    local platform=$2
+    case "$engine:$platform" in
+        claudecode:linux/amd64) echo "$SCRIPT_DIR/docker/claudecode-amd64.Dockerfile" ;;
+        claudecode:linux/arm64) echo "$SCRIPT_DIR/docker/claudecode-arm64.Dockerfile" ;;
+        codex:linux/amd64) echo "$SCRIPT_DIR/docker/codex-amd64.Dockerfile" ;;
+        codex:linux/arm64) echo "$SCRIPT_DIR/docker/codex-arm64.Dockerfile" ;;
+        *)
+            log_error "未找到 $engine 在 $platform 的 Dockerfile"
+            exit 1
+            ;;
+    esac
+}
+
+runtime_runner_target_for() {
+    local platform=$1
+    case "$platform" in
+        linux/amd64)
+            echo "x86_64-unknown-linux-gnu"
+            ;;
+        linux/arm64)
+            echo "aarch64-unknown-linux-gnu"
+            ;;
+        *)
+            log_error "runner 暂不支持平台: $platform"
+            exit 1
+            ;;
+    esac
+}
+
+ensure_runtime_runner_binary() {
+    local platform=$1
+    local target
+    target=$(runtime_runner_target_for "$platform")
+    local output="$PROJECT_ROOT/target/$target/release/joysafeter-runner"
+
+    if [ -x "$output" ]; then
+        log_success "runner 二进制已存在: $output"
+        return
+    fi
+
+    log_info "编译 runner 二进制: $target"
+    docker run --rm \
+        --platform "$platform" \
+        -v "$PROJECT_ROOT:/workspace" \
+        -w /workspace/sandbox-runner \
+        "$RUST_BUILDER_IMAGE" \
+        bash -lc "export PATH=/usr/local/cargo/bin:\$PATH && apt-get update && apt-get install -y --no-install-recommends protobuf-compiler pkg-config && if command -v rustup >/dev/null 2>&1; then rustup target add $target; fi && cargo build --release --target $target -p joysafeter-runner && mkdir -p /workspace/target/$target/release && cp target/$target/release/joysafeter-runner /workspace/target/$target/release/joysafeter-runner"
+    chmod +x "$output"
+    log_success "runner 二进制编译完成: $output"
+}
+
+build_runtime_image() {
+    local service=$1
+    local engine=$2
+    local image_name=$3
+
+    if echo "$PLATFORMS" | grep -q ","; then
+        if [ "$PUSH" != true ]; then
+            log_error "agent 运行镜像本地构建一次只支持单架构；请指定 --arch amd64/--arch arm64"
+            exit 1
+        fi
+        log_error "agent 运行镜像多架构 push 暂未自动合并 manifest，请分别按架构构建后手动发布"
+        exit 1
+    fi
+
+    ensure_runtime_runner_binary "$PLATFORMS"
+
+    local dockerfile
+    dockerfile=$(runtime_dockerfile_for "$engine" "$PLATFORMS")
+    build_image "$service" "$dockerfile" "$PROJECT_ROOT" "$image_name"
+}
+
 # 构建所有镜像
 build_all_images() {
     local BUILD_BACKEND=${BUILD_BACKEND:-true}
     local BUILD_FRONTEND=${BUILD_FRONTEND:-true}
+    local BUILD_CLAUDECODE=${BUILD_CLAUDECODE:-false}
+    local BUILD_CODEX=${BUILD_CODEX:-false}
     # 检查是否只构建特定服务
     if [ "$BACKEND_ONLY" = true ]; then
         BUILD_FRONTEND=false
+        BUILD_CLAUDECODE=false
+        BUILD_CODEX=false
     elif [ "$FRONTEND_ONLY" = true ]; then
         BUILD_BACKEND=false
+        BUILD_CLAUDECODE=false
+        BUILD_CODEX=false
+    elif [ "$RUNTIME_ONLY" = true ]; then
+        BUILD_BACKEND=false
+        BUILD_FRONTEND=false
+        BUILD_CLAUDECODE=true
+        BUILD_CODEX=true
+    elif [ "$CLAUDECODE_ONLY" = true ]; then
+        BUILD_BACKEND=false
+        BUILD_FRONTEND=false
+        BUILD_CLAUDECODE=true
+        BUILD_CODEX=false
+    elif [ "$CODEX_ONLY" = true ]; then
+        BUILD_BACKEND=false
+        BUILD_FRONTEND=false
+        BUILD_CLAUDECODE=false
+        BUILD_CODEX=true
     elif [ "$INIT_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
     elif [ "$BUILD_ALL" = true ]; then
         BUILD_BACKEND=true
         BUILD_FRONTEND=true
+        BUILD_CLAUDECODE=true
+        BUILD_CODEX=true
     fi
 
     # 规范化镜像仓库地址
@@ -437,9 +547,13 @@ build_all_images() {
     if [ -n "$NORMALIZED_REGISTRY" ]; then
         BACKEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${FRONTEND_IMAGE}:${TAG}"
+        CLAUDECODE_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CLAUDECODE_IMAGE}:${TAG}"
+        CODEX_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CODEX_IMAGE}:${TAG}"
     else
         BACKEND_FULL_IMAGE="${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${FRONTEND_IMAGE}:${TAG}"
+        CLAUDECODE_FULL_IMAGE="${CLAUDECODE_IMAGE}:${TAG}"
+        CODEX_FULL_IMAGE="${CODEX_IMAGE}:${TAG}"
     fi
 
     # 初始化 Buildx（如果需要）
@@ -472,12 +586,24 @@ build_all_images() {
         echo ""
     fi
 
+    if [ "$BUILD_CLAUDECODE" = true ]; then
+        build_runtime_image "Claude Code 运行镜像" "claudecode" "$CLAUDECODE_FULL_IMAGE"
+        echo ""
+    fi
+
+    if [ "$BUILD_CODEX" = true ]; then
+        build_runtime_image "Codex 运行镜像" "codex" "$CODEX_FULL_IMAGE"
+        echo ""
+    fi
+
 
     log_success "所有镜像构建完成！"
     echo ""
     echo "📦 镜像信息:"
     [ "$BUILD_BACKEND" = true ] && echo "   后端: $BACKEND_FULL_IMAGE"
     [ "$BUILD_FRONTEND" = true ] && echo "   前端: $FRONTEND_FULL_IMAGE"
+    [ "$BUILD_CLAUDECODE" = true ] && echo "   Claude Code 运行镜像: $CLAUDECODE_FULL_IMAGE"
+    [ "$BUILD_CODEX" = true ] && echo "   Codex 运行镜像: $CODEX_FULL_IMAGE"
     echo ""
     echo "🏗️  构建平台: $PLATFORMS"
     echo ""
@@ -533,6 +659,9 @@ main() {
     local PUSH=false
     local BACKEND_ONLY=false
     local FRONTEND_ONLY=false
+    local RUNTIME_ONLY=false
+    local CLAUDECODE_ONLY=false
+    local CODEX_ONLY=false
     local BUILD_ALL=false
     local ARCH_LIST_STR=""
 
@@ -619,6 +748,18 @@ main() {
                 ;;
             --frontend-only)
                 FRONTEND_ONLY=true
+                shift
+                ;;
+            --runtime-only)
+                RUNTIME_ONLY=true
+                shift
+                ;;
+            --claudecode-only)
+                CLAUDECODE_ONLY=true
+                shift
+                ;;
+            --codex-only)
+                CODEX_ONLY=true
                 shift
                 ;;
             --all)

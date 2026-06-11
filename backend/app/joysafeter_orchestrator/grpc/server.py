@@ -92,14 +92,21 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         - Per task: send StartTask, enter inner loop reading events until Result+Idle
         - On disconnect: cleanup
         """
-        # Connection-level rate limiting
-        if not self._connection_semaphore._value:
+        # Connection-level rate limiting (atomic try-acquire, no TOCTOU race)
+        if self._connection_semaphore.locked():
             await context.abort(
                 grpc.StatusCode.RESOURCE_EXHAUSTED,
                 "Too many concurrent connections",
             )
             return
-        await self._connection_semaphore.acquire()
+        try:
+            self._connection_semaphore.acquire_nowait()
+        except ValueError:
+            await context.abort(
+                grpc.StatusCode.RESOURCE_EXHAUSTED,
+                "Too many concurrent connections",
+            )
+            return
         try:
             await self._session_impl(request_iterator, context)
         finally:
@@ -630,7 +637,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
                         if requires_action_pending:
                             if len(buffered_events) < 1000:
-                                buffered_events.append((mapped_type, mapped_payload))
+                                if len(buffered_events) < 1000:
+                            buffered_events.append((mapped_type, mapped_payload))
                             continue
 
                         if mapped_type in ("agent.tool_use", "agent.mcp_tool_use") and is_control_request(mapped_payload):
@@ -1336,6 +1344,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 requires_action_pending = False
                 bridge.confirmation_event.clear()
                 bridge._requires_action_pending = False
+                # Reset task deadline after HITL resume (matching Rust line 753)
+                task_deadline = _time.monotonic() + timeout
                 logger.info("Confirmation received for task %s, resuming", task_id)
                 while not bridge._control_queue.empty():
                     try:
@@ -1540,7 +1550,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                         bridge.last_error = err_detail.get("message") if isinstance(err_detail, dict) else str(err_detail)
 
                     if requires_action_pending:
-                        buffered_events.append((mapped_type, mapped_payload))
+                        if len(buffered_events) < 1000:
+                            buffered_events.append((mapped_type, mapped_payload))
                         continue
 
                     if mapped_type in ("agent.tool_use", "agent.mcp_tool_use") and is_control_request(mapped_payload):

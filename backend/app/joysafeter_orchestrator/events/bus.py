@@ -26,6 +26,13 @@ class JoySafeterEventBus:
         logger.info("Registered joysafeter event subscriber: %s", sub.name)
 
     async def publish(self, envelope: JoySafeterEventEnvelope) -> None:
+        """Publish event. Never raises — errors are logged but don't kill callers."""
+        try:
+            await self._publish_inner(envelope)
+        except Exception as e:
+            logger.error("EventBus.publish failed (swallowed): %s", e, exc_info=True)
+
+    async def _publish_inner(self, envelope: JoySafeterEventEnvelope) -> None:
         # Run persist and broadcast CONCURRENTLY — not sequentially.
         # Previously broadcast waited for persist (100ms+ DB batch delay per event).
         # Now SSE gets events immediately while DB persist happens in parallel.

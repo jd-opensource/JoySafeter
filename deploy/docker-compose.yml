@@ -3,7 +3,8 @@
 # =============================================================================
 # 用法：
 #   cd deploy
-#   docker compose up -d --build
+#   Python orchestrator: docker compose --profile python-orchestrator up -d --build
+#   Rust orchestrator:   docker compose --profile rust-orchestrator up -d --build
 # =============================================================================
 
 x-backend-build: &backend-build
@@ -13,6 +14,13 @@ x-backend-build: &backend-build
     PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
     UV_INDEX_URL: ${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
     GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-unknown}
+
+x-orchestrator-rs-build: &orchestrator-rs-build
+  context: ..
+  dockerfile: deploy/docker/orchestrator-rs.Dockerfile
+  args:
+    RUST_IMAGE: ${RUST_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/rust:1.85-bookworm}
+    RUNTIME_IMAGE: ${RUNTIME_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/debian:bookworm-slim}
 
 x-backend-env-files: &backend-env-files
   - ../backend/.env
@@ -101,7 +109,7 @@ services:
       - joysafeter-network
 
   api:
-    image: ${DOCKER_REGISTRY:-docker.io/jdopensource}/${BACKEND_IMAGE:-joysafeter-backend}:${IMAGE_TAG:-latest}
+    image: ${BACKEND_FULL_IMAGE:-joysafeter-backend:latest}
     build: *backend-build
     container_name: joysafeter-api
     restart: unless-stopped
@@ -123,7 +131,8 @@ services:
       - joysafeter-network
 
   orchestrator:
-    image: ${DOCKER_REGISTRY:-docker.io/jdopensource}/${BACKEND_IMAGE:-joysafeter-backend}:${IMAGE_TAG:-latest}
+    profiles: ["python-orchestrator"]
+    image: ${BACKEND_FULL_IMAGE:-joysafeter-backend:latest}
     build: *backend-build
     container_name: joysafeter-orchestrator
     restart: unless-stopped
@@ -155,8 +164,33 @@ services:
     networks:
       - joysafeter-network
 
+  orchestrator-rs:
+    profiles: ["rust-orchestrator"]
+    image: ${ORCHESTRATOR_RS_FULL_IMAGE:-joysafeter-orchestrator-rs:latest}
+    build: *orchestrator-rs-build
+    container_name: joysafeter-orchestrator
+    restart: unless-stopped
+    env_file: *backend-env-files
+    environment:
+      <<: *backend-common-env
+      JOYSAFETER_INSTANCE_ID: ${JOYSAFETER_INSTANCE_ID:-orchestrator-rs-001}
+      JOYSAFETER_GRPC_HOST: 0.0.0.0
+      JOYSAFETER_GRPC_PORT: ${JOYSAFETER_GRPC_PORT:-9090}
+      JOYSAFETER_GRPC_PUBLIC_URL: ${JOYSAFETER_GRPC_PUBLIC_URL:-http://host.docker.internal:9090}
+    ports:
+      - "${JOYSAFETER_GRPC_BIND_HOST:-0.0.0.0}:${JOYSAFETER_GRPC_PORT_HOST:-9090}:9090"
+    depends_on: *backend-depends
+    volumes:
+      - backend-logs:/app/app/logs
+      - backend-files:/app/data/files
+      - ../skills:/app/skills:ro
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
+      - ${DOCKER_BIN_PATH:-/usr/bin/docker}:/usr/bin/docker:ro
+    networks:
+      - joysafeter-network
+
   worker:
-    image: ${DOCKER_REGISTRY:-docker.io/jdopensource}/${BACKEND_IMAGE:-joysafeter-backend}:${IMAGE_TAG:-latest}
+    image: ${BACKEND_FULL_IMAGE:-joysafeter-backend:latest}
     build: *backend-build
     container_name: joysafeter-worker
     restart: unless-stopped
@@ -179,7 +213,7 @@ services:
       - joysafeter-network
 
   frontend:
-    image: ${DOCKER_REGISTRY:-docker.io/jdopensource}/${FRONTEND_IMAGE:-joysafeter-frontend}:${IMAGE_TAG:-latest}
+    image: ${FRONTEND_FULL_IMAGE:-joysafeter-frontend:latest}
     build:
       context: ../frontend
       dockerfile: ../deploy/docker/frontend.Dockerfile
@@ -209,7 +243,7 @@ services:
       - joysafeter-network
 
   db-init:
-    image: ${DOCKER_REGISTRY:-docker.io/jdopensource}/${BACKEND_IMAGE:-joysafeter-backend}:${IMAGE_TAG:-latest}
+    image: ${BACKEND_FULL_IMAGE:-joysafeter-backend:latest}
     build: *backend-build
     container_name: joysafeter-db-init
     profiles: ["init"]
