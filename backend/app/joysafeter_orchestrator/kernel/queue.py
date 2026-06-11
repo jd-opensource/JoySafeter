@@ -46,6 +46,10 @@ class QueueBackend(ABC):
         """Drain sandbox wakeups returning no durable task IDs."""
         return []
 
+    async def has_pending(self, sandbox_id: uuid.UUID) -> bool:
+        """Check if a sandbox has pending wakeup work — matches Rust."""
+        return False
+
 
 class _TaskQueue:
     """In-memory FIFO queue with async notification, matching Rust's TaskQueue."""
@@ -283,3 +287,19 @@ class InMemoryRedisQueueBackend(QueueBackend):
                 )
 
         return []
+
+    async def has_pending(self, sandbox_id: uuid.UUID) -> bool:
+        """Check if a sandbox has pending wakeup work — matches Rust."""
+        # Check local queue
+        queue = self._sandbox_queues.get(sandbox_id)
+        if queue is not None and queue._inner:
+            return True
+        # Check Redis wakeup key
+        if self._redis_coord is not None:
+            try:
+                key = f"joysafeter:sandbox_wakeup:{sandbox_id}"
+                result = await self._redis_coord._redis.get(key)
+                return result is not None
+            except Exception:
+                pass
+        return False

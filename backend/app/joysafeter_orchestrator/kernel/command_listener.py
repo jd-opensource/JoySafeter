@@ -23,11 +23,14 @@ class CommandListener:
 
     async def run(self) -> None:
         channel = self._coordinator.command_channel()
+        backoff = 1.0
+        max_backoff = 30.0
         while True:
             pubsub = self._redis.pubsub()
             try:
                 await pubsub.subscribe(channel)
                 logger.info("Cross-instance command listener started on channel %s", channel)
+                backoff = 1.0  # reset on successful connect
             except asyncio.CancelledError:
                 await pubsub.close()
                 return
@@ -37,7 +40,8 @@ class CommandListener:
                     await pubsub.close()
                 except Exception:
                     pass
-                await asyncio.sleep(5)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, max_backoff)
                 continue
 
             try:
@@ -64,8 +68,9 @@ class CommandListener:
                 await pubsub.close()
             except Exception:
                 pass
-            logger.warning("Command listener: stream ended, reconnecting...")
-            await asyncio.sleep(1)
+            logger.warning("Command listener: stream ended, reconnecting in %.0fs...", backoff)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, max_backoff)
 
     async def _dispatch(self, cmd: dict) -> None:
         sandbox_id_str = cmd.get("sandbox_id", "")
@@ -99,6 +104,18 @@ class CommandListener:
                 return
             bridge.confirmation_event.set()
             logger.info("Executed remote command: sandbox=%s type=input", sandbox_id)
+        elif cmd_type == "cancel":
+            reason = cmd.get("reason", "cancelled by remote instance")
+            msg = joysafeter_pb2.OrchestratorMessage(
+                cancel=joysafeter_pb2.CancelTask(reason=reason)
+            )
+            try:
+                bridge.runner_tx.put_nowait(msg)
+            except asyncio.QueueFull:
+                logger.warning("Command listener: runner_tx full for sandbox %s", sandbox_id)
+                return
+            bridge._cancel_event.set()
+            logger.info("Executed remote command: sandbox=%s type=cancel reason=%s", sandbox_id, reason)
         elif cmd_type == "shutdown":
             reason = cmd.get("reason", "remote shutdown")
             msg = joysafeter_pb2.OrchestratorMessage(

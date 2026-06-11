@@ -29,9 +29,10 @@ end
 
 
 class RedisCoordinator:
-    def __init__(self, redis_client, instance_id: str):
+    def __init__(self, redis_client, instance_id: str, config=None):
         self._redis = redis_client
         self.instance_id = instance_id
+        self._config = config
         self._heartbeat_task: Optional[asyncio.Task] = None
 
     # --- Instance Registry ---
@@ -57,11 +58,15 @@ class RedisCoordinator:
         await self._redis.expire(key, 30)
 
     def spawn_heartbeat(self) -> asyncio.Task:
+        interval = self._config.heartbeat_interval if self._config else 15
+        ttl = self._config.heartbeat_ttl if self._config else 30
+
         async def _loop():
             while True:
-                await asyncio.sleep(10)
+                await asyncio.sleep(interval)
                 try:
-                    await self.heartbeat()
+                    key = f"joysafeter:instances:{self.instance_id}"
+                    await self._redis.expire(key, ttl)
                 except Exception as e:
                     logger.warning("Heartbeat failed: %s", e)
 
@@ -99,8 +104,9 @@ class RedisCoordinator:
         key = f"joysafeter:sandbox_owner:{sandbox_id}"
         return await self._redis.get(key)
 
-    async def list_active_sandbox_owners(self) -> list[uuid.UUID]:
-        results = []
+    async def list_active_sandbox_owners(self) -> list[tuple[uuid.UUID, str]]:
+        """Return (sandbox_id, owner_instance_id) pairs — matches Rust."""
+        results: list[tuple[uuid.UUID, str]] = []
         cursor = 0
         while True:
             cursor, keys = await self._redis.scan(
@@ -109,10 +115,13 @@ class RedisCoordinator:
             for key in keys:
                 key_str = key if isinstance(key, str) else key.decode()
                 uid_str = key_str.rsplit(":", 1)[-1]
-                try:
-                    results.append(uuid.UUID(uid_str))
-                except ValueError:
-                    pass
+                owner = await self._redis.get(key)
+                if owner:
+                    owner_str = owner if isinstance(owner, str) else owner.decode()
+                    try:
+                        results.append((uuid.UUID(uid_str), owner_str))
+                    except ValueError:
+                        pass
             if cursor == 0:
                 break
         return results
@@ -143,16 +152,19 @@ class RedisCoordinator:
 
     # --- Distributed Locks ---
 
-    async def try_acquire_lock(self, key: str, ttl_sec: int) -> bool:
+    async def try_acquire_lock(self, lock_name: str, ttl_sec: int) -> bool:
+        key = f"joysafeter:lock:{lock_name}"
         result = await self._redis.set(
             key, self.instance_id, nx=True, ex=ttl_sec
         )
         return result is not None
 
-    async def release_lock(self, key: str) -> None:
-        await self._redis.eval(
+    async def release_lock(self, lock_name: str) -> bool:
+        key = f"joysafeter:lock:{lock_name}"
+        result = await self._redis.eval(
             RELEASE_IF_OWNER_LUA, 1, key, self.instance_id
         )
+        return bool(result)
 
     # --- Pub/Sub Events ---
 
@@ -166,9 +178,14 @@ class RedisCoordinator:
     async def publish_session_event(
         self, session_id: uuid.UUID, payload: str
     ) -> None:
+        """Publish session event wrapped with source_instance — matches Rust."""
         channel = f"joysafeter:session_events:{session_id}"
         try:
-            await self._redis.publish(channel, payload)
+            wrapped = json.dumps({
+                "source_instance": self.instance_id,
+                "event": json.loads(payload),
+            })
+            await self._redis.publish(channel, wrapped)
         except Exception as e:
             logger.warning("Failed to publish session event: %s", e)
 
@@ -257,6 +274,59 @@ class RedisCoordinator:
 
     # --- Cross-Instance Commands ---
 
+    async def dispatch_cancel(
+        self, sandbox_id: str, reason: str = ""
+    ) -> None:
+        """Publish a cancel command to all other instances — matches Rust."""
+        command = json.dumps({
+            "type": "cancel",
+            "sandbox_id": sandbox_id,
+            "reason": reason,
+        })
+        instances = await self._list_instance_ids()
+        for inst_id in instances:
+            if inst_id == self.instance_id:
+                continue
+            channel = f"joysafeter:cmd:{inst_id}"
+            try:
+                await self._redis.publish(channel, command)
+            except Exception as e:
+                logger.warning("dispatch_cancel to %s failed: %s", inst_id, e)
+
+    async def dispatch_input(
+        self, sandbox_id: str, content: str
+    ) -> None:
+        """Publish an input command to all other instances — matches Rust."""
+        command = json.dumps({
+            "type": "input",
+            "sandbox_id": sandbox_id,
+            "content": content,
+        })
+        instances = await self._list_instance_ids()
+        for inst_id in instances:
+            if inst_id == self.instance_id:
+                continue
+            channel = f"joysafeter:cmd:{inst_id}"
+            try:
+                await self._redis.publish(channel, command)
+            except Exception as e:
+                logger.warning("dispatch_input to %s failed: %s", inst_id, e)
+
+    async def _list_instance_ids(self) -> list[str]:
+        """List all active instance IDs from the registry."""
+        ids: list[str] = []
+        cursor = 0
+        while True:
+            cursor, keys = await self._redis.scan(
+                cursor, match="joysafeter:instances:*", count=100
+            )
+            for key in keys:
+                key_str = key if isinstance(key, str) else key.decode()
+                ids.append(key_str.rsplit(":", 1)[-1])
+            if cursor == 0:
+                break
+        return ids
+
     async def send_instance_command(
         self, target_instance_id: str, command: dict
     ) -> None:
@@ -268,6 +338,15 @@ class RedisCoordinator:
 
     # --- Cleanup ---
 
+    async def deregister_instance(self) -> None:
+        """Explicitly remove this instance from the registry — matches Rust."""
+        key = f"joysafeter:instances:{self.instance_id}"
+        try:
+            await self._redis.delete(key)
+            logger.info("Deregistered instance %s", self.instance_id)
+        except Exception as e:
+            logger.warning("Failed to deregister instance: %s", e)
+
     async def stop(self) -> None:
         if self._heartbeat_task:
             self._heartbeat_task.cancel()
@@ -275,8 +354,4 @@ class RedisCoordinator:
                 await self._heartbeat_task
             except asyncio.CancelledError:
                 pass
-        key = f"joysafeter:instances:{self.instance_id}"
-        try:
-            await self._redis.delete(key)
-        except Exception:
-            pass
+        await self.deregister_instance()
