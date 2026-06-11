@@ -23,13 +23,13 @@ class SecurityAuditLog(Base, TimestampMixin):
     - Compliance requirements (SOC 2, GDPR, etc.)
     """
 
-    __tablename__ = "security_audit_log"
+    __tablename__ = "joysafeter_security_audit_logs"
     __table_args__ = (
-        Index("audit_log_user_id_idx", "user_id"),
-        Index("audit_log_event_type_idx", "event_type"),
-        Index("audit_log_event_status_idx", "event_status"),
-        Index("audit_log_created_at_idx", "created_at"),
-        Index("audit_log_user_event_idx", "user_id", "event_type"),
+        Index("ix_joysafeter_security_audit_logs_user_id", "user_id"),
+        Index("ix_joysafeter_security_audit_logs_event_type", "event_type"),
+        Index("ix_joysafeter_security_audit_logs_event_status", "event_status"),
+        Index("ix_joysafeter_security_audit_logs_created_at", "created_at"),
+        Index("ix_joysafeter_security_audit_logs_user_event", "user_id", "event_type"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -39,18 +39,17 @@ class SecurityAuditLog(Base, TimestampMixin):
     )
 
     # user info (optional; unauthenticated operations may lack user_id)
-    user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     user_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # event info
     event_type: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
-        index=True,
         comment="event type: login, logout, password_change, password_reset, 2fa_enable, account_lock, etc.",
     )
     event_status: Mapped[str] = mapped_column(
-        String(20), nullable=False, index=True, comment="event status: success, failure, blocked"
+        String(20), nullable=False, comment="event status: success, failure, blocked"
     )
 
     # request info

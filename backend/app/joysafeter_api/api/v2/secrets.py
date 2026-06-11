@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_shared.common.joysafeter_auth import (
@@ -10,6 +10,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_api.api.v2.audit import audit_joysafeter_event
 from app.joysafeter_api.api.v2.id_helpers import parse_secret_id
 from app.joysafeter_domain.schemas.secret import (
     CreateSecretRequest,
@@ -25,11 +26,21 @@ router = APIRouter(tags=["joysafeter-secrets"])
 @router.post("", status_code=201)
 async def create_secret(
     req: CreateSecretRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SecretResponse:
     svc = SecretService(db)
     secret = await svc.create_secret(req, project_id=auth_ctx.project_id)
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="secret.created",
+        target_type="secret",
+        target_id=str(secret.id),
+        details={"name": secret.name, "keys": sorted((secret.data or {}).keys())},
+    )
     return SecretResponse(
         id=f"secret_{secret.id}",
         name=secret.name,
@@ -90,6 +101,7 @@ async def get_secret(
 @router.put("/{secret_id}")
 async def update_secret(
     req: UpdateSecretRequest,
+    request: Request,
     secret_id: uuid.UUID = Depends(parse_secret_id),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
@@ -101,6 +113,15 @@ async def update_secret(
     if secret.project_id != auth_ctx.project_id:
         raise HTTPException(404, "Secret not found")
     secret = await svc.update_secret(secret_id, req)
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="secret.updated",
+        target_type="secret",
+        target_id=str(secret.id),
+        details={"name": secret.name, "keys": sorted((secret.data or {}).keys())},
+    )
     return SecretResponse(
         id=f"secret_{secret.id}",
         name=secret.name,
@@ -112,6 +133,7 @@ async def update_secret(
 
 @router.delete("/{secret_id}", status_code=204)
 async def delete_secret(
+    request: Request,
     secret_id: uuid.UUID = Depends(parse_secret_id),
     force: bool = Query(False),
     db: AsyncSession = Depends(get_db),
@@ -139,3 +161,12 @@ async def delete_secret(
         ok = await svc.delete_secret(secret_id)
         if not ok:
             raise HTTPException(404, "Secret not found")
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="secret.deleted",
+        target_type="secret",
+        target_id=str(secret_id),
+        details={"name": secret.name, "force": force},
+    )

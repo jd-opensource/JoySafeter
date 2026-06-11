@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_shared.common.joysafeter_auth import (
@@ -10,6 +10,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_api.api.v2.audit import audit_joysafeter_event
 from app.joysafeter_api.api.v2.id_helpers import parse_vault_id, parse_cred_id
 from app.joysafeter_domain.schemas.vault import (
     CreateCredentialRequest,
@@ -48,11 +49,21 @@ def _vault_to_response(vault) -> VaultResponse:
 @router.post("", status_code=201)
 async def create_vault(
     req: CreateVaultRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> VaultResponse:
     svc = VaultService(db)
     vault = await svc.create_vault(req.name, req.description, req.metadata, project_id=auth_ctx.project_id)
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="vault.created",
+        target_type="vault",
+        target_id=str(vault.id),
+        details={"name": vault.name},
+    )
     return _vault_to_response(vault)
 
 
@@ -89,6 +100,7 @@ async def get_vault(
 @router.post("/{vault_id}")
 async def update_vault(
     req: UpdateVaultRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     vault_id: uuid.UUID = Depends(parse_vault_id),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
@@ -98,11 +110,21 @@ async def update_vault(
     vault = await svc.update_vault(vault_id, description=req.description, metadata=req.metadata)
     if not vault:
         raise HTTPException(404, "Vault not found")
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="vault.updated",
+        target_type="vault",
+        target_id=str(vault.id),
+        details={"name": vault.name},
+    )
     return _vault_to_response(vault)
 
 
 @router.delete("/{vault_id}")
 async def delete_vault(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     vault_id: uuid.UUID = Depends(parse_vault_id),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
@@ -112,11 +134,20 @@ async def delete_vault(
     ok = await svc.delete_vault(vault_id)
     if not ok:
         raise HTTPException(404, "Vault not found")
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="vault.deleted",
+        target_type="vault",
+        target_id=str(vault_id),
+    )
     return {"deleted": True}
 
 
 @router.post("/{vault_id}/archive")
 async def archive_vault(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     vault_id: uuid.UUID = Depends(parse_vault_id),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
@@ -126,6 +157,14 @@ async def archive_vault(
     ok = await svc.archive_vault(vault_id)
     if not ok:
         raise HTTPException(404, "Vault not found")
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="vault.archived",
+        target_type="vault",
+        target_id=str(vault_id),
+    )
     return {"status": "archived"}
 
 
@@ -134,6 +173,7 @@ async def archive_vault(
 @router.post("/{vault_id}/credentials", status_code=201)
 async def create_credential(
     req: CreateCredentialRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     vault_id: uuid.UUID = Depends(parse_vault_id),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
@@ -147,6 +187,15 @@ async def create_credential(
         mcp_server_url=req.mcp_server_url,
         token_value=req.token_value,
         oauth_config=req.oauth_config.model_dump() if req.oauth_config else None,
+    )
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="vault_credential.created",
+        target_type="vault_credential",
+        target_id=str(cred.id),
+        details={"vault_id": str(vault_id), "name": cred.name, "credential_type": cred.credential_type},
     )
     return VaultCredentialResponse.model_validate(cred)
 
@@ -190,6 +239,7 @@ async def get_credential(
 @router.post("/{vault_id}/credentials/{cred_id}")
 async def update_credential(
     req: UpdateCredentialRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     vault_id: uuid.UUID = Depends(parse_vault_id),
     cred_id: uuid.UUID = Depends(parse_cred_id),
@@ -208,11 +258,21 @@ async def update_credential(
     )
     if not updated:
         raise HTTPException(404, "Credential not found")
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="vault_credential.updated",
+        target_type="vault_credential",
+        target_id=str(updated.id),
+        details={"vault_id": str(vault_id), "name": updated.name, "credential_type": updated.credential_type},
+    )
     return VaultCredentialResponse.model_validate(updated)
 
 
 @router.post("/{vault_id}/credentials/{cred_id}/archive")
 async def archive_credential(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     vault_id: uuid.UUID = Depends(parse_vault_id),
     cred_id: uuid.UUID = Depends(parse_cred_id),
@@ -226,11 +286,21 @@ async def archive_credential(
     ok = await svc.archive_credential(cred_id)
     if not ok:
         raise HTTPException(404, "Credential not found")
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="vault_credential.archived",
+        target_type="vault_credential",
+        target_id=str(cred_id),
+        details={"vault_id": str(vault_id), "name": cred.name, "credential_type": cred.credential_type},
+    )
     return {"status": "archived"}
 
 
 @router.delete("/{vault_id}/credentials/{cred_id}")
 async def delete_credential(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     vault_id: uuid.UUID = Depends(parse_vault_id),
     cred_id: uuid.UUID = Depends(parse_cred_id),
@@ -238,7 +308,19 @@ async def delete_credential(
 ) -> dict:
     svc = VaultService(db)
     await _get_vault_or_404(svc, vault_id, auth_ctx.project_id)
+    cred = await svc.get_credential(cred_id)
+    if not cred or cred.vault_id != vault_id:
+        raise HTTPException(404, "Credential not found")
     ok = await svc.delete_credential(cred_id)
     if not ok:
         raise HTTPException(404, "Credential not found")
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="vault_credential.deleted",
+        target_type="vault_credential",
+        target_id=str(cred_id),
+        details={"vault_id": str(vault_id), "name": cred.name, "credential_type": cred.credential_type},
+    )
     return {"deleted": True}

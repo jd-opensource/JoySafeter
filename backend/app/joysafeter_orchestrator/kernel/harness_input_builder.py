@@ -61,7 +61,11 @@ def _extract_agent_setup_commands(agent) -> list[str]:
 
 
 def _parse_tool_allow_lists(agent) -> tuple[list[str], list[str]]:
-    """Parse agent_toolset_20260401 into allowed/disallowed tool lists."""
+    """Parse agent_toolset_20260401 into allowed/disallowed tool lists.
+
+    Reads from the nested ``configs[]`` array inside each toolset entry,
+    matching Rust ``parse_tool_allow_lists`` (harness_input_builder.rs).
+    """
     tools = agent.tools or []
     allowed: list[str] = []
     disallowed: list[str] = []
@@ -70,11 +74,18 @@ def _parse_tool_allow_lists(agent) -> tuple[list[str], list[str]]:
             continue
         if tool.get("type") != "agent_toolset_20260401":
             continue
-        tool_name = tool.get("name", "")
-        if tool.get("enabled", True):
-            allowed.append(tool_name)
-        else:
-            disallowed.append(tool_name)
+        # Rust reads from nested configs[] array
+        configs = tool.get("configs") or []
+        for cfg in configs:
+            if not isinstance(cfg, dict):
+                continue
+            cfg_name = cfg.get("name", "")
+            if not cfg_name:
+                continue
+            if cfg.get("enabled", True):
+                allowed.append(cfg_name)
+            else:
+                disallowed.append(cfg_name)
     return allowed, disallowed
 
 

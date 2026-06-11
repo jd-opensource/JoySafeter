@@ -850,11 +850,9 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     await _best_effort_redis("remove_task_sandbox", coordinator.remove_task_sandbox(active_task_id))
 
                 # Emit session.status_idle — matches main task loop and Rust behavior
+                # C2 fix: use variables from this scope (task_session_id, not active_task_session_id)
                 stop_reason = {"type": "end_turn"}
-                if result_status:
-                    stop_reason = self._stop_reason_from_result(result_status, result_error)
-                task_session_id = active_task_session_id if active_task_session_id else None
-                if task_session_id:
+                if task_session_id and self._event_bus:
                     await self._event_bus.publish(
                         JoySafeterEventEnvelope(
                             session_id=task_session_id,
@@ -1276,6 +1274,28 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     cancel=joysafeter_pb2.CancelTask(reason="Cancelled by user")
                 )
                 await context.write(cancel_msg)
+
+                # C1 fix: update task status to cancelled + emit session.status_idle (Rust parity)
+                try:
+                    async with AsyncSessionLocal() as db:
+                        task_svc = TaskService(db)
+                        await task_svc.update_task_status_cas(
+                            task_id, TaskStatus.RUNNING, TaskStatus.CANCELLED
+                        )
+                    if session_id and self._event_bus:
+                        stop_reason = {"type": "cancelled"}
+                        await self._event_bus.publish(JoySafeterEventEnvelope(
+                            session_id=session_id,
+                            event_type="session.status_idle",
+                            payload={"stop_reason": stop_reason},
+                            task_id=task_id,
+                            sandbox_id=sandbox_id,
+                            is_status_change=True,
+                            stop_reason=stop_reason,
+                        ))
+                except Exception as e:
+                    logger.warning("Failed to update cancelled task %s: %s", task_id, e)
+
                 continue
 
             # --- Confirmation received (Rust lines 938-951 + loop-top flush 898-929) ---

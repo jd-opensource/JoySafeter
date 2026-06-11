@@ -6,7 +6,7 @@ import re
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +24,7 @@ from app.joysafeter_domain.models.organization import Member, Organization
 from app.joysafeter_domain.models.project import Project
 from app.joysafeter_api.services import ApiKeyService
 from app.joysafeter_api.services import ProjectService
+from app.joysafeter_api.api.v2.audit import audit_joysafeter_event
 
 router = APIRouter(tags=["joysafeter-auth"])
 
@@ -341,6 +342,7 @@ async def list_api_keys(
 @router.post("/api-keys", status_code=201)
 async def create_api_key(
     req: CreateApiKeyRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> ApiKeyCreateResponse:
@@ -355,6 +357,15 @@ async def create_api_key(
         created_by=auth_ctx.user_id,
         role=role.value,
     )
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="api_key.created",
+        target_type="api_key",
+        target_id=str(api_key.id),
+        details={"name": api_key.name, "key_prefix": api_key.key_prefix, "assigned_role": api_key.role},
+    )
     return ApiKeyCreateResponse(
         id=str(api_key.id),
         project_id=api_key.project_id,
@@ -368,6 +379,7 @@ async def create_api_key(
 @router.delete("/api-keys/{key_id}", status_code=204)
 async def revoke_api_key(
     key_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> None:
@@ -377,6 +389,14 @@ async def revoke_api_key(
         await svc.revoke_key(key_id, auth_ctx.project_id)
     except ValueError:
         raise HTTPException(404, "API key not found")
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="api_key.revoked",
+        target_type="api_key",
+        target_id=str(key_id),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -633,6 +653,7 @@ async def list_members(
 @router.post("/members/invite", status_code=201)
 async def invite_member(
     req: InviteMemberRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
 ) -> MemberResponse:
@@ -666,6 +687,15 @@ async def invite_member(
     db.add(member)
     await db.commit()
     await db.refresh(member)
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="member.invited",
+        target_type="organization_member",
+        target_id=user.id,
+        details={"target_email": user.email, "assigned_role": member.role},
+    )
 
     return MemberResponse(
         user_id=user.id,
@@ -679,6 +709,7 @@ async def invite_member(
 @router.delete("/members/{user_id}", status_code=204)
 async def remove_member(
     user_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
 ) -> None:
@@ -694,6 +725,7 @@ async def remove_member(
     if not member:
         raise HTTPException(404, "Member not found")
 
+    previous_role = member.role
     _ensure_can_modify_member(auth_ctx.role, member.role, JoySafeterRole.VIEWER)
 
     await db.execute(
@@ -703,12 +735,22 @@ async def remove_member(
         )
     )
     await db.commit()
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="member.removed",
+        target_type="organization_member",
+        target_id=user_id,
+        details={"previous_role": previous_role},
+    )
 
 
 @router.put("/members/{user_id}")
 async def update_member_role(
     user_id: str,
     req: UpdateMemberRoleRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
 ) -> MemberResponse:
@@ -727,9 +769,19 @@ async def update_member_role(
     new_role = _normalize_assignable_role(req.role)
     _ensure_can_modify_member(auth_ctx.role, member.role, new_role)
 
+    previous_role = member.role
     member.role = new_role.value
     await db.commit()
     await db.refresh(member)
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="member.role_updated",
+        target_type="organization_member",
+        target_id=user_id,
+        details={"previous_role": previous_role, "new_role": member.role},
+    )
 
     # Fetch user info
     user_result = await db.execute(
