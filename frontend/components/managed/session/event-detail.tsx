@@ -1,9 +1,10 @@
 'use client'
 
+import { useRef, useCallback, useState } from "react"
 import type { SessionEvent } from "@/types/managed"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import { X } from "lucide-react"
+import { X, Copy, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useTranslation } from "@/lib/i18n"
 import { RoleBadge } from "./role-badge"
@@ -17,10 +18,40 @@ interface EventDetailProps {
 
 export function EventDetail({ event, mode, sessionStart, onClose }: EventDetailProps) {
   const { t } = useTranslation()
+  const contentRef = useRef<HTMLDivElement>(null)
+  const [copied, setCopied] = useState(false)
   const eventType = event.type || event.event_type || ""
   const typeLabel = getTypeLabel(eventType, t)
   const elapsed = sessionStart ? getElapsedTime(sessionStart, event.created_at || event.id || "") : null
   const shortId = event.id ? event.id.slice(0, 16) : ""
+
+  const handleCopyRichText = useCallback(async () => {
+    if (!contentRef.current) return
+    try {
+      // Get the rendered HTML for rich text copy
+      const html = contentRef.current.innerHTML
+      // Also get plain text fallback
+      const plainText = contentRef.current.innerText || contentRef.current.textContent || ""
+
+      // Use Clipboard API with both HTML and plain text MIME types
+      const blob = new Blob([html], { type: "text/html" })
+      const textBlob = new Blob([plainText], { type: "text/plain" })
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": blob,
+          "text/plain": textBlob,
+        }),
+      ])
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Fallback: copy plain text
+      const text = contentRef.current.innerText || contentRef.current.textContent || ""
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }, [])
 
   return (
     <div className="h-full flex flex-col border-l border-border bg-card">
@@ -56,8 +87,28 @@ export function EventDetail({ event, mode, sessionStart, onClose }: EventDetailP
           </div>
         ) : (
           <div>
-            <h4 className="text-xs font-medium text-muted-foreground mb-3 uppercase tracking-wide">{t("managed.sessions.events.content")}</h4>
-            <div className="prose prose-sm dark:prose-invert max-w-none">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{t("managed.sessions.events.content")}</h4>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                onClick={handleCopyRichText}
+              >
+                {copied ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-green-500" />
+                    <span className="text-green-500">{t("common.copied")}</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>{t("common.copy")}</span>
+                  </>
+                )}
+              </Button>
+            </div>
+            <div ref={contentRef} className="prose prose-sm dark:prose-invert max-w-none">
               <TranscriptContent event={event} />
             </div>
           </div>

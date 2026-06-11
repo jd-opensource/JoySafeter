@@ -27,6 +27,8 @@ const zh = {
       done: '完成',
       create: '创建',
       search: '搜索',
+      copy: '复制',
+      copied: '已复制',
       copyAll: '复制全部',
       stop: '停止',
       retry: '重试',

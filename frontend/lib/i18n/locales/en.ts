@@ -27,6 +27,8 @@ const en = {
       done: 'Done',
       create: 'Create',
       search: 'Search',
+      copy: 'Copy',
+      copied: 'Copied',
       copyAll: 'Copy All',
       stop: 'Stop',
       retry: 'Retry',
