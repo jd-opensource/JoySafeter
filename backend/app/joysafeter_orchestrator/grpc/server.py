@@ -44,6 +44,18 @@ async def _best_effort_publish_event(coordinator, task_id: uuid.UUID, payload: s
         await _best_effort_redis("publish_event", coordinator.publish_event(task_id, payload))
 
 
+async def _send_shutdown(context, reason: str) -> None:
+    """Ask a runner to exit without reconnecting."""
+    try:
+        await context.write(
+            joysafeter_pb2.OrchestratorMessage(
+                shutdown=joysafeter_pb2.Shutdown(reason=reason)
+            )
+        )
+    except Exception as exc:
+        logger.debug("Failed to send runner shutdown (%s): %s", reason, exc)
+
+
 def _get_heartbeat_timeout() -> int:
     from app.joysafeter_orchestrator.lifespan import get_runtime_config
     rc = get_runtime_config()
@@ -202,6 +214,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                             "Runner connected to terminal sandbox %s (status=%s), rejecting",
                             sandbox_id, _current_status,
                         )
+                        await _send_shutdown(context, f"sandbox terminal: {_current_status}")
                         await self._bridge_registry.remove(sandbox_id)
                         return
                     if _current_status in ("stopping", "stopped"):
@@ -209,6 +222,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                             "Runner connected to sandbox being stopped %s (status=%s), rejecting",
                             sandbox_id, _current_status,
                         )
+                        await _send_shutdown(context, f"sandbox stopped: {_current_status}")
                         await self._bridge_registry.remove(sandbox_id)
                         return
                     if _current_status == "pooled":

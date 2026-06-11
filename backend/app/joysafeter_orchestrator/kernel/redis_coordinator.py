@@ -258,9 +258,14 @@ class RedisCoordinator:
         finally:
             try:
                 await pubsub.unsubscribe(channel)
-                close_result = pubsub.close()
-                if asyncio.iscoroutine(close_result):
-                    await close_result
+            except Exception:
+                pass
+            try:
+                close = getattr(pubsub, "aclose", None) or getattr(pubsub, "close", None)
+                if close is not None:
+                    close_result = close()
+                    if asyncio.iscoroutine(close_result):
+                        await close_result
             except Exception:
                 pass
         return None

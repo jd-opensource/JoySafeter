@@ -463,7 +463,17 @@ class SandboxResolver:
                 os.makedirs(mount_dir, exist_ok=True)
 
                 for mem in memories:
-                    file_path = os.path.join(mount_dir, mem["path"])
+                    # Strip leading '/' to prevent os.path.join returning absolute path
+                    rel = mem["path"].lstrip("/")
+                    if ".." in rel.split("/"):
+                        logger.warning("Memory path traversal blocked: %s", mem["path"])
+                        continue
+                    file_path = os.path.join(mount_dir, rel)
+                    real_file = os.path.realpath(file_path)
+                    real_mount = os.path.realpath(mount_dir)
+                    if not real_file.startswith(real_mount + os.sep) and real_file != real_mount:
+                        logger.warning("Memory preload path escape blocked: %s", mem["path"])
+                        continue
                     os.makedirs(os.path.dirname(file_path), exist_ok=True)
                     with open(file_path, "w", encoding="utf-8") as fh:
                         fh.write(mem.get("content", ""))

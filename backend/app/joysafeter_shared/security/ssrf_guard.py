@@ -107,13 +107,15 @@ def validate_url(
     # 3. IP validation (if hostname is already an IP literal)
     try:
         ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        ip = None  # Not an IP literal — will resolve via DNS below
+
+    if ip is not None:
         if _is_metadata_ip(ip):
             raise SSRFError(f"URL points to blocked metadata IP: {ip}{_ctx(context)}")
         if not allow_private and ip.is_private:
             raise SSRFError(f"URL points to private IP: {ip}{_ctx(context)}")
         return url
-    except ValueError:
-        pass  # Not an IP literal — continue to DNS resolution
 
     # 4. DNS resolution + IP check (prevent DNS rebinding to metadata endpoints)
     try:

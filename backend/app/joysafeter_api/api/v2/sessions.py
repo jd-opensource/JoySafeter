@@ -38,6 +38,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["joysafeter-sessions"])
 
 
+def _validate_mount_path(path: str) -> str:
+    """Validate mount_path: must be under /workspace/, no '..' traversal."""
+    import posixpath
+    normalized = posixpath.normpath(path)
+    if not normalized.startswith("/workspace/"):
+        raise HTTPException(400, "mount_path must be under /workspace/")
+    if ".." in normalized.split("/"):
+        raise HTTPException(400, "mount_path must not contain '..' components")
+    return normalized
+
+
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 
 
@@ -190,7 +201,7 @@ async def create_session(
             record = await file_svc.get_metadata(db, fid, auth_ctx.project_id)
             if not record:
                 raise HTTPException(404, f"File not found: {fr.file_id}")
-            mount_path = fr.mount_path or f"/workspace/{record.filename}"
+            mount_path = _validate_mount_path(fr.mount_path or f"/workspace/{record.filename}")
             session_file = JoySafeterSessionFile(
                 session_id=session.id,
                 file_id=record.id,
@@ -1184,7 +1195,7 @@ async def add_session_resource(
     if not record:
         raise HTTPException(404, f"File not found: {req.file_id}")
 
-    mount_path = req.mount_path or f"/workspace/{record.filename}"
+    mount_path = _validate_mount_path(req.mount_path or f"/workspace/{record.filename}")
     session_file = JoySafeterSessionFile(
         session_id=session_id,
         file_id=record.id,

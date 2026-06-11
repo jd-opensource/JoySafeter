@@ -249,8 +249,10 @@ class InMemoryRedisQueueBackend(QueueBackend):
             p.cancel()
             try:
                 await p
-            except (asyncio.CancelledError, Exception):
+            except (asyncio.CancelledError, RedisConnectionError):
                 pass
+            except Exception as e:
+                logger.debug("Sandbox wakeup pending wait ended during cleanup: %s", e)
         for task in done:
             try:
                 task.result()
