@@ -547,6 +547,8 @@ def upgrade() -> None:
         op.create_table('joysafeter_secrets',
         sa.Column('project_id', sa.String(length=255), nullable=True),
         sa.Column('name', sa.Text(), nullable=False),
+        sa.Column('provider', sa.String(length=64), server_default='custom', nullable=False),
+        sa.Column('protocol', sa.String(length=64), server_default='custom', nullable=False),
         sa.Column('data', postgresql.JSONB(astext_type=sa.Text()), server_default='{}', nullable=False),
         sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('id', sa.UUID(), nullable=False),
@@ -556,6 +558,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint('id', name=op.f('pk_joysafeter_secrets')),
         sa.UniqueConstraint('name', name='idx_cs_name_unique')
         )
+        op.create_index('idx_cs_provider_protocol', 'joysafeter_secrets', ['provider', 'protocol'], unique=False)
         op.create_index(op.f('ix_joysafeter_secrets_project_id'), 'joysafeter_secrets', ['project_id'], unique=False)
         op.create_table('joysafeter_skills',
         sa.Column('name', sa.String(length=64), nullable=False),

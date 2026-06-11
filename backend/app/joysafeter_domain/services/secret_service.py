@@ -24,7 +24,12 @@ class SecretService:
                 )
             )
         )
-        kwargs = dict(name=req.name, data=req.data)
+        kwargs = dict(
+            name=req.name,
+            provider=req.provider,
+            protocol=req.protocol,
+            data=req.data,
+        )
         if project_id is not None:
             kwargs["project_id"] = project_id
         secret = JoySafeterSecret(**kwargs)
@@ -78,6 +83,10 @@ class SecretService:
         secret = await self.get_secret(secret_id)
         if not secret:
             return None
+        if req.provider is not None:
+            secret.provider = req.provider
+        if req.protocol is not None:
+            secret.protocol = req.protocol
         secret.data = req.data
         secret.updated_at = utc_now()
         await self.db.commit()

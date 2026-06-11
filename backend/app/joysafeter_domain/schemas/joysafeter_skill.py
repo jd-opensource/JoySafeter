@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 
 class CreateSkillRequest(BaseModel):
@@ -57,11 +57,35 @@ class CreateSkillFileRequest(BaseModel):
     content: str = ""
     file_type: Optional[str] = None
 
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, v: str) -> str:
+        from pathlib import PurePosixPath
+        p = PurePosixPath(v)
+        if p.is_absolute():
+            raise ValueError("Skill file path must be relative")
+        if ".." in p.parts:
+            raise ValueError("Skill file path must not contain '..'")
+        return v
+
 
 class UpdateSkillFileRequest(BaseModel):
     path: Optional[str] = None
     file_name: Optional[str] = None
     content: Optional[str] = None
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        from pathlib import PurePosixPath
+        p = PurePosixPath(v)
+        if p.is_absolute():
+            raise ValueError("Skill file path must be relative")
+        if ".." in p.parts:
+            raise ValueError("Skill file path must not contain '..'")
+        return v
 
 
 class SkillFileResponse(BaseModel):

@@ -19,6 +19,8 @@ class JoySafeterSecret(JoySafeterBaseModel):
         String(255), ForeignKey("joysafeter_organization_projects.id"), nullable=True, index=True,
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, server_default="custom")
+    protocol: Mapped[str] = mapped_column(String(64), nullable=False, server_default="custom")
     data: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     deleted_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True

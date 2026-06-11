@@ -7,16 +7,22 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class CreateSecretRequest(BaseModel):
     name: str
+    provider: str = "custom"
+    protocol: str = "custom"
     data: dict[str, str] = Field(default_factory=dict)
 
 
 class UpdateSecretRequest(BaseModel):
+    provider: Optional[str] = None
+    protocol: Optional[str] = None
     data: dict[str, str]
 
 
 class SecretListItem(BaseModel):
     id: str
     name: str
+    provider: str = "custom"
+    protocol: str = "custom"
     keys: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
@@ -27,6 +33,8 @@ class SecretListItem(BaseModel):
 class SecretResponse(BaseModel):
     id: str
     name: str
+    provider: str = "custom"
+    protocol: str = "custom"
     secret_data: dict[str, str] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime

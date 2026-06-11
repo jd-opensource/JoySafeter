@@ -191,7 +191,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     retry: shouldRetryManagedResourceError,
     refetchInterval: (query) => {
       const status = query.state.data?.status
-      return (status === 'running' || streamForced) ? 2000 : false
+      // When SSE is connected, reduce session status polling (SSE delivers events in real-time)
+      if (status === 'running' || streamForced) return sseConnected ? 10000 : 2000
+      return false
     },
   })
 
@@ -269,7 +271,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const isIdle = session?.status === 'idle'
   const isArchived = !!session?.archived_at
   const canSendMessage = isIdle && !isArchived && !isSending
-  const { events: streamEvents } = useSessionStream(stripIdPrefix(id || ''), !!id)
+  const { events: streamEvents, connected: sseConnected } = useSessionStream(stripIdPrefix(id || ''), !!id)
   const wasRunningRef = useRef(false)
 
   useEffect(() => {
@@ -527,12 +529,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   }, [allEvents, tab, debugFilter, searchText])
 
   useEffect(() => {
+    // Skip auto-loading more events when SSE is connected — SSE pushes live events
+    if (sseConnected) return
     if (tab !== 'transcript' || searchText || !hasMoreEvents || isLoadingMore || loadedEvents.length === 0) return
 
     if (filteredEvents.length < MIN_TRANSCRIPT_EVENTS) {
       loadMoreEvents()
     }
-  }, [tab, searchText, hasMoreEvents, isLoadingMore, loadedEvents.length, filteredEvents.length, loadMoreEvents])
+  }, [tab, searchText, hasMoreEvents, isLoadingMore, loadedEvents.length, filteredEvents.length, loadMoreEvents, sseConnected])
 
   if (isError) {
     return (

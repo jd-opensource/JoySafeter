@@ -2,6 +2,7 @@
 
 import hashlib
 import mimetypes
+import os
 import re
 import uuid
 from datetime import datetime, timezone
@@ -30,8 +31,10 @@ ALLOWED_EXTENSIONS = {
 
 
 def _sanitize_filename(name: str) -> str:
-    name = name.strip().replace("/", "_").replace("\\", "_").replace("..", "_")
-    name = re.sub(r'[<>:"|?*\x00-\x1f]', "_", name)
+    # Strip directory components — only keep the filename
+    name = os.path.basename(name.replace("\\", "/"))
+    name = re.sub(r'[<>:"|?*\x00-\x1f\x7f]', "_", name)
+    name = name.strip(". ")
     if len(name) > MAX_FILENAME_LENGTH:
         ext = ""
         if "." in name:
@@ -74,8 +77,13 @@ class FileService:
         safe_name = _sanitize_filename(filename)
         _validate_extension(safe_name)
 
+        # Validate content_type — never trust client-supplied MIME type for dangerous types
         if not content_type:
             content_type = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
+        else:
+            _DANGEROUS_CONTENT_TYPES = {"text/html", "application/javascript", "text/javascript", "application/x-httpd-php"}
+            if content_type.lower() in _DANGEROUS_CONTENT_TYPES:
+                content_type = "application/octet-stream"
 
         file_id = uuid7()
         sha = hashlib.sha256(data).hexdigest()

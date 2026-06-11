@@ -204,15 +204,23 @@ def _build_skill_files_from_zip(zip_bytes: bytes) -> tuple[list[dict[str, Any]],
                     code="SKILL_IMPORT_FILE_TOO_LARGE",
                     data={"path": relative_path, "max_bytes": MAX_IMPORT_FILE_BYTES},
                 )
-            total_size += info.file_size
+
+            raw = archive.read(info)
+
+            # Verify actual decompressed size (ZIP headers can lie)
+            if len(raw) > MAX_IMPORT_FILE_BYTES:
+                raise InvalidRequestError(
+                    "ZIP contains a file that is too large (decompressed)",
+                    code="SKILL_IMPORT_FILE_TOO_LARGE",
+                    data={"path": relative_path, "max_bytes": MAX_IMPORT_FILE_BYTES},
+                )
+            total_size += len(raw)
             if total_size > MAX_IMPORT_TOTAL_FILE_BYTES:
                 raise InvalidRequestError(
                     "ZIP uncompressed content is too large",
                     code="SKILL_IMPORT_TOTAL_TOO_LARGE",
                     data={"max_bytes": MAX_IMPORT_TOTAL_FILE_BYTES},
                 )
-
-            raw = archive.read(info)
             try:
                 content = raw.decode("utf-8")
             except UnicodeDecodeError as exc:
