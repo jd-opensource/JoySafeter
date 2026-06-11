@@ -232,6 +232,7 @@ class Settings(BaseSettings):
     )
 
     # Auth
+
     secret_key: str = Field(
         ...,  # required — no default value provided
         validation_alias=AliasChoices("SECRET_KEY", "JWT_SECRET_KEY", "AUTH_SECRET_KEY"),

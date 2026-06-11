@@ -14,6 +14,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from app.joysafeter_shared.security.ssrf_guard import validate_url_scheme
+
+
+def _validate_optional_url(url: Optional[str]) -> Optional[str]:
+    """Validate URL scheme if present, pass through None."""
+    if not url:
+        return url
+    try:
+        return validate_url_scheme(url)
+    except ValueError:
+        return url  # don't block graph loading on bad data; runtime check will catch it
+
 
 @dataclass
 class NodeConfig:
@@ -93,9 +105,9 @@ def resolve_node_config(node: Any, node_name: str) -> NodeConfig:
         memory_prompt=config.get("memoryPrompt"),
         # DeepAgents
         use_deep_agents=bool(config.get("useDeepAgents", False)),
-        # A2A
-        a2a_url=config.get("a2a_url"),
-        agent_card_url=config.get("agent_card_url"),
+        # A2A (URL scheme validated)
+        a2a_url=_validate_optional_url(config.get("a2a_url")),
+        agent_card_url=_validate_optional_url(config.get("agent_card_url")),
         a2a_auth_headers=config.get("a2a_auth_headers"),
         # Code Agent
         agent_mode=config.get("agent_mode", "autonomous"),

@@ -13,7 +13,13 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
   const lastSeqRef = useRef<number>(0)
 
   useEffect(() => {
-    if (!enabled || !sessionId) return
+    if (!enabled || !sessionId) {
+      if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.debug('[session-sse] disabled', { enabled, sessionId })
+      }
+      return
+    }
 
     let cancelled = false
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -27,6 +33,11 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
       try {
         const afterSeq = lastSeqRef.current
         const url = `${MANAGED_API_BASE}/sessions/${sessionId}/events/stream?after_seq=${afterSeq}`
+
+        if (process.env.NODE_ENV !== 'production') {
+          // eslint-disable-next-line no-console
+          console.debug('[session-sse] connecting', url)
+        }
 
         const headers: Record<string, string> = {}
         const csrfToken = getCsrfToken()
@@ -47,10 +58,18 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
           credentials: 'include',
         })
         if (!resp.ok || !resp.body) {
+          if (process.env.NODE_ENV !== 'production') {
+            // eslint-disable-next-line no-console
+            console.debug('[session-sse] connect failed', resp.status, resp.statusText)
+          }
           scheduleReconnect()
           return
         }
         setConnected(true)
+        if (process.env.NODE_ENV !== 'production') {
+          // eslint-disable-next-line no-console
+          console.debug('[session-sse] connected', url)
+        }
 
         const reader = resp.body.getReader()
         const decoder = new TextDecoder()

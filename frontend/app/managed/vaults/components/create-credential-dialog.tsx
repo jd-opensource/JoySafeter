@@ -67,6 +67,13 @@ export function CreateCredentialDialog({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!mcpServerUrl.trim()) return
+    // URL scheme validation
+    const { validateUrlScheme } = require('@/lib/utils/url-validation')
+    const urlError = validateUrlScheme(mcpServerUrl.trim())
+    if (urlError) {
+      alert(urlError)
+      return
+    }
     if (credentialType === 'static_bearer' && !tokenValue.trim()) return
     mutation.mutate()
   }

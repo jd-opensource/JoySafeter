@@ -250,7 +250,7 @@ async def quickstart_chat(
     api_key = data.get("ANTHROPIC_AUTH_TOKEN") or data.get("ANTHROPIC_API_KEY") or ""
     base_url = data.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
 
-    # SSRF protection: block cloud metadata endpoints only, allow internal network
+    # SSRF protection: block cloud metadata endpoints, allow internal network
     from app.joysafeter_shared.security.ssrf_guard import validate_url, SSRFError
     try:
         validate_url(base_url, allow_http=True, allow_private=True, context="ANTHROPIC_BASE_URL")
