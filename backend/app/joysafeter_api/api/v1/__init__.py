@@ -21,7 +21,6 @@ from .model_credentials import router as model_credentials_router
 from .model_providers import router as model_providers_router
 from .model_usage import router as model_usage_router
 from .models import router as models_router
-from .oauth import router as oauth_router
 from .organizations import router as organizations_router
 from .sandboxes import router as sandboxes_router
 from .skill_collaborators import router as skill_collaborators_router
@@ -42,7 +41,6 @@ ROUTERS = [
     artifacts_router,
     files_router,
     memory_router,
-    oauth_router,
     organizations_router,
     agent_runs_router,
     copilot_router,

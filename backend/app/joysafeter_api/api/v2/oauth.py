@@ -90,7 +90,7 @@ async def oauth_authorize(
 
     # Build callback URL
     base_url = _get_base_url(request)
-    redirect_uri = f"{base_url}{_get_callback_path(request, provider)}"
+    redirect_uri = f"{base_url}/api/v2/auth/oauth/{provider}/callback"
 
     # Generate state (includes callback_url)
     state = secrets.token_urlsafe(32)
@@ -181,7 +181,7 @@ async def oauth_callback(
         handler = get_protocol_handler(provider_config.protocol)
         redirect_uri = (state_data or {}).get(
             "redirect_uri"
-        ) or f"{_get_base_url(request)}{_get_callback_path(request, provider)}"
+        ) or f"{_get_base_url(request)}/api/v2/auth/oauth/{provider}/callback"
 
         logger.info(f"{LOG_PREFIX} Processing {provider_config.protocol} callback for {provider}")
 
@@ -328,13 +328,6 @@ def _get_base_url(request: Request) -> str:
         proto = forwarded_proto or "https"
         base_url = f"{proto}://{forwarded_host}"
     return base_url
-
-
-def _get_callback_path(request: Request, provider: str) -> str:
-    """Resolve callback path for the current mounted API version."""
-    if request.url.path.startswith("/api/v1/auth/oauth"):
-        return f"/api/v1/auth/oauth/{provider}/callback"
-    return f"/api/v2/auth/oauth/{provider}/callback"
 
 
 def _get_client_ip(request: Request) -> str:
