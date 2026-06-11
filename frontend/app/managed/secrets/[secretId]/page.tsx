@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PageHeader, MonoId, RelativeTime, ResourceErrorState, SecretKeySelect } from '@/components/managed/shared'
-import { getDefaultSecretPairs, MODEL_OPTIONS, SECRET_PROTOCOL_OPTIONS, SECRET_PROVIDER_OPTIONS } from '@/lib/managed/secret-keys'
+import { getDefaultProtocol, getDefaultSecretPairs, isModelKey, MODEL_OPTIONS, SECRET_PROTOCOL_OPTIONS, SECRET_PROVIDER_OPTIONS } from '@/lib/managed/secret-keys'
 
 interface SecretDetail {
   id: string
@@ -73,7 +73,7 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
   }
 
   const updateProvider = (nextProvider: string) => {
-    const nextProtocol = nextProvider === 'anthropic' ? 'anthropic' : nextProvider === 'openai' ? 'openai_compatible' : 'custom'
+    const nextProtocol = getDefaultProtocol(nextProvider)
     setProvider(nextProvider)
     setProtocol(nextProtocol)
     setPairs(getDefaultSecretPairs(nextProvider, nextProtocol))
@@ -201,7 +201,7 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
                 onChange={(v) => updatePair(i, 'key', v)}
                 placeholder={t('managed.secrets.keyPlaceholder')}
               />
-              {pair.key === 'ANTHROPIC_MODEL' ? (
+              {isModelKey(pair.key) ? (
                 <Select value={pair.value} onValueChange={(v) => updatePair(i, 'value', v)}>
                   <SelectTrigger className="flex-1 font-mono text-sm">
                     <SelectValue placeholder={t('managed.secrets.selectModel')} />

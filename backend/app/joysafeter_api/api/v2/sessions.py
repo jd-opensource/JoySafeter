@@ -1052,7 +1052,7 @@ async def session_event_stream(
                             last_seq,
                         )
 
-                await asyncio.sleep(15)
+                await asyncio.sleep(2)
             return
 
         q = broadcaster.subscribe(session_id)
@@ -1061,7 +1061,11 @@ async def session_event_stream(
                 if await request.is_disconnected():
                     break
                 try:
-                    event = await asyncio.wait_for(q.get(), timeout=15)
+                    event = await asyncio.wait_for(q.get(), timeout=30)
+                    # P1: broadcaster sends {lagged: True} on queue overflow
+                    if event.get("lagged"):
+                        yield f"data: {json.dumps({'lagged': True})}\n\n"
+                        break  # frontend will reconnect and replay from DB
                     event_seq = event.get("seq", 0)
                     if event_seq <= last_seq:
                         continue

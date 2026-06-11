@@ -61,7 +61,14 @@ class SessionBroadcaster:
                 try:
                     q.put_nowait(local_event)
                 except asyncio.QueueFull:
-                    pass
+                    # P1 fix: signal the client that events were dropped so it can reconnect
+                    # and replay from DB. Drain and inject a lagged marker.
+                    try:
+                        while not q.empty():
+                            q.get_nowait()
+                        q.put_nowait({"lagged": True})
+                    except Exception:
+                        pass
 
         # Publish to Redis for cross-instance delivery
         if self._redis:
@@ -122,7 +129,13 @@ class SessionBroadcaster:
                             event = {**event, "_sse_source": "redis_pubsub"}
                         q.put_nowait(event)
                     except asyncio.QueueFull:
-                        pass
+                        # Drain queue and signal lag so client reconnects
+                        try:
+                            while not q.empty():
+                                q.get_nowait()
+                            q.put_nowait({"lagged": True})
+                        except Exception:
+                            pass
             except asyncio.CancelledError:
                 break
             except Exception as e:

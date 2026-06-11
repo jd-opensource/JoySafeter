@@ -11,7 +11,7 @@ import type { Secret } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { getDefaultSecretPairs, MODEL_OPTIONS, SECRET_PROTOCOL_OPTIONS, SECRET_PROVIDER_OPTIONS } from '@/lib/managed/secret-keys'
+import { getDefaultProtocol, getDefaultSecretPairs, isModelKey, MODEL_OPTIONS, SECRET_PROTOCOL_OPTIONS, SECRET_PROVIDER_OPTIONS } from '@/lib/managed/secret-keys'
 import { SecretKeySelect } from '@/components/managed/shared'
 import {
   PageHeader,
@@ -65,7 +65,7 @@ export default function SecretListPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [newName, setNewName] = useState('')
   const [newProvider, setNewProvider] = useState('anthropic')
-  const [newProtocol, setNewProtocol] = useState('anthropic')
+  const [newProtocol, setNewProtocol] = useState('anthropic_messages')
   const [pairs, setPairs] = useState<KVPair[]>([{ key: '', value: '' }])
   const [creating, setCreating] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Secret | null>(null)
@@ -85,7 +85,7 @@ export default function SecretListPage() {
   }
 
   const updateProvider = (provider: string) => {
-    const nextProtocol = provider === 'anthropic' ? 'anthropic' : provider === 'openai' ? 'openai_compatible' : 'custom'
+    const nextProtocol = getDefaultProtocol(provider)
     setNewProvider(provider)
     setNewProtocol(nextProtocol)
     setPairs(getDefaultSecretPairs(provider, nextProtocol))
@@ -120,7 +120,7 @@ export default function SecretListPage() {
       await managedPost('/secrets', { name: newName.trim(), provider: newProvider, protocol: newProtocol, data })
       setNewName('')
       setNewProvider('anthropic')
-      setNewProtocol('anthropic')
+      setNewProtocol('anthropic_messages')
       setPairs([{ key: '', value: '' }])
       setShowCreate(false)
       queryClient.invalidateQueries({ queryKey: ['secrets'] })
@@ -283,7 +283,7 @@ export default function SecretListPage() {
                     onChange={(v) => updatePair(i, 'key', v)}
                     placeholder={t('managed.secrets.keyPlaceholder')}
                   />
-                  {pair.key === 'ANTHROPIC_MODEL' ? (
+                  {isModelKey(pair.key) ? (
                     <Select value={pair.value} onValueChange={(v) => updatePair(i, 'value', v)}>
                       <SelectTrigger className="flex-1 font-mono text-sm">
                         <SelectValue placeholder={t('managed.secrets.selectModel')} />

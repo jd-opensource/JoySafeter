@@ -1,13 +1,14 @@
 export const SECRET_PROVIDER_OPTIONS = [
   { value: 'anthropic', label: 'Anthropic' },
   { value: 'openai', label: 'OpenAI' },
+  { value: 'deepseek', label: 'DeepSeek' },
   { value: 'custom', label: 'Custom' },
 ]
 
 export const SECRET_PROTOCOL_OPTIONS = [
-  { value: 'anthropic', label: 'Anthropic Messages' },
-  { value: 'openai_compatible', label: 'OpenAI Compatible' },
-  { value: 'custom', label: 'Custom' },
+  { value: 'anthropic_messages', label: 'Anthropic Messages API' },
+  { value: 'openai_responses', label: 'OpenAI Responses API' },
+  { value: 'chat_completions', label: 'Chat Completions API' },
 ]
 
 export const SECRET_KEY_GROUPS = [
@@ -38,27 +39,38 @@ export const SECRET_KEY_GROUPS = [
 
 export const SECRET_KEY_OPTIONS = SECRET_KEY_GROUPS.flatMap((g) => g.keys)
 
+export function getDefaultProtocol(provider: string) {
+  if (provider === 'anthropic') return 'anthropic_messages'
+  if (provider === 'openai') return 'openai_responses'
+  return 'chat_completions'
+}
+
 export function getDefaultSecretPairs(provider: string, protocol: string) {
-  if (provider === 'anthropic' && protocol === 'anthropic') {
+  if (provider === 'anthropic' && protocol === 'anthropic_messages') {
     return [
       { key: 'ANTHROPIC_API_KEY', value: '' },
       { key: 'ANTHROPIC_MODEL', value: 'claude-opus-4-20250514' },
-    ]
-  }
-  if (protocol === 'openai_compatible') {
-    return [
-      { key: provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY', value: '' },
-      { key: provider === 'anthropic' ? 'ANTHROPIC_BASE_URL' : 'OPENAI_BASE_URL', value: '' },
-      { key: provider === 'anthropic' ? 'ANTHROPIC_MODEL' : 'OPENAI_MODEL', value: '' },
     ]
   }
   if (provider === 'openai') {
     return [
       { key: 'OPENAI_API_KEY', value: '' },
       { key: 'OPENAI_MODEL', value: '' },
+      ...(protocol === 'chat_completions' ? [{ key: 'OPENAI_BASE_URL', value: '' }] : []),
+    ]
+  }
+  if (provider === 'deepseek') {
+    return [
+      { key: 'OPENAI_API_KEY', value: '' },
+      { key: 'OPENAI_BASE_URL', value: 'https://api.deepseek.com' },
+      { key: 'OPENAI_MODEL', value: 'deepseek-chat' },
     ]
   }
   return [{ key: '', value: '' }]
+}
+
+export function isModelKey(key: string) {
+  return key === 'ANTHROPIC_MODEL' || key === 'OPENAI_MODEL'
 }
 
 export const MODEL_OPTIONS = [
@@ -67,4 +79,8 @@ export const MODEL_OPTIONS = [
   'claude-haiku-4-20250414',
   'Claude-Opus-4.6',
   'Claude-Sonnet-4.6',
+  'gpt-4.1',
+  'gpt-4.1-mini',
+  'deepseek-chat',
+  'deepseek-reasoner',
 ]
