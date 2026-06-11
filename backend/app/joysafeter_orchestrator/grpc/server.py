@@ -440,6 +440,17 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             buffered_events: list[tuple[str, dict]] = []
             last_tool_use_event_id: Optional[str] = None
 
+            # I4 fix: emit session.status_running on reconnect (Rust parity: server.rs lines 1247-1257)
+            if task_session_id and self._event_bus:
+                await self._event_bus.publish(JoySafeterEventEnvelope(
+                    session_id=task_session_id,
+                    event_type="session.status_running",
+                    payload={},
+                    task_id=active_task_id,
+                    sandbox_id=sandbox_id,
+                    is_status_change=True,
+                ))
+
             import time as _time_reconnect
             heartbeat_deadline_rc = _time_reconnect.monotonic() + _get_heartbeat_timeout()
             task_deadline_rc = _time_reconnect.monotonic() + task_timeout_sec
@@ -1132,6 +1143,14 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         bridge.status = SandboxBridgeStatus.BUSY
         bridge.current_task_id = task_id
 
+        # I1 fix: update sandbox DB status to "running" (Rust parity: server.rs line 427)
+        try:
+            async with AsyncSessionLocal() as db:
+                svc = SandboxService(db)
+                await svc.update_status(sandbox_id, "running")
+        except Exception as e:
+            logger.warning("Failed to set sandbox %s to running: %s", sandbox_id, e)
+
         # Pool fix: send SetupSandbox if not done yet (pool containers skip setup on first connect)
         if not bridge.setup_done:
             await self._send_setup(bridge, sandbox_id)
@@ -1501,8 +1520,10 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                         )
                         continue
 
-                    if mapped_type == "error":
-                        bridge.last_error = mapped_payload.get("error") or mapped_payload.get("message")
+                    # I5 fix: map_harness_event returns "session.error", not "error"
+                    if mapped_type == "session.error":
+                        err_detail = mapped_payload.get("error", {})
+                        bridge.last_error = err_detail.get("message") if isinstance(err_detail, dict) else str(err_detail)
 
                     if requires_action_pending:
                         buffered_events.append((mapped_type, mapped_payload))
@@ -1700,6 +1721,17 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 task_done = True
                 logger.info("Result processed: task=%s task_done=%s got_idle=%s", task_id, task_done, got_idle)
 
+                # I2 fix: publish Redis "complete" event (Rust parity: server.rs lines 551-557)
+                if coordinator:
+                    import json as _json
+                    await _best_effort_redis(
+                        "publish_task_complete",
+                        coordinator.publish_event(
+                            task_id,
+                            _json.dumps({"type": "complete", "task_id": str(task_id)}),
+                        ),
+                    )
+
             elif payload_type == "idle":
                 idle = msg.idle
                 bridge.status = SandboxBridgeStatus.IDLE
@@ -1778,6 +1810,10 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 break
 
         # --- Post-task ---
+        # I3 fix: unconditionally reset HITL state after each task (Rust parity: server.rs lines 541-543)
+        bridge._requires_action_pending = False
+        bridge.confirmation_event.clear()
+
         logger.info("Post-task: task=%s task_done=%s got_idle=%s deadline=%s error=%s completed=%s", task_id, task_done, got_idle, deadline_exceeded, task_error_status, task_completed)
         if not task_done:
             await self._event_buffer.flush()

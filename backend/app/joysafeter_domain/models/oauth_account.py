@@ -36,12 +36,12 @@ class OAuthAccount(Base, TimestampMixin):
     An OAuth account may only bind to one user.
     """
 
-    __tablename__ = "oauth_account"
+    __tablename__ = "joysafeter_oauth_account"
     __table_args__ = (
         # ensure the same provider account can only bind to one user
-        Index("ix_oauth_account_provider_account", "provider", "provider_account_id", unique=True),
+        Index("ix_joysafeter_oauth_account_provider_account", "provider", "provider_account_id", unique=True),
         # speed up lookups by user
-        Index("ix_oauth_account_user_id", "user_id"),
+        Index("ix_joysafeter_oauth_account_user_id", "user_id"),
     )
 
     id: Mapped[str] = mapped_column(

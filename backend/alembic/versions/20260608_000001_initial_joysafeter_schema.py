@@ -206,6 +206,23 @@ def upgrade() -> None:
         )
         op.create_index('ix_joysafeter_auth_sessions_token', 'joysafeter_auth_sessions', ['token'], unique=True)
         op.create_index('ix_joysafeter_auth_sessions_user_id', 'joysafeter_auth_sessions', ['user_id'], unique=False)
+        op.create_table('joysafeter_oauth_account',
+        sa.Column('id', sa.String(length=255), nullable=False),
+        sa.Column('user_id', sa.String(length=255), nullable=False),
+        sa.Column('provider', sa.String(length=50), nullable=False),
+        sa.Column('provider_account_id', sa.String(length=255), nullable=False),
+        sa.Column('email', sa.String(length=255), nullable=True),
+        sa.Column('access_token', sa.Text(), nullable=True),
+        sa.Column('refresh_token', sa.Text(), nullable=True),
+        sa.Column('token_expires_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('raw_userinfo', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.ForeignKeyConstraint(['user_id'], ['joysafeter_users.id'], name=op.f('fk_joysafeter_oauth_account_user_id_joysafeter_users'), ondelete='CASCADE'),
+        sa.PrimaryKeyConstraint('id', name=op.f('pk_joysafeter_oauth_account'))
+        )
+        op.create_index('ix_joysafeter_oauth_account_provider_account', 'joysafeter_oauth_account', ['provider', 'provider_account_id'], unique=True)
+        op.create_index('ix_joysafeter_oauth_account_user_id', 'joysafeter_oauth_account', ['user_id'], unique=False)
         op.create_table('joysafeter_organization_members',
         sa.Column('id', sa.String(length=255), nullable=False),
         sa.Column('user_id', sa.String(length=255), nullable=False),
@@ -279,23 +296,6 @@ def upgrade() -> None:
         op.create_index('mcp_servers_user_enabled_idx', 'mcp_servers', ['user_id', 'enabled'], unique=False)
         op.create_index('mcp_servers_user_id_idx', 'mcp_servers', ['user_id'], unique=False)
         op.create_index('mcp_servers_user_name_unique_idx', 'mcp_servers', ['user_id', 'name'], unique=True)
-        op.create_table('oauth_account',
-        sa.Column('id', sa.String(length=255), nullable=False),
-        sa.Column('user_id', sa.String(length=255), nullable=False),
-        sa.Column('provider', sa.String(length=50), nullable=False),
-        sa.Column('provider_account_id', sa.String(length=255), nullable=False),
-        sa.Column('email', sa.String(length=255), nullable=True),
-        sa.Column('access_token', sa.Text(), nullable=True),
-        sa.Column('refresh_token', sa.Text(), nullable=True),
-        sa.Column('token_expires_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('raw_userinfo', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.ForeignKeyConstraint(['user_id'], ['joysafeter_users.id'], name=op.f('fk_oauth_account_user_id_joysafeter_users'), ondelete='CASCADE'),
-        sa.PrimaryKeyConstraint('id', name=op.f('pk_oauth_account'))
-        )
-        op.create_index('ix_oauth_account_provider_account', 'oauth_account', ['provider', 'provider_account_id'], unique=True)
-        op.create_index('ix_oauth_account_user_id', 'oauth_account', ['user_id'], unique=False)
         op.create_table('observations',
         sa.Column('id', sa.UUID(), nullable=False),
         sa.Column('trace_id', sa.UUID(), nullable=False),
@@ -1195,11 +1195,11 @@ def downgrade() -> None:
         op.drop_table('settings')
         op.drop_table('platform_tokens')
         op.drop_table('observations')
-        op.drop_table('oauth_account')
         op.drop_table('mcp_servers')
         op.drop_table('joysafeter_permissions')
         op.drop_table('joysafeter_organization_projects')
         op.drop_table('joysafeter_organization_members')
+        op.drop_table('joysafeter_oauth_account')
         op.drop_table('joysafeter_auth_sessions')
         op.drop_table('environment')
         op.drop_table('custom_tools')
