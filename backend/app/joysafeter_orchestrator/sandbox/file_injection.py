@@ -11,11 +11,31 @@ import logging
 import os
 import uuid
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Optional, Protocol
 
 from app.joysafeter_shared.storage.base import StorageBackend
 
 logger = logging.getLogger(__name__)
+
+
+class InjectionStrategy(str, Enum):
+    """File injection strategy — mirrors Rust InjectionStrategy."""
+    PRESIGNED_URL = "presigned_url"
+    GRPC_STREAM = "grpc_stream"
+    HOST_MOUNT = "host_mount"
+    PROVIDER_FALLBACK = "provider_fallback"
+
+
+@dataclass
+class FileToInject:
+    """A file ready for injection — mirrors Rust FileToInject."""
+    filename: str
+    mount_path: str
+    content: bytes | None = None
+    storage_key: str | None = None
+    size_bytes: int = 0
+    url: str | None = None
 
 
 @dataclass

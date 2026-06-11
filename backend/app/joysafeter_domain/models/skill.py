@@ -31,12 +31,12 @@ class Skill(BaseModel):
     root_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     owner_id: Mapped[Optional[str]] = mapped_column(
         String(255),
-        ForeignKey("user.id", ondelete="SET NULL"),
+        ForeignKey("joysafeter_users.id", ondelete="SET NULL"),
         nullable=True,
     )
     created_by_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("user.id", ondelete="CASCADE"),
+        ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )
     is_public: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

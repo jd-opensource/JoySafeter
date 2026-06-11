@@ -62,3 +62,9 @@ class JoySafeterEventBus:
                             self._broadcast_subs[sub_idx].name,
                             result,
                         )
+
+    async def flush(self) -> None:
+        """Force flush all buffered events to DB — mirrors Rust EventBus.flush()."""
+        for sub in self._persist_subs:
+            if hasattr(sub, "flush"):
+                await sub.flush()

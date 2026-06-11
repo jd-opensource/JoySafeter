@@ -33,7 +33,7 @@ class UserSandbox(Base, TimestampMixin):
 
     # associated user
     user_id: Mapped[str] = mapped_column(
-        String(255), ForeignKey("user.id", ondelete="CASCADE"), nullable=False, unique=True
+        String(255), ForeignKey("joysafeter_users.id", ondelete="CASCADE"), nullable=False, unique=True
     )
 
     # Docker container info

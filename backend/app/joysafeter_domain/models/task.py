@@ -67,7 +67,7 @@ class Task(BaseModel):
     )
     creator_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("user.id", ondelete="CASCADE"),
+        ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )
     parent_task_id: Mapped[Optional[uuid.UUID]] = mapped_column(

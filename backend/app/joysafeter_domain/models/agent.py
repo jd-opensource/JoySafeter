@@ -46,7 +46,7 @@ class Agent(BaseModel):
     active_release_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("agent_releases.id", use_alter=True), nullable=True
     )
-    created_by: Mapped[str] = mapped_column(String(255), ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(255), ForeignKey("joysafeter_users.id", ondelete="CASCADE"), nullable=False)
     encrypted_custom_env: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     @property
@@ -100,7 +100,7 @@ class AgentVersion(Base):
     definition_payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     capability_manifest: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     changelog: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_by: Mapped[str] = mapped_column(String(255), ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(255), ForeignKey("joysafeter_users.id", ondelete="CASCADE"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False
     )
@@ -133,7 +133,7 @@ class AgentRelease(Base):
     builder_kind: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     executable_ref: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     runtime_binding: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
-    published_by: Mapped[Optional[str]] = mapped_column(String(255), ForeignKey("user.id"), nullable=True)
+    published_by: Mapped[Optional[str]] = mapped_column(String(255), ForeignKey("joysafeter_users.id"), nullable=True)
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     retired_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 

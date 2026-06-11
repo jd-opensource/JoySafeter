@@ -30,7 +30,7 @@ class AuthUser(Base, TimestampMixin):
     Use text primary key for drizzle compatibility, with base timestamp columns.
     """
 
-    __tablename__ = "user"
+    __tablename__ = "joysafeter_users"
 
     id: Mapped[str] = mapped_column(
         String(255),
@@ -114,10 +114,10 @@ class AuthSession(Base, TimestampMixin):
     - columns: id, expires_at, token, created_at, updated_at, ip_address, user_agent, user_id, active_organization_id
     """
 
-    __tablename__ = "session"
+    __tablename__ = "joysafeter_auth_sessions"
     __table_args__ = (
-        Index("session_user_id_idx", "user_id"),
-        Index("session_token_idx", "token", unique=True),
+        Index("ix_joysafeter_auth_sessions_user_id", "user_id"),
+        Index("ix_joysafeter_auth_sessions_token", "token", unique=True),
     )
 
     id: Mapped[str] = mapped_column(
@@ -131,7 +131,7 @@ class AuthSession(Base, TimestampMixin):
     user_agent: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     user_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("user.id", ondelete="CASCADE"),
+        ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )
     active_organization_id: Mapped[Optional[str]] = mapped_column(

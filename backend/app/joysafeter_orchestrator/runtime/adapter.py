@@ -47,6 +47,13 @@ class HarnessInput:
     skill_archives: list[SkillArchive] = field(default_factory=list)
     file_mounts: list[FileMount] = field(default_factory=list)
     file_refs: list[FileRef] = field(default_factory=list)
+    # Rust-parity fields
+    provider: str = "claude"  # engine kind: "claude" | "codex" | "mock"
+    setup_commands: list[str] = field(default_factory=list)
+    allowed_tools: list[str] = field(default_factory=list)
+    disallowed_tools: list[str] = field(default_factory=list)
+    max_turns: int = 100
+    repos: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

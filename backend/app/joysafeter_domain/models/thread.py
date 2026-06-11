@@ -32,7 +32,7 @@ class Thread(BaseModel):
     project_id: Mapped[str] = mapped_column(String(255), ForeignKey("joysafeter_organization_projects.id", ondelete="CASCADE"), nullable=False)
     title: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
-    created_by: Mapped[str] = mapped_column(String(255), ForeignKey("user.id"), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(255), ForeignKey("joysafeter_users.id"), nullable=False)
 
     # Engine identity -- populated lazily by the container pool
     container_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)

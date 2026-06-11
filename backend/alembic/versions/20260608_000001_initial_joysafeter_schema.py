@@ -32,6 +32,30 @@ def upgrade() -> None:
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_joysafeter_organizations'))
         )
+        op.create_table('joysafeter_users',
+        sa.Column('id', sa.String(length=255), nullable=False),
+        sa.Column('name', sa.String(length=255), nullable=False),
+        sa.Column('email', sa.String(length=255), nullable=False),
+        sa.Column('email_verified', sa.Boolean(), nullable=False),
+        sa.Column('hashed_password', sa.String(length=255), nullable=True),
+        sa.Column('is_active', sa.Boolean(), nullable=False),
+        sa.Column('password_reset_token', sa.String(length=255), nullable=True),
+        sa.Column('password_reset_expires', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('email_verify_token', sa.String(length=255), nullable=True),
+        sa.Column('email_verify_expires', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('image', sa.String(length=1024), nullable=True),
+        sa.Column('stripe_customer_id', sa.String(length=255), nullable=True),
+        sa.Column('is_super_user', sa.Boolean(), nullable=False),
+        sa.Column('failed_login_attempts', sa.Integer(), nullable=False),
+        sa.Column('locked_until', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('lock_reason', sa.String(length=255), nullable=True),
+        sa.Column('last_login_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('last_login_ip', sa.String(length=255), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.PrimaryKeyConstraint('id', name=op.f('pk_joysafeter_users'))
+        )
+        op.create_index(op.f('ix_joysafeter_users_email'), 'joysafeter_users', ['email'], unique=True)
         op.create_table('memories',
         sa.Column('memory_id', sa.String(), nullable=False, comment='memory ID'),
         sa.Column('memory', sa.JSON(), nullable=False, comment='memory content (JSON)'),
@@ -120,30 +144,6 @@ def upgrade() -> None:
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_traces'))
         )
-        op.create_table('user',
-        sa.Column('id', sa.String(length=255), nullable=False),
-        sa.Column('name', sa.String(length=255), nullable=False),
-        sa.Column('email', sa.String(length=255), nullable=False),
-        sa.Column('email_verified', sa.Boolean(), nullable=False),
-        sa.Column('hashed_password', sa.String(length=255), nullable=True),
-        sa.Column('is_active', sa.Boolean(), nullable=False),
-        sa.Column('password_reset_token', sa.String(length=255), nullable=True),
-        sa.Column('password_reset_expires', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('email_verify_token', sa.String(length=255), nullable=True),
-        sa.Column('email_verify_expires', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('image', sa.String(length=1024), nullable=True),
-        sa.Column('stripe_customer_id', sa.String(length=255), nullable=True),
-        sa.Column('is_super_user', sa.Boolean(), nullable=False),
-        sa.Column('failed_login_attempts', sa.Integer(), nullable=False),
-        sa.Column('locked_until', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('lock_reason', sa.String(length=255), nullable=True),
-        sa.Column('last_login_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('last_login_ip', sa.String(length=255), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.PrimaryKeyConstraint('id', name=op.f('pk_user'))
-        )
-        op.create_index(op.f('ix_user_email'), 'user', ['email'], unique=True)
         op.create_table('chat',
         sa.Column('agent_graph_id', sa.UUID(), nullable=False),
         sa.Column('user_id', sa.String(length=255), nullable=False),
@@ -159,7 +159,7 @@ def upgrade() -> None:
         sa.Column('id', sa.UUID(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.ForeignKeyConstraint(['user_id'], ['user.id'], name=op.f('fk_chat_user_id_user'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['user_id'], ['joysafeter_users.id'], name=op.f('fk_chat_user_id_joysafeter_users'), ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_chat')),
         sa.UniqueConstraint('identifier', name='identifier_idx')
         )
@@ -173,7 +173,7 @@ def upgrade() -> None:
         sa.Column('id', sa.UUID(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.ForeignKeyConstraint(['owner_id'], ['user.id'], name=op.f('fk_custom_tools_owner_id_user'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['owner_id'], ['joysafeter_users.id'], name=op.f('fk_custom_tools_owner_id_joysafeter_users'), ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_custom_tools')),
         sa.UniqueConstraint('owner_id', 'name', name='custom_tools_owner_name_unique')
         )
@@ -184,10 +184,31 @@ def upgrade() -> None:
         sa.Column('id', sa.UUID(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.ForeignKeyConstraint(['user_id'], ['user.id'], name=op.f('fk_environment_user_id_user'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['user_id'], ['joysafeter_users.id'], name=op.f('fk_environment_user_id_joysafeter_users'), ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_environment')),
         sa.UniqueConstraint('user_id', name=op.f('uq_environment_user_id'))
         )
+        op.create_table('joysafeter_auth_sessions',
+        sa.Column('id', sa.String(length=255), nullable=False),
+        sa.Column('expires_at', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('token', sa.String(length=255), nullable=False),
+        sa.Column('ip_address', sa.String(length=255), nullable=True),
+        sa.Column('user_agent', sa.String(length=1024), nullable=True),
+        sa.Column('user_id', sa.String(length=255), nullable=False),
+        sa.Column('active_organization_id', sa.String(length=255), nullable=True),
+        sa.Column('last_activity_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('device_fingerprint', sa.String(length=255), nullable=True),
+        sa.Column('device_name', sa.String(length=255), nullable=True),
+        sa.Column('is_trusted', sa.Boolean(), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.ForeignKeyConstraint(['active_organization_id'], ['joysafeter_organizations.id'], name=op.f('fk_joysafeter_auth_sessions_active_organization_id_joysafeter_organizations'), ondelete='SET NULL'),
+        sa.ForeignKeyConstraint(['user_id'], ['joysafeter_users.id'], name=op.f('fk_joysafeter_auth_sessions_user_id_joysafeter_users'), ondelete='CASCADE'),
+        sa.PrimaryKeyConstraint('id', name=op.f('pk_joysafeter_auth_sessions')),
+        sa.UniqueConstraint('token', name=op.f('uq_joysafeter_auth_sessions_token'))
+        )
+        op.create_index('ix_joysafeter_auth_sessions_token', 'joysafeter_auth_sessions', ['token'], unique=True)
+        op.create_index('ix_joysafeter_auth_sessions_user_id', 'joysafeter_auth_sessions', ['user_id'], unique=False)
         op.create_table('joysafeter_organization_members',
         sa.Column('id', sa.String(length=255), nullable=False),
         sa.Column('user_id', sa.String(length=255), nullable=False),
@@ -196,7 +217,7 @@ def upgrade() -> None:
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.ForeignKeyConstraint(['organization_id'], ['joysafeter_organizations.id'], name=op.f('fk_joysafeter_organization_members_organization_id_joysafeter_organizations'), ondelete='CASCADE'),
-        sa.ForeignKeyConstraint(['user_id'], ['user.id'], name=op.f('fk_joysafeter_organization_members_user_id_user'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['user_id'], ['joysafeter_users.id'], name=op.f('fk_joysafeter_organization_members_user_id_joysafeter_users'), ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_joysafeter_organization_members'))
         )
         op.create_index('ix_joysafeter_organization_members_organization_id', 'joysafeter_organization_members', ['organization_id'], unique=False)
@@ -237,8 +258,8 @@ def upgrade() -> None:
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
-        sa.ForeignKeyConstraint(['created_by'], ['user.id'], name=op.f('fk_mcp_servers_created_by_user'), ondelete='SET NULL'),
-        sa.ForeignKeyConstraint(['user_id'], ['user.id'], name=op.f('fk_mcp_servers_user_id_user'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['created_by'], ['joysafeter_users.id'], name=op.f('fk_mcp_servers_created_by_joysafeter_users'), ondelete='SET NULL'),
+        sa.ForeignKeyConstraint(['user_id'], ['joysafeter_users.id'], name=op.f('fk_mcp_servers_user_id_joysafeter_users'), ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_mcp_servers'))
         )
         op.create_index('mcp_servers_user_enabled_idx', 'mcp_servers', ['user_id', 'enabled'], unique=False)
@@ -256,7 +277,7 @@ def upgrade() -> None:
         sa.Column('raw_userinfo', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.ForeignKeyConstraint(['user_id'], ['user.id'], name=op.f('fk_oauth_account_user_id_user'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['user_id'], ['joysafeter_users.id'], name=op.f('fk_oauth_account_user_id_joysafeter_users'), ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_oauth_account'))
         )
         op.create_index('ix_oauth_account_provider_account', 'oauth_account', ['provider', 'provider_account_id'], unique=True)
@@ -298,7 +319,7 @@ def upgrade() -> None:
         sa.Column('id', sa.UUID(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.ForeignKeyConstraint(['user_id'], ['user.id'], name=op.f('fk_permissions_user_id_user'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['user_id'], ['joysafeter_users.id'], name=op.f('fk_permissions_user_id_joysafeter_users'), ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_permissions')),
         sa.UniqueConstraint('user_id', 'entity_type', 'entity_id', name='permissions_unique_constraint')
         )
@@ -321,7 +342,7 @@ def upgrade() -> None:
         sa.Column('id', sa.UUID(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.ForeignKeyConstraint(['user_id'], ['user.id'], name=op.f('fk_platform_tokens_user_id_user'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['user_id'], ['joysafeter_users.id'], name=op.f('fk_platform_tokens_user_id_joysafeter_users'), ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_platform_tokens')),
         sa.UniqueConstraint('token_hash', name=op.f('uq_platform_tokens_token_hash'))
         )
@@ -329,27 +350,6 @@ def upgrade() -> None:
         op.create_index('platform_tokens_hash_idx', 'platform_tokens', ['token_hash'], unique=False)
         op.create_index('platform_tokens_resource_lookup_idx', 'platform_tokens', ['user_id', 'is_active', 'resource_type', 'resource_id'], unique=False)
         op.create_index('platform_tokens_user_idx', 'platform_tokens', ['user_id'], unique=False)
-        op.create_table('session',
-        sa.Column('id', sa.String(length=255), nullable=False),
-        sa.Column('expires_at', sa.DateTime(timezone=True), nullable=False),
-        sa.Column('token', sa.String(length=255), nullable=False),
-        sa.Column('ip_address', sa.String(length=255), nullable=True),
-        sa.Column('user_agent', sa.String(length=1024), nullable=True),
-        sa.Column('user_id', sa.String(length=255), nullable=False),
-        sa.Column('active_organization_id', sa.String(length=255), nullable=True),
-        sa.Column('last_activity_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('device_fingerprint', sa.String(length=255), nullable=True),
-        sa.Column('device_name', sa.String(length=255), nullable=True),
-        sa.Column('is_trusted', sa.Boolean(), nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.ForeignKeyConstraint(['active_organization_id'], ['joysafeter_organizations.id'], name=op.f('fk_session_active_organization_id_joysafeter_organizations'), ondelete='SET NULL'),
-        sa.ForeignKeyConstraint(['user_id'], ['user.id'], name=op.f('fk_session_user_id_user'), ondelete='CASCADE'),
-        sa.PrimaryKeyConstraint('id', name=op.f('pk_session')),
-        sa.UniqueConstraint('token', name=op.f('uq_session_token'))
-        )
-        op.create_index('session_token_idx', 'session', ['token'], unique=True)
-        op.create_index('session_user_id_idx', 'session', ['user_id'], unique=False)
         op.create_table('settings',
         sa.Column('user_id', sa.String(length=255), nullable=False),
         sa.Column('theme', sa.String(length=50), nullable=False),
@@ -367,7 +367,7 @@ def upgrade() -> None:
         sa.Column('id', sa.UUID(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.ForeignKeyConstraint(['user_id'], ['user.id'], name=op.f('fk_settings_user_id_user'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['user_id'], ['joysafeter_users.id'], name=op.f('fk_settings_user_id_joysafeter_users'), ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_settings')),
         sa.UniqueConstraint('user_id', name=op.f('uq_settings_user_id'))
         )
@@ -386,7 +386,7 @@ def upgrade() -> None:
         sa.Column('idle_timeout', sa.Integer(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.ForeignKeyConstraint(['user_id'], ['user.id'], name=op.f('fk_user_sandbox_user_id_user'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['user_id'], ['joysafeter_users.id'], name=op.f('fk_user_sandbox_user_id_joysafeter_users'), ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_user_sandbox')),
         sa.UniqueConstraint('user_id', name=op.f('uq_user_sandbox_user_id'))
         )
@@ -405,7 +405,7 @@ def upgrade() -> None:
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.ForeignKeyConstraint(['active_release_id'], ['agent_releases.id'], name=op.f('fk_agents_active_release_id_agent_releases'), use_alter=True),
-        sa.ForeignKeyConstraint(['created_by'], ['user.id'], name=op.f('fk_agents_created_by_user'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['created_by'], ['joysafeter_users.id'], name=op.f('fk_agents_created_by_joysafeter_users'), ondelete='CASCADE'),
         sa.ForeignKeyConstraint(['current_draft_version_id'], ['agent_versions.id'], name=op.f('fk_agents_current_draft_version_id_agent_versions'), use_alter=True),
         sa.ForeignKeyConstraint(['project_id'], ['joysafeter_organization_projects.id'], name=op.f('fk_agents_project_id_joysafeter_organization_projects'), ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_agents')),
@@ -485,7 +485,7 @@ def upgrade() -> None:
         sa.Column('id', sa.UUID(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.ForeignKeyConstraint(['created_by'], ['user.id'], name=op.f('fk_joysafeter_api_keys_created_by_user'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['created_by'], ['joysafeter_users.id'], name=op.f('fk_joysafeter_api_keys_created_by_joysafeter_users'), ondelete='CASCADE'),
         sa.ForeignKeyConstraint(['org_id'], ['joysafeter_organizations.id'], name=op.f('fk_joysafeter_api_keys_org_id_joysafeter_organizations'), ondelete='CASCADE'),
         sa.ForeignKeyConstraint(['project_id'], ['joysafeter_organization_projects.id'], name=op.f('fk_joysafeter_api_keys_project_id_joysafeter_organization_projects'), ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_joysafeter_api_keys'))
@@ -580,8 +580,8 @@ def upgrade() -> None:
         sa.Column('id', sa.UUID(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.ForeignKeyConstraint(['created_by_id'], ['user.id'], name=op.f('fk_joysafeter_skills_created_by_id_user'), ondelete='CASCADE'),
-        sa.ForeignKeyConstraint(['owner_id'], ['user.id'], name=op.f('fk_joysafeter_skills_owner_id_user'), ondelete='SET NULL'),
+        sa.ForeignKeyConstraint(['created_by_id'], ['joysafeter_users.id'], name=op.f('fk_joysafeter_skills_created_by_id_joysafeter_users'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['owner_id'], ['joysafeter_users.id'], name=op.f('fk_joysafeter_skills_owner_id_joysafeter_users'), ondelete='SET NULL'),
         sa.ForeignKeyConstraint(['project_id'], ['joysafeter_organization_projects.id'], name=op.f('fk_joysafeter_skills_project_id_joysafeter_organization_projects'), ondelete='SET NULL'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_joysafeter_skills')),
         sa.UniqueConstraint('owner_id', 'name', name='skills_owner_name_unique')
@@ -620,7 +620,7 @@ def upgrade() -> None:
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.ForeignKeyConstraint(['project_id'], ['joysafeter_organization_projects.id'], name=op.f('fk_model_credential_project_id_joysafeter_organization_projects'), ondelete='SET NULL'),
         sa.ForeignKeyConstraint(['provider_id'], ['model_provider.id'], name=op.f('fk_model_credential_provider_id_model_provider'), ondelete='CASCADE'),
-        sa.ForeignKeyConstraint(['user_id'], ['user.id'], name=op.f('fk_model_credential_user_id_user'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['user_id'], ['joysafeter_users.id'], name=op.f('fk_model_credential_user_id_joysafeter_users'), ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_model_credential'))
         )
         op.create_index('model_credential_provider_id_idx', 'model_credential', ['provider_id'], unique=False)
@@ -637,7 +637,7 @@ def upgrade() -> None:
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.ForeignKeyConstraint(['project_id'], ['joysafeter_organization_projects.id'], name=op.f('fk_model_instance_project_id_joysafeter_organization_projects'), ondelete='SET NULL'),
         sa.ForeignKeyConstraint(['provider_id'], ['model_provider.id'], name=op.f('fk_model_instance_provider_id_model_provider'), ondelete='CASCADE'),
-        sa.ForeignKeyConstraint(['user_id'], ['user.id'], name=op.f('fk_model_instance_user_id_user'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['user_id'], ['joysafeter_users.id'], name=op.f('fk_model_instance_user_id_joysafeter_users'), ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_model_instance'))
         )
         op.create_index('model_instance_provider_id_idx', 'model_instance', ['provider_id'], unique=False)
@@ -666,7 +666,7 @@ def upgrade() -> None:
         sa.Column('id', sa.UUID(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.ForeignKeyConstraint(['inviter_id'], ['user.id'], name=op.f('fk_project_invitation_inviter_id_user'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['inviter_id'], ['joysafeter_users.id'], name=op.f('fk_project_invitation_inviter_id_joysafeter_users'), ondelete='CASCADE'),
         sa.ForeignKeyConstraint(['project_id'], ['joysafeter_organization_projects.id'], name=op.f('fk_project_invitation_project_id_joysafeter_organization_projects'), ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_project_invitation')),
         sa.UniqueConstraint('token', name=op.f('uq_project_invitation_token'))
@@ -687,7 +687,7 @@ def upgrade() -> None:
         sa.Column('created_by', sa.String(length=255), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.ForeignKeyConstraint(['agent_id'], ['agents.id'], name=op.f('fk_agent_versions_agent_id_agents'), ondelete='CASCADE'),
-        sa.ForeignKeyConstraint(['created_by'], ['user.id'], name=op.f('fk_agent_versions_created_by_user'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['created_by'], ['joysafeter_users.id'], name=op.f('fk_agent_versions_created_by_joysafeter_users'), ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_agent_versions')),
         sa.UniqueConstraint('agent_id', 'version_number', name='uq_agent_versions_agent_version')
         )
@@ -806,9 +806,9 @@ def upgrade() -> None:
         sa.Column('id', sa.UUID(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.ForeignKeyConstraint(['invited_by'], ['user.id'], name=op.f('fk_joysafeter_skill_collaborators_invited_by_user'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['invited_by'], ['joysafeter_users.id'], name=op.f('fk_joysafeter_skill_collaborators_invited_by_joysafeter_users'), ondelete='CASCADE'),
         sa.ForeignKeyConstraint(['skill_id'], ['joysafeter_skills.id'], name=op.f('fk_joysafeter_skill_collaborators_skill_id_joysafeter_skills'), ondelete='CASCADE'),
-        sa.ForeignKeyConstraint(['user_id'], ['user.id'], name=op.f('fk_joysafeter_skill_collaborators_user_id_user'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['user_id'], ['joysafeter_users.id'], name=op.f('fk_joysafeter_skill_collaborators_user_id_joysafeter_users'), ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_joysafeter_skill_collaborators')),
         sa.UniqueConstraint('skill_id', 'user_id', name='skill_collaborators_skill_user_unique')
         )
@@ -847,7 +847,7 @@ def upgrade() -> None:
         sa.Column('id', sa.UUID(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.ForeignKeyConstraint(['published_by_id'], ['user.id'], name=op.f('fk_joysafeter_skill_versions_published_by_id_user'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['published_by_id'], ['joysafeter_users.id'], name=op.f('fk_joysafeter_skill_versions_published_by_id_joysafeter_users'), ondelete='CASCADE'),
         sa.ForeignKeyConstraint(['skill_id'], ['joysafeter_skills.id'], name=op.f('fk_joysafeter_skill_versions_skill_id_joysafeter_skills'), ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_joysafeter_skill_versions')),
         sa.UniqueConstraint('skill_id', 'version', name='skill_versions_skill_version_unique')
@@ -883,7 +883,7 @@ def upgrade() -> None:
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.ForeignKeyConstraint(['agent_id'], ['agents.id'], name=op.f('fk_threads_agent_id_agents')),
-        sa.ForeignKeyConstraint(['created_by'], ['user.id'], name=op.f('fk_threads_created_by_user')),
+        sa.ForeignKeyConstraint(['created_by'], ['joysafeter_users.id'], name=op.f('fk_threads_created_by_joysafeter_users')),
         sa.ForeignKeyConstraint(['project_id'], ['joysafeter_organization_projects.id'], name=op.f('fk_threads_project_id_joysafeter_organization_projects'), ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_threads'))
         )
@@ -901,7 +901,7 @@ def upgrade() -> None:
         sa.Column('published_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('retired_at', sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(['agent_version_id'], ['agent_versions.id'], name=op.f('fk_agent_releases_agent_version_id_agent_versions')),
-        sa.ForeignKeyConstraint(['published_by'], ['user.id'], name=op.f('fk_agent_releases_published_by_user')),
+        sa.ForeignKeyConstraint(['published_by'], ['joysafeter_users.id'], name=op.f('fk_agent_releases_published_by_joysafeter_users')),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_agent_releases')),
         sa.UniqueConstraint('agent_version_id', 'release_number', name='uq_agent_releases_version_number')
         )
@@ -1040,7 +1040,7 @@ def upgrade() -> None:
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.ForeignKeyConstraint(['agent_id'], ['agents.id'], name=op.f('fk_tasks_agent_id_agents')),
-        sa.ForeignKeyConstraint(['creator_id'], ['user.id'], name=op.f('fk_tasks_creator_id_user'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['creator_id'], ['joysafeter_users.id'], name=op.f('fk_tasks_creator_id_joysafeter_users'), ondelete='CASCADE'),
         sa.ForeignKeyConstraint(['latest_run_id'], ['agent_runs.id'], name=op.f('fk_tasks_latest_run_id_agent_runs'), use_alter=True),
         sa.ForeignKeyConstraint(['parent_task_id'], ['tasks.id'], name=op.f('fk_tasks_parent_task_id_tasks'), ondelete='SET NULL'),
         sa.ForeignKeyConstraint(['project_id'], ['joysafeter_organization_projects.id'], name=op.f('fk_tasks_project_id_joysafeter_organization_projects'), ondelete='CASCADE'),
@@ -1070,7 +1070,7 @@ def upgrade() -> None:
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint('(release_id IS NOT NULL) <> (agent_version_id IS NOT NULL)', name=op.f('ck_agent_runs_ck_agent_runs_release_or_version')),
         sa.ForeignKeyConstraint(['agent_version_id'], ['agent_versions.id'], name=op.f('fk_agent_runs_agent_version_id_agent_versions')),
-        sa.ForeignKeyConstraint(['created_by'], ['user.id'], name=op.f('fk_agent_runs_created_by_user')),
+        sa.ForeignKeyConstraint(['created_by'], ['joysafeter_users.id'], name=op.f('fk_agent_runs_created_by_joysafeter_users')),
         sa.ForeignKeyConstraint(['current_execution_id'], ['executions.id'], name=op.f('fk_agent_runs_current_execution_id_executions'), use_alter=True),
         sa.ForeignKeyConstraint(['project_id'], ['joysafeter_organization_projects.id'], name=op.f('fk_agent_runs_project_id_joysafeter_organization_projects'), ondelete='CASCADE'),
         sa.ForeignKeyConstraint(['release_id'], ['agent_releases.id'], name=op.f('fk_agent_runs_release_id_agent_releases')),
@@ -1196,7 +1196,6 @@ def downgrade() -> None:
         op.drop_table('agents')
         op.drop_table('user_sandbox')
         op.drop_table('settings')
-        op.drop_table('session')
         op.drop_table('platform_tokens')
         op.drop_table('permissions')
         op.drop_table('observations')
@@ -1204,13 +1203,14 @@ def downgrade() -> None:
         op.drop_table('mcp_servers')
         op.drop_table('joysafeter_organization_projects')
         op.drop_table('joysafeter_organization_members')
+        op.drop_table('joysafeter_auth_sessions')
         op.drop_table('environment')
         op.drop_table('custom_tools')
         op.drop_table('chat')
-        op.drop_table('user')
         op.drop_table('traces')
         op.drop_table('security_audit_log')
         op.drop_table('model_provider')
         op.drop_table('memories')
+        op.drop_table('joysafeter_users')
         op.drop_table('joysafeter_organizations')
         # ### end Alembic commands ###

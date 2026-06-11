@@ -63,7 +63,7 @@ class SkillCollaborator(BaseModel):
     )
     user_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("user.id", ondelete="CASCADE"),
+        ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )
     role: Mapped[CollaboratorRole] = mapped_column(
@@ -72,7 +72,7 @@ class SkillCollaborator(BaseModel):
     )
     invited_by: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("user.id", ondelete="CASCADE"),
+        ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )
 

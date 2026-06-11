@@ -42,7 +42,7 @@ class SkillVersion(BaseModel):
 
     published_by_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("user.id", ondelete="CASCADE"),
+        ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )
     published_at: Mapped[datetime] = mapped_column(

@@ -44,7 +44,7 @@ class JoySafeterApiKey(JoySafeterBaseModel):
     key_prefix: Mapped[str] = mapped_column(Text, nullable=False)
     created_by: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("user.id", ondelete="CASCADE"),
+        ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )
     role: Mapped[str] = mapped_column(Text, nullable=False, default="developer")

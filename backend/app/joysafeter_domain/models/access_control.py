@@ -41,7 +41,7 @@ class ProjectInvitation(BaseModel):
     email: Mapped[str] = mapped_column(String(255), nullable=False)
     inviter_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("user.id", ondelete="CASCADE"),
+        ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )
     role: Mapped[str] = mapped_column(String(50), nullable=False, default="member")
@@ -79,7 +79,7 @@ class Permission(BaseModel):
 
     user_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("user.id", ondelete="CASCADE"),
+        ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )
     entity_type: Mapped[str] = mapped_column(String(50), nullable=False)

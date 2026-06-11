@@ -21,7 +21,7 @@ class Environment(BaseModel):
 
     user_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("user.id", ondelete="CASCADE"),
+        ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
         unique=True,
     )
@@ -52,7 +52,7 @@ class Settings(BaseModel):
 
     user_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("user.id", ondelete="CASCADE"),
+        ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
         unique=True,
     )

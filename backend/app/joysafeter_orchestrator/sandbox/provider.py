@@ -1,6 +1,40 @@
 import uuid
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from enum import Enum
 from typing import Optional
+
+
+class SandboxStatus(str, Enum):
+    """Provider-level sandbox status — mirrors Rust SandboxStatus."""
+    RUNNING = "running"
+    STOPPED = "stopped"
+    NOT_FOUND = "not_found"
+    UNKNOWN = "unknown"
+
+
+@dataclass
+class SandboxCreateConfig:
+    """Configuration for creating a sandbox — mirrors Rust SandboxCreateConfig."""
+    sandbox_id: uuid.UUID
+    image: str
+    env: dict[str, str] = field(default_factory=dict)
+    labels: dict[str, str] = field(default_factory=dict)
+    work_dir: str | None = None
+    cpu_limit: float | None = None
+    memory_limit_mb: int | None = None
+    network: str | None = None
+    workspace_path: str | None = None
+
+
+@dataclass
+class ProviderSandboxInfo:
+    """Sandbox information returned from provider.list_active()."""
+    id: str
+    name: str
+    status: SandboxStatus
+    image: str | None = None
+    labels: dict[str, str] = field(default_factory=dict)
 
 
 class SandboxProvider(ABC):

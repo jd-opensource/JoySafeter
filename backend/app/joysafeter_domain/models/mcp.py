@@ -26,14 +26,14 @@ class McpServer(BaseModel, SoftDeleteMixin):
     # Owner (required) - user who owns this MCP server
     user_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("user.id", ondelete="CASCADE"),
+        ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )
 
     # Audit field - who created this record (may differ from owner in some cases)
     created_by: Mapped[Optional[str]] = mapped_column(
         String(255),
-        ForeignKey("user.id", ondelete="SET NULL"),
+        ForeignKey("joysafeter_users.id", ondelete="SET NULL"),
         nullable=True,
     )
 

@@ -447,6 +447,7 @@ class JoySafeterConfig(BaseSettings):
     redis_queue_prefix: str = "joysafeter"
 
     max_concurrent_tasks: int = 200
+    max_scheduling_tasks: int = 50
     task_default_timeout: int = 7200
     task_default_max_retries: int = 2
     task_retry_base_ms: int = 2000
@@ -521,6 +522,14 @@ class JoySafeterConfig(BaseSettings):
     instance_id: str = Field(default_factory=socket.gethostname)
     heartbeat_interval: int = 15
     heartbeat_ttl: int = 30
+
+    def image_for_provider(self, engine_kind: str) -> str:
+        """Return the sandbox image for the given engine kind (matches Rust)."""
+        if engine_kind == "codex" and self.image_codex:
+            return self.image_codex
+        if engine_kind == "claude" and self.image_claude:
+            return self.image_claude
+        return self.sandbox_image
 
 
 joysafeter_config = JoySafeterConfig()
