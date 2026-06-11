@@ -849,6 +849,24 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 if coordinator:
                     await _best_effort_redis("remove_task_sandbox", coordinator.remove_task_sandbox(active_task_id))
 
+                # Emit session.status_idle — matches main task loop and Rust behavior
+                stop_reason = {"type": "end_turn"}
+                if result_status:
+                    stop_reason = self._stop_reason_from_result(result_status, result_error)
+                task_session_id = active_task_session_id if active_task_session_id else None
+                if task_session_id:
+                    await self._event_bus.publish(
+                        JoySafeterEventEnvelope(
+                            session_id=task_session_id,
+                            event_type="session.status_idle",
+                            payload={"stop_reason": stop_reason},
+                            task_id=active_task_id,
+                            sandbox_id=sandbox_id,
+                            is_status_change=True,
+                            stop_reason=stop_reason,
+                        )
+                    )
+
         finally:
             self._execution_semaphore.release()
 
@@ -2188,7 +2206,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         await self._queue.drain_and_requeue_sandbox(sandbox_id)
 
         # 5. Schedule delayed retry for failover_pending_tasks
-        has_retries = len(failover_pending_tasks) > 0
+        has_retries_inmemory = len(failover_pending_tasks) > 0
         for tid, retry_count in failover_pending_tasks:
             delay = TaskController.compute_retry_delay(retry_count, tid)
             logger.info(
@@ -2212,7 +2230,16 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             await _best_effort_redis("remove_sandbox_queue", coordinator.remove_sandbox_queue(sandbox_id))
 
         # 7. Emit session status event BEFORE removing broadcaster
+        # Query DB for pending tasks instead of in-memory list — matches Rust behavior
         if session_id:
+            async with AsyncSessionLocal() as db:
+                from sqlalchemy import text
+                result = await db.execute(
+                    text("SELECT COUNT(*) FROM joysafeter_tasks WHERE chat_session_id = :sid AND status = 'pending'"),
+                    {"sid": session_id},
+                )
+                pending_count = result.scalar() or 0
+            has_retries = pending_count > 0 or has_retries_inmemory
             if has_retries:
                 if self._event_bus:
                     await self._event_bus.publish(JoySafeterEventEnvelope(
@@ -2317,12 +2344,12 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         is_error: bool,
         original_bridge: Optional[SandboxBridge],
     ) -> None:
-        """120s grace period for reconnection, matching Rust lines 1441-1500."""
+        """120s grace period for reconnection, matching Rust probe schedule (3s/5s/10s/15s/120s)."""
         from app.joysafeter_orchestrator.kernel.task_controller import TaskController
 
-        # Check early for reconnection before waiting the full 120s
-        for early_check in (5, 10, 15):
-            await asyncio.sleep(early_check)
+        # Probe at absolute 3s, 5s, 10s, 15s — matches Rust (cumulative sleeps: 3, 2, 5, 5)
+        for sleep_sec in (3, 2, 5, 5):
+            await asyncio.sleep(sleep_sec)
             current_bridge = await self._bridge_registry.get(sandbox_id)
             if current_bridge is not None and current_bridge is not original_bridge:
                 logger.info("Bridge replaced by early reconnection for sandbox %s, re-queuing %d task(s)", sandbox_id, len(failover_pending_tasks))
@@ -2331,7 +2358,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     logger.info("Re-queued orphaned task %s immediately after reconnect", tid)
                 return
 
-        remaining = 120 - 30
+        remaining = 120 - 15  # 105s to reach total 120s
         await asyncio.sleep(remaining)
 
         # Check if a new connection replaced this bridge
