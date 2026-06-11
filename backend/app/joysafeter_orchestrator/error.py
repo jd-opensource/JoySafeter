@@ -40,7 +40,7 @@ class TaskError(OrchestratorError):
 
 
 class InternalError(OrchestratorError):
-    """Catch-all for unexpectedinternal errors."""
+    """Catch-all for unexpected internal errors."""
 
 
 __all__ = [
