@@ -6,7 +6,7 @@ from typing import Optional
 from app.joysafeter_shared.config.settings import joysafeter_config
 from app.joysafeter_orchestrator.kernel.queue import QueueBackend
 from app.joysafeter_orchestrator.kernel.sandbox_bridge import SandboxBridgeRegistry
-from app.joysafeter_orchestrator.sandbox.provider import SandboxProvider
+from app.joysafeter_orchestrator.sandbox.provider import SandboxProvider, SandboxStatus
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +76,45 @@ class SandboxController:
             except Exception as e:
                 logger.warning("Failed to destroy orphaned sandbox %s: %s", external_id, e)
 
+        return cleaned
+
+    async def _sweep_db_orphans(self) -> int:
+        """Destroy DB records pointing to containers that no longer exist in the provider.
+
+        This is the reverse direction of cleanup_orphaned_provider_sandboxes:
+        DB→provider sweep. Matches Rust cleanup_orphaned (lines 655-678).
+        """
+        from app.joysafeter_shared.database import AsyncSessionLocal
+        from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
+
+        cleaned = 0
+        async with AsyncSessionLocal() as db:
+            svc = SandboxService(db)
+            active_sandboxes = await svc.list_non_destroyed_sandboxes()
+
+        for sandbox in active_sandboxes:
+            if sandbox.status in ("destroyed", "stopped"):
+                continue
+            try:
+                status = await self._provider.status(sandbox.external_id)
+                status_str = status if isinstance(status, str) else str(status)
+                if status_str in ("not_found", SandboxStatus.NOT_FOUND):
+                    logger.warning(
+                        "DB orphan: sandbox %s (ext=%s) not found in provider, marking destroyed",
+                        sandbox.id, sandbox.external_id,
+                    )
+                    async with AsyncSessionLocal() as db:
+                        svc = SandboxService(db)
+                        await svc.mark_destroyed(sandbox.id)
+                    bridge = await self._bridge_registry.get(sandbox.id)
+                    if bridge:
+                        await self._bridge_registry.remove(sandbox.id)
+                    cleaned += 1
+            except Exception:
+                logger.debug("Failed to check provider status for %s, skipping", sandbox.external_id)
+
+        if cleaned:
+            logger.info("Reverse orphan sweep: destroyed %d DB-only records", cleaned)
         return cleaned
 
     async def run_idle_sweep(self) -> None:

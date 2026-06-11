@@ -1,12 +1,140 @@
 import base64
 import logging
 import os
+import time
 import uuid
 from typing import Any, Optional
 
+import httpx
+
+from app.joysafeter_orchestrator.kernel.vault_cipher import VaultCipher
 from app.joysafeter_orchestrator.runtime.adapter import HarnessInput, SkillArchive
 
 logger = logging.getLogger(__name__)
+
+# ------------------------------------------------------------------
+# Builder helpers — Rust parity (harness_input_builder.rs)
+# ------------------------------------------------------------------
+
+_vault_cipher: VaultCipher | None = VaultCipher.from_env()
+
+
+def _resolve_environment_setup_commands(environment) -> list[str]:
+    """Generate apt/pip/npm/cargo/gem/go install commands from environment config."""
+    if not environment:
+        return []
+    config = getattr(environment, "config", None) or {}
+    if isinstance(config, dict):
+        packages = config.get("packages", {})
+    else:
+        packages = getattr(config, "packages", {}) or {}
+
+    commands: list[str] = []
+    if isinstance(packages, dict):
+        apt = packages.get("apt", [])
+        if apt:
+            commands.append(f"apt-get update && apt-get install -y {' '.join(apt)}")
+        pip = packages.get("pip", [])
+        if pip:
+            commands.append(f"pip install {' '.join(pip)}")
+        npm = packages.get("npm", [])
+        if npm:
+            commands.append(f"npm install -g {' '.join(npm)}")
+        cargo = packages.get("cargo", [])
+        if cargo:
+            commands.append(f"cargo install {' '.join(cargo)}")
+        gem = packages.get("gem", [])
+        if gem:
+            commands.append(f"gem install {' '.join(gem)}")
+        go = packages.get("go", [])
+        if go:
+            commands.extend(f"go install {pkg}" for pkg in go)
+    return commands
+
+
+def _extract_agent_setup_commands(agent) -> list[str]:
+    """Extract setup_commands from agent.metadata."""
+    metadata = getattr(agent, "metadata", None) or {}
+    if isinstance(metadata, dict):
+        return list(metadata.get("setup_commands", []))
+    return []
+
+
+def _parse_tool_allow_lists(agent) -> tuple[list[str], list[str]]:
+    """Parse agent_toolset_20260401 into allowed/disallowed tool lists."""
+    tools = agent.tools or []
+    allowed: list[str] = []
+    disallowed: list[str] = []
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+        if tool.get("type") != "agent_toolset_20260401":
+            continue
+        tool_name = tool.get("name", "")
+        if tool.get("enabled", True):
+            allowed.append(tool_name)
+        else:
+            disallowed.append(tool_name)
+    return allowed, disallowed
+
+
+def _extract_max_turns(agent) -> int:
+    """Extract max_turns from agent.metadata, default 100."""
+    metadata = getattr(agent, "metadata", None) or {}
+    if isinstance(metadata, dict):
+        return int(metadata.get("max_turns", 100))
+    return 100
+
+
+async def _maybe_refresh_oauth(credential: dict, db_session) -> dict:
+    """Refresh OAuth token if within 300s of expiry. Returns updated credential."""
+    oauth_config = credential.get("oauth_config")
+    if not oauth_config or credential.get("credential_type") != "oauth":
+        return credential
+
+    expires_at = oauth_config.get("expires_at", 0)
+    if time.time() < expires_at - 300:
+        return credential  # still fresh
+
+    token_url = oauth_config.get("token_url")
+    if not token_url:
+        return credential
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(token_url, data={
+                "grant_type": "refresh_token",
+                "refresh_token": oauth_config.get("refresh_token", ""),
+                "client_id": oauth_config.get("client_id", ""),
+                "client_secret": oauth_config.get("client_secret", ""),
+            })
+            resp.raise_for_status()
+            token_data = resp.json()
+
+        new_token = token_data["access_token"]
+        new_expires_at = time.time() + token_data.get("expires_in", 3600)
+        new_refresh = token_data.get("refresh_token", oauth_config.get("refresh_token", ""))
+
+        credential["token_value"] = new_token
+        oauth_config["expires_at"] = new_expires_at
+        oauth_config["refresh_token"] = new_refresh
+        credential["oauth_config"] = oauth_config
+
+        logger.info("Refreshed OAuth token for credential %s", credential.get("id", "?"))
+    except Exception as e:
+        logger.warning("OAuth refresh failed for credential %s: %s", credential.get("id", "?"), e)
+
+    return credential
+
+
+def _decrypt_credential_value(value: str) -> str:
+    """Decrypt enc:-prefixed credential values using VaultCipher."""
+    if _vault_cipher and value:
+        try:
+            return _vault_cipher.decrypt_or_passthrough(value)
+        except Exception as e:
+            logger.warning("VaultCipher decryption failed: %s", e)
+    return value
 
 
 async def build_harness_input(
@@ -46,7 +174,27 @@ async def build_harness_input(
             joysafeter_config.sandbox_workspace_root, str(session_id)
         )
 
-    engine_kind = getattr(agent, "engine_kind", None)
+    engine_kind = getattr(agent, "engine_kind", None) or "claude"
+
+    # Resolve environment for setup commands
+    environment = None
+    environment_ref = getattr(agent, "environment_ref", None)
+    if environment_ref:
+        from app.joysafeter_orchestrator.services import EnvironmentService
+        async with AsyncSessionLocal() as db:
+            env_svc = EnvironmentService(db)
+            environment = await env_svc.get_environment_by_ref(environment_ref)
+
+    # Build setup commands (Rust parity)
+    env_setup = _resolve_environment_setup_commands(environment)
+    agent_setup = _extract_agent_setup_commands(agent)
+    setup_commands = env_setup + agent_setup
+
+    # Parse tool allow lists (Rust parity)
+    allowed_tools, disallowed_tools = _parse_tool_allow_lists(agent)
+
+    # Extract max turns (Rust parity)
+    max_turns = _extract_max_turns(agent)
 
     async with AsyncSessionLocal() as db:
         if getattr(agent, "secret_ref", None):
@@ -241,6 +389,12 @@ async def build_harness_input(
         skill_archives=skill_archives,
         file_mounts=file_mounts,
         file_refs=file_refs,
+        # Rust-parity fields
+        provider=engine_kind,
+        setup_commands=setup_commands,
+        allowed_tools=allowed_tools,
+        disallowed_tools=disallowed_tools,
+        max_turns=max_turns,
     )
 
 

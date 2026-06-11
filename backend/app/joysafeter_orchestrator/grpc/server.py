@@ -176,6 +176,11 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             bridge.runner_stream = context
             bridge.runner_connected.set()
             bridge.runner_capabilities = set(ready.capabilities) if ready.capabilities else set()
+            if ready.available_providers:
+                logger.info(
+                    "Runner %s connected with providers: %s",
+                    sandbox_id, list(ready.available_providers),
+                )
 
             # Register Redis owner (Rust: redis.register_sandbox_owner)
             from app.joysafeter_orchestrator.lifespan import get_redis_coordinator as _get_rc_init

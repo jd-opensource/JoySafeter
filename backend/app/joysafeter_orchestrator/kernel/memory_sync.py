@@ -12,6 +12,7 @@ class MemorySessionEntry:
     session_id: uuid.UUID
     sandbox_db_id: uuid.UUID
     mount_name: str
+    mount_path: str = ""  # Rust parity: filesystem mount path
 
 
 class MemoryStoreSubscribers:
@@ -31,7 +32,21 @@ class MemoryStoreSubscribers:
         async with self._lock:
             if store_id not in self._inner:
                 self._inner[store_id] = []
+            # Deduplicate by (session_id, sandbox_db_id) — matches Rust
+            for existing in self._inner[store_id]:
+                if existing.session_id == entry.session_id and existing.sandbox_db_id == entry.sandbox_db_id:
+                    return
             self._inner[store_id].append(entry)
+
+    async def unregister(self, session_id: uuid.UUID, sandbox_db_id: uuid.UUID) -> None:
+        """Remove by both session AND sandbox — matches Rust."""
+        async with self._lock:
+            for entries in self._inner.values():
+                entries[:] = [
+                    e for e in entries
+                    if not (e.session_id == session_id and e.sandbox_db_id == sandbox_db_id)
+                ]
+            self._inner = {k: v for k, v in self._inner.items() if v}
 
     async def unregister_session(self, session_id: uuid.UUID) -> None:
         async with self._lock:
@@ -64,6 +79,57 @@ class MemoryStoreSubscribers:
         """Notify peer sessions that a memory file changed."""
         peers = await self.get_peers(store_id, source_session_id)
         return await self._push_memory_update(store_id, peers, change_type, path)
+
+    async def notify_peers_direct(
+        self,
+        store_mount_name: str,
+        relative_path: str,
+        content: bytes,
+        operation: str,
+        sender_sandbox_id: uuid.UUID,
+    ) -> int:
+        """Notify peer sandboxes — matches Rust (excludes by sandbox_id, caller provides content)."""
+        from app.joysafeter_orchestrator.lifespan import get_bridge_registry
+        from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
+
+        registry = get_bridge_registry()
+        if not registry:
+            return 0
+
+        notified = 0
+        async with self._lock:
+            for _store_id, entries in self._inner.items():
+                for entry in entries:
+                    if entry.sandbox_db_id == sender_sandbox_id:
+                        continue
+                    if entry.mount_name != store_mount_name:
+                        continue
+                    bridge = await registry.get(entry.sandbox_db_id)
+                    if not bridge:
+                        continue
+                    try:
+                        msg = joysafeter_pb2.OrchestratorMessage(
+                            memory_update=joysafeter_pb2.MemoryFileUpdate(
+                                store_mount_name=store_mount_name,
+                                relative_path=relative_path,
+                                content=content,
+                                operation=operation,
+                            )
+                        )
+                        await bridge.send_to_runner(msg)
+                        notified += 1
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to push MemoryFileUpdate to sandbox %s: %s",
+                            entry.sandbox_db_id, e,
+                        )
+
+        if notified:
+            logger.info(
+                "Pushed memory %s to %d peers (mount=%s, path=%s)",
+                operation, notified, store_mount_name, relative_path,
+            )
+        return notified
 
     async def notify_all(
         self,
