@@ -31,7 +31,7 @@ class ProjectInvitationStatus(str, PyEnum):
 class ProjectInvitation(BaseModel):
     """Project invitation."""
 
-    __tablename__ = "project_invitation"
+    __tablename__ = "joysafeter_project_invitations"
 
     project_id: Mapped[str] = mapped_column(
         String(255),
@@ -64,18 +64,18 @@ class ProjectInvitation(BaseModel):
     # index optimization: speed up invitation queries
     __table_args__: Tuple = (
         # look up pending invitations by email + status
-        Index("project_invitation_email_status_idx", "email", "status"),
+        Index("ix_joysafeter_project_invitations_email_status", "email", "status"),
         # look up expired invitations
-        Index("project_invitation_expires_at_idx", "expires_at"),
+        Index("ix_joysafeter_project_invitations_expires_at", "expires_at"),
         # look up all invitations for a project
-        Index("project_invitation_project_id_idx", "project_id"),
+        Index("ix_joysafeter_project_invitations_project_id", "project_id"),
     )
 
 
 class Permission(BaseModel):
     """Permission table (user permissions on entities)."""
 
-    __tablename__ = "permissions"
+    __tablename__ = "joysafeter_permissions"
 
     user_id: Mapped[str] = mapped_column(
         String(255),
@@ -92,10 +92,10 @@ class Permission(BaseModel):
     user: Mapped["AuthUser"] = relationship("AuthUser", lazy="selectin")
 
     __table_args__ = (
-        Index("permissions_user_id_idx", "user_id"),
-        Index("permissions_entity_idx", "entity_type", "entity_id"),
-        Index("permissions_user_entity_type_idx", "user_id", "entity_type"),
-        Index("permissions_user_entity_permission_idx", "user_id", "entity_type", "permission_type"),
-        Index("permissions_user_entity_idx", "user_id", "entity_type", "entity_id"),
-        UniqueConstraint("user_id", "entity_type", "entity_id", name="permissions_unique_constraint"),
+        Index("ix_joysafeter_permissions_user_id", "user_id"),
+        Index("ix_joysafeter_permissions_entity", "entity_type", "entity_id"),
+        Index("ix_joysafeter_permissions_user_entity_type", "user_id", "entity_type"),
+        Index("ix_joysafeter_permissions_user_entity_permission", "user_id", "entity_type", "permission_type"),
+        Index("ix_joysafeter_permissions_user_entity", "user_id", "entity_type", "entity_id"),
+        UniqueConstraint("user_id", "entity_type", "entity_id", name="uq_joysafeter_permissions_user_entity"),
     )
