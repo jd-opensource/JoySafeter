@@ -148,10 +148,10 @@ export function useCopilotWebSocketHandler({
         if (!refs.isMountedRef.current) return
         refs.isCreatingSessionRef.current = false
         if (graphId) {
-          const { versionId, workspaceId } = useGraphStore.getState()
-          if (versionId && workspaceId) {
+          const { versionId, projectId } = useGraphStore.getState()
+          if (versionId && projectId) {
             queryClient.invalidateQueries({
-              queryKey: versionKeys.graphState(graphId, versionId, workspaceId),
+              queryKey: versionKeys.graphState(graphId, versionId, projectId),
             })
           }
         }

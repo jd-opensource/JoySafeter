@@ -13,7 +13,7 @@ on:
 
 jobs:
   # =============================================================================
-  # Main application images (backend, frontend, openclaw)
+  # Main application images (backend, frontend)
   # Build only (no push) — release.yml handles publishing versioned images
   # =============================================================================
   build:
@@ -29,10 +29,6 @@ jobs:
           - name: joysafeter-frontend
             context: ./frontend
             dockerfile: ./deploy/docker/frontend.Dockerfile
-          - name: joysafeter-openclaw
-            context: ./deploy/openclaw
-            dockerfile: ./deploy/openclaw/Dockerfile
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

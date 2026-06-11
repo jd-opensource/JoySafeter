@@ -19,7 +19,7 @@ import { useToast } from '@/hooks/use-toast'
 import { useModels } from '@/hooks/queries/models'
 import { useBuiltinTools } from '@/hooks/queries/tools'
 import { useTranslation } from '@/lib/i18n'
-import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
+import { useUserPermissionsContext } from '@/providers/permissions-provider'
 import { cn } from '@/lib/utils'
 
 import { nodeRegistry, type FieldSchema } from '../services/nodeRegistry'

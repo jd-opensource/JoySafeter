@@ -29,7 +29,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/e2e_helpers.sh"
 
-BASE_URL="${1:-${CONDUCTOR_URL:-http://localhost:8080}}"
+BASE_URL="${1:-${JOYSAFETER_URL:-http://localhost:8080}}"
 SECRET_REF="${2:-$(engine_default_secret)}"
 ENV_REF="${3:-unrestricted_env}"
 
@@ -121,7 +121,7 @@ echo ""
 
 HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' "$API/health/live" 2>/dev/null || echo "000")
 if [ "$HTTP_CODE" = "200" ]; then
-    pass "Conductor reachable (HTTP $HTTP_CODE)"
+    pass "JoySafeter reachable (HTTP $HTTP_CODE)"
 else
     fail "Cannot reach $API/health/live (HTTP $HTTP_CODE)"
     exit 1

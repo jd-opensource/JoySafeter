@@ -7,14 +7,14 @@ import { RecentTasks } from '@/components/dashboard/recent-tasks'
 import { useAgents } from '@/hooks/queries/agents'
 import { useTasks } from '@/hooks/queries/tasks'
 import { useTranslation } from '@/lib/i18n'
-import { useCurrentWorkspace } from '@/providers/workspace-provider'
+import { useProjectContext } from '@/hooks/managed/use-project-context'
 
 export default function DashboardPage() {
   const { t } = useTranslation()
-  const { workspaceId } = useCurrentWorkspace()
+  const { projectId } = useProjectContext()
 
-  const { data: agents = [], isLoading: agentsLoading } = useAgents(workspaceId)
-  const { data: tasks = [], isLoading: tasksLoading } = useTasks(workspaceId)
+  const { data: agents = [], isLoading: agentsLoading } = useAgents(projectId)
+  const { data: tasks = [], isLoading: tasksLoading } = useTasks(projectId)
 
   if (agentsLoading || tasksLoading) return null
 
@@ -32,16 +32,16 @@ export default function DashboardPage() {
         {/* Top: NeedsAttention (1/3) + RecentTasks (2/3) */}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div className="lg:col-span-1">
-            <NeedsAttention workspaceId={workspaceId} tasks={tasks} />
+            <NeedsAttention projectId={projectId} tasks={tasks} />
           </div>
           <div className="lg:col-span-2">
-            <RecentTasks workspaceId={workspaceId} tasks={tasks} />
+            <RecentTasks projectId={projectId} tasks={tasks} />
           </div>
         </div>
 
         {/* Bottom: ActiveAgents full-width */}
         <div className="mt-4">
-          <ActiveAgents workspaceId={workspaceId} agents={agents} tasks={tasks} />
+          <ActiveAgents projectId={projectId} agents={agents} tasks={tasks} />
         </div>
       </div>
     </div>

@@ -10,14 +10,14 @@ export default {
   ],
   theme: {
     fontSize: {
-      '2xs': ['9px', { lineHeight: '12px' }],
-      xs: ['11px', { lineHeight: '16px' }],
-      sm: ['12px', { lineHeight: '18px' }],
-      base: ['14px', { lineHeight: '20px' }],
-      lg: ['16px', { lineHeight: '24px' }],
-      xl: ['20px', { lineHeight: '28px' }],
-      '2xl': ['24px', { lineHeight: '32px' }],
-      '3xl': ['30px', { lineHeight: '38px' }],
+      '2xs': ['0.625rem', { lineHeight: '0.75rem' }],
+      xs: ['0.75rem', { lineHeight: '1rem' }],
+      sm: ['0.875rem', { lineHeight: '1.25rem' }],
+      base: ['1rem', { lineHeight: '1.5rem' }],
+      lg: ['1.125rem', { lineHeight: '1.75rem' }],
+      xl: ['1.25rem', { lineHeight: '1.75rem' }],
+      '2xl': ['1.5rem', { lineHeight: '2rem' }],
+      '3xl': ['1.875rem', { lineHeight: '2.25rem' }],
     },
     extend: {
       fontFamily: {

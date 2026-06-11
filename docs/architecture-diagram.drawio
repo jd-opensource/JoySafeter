@@ -23,12 +23,11 @@
     <mxCell id="skill-ui" value="&lt;b&gt;Skill Library&lt;/b&gt;&lt;br/&gt;Creator / Editor&lt;br/&gt;Discover" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="540" y="110" width="140" height="65" as="geometry" /></mxCell>
     <mxCell id="run-ui" value="&lt;b&gt;Run Center&lt;/b&gt;&lt;br/&gt;History / Replay&lt;br/&gt;Event Stream" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="700" y="110" width="140" height="65" as="geometry" /></mxCell>
     <mxCell id="settings-ui" value="&lt;b&gt;Settings&lt;/b&gt;&lt;br/&gt;Models / MCP&lt;br/&gt;Profile / Org" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="860" y="110" width="140" height="65" as="geometry" /></mxCell>
-    <mxCell id="openclaw-ui" value="&lt;b&gt;OpenClaw&lt;/b&gt;&lt;br/&gt;Device Mgmt&lt;br/&gt;Dashboard" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="1020" y="110" width="140" height="65" as="geometry" /></mxCell>
     <mxCell id="memory-ui" value="&lt;b&gt;Memory &amp;amp; Tools&lt;/b&gt;&lt;br/&gt;Fact/Procedure&lt;br/&gt;Tool Manager" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="1180" y="110" width="140" height="65" as="geometry" /></mxCell>
     <mxCell id="auth-ui" value="&lt;b&gt;Auth Pages&lt;/b&gt;&lt;br/&gt;Login / Register&lt;br/&gt;OAuth / Verify" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=11;arcSize=12;" vertex="1" parent="1"><mxGeometry x="1340" y="110" width="140" height="65" as="geometry" /></mxCell>
 
     <!-- Frontend infra -->
-    <mxCell id="ws-clients" value="&lt;b&gt;WebSocket Clients (BaseWsClient)&lt;/b&gt;&lt;br/&gt;ExecutionWsClient · NotificationWsClient · OpenClawWsClient" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;fontSize=11;arcSize=8;" vertex="1" parent="1"><mxGeometry x="60" y="195" width="400" height="55" as="geometry" /></mxCell>
+    <mxCell id="ws-clients" value="&lt;b&gt;WebSocket Clients (BaseWsClient)&lt;/b&gt;&lt;br/&gt;ExecutionWsClient · NotificationWsClient" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;fontSize=11;arcSize=8;" vertex="1" parent="1"><mxGeometry x="60" y="195" width="400" height="55" as="geometry" /></mxCell>
     <mxCell id="state-mgmt" value="&lt;b&gt;State Management&lt;/b&gt;&lt;br/&gt;Zustand Stores · TanStack Query · React Context" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;fontSize=11;arcSize=8;" vertex="1" parent="1"><mxGeometry x="480" y="195" width="350" height="55" as="geometry" /></mxCell>
     <mxCell id="api-client" value="&lt;b&gt;API / Service Layer&lt;/b&gt;&lt;br/&gt;api-client.ts · REST services · i18next" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;fontSize=11;arcSize=8;" vertex="1" parent="1"><mxGeometry x="850" y="195" width="350" height="55" as="geometry" /></mxCell>
     <mxCell id="nextjs-mw" value="&lt;b&gt;Next.js Middleware&lt;/b&gt;&lt;br/&gt;CSP · Auth Guard · Redirect" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;fontSize=11;arcSize=8;" vertex="1" parent="1"><mxGeometry x="1220" y="195" width="300" height="55" as="geometry" /></mxCell>
@@ -62,10 +61,8 @@
       <mxGeometry x="990" y="283" width="100" height="20" as="geometry" />
     </mxCell>
 
-    <mxCell id="ws-arrow-openclaw" value="" style="endArrow=classic;startArrow=classic;curved=1;strokeColor=#9c27b0;strokeWidth=2;exitX=0.92;exitY=1;entryX=0.92;entryY=0;" edge="1" parent="1" source="client-group" target="backend-group">
       <mxGeometry relative="1" as="geometry" />
     </mxCell>
-    <mxCell id="ws-arrow-openclaw-label" value="WS /ws/openclaw/*" style="text;fontSize=10;fontStyle=1;fontColor=#9c27b0;fillColor=none;strokeColor=none;" vertex="1" parent="1">
       <mxGeometry x="1310" y="283" width="120" height="20" as="geometry" />
     </mxCell>
 
@@ -89,7 +86,6 @@
     <mxCell id="run-ws-handler" value="&lt;b&gt;ExecutionWsHandler&lt;/b&gt;&lt;br/&gt;snapshot / replay / live" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="260" y="375" width="175" height="45" as="geometry" /></mxCell>
     <mxCell id="notif-handler" value="&lt;b&gt;NotificationManager&lt;/b&gt;&lt;br/&gt;push / heartbeat" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="450" y="375" width="160" height="45" as="geometry" /></mxCell>
     <mxCell id="rest-routes" value="&lt;b&gt;REST API v1&lt;/b&gt;&lt;br/&gt;33+ Routers" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="625" y="375" width="450" height="45" as="geometry" /></mxCell>
-    <mxCell id="openclaw-bridge" value="&lt;b&gt;OpenClaw Bridge&lt;/b&gt;&lt;br/&gt;WS Proxy" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="1090" y="375" width="130" height="45" as="geometry" /></mxCell>
     <mxCell id="security-layer" value="&lt;b&gt;Security / Middleware&lt;/b&gt;&lt;br/&gt;JWT · RBAC · Rate Limit · CSRF" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffebee;strokeColor=#c62828;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="1235" y="375" width="290" height="45" as="geometry" /></mxCell>
 
     <!-- Service Layer -->
@@ -130,7 +126,7 @@
     <mxCell id="copilot-engine" value="&lt;b&gt;Copilot Engine&lt;/b&gt;&lt;br/&gt;Graph Tools · Parser&lt;br/&gt;Validator · Applier" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#f57f17;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="1330" y="572" width="145" height="55" as="geometry" /></mxCell>
 
     <!-- Repository Layer -->
-    <mxCell id="repo-layer" value="&lt;b&gt;Repository Layer&lt;/b&gt; — SQLAlchemy ORM · 30+ models (AuthUser, Agent, AgentVersion, AgentRelease, AgentRun, Execution, ExecutionEvent, Memory, McpServer, ModelProvider, OpenClawInstance, ...)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#efebe9;strokeColor=#5d4037;fontSize=10;arcSize=8;" vertex="1" parent="1"><mxGeometry x="60" y="678" width="1480" height="40" as="geometry" /></mxCell>
+    <mxCell id="repo-layer" value="&lt;b&gt;Repository Layer&lt;/b&gt; — SQLAlchemy ORM · 30+ models (AuthUser, Agent, AgentVersion, AgentRelease, AgentRun, Execution, ExecutionEvent, Memory, McpServer, ModelProvider, ...)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#efebe9;strokeColor=#5d4037;fontSize=10;arcSize=8;" vertex="1" parent="1"><mxGeometry x="60" y="678" width="1480" height="40" as="geometry" /></mxCell>
 
     <!-- Alembic Migrations -->
     <mxCell id="alembic" value="&lt;b&gt;Alembic Migrations&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#efebe9;strokeColor=#5d4037;fontSize=10;arcSize=8;" vertex="1" parent="1"><mxGeometry x="60" y="730" width="150" height="30" as="geometry" /></mxCell>
@@ -147,7 +143,6 @@
     <mxCell id="redis" value="&lt;b&gt;Redis 7&lt;/b&gt;&lt;br/&gt;Cache · Rate Limit&lt;br/&gt;Distributed Locks&lt;br/&gt;Refresh Tokens" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=10;arcSize=10;size=12;" vertex="1" parent="1"><mxGeometry x="260" y="895" width="150" height="100" as="geometry" /></mxCell>
 
     <mxCell id="mcp-server" value="&lt;b&gt;MCP Server Container&lt;/b&gt;&lt;br/&gt;Ports 8001–8010&lt;br/&gt;Scanner · JEB · Demo Tools&lt;br/&gt;Shared backend-files volume" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#7b1fa2;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="450" y="900" width="200" height="80" as="geometry" /></mxCell>
-    <mxCell id="openclaw-container" value="&lt;b&gt;OpenClaw Containers&lt;/b&gt;&lt;br/&gt;Per-user Docker instances&lt;br/&gt;Ports 19001–19999&lt;br/&gt;Security Analysis Env" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#7b1fa2;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="680" y="900" width="200" height="80" as="geometry" /></mxCell>
     <mxCell id="docker-sandbox" value="&lt;b&gt;Docker Sandboxes&lt;/b&gt;&lt;br/&gt;Agent Code Execution&lt;br/&gt;/workspace/skills/ mount&lt;br/&gt;Filesystem isolation" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#7b1fa2;fontSize=10;arcSize=10;" vertex="1" parent="1"><mxGeometry x="910" y="900" width="200" height="80" as="geometry" /></mxCell>
 
     <!-- ========== EXTERNAL SERVICES ========== -->
@@ -184,7 +179,6 @@
       <mxGeometry x="520" y="848" width="80" height="15" as="geometry" />
     </mxCell>
 
-    <mxCell id="be-to-openclaw" value="" style="endArrow=classic;startArrow=classic;curved=1;strokeColor=#7b1fa2;strokeWidth=1.5;exitX=0.55;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="backend-group" target="openclaw-container">
       <mxGeometry relative="1" as="geometry" />
     </mxCell>
     <mxCell id="docker-label" value="Docker SDK" style="text;fontSize=9;fontColor=#7b1fa2;fillColor=none;strokeColor=none;" vertex="1" parent="1">

@@ -28,8 +28,8 @@ import { useAgent, useUpdateAgent } from '@/hooks/queries/agents'
 import { useReleaseHistory, useRollbackAgent, useRetireRelease } from '@/hooks/queries/agentPublish'
 import { useVersion } from '@/hooks/queries/agentVersions'
 import { useTranslation } from '@/lib/i18n'
-import { useCurrentWorkspace } from '@/providers/workspace-provider'
-import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
+import { useProjectContext } from '@/hooks/managed/use-project-context'
+import { useUserPermissionsContext } from '@/providers/permissions-provider'
 import { canRetire, canRollback } from '@/types/agent-release'
 
 interface AgentSettingsTabProps {
@@ -39,21 +39,21 @@ interface AgentSettingsTabProps {
 export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
   const { t } = useTranslation()
 
-  const { workspaceId } = useCurrentWorkspace()
+  const { projectId } = useProjectContext()
   const { canEdit, canAdmin } = useUserPermissionsContext()
 
-  const { data: agent } = useAgent(agentId, workspaceId)
+  const { data: agent } = useAgent(agentId, projectId)
   const updateAgent = useUpdateAgent()
 
   const draftVersionId = agent?.current_draft_version_id || ''
-  const { data: draftVersion } = useVersion(agentId, draftVersionId, workspaceId, {
+  const { data: draftVersion } = useVersion(agentId, draftVersionId, projectId, {
     enabled: Boolean(draftVersionId),
   })
 
   const isPublished = Boolean(agent?.active_release_id)
   const { data: releases = [], isLoading: releasesLoading } = useReleaseHistory(
     agentId,
-    workspaceId,
+    projectId,
     {
       enabled: isPublished,
     },
@@ -81,7 +81,6 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
     try {
       await updateAgent.mutateAsync({
         agentId,
-        workspaceId,
         name: name.trim() || agent.name,
         description: description.trim() || undefined,
         avatar: avatar.trim() || undefined,
@@ -97,7 +96,6 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
     langgraph_code: t('agents.code.label'),
     claude_code: t('agents.claudeCode.label'),
     codex: t('agents.codex.label'),
-    openclaw: t('agents.openclaw.label'),
   }
 
   return (
@@ -269,7 +267,7 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
                               rollbackAgent.mutate({
                                 agentId,
                                 releaseId: rel.id,
-                                workspaceId,
+                                projectId,
                               })
                             }
                             disabled={rollbackAgent.isPending}
@@ -293,7 +291,7 @@ export function AgentSettingsTab({ agentId }: AgentSettingsTabProps) {
                                   retireRelease.mutate({
                                     agentId,
                                     releaseId: rel.id,
-                                    workspaceId,
+                                    projectId,
                                   })
                                 }
                                 className="text-destructive"

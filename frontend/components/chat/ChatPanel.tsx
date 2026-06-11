@@ -15,7 +15,7 @@ import { useTranslation } from '@/lib/i18n'
 
 interface ChatPanelProps {
   agentId: string
-  workspaceId: string
+  projectId: string
   threadId?: string
   onThreadChange?: (id: string) => void
   showThreadSidebar?: boolean
@@ -24,32 +24,31 @@ interface ChatPanelProps {
 
 export function ChatPanel({
   agentId,
-  workspaceId,
+  projectId,
   threadId,
   onThreadChange,
   showThreadSidebar = true,
   className,
 }: ChatPanelProps) {
   const { t } = useTranslation()
-  const { data: threads = [], isLoading: threadsLoading } = useThreads(agentId, workspaceId)
+  const { data: threads = [], isLoading: threadsLoading } = useThreads(agentId, projectId)
   const createThread = useCreateThread()
 
   const { data: eventsData, isLoading: eventsLoading } = useThreadEvents(
     threadId || '',
-    workspaceId,
+    projectId,
     { enabled: Boolean(threadId) },
   )
 
-  const { send, isSending, executionId } = useChatSend(threadId || '', workspaceId)
-  const { isExecuting } = useChatStream(executionId, threadId || '', workspaceId)
+  const { send, isSending, executionId } = useChatSend(threadId || '', projectId)
+  const { isExecuting } = useChatStream(executionId, threadId || '', projectId)
 
   const handleCreateThread = useCallback(async () => {
     const thread = await createThread.mutateAsync({
       agent_id: agentId,
-      workspace_id: workspaceId,
     })
     onThreadChange?.(thread.id)
-  }, [agentId, workspaceId, createThread, onThreadChange])
+  }, [agentId, createThread, onThreadChange])
 
   const handleSend = useCallback(
     (message: string, files: File[]) => {

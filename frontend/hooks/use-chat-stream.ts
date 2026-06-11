@@ -8,7 +8,7 @@ import { threadEventKeys } from './use-thread-events'
 import { TERMINAL_EXECUTION_STATUSES } from '@/types/agent-run'
 import type { ThreadEvent } from '@/types/thread'
 
-export function useChatStream(executionId: string | null, threadId: string, workspaceId: string) {
+export function useChatStream(executionId: string | null, threadId: string, projectId: string) {
   const queryClient = useQueryClient()
   const { events, status } = useExecutionStream({
     executionId: executionId || '',
@@ -26,7 +26,7 @@ export function useChatStream(executionId: string | null, threadId: string, work
     lastSeenSeqRef.current = Math.max(...newEvents.map((e) => e.seq))
 
     queryClient.setQueryData(
-      threadEventKeys.events(threadId, workspaceId),
+      threadEventKeys.events(threadId, projectId),
       (old: { events: ThreadEvent[]; total: number } | undefined) => {
         const existing = old?.events ?? []
         const mapped: ThreadEvent[] = newEvents.map((e) => ({
@@ -45,7 +45,7 @@ export function useChatStream(executionId: string | null, threadId: string, work
         }
       },
     )
-  }, [events, executionId, threadId, workspaceId, status, queryClient])
+  }, [events, executionId, threadId, projectId, status, queryClient])
 
   const prevStatusRef = useRef<string | null>(null)
   useEffect(() => {
@@ -60,11 +60,11 @@ export function useChatStream(executionId: string | null, threadId: string, work
       lastSeenSeqRef.current = -1
       setTimeout(() => {
         queryClient.invalidateQueries({
-          queryKey: threadEventKeys.events(threadId, workspaceId),
+          queryKey: threadEventKeys.events(threadId, projectId),
         })
       }, 500)
     }
-  }, [status, threadId, workspaceId, queryClient])
+  }, [status, threadId, projectId, queryClient])
 
   const isExecuting = Boolean(
     executionId && status && !TERMINAL_EXECUTION_STATUSES.includes(status as never),

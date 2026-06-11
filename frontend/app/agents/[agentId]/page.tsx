@@ -10,7 +10,7 @@ import { AgentSettingsTab } from '@/components/agents/agent-settings-tab'
 import { ChatPanel } from '@/components/chat/ChatPanel'
 import { useAgent } from '@/hooks/queries/agents'
 import { useVersion } from '@/hooks/queries/agentVersions'
-import { useCurrentWorkspace } from '@/providers/workspace-provider'
+import { useProjectContext } from '@/hooks/managed/use-project-context'
 
 export default function AgentDetailPage() {
   const params = useParams()
@@ -19,22 +19,22 @@ export default function AgentDetailPage() {
   const agentId = params.agentId as string
   const tab = searchParams.get('tab')
   const threadId = searchParams.get('thread') || undefined
-  const { workspaceId } = useCurrentWorkspace()
+  const { projectId } = useProjectContext()
 
-  const { data: agent, isLoading: isAgentLoading } = useAgent(agentId, workspaceId)
+  const { data: agent, isLoading: isAgentLoading } = useAgent(agentId, projectId)
   const draftVersionId = agent?.current_draft_version_id || ''
   const { data: version, isLoading: isVersionLoading } = useVersion(
     agentId,
     draftVersionId,
-    workspaceId,
-    { enabled: Boolean(agent && draftVersionId && workspaceId) },
+    projectId,
+    { enabled: Boolean(agent && draftVersionId && projectId) },
   )
 
   if (tab === 'chat') {
     return (
       <ChatPanel
         agentId={agentId}
-        workspaceId={workspaceId}
+        projectId={projectId}
         threadId={threadId}
         onThreadChange={(id) => {
           router.push(`/agents/${agentId}?tab=chat&thread=${id}`)

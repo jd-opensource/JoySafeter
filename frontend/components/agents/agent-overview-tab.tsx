@@ -20,7 +20,7 @@ import { useVersion } from '@/hooks/queries/agentVersions'
 import { useThreads } from '@/hooks/queries/threads'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import { useCurrentWorkspace } from '@/providers/workspace-provider'
+import { useProjectContext } from '@/hooks/managed/use-project-context'
 import { formatRelativeTime } from '@/lib/utils/dateHelpers'
 import type { AgentRunStatus } from '@/types/agent-run'
 import { RUN_STATUS_STYLES } from '@/types/agent-run'
@@ -32,29 +32,29 @@ interface AgentOverviewTabProps {
 
 export function AgentOverviewTab({ agentId }: AgentOverviewTabProps) {
   const { t } = useTranslation()
-  const { workspaceId } = useCurrentWorkspace()
+  const { projectId } = useProjectContext()
 
-  const { data: agent } = useAgent(agentId, workspaceId)
+  const { data: agent } = useAgent(agentId, projectId)
   const draftVersionId = agent?.current_draft_version_id || ''
-  const { data: draftVersion } = useVersion(agentId, draftVersionId, workspaceId, {
+  const { data: draftVersion } = useVersion(agentId, draftVersionId, projectId, {
     enabled: Boolean(draftVersionId),
   })
   const isGraphAgent = hasBuilderSupport(draftVersion?.engine_kind)
 
-  const { data: releases = [] } = useReleases(agentId, workspaceId, {
-    enabled: Boolean(workspaceId),
+  const { data: releases = [] } = useReleases(agentId, projectId, {
+    enabled: Boolean(projectId),
   })
   const releaseIds = new Set(releases.map((r) => r.id))
 
   const { data: allRuns = [] } = useAgentRuns(
-    { workspace_id: workspaceId },
-    { enabled: Boolean(workspaceId) },
+    {},
+    { enabled: Boolean(projectId) },
   )
   const recentRuns = allRuns
     .filter((run) => run.release_id && releaseIds.has(run.release_id))
     .slice(0, 5)
 
-  const { data: threads = [] } = useThreads(agentId, workspaceId)
+  const { data: threads = [] } = useThreads(agentId, projectId)
   const recentThreads = threads.slice(0, 5)
 
   // Merge runs and threads into a single recent activity list, sorted by time

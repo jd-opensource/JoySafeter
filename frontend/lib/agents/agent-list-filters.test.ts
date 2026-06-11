@@ -11,7 +11,7 @@ import {
 function makeAgent(overrides: Partial<Agent>): Agent {
   return {
     id: overrides.id ?? 'agent-1',
-    workspace_id: 'workspace-1',
+    project_id: 'project-1',
     name: 'Agent',
     slug: 'agent',
     description: null,
@@ -37,7 +37,6 @@ describe('agent list filters', () => {
       'langgraph_code',
       'claude_code',
       'codex',
-      'openclaw',
     ])
   })
 

@@ -4,7 +4,7 @@ export type ActivityType = 'comment' | 'status_change' | 'progress_update' | 'sy
 export interface TaskActivity {
   id: string
   task_id: string
-  workspace_id: string
+  project_id?: string
   author_type: ActivityAuthorType
   author_id: string
   content: string

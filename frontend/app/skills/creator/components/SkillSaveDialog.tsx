@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { API_BASE, createApiError } from '@/lib/api-client'
+import { useTranslation } from '@/lib/i18n'
 import { toastSuccess, toastError, getErrorMessage } from '@/lib/utils/toast'
 import { getFilenameFromPath } from '@/services/skillService'
 
@@ -44,6 +45,7 @@ export default function SkillSaveDialog({
   editSkillId,
   onSaved,
 }: SkillSaveDialogProps) {
+  const { t } = useTranslation()
   const [name, setName] = useState(previewData?.skill_name || '')
   const [description, setDescription] = useState('')
   const [isSaving, setIsSaving] = useState(false)
@@ -101,7 +103,7 @@ export default function SkillSaveDialog({
         const errText = await resp.text()
         throw createApiError(resp.status, resp.statusText, {
           code: 'SKILL_SAVE_FAILED',
-          message: errText || 'Failed to save skill',
+          message: errText || t('skills.save.failed'),
           data: { skill_id: editSkillId ?? null, name: name.trim() },
         })
       }
@@ -109,16 +111,16 @@ export default function SkillSaveDialog({
       const result = await resp.json()
       const skillId = result?.data?.id || result?.id || editSkillId || ''
 
-      toastSuccess(editSkillId ? 'Skill updated successfully' : 'Skill saved to library')
+      toastSuccess(editSkillId ? t('skills.save.updated') : t('skills.save.saved'))
       onOpenChange(false)
       onSaved?.(skillId)
     } catch (err: unknown) {
       console.error('Failed to save skill:', err)
-      toastError(getErrorMessage(err, 'Failed to save skill'))
+      toastError(getErrorMessage(err, t('skills.save.failed')))
     } finally {
       setIsSaving(false)
     }
-  }, [previewData, name, description, editSkillId, onOpenChange, onSaved])
+  }, [previewData, name, description, editSkillId, onOpenChange, onSaved, t])
 
   const validation = previewData?.validation
   const hasErrors = !!(validation && !validation.valid)

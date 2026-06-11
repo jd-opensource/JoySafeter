@@ -1,10 +1,11 @@
 'use client'
 
-import { AlertCircle } from 'lucide-react'
 import React, { Component, ErrorInfo, ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { AppErrorStateView } from '@/components/shared/app-error-state'
 import { ApiError } from '@/lib/api-client'
+import { i18n } from '@/lib/i18n'
 
 interface Props {
   children: ReactNode
@@ -55,31 +56,28 @@ export class CopilotErrorBoundary extends Component<Props, State> {
         return this.props.fallback
       }
 
-      const errorMessage = this.state.error?.message || 'An unexpected error occurred'
       const errorCode = this.state.error instanceof ApiError ? this.state.error.code : undefined
       const isNetworkError = errorCode === 'NETWORK_ERROR' || errorCode === 'REQUEST_TIMEOUT'
       const isWebSocketError =
         errorCode === 'WEBSOCKET_CONNECTION_FAILED' || errorCode === 'WEBSOCKET_UNAVAILABLE'
+      const t = i18n.t.bind(i18n)
+      const description = isNetworkError
+        ? t('common.networkConnectionError')
+        : isWebSocketError
+          ? t('common.realtimeConnectionError')
+          : t('common.pageErrorDescription')
 
       return (
-        <div className="flex min-h-[200px] flex-col items-center justify-center p-8 text-center">
-          <AlertCircle className="mb-4 h-12 w-12 text-[var(--status-error)]" />
-          <h3 className="mb-2 text-lg font-semibold text-[var(--text-primary)]">
-            Something went wrong
-          </h3>
-          <p className="mb-4 max-w-md text-sm text-[var(--text-secondary)]">
-            {isNetworkError
-              ? 'Network connection error. Please check your internet connection and try again.'
-              : isWebSocketError
-                ? 'Connection error. Please refresh the page and try again.'
-                : errorMessage}
-          </p>
+        <div>
+          <AppErrorStateView
+            title={t('common.pageErrorTitle')}
+            description={description}
+            onRetry={this.handleReset}
+            retryLabel={t('common.retry')}
+          />
           <div className="flex gap-2">
-            <Button onClick={this.handleReset} variant="outline" size="sm">
-              Try Again
-            </Button>
             <Button onClick={() => window.location.reload()} variant="default" size="sm">
-              Refresh Page
+              {t('common.refreshPage')}
             </Button>
           </div>
           {process.env.NODE_ENV === 'development' && this.state.errorInfo && (

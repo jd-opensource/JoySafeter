@@ -10,17 +10,17 @@ import type { Task } from '@/types/tasks'
 import type { AgentRun } from '@/types/agent-run'
 
 interface NeedsAttentionProps {
-  workspaceId: string
+  projectId: string
   tasks: Task[]
 }
 
-export function NeedsAttention({ workspaceId, tasks }: NeedsAttentionProps) {
+export function NeedsAttention({ projectId, tasks }: NeedsAttentionProps) {
   const { t } = useTranslation()
   const router = useRouter()
 
   const { data: runs = [] } = useAgentRuns(
-    { workspace_id: workspaceId },
-    { enabled: Boolean(workspaceId) },
+    {},
+    { enabled: Boolean(projectId) },
   )
 
   const reviewTasks = tasks.filter((task: Task) => task.status === 'in_review')

@@ -65,10 +65,10 @@ export function useCopilotActions({
       const storeGraphId = storeState.graphId
       const storeAgentId = storeState.agentId
       const storeVersionId = storeState.versionId
-      const storeWorkspaceId = storeState.workspaceId
+      const storeProjectId = storeState.projectId
 
-      if (!storeGraphId || !storeAgentId || !storeVersionId || !storeWorkspaceId) {
-        console.error('[CopilotPanel] Missing graph, agent, version, or workspace in store')
+      if (!storeGraphId || !storeAgentId || !storeVersionId || !storeProjectId) {
+        console.error('[CopilotPanel] Missing graph, agent, version, or project in store')
         if (refs.isMountedRef.current) {
           actions.setLoading(false)
           actions.finalizeCurrentMessage(
@@ -85,7 +85,7 @@ export function useCopilotActions({
         const { run_id, execution_id } = await draftCopilotService.dispatchRun({
           agentId: storeAgentId,
           versionId: storeVersionId,
-          workspaceId: storeWorkspaceId,
+          projectId: storeProjectId,
           prompt: userText,
           graphContext,
           conversationHistory: state.messages,

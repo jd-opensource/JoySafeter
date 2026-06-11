@@ -1,6 +1,6 @@
 export interface Task {
   id: string
-  workspace_id: string
+  project_id?: string
   title: string
   description?: string | null
   goal?: string | null
@@ -26,7 +26,6 @@ export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'don
 export type TaskPriority = 'none' | 'low' | 'medium' | 'high' | 'urgent'
 
 export interface CreateTaskRequest {
-  workspace_id: string
   title: string
   description?: string
   goal?: string

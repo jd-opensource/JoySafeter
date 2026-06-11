@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 import { useTranslation } from '@/lib/i18n'
-import { useCurrentWorkspace } from '@/providers/workspace-provider'
+import { useProjectContext } from '@/hooks/managed/use-project-context'
 import type { Agent, AgentVersion } from '@/types/agent'
 
 import {
@@ -26,7 +26,7 @@ export function AgentBuildShell({ agent, version }: AgentBuildShellProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const surface = useBuilderSurface()
-  const { workspaceId } = useCurrentWorkspace()
+  const { projectId } = useProjectContext()
   const activeStageId = (() => {
     const urlStage = searchParams.get('stage')
     if (urlStage && isBuildStageId(urlStage)) return urlStage
@@ -55,7 +55,7 @@ export function AgentBuildShell({ agent, version }: AgentBuildShellProps) {
   const stageProps = {
     agent,
     version,
-    workspaceId,
+    projectId: projectId,
     navigateToStage,
   }
 

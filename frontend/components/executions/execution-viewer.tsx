@@ -36,7 +36,7 @@ const STATUS_CONFIG: Record<string, { icon: React.ElementType; label: string; co
 
 interface ExecutionViewerProps {
   executionId: string
-  workspaceId: string
+  projectId: string
   compact?: boolean
   isLive?: boolean
   showArtifacts?: boolean
@@ -48,7 +48,7 @@ interface ExecutionViewerProps {
 
 export function ExecutionViewer({
   executionId,
-  workspaceId,
+  projectId,
   compact,
   isLive = true,
   showArtifacts = true,

@@ -37,12 +37,12 @@ const PRIORITY_KEYS: { value: TaskPriority; key: string }[] = [
 ]
 
 interface TaskCreateDialogProps {
-  workspaceId: string
+  projectId: string
   defaultAgentId?: string
   trigger: React.ReactNode
 }
 
-export function TaskCreateDialog({ workspaceId, defaultAgentId, trigger }: TaskCreateDialogProps) {
+export function TaskCreateDialog({ projectId, defaultAgentId, trigger }: TaskCreateDialogProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
@@ -53,7 +53,7 @@ export function TaskCreateDialog({ workspaceId, defaultAgentId, trigger }: TaskC
   const [tagsInput, setTagsInput] = useState('')
   const [autoApprove, setAutoApprove] = useState(false)
 
-  const { data: agents = [] } = useAgents(workspaceId)
+  const { data: agents = [] } = useAgents(projectId)
   const createTask = useCreateTask()
   const assignTask = useAssignTask()
 
@@ -78,7 +78,6 @@ export function TaskCreateDialog({ workspaceId, defaultAgentId, trigger }: TaskC
 
     try {
       const task = await createTask.mutateAsync({
-        workspace_id: workspaceId,
         title: title.trim(),
         description: description.trim() || undefined,
         goal: goal.trim() || undefined,
@@ -91,7 +90,6 @@ export function TaskCreateDialog({ workspaceId, defaultAgentId, trigger }: TaskC
         try {
           await assignTask.mutateAsync({
             taskId: task.id,
-            workspaceId,
             agentId: agentId,
           })
         } catch {

@@ -41,13 +41,13 @@ function renderContentWithMentions(content: string) {
 
 interface ActivityThreadProps {
   taskId: string
-  workspaceId: string
+  projectId: string
 }
 
-export function ActivityThread({ taskId, workspaceId }: ActivityThreadProps) {
+export function ActivityThread({ taskId, projectId }: ActivityThreadProps) {
   const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useTaskActivities(
     taskId,
-    workspaceId,
+    projectId,
   )
 
   const createActivity = useCreateTaskActivity()
@@ -56,8 +56,8 @@ export function ActivityThread({ taskId, workspaceId }: ActivityThreadProps) {
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mentionStart, setMentionStart] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
-  const { data: agents = [] } = useAgents(workspaceId, { enabled: Boolean(workspaceId) })
-  const agentNameMap = useAgentNameMap(workspaceId)
+  const { data: agents = [] } = useAgents(projectId, { enabled: Boolean(projectId) })
+  const agentNameMap = useAgentNameMap(projectId)
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const isAtBottomRef = useRef(true)
@@ -107,7 +107,7 @@ export function ActivityThread({ taskId, workspaceId }: ActivityThreadProps) {
     createActivity.mutate(
       {
         taskId,
-        workspaceId,
+        projectId,
         content: trimmed,
         parent_activity_id: replyTo ?? undefined,
       },

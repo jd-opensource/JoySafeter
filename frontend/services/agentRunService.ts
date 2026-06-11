@@ -13,7 +13,6 @@ import type {
 
 export const agentRunService = {
   list: async (params: {
-    workspace_id?: string
     release_id?: string
     task_id?: string
     agent_id?: string
@@ -22,7 +21,6 @@ export const agentRunService = {
     status?: string
   }): Promise<AgentRun[]> => {
     const searchParams = new URLSearchParams()
-    if (params.workspace_id) searchParams.set('workspace_id', params.workspace_id)
     if (params.release_id) searchParams.set('release_id', params.release_id)
     if (params.task_id) searchParams.set('task_id', params.task_id)
     if (params.agent_id) searchParams.set('agent_id', params.agent_id)

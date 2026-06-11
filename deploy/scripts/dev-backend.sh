@@ -114,7 +114,7 @@ main() {
     log_step "启动后端 (uvicorn --reload, port $backend_port)..."
     log_info "按 Ctrl+C 停止"
     echo ""
-    uv run uvicorn app.main:app --reload --host 0.0.0.0 --port "$backend_port"
+    uv run uvicorn app.joysafeter_api.main:app --reload --host 0.0.0.0 --port "$backend_port"
 }
 
 main "$@"

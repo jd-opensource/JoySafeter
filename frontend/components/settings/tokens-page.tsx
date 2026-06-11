@@ -10,7 +10,7 @@ import { TokenList } from '@/components/tokens/TokenList'
 import { usePlatformTokens, useCreateToken } from '@/hooks/queries/platformTokens'
 import type { PlatformTokenCreateResponse } from '@/hooks/queries/platformTokens'
 import { useTranslation } from '@/lib/i18n'
-import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
+import { useUserPermissionsContext } from '@/providers/permissions-provider'
 
 import { CreateTokenDialog } from './create-token-dialog'
 import { TokenCreatedDialog } from './token-created-dialog'

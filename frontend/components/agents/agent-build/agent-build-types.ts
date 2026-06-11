@@ -6,7 +6,7 @@ export type BuildStageId = 'brief' | 'build' | 'test-lab' | 'release' | 'usage'
 export interface StageProps {
   agent: Agent
   version: AgentVersion | null
-  workspaceId: string
+  projectId: string
   navigateToStage: (stageId: BuildStageId) => void
 }
 

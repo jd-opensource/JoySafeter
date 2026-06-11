@@ -12,7 +12,7 @@
  * During this time, React Query won't refetch the data.
  */
 export const STALE_TIME = {
-  // Short-lived data (30 seconds) - for frequently changing data like graphs, workspaces
+  // Short-lived data (30 seconds) - for frequently changing data like graphs, projects
   SHORT: 30 * 1000,
 
   // Standard cache (1 minute) - most queries use this

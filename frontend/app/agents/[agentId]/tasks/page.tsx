@@ -12,8 +12,8 @@ import { Button } from '@/components/ui/button'
 import { useAgentNameMap } from '@/hooks/queries/agents'
 import { useTasks } from '@/hooks/queries/tasks'
 import { cn } from '@/lib/utils'
-import { useCurrentWorkspace } from '@/providers/workspace-provider'
-import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
+import { useProjectContext } from '@/hooks/managed/use-project-context'
+import { useUserPermissionsContext } from '@/providers/permissions-provider'
 
 type ViewMode = 'board' | 'list'
 
@@ -38,15 +38,15 @@ export default function AgentTasksPage() {
     [searchParams, router, agentId],
   )
 
-  const { workspaceId, isLoading: isWorkspacesLoading } = useCurrentWorkspace()
+  const { projectId, isLoading: isWorkspacesLoading } = useProjectContext()
   const { canEdit } = useUserPermissionsContext()
 
   const { data: allTasks = [], isLoading: isTasksLoading } = useTasks(
-    workspaceId,
-    // Use server-side agent_id filter when workspaceId is ready
-    workspaceId ? { agent_id: agentId } : undefined,
+    projectId,
+    // Use server-side agent_id filter when projectId is ready
+    projectId ? { agent_id: agentId } : undefined,
   )
-  const agentsMap = useAgentNameMap(workspaceId)
+  const agentsMap = useAgentNameMap(projectId)
 
   // Tasks are already filtered server-side by agent_id.
   const tasks = allTasks.filter((t) => t.agent_id === agentId)
@@ -94,9 +94,9 @@ export default function AgentTasksPage() {
               </button>
             </div>
 
-            {workspaceId && canEdit && (
+            {projectId && canEdit && (
               <TaskCreateDialog
-                workspaceId={workspaceId}
+                projectId={projectId}
                 trigger={
                   <Button size="sm">
                     <Plus className="h-4 w-4" />
@@ -117,7 +117,7 @@ export default function AgentTasksPage() {
         ) : viewMode === 'board' ? (
           <TaskBoard
             tasks={tasks}
-            workspaceId={workspaceId}
+            projectId={projectId}
             agentsMap={agentsMap}
             onSelectTask={setSelectedTaskId}
           />
@@ -126,10 +126,10 @@ export default function AgentTasksPage() {
         )}
       </div>
 
-      {selectedTaskId && workspaceId && (
+      {selectedTaskId && projectId && (
         <TaskDetailPanel
           taskId={selectedTaskId}
-          workspaceId={workspaceId}
+          projectId={projectId}
           onClose={() => setSelectedTaskId(null)}
         />
       )}

@@ -2,7 +2,7 @@
 
 import { useParams } from 'next/navigation'
 
-import { useCurrentWorkspace } from '@/providers/workspace-provider'
+import { useProjectContext } from '@/hooks/managed/use-project-context'
 
 import AgentBuilder from './AgentBuilder'
 
@@ -11,12 +11,12 @@ import AgentBuilder from './AgentBuilder'
  *
  * Main page for viewing and editing agent configuration
  *
- * Route: /workspace/[workspaceId]/[agentId]
+ * Route: /managed/[projectId]/[agentId]
  */
 export default function AgentPage() {
   const params = useParams()
   const agentId = params.agentId as string
-  const { workspaceId } = useCurrentWorkspace()
+  const { projectId } = useProjectContext()
 
-  return <AgentBuilder key={agentId} agentId={agentId} workspaceId={workspaceId} />
+  return <AgentBuilder key={agentId} agentId={agentId} projectId={projectId} />
 }

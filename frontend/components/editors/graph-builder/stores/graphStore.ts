@@ -52,7 +52,7 @@ interface GraphState {
   // Identity fields
   agentId: string | null
   versionId: string | null
-  workspaceId: string | null
+  projectId: string | null
   graphId: string | null
   graphName: string | null
 
@@ -80,7 +80,7 @@ interface GraphState {
   takeSnapshot: () => void
 
   // Identity setters
-  setWorkspaceId: (workspaceId: string) => void
+  setProjectId: (projectId: string) => void
   setGraphId: (graphId: string | null) => void
   setGraphName: (graphName: string | null) => void
 
@@ -143,7 +143,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   future: [],
   agentId: null,
   versionId: null,
-  workspaceId: null,
+  projectId: null,
   graphId: null,
   graphName: null,
   graphStateFields: [],
@@ -251,7 +251,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     triggerAutoSave()
   },
 
-  setWorkspaceId: (workspaceId) => set({ workspaceId }),
+  setProjectId: (projectId) => set({ projectId }),
   setGraphId: (graphId) => set({ graphId }),
   setGraphName: (graphName) => set({ graphName }),
   setNodes: (nodes) => set({ nodes }),

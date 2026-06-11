@@ -5,7 +5,7 @@ import { DebugPanel } from '@/components/observation/components/DebugPanel'
 import { useTranslation } from '@/lib/i18n'
 import type { StageProps } from '@/components/agents/agent-build/agent-build-types'
 
-export function VisualTestLabStage({ agent, version, workspaceId, navigateToStage }: StageProps) {
+export function VisualTestLabStage({ agent, version, projectId, navigateToStage }: StageProps) {
   const { t } = useTranslation()
   const agentId = agent.id
   const versionId = version?.id ?? ''
@@ -47,7 +47,7 @@ export function VisualTestLabStage({ agent, version, workspaceId, navigateToStag
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden">
-        <DebugPanel agentId={agentId} agentVersionId={versionId} workspaceId={workspaceId} />
+        <DebugPanel agentId={agentId} agentVersionId={versionId} projectId={projectId} />
       </div>
     </div>
   )

@@ -20,7 +20,7 @@ export interface GraphState {
   graphName: string | null
   agentId?: string | null
   versionId?: string | null
-  workspaceId?: string | null
+  projectId?: string | null
   nodes: Node[]
   edges: Edge[]
   viewport?: { x: number; y: number; zoom: number }
@@ -47,7 +47,7 @@ export class SaveManager {
   async save(source: SaveSource): Promise<void> {
     const state = this.getState()
 
-    if (!state.agentId || !state.versionId || !state.workspaceId) return
+    if (!state.agentId || !state.versionId || !state.projectId) return
 
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       this.callbacks.onSaveError('offline')
@@ -66,7 +66,7 @@ export class SaveManager {
       const result = await visualDefinitionAdapter.save(
         state.agentId,
         state.versionId,
-        state.workspaceId,
+        state.projectId,
         {
           nodes: state.nodes,
           edges: deduplicatedEdges,
@@ -118,7 +118,7 @@ export class SaveManager {
       const delay = Math.pow(2, this.saveRetryCount) * 1000
       setTimeout(() => {
         const s = this.getState()
-        if (s.agentId && s.versionId && s.workspaceId) this.save(source)
+        if (s.agentId && s.versionId && s.projectId) this.save(source)
       }, delay)
       this.saveRetryCount++
       this.callbacks.onSaveError(errorMessage)

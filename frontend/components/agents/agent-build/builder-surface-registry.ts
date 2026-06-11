@@ -19,7 +19,6 @@ const ENGINE_TO_SURFACE: Record<EngineKind, BuilderSurfaceKind> = {
   langgraph_code: 'code',
   claude_code: 'cli',
   codex: 'cli',
-  openclaw: 'cli',
 }
 
 export function resolveBuilderSurface(engineKind: string | null | undefined): BuilderSurface {

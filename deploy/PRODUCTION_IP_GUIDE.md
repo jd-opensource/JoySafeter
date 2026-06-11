@@ -273,22 +273,6 @@ CORS_ORIGINS=["http://<前端IP>:3000"]
 
 ---
 
-## OpenClaw 生产部署注意事项
-
-后端通过 Docker API 为每个登录用户动态创建独立的 OpenClaw 容器，因此：
-
-- **Docker Socket 挂载**：`docker-compose.yml` 默认挂载了 `/var/run/docker.sock`，这赋予了 backend 容器对宿主机 Docker 的完全控制权。**生产环境应评估此安全风险**，可考虑：
-  - 使用 Docker Socket Proxy（如 [tecnativa/docker-socket-proxy](https://github.com/Tecnativa/docker-socket-proxy)）限制 API 权限
-  - 通过用户权限（非 root 运行 backend）降低攻击面
-- **镜像构建**：OpenClaw base 镜像需要预先构建：
-  ```bash
-  cd deploy
-  docker compose --profile build build openclaw-image
-  ```
-- **资源管控**：大量并发用户可能创建大量容器，建议配置 Docker 资源限制（CPU、内存）并设置合理的容器回收策略。
-
----
-
 ## 常见错误与快速定位
 
 ### 1) 前端能打开，但所有请求 401/跨域失败

@@ -1,0 +1,62 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/joysafeter-runner",
+    "crates/joysafeter-runtime",
+    "crates/joysafeter-ctl",
+    "crates/joysafeter-types",
+]
+
+[workspace.package]
+version = "0.4.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+joysafeter-types = { path = "crates/joysafeter-types" }
+joysafeter-runtime = { path = "crates/joysafeter-runtime" }
+joysafeter-runner = { path = "crates/joysafeter-runner" }
+
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v7", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+async-trait = "0.1"
+dashmap = "6"
+clap = { version = "4", features = ["derive", "env"] }
+
+# gRPC
+tonic = "0.12"
+tonic-build = "0.12"
+prost = "0.13"
+prost-types = "0.13"
+
+# HTTP
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+futures = "0.3"
+hyper-util = { version = "0.1", features = ["tokio"] }
+
+# Docker
+bollard = "0.18"
+
+# Misc
+which = "7"
+tar = "0.4"
+flate2 = "1"
+base64 = "0.22"
+sha2 = "0.10"
+rand = "0.8"
+toml = "0.8"
+tower = "0.5"
+fuser = { version = "0.15", default-features = false }
+libc = "0.2"
+unicode-normalization = "0.1"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+axum = { version = "0.8", features = ["ws"] }

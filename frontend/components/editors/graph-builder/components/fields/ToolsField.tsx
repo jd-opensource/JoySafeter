@@ -31,7 +31,7 @@ export function ToolsField({ value, onChange }: ToolsFieldProps) {
   // Use React Query hook for builtin tools (with caching and request deduplication)
   const { data: builtinToolsData = [], isLoading: isLoadingBuiltin } = useBuiltinTools()
 
-  // MCP tools are loaded without workspace scoping (use global/default scope)
+  // MCP tools are loaded without project scoping (use global/default scope)
   const { mcpTools: availableMcp, isLoading: isLoadingMcp } = useMcpTools()
 
   const typedValue = value as ToolsValue | undefined

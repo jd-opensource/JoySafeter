@@ -15,7 +15,7 @@ PASSED=0
 FAILED=0
 WARNINGS=0
 
-API="${CONDUCTOR_URL:-http://localhost:8080}/v1"
+API="${JOYSAFETER_URL:-http://localhost:8080}/v1"
 
 # Engine-kind support: set ENGINE_KIND=codex to test with codex engine
 ENGINE_KIND="${ENGINE_KIND:-claude}"

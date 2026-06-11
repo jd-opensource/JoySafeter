@@ -8,7 +8,7 @@ import { apiUpload } from '@/lib/api-client'
 import { threadEventKeys } from './use-thread-events'
 import type { ChatAttachment, ThreadEvent } from '@/types/thread'
 
-export function useChatSend(threadId: string, workspaceId: string) {
+export function useChatSend(threadId: string, projectId: string) {
   const queryClient = useQueryClient()
   const [isSending, setIsSending] = useState(false)
   const [executionId, setExecutionId] = useState<string | null>(null)
@@ -48,21 +48,21 @@ export function useChatSend(threadId: string, workspaceId: string) {
           created_at: new Date().toISOString(),
         }
         queryClient.setQueryData(
-          threadEventKeys.events(threadId, workspaceId),
+          threadEventKeys.events(threadId, projectId),
           (old: { events: ThreadEvent[]; total: number } | undefined) => ({
             events: [...(old?.events ?? []), optimisticEvent],
             total: (old?.total ?? 0) + 1,
           }),
         )
 
-        const res = await threadService.sendChat(threadId, workspaceId, message, attachments)
+        const res = await threadService.sendChat(threadId, message, attachments)
         setExecutionId(res.execution_id)
         return res
       } finally {
         setIsSending(false)
       }
     },
-    [threadId, workspaceId, isSending, queryClient],
+    [threadId, projectId, isSending, queryClient],
   )
 
   return { send, isSending, executionId }

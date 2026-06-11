@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ------------------------------------------------------------------
-# E2E concurrency test for Conductor (with real LLM inference)
+# E2E concurrency test for JoySafeter (with real LLM inference)
 #
 # Phases:
 #   0. Health check
@@ -23,7 +23,7 @@ set -euo pipefail
 # ------------------------------------------------------------------
 
 CONCURRENCY="${1:-3}"
-BASE="${2:-${CONDUCTOR_URL:-http://localhost:8080}}"
+BASE="${2:-${JOYSAFETER_URL:-http://localhost:8080}}"
 SECRET_REF="${3:-}"
 ENV_REF="${4:-unrestricted_env}"
 
@@ -76,7 +76,7 @@ calc_stats() {
 }
 
 echo -e "${BOLD}============================================${NC}"
-echo -e "${BOLD} Conductor E2E Concurrency Test${NC}"
+echo -e "${BOLD} JoySafeter E2E Concurrency Test${NC}"
 echo -e "   Concurrency:  ${CONCURRENCY}"
 echo -e "   Target:       ${BASE}"
 echo -e "   Engine:       ${ENGINE_KIND}"
@@ -91,7 +91,7 @@ echo -e "${BOLD}============================================${NC}"
 header "0" "Health check"
 HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' "${BASE}/v1/health/live" 2>/dev/null || echo "000")
 if [ "$HTTP_CODE" = "200" ]; then
-  ok "Conductor is reachable (HTTP $HTTP_CODE)"
+  ok "JoySafeter is reachable (HTTP $HTTP_CODE)"
 else
   fail "Cannot reach ${BASE}/v1/health/live (HTTP $HTTP_CODE)"
   exit 1
@@ -533,7 +533,7 @@ elif [ "${TASK_OK:-0}" -eq 0 ]; then
   echo -e "  ${YELLOW}${BOLD}WARN${NC} — no tasks were submitted."
   exit 1
 else
-  echo -e "  ${YELLOW}${BOLD}WARN${NC} — ${F_completed:-0}/${TASK_OK:-0} completed. Check conductor logs."
+  echo -e "  ${YELLOW}${BOLD}WARN${NC} — ${F_completed:-0}/${TASK_OK:-0} completed. Check JoySafeter logs."
   if [ "${F_failed:-0}" -gt 0 ]; then
     echo ""; echo "  Sample failures (first 3):"; SHOWN=0
     for tid in "${TASK_IDS[@]}"; do

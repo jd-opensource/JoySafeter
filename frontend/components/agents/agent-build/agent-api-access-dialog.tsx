@@ -37,7 +37,7 @@ interface AgentApiAccessDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   agentId: string
-  workspaceId: string
+  projectId: string
   endpointKind?: 'graph'
   tokenResourceType?: NonNullable<TokenListParams['resourceType']>
   executeScope?: string
@@ -48,7 +48,7 @@ export function AgentApiAccessDialog({
   open,
   onOpenChange,
   agentId,
-  workspaceId,
+  projectId,
   endpointKind = 'graph',
   tokenResourceType = 'graph',
   executeScope = 'graphs:execute',
@@ -65,7 +65,7 @@ export function AgentApiAccessDialog({
 
   const { data: tokens = [] } = usePlatformTokens({
     resourceType: tokenResourceType,
-    resourceId: workspaceId,
+    resourceId: projectId,
   })
   const createMutation = useCreateToken()
 
@@ -83,7 +83,7 @@ export function AgentApiAccessDialog({
         name: tokenName.trim(),
         scopes: [tokenScope],
         resource_type: tokenResourceType,
-        resource_id: workspaceId,
+        resource_id: projectId,
       })
       setCreatedToken(result)
       toast({ title: t('settings.tokens.createdSuccess') })
@@ -300,7 +300,7 @@ export function AgentApiAccessDialog({
               <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 shadow-sm">
                 <TokenList
                   resourceType={tokenResourceType}
-                  resourceId={workspaceId}
+                  resourceId={projectId}
                   header={tokenHeader}
                 />
               </div>

@@ -25,17 +25,17 @@ import {
   type AgentListRuntimeFilter,
 } from '@/lib/agents/agent-list-filters'
 import { useTranslation } from '@/lib/i18n'
-import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
-import { useCurrentWorkspace } from '@/providers/workspace-provider'
+import { useUserPermissionsContext } from '@/providers/permissions-provider'
+import { useProjectContext } from '@/hooks/managed/use-project-context'
 import type { Agent, CreateAgentRequest } from '@/types/agent'
 
 export default function AgentsPage() {
   const { t } = useTranslation()
   const router = useRouter()
-  const { workspaceId } = useCurrentWorkspace()
+  const { projectId } = useProjectContext()
   const { canEdit } = useUserPermissionsContext()
 
-  const { data: agents = [], isLoading } = useAgents(workspaceId)
+  const { data: agents = [], isLoading } = useAgents(projectId)
   const createMutation = useCreateAgent()
   const deleteMutation = useDeleteAgent()
 
@@ -51,10 +51,7 @@ export default function AgentsPage() {
 
   async function handleSubmit(data: CreateAgentRequest) {
     try {
-      const newAgent = await createMutation.mutateAsync({
-        ...data,
-        workspace_id: workspaceId,
-      })
+      const newAgent = await createMutation.mutateAsync(data)
       setDialogOpen(false)
       router.push(`/agents/${newAgent.id}?stage=brief`)
     } catch {
@@ -69,7 +66,7 @@ export default function AgentsPage() {
   function confirmDelete() {
     if (!deletingAgent) return
     deleteMutation.mutate(
-      { agentId: deletingAgent.id, workspaceId },
+      { agentId: deletingAgent.id },
       { onSettled: () => setDeletingAgent(null) },
     )
   }

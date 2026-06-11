@@ -8,7 +8,7 @@ import { useVersionGraphState } from '@/hooks/queries/agentVersions'
 import { useAgent } from '@/hooks/queries/agents'
 import { useTranslation } from '@/lib/i18n'
 import { computeGraphStateHash } from '@/lib/utils/graphStateHash'
-import { useCurrentWorkspace } from '@/providers/workspace-provider'
+import { useProjectContext } from '@/hooks/managed/use-project-context'
 
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -39,45 +39,45 @@ const isValidUUID = (str: string): boolean => {
 interface AgentBuilderProps {
   agentId: string
   versionId?: string
-  workspaceId: string
+  projectId: string
 }
 
 function AgentBuilderInit({
   agentId: agentIdProp,
   versionId: versionIdProp,
-  workspaceId: workspaceIdProp,
+  projectId: projectIdProp,
 }: AgentBuilderProps) {
   const { t } = useTranslation()
-  const { workspaceId: currentWorkspaceId } = useCurrentWorkspace()
+  const { projectId: currentProjectId } = useProjectContext()
   const queryClient = useQueryClient()
   setSaveStoreQueryClient(queryClient)
 
-  const workspaceId = workspaceIdProp || currentWorkspaceId
+  const projectId = projectIdProp || currentProjectId
   const agentId = agentIdProp && isValidUUID(agentIdProp) ? agentIdProp : null
 
-  const { isInitializing, rfInstance, loadGraph, setWorkspaceId, setGraphId, setGraphName } =
+  const { isInitializing, rfInstance, loadGraph, setProjectId, setGraphId, setGraphName } =
     useGraphStore()
 
   const { startAutoSave, stopAutoSave } = useSaveStore()
 
   const { setCurrentGraphId } = useExecutionStore()
 
-  const { data: agentData } = useAgent(agentId ?? '', workspaceId, {
-    enabled: Boolean(agentId && workspaceId),
+  const { data: agentData } = useAgent(agentId ?? '', projectId, {
+    enabled: Boolean(agentId && projectId),
   })
   const { data: graphStateData, isSuccess: isGraphStateLoaded } = useVersionGraphState(
     agentId ?? undefined,
     versionIdProp,
-    workspaceId || undefined,
-    { refetchOnMount: 'always', enabled: Boolean(versionIdProp && agentId && workspaceId) },
+    projectId || undefined,
+    { refetchOnMount: 'always', enabled: Boolean(versionIdProp && agentId && projectId) },
   )
 
-  // Sync workspaceId into the store
+  // Sync projectId into the store
   useEffect(() => {
-    if (workspaceId) {
-      setWorkspaceId(workspaceId)
+    if (projectId) {
+      setProjectId(projectId)
     }
-  }, [workspaceId, setWorkspaceId])
+  }, [projectId, setProjectId])
 
   // Sync agentId + versionId props into the store
   useEffect(() => {
@@ -135,17 +135,17 @@ function AgentBuilderInit({
   // Handle beforeunload (beacon save)
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      const { nodes, edges, rfInstance, graphId, versionId, workspaceId } = useGraphStore.getState()
+      const { nodes, edges, rfInstance, graphId, versionId, projectId } = useGraphStore.getState()
       const { hasPendingChanges } = useSaveStore.getState()
 
       if (!graphId || graphId !== agentId || !isValidUUID(graphId)) {
         return
       }
 
-      if (hasPendingChanges && versionId && workspaceId) {
+      if (hasPendingChanges && versionId && projectId) {
         try {
           const viewport = rfInstance?.getViewport() || { x: 0, y: 0, zoom: 1 }
-          visualDefinitionAdapter.sendBeaconSave(graphId, versionId, workspaceId, {
+          visualDefinitionAdapter.sendBeaconSave(graphId, versionId, projectId, {
             nodes,
             edges,
             viewport,
@@ -208,7 +208,7 @@ function AgentBuilderInit({
           loadedVars.code_content ?? '',
           agentName ?? '',
           versionIdProp ?? null,
-          workspaceId || null,
+          projectId || null,
         )
       loadedGraphIdRef.current = agentId
       useGraphStore.setState({ isInitializing: false })
@@ -310,7 +310,7 @@ function AgentBuilderInit({
 
   // Code mode: render CodeEditorPage instead of canvas
   if (graphStateData?.engineKind === 'langgraph_code' && agentId && !isInitializing) {
-    return <CodeEditorPage graphId={agentId} workspaceId={workspaceId} />
+    return <CodeEditorPage graphId={agentId} projectId={projectId} />
   }
 
   // Loading overlay

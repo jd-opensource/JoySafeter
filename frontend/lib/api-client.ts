@@ -24,6 +24,7 @@
 import { env as runtimeEnv } from 'next-runtime-env'
 
 import { getCsrfToken } from '@/lib/auth/csrf'
+import { useProjectStore } from '@/stores/managed/project-store'
 import type { ErrorSource, UserAction } from '@/types/agent-run'
 
 // ==================== Configuration ====================
@@ -38,11 +39,12 @@ export const API_BASE_URL = `${getBaseUrl()}/api`
 export const API_VERSION = 'v1'
 /** Complete API base path */
 export const API_BASE = `${API_BASE_URL}/${API_VERSION}`
+/** Managed JoySafeter API base path */
+export const MANAGED_API_BASE = `${API_BASE_URL}/v2`
 
 /** Common endpoint constants (simplify path concatenation) */
 export const API_ENDPOINTS = {
   auth: 'auth',
-  workspaces: 'workspaces',
   agents: 'agents',
   chat: 'chat',
   environments: 'environments',
@@ -113,10 +115,17 @@ async function extractErrorFromResponse(response: Response): Promise<ApiError> {
   try {
     const text = await response.text()
     const errorData = JSON.parse(text)
-    payload =
-      errorData && typeof errorData === 'object' && 'code' in errorData && 'message' in errorData
-        ? (errorData as ApiErrorPayload)
-        : undefined
+    if (errorData && typeof errorData === 'object' && 'code' in errorData && 'message' in errorData) {
+      payload = errorData as ApiErrorPayload
+    } else if (errorData && typeof errorData === 'object' && 'detail' in errorData) {
+      const detail = typeof errorData.detail === 'string' ? errorData.detail : response.statusText
+      payload = {
+        code: response.status > 0 ? `HTTP_${response.status}` : 'UNKNOWN_ERROR',
+        message: detail || response.statusText || `API Error: ${response.status}`,
+        detail,
+        data: null,
+      }
+    }
   } catch {
     /* not JSON or empty body */
   }
@@ -132,6 +141,8 @@ export interface ApiRequestOptions extends Omit<RequestInit, 'body'> {
   json?: boolean
   /** Timeout in milliseconds (default 30000) */
   timeout?: number
+  /** Skip persisted managed org/project headers for auth bootstrap requests */
+  skipManagedContext?: boolean
 }
 
 // ==================== Internal Utilities ====================
@@ -162,7 +173,11 @@ async function parseResponse<T>(response: Response): Promise<T> {
       throw createApiError(response.status, response.statusText, json as ApiErrorPayload)
     }
 
-    if (json && typeof json === 'object' && 'data' in json) {
+    if (json && typeof json === 'object' && 'data' in json && 'success' in json) {
+      // Paginated response: keep has_more/first_id/last_id alongside data
+      if ('has_more' in json) {
+        return { data: json.data, has_more: json.has_more, first_id: json.first_id, last_id: json.last_id } as T
+      }
       return json.data
     }
 
@@ -247,10 +262,12 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
     body,
     json = true,
     timeout = 30000,
+    skipManagedContext,
     headers: customHeaders,
     method = 'GET',
     ...restOptions
   } = options
+  void skipManagedContext
 
   const headers: Record<string, string> = {
     ...(json ? { 'Content-Type': 'application/json' } : {}),
@@ -261,6 +278,10 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
     const csrfToken = getCsrfToken()
     if (csrfToken) {
       headers['X-CSRF-Token'] = csrfToken
+    }
+    const projectId = useProjectStore.getState().currentProjectId
+    if (projectId && !headers['X-Project-Id']) {
+      headers['X-Project-Id'] = projectId
     }
   }
 
@@ -432,6 +453,85 @@ export async function apiStream(
   }
 
   return makeRequest()
+}
+
+// ==================== Managed JoySafeter API Methods ====================
+
+function buildManagedUrl(path: string): string {
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return path
+  }
+  return `${MANAGED_API_BASE}/${path.replace(/^\/+/, '')}`
+}
+
+function getManagedHeaders(
+  customHeaders?: Record<string, string>,
+  skipManagedContext = false,
+): Record<string, string> {
+  const { currentProjectId, currentOrgId } = useProjectStore.getState()
+  const headers: Record<string, string> = { ...customHeaders }
+  if (skipManagedContext) {
+    return headers
+  }
+  if (currentOrgId) {
+    headers['X-Org-Id'] = currentOrgId
+  }
+  if (currentProjectId) {
+    headers['X-Project-Id'] = currentProjectId
+  }
+  return headers
+}
+
+export function managedGet<T>(
+  url: string,
+  options?: Omit<ApiRequestOptions, 'method' | 'body'>,
+): Promise<T> {
+  const headers = getManagedHeaders(options?.headers as Record<string, string>, options?.skipManagedContext)
+  return apiFetch<T>(buildManagedUrl(url), { ...options, headers, method: 'GET' })
+}
+
+export function managedPost<T>(
+  url: string,
+  body?: unknown,
+  options?: Omit<ApiRequestOptions, 'method' | 'body'>,
+): Promise<T> {
+  const headers = getManagedHeaders(options?.headers as Record<string, string>, options?.skipManagedContext)
+  return apiFetch<T>(buildManagedUrl(url), { ...options, headers, method: 'POST', body })
+}
+
+export function managedPut<T>(
+  url: string,
+  body?: unknown,
+  options?: Omit<ApiRequestOptions, 'method' | 'body'>,
+): Promise<T> {
+  const headers = getManagedHeaders(options?.headers as Record<string, string>, options?.skipManagedContext)
+  return apiFetch<T>(buildManagedUrl(url), { ...options, headers, method: 'PUT', body })
+}
+
+export function managedDelete<T>(
+  url: string,
+  options?: Omit<ApiRequestOptions, 'method' | 'body'>,
+): Promise<T> {
+  const headers = getManagedHeaders(options?.headers as Record<string, string>, options?.skipManagedContext)
+  return apiFetch<T>(buildManagedUrl(url), { ...options, headers, method: 'DELETE' })
+}
+
+export function managedPatch<T>(
+  url: string,
+  body?: unknown,
+  options?: Omit<ApiRequestOptions, 'method' | 'body'>,
+): Promise<T> {
+  const headers = getManagedHeaders(options?.headers as Record<string, string>, options?.skipManagedContext)
+  return apiFetch<T>(buildManagedUrl(url), { ...options, headers, method: 'PATCH', body })
+}
+
+export function managedUpload<T>(
+  url: string,
+  file: File | FormData,
+  options?: Omit<ApiRequestOptions, 'method' | 'body' | 'json'>,
+): Promise<T> {
+  const headers = getManagedHeaders(options?.headers as Record<string, string>, options?.skipManagedContext)
+  return apiUpload<T>(buildManagedUrl(url), file, { ...options, headers })
 }
 
 // ==================== Default Export ====================

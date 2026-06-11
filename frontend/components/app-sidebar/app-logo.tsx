@@ -24,39 +24,33 @@ export function AppLogo({ isCollapsed = false }: AppLogoProps) {
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
           >
-            <defs>
-              <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="var(--gradient-brand-from)" />
-                <stop offset="100%" stopColor="var(--gradient-brand-to)" />
-              </linearGradient>
-            </defs>
-
-            {/* Central AI symbol - white circle with "A" */}
-            <g transform="translate(12, 12)">
-              <circle r="4.5" fill="white" opacity="0.95" />
-              <path
-                d="M -1.5,-3 L 0,3 L 1.5,-3 M -1,0 L 1,0"
-                stroke="url(#logoGrad)"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
-              />
-            </g>
-
-            {/* Two accent nodes */}
-            <circle cx="6" cy="6" r="2" fill="white" opacity="0.8" />
-            <circle cx="18" cy="18" r="2" fill="white" opacity="0.8" />
-
-            {/* Connection curve */}
+            {/* Molecular/DNA connection structure */}
+            {/* Connection lines */}
             <path
-              d="M 8,6 Q 12,12 16,18"
+              d="M 8,6 L 12,12 L 16,6"
               stroke="white"
-              strokeWidth="1.2"
-              opacity="0.6"
+              strokeWidth="1.4"
+              opacity="0.7"
               fill="none"
               strokeLinecap="round"
+              strokeLinejoin="round"
             />
+            <path
+              d="M 8,18 L 12,12 L 16,18"
+              stroke="white"
+              strokeWidth="1.4"
+              opacity="0.7"
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+
+            {/* Nodes */}
+            <circle cx="12" cy="12" r="3" fill="white" opacity="0.95" />
+            <circle cx="8" cy="6" r="2" fill="white" opacity="0.85" />
+            <circle cx="16" cy="6" r="2" fill="white" opacity="0.85" />
+            <circle cx="8" cy="18" r="2" fill="white" opacity="0.85" />
+            <circle cx="16" cy="18" r="2" fill="white" opacity="0.85" />
           </svg>
         </div>
 

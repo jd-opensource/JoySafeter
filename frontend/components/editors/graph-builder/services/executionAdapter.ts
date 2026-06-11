@@ -4,7 +4,7 @@ import { agentRunService } from '@/services/agentRunService'
 export interface StartRunParams {
   releaseId: string
   prompt: string
-  workspaceId: string
+  projectId: string
   threadId: string
   taskId?: string
 }
@@ -13,7 +13,7 @@ export interface StartDraftRunParams {
   agentId: string
   versionId: string
   prompt: string
-  workspaceId: string
+  projectId: string
   threadId: string
 }
 
@@ -28,7 +28,7 @@ export const executionAdapter = {
     return apiPost<RunResult>('runs', {
       release_id: params.releaseId,
       goal: params.prompt,
-      workspace_id: params.workspaceId,
+      project_id: params.projectId,
       trigger_medium: 'api',
       run_purpose: 'production',
       thread_id: params.threadId,
@@ -41,7 +41,7 @@ export const executionAdapter = {
       agent_id: params.agentId,
       version_id: params.versionId,
       goal: params.prompt,
-      workspace_id: params.workspaceId,
+      project_id: params.projectId,
       thread_id: params.threadId,
     })
   },

@@ -13,24 +13,24 @@ import { STALE_TIME } from './constants'
 
 export const taskActivityKeys = {
   all: ['taskActivities'] as const,
-  list: (taskId: string, workspaceId: string) =>
-    [...taskActivityKeys.all, 'list', taskId, workspaceId] as const,
+  list: (taskId: string, projectId: string) =>
+    [...taskActivityKeys.all, 'list', taskId, projectId] as const,
 }
 
 // ==================== Query Hooks ====================
 
-export function useTaskActivities(taskId: string, workspaceId: string) {
+export function useTaskActivities(taskId: string, projectId: string) {
   return useInfiniteQuery({
-    queryKey: taskActivityKeys.list(taskId, workspaceId),
+    queryKey: taskActivityKeys.list(taskId, projectId),
     queryFn: async ({ pageParam }) => {
-      return taskActivityService.list(taskId, workspaceId, {
+      return taskActivityService.list(taskId, {
         cursor: pageParam ?? undefined,
         limit: 50,
       })
     },
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => (lastPage.has_more ? lastPage.next_cursor : undefined),
-    enabled: Boolean(taskId) && Boolean(workspaceId),
+    enabled: Boolean(taskId) && Boolean(projectId),
     staleTime: STALE_TIME.SHORT,
   })
 }
@@ -43,17 +43,17 @@ export function useCreateTaskActivity() {
   return useMutation({
     mutationFn: async ({
       taskId,
-      workspaceId,
+      projectId,
       ...data
-    }: CreateTaskActivityRequest & { taskId: string; workspaceId: string }) => {
-      return taskActivityService.create(taskId, workspaceId, data)
+    }: CreateTaskActivityRequest & { taskId: string; projectId: string }) => {
+      return taskActivityService.create(taskId, data)
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: taskActivityKeys.list(variables.taskId, variables.workspaceId),
+        queryKey: taskActivityKeys.list(variables.taskId, variables.projectId),
       })
       queryClient.invalidateQueries({
-        queryKey: taskKeys.detail(variables.taskId, variables.workspaceId),
+        queryKey: taskKeys.detail(variables.taskId, variables.projectId),
       })
     },
   })
@@ -66,17 +66,17 @@ export function useDeleteTaskActivity() {
     mutationFn: async ({
       taskId,
       activityId,
-      workspaceId,
+      projectId,
     }: {
       taskId: string
       activityId: string
-      workspaceId: string
+      projectId: string
     }) => {
-      return taskActivityService.delete(taskId, activityId, workspaceId)
+      return taskActivityService.delete(taskId, activityId)
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: taskActivityKeys.list(variables.taskId, variables.workspaceId),
+        queryKey: taskActivityKeys.list(variables.taskId, variables.projectId),
       })
     },
   })

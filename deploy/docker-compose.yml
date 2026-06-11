@@ -98,11 +98,6 @@ services:
       - backend-logs:/app/app/logs
       - backend-files:/app/data/files  # 文件存储 volume（持久化用户上传的文件）
       - ../skills:/app/skills  # 自动加载 Skills
-      # Docker socket 挂载（用于 OpenClaw 容器管理）
-      - /var/run/docker.sock:/var/run/docker.sock
-      # Docker CLI 挂载：macOS Docker Desktop 使用 /usr/local/bin/docker
-      # Linux 通常使用 /usr/bin/docker。如果路径不匹配，后端无法管理 OpenClaw 容器。
-      - ${DOCKER_BIN_PATH:-/usr/bin/docker}:/usr/bin/docker
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/', timeout=5)"]
       interval: 30s
@@ -154,7 +149,6 @@ services:
       - ../frontend/.env
     environment:
       - NEXT_PUBLIC_API_URL=${BACKEND_URL:-http://localhost:8000}
-      - NEXT_PUBLIC_OPENCLAW_ENABLED=${OPENCLAW_ENABLED:-false}
     ports:
       - "${FRONTEND_PORT_HOST:-3000}:3000"
     depends_on:
@@ -212,23 +206,10 @@ services:
   # This service only builds the image; it does not run as a long-lived container.
   # Per-execution containers are dynamically created by CLIContainerService.
   cli-agent-image:
-    image: joysafeter/cli-agent:latest
+    image: joysafeter-claudecode:latest
     build:
       context: ..
       dockerfile: deploy/docker/cli-agent.Dockerfile
-    profiles:
-      - build
-    command: ["echo", "Image built successfully"]
-
-  # OpenClaw base image build service (used by backend to create per-user containers)
-  # This service only builds the image; it does not run as a long-lived container.
-  # Per-user OpenClaw instances are dynamically created by the backend's
-  # OpenClawInstanceService using `docker run`.
-  openclaw-image:
-    image: joysafeter-openclaw:latest
-    build:
-      context: ./openclaw
-      dockerfile: Dockerfile
     profiles:
       - build
     command: ["echo", "Image built successfully"]

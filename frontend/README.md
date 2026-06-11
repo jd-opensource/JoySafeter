@@ -42,7 +42,6 @@ app/
 ├── skills/                       # 技能市场 + 创建器
 ├── tools/                        # 工具管理
 ├── memory/                       # 记忆管理
-├── openclaw/                     # OpenClaw 看板
 └── settings/                     # 模型、成员、沙箱、Token
 ```
 

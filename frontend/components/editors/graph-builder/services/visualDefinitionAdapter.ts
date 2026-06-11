@@ -12,34 +12,34 @@ export interface LoadedVersionGraphState {
 
 const payloadCache = new Map<string, Record<string, unknown>>()
 
-function cacheKey(agentId: string, versionId: string, workspaceId: string): string {
-  return `${workspaceId}:${agentId}:${versionId}`
+function cacheKey(agentId: string, versionId: string, projectId: string): string {
+  return `${projectId}:${agentId}:${versionId}`
 }
 
 function cachePayload(
   agentId: string,
   versionId: string,
-  workspaceId: string,
+  projectId: string,
   payload: Record<string, unknown> | null | undefined,
 ): Record<string, unknown> {
   const definitionPayload = payload ?? {}
-  payloadCache.set(cacheKey(agentId, versionId, workspaceId), definitionPayload)
+  payloadCache.set(cacheKey(agentId, versionId, projectId), definitionPayload)
   return definitionPayload
 }
 
 function getCachedPayload(
   agentId: string,
   versionId: string,
-  workspaceId: string,
+  projectId: string,
 ): Record<string, unknown> {
-  return payloadCache.get(cacheKey(agentId, versionId, workspaceId)) ?? {}
+  return payloadCache.get(cacheKey(agentId, versionId, projectId)) ?? {}
 }
 
 function toGraphState(
   payload: Record<string, unknown> | null | undefined,
   agentId: string,
   versionId: string,
-  workspaceId: string,
+  projectId: string,
 ): GraphState {
   const definitionPayload = payload ?? {}
 
@@ -63,27 +63,27 @@ function toGraphState(
       null,
     agentId,
     versionId,
-    workspaceId,
+    projectId,
   }
 }
 
 export const visualDefinitionAdapter = {
-  async load(agentId: string, versionId: string, workspaceId: string): Promise<GraphState> {
-    const version = await agentVersionService.get(agentId, versionId, workspaceId)
-    const rawPayload = cachePayload(agentId, versionId, workspaceId, version.definition_payload)
-    return toGraphState(rawPayload, agentId, versionId, workspaceId)
+  async load(agentId: string, versionId: string, projectId: string): Promise<GraphState> {
+    const version = await agentVersionService.get(agentId, versionId)
+    const rawPayload = cachePayload(agentId, versionId, projectId, version.definition_payload)
+    return toGraphState(rawPayload, agentId, versionId, projectId)
   },
 
   async loadVersionGraphState(
     agentId: string,
     versionId: string,
-    workspaceId: string,
+    projectId: string,
   ): Promise<LoadedVersionGraphState> {
-    const version = await agentVersionService.get(agentId, versionId, workspaceId)
-    const rawPayload = cachePayload(agentId, versionId, workspaceId, version.definition_payload)
+    const version = await agentVersionService.get(agentId, versionId)
+    const rawPayload = cachePayload(agentId, versionId, projectId, version.definition_payload)
 
     return {
-      graphState: toGraphState(rawPayload, agentId, versionId, workspaceId),
+      graphState: toGraphState(rawPayload, agentId, versionId, projectId),
       engineKind: version.engine_kind,
       versionStatus: version.status,
       rawPayload,
@@ -93,31 +93,31 @@ export const visualDefinitionAdapter = {
   async save(
     agentId: string,
     versionId: string,
-    workspaceId: string,
+    projectId: string,
     graphState: Partial<GraphState>,
   ): Promise<{ versionId: string }> {
-    const current = await agentVersionService.get(agentId, versionId, workspaceId)
+    const current = await agentVersionService.get(agentId, versionId)
     const mergedPayload = {
       ...(current.definition_payload ?? {}),
       ...graphState,
     }
-    cachePayload(agentId, versionId, workspaceId, mergedPayload)
-    const updated = await agentVersionService.update(agentId, versionId, workspaceId, {
+    cachePayload(agentId, versionId, projectId, mergedPayload)
+    const updated = await agentVersionService.update(agentId, versionId, {
       definition_payload: mergedPayload,
     })
-    cachePayload(agentId, updated.id, workspaceId, mergedPayload)
+    cachePayload(agentId, updated.id, projectId, mergedPayload)
     return { versionId: updated.id }
   },
 
   sendBeaconSave(
     agentId: string,
     versionId: string,
-    workspaceId: string,
+    projectId: string,
     graphState: { nodes: unknown[]; edges: unknown[]; viewport?: unknown },
   ): void {
-    const url = `${API_BASE}/agents/${agentId}/versions/${versionId}?workspace_id=${workspaceId}`
+    const url = `${API_BASE}/agents/${agentId}/versions/${versionId}?project_id=${projectId}`
     const mergedPayload = {
-      ...getCachedPayload(agentId, versionId, workspaceId),
+      ...getCachedPayload(agentId, versionId, projectId),
       ...graphState,
     }
     const body = JSON.stringify({ definition_payload: mergedPayload })
@@ -131,10 +131,10 @@ export const visualDefinitionAdapter = {
 
   async createDraft(
     agentId: string,
-    workspaceId: string,
+    projectId: string,
     basePayload?: Record<string, unknown>,
   ): Promise<string> {
-    const version = await agentVersionService.create(agentId, workspaceId, {
+    const version = await agentVersionService.create(agentId, {
       engine_kind: 'langgraph_visual',
       definition_payload: basePayload || {},
     })

@@ -10,7 +10,7 @@ export interface AgentRun {
   id: string
   release_id: string | null
   agent_version_id: string | null
-  workspace_id: string
+  project_id?: string
   thread_id: string
   task_id: string | null
   trigger_medium: TriggerMedium

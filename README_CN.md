@@ -191,7 +191,7 @@
 
 # ─── 镜像管理 ───────────────────────────────────────────
 ./deploy/deploy.sh build                 # 构建前后端镜像
-./deploy/deploy.sh build --all           # 构建所有镜像（含 OpenClaw）
+./deploy/deploy.sh build --all           # 构建所有镜像
 ./deploy/deploy.sh push                  # 构建并推送到仓库
 ./deploy/deploy.sh pull                  # 拉取最新预构建镜像
 ```

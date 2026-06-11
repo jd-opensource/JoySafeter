@@ -34,7 +34,7 @@ function getGraphSnapshot(): SaveManagerGraphState {
   return {
     agentId: gs.agentId,
     versionId: gs.versionId,
-    workspaceId: gs.workspaceId,
+    projectId: gs.projectId,
     graphId: gs.graphId,
     graphName: gs.graphName,
     nodes: gs.nodes,
@@ -69,9 +69,9 @@ export const useSaveStore = create<SaveState>((set, get) => {
       const gs = useGraphStore.getState()
       if (gs.versionId !== oldVersionId) return
       useGraphStore.setState({ versionId: newVersionId })
-      if (_queryClient && gs.agentId && gs.workspaceId) {
+      if (_queryClient && gs.agentId && gs.projectId) {
         _queryClient.invalidateQueries({
-          queryKey: agentKeys.detail(gs.agentId, gs.workspaceId),
+          queryKey: agentKeys.detail(gs.agentId, gs.projectId),
         })
       }
     },
@@ -104,7 +104,7 @@ export const useSaveStore = create<SaveState>((set, get) => {
 
     triggerAutoSave: () => {
       const gs = useGraphStore.getState()
-      const hasPath = !!(gs.agentId && gs.versionId && gs.workspaceId)
+      const hasPath = !!(gs.agentId && gs.versionId && gs.projectId)
       if (!gs.graphId && !hasPath) return
       manager.debouncedSave()
     },

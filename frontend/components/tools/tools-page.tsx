@@ -15,7 +15,7 @@ import {
 } from '@/hooks/queries/mcp'
 import { useBuiltinTools } from '@/hooks/queries/tools'
 import { useTranslation } from '@/lib/i18n'
-import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
+import { useUserPermissionsContext } from '@/providers/permissions-provider'
 
 export function ToolsPage() {
   const { t } = useTranslation()

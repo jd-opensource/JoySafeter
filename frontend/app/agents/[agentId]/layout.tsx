@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button'
 import { useAgent } from '@/hooks/queries/agents'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import { useCurrentWorkspace } from '@/providers/workspace-provider'
+import { useProjectContext } from '@/hooks/managed/use-project-context'
 
 export default function AgentDetailLayout({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation()
@@ -23,8 +23,8 @@ export default function AgentDetailLayout({ children }: { children: React.ReactN
   const searchParams = useSearchParams()
   const router = useRouter()
   const agentId = params.agentId as string
-  const { workspaceId } = useCurrentWorkspace()
-  const { data: agent, isLoading } = useAgent(agentId, workspaceId)
+  const { projectId } = useProjectContext()
+  const { data: agent, isLoading } = useAgent(agentId, projectId)
   const currentTab = searchParams.get('tab')
 
   const activeStageId = searchParams.get('stage') as BuildStageId | null

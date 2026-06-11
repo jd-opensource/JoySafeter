@@ -27,7 +27,7 @@ const STATUS_CONFIG: Record<string, { icon: React.ElementType; label: string; co
 
 interface ExecutionTimelineProps {
   executionId: string
-  workspaceId: string
+  projectId: string
   compact?: boolean
   /** Set to false for terminal executions to skip WebSocket and polling. Defaults to true. */
   isLive?: boolean
@@ -37,7 +37,7 @@ interface ExecutionTimelineProps {
 
 export function ExecutionTimeline({
   executionId,
-  workspaceId,
+  projectId,
   compact,
   isLive = true,
   taskId,
@@ -124,7 +124,7 @@ export function ExecutionTimeline({
   const handleSendMessage = async (message: string) => {
     if (!effectiveId) return
     try {
-      await taskService.injectExecutionMessage(effectiveId, workspaceId, message)
+      await taskService.injectExecutionMessage(effectiveId, message)
     } catch (err) {
       console.error('Failed to inject message', err)
     }
@@ -133,7 +133,7 @@ export function ExecutionTimeline({
   const handleApproveOrReject = async (_eventId: string, approved: boolean) => {
     if (!effectiveId) return
     try {
-      await taskService.approveExecutionAction(effectiveId, workspaceId, approved)
+      await taskService.approveExecutionAction(effectiveId, approved)
     } catch (err) {
       console.error(`Failed to ${approved ? 'approve' : 'reject'} action`, err)
     }

@@ -57,6 +57,41 @@ services:
     networks:
       - joysafeter-network
 
+  # PgBouncer 连接池
+  pgbouncer:
+    image: ${PGBOUNCER_IMAGE:-bitnami/pgbouncer:latest}
+    restart: always
+    container_name: joysafeter-pgbouncer
+    depends_on:
+      db:
+        conn: service_healthy
+    env_file:
+      - ../backend/.env
+    environment:
+      PGBOUNCER_DATABASE: ${POSTGRES_DB:-joysafeter}
+      POSTGRESQL_HOST: db
+      POSTGRESQL_PORT: "5432"
+      POSTGRESQL_USERNAME: ${POSTGRES_USER:-joysafeter}
+      POSTGRESQL_PASSWORD: ${POSTGRES_PASSWORD:-joysafeter}
+      PGBOUNCER_PORT: "6432"
+      PGBOUNCER_POOL_MODE: transaction
+      PGBOUNCER_MAX_CLIENT_CONN: "1000"
+      PGBOUNCER_DEFAULT_POOL_SIZE: "50"
+      PGBOUNCER_MIN_POOL_SIZE: "10"
+      PGBOUNCER_RESERVE_POOL_SIZE: "10"
+      PGBOUNCER_SERVER_IDLE_TIMEOUT: "600"
+      PGBOUNCER_IGNORE_STARTUP_PARAMETERS: extra_float_digits
+    ports:
+      - "${PGBOUNCER_PORT_HOST:-6432}:6432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - joysafeter-network
+
   # 数据库初始化服务（一次性运行）
   # 使用: docker-compose -f docker-compose-middleware.yml --profile init run --rm db-init
   db-init:

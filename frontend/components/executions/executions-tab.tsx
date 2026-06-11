@@ -12,7 +12,7 @@ import { useTasks } from '@/hooks/queries/tasks'
 import { useReleaseAgentNameMap } from '@/hooks/queries/agents'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import { useCurrentWorkspace } from '@/providers/workspace-provider'
+import { useProjectContext } from '@/hooks/managed/use-project-context'
 import type { AgentRunStatus } from '@/types/agent-run'
 import { RUN_STATUS_I18N } from '@/types/agent-run'
 
@@ -34,23 +34,22 @@ export function ExecutionsTab() {
   const searchParams = useSearchParams()
   const taskFilter = searchParams.get('task') || undefined
 
-  const { workspaceId } = useCurrentWorkspace()
+  const { projectId } = useProjectContext()
 
   const [statusFilter, setStatusFilter] = useState<AgentRunStatus | 'all'>('all')
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
 
   const { data: runs = [], isLoading } = useAgentRuns(
     {
-      workspace_id: workspaceId || undefined,
       task_id: taskFilter,
     },
-    { enabled: Boolean(workspaceId) },
+    { enabled: Boolean(projectId) },
   )
 
-  const { data: tasks = [] } = useTasks(workspaceId, undefined, {
-    enabled: Boolean(workspaceId),
+  const { data: tasks = [] } = useTasks(projectId, undefined, {
+    enabled: Boolean(projectId),
   })
-  const agentNameMap = useReleaseAgentNameMap(workspaceId)
+  const agentNameMap = useReleaseAgentNameMap(projectId)
 
   const taskTitleMap = useMemo(() => Object.fromEntries(tasks.map((m) => [m.id, m.title])), [tasks])
 
@@ -146,11 +145,11 @@ export function ExecutionsTab() {
         </div>
       </div>
 
-      {selectedRunId && workspaceId && selectedRun?.current_execution_id && (
+      {selectedRunId && projectId && selectedRun?.current_execution_id && (
         <div className="w-[480px] flex-shrink-0 overflow-hidden">
           <ExecutionTimeline
             executionId={selectedRun.current_execution_id}
-            workspaceId={workspaceId}
+            projectId={projectId}
             taskId={selectedRun.task_id ?? undefined}
           />
         </div>

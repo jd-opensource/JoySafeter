@@ -13,15 +13,15 @@ import type { Task } from '@/types/tasks'
 import { TASK_STATUS_LABELS, TASK_STATUS_STYLES } from '@/types/tasks'
 
 interface RecentTasksProps {
-  workspaceId: string
+  projectId: string
   tasks: Task[]
 }
 
-export function RecentTasks({ workspaceId, tasks }: RecentTasksProps) {
+export function RecentTasks({ projectId, tasks }: RecentTasksProps) {
   const { t } = useTranslation()
   const router = useRouter()
 
-  const agentsMap = useAgentNameMap(workspaceId)
+  const agentsMap = useAgentNameMap(projectId)
 
   const recentTasks = useMemo(
     () =>

@@ -23,26 +23,26 @@ import { agentKeys } from './agents'
 // ==================== Query Keys ====================
 
 export const versionKeys = {
-  all: (agentId: string, workspaceId: string) =>
-    [...agentKeys.detail(agentId, workspaceId), 'versions'] as const,
-  list: (agentId: string, workspaceId: string) =>
-    [...versionKeys.all(agentId, workspaceId), 'list'] as const,
-  detail: (agentId: string, versionId: string, workspaceId: string) =>
-    [...versionKeys.all(agentId, workspaceId), 'detail', versionId] as const,
-  graphState: (agentId: string, versionId: string, workspaceId: string) =>
-    [...versionKeys.detail(agentId, versionId, workspaceId), 'graphState'] as const,
+  all: (agentId: string, projectId: string) =>
+    [...agentKeys.detail(agentId, projectId), 'versions'] as const,
+  list: (agentId: string, projectId: string) =>
+    [...versionKeys.all(agentId, projectId), 'list'] as const,
+  detail: (agentId: string, versionId: string, projectId: string) =>
+    [...versionKeys.all(agentId, projectId), 'detail', versionId] as const,
+  graphState: (agentId: string, versionId: string, projectId: string) =>
+    [...versionKeys.detail(agentId, versionId, projectId), 'graphState'] as const,
 }
 
 // ==================== Query Hooks ====================
 
-export function useVersions(agentId: string, workspaceId: string, options?: { enabled?: boolean }) {
+export function useVersions(agentId: string, projectId: string, options?: { enabled?: boolean }) {
   return useQuery({
-    queryKey: versionKeys.list(agentId, workspaceId),
+    queryKey: versionKeys.list(agentId, projectId),
     queryFn: async (): Promise<AgentVersion[]> => {
-      const versions = await agentVersionService.list(agentId, workspaceId)
+      const versions = await agentVersionService.list(agentId)
       return versions || []
     },
-    enabled: Boolean(agentId) && Boolean(workspaceId) && options?.enabled !== false,
+    enabled: Boolean(agentId) && Boolean(projectId) && options?.enabled !== false,
     staleTime: STALE_TIME.STANDARD,
     refetchOnWindowFocus: true,
     placeholderData: keepPreviousData,
@@ -52,14 +52,14 @@ export function useVersions(agentId: string, workspaceId: string, options?: { en
 export function useVersion(
   agentId: string,
   versionId: string,
-  workspaceId: string,
+  projectId: string,
   options?: { enabled?: boolean },
 ) {
   return useQuery({
-    queryKey: versionKeys.detail(agentId, versionId, workspaceId),
-    queryFn: () => agentVersionService.get(agentId, versionId, workspaceId),
+    queryKey: versionKeys.detail(agentId, versionId, projectId),
+    queryFn: () => agentVersionService.get(agentId, versionId),
     enabled:
-      Boolean(agentId) && Boolean(versionId) && Boolean(workspaceId) && options?.enabled !== false,
+      Boolean(agentId) && Boolean(versionId) && Boolean(projectId) && options?.enabled !== false,
     staleTime: STALE_TIME.STANDARD,
   })
 }
@@ -72,17 +72,17 @@ export function useCreateVersion() {
   return useMutation({
     mutationFn: async ({
       agentId,
-      workspaceId,
+      projectId,
       ...data
-    }: CreateAgentVersionRequest & { agentId: string; workspaceId: string }) => {
-      return agentVersionService.create(agentId, workspaceId, data)
+    }: CreateAgentVersionRequest & { agentId: string; projectId: string }) => {
+      return agentVersionService.create(agentId, data)
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: versionKeys.all(variables.agentId, variables.workspaceId),
+        queryKey: versionKeys.all(variables.agentId, variables.projectId),
       })
       queryClient.invalidateQueries({
-        queryKey: agentKeys.detail(variables.agentId, variables.workspaceId),
+        queryKey: agentKeys.detail(variables.agentId, variables.projectId),
       })
     },
   })
@@ -95,18 +95,18 @@ export function useUpdateVersion() {
     mutationFn: async ({
       agentId,
       versionId,
-      workspaceId,
+      projectId,
       ...data
     }: UpdateAgentVersionRequest & {
       agentId: string
       versionId: string
-      workspaceId: string
+      projectId: string
     }) => {
-      return agentVersionService.update(agentId, versionId, workspaceId, data)
+      return agentVersionService.update(agentId, versionId, data)
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: versionKeys.all(variables.agentId, variables.workspaceId),
+        queryKey: versionKeys.all(variables.agentId, variables.projectId),
       })
     },
   })
@@ -158,19 +158,19 @@ function toVersionGraphState({
 export function useVersionGraphState(
   agentId?: string,
   versionId?: string,
-  workspaceId?: string,
+  projectId?: string,
   options?: {
     enabled?: boolean
     refetchOnMount?: boolean | 'always'
   },
 ) {
   return useQuery({
-    queryKey: versionKeys.graphState(agentId || '', versionId || '', workspaceId || ''),
+    queryKey: versionKeys.graphState(agentId || '', versionId || '', projectId || ''),
     queryFn: async (): Promise<VersionGraphState> => {
       const versionState = await visualDefinitionAdapter.loadVersionGraphState(
         agentId!,
         versionId!,
-        workspaceId!,
+        projectId!,
       )
       return {
         ...toVersionGraphState(versionState),
@@ -179,7 +179,7 @@ export function useVersionGraphState(
       }
     },
     enabled:
-      Boolean(agentId) && Boolean(versionId) && Boolean(workspaceId) && options?.enabled !== false,
+      Boolean(agentId) && Boolean(versionId) && Boolean(projectId) && options?.enabled !== false,
     staleTime: STALE_TIME.SHORT,
     gcTime: CACHE_TIME.STANDARD,
     refetchOnMount: options?.refetchOnMount ?? false,

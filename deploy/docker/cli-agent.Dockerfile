@@ -5,7 +5,7 @@
 # Used by CLIContainerService to spin up per-execution containers.
 #
 # Build:
-#   docker build -f deploy/docker/cli-agent.Dockerfile -t joysafeter/cli-agent:latest .
+#   docker build -f deploy/docker/cli-agent.Dockerfile -t joysafeter-claudecode:latest .
 # =============================================================================
 
 FROM node:22-slim
@@ -25,8 +25,6 @@ RUN npm install -g @anthropic-ai/claude-code
 # Install Codex CLI
 RUN npm install -g @openai/codex
 
-# Install OpenClaw (if available via npm, otherwise skip)
-# RUN npm install -g openclaw@latest
 
 # Create non-root user
 RUN groupadd -r agent && useradd -r -g agent -m -d /home/agent -s /bin/bash agent

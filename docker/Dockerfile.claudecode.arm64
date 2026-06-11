@@ -1,0 +1,13 @@
+FROM joysafeter-base:arm64
+
+USER root
+
+RUN npm install -g @anthropic-ai/claude-code@latest
+
+COPY target/aarch64-unknown-linux-musl/release/joysafeter-runner /usr/local/bin/joysafeter-runner
+RUN chmod +x /usr/local/bin/joysafeter-runner
+
+RUN mkdir -p /mnt/memory && chown -R agent:agent /mnt/memory
+
+USER agent
+ENTRYPOINT ["joysafeter-runner"]

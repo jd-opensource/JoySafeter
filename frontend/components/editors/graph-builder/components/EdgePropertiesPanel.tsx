@@ -19,7 +19,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
-import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
+import { useUserPermissionsContext } from '@/providers/permissions-provider'
 
 import { EdgeData } from '../types/graph'
 

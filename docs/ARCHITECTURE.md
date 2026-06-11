@@ -22,8 +22,7 @@ flowchart TB
         REST["/v1 REST Endpoints"]
         WS_EXEC["WS /ws/executions"]
         WS_NOTIF["WS /ws/notifications"]
-        WS_CLAW["WS /ws/openclaw/*"]
-    end
+            end
 
     subgraph L15["Layer 1.5 — Facade"]
         DISPATCH["DispatchService"]
@@ -38,7 +37,7 @@ flowchart TB
     end
 
     subgraph L3["Layer 3 — Engines"]
-        CLI["CLIEngine<br/>claude_code / codex / openclaw"]
+        CLI["CLIEngine<br/>claude_code / codex"]
         GRAPH["LangGraphVisualEngine<br/>langgraph_visual"]
         CODE["LangGraphCodeEngine<br/>langgraph_code"]
         COPILOT["CopilotEngine<br/>build_copilot"]
@@ -127,7 +126,7 @@ class ExecutionEngine(Protocol):
 
 | Engine class | engine_kind(s) | cancel | msg_inject | debug_obs | artifacts | approval |
 |---|---|---|---|---|---|---|
-| CLIEngine | `claude_code`, `codex`, `openclaw` | Y | Y | N | Y | Y |
+| CLIEngine | `claude_code`, `codex` | Y | Y | N | Y | Y |
 | LangGraphVisualEngine | `langgraph_visual` | Y | N | Y | Y | Y |
 | LangGraphCodeEngine | `langgraph_code` | Y | N | Y | N | N |
 | CopilotEngine | `build_copilot` (internal) | Y | N | N | N | N |
@@ -139,7 +138,6 @@ engine_registry.register("langgraph_visual", LangGraphVisualEngine())
 engine_registry.register("langgraph_code", LangGraphCodeEngine())
 engine_registry.register("claude_code", CLIEngine("claude_code"))
 engine_registry.register("codex", CLIEngine("codex"))
-engine_registry.register("openclaw", CLIEngine("openclaw"))
 engine_registry.register("build_copilot", CopilotEngine())
 ```
 
@@ -282,7 +280,7 @@ This is the **single serialization chokepoint** — all transport paths (HTTP re
 |---|---|---|---|
 | **DeepAgents Canvas** | `langgraph_visual` | LangGraphVisualEngine | Visual drag-and-drop builder; Manager-Worker star topology |
 | **Code Mode** | `langgraph_code` | LangGraphCodeEngine | User writes LangGraph Python in browser; backend exec()s in sandbox |
-| **CLI-backed** | `claude_code`, `codex`, `openclaw` | CLIEngine | Docker container + CLI agent runtime |
+| **CLI-backed** | `claude_code`, `codex` | CLIEngine | Docker container + CLI agent runtime |
 | **Copilot** | `build_copilot` | CopilotEngine | Internal graph analysis and action execution |
 
 **DeepAgents Build Pipeline:**
@@ -396,8 +394,6 @@ All errors are normalized to `AppError` (or subclass), serialized via the single
 |---|---|---|
 | `/ws/executions` | `ExecutionSubscriptionHandler` | Execution event stream — subscribe, snapshot replay, live events |
 | `/ws/notifications` | `NotificationManager` | User-level push notifications |
-| `/ws/openclaw/dashboard` | `OpenClawHandler` | OpenClaw dashboard bridge |
-| `/ws/openclaw/bridge/{user_id}` | `OpenClawHandler` | OpenClaw device bridge |
 
 ### 4.2 Dispatch Dimensions
 
@@ -445,7 +441,7 @@ app/
 │   │   ├── protocol.py            #   ExecutionEngine Protocol, ExecutionContext, EngineCapabilities
 │   │   ├── registry.py            #   EngineRegistry singleton
 │   │   ├── __init__.py            #   Registers 6 engine instances at import time
-│   │   ├── cli_engine.py          #   CLIEngine (claude_code / codex / openclaw)
+│   │   ├── cli_engine.py          #   CLIEngine (claude_code / codex)
 │   │   ├── graph_engine.py        #   LangGraphVisualEngine (langgraph_visual)
 │   │   ├── code_engine.py         #   LangGraphCodeEngine (langgraph_code)
 │   │   ├── copilot_engine.py      #   CopilotEngine (build_copilot, internal)
@@ -477,7 +473,7 @@ app/
 │   │   └── context_event.py       #   ContextEventBridge
 │   ├── agent/                     # Agent runtime (CLI backends, base factory, memory)
 │   │   ├── base_agent.py          #   get_agent() — reusable LangChain agent factory
-│   │   ├── cli_backends/          #   CLI agent backends (claude_code, codex, openclaw)
+│   │   ├── cli_backends/          #   CLI agent backends (claude_code, codex)
 │   │   ├── code_agent/            #   Code agent implementation
 │   │   └── memory/                #   MemoryManager + strategies
 │   ├── copilot/                   # Copilot service implementation
@@ -523,7 +519,6 @@ app/
 ├── skills/                       # Skill marketplace + creator
 ├── tools/                        # Tool management
 ├── memory/                       # Memory management
-├── openclaw/                     # OpenClaw dashboard
 └── settings/                     # Models, members, sandboxes, tokens
 ```
 
@@ -537,7 +532,6 @@ BaseWsClient (abstract)
 │
 ├── ExecutionWsClient     /ws/executions
 ├── NotificationWsClient  /ws/notifications
-└── (OpenClaw clients)    /ws/openclaw/*
 ```
 
 `ExecutionSubscriptionManager` on the frontend subscribes to execution IDs and dispatches incoming events to the appropriate UI stores.

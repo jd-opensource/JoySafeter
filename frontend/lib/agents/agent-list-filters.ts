@@ -15,7 +15,6 @@ export const AGENT_LIST_ENGINE_FILTERS: readonly AgentListFilterOption<AgentList
   { value: 'langgraph_code', labelKey: 'agents.code.shortLabel', defaultLabel: 'Code' },
   { value: 'claude_code', labelKey: 'agents.claudeCode.shortLabel', defaultLabel: 'Claude Code' },
   { value: 'codex', labelKey: 'agents.codex.shortLabel', defaultLabel: 'Codex' },
-  { value: 'openclaw', labelKey: 'agents.openclaw.shortLabel', defaultLabel: 'OpenClaw' },
 ] as const
 
 export const AGENT_LIST_RUNTIME_FILTERS: readonly AgentListFilterOption<AgentListRuntimeFilter>[] =

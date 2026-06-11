@@ -1,0 +1,11 @@
+FROM joysafeter-base:amd64
+
+USER root
+
+RUN npm install -g @anthropic-ai/claude-code@latest
+
+COPY target/x86_64-unknown-linux-musl/release/joysafeter-runner /usr/local/bin/joysafeter-runner
+RUN chmod +x /usr/local/bin/joysafeter-runner
+
+USER agent
+ENTRYPOINT ["joysafeter-runner"]

@@ -5,11 +5,11 @@ import { persist } from 'zustand/middleware'
  * Sidebar state interface
  */
 interface SidebarState {
-  workspaceDropdownOpen: boolean
+  projectDropdownOpen: boolean
   sidebarWidth: number
   isCollapsed: boolean
   isAppSidebarCollapsed: boolean
-  setWorkspaceDropdownOpen: (isOpen: boolean) => void
+  setProjectDropdownOpen: (isOpen: boolean) => void
   setSidebarWidth: (width: number) => void
   setIsCollapsed: (isCollapsed: boolean) => void
   setIsAppSidebarCollapsed: (isCollapsed: boolean) => void
@@ -25,11 +25,11 @@ export const MIN_SIDEBAR_WIDTH = 200
 export const useSidebarStore = create<SidebarState>()(
   persist(
     (set, get) => ({
-      workspaceDropdownOpen: false,
+      projectDropdownOpen: false,
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
       isCollapsed: false,
       isAppSidebarCollapsed: false,
-      setWorkspaceDropdownOpen: (isOpen) => set({ workspaceDropdownOpen: isOpen }),
+      setProjectDropdownOpen: (isOpen) => set({ projectDropdownOpen: isOpen }),
       setSidebarWidth: (width) => {
         // Only enforce minimum - maximum is enforced dynamically by the resize hook
         const clampedWidth = Math.max(MIN_SIDEBAR_WIDTH, width)

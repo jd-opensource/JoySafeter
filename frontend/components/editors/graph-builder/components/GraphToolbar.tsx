@@ -4,7 +4,7 @@ import { Redo2, Undo2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/lib/i18n'
-import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
+import { useUserPermissionsContext } from '@/providers/permissions-provider'
 import { useGraphStore } from '../stores/graphStore'
 import { AddNodeButton } from './AddNodeButton'
 import { ImportExportMenu } from './ImportExportMenu'

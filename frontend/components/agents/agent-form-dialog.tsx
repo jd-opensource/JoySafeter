@@ -50,12 +50,6 @@ const BUILD_METHOD_OPTIONS: BuildMethodOption[] = [
     descriptionKey: 'agents.codex.description',
     icon: Bot,
   },
-  {
-    value: 'openclaw',
-    labelKey: 'agents.openclaw.label',
-    descriptionKey: 'agents.openclaw.description',
-    icon: Terminal,
-  },
 ]
 
 interface CreateAgentDialogProps {

@@ -14,7 +14,7 @@ interface CodeEditorState {
   graphId: string | null
   graphName: string | null
   versionId: string | null
-  workspaceId: string | null
+  projectId: string | null
 
   setCode: (code: string) => void
   setGraphId: (id: string) => void
@@ -25,7 +25,7 @@ interface CodeEditorState {
     code: string,
     name: string,
     versionId: string | null,
-    workspaceId: string | null,
+    projectId: string | null,
   ) => void
   reset: () => void
 }
@@ -42,7 +42,7 @@ export const useCodeEditorStore = create<CodeEditorState>((set, get) => ({
   graphId: null,
   graphName: null,
   versionId: null,
-  workspaceId: null,
+  projectId: null,
 
   setCode: (code) => set({ code, isDirty: code !== get().savedCode }),
 
@@ -50,11 +50,11 @@ export const useCodeEditorStore = create<CodeEditorState>((set, get) => ({
   setGraphName: (name) => set({ graphName: name }),
 
   save: async () => {
-    const { graphId, versionId, workspaceId, code, graphName } = get()
-    if (!graphId || !versionId || !workspaceId) return
+    const { graphId, versionId, projectId, code, graphName } = get()
+    if (!graphId || !versionId || !projectId) return
     set({ isSaving: true })
     try {
-      await agentVersionService.update(graphId, versionId, workspaceId, {
+      await agentVersionService.update(graphId, versionId, {
         definition_payload: {
           graph_mode: 'code',
           code_content: code,
@@ -66,7 +66,7 @@ export const useCodeEditorStore = create<CodeEditorState>((set, get) => ({
     }
   },
 
-  hydrate: (graphId, code, name, versionId, workspaceId) =>
+  hydrate: (graphId, code, name, versionId, projectId) =>
     set({
       graphId,
       code,
@@ -75,7 +75,7 @@ export const useCodeEditorStore = create<CodeEditorState>((set, get) => ({
       graphName: name,
       isSaving: false,
       versionId: versionId ?? null,
-      workspaceId: workspaceId ?? null,
+      projectId: projectId ?? null,
     }),
 
   reset: () =>
@@ -87,6 +87,6 @@ export const useCodeEditorStore = create<CodeEditorState>((set, get) => ({
       graphId: null,
       graphName: null,
       versionId: null,
-      workspaceId: null,
+      projectId: null,
     }),
 }))

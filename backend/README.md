@@ -45,37 +45,94 @@ alembic upgrade head
 
 ```bash
 cd backend
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn app.joysafeter_api.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+## 三服务启动方式
+
+本地开发默认仍可使用 `JOYSAFETER_SERVICE_ROLE=all` 单体模式。生产或压测时可以使用同一套代码拆成三个 Python 服务角色：
+
+```bash
+# API：HTTP、WebSocket、管理接口
+JOYSAFETER_SERVICE_ROLE=api \
+uv run uvicorn app.joysafeter_api.main:app --host 0.0.0.0 --port 8000
+
+# Runner：gRPC runner gateway、scheduler、sandbox/task lifecycle
+JOYSAFETER_SERVICE_ROLE=runner \
+JOYSAFETER_INSTANCE_ID=runner-001 \
+RUNNER_HTTP_HOST=127.0.0.1 \
+JOYSAFETER_GRPC_HOST=0.0.0.0 \
+JOYSAFETER_GRPC_PORT=9090 \
+uv run uvicorn app.joysafeter_orchestrator.main:app --host 127.0.0.1 --port 8001 --workers 1
+
+# Worker：后台清理、reaper、异步任务循环
+JOYSAFETER_SERVICE_ROLE=worker \
+WORKER_HTTP_HOST=127.0.0.1 \
+uv run uvicorn app.joysafeter_worker.main:app --host 127.0.0.1 --port 8002 --workers 1
+```
+
+入口说明：
+
+- 显式三服务入口：`app.joysafeter_api.main:app`、`app.joysafeter_orchestrator.main:app`、`app.joysafeter_worker.main:app`。
+- 旧单体兼容入口：`app.main:app`，会根据 `JOYSAFETER_SERVICE_ROLE` 决定是否同时启动 orchestrator/worker 逻辑；新部署建议直接使用显式三服务入口。
+- 单机云虚拟机部署建议只对公网暴露 API；Runner/Worker HTTP 监听 `127.0.0.1:8001/8002`，Runner gRPC 监听 `0.0.0.0:9090` 供沙箱容器访问，并通过云安全组/防火墙禁止公网访问 `9090`。
+
+注意事项：
+
+- `runner` 不建议使用 `uvicorn --workers N`；需要扩容时启动多个 runner 实例，并为每个实例配置唯一 `JOYSAFETER_INSTANCE_ID`。
+- 三个服务共享同一套 PostgreSQL / Redis；服务之间通过 DB 状态和 Redis 唤醒/协调通信。
+- 三服务模式建议开启 `JOYSAFETER_EVENT_STREAM_ENABLED=true`，让 `runner` 把高频 JoySafeter event 写入 Redis Stream，再由 `worker` 批量消费落库。
+- `JOYSAFETER_EVENT_STREAM_FALLBACK_TO_DB=true` 时，如果 runner 写 Redis Stream 失败，会自动降级为本地 DB 落库，避免事件直接丢失。
+- worker 只有在批量落库成功后才 ACK Redis Stream；未 ACK 的 pending 消息会在 `JOYSAFETER_EVENT_STREAM_PENDING_IDLE_MS` 后被其他 worker 自动认领恢复。
+
+Docker Compose 可使用覆盖文件启动三服务：
+
+```bash
+cd deploy
+docker compose -f docker-compose.yml -f docker-compose.services.yml up -d backend runner worker frontend
 ```
 
 ## 项目结构
 
 ```
 app/
-├── api/v1/                  # REST 路由模块
-├── common/
-│   └── app_errors.py        # 统一异常层次 + ErrorDescriptor 序列化
-├── core/
-│   ├── contracts/           # 值域唯一来源（EngineKind、RuntimeKind、TriggerMedium、RunPurpose、ErrorCode 等）
-│   ├── engine/              # 执行引擎协议、注册表、6 个内建引擎（CLI×3/Visual/Code/Copilot）
-│   ├── events/              # 两阶段事件总线（ExecutionEventBus）+ 4 个内建订阅者
-│   ├── state_machines/      # 集中化状态机（6 个实体的转换规则）
-│   ├── observation/         # OTel-backed 观测追踪（注入 ExecutionContext）
-│   ├── ports/               # Protocol 接口，解耦 core/ 与 services/
-│   ├── agent/               # CLI agent 后端（claude_code、codex、openclaw）
-│   ├── copilot/             # Copilot 服务
-│   ├── graph/               # DeepAgents 图构建器 + 代码执行器
-│   ├── skill/               # 技能系统（渐进式加载）
-│   ├── model/               # 模型提供商 + 凭据管理
-│   ├── tools/               # 工具解析器 + MCP 集成
-│   └── a2a/                 # Agent-to-Agent 协议
-├── models/                  # SQLAlchemy ORM 模型
-├── repositories/            # 数据访问层
-├── schemas/                 # Pydantic 请求/响应 Schema
-├── services/                # 服务层（DispatchService、ExecutionOrchestrator、40+ 模块）
-├── websocket/               # WebSocket 处理器（/ws/executions、/ws/notifications、/ws/openclaw）
-├── templates/               # 邮件模板（Jinja2）
-└── utils/                   # 共享工具
+├── joysafeter_api/          # API 服务：HTTP routes、WebSocket、API startup hooks、API service facade
+│   ├── api/                 # v1/v2 REST 路由（canonical 路径）
+│   ├── websocket/           # /ws/executions、/ws/notifications
+│   ├── app.py               # API app 组装：挂载 API / WebSocket
+│   ├── main.py              # API ASGI 入口 app.joysafeter_api.main:app
+│   ├── services.py          # API-facing service facade
+│   └── startup.py           # API 专属初始化
+├── joysafeter_orchestrator/       # Orchestrator 服务：gRPC gateway、scheduler、sandbox/task lifecycle
+│   ├── grpc/                # orchestrator gRPC server + protobuf
+│   ├── kernel/              # queue、scheduler、task/sandbox controller、task runner
+│   ├── events/              # JoySafeter event bus、mapping、Redis Stream publisher
+│   ├── runtime/             # Claude/Codex/mock runtime adapters
+│   ├── sandbox/             # Docker/Daytona/E2B sandbox providers
+│   ├── lifespan.py          # orchestrator 内核启动/关闭
+│   ├── main.py              # Orchestrator ASGI 入口 app.joysafeter_orchestrator.main:app
+│   └── services.py          # orchestrator-facing service facade
+├── joysafeter_worker/       # Worker 服务：后台循环、reaper、Redis Stream consumer、批量落库
+│   ├── events/              # batch writer + stream consumer
+│   ├── reapers/             # execution/task reaper loops
+│   ├── lifecycle.py         # worker loops start/stop
+│   ├── main.py              # Worker ASGI 入口 app.joysafeter_worker.main:app
+│   ├── services.py          # worker-facing service facade
+│   └── startup.py           # worker 专属初始化/关闭
+├── joysafeter_shared/       # 跨服务共享基础设施（runtime/common/utils/storage/templates）
+├── joysafeter_domain/       # 领域层真实实现（models/repositories/schemas/services/contracts/ports/state_machines）
+├── shared/                  # 旧 import 兼容层，转发到 joysafeter_shared
+├── domain/                  # 旧 import 兼容层，转发到 joysafeter_domain
+├── runtime/                 # 旧 import 兼容层，转发到 joysafeter_shared/runtime
+├── api/                     # 旧 import 兼容层，转发到 joysafeter_api/api
+├── websocket/               # 旧 import 兼容层，转发到 joysafeter_api/websocket
+├── core/                    # 旧核心基础设施；runner 兼容转发 + 部分领域抽象旧实现
+├── models/                  # 旧 ORM 兼容层；新代码优先使用 joysafeter_domain/models 路径
+├── repositories/            # 旧数据访问兼容层；新代码优先使用 joysafeter_domain/repositories 路径
+├── schemas/                 # 旧 Schema 兼容层；新代码优先使用 joysafeter_domain/schemas 路径
+├── services/                # 旧共享服务兼容层；三服务通过 services.py facade -> joysafeter_domain/services 访问
+├── templates/               # 旧模板资产根；当前仍由现有服务直接加载
+└── utils/                   # 旧共享工具兼容层；新代码优先使用 joysafeter_shared/utils 路径
 ```
 
 > 完整架构文档：[`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) | [中文版](../docs/ARCHITECTURE_CN.md)

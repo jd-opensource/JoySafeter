@@ -11,15 +11,13 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
-from app.core.settings import ENV_FILE
+from app.joysafeter_shared.config.settings import ENV_FILE
 
 load_dotenv(ENV_FILE, override=False)
 
-from app import models  # noqa: F401,E402 - Import all models to ensure they are registered with Base.metadata
-# Conductor models are now defined in app/models/ (migrated from app/conductor/models/).
-# Do NOT import app.conductor.models here — it would cause duplicate table definitions.
-from app.core.database import Base  # noqa: E402
-from app.core.settings import settings  # noqa: E402
+from app.joysafeter_domain import models  # noqa: F401,E402 - register SQLAlchemy models
+from app.joysafeter_shared.database import Base  # noqa: E402
+from app.joysafeter_shared.config.settings import settings  # noqa: E402
 
 config = context.config
 

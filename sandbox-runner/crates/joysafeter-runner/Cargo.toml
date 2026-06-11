@@ -1,0 +1,35 @@
+[package]
+name = "joysafeter-runner"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "joysafeter-runner"
+path = "src/main.rs"
+
+[dependencies]
+joysafeter-types = { workspace = true }
+joysafeter-runtime = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tonic = { workspace = true }
+prost = { workspace = true }
+chrono = { workspace = true }
+tar = { workspace = true }
+flate2 = { workspace = true }
+reqwest = { workspace = true }
+hyper-util = { workspace = true }
+tower = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+fuser = { workspace = true }
+libc = { workspace = true }
+
+[build-dependencies]
+tonic-build = { workspace = true }

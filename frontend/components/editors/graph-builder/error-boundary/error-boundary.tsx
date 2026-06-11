@@ -3,6 +3,8 @@
 import React, { Component } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 
+import { AppErrorStateView } from '@/components/shared/app-error-state'
+import { i18n } from '@/lib/i18n'
 import { createLogger } from '@/lib/logs/console/logger'
 
 const logger = createLogger('ErrorBoundary')
@@ -47,24 +49,15 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       if (this.props.fallback) {
         return this.props.fallback
       }
+      const t = i18n.t.bind(i18n)
 
       return (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-[16px] p-[24px]">
-          <div className="text-center">
-            <h2 className="mb-[8px] text-lg font-semibold text-[var(--text-primary)]">
-              Something went wrong
-            </h2>
-            <p className="text-base text-[var(--text-tertiary)]">
-              {this.state.error?.message || 'An unexpected error occurred'}
-            </p>
-          </div>
-          <button
-            onClick={this.handleReset}
-            className="rounded-md bg-[var(--surface-muted)] px-4 py-2 text-base text-[var(--text-primary)] hover:bg-[var(--surface-muted)]"
-          >
-            Try again
-          </button>
-        </div>
+        <AppErrorStateView
+          title={t('common.pageErrorTitle')}
+          description={t('common.pageErrorDescription')}
+          onRetry={this.handleReset}
+          retryLabel={t('common.retry')}
+        />
       )
     }
 

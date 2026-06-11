@@ -76,7 +76,7 @@ export function useVerification({
       }
 
       // Whitelist check: only allow specific paths
-      const allowedPaths = ['/dashboard', '/workspace', '/agents']
+      const allowedPaths = ['/dashboard', '/managed', '/agents']
       const isAllowed = allowedPaths.some((path) => url.startsWith(path))
 
       if (!isAllowed) {

@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ExecutionTimelineView } from '@/components/execution/ExecutionTimeline'
 import { ExecutionDetailPanel } from '@/components/execution/ExecutionDetailPanel'
 import { useExecution, useExecutionEvents } from '@/hooks/queries/agentRuns'
-import { useCurrentWorkspace } from '@/providers/workspace-provider'
+import { useProjectContext } from '@/hooks/managed/use-project-context'
 import { TERMINAL_EXECUTION_STATUSES } from '@/types/agent-run'
 
 function formatDateTime(value?: string | null): string {
@@ -33,7 +33,7 @@ export default function ExecutionDetailPage() {
   const params = useParams()
   const executionId = params.executionId as string
 
-  const { workspaceId } = useCurrentWorkspace()
+  const { projectId } = useProjectContext()
 
   const { data: execution, isLoading: isExecutionLoading } = useExecution(executionId, {
     enabled: Boolean(executionId),

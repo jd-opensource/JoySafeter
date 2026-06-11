@@ -19,7 +19,7 @@
 #
 # Usage:
 #   bash scripts/e2e_full_chain.sh
-#   CONDUCTOR_URL=http://host:8080 bash scripts/e2e_full_chain.sh
+#   JOYSAFETER_URL=http://host:8080 bash scripts/e2e_full_chain.sh
 #
 set -euo pipefail
 

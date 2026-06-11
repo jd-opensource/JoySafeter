@@ -59,7 +59,7 @@ export function useDeploymentHistory(
   const { t } = useTranslation()
   const { toast } = useToast()
   const agentId = useGraphStore((state) => state.agentId)
-  const workspaceId = useGraphStore((state) => state.workspaceId)
+  const projectId = useGraphStore((state) => state.projectId)
   const rfInstance = useGraphStore((state) => state.rfInstance)
   const currentNodes = useGraphStore((state) => state.nodes)
   const currentEdges = useGraphStore((state) => state.edges)
@@ -67,9 +67,9 @@ export function useDeploymentHistory(
   // ── List loading ──────────────────────────────────────────────────────────
 
   const releasesQuery = useQuery({
-    queryKey: publishKeys.list(agentId ?? '', workspaceId ?? ''),
-    queryFn: () => agentPublishService.list(agentId!, workspaceId!),
-    enabled: open && !!agentId && !!workspaceId,
+    queryKey: publishKeys.list(agentId ?? '', projectId ?? ''),
+    queryFn: () => agentPublishService.list(agentId!),
+    enabled: open && !!agentId && !!projectId,
     staleTime: STALE_TIME.STANDARD,
   })
 
@@ -144,7 +144,7 @@ export function useDeploymentHistory(
 
   const fetchVersionState = useCallback(
     async (version: number) => {
-      if (!agentId || !workspaceId) return
+      if (!agentId || !projectId) return
       if (versionCache[version]) return
 
       // Find the corresponding release to get its agent_version_id
@@ -157,14 +157,14 @@ export function useDeploymentHistory(
         // back to a heuristic lookup via the version list.
         let versionId = release.agent_version_id
         if (!versionId) {
-          const agentVersions = await agentVersionService.list(agentId, workspaceId)
+          const agentVersions = await agentVersionService.list(agentId)
           const sorted = [...agentVersions].sort((a, b) => a.version_number - b.version_number)
           const agentVersion = sorted[version - 1] ?? sorted[sorted.length - 1]
           if (!agentVersion) return
           versionId = agentVersion.id
         }
 
-        const fullVersion = await agentVersionService.get(agentId, versionId, workspaceId)
+        const fullVersion = await agentVersionService.get(agentId, versionId)
         const payload = fullVersion.definition_payload as {
           nodes?: GraphVersionState['nodes']
           edges?: GraphVersionState['edges']
@@ -180,7 +180,7 @@ export function useDeploymentHistory(
         setIsLoadingPreview(false)
       }
     },
-    [agentId, workspaceId, versionCache, rawReleases],
+    [agentId, projectId, versionCache, rawReleases],
   )
 
   useEffect(() => {
@@ -252,7 +252,7 @@ export function useDeploymentHistory(
   }
 
   const handleConfirmRevert = async () => {
-    if (versionToRevert === null || !agentId || !workspaceId) return
+    if (versionToRevert === null || !agentId || !projectId) return
 
     const release = versions.find((v) => v.version === versionToRevert)
     const releaseId = release?.releaseId
@@ -262,16 +262,16 @@ export function useDeploymentHistory(
       await rollbackMutation.mutateAsync({
         agentId: agentId!,
         releaseId,
-        workspaceId: workspaceId!,
+        projectId: projectId!,
       })
 
       // Reload canvas state from the activated version's definition_payload
       try {
-        const agentVersions = await agentVersionService.list(agentId, workspaceId)
+        const agentVersions = await agentVersionService.list(agentId)
         const sorted = [...agentVersions].sort((a, b) => a.version_number - b.version_number)
         const agentVersion = sorted[versionToRevert - 1] ?? sorted[sorted.length - 1]
         if (agentVersion) {
-          const fullVersion = await agentVersionService.get(agentId, agentVersion.id, workspaceId)
+          const fullVersion = await agentVersionService.get(agentId, agentVersion.id)
           const payload = fullVersion.definition_payload as {
             nodes?: unknown[]
             edges?: unknown[]
@@ -313,14 +313,14 @@ export function useDeploymentHistory(
   }
 
   const handleConfirmDelete = async () => {
-    if (versionToDelete === null || !agentId || !workspaceId) return
+    if (versionToDelete === null || !agentId || !projectId) return
 
     const release = versions.find((v) => v.version === versionToDelete)
     const releaseId = release?.releaseId
     if (!releaseId) return
 
     try {
-      await retireMutation.mutateAsync({ agentId: agentId!, releaseId, workspaceId: workspaceId! })
+      await retireMutation.mutateAsync({ agentId: agentId!, releaseId, projectId: projectId! })
 
       toast({
         title: t('workspace.deleteVersionSuccess'),
@@ -344,10 +344,10 @@ export function useDeploymentHistory(
   }
 
   const handleConfirmUndeploy = async () => {
-    if (!agentId || !workspaceId) return
+    if (!agentId || !projectId) return
 
     try {
-      await unpublishMutation.mutateAsync({ agentId: agentId!, workspaceId: workspaceId! })
+      await unpublishMutation.mutateAsync({ agentId: agentId!, projectId: projectId! })
 
       toast({
         title: t('workspace.undeploySuccess'),

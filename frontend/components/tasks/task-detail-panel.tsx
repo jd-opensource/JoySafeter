@@ -82,22 +82,22 @@ function formatDate(dateStr: string) {
 
 interface TaskDetailPanelProps {
   taskId: string
-  workspaceId: string
+  projectId: string
   onClose: () => void
 }
 
-export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPanelProps) {
+export function TaskDetailPanel({ taskId, projectId, onClose }: TaskDetailPanelProps) {
   const { t } = useTranslation()
-  const { data: task, isLoading } = useTask(taskId, workspaceId)
-  const { data: agent } = useAgent(task?.agent_id ?? '', workspaceId, {
+  const { data: task, isLoading } = useTask(taskId, projectId)
+  const { data: agent } = useAgent(task?.agent_id ?? '', projectId, {
     enabled: Boolean(task?.agent_id),
   })
-  const { data: agents = [] } = useAgents(workspaceId, { enabled: Boolean(workspaceId) })
+  const { data: agents = [] } = useAgents(projectId, { enabled: Boolean(projectId) })
   const { data: runs = [] } = useAgentRuns(
-    { workspace_id: workspaceId, task_id: taskId },
-    { enabled: Boolean(workspaceId) },
+    { task_id: taskId },
+    { enabled: Boolean(projectId) },
   )
-  const { data: transitions } = useTaskTransitions(workspaceId)
+  const { data: transitions } = useTaskTransitions(projectId)
   const effectiveTransitions = transitions ?? DEFAULT_MANUAL_TRANSITIONS
 
   const assignTask = useAssignTask()
@@ -142,9 +142,9 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
 
   const doUpdate = useCallback(
     (updates: Partial<UpdateTaskRequest>) => {
-      updateTask.mutate({ taskId, workspaceId, ...updates }, { onError: onMutationError })
+      updateTask.mutate({ taskId, projectId, ...updates }, { onError: onMutationError })
     },
-    [taskId, workspaceId, updateTask, onMutationError],
+    [taskId, projectId, updateTask, onMutationError],
   )
 
   const handleTitleSave = () => {
@@ -185,7 +185,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
   }
 
   const handleAssign = (agentId: string) => {
-    assignTask.mutate({ taskId, workspaceId, agentId: agentId }, { onError: onMutationError })
+    assignTask.mutate({ taskId, agentId: agentId }, { onError: onMutationError })
     setAgentPickerOpen(false)
   }
 
@@ -527,7 +527,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                 size="sm"
                 onClick={() => {
                   dispatchTask.mutate(
-                    { taskId, workspaceId },
+                    { taskId, projectId },
                     {
                       onSuccess: () => toastSuccess(t('execution.dispatchedToast')),
                       onError: onMutationError,
@@ -587,7 +587,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
                     <div className="border-t border-[var(--border)]">
                       <ExecutionTimeline
                         executionId={task.current_execution_id}
-                        workspaceId={workspaceId}
+                        projectId={projectId}
                         compact
                         taskId={taskId}
                       />
@@ -642,7 +642,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
                 {t('tasks.activities')}
               </h3>
-              <ActivityThread taskId={taskId} workspaceId={workspaceId} />
+              <ActivityThread taskId={taskId} projectId={projectId} />
             </section>
 
             {/* Cancel Task */}
@@ -683,7 +683,7 @@ export function TaskDetailPanel({ taskId, workspaceId, onClose }: TaskDetailPane
         confirmLabel={t('tasks.archiveConfirm')}
         variant="default"
         onConfirm={() => {
-          cancelTask.mutate({ taskId, workspaceId }, { onError: onMutationError })
+          cancelTask.mutate({ taskId, projectId }, { onError: onMutationError })
           setShowCancelConfirm(false)
         }}
       />

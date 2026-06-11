@@ -41,7 +41,7 @@ import { useToast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/utils/toast'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
+import { useUserPermissionsContext } from '@/providers/permissions-provider'
 import { sandboxService, Sandbox } from '@/services/sandbox-service'
 
 const IMAGE_PRESETS = ['python:3.12-slim', 'python:3.11-slim', 'node:20-slim'] as const

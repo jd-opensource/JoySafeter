@@ -48,7 +48,7 @@ export const draftCopilotService = {
   async dispatchRun(params: {
     agentId: string
     versionId: string
-    workspaceId: string
+    projectId: string
     prompt: string
     graphContext: Record<string, unknown>
     conversationHistory: Array<{ role: 'user' | 'model'; text: string; actions?: GraphAction[] }>
@@ -59,7 +59,7 @@ export const draftCopilotService = {
     return apiPost<{ run_id: string; execution_id: string }>('copilot/run', {
       agent_id: params.agentId,
       version_id: params.versionId,
-      workspace_id: params.workspaceId,
+      project_id: params.projectId,
       prompt: params.prompt,
       graph_context: params.graphContext,
       conversation_history: convertConversationHistory(params.conversationHistory),

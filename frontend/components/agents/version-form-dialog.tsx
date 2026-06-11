@@ -29,14 +29,14 @@ interface VersionFormDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   agentId: string
-  workspaceId: string
+  projectId: string
 }
 
 export function VersionFormDialog({
   open,
   onOpenChange,
   agentId,
-  workspaceId,
+  projectId,
 }: VersionFormDialogProps) {
   const { t } = useTranslation()
   const createVersion = useCreateVersion()
@@ -62,7 +62,7 @@ export function VersionFormDialog({
     createVersion.mutate(
       {
         agentId,
-        workspaceId,
+        projectId,
         engine_kind: engineKind,
         changelog: changelog.trim() || undefined,
       },
@@ -94,7 +94,6 @@ export function VersionFormDialog({
                 <SelectItem value="langgraph_code">{t('agents.code.label')}</SelectItem>
                 <SelectItem value="claude_code">{t('agents.claudeCode.label')}</SelectItem>
                 <SelectItem value="codex">{t('agents.codex.label')}</SelectItem>
-                <SelectItem value="openclaw">{t('agents.openclaw.label')}</SelectItem>
               </SelectContent>
             </Select>
           </div>

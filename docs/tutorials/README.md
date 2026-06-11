@@ -14,7 +14,6 @@
 | 04b | [DeepAgents 动态多智能体协作](./04b-deepagents-building.md) | 使用星型拓扑架构，Manager 动态调遣 SubAgent 处理复杂任务 | ⭐️⭐️⭐️⭐️ 高级 |
 | 04c | [Code 模式 — 用 Python 代码构建图](./04c-code-mode.md) | 在浏览器中编写标准 LangGraph Python 代码定义图结构 | ⭐️⭐️⭐️ 进阶 |
 | 05 | [Copilot 使用指南](./05-copilot-usage.md) | 实时对话 / 中断介入 / AI 决策辅助 | ⭐ 入门 |
-| 06 | [OpenClaw（沙盒后端）配置与使用](./06-openclaw-usage.md) | 沙盒启动 / Skills 同步 / 预加载 / Copilot 消费闭环 | ⭐⭐ 进阶 |
 
 ---
 
@@ -25,7 +24,6 @@
 | 功能 | 相关教程 | 状态 |
 |------|---------|------|
 | 技能版本化与协作者 | [教程 03](./03-skills-usage.md) | 已覆盖 |
-| 多租户沙箱引擎 (OpenClaw) | [教程 06](./06-openclaw-usage.md) | 已覆盖 |
 | Langfuse 可观测性 | [04b](./04b-deepagents-building.md) | 已覆盖 |
 | 企业 SSO | [教程 01](./01-model-provider-setup.md) | 已覆盖 |
 | Platform API Tokens | [教程 01](./01-model-provider-setup.md)（全局认证说明） | 已覆盖 |
@@ -45,10 +43,9 @@
 ### 🔧 完整功能（1 小时）
 
 1. 完成快速开始路径
-2. **教程 06**：启动 OpenClaw，并验证 skills 同步与预加载链路（后续所有“可执行工具/脚本”的前提）
-3. **教程 03**：导入 Skills，并跑通“DB →（可选）OpenClaw → Sandbox/Graph → Agent 消费”的闭环
-4. **教程 02**：添加自定义 MCP 工具（让 Skill 不只是文档，而是可调用的工具能力）
-5. **教程 04b**：掌握 DeepAgents 多智能体协作模式
+2. **教程 03**：导入 Skills，并跑通“DB → Sandbox/Graph → Agent 消费”的闭环
+3. **教程 02**：添加自定义 MCP 工具（让 Skill 不只是文档，而是可调用的工具能力）
+4. **教程 04b**：掌握 DeepAgents 多智能体协作模式
 
 ### 🏆 高级应用
 

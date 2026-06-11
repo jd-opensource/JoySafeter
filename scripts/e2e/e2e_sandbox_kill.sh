@@ -30,7 +30,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/e2e_helpers.sh"
 
-BASE_URL="${1:-${CONDUCTOR_URL:-http://localhost:8080}}"
+BASE_URL="${1:-${JOYSAFETER_URL:-http://localhost:8080}}"
 SECRET_REF="${2:-$(engine_default_secret)}"
 ENV_REF="${3:-unrestricted_env}"
 
@@ -106,7 +106,7 @@ echo ""
 
 HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' "$API/health/live" 2>/dev/null || echo "000")
 if [ "$HTTP_CODE" = "200" ]; then
-    pass "Conductor reachable (HTTP $HTTP_CODE)"
+    pass "JoySafeter reachable (HTTP $HTTP_CODE)"
 else
     fail "Cannot reach $API/health/live (HTTP $HTTP_CODE)"
     exit 1
@@ -214,15 +214,15 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 # Strategy: after Turn 1 completes, the sandbox container is still alive
-# (conductor keeps it for reuse).  We find and kill it while the session
+# (JoySafeter keeps it for reuse).  We find and kill it while the session
 # is idle — no in-flight task to confuse the event stream.
-# Then Turn 2 forces the conductor to provision a NEW sandbox.
+# Then Turn 2 forces JoySafeter to provision a NEW sandbox.
 
 # First, find the sandbox that was used by Turn 1
 info "Searching for sandbox container from Turn 1..."
 SANDBOX_CID=""
 for attempt in $(seq 1 10); do
-    SANDBOX_CID=$(docker ps --filter "label=conductor=true" --format '{{.ID}}' 2>/dev/null | head -1)
+    SANDBOX_CID=$(docker ps --filter "label=joysafeter=true" --format '{{.ID}}' 2>/dev/null | head -1)
     if [ -n "$SANDBOX_CID" ]; then
         break
     fi
@@ -230,12 +230,12 @@ for attempt in $(seq 1 10); do
 done
 
 echo ""
-SANDBOX_LIST=$(docker ps --filter "label=conductor=true" --format '    {{.ID}}  {{.Image}}  {{.Names}}  {{.Status}}' 2>/dev/null || echo "")
+SANDBOX_LIST=$(docker ps --filter "label=joysafeter=true" --format '    {{.ID}}  {{.Image}}  {{.Names}}  {{.Status}}' 2>/dev/null || echo "")
 if [ -n "$SANDBOX_LIST" ]; then
-    echo "  Conductor sandbox containers:"
+    echo "  JoySafeter sandbox containers:"
     echo "$SANDBOX_LIST"
 else
-    echo "  (no conductor-labeled containers found)"
+    echo "  (no joysafeter-labeled containers found)"
 fi
 echo ""
 
@@ -265,8 +265,8 @@ else
     fi
 fi
 
-# Give conductor time to detect sandbox death and settle the session
-info "Waiting for conductor to detect sandbox death..."
+# Give JoySafeter time to detect sandbox death and settle the session
+info "Waiting for JoySafeter to detect sandbox death..."
 sleep 5
 
 # Wait until session is idle before sending next turn

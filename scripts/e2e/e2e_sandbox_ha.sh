@@ -9,18 +9,18 @@
 #   4. 空闲 sandbox 健康检查
 #
 # 前置条件:
-#   - conductor 已启动 (CONDUCTOR_WORKSPACE_HOST_ROOT, RUST_LOG=info)
+#   - JoySafeter 已启动 (JOYSAFETER_WORKSPACE_HOST_ROOT, RUST_LOG=info)
 #   - Docker 可用
 #   - Agent 和 Environment 已存在 with valid secret_ref
 #
 # 用法:
 #   ./scripts/e2e/e2e_sandbox_ha.sh
-#   CONDUCTOR_URL=http://localhost:8080 ./scripts/e2e/e2e_sandbox_ha.sh
+#   JOYSAFETER_URL=http://localhost:8080 ./scripts/e2e/e2e_sandbox_ha.sh
 #   HA_AGENT_ID=agent_xxx HA_ENV_ID=env_xxx ./scripts/e2e/e2e_sandbox_ha.sh
 #
 set -euo pipefail
 
-API="${CONDUCTOR_URL:-http://localhost:8080}/v1"
+API="${JOYSAFETER_URL:-http://localhost:8080}/v1"
 
 ENGINE_KIND="${ENGINE_KIND:-claude}"
 
@@ -137,7 +137,7 @@ sandbox_container() {
     local uuid="${sid#sess_}"
     if [ -n "$uuid" ]; then
         local ext_id
-        ext_id=$(curl -sf "${API%/v1}/api/v2/conductor/sandboxes" \
+        ext_id=$(curl -sf "${API%/v1}/api/v2/sandboxes" \
             | python3 -c "
 import sys,json
 d = json.load(sys.stdin)
@@ -154,8 +154,8 @@ for s in (data if isinstance(data, list) else []):
             fi
         fi
     fi
-    # Fallback: any conductor container
-    docker ps --filter "label=conductor=true" --format '{{.Names}}' 2>/dev/null | grep -v envoy | head -1 || true
+    # Fallback: any JoySafeter container
+    docker ps --filter "label=joysafeter=true" --format '{{.Names}}' 2>/dev/null | grep -v envoy | head -1 || true
 }
 
 cleanup() {
@@ -163,7 +163,7 @@ cleanup() {
     if [ -n "$SESSION_ID" ]; then
         curl -sf -X DELETE "$API/sessions/$SESSION_ID" > /dev/null 2>&1 || true
     fi
-    docker ps -a --filter "label=conductor=true" --format '{{.ID}}' \
+    docker ps -a --filter "label=joysafeter=true" --format '{{.ID}}' \
         | xargs -r docker rm -f > /dev/null 2>&1 || true
     echo -e "  Done."
 }
@@ -174,12 +174,12 @@ echo "║  Sandbox HA E2E Test                          ║"
 echo "╚═══════════════════════════════════════════════╝"
 
 # ── Pre-test cleanup: remove stale sandbox containers from previous runs ──
-docker ps -a --filter "label=conductor=true" --format '{{.ID}}' \
+docker ps -a --filter "label=joysafeter=true" --format '{{.ID}}' \
     | xargs -r docker rm -f > /dev/null 2>&1 || true
 
 # ── Step 0: Preflight ────────────────────────────────
 info "Step 0: Preflight"
-curl -sf "$API/health" > /dev/null && pass "Conductor healthy" || { fail "Conductor unreachable"; exit 1; }
+curl -sf "$API/health" > /dev/null && pass "JoySafeter healthy" || { fail "JoySafeter unreachable"; exit 1; }
 docker info > /dev/null 2>&1 && pass "Docker available" || { fail "Docker unavailable"; exit 1; }
 
 # ── Step 1: Find or create resources ─────────────────
@@ -417,11 +417,11 @@ fi
 info "Test 5: CAS preemption protection (idle→stopping)"
 
 db_query() {
-    docker exec "$PG_CONTAINER" psql -U conductor -d conductor -t -A -c "$1" 2>/dev/null \
+    docker exec "$PG_CONTAINER" psql -U joysafeter -d joysafeter -t -A -c "$1" 2>/dev/null \
         | grep -v '^UPDATE \|^INSERT \|^DELETE \|^SELECT ' || true
 }
 
-if docker exec "$PG_CONTAINER" psql -U conductor -d conductor -c "SELECT 1" > /dev/null 2>&1; then
+if docker exec "$PG_CONTAINER" psql -U joysafeter -d joysafeter -c "SELECT 1" > /dev/null 2>&1; then
     TEST_SB=$(python3 -c "import uuid; print(uuid.uuid4())")
     db_query "INSERT INTO sandboxes (id, external_id, provider, status, config, image, last_used_at, created_at)
               VALUES ('$TEST_SB', 'e2e-cas-test', 'docker', 'idle', '{}', 'test', NOW(), NOW())" > /dev/null
@@ -446,7 +446,7 @@ fi
 # ═══ Test 6: Sandbox controller loop health ════════════
 info "Test 6: Sandbox controller loop health"
 
-if docker exec "$PG_CONTAINER" psql -U conductor -d conductor -c "SELECT 1" > /dev/null 2>&1; then
+if docker exec "$PG_CONTAINER" psql -U joysafeter -d joysafeter -c "SELECT 1" > /dev/null 2>&1; then
     RECENT_SWEEP=$(db_query \
         "SELECT COUNT(*) FROM sandboxes WHERE last_used_at > NOW() - INTERVAL '2 minutes'" || echo "0")
     if [ "$RECENT_SWEEP" -gt 0 ]; then

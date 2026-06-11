@@ -191,7 +191,7 @@ All modes support remote deployment scenarios:
 
 # ─── Image Management ──────────────────────────────────
 ./deploy/deploy.sh build                 # Build frontend + backend images
-./deploy/deploy.sh build --all           # Build all images (including OpenClaw)
+./deploy/deploy.sh build --all           # Build all images
 ./deploy/deploy.sh push                  # Build and push to registry
 ./deploy/deploy.sh pull                  # Pull latest pre-built images
 ```

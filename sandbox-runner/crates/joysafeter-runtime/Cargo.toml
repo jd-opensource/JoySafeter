@@ -1,0 +1,16 @@
+[package]
+name = "joysafeter-runtime"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+joysafeter-types = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+which = { workspace = true }

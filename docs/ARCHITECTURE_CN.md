@@ -22,8 +22,7 @@ flowchart TB
         REST["/v1 REST 端点"]
         WS_EXEC["WS /ws/executions"]
         WS_NOTIF["WS /ws/notifications"]
-        WS_CLAW["WS /ws/openclaw/*"]
-    end
+            end
 
     subgraph L15["Layer 1.5 — 门面"]
         DISPATCH["DispatchService"]
@@ -38,7 +37,7 @@ flowchart TB
     end
 
     subgraph L3["Layer 3 — 引擎"]
-        CLI["CLIEngine<br/>claude_code / codex / openclaw"]
+        CLI["CLIEngine<br/>claude_code / codex"]
         GRAPH["LangGraphVisualEngine<br/>langgraph_visual"]
         CODE["LangGraphCodeEngine<br/>langgraph_code"]
         COPILOT["CopilotEngine<br/>build_copilot"]
@@ -127,7 +126,7 @@ class ExecutionEngine(Protocol):
 
 | 引擎类 | engine_kind | cancel | msg_inject | debug_obs | artifacts | approval |
 |---|---|---|---|---|---|---|
-| CLIEngine | `claude_code`、`codex`、`openclaw` | Y | Y | N | Y | Y |
+| CLIEngine | `claude_code`、`codex` | Y | Y | N | Y | Y |
 | LangGraphVisualEngine | `langgraph_visual` | Y | N | Y | Y | Y |
 | LangGraphCodeEngine | `langgraph_code` | Y | N | Y | N | N |
 | CopilotEngine | `build_copilot`（内部） | Y | N | N | N | N |
@@ -139,7 +138,6 @@ engine_registry.register("langgraph_visual", LangGraphVisualEngine())
 engine_registry.register("langgraph_code", LangGraphCodeEngine())
 engine_registry.register("claude_code", CLIEngine("claude_code"))
 engine_registry.register("codex", CLIEngine("codex"))
-engine_registry.register("openclaw", CLIEngine("openclaw"))
 engine_registry.register("build_copilot", CopilotEngine())
 ```
 
@@ -282,7 +280,7 @@ AppError
 |---|---|---|---|
 | **DeepAgents 画布** | `langgraph_visual` | LangGraphVisualEngine | 可视化拖拽；Manager-Worker 星型拓扑 |
 | **Code 模式** | `langgraph_code` | LangGraphCodeEngine | 用户在浏览器写 LangGraph Python；后端沙箱 exec() |
-| **CLI-backed** | `claude_code`、`codex`、`openclaw` | CLIEngine | Docker 容器 + CLI agent 运行时 |
+| **CLI-backed** | `claude_code`、`codex` | CLIEngine | Docker 容器 + CLI agent 运行时 |
 | **Copilot** | `build_copilot` | CopilotEngine | 内部图分析与动作执行 |
 
 **DeepAgents 构建流水线：**
@@ -396,8 +394,6 @@ flowchart LR
 |---|---|---|
 | `/ws/executions` | `ExecutionSubscriptionHandler` | 执行事件流 — 订阅、快照回放、实时事件 |
 | `/ws/notifications` | `NotificationManager` | 用户级推送通知 |
-| `/ws/openclaw/dashboard` | `OpenClawHandler` | OpenClaw 看板桥接 |
-| `/ws/openclaw/bridge/{user_id}` | `OpenClawHandler` | OpenClaw 设备桥接 |
 
 ### 4.2 调度维度
 
@@ -445,7 +441,7 @@ app/
 │   │   ├── protocol.py            #   ExecutionEngine Protocol、ExecutionContext、EngineCapabilities
 │   │   ├── registry.py            #   EngineRegistry 单例
 │   │   ├── __init__.py            #   导入时注册 6 个引擎实例
-│   │   ├── cli_engine.py          #   CLIEngine（claude_code / codex / openclaw）
+│   │   ├── cli_engine.py          #   CLIEngine（claude_code / codex）
 │   │   ├── graph_engine.py        #   LangGraphVisualEngine（langgraph_visual）
 │   │   ├── code_engine.py         #   LangGraphCodeEngine（langgraph_code）
 │   │   ├── copilot_engine.py      #   CopilotEngine（build_copilot，内部）
@@ -474,7 +470,7 @@ app/
 │   │   └── context_event.py       #   ContextEventBridge
 │   ├── agent/                     # Agent 运行时（CLI 后端、基础工厂、记忆）
 │   │   ├── base_agent.py          #   get_agent() — 可复用 LangChain agent 工厂
-│   │   ├── cli_backends/          #   CLI agent 后端（claude_code、codex、openclaw）
+│   │   ├── cli_backends/          #   CLI agent 后端（claude_code、codex）
 │   │   ├── code_agent/            #   代码 agent 实现
 │   │   └── memory/                #   MemoryManager + 策略
 │   ├── copilot/                   # Copilot 服务实现
@@ -519,7 +515,6 @@ app/
 ├── skills/                       # 技能市场 + 创建器
 ├── tools/                        # 工具管理
 ├── memory/                       # 记忆管理
-├── openclaw/                     # OpenClaw 看板
 └── settings/                     # 模型、成员、沙箱、Token
 ```
 
@@ -533,7 +528,6 @@ BaseWsClient（抽象基类）
 │
 ├── ExecutionWsClient     /ws/executions
 ├── NotificationWsClient  /ws/notifications
-└── (OpenClaw 客户端)     /ws/openclaw/*
 ```
 
 前端 `ExecutionSubscriptionManager` 订阅执行 ID，将收到的事件分发到对应的 UI Store。

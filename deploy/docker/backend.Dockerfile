@@ -55,6 +55,6 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV UV_CACHE_DIR=/app/.cache/uv
 
-EXPOSE 8000
+EXPOSE 8000 8001 8002 9090
 
-CMD ["python", "-m", "gunicorn", "app.main:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--preload", "--timeout", "120"]
+CMD ["sh", "-c", "python -m gunicorn ${BACKEND_APP_MODULE:-app.joysafeter_api.main:app} -w ${WORKERS:-1} -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${BACKEND_PORT:-8000} --timeout 120"]

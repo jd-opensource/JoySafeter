@@ -15,11 +15,10 @@ import { STALE_TIME } from './constants'
 
 export const agentRunKeys = {
   all: ['agent-runs'] as const,
-  list: (filters?: { workspace_id?: string; release_id?: string; task_id?: string }) =>
+  list: (filters?: { release_id?: string; task_id?: string }) =>
     [
       ...agentRunKeys.all,
       'list',
-      filters?.workspace_id || '',
       filters?.release_id || '',
       filters?.task_id || '',
     ] as const,
@@ -32,7 +31,7 @@ export const agentRunKeys = {
 // ==================== Query Hooks ====================
 
 export function useAgentRuns(
-  filters?: { workspace_id?: string; release_id?: string; task_id?: string },
+  filters?: { release_id?: string; task_id?: string },
   options?: { enabled?: boolean },
 ) {
   return useQuery({

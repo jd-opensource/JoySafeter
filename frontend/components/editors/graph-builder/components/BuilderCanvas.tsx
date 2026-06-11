@@ -6,7 +6,7 @@ import ReactFlow, { Background, BackgroundVariant } from 'reactflow'
 
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
-import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
+import { useUserPermissionsContext } from '@/providers/permissions-provider'
 
 import { useGraphStore } from '../stores/graphStore'
 import { EdgeData } from '../types/graph'

@@ -32,7 +32,7 @@ import {
 } from '@/hooks/queries/agentPublish'
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
-import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
+import { useUserPermissionsContext } from '@/providers/permissions-provider'
 import type { AgentRelease } from '@/types/agent-release'
 import { canRetire, canRollback } from '@/types/agent-release'
 
@@ -231,7 +231,7 @@ function ReleaseRow({
   )
 }
 
-export function AgentReleaseStage({ agent, version, workspaceId }: StageProps) {
+export function AgentReleaseStage({ agent, version, projectId }: StageProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
   const { canAdmin } = useUserPermissionsContext()
@@ -247,7 +247,7 @@ export function AgentReleaseStage({ agent, version, workspaceId }: StageProps) {
   const unpublishAgent = useUnpublishAgent()
   const { data: releases = [], isLoading: isLoadingHistory } = useReleaseHistory(
     agent.id,
-    workspaceId,
+    projectId,
     { enabled: isPublished },
   )
 
@@ -267,7 +267,7 @@ export function AgentReleaseStage({ agent, version, workspaceId }: StageProps) {
 
   const handlePublish = () => {
     publishAgent.mutate(
-      { agentId: agent.id, workspaceId },
+      { agentId: agent.id, projectId: projectId },
       {
         onSuccess: () => {
           toast({
@@ -292,7 +292,7 @@ export function AgentReleaseStage({ agent, version, workspaceId }: StageProps) {
   }
 
   const handleUnpublish = () => {
-    unpublishAgent.mutate({ agentId: agent.id, workspaceId })
+    unpublishAgent.mutate({ agentId: agent.id, projectId: projectId })
   }
 
   return (
@@ -355,7 +355,7 @@ export function AgentReleaseStage({ agent, version, workspaceId }: StageProps) {
                         onRollback={(releaseId) => {
                           setPendingRollbackId(releaseId)
                           rollbackAgent.mutate(
-                            { agentId: agent.id, releaseId, workspaceId },
+                            { agentId: agent.id, releaseId, projectId: projectId },
                             { onSettled: () => setPendingRollbackId(null) },
                           )
                         }}
@@ -363,7 +363,7 @@ export function AgentReleaseStage({ agent, version, workspaceId }: StageProps) {
                         onRetire={(releaseId) => {
                           setPendingRetireId(releaseId)
                           retireRelease.mutate(
-                            { agentId: agent.id, releaseId, workspaceId },
+                            { agentId: agent.id, releaseId, projectId: projectId },
                             { onSettled: () => setPendingRetireId(null) },
                           )
                         }}

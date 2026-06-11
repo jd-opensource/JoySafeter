@@ -15,7 +15,6 @@ const ENGINE_KIND_LABELS: Record<string, { labelKey: string; defaultLabel: strin
   langgraph_code: { labelKey: 'agents.code.shortLabel', defaultLabel: 'Code' },
   claude_code: { labelKey: 'agents.claudeCode.shortLabel', defaultLabel: 'Claude Code' },
   codex: { labelKey: 'agents.codex.shortLabel', defaultLabel: 'Codex' },
-  openclaw: { labelKey: 'agents.openclaw.shortLabel', defaultLabel: 'OpenClaw' },
 }
 
 interface AgentCardProps {

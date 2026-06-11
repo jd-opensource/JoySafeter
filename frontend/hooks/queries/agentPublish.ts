@@ -8,19 +8,19 @@ import { STALE_TIME } from './constants'
 
 export const publishKeys = {
   all: (agentId: string) => [...agentKeys.all, 'releases', agentId] as const,
-  list: (agentId: string, workspaceId: string) =>
-    [...publishKeys.all(agentId), 'list', workspaceId] as const,
+  list: (agentId: string, projectId: string) =>
+    [...publishKeys.all(agentId), 'list', projectId] as const,
 }
 
 export function useReleaseHistory(
   agentId: string,
-  workspaceId: string,
+  projectId: string,
   options?: { enabled?: boolean },
 ) {
   return useQuery({
-    queryKey: publishKeys.list(agentId, workspaceId),
-    queryFn: () => agentPublishService.list(agentId, workspaceId),
-    enabled: !!agentId && !!workspaceId && options?.enabled !== false,
+    queryKey: publishKeys.list(agentId, projectId),
+    queryFn: () => agentPublishService.list(agentId),
+    enabled: !!agentId && !!projectId && options?.enabled !== false,
     staleTime: STALE_TIME.STANDARD,
   })
 }
@@ -28,11 +28,11 @@ export function useReleaseHistory(
 export function usePublishAgent() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ agentId, workspaceId }: { agentId: string; workspaceId: string }) =>
-      agentPublishService.publish(agentId, workspaceId),
-    onSuccess: (_, { agentId, workspaceId }) => {
+    mutationFn: ({ agentId }: { agentId: string; projectId: string }) =>
+      agentPublishService.publish(agentId),
+    onSuccess: (_, { agentId, projectId }) => {
       qc.invalidateQueries({ queryKey: publishKeys.all(agentId) })
-      qc.invalidateQueries({ queryKey: agentKeys.detail(agentId, workspaceId) })
+      qc.invalidateQueries({ queryKey: agentKeys.detail(agentId, projectId) })
     },
   })
 }
@@ -43,15 +43,14 @@ export function useRollbackAgent() {
     mutationFn: ({
       agentId,
       releaseId,
-      workspaceId,
     }: {
       agentId: string
       releaseId: string
-      workspaceId: string
-    }) => agentPublishService.rollback(agentId, releaseId, workspaceId),
-    onSuccess: (_, { agentId, workspaceId }) => {
+      projectId: string
+    }) => agentPublishService.rollback(agentId, releaseId),
+    onSuccess: (_, { agentId, projectId }) => {
       qc.invalidateQueries({ queryKey: publishKeys.all(agentId) })
-      qc.invalidateQueries({ queryKey: agentKeys.detail(agentId, workspaceId) })
+      qc.invalidateQueries({ queryKey: agentKeys.detail(agentId, projectId) })
     },
   })
 }
@@ -62,15 +61,14 @@ export function useRetireRelease() {
     mutationFn: ({
       agentId,
       releaseId,
-      workspaceId,
     }: {
       agentId: string
       releaseId: string
-      workspaceId: string
-    }) => agentPublishService.retire(agentId, releaseId, workspaceId),
-    onSuccess: (_, { agentId, workspaceId }) => {
+      projectId: string
+    }) => agentPublishService.retire(agentId, releaseId),
+    onSuccess: (_, { agentId, projectId }) => {
       qc.invalidateQueries({ queryKey: publishKeys.all(agentId) })
-      qc.invalidateQueries({ queryKey: agentKeys.detail(agentId, workspaceId) })
+      qc.invalidateQueries({ queryKey: agentKeys.detail(agentId, projectId) })
     },
   })
 }
@@ -78,11 +76,11 @@ export function useRetireRelease() {
 export function useUnpublishAgent() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ agentId, workspaceId }: { agentId: string; workspaceId: string }) =>
-      agentPublishService.unpublish(agentId, workspaceId),
-    onSuccess: (_, { agentId, workspaceId }) => {
+    mutationFn: ({ agentId }: { agentId: string; projectId: string }) =>
+      agentPublishService.unpublish(agentId),
+    onSuccess: (_, { agentId, projectId }) => {
       qc.invalidateQueries({ queryKey: publishKeys.all(agentId) })
-      qc.invalidateQueries({ queryKey: agentKeys.detail(agentId, workspaceId) })
+      qc.invalidateQueries({ queryKey: agentKeys.detail(agentId, projectId) })
     },
   })
 }

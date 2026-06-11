@@ -27,6 +27,7 @@ import { createLogger } from '@/lib/logs/console/logger'
 import { cn } from '@/lib/utils'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
 import { quickValidateEmail } from '@/services/email/validation'
+import { useProjectStore } from '@/stores/managed/project-store'
 import { inter } from '@/styles/fonts/inter/inter'
 import { soehne } from '@/styles/fonts/soehne/soehne'
 
@@ -120,7 +121,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isButtonHovered, setIsButtonHovered] = useState(false)
 
-  const [callbackUrl, setCallbackUrl] = useState('/dashboard')
+  const [callbackUrl, setCallbackUrl] = useState('/managed/quickstart')
   const [isInviteFlow, setIsInviteFlow] = useState(false)
 
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false)
@@ -180,13 +181,13 @@ export default function LoginPage() {
 
   const handleForgotPassword = useCallback(async () => {
     if (!forgotPasswordEmail) {
-      toastError('Please enter your email address')
+      toastError(t('auth.emailRequired'))
       return
     }
 
     const emailValidation = quickValidateEmail(forgotPasswordEmail.trim().toLowerCase())
     if (!emailValidation.isValid) {
-      toastError('Please enter a valid email address')
+      toastError(t('auth.emailInvalid'))
       return
     }
 
@@ -199,7 +200,7 @@ export default function LoginPage() {
         redirectTo: `${getBaseUrl()}/reset-password`,
       })
 
-      toastSuccess('Password reset link sent to your email')
+      toastSuccess(t('auth.passwordResetLinkSent'))
 
       setTimeout(() => {
         setForgotPasswordOpen(false)
@@ -208,12 +209,12 @@ export default function LoginPage() {
     } catch (error) {
       logger.error('Error requesting password reset:', { error })
 
-      let errorMessage = 'Failed to request password reset'
+      let errorMessage = t('auth.passwordResetRequestFailed')
       if (error instanceof ApiError) {
         if (error.code === 'INVALID_EMAIL') {
-          errorMessage = 'Please enter a valid email address'
+          errorMessage = t('auth.emailInvalid')
         } else if (error.code === 'EMAIL_REQUIRED') {
-          errorMessage = 'Please enter your email address'
+          errorMessage = t('auth.emailRequired')
         } else {
           errorMessage = error.message
         }
@@ -225,7 +226,7 @@ export default function LoginPage() {
     } finally {
       setIsSubmittingReset(false)
     }
-  }, [forgotPasswordEmail])
+  }, [forgotPasswordEmail, t])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -257,7 +258,7 @@ export default function LoginPage() {
     }
 
     try {
-      const safeCallbackUrl = validateCallbackUrl(callbackUrl) ? callbackUrl : '/dashboard'
+      const safeCallbackUrl = validateCallbackUrl(callbackUrl) ? callbackUrl : '/managed/quickstart'
 
       logger.info('Attempting login with email:', email)
       const result = await client.signIn.email(
@@ -324,6 +325,7 @@ export default function LoginPage() {
       }
 
       logger.info('Login successful, result data:', result.data)
+      useProjectStore.getState().setContext('', '', [], [])
 
       // Check CSRF token (not HttpOnly, can be read)
       const csrfToken = document.cookie

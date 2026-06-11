@@ -13,6 +13,7 @@ import {
 import { useCallback, useMemo, useState } from 'react'
 
 import { useUpdateTask, useTaskTransitions } from '@/hooks/queries/tasks'
+import { useTranslation } from '@/lib/i18n'
 import { toastError } from '@/lib/utils/toast'
 import type { Task, TaskStatus } from '@/types/tasks'
 import {
@@ -26,15 +27,16 @@ import { TaskColumn } from './task-column'
 
 interface TaskBoardProps {
   tasks: Task[]
-  workspaceId: string
+  projectId: string
   agentsMap: Record<string, string>
   onSelectTask?: (id: string) => void
 }
 
-export function TaskBoard({ tasks, workspaceId, agentsMap, onSelectTask }: TaskBoardProps) {
+export function TaskBoard({ tasks, projectId, agentsMap, onSelectTask }: TaskBoardProps) {
+  const { t } = useTranslation()
   const [activeId, setActiveId] = useState<string | null>(null)
   const updateTask = useUpdateTask()
-  const { data: transitions } = useTaskTransitions(workspaceId)
+  const { data: transitions } = useTaskTransitions(projectId)
   const effectiveTransitions = transitions ?? DEFAULT_MANUAL_TRANSITIONS
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
@@ -127,12 +129,12 @@ export function TaskBoard({ tasks, workspaceId, agentsMap, onSelectTask }: TaskB
         const from = draggedTask.status
         const allowed = effectiveTransitions[from] ?? []
         if (!allowed.includes(targetStatus)) {
-          toastError(`Cannot move from ${from} to ${targetStatus}`)
+          toastError(t('tasks.invalidTransition', { from, to: targetStatus }))
           return
         }
         const toTerminal = (INACTIVE_TASK_STATUSES as readonly string[]).includes(targetStatus)
         if (draggedTask.current_execution_id && toTerminal) {
-          toastError('Cancel the running execution before moving to this status')
+          toastError(t('tasks.cancelRunningBeforeMove'))
           return
         }
       }
@@ -143,11 +145,11 @@ export function TaskBoard({ tasks, workspaceId, agentsMap, onSelectTask }: TaskB
 
       updateTask.mutate({
         taskId: draggedTask.id,
-        workspaceId,
+        projectId,
         ...updates,
       })
     },
-    [tasks, grouped, workspaceId, updateTask, effectiveTransitions],
+    [tasks, grouped, projectId, updateTask, effectiveTransitions, t],
   )
 
   return (

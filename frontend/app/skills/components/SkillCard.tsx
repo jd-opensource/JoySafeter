@@ -24,19 +24,15 @@ interface SkillCardProps {
 }
 
 // Format relative time
-function formatRelativeTime(dateString: string): string {
-  const date = new Date(dateString)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
-
-  if (diffMins < 1) return 'Just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  if (diffHours < 24) return `${diffHours}h ago`
-  if (diffDays < 30) return `${diffDays}d ago`
-  return date.toLocaleDateString()
+function formatRelativeTime(dateString: string, lang?: string): string {
+  const locale = lang?.startsWith('zh') ? 'zh-CN' : 'en-US'
+  return new Date(dateString).toLocaleString(locale, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 export function SkillCard({
@@ -46,7 +42,7 @@ export function SkillCard({
   isOwner = false,
   variant = 'grid',
 }: SkillCardProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const fileCount = skill.files?.length || 0
 
   if (variant === 'list') {
@@ -111,7 +107,7 @@ export function SkillCard({
                 </span>
                 <span className="flex items-center gap-1">
                   <Clock size={10} />
-                  {formatRelativeTime(skill.updated_at)}
+                  {formatRelativeTime(skill.updated_at, i18n.language)}
                 </span>
               </div>
             </div>
@@ -259,7 +255,7 @@ export function SkillCard({
           </div>
           <div className="flex items-center gap-1">
             <Clock size={10} />
-            <span>{formatRelativeTime(skill.updated_at)}</span>
+            <span>{formatRelativeTime(skill.updated_at, i18n.language)}</span>
           </div>
         </div>
       </div>

@@ -3,6 +3,59 @@
 @tailwind utilities;
 
 /**
+ * JoySafeter sidebar theme override
+ * Forces the sidebar to use JoySafeter's exact color tokens and font
+ */
+.joysafeter-sidebar,
+.joysafeter-sidebar * {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  -webkit-font-smoothing: auto !important;
+  -moz-osx-font-smoothing: auto !important;
+}
+
+.joysafeter-sidebar {
+  --foreground: 240 10% 3.9% !important;
+  --card: 0 0% 100% !important;
+  --card-foreground: 240 10% 3.9% !important;
+  --muted: 240 4.8% 95.9% !important;
+  --muted-foreground: 240 3.8% 46.1% !important;
+  --accent: 240 4.8% 95.9% !important;
+  --accent-foreground: 240 5.9% 10% !important;
+  --border: 240 5.9% 90% !important;
+  --primary: 221 83% 53% !important;
+  --primary-foreground: 0 0% 100% !important;
+  --background: 0 0% 100% !important;
+}
+
+.joysafeter-sidebar,
+.joysafeter-sidebar *,
+.joysafeter-sidebar *::before,
+.joysafeter-sidebar *::after {
+  border-color: hsl(240 5.9% 90%) !important;
+}
+
+.joysafeter-sidebar .overflow-y-auto {
+  scrollbar-width: none;
+}
+.joysafeter-sidebar .overflow-y-auto::-webkit-scrollbar {
+  display: none;
+}
+
+.dark .joysafeter-sidebar {
+  --foreground: 0 0% 98% !important;
+  --card: 240 10% 5% !important;
+  --card-foreground: 0 0% 98% !important;
+  --muted: 240 3.7% 15.9% !important;
+  --muted-foreground: 240 5% 64.9% !important;
+  --accent: 240 3.7% 15.9% !important;
+  --accent-foreground: 0 0% 98% !important;
+  --border: 240 3.7% 15.9% !important;
+  --primary: 217 91% 60% !important;
+  --primary-foreground: 0 0% 100% !important;
+  --background: 240 10% 3.9% !important;
+}
+
+/**
  * CSS-based layout dimensions
  */
 :root {
@@ -44,13 +97,13 @@
   :root,
   .light {
     /* Surfaces */
-    --bg: #f4f5f7;
-    --surface-1: #f4f5f7;
+    --bg: #ffffff;
+    --surface-1: #ffffff;
     --surface-2: #fafbfc;
-    --surface-3: #eef0f2;
+    --surface-3: #f4f5f7;
     --surface-5: #e2e4e8;
     --surface-muted: #c6c9cf;
-    --surface-elevated: #fafbfc;
+    --surface-elevated: #ffffff;
 
     /* Text */
     --text-primary: #1c1917;
@@ -116,24 +169,24 @@
     --radius: 0.5rem;
 
     /* shadcn/ui compatibility (HSL) — do not mix with hex tokens above */
-    --background: 220 16% 96%;
+    --background: 0 0% 100%;
     --foreground: 20 14.3% 4.1%;
-    --card: 220 16% 97%;
+    --card: 0 0% 100%;
     --card-foreground: 20 14.3% 4.1%;
-    --popover: 220 16% 97%;
+    --popover: 0 0% 100%;
     --popover-foreground: 20 14.3% 4.1%;
-    --primary: 262 83% 58%;
-    --primary-foreground: 60 9.1% 97.8%;
-    --secondary: 220 13% 91%;
+    --primary: 240 10% 3.9%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 4.8% 95.9%;
     --secondary-foreground: 24 9.8% 10%;
-    --muted: 220 13% 91%;
+    --muted: 240 4.8% 95.9%;
     --muted-foreground: 25 5.3% 44.7%;
-    --accent: 220 13% 91%;
+    --accent: 240 4.8% 95.9%;
     --accent-foreground: 24 9.8% 10%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 60 9.1% 97.8%;
-    --input: 220 13% 91%;
-    --ring: 262 83% 58%;
+    --input: 240 5.9% 90%;
+    --ring: 221 83% 53%;
   }
 
   .dark {
@@ -215,8 +268,8 @@
     --card-foreground: 210 20% 92%;
     --popover: 210 22% 12%;
     --popover-foreground: 210 20% 92%;
-    --primary: 199 89% 48%;
-    --primary-foreground: 210 25% 8%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 10% 3.9%;
     --secondary: 210 18% 18%;
     --secondary-foreground: 210 20% 92%;
     --muted: 210 18% 18%;

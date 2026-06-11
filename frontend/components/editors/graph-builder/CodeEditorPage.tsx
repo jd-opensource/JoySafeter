@@ -20,10 +20,10 @@ import { useAgent } from '@/hooks/queries/agents'
 
 interface Props {
   graphId: string
-  workspaceId: string
+  projectId: string
 }
 
-export function CodeEditorPage({ graphId, workspaceId }: Props) {
+export function CodeEditorPage({ graphId, projectId }: Props) {
   const { t } = useTranslation()
   const { toast } = useToast()
   const queryClient = useQueryClient()
@@ -36,7 +36,7 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
   const versionId = useCodeEditorStore((s) => s.versionId)
 
   const publishAgent = usePublishAgent()
-  const { data: agent } = useAgent(graphId, workspaceId)
+  const { data: agent } = useAgent(graphId, projectId)
 
   const isExecuting = useExecutionStore((s) => s.isExecuting)
   const showExecutionPanel = useExecutionStore((s) => s.showPanel)
@@ -63,10 +63,10 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
     if (publishAgent.isPending || !graphId) return
     if (isDirty) await save()
     publishAgent.mutate(
-      { agentId: graphId, workspaceId },
+      { agentId: graphId, projectId },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: versionKeys.all(graphId, workspaceId) })
+          queryClient.invalidateQueries({ queryKey: versionKeys.all(graphId, projectId) })
           toast({ title: t('workspace.deploySuccess'), variant: 'success' })
         },
         onError: (error) => {
@@ -175,7 +175,7 @@ export function CodeEditorPage({ graphId, workspaceId }: Props) {
       />
 
       {showExecutionPanel && (
-        <DebugPanel agentId={graphId} agentVersionId={versionId ?? ''} workspaceId={workspaceId} />
+        <DebugPanel agentId={graphId} agentVersionId={versionId ?? ''} projectId={projectId} />
       )}
     </div>
   )

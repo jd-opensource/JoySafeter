@@ -3,7 +3,6 @@ export const ENGINE_KINDS = [
   'langgraph_code',
   'claude_code',
   'codex',
-  'openclaw',
 ] as const
 
 export type EngineKind = (typeof ENGINE_KINDS)[number]
@@ -18,7 +17,7 @@ export function hasBuilderSupport(kind?: string): boolean {
 
 export interface Agent {
   id: string
-  workspace_id: string
+  project_id?: string
   name: string
   slug: string
   description: string | null

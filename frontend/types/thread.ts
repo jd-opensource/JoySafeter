@@ -1,7 +1,7 @@
 export interface Thread {
   id: string
   agent_id: string
-  workspace_id: string
+  project_id?: string
   title: string | null
   status: 'active' | 'archived'
   created_by: string

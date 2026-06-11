@@ -16,7 +16,7 @@ cd deploy
 # 构建前后端镜像（默认：linux/amd64,linux/arm64）
 ./deploy.sh build
 
-# 构建所有镜像（包括 backend, frontend, openclaw）
+# 构建所有镜像（包括 backend, frontend）
 # 注意：MCP 服务镜像使用预构建镜像 docker.io/jdopensource/joysafeter-mcp:latest
 ./deploy.sh build --all
 
@@ -38,10 +38,7 @@ cd deploy
 # 只构建前端镜像
 ./deploy.sh build --frontend-only
 
-# 只构建 OpenClaw 镜像
-./deploy.sh build --openclaw-only
-
-# 构建所有镜像 (包含 backend, frontend, openclaw)
+# 构建所有镜像 (包含 backend, frontend)
 ./deploy.sh build --all
 
 # 禁用 Docker 构建缓存
@@ -79,7 +76,6 @@ cd deploy
 export DOCKER_REGISTRY="your-registry.com/namespace"
 export BACKEND_IMAGE="agent-platform-backend"
 export FRONTEND_IMAGE="agent-platform-frontend"
-export OPENCLAW_IMAGE="joysafeter-openclaw"
 export IMAGE_TAG="v1.0.0"
 
 # 构建平台配置

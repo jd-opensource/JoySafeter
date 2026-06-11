@@ -50,7 +50,7 @@ export interface RouteDecision {
 export interface StartDraftExecutionInput {
   agentId: string
   versionId: string
-  workspaceId: string
+  projectId: string
   input: string
   threadId: string
 }

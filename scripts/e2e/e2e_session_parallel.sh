@@ -20,7 +20,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 NUM_SESSIONS="${1:-3}"
-BASE_URL="${2:-${CONDUCTOR_URL:-http://localhost:8080}}"
+BASE_URL="${2:-${JOYSAFETER_URL:-http://localhost:8080}}"
 SECRET_REF="${3:-}"
 ENV_REF="${4:-unrestricted_env}"
 
@@ -198,7 +198,7 @@ print(reply)
 echo -e "${BOLD}[0]${NC} Health check"
 HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' "$API/health/live" 2>/dev/null || echo "000")
 if [ "$HTTP_CODE" = "200" ]; then
-    echo -e "  ${GREEN}✓${NC} Conductor reachable"
+    echo -e "  ${GREEN}✓${NC} JoySafeter reachable"
 else
     echo -e "  ${RED}✗${NC} Cannot reach $API/health/live ($HTTP_CODE)"
     exit 1

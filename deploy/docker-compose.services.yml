@@ -1,0 +1,126 @@
+# Optional three-service backend split. Use together with docker-compose.yml:
+# docker compose -f docker-compose.yml -f docker-compose.services.yml up -d backend runner worker frontend
+
+services:
+  backend:
+    container_name: joysafeter-api
+    environment:
+      - JOYSAFETER_SERVICE_ROLE=api
+      - BACKEND_APP_MODULE=app.joysafeter_api.main:app
+      - WORKERS=${API_WORKERS:-1}
+    ports:
+      - "${BACKEND_PORT_HOST:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
+
+  runner:
+    image: ${DOCKER_REGISTRY:-docker.io/jdopensource}/${BACKEND_IMAGE:-joysafeter-backend}:${IMAGE_TAG:-latest}
+    build:
+      context: ../backend
+      dockerfile: ../deploy/docker/backend.Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
+        UV_INDEX_URL: ${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
+        GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-unknown}
+    container_name: joysafeter-runner
+    restart: unless-stopped
+    env_file:
+      - ../backend/.env
+      - ../frontend/.env
+    environment:
+      - JOYSAFETER_SERVICE_ROLE=runner
+      - BACKEND_APP_MODULE=app.joysafeter_orchestrator.main:app
+      - BACKEND_PORT=8001
+      - RUNNER_HTTP_HOST=0.0.0.0
+      - WORKERS=1
+      - JOYSAFETER_INSTANCE_ID=${JOYSAFETER_INSTANCE_ID:-runner-001}
+      - JOYSAFETER_GRPC_HOST=0.0.0.0
+      - JOYSAFETER_GRPC_PORT=${JOYSAFETER_GRPC_PORT:-9090}
+      - JOYSAFETER_EVENT_STREAM_ENABLED=${JOYSAFETER_EVENT_STREAM_ENABLED:-true}
+      - JOYSAFETER_EVENT_STREAM_KEY=${JOYSAFETER_EVENT_STREAM_KEY:-joysafeter:orchestrator:events}
+      - JOYSAFETER_EVENT_STREAM_GROUP=${JOYSAFETER_EVENT_STREAM_GROUP:-joysafeter-orchestrator-event-workers}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-joysafeter}
+      - POSTGRES_HOST=${POSTGRES_HOST:-db}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+    ports:
+      - "${RUNNER_HEALTH_BIND_HOST:-127.0.0.1}:${RUNNER_HEALTH_PORT_HOST:-8001}:8001"
+      - "${JOYSAFETER_GRPC_PORT_HOST:-9090}:9090"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - backend-logs:/app/app/logs
+      - backend-files:/app/data/files
+      - ../skills:/app/skills
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DOCKER_BIN_PATH:-/usr/bin/docker}:/usr/bin/docker
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
+    networks:
+      - joysafeter-network
+
+  worker:
+    image: ${DOCKER_REGISTRY:-docker.io/jdopensource}/${BACKEND_IMAGE:-joysafeter-backend}:${IMAGE_TAG:-latest}
+    build:
+      context: ../backend
+      dockerfile: ../deploy/docker/backend.Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
+        UV_INDEX_URL: ${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
+        GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-unknown}
+    container_name: joysafeter-worker
+    restart: unless-stopped
+    env_file:
+      - ../backend/.env
+      - ../frontend/.env
+    environment:
+      - JOYSAFETER_SERVICE_ROLE=worker
+      - BACKEND_APP_MODULE=app.joysafeter_worker.main:app
+      - BACKEND_PORT=8002
+      - WORKER_HTTP_HOST=0.0.0.0
+      - WORKERS=1
+      - JOYSAFETER_EVENT_STREAM_ENABLED=${JOYSAFETER_EVENT_STREAM_ENABLED:-true}
+      - JOYSAFETER_EVENT_STREAM_KEY=${JOYSAFETER_EVENT_STREAM_KEY:-joysafeter:orchestrator:events}
+      - JOYSAFETER_EVENT_STREAM_GROUP=${JOYSAFETER_EVENT_STREAM_GROUP:-joysafeter-orchestrator-event-workers}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-joysafeter}
+      - POSTGRES_HOST=${POSTGRES_HOST:-db}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+    ports:
+      - "${WORKER_HEALTH_BIND_HOST:-127.0.0.1}:${WORKER_HEALTH_PORT_HOST:-8002}:8002"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - backend-logs:/app/app/logs
+      - backend-files:/app/data/files
+      - ../skills:/app/skills
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DOCKER_BIN_PATH:-/usr/bin/docker}:/usr/bin/docker
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
+    networks:
+      - joysafeter-network

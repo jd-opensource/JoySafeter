@@ -13,6 +13,7 @@
 
 import { create } from 'zustand'
 
+import { i18n } from '@/lib/i18n'
 import { getExecutionWsClient } from '@/lib/ws/executions/executionWsClient'
 import type {
   ExecutionEventFrame,
@@ -422,11 +423,11 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
 
       const builderState = useGraphStore.getState()
       const agentId = draftInput?.agentId ?? builderState.agentId
-      const workspaceId = draftInput?.workspaceId ?? builderState.workspaceId
+      const projectId = draftInput?.projectId ?? builderState.projectId
 
-      if (!agentId || !workspaceId) {
+      if (!agentId || !projectId) {
         throw new Error(
-          'agentId and workspaceId are required to start execution. Legacy workspace route is no longer supported.',
+          'agentId and projectId are required to start execution.',
         )
       }
 
@@ -679,11 +680,11 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
                 agentId,
                 versionId: draftInput.versionId,
                 prompt: input,
-                workspaceId,
+                projectId,
                 threadId: draftInput.threadId,
               })
             : await (async () => {
-                const agent = await globalAgentService.get(agentId, workspaceId)
+                const agent = await globalAgentService.get(agentId)
                 const releaseId = agent.active_release_id
                 if (!releaseId) {
                   throw new Error('Agent has no active release. Please publish the agent first.')
@@ -695,13 +696,12 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
                 const thread = await threadService.create({
                   agent_id: agentId,
                   title: `Run – ${new Date().toLocaleString()}`,
-                  workspace_id: workspaceId,
                 })
 
                 return executionAdapter.startRun({
                   releaseId,
                   prompt: input,
-                  workspaceId,
+                  projectId,
                   threadId: thread.id,
                 })
               })()
@@ -891,10 +891,10 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
             nodeId: 'system',
             nodeLabel: 'System',
             stepType: 'system_log',
-            title: 'Cancel Failed',
+            title: i18n.t('workspace.cancelExecutionFailedTitle'),
             status: 'error',
             startTime: Date.now(),
-            content: 'Failed to cancel execution on server. It may still be running.',
+            content: i18n.t('workspace.cancelExecutionFailedMessage'),
           })
         }
         setRunId(currentGraphId, null)

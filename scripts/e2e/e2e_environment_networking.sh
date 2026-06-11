@@ -10,8 +10,8 @@
 #
 # Prerequisites:
 #   - Docker daemon running
-#   - conductor-net Docker network exists
-#   - conductor/shim-claude:latest image available
+#   - joysafeter-net Docker network exists
+#   - joysafeter-claudecode:latest image available
 #   - Envoy image available
 #
 # Usage:
@@ -22,15 +22,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/e2e_helpers.sh"
 
-SOCKET_VOLUME="conductor-e2e-net-sockets"
-CONFIG_DIR="/tmp/conductor-e2e-net-config"
+SOCKET_VOLUME="joysafeter-e2e-net-sockets"
+CONFIG_DIR="/tmp/joysafeter-e2e-net-config"
 SANDBOX_ID="e2e-net-sandbox"
-ENVOY_CONTAINER="conductor-e2e-net-envoy"
-TEST_CONTAINER="conductor-e2e-net-test"
-ENV_IMAGE="conductor/e2e-net-test:v1"
-NETWORK="conductor-net"
+ENVOY_CONTAINER="joysafeter-e2e-net-envoy"
+TEST_CONTAINER="joysafeter-e2e-net-test"
+ENV_IMAGE="joysafeter/e2e-net-test:v1"
+NETWORK="joysafeter-net"
 ENVOY_IMAGE="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/envoyproxy/envoy:v1.35.3-linuxarm64"
-BASE_IMAGE="conductor/shim-claude:latest"
+BASE_IMAGE="joysafeter-claudecode:latest"
 
 cleanup() {
     echo ""
@@ -64,7 +64,7 @@ echo ""
 echo ">>> Step 1: Build environment image with packages"
 
 DOCKERFILE=$(cat << 'EOF'
-FROM conductor/shim-claude:latest
+FROM joysafeter-claudecode:latest
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends jq && rm -rf /var/lib/apt/lists/*
 USER agent
@@ -128,8 +128,8 @@ docker run --rm \
 
 cat > "$CONFIG_DIR/bootstrap.yaml" << 'EOF'
 node:
-  cluster: conductor-proxy
-  id: conductor-e2e-envoy
+  cluster: joysafeter-proxy
+  id: joysafeter-e2e-envoy
 
 dynamic_resources:
   lds_config:

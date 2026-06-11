@@ -25,7 +25,7 @@ export type { AvailableModel }
 
 export const modelService = {
   /**
-   * Get available model list (global, not workspace-specific)
+   * Get available model list (global, not project-specific)
    */
   async getAvailableModels(modelType: string = 'chat'): Promise<AvailableModel[]> {
     try {
@@ -39,7 +39,7 @@ export const modelService = {
   },
 
   /**
-   * Test model output (global, not workspace-specific)
+   * Test model output (global, not project-specific)
    */
   async testModelOutput(modelName: string, input: string): Promise<string> {
     try {

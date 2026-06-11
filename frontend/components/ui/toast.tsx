@@ -17,7 +17,7 @@ const ToastViewport = React.forwardRef<
     ref={ref}
     className={cn(
       // Display centered at top, better user experience
-      'fixed left-1/2 top-0 z-top flex max-h-screen w-full -translate-x-1/2 flex-col gap-2 p-4 sm:max-w-[420px]',
+      'fixed left-1/2 top-0 z-top flex max-h-screen w-full -translate-x-1/2 flex-col gap-2 p-4 sm:max-w-[640px]',
       className,
     )}
     {...props}
@@ -32,7 +32,7 @@ const toastVariants = cva(
       variant: {
         default: 'border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--text-primary)]',
         destructive:
-          'destructive group border-[var(--status-error)] bg-[var(--status-error-bg)] text-[var(--text-primary)] dark:border-[var(--status-error)] dark:bg-[var(--status-error-bg)] dark:text-[var(--text-primary)]',
+          'destructive group border-[var(--status-error)] bg-[var(--status-error-bg)] text-[var(--text-primary)] shadow-xl dark:border-[var(--status-error)] dark:bg-[var(--status-error-bg)] dark:text-[var(--text-primary)]',
         success:
           'border-[var(--status-success)] bg-[var(--status-success-bg)] text-[var(--text-primary)] dark:border-[var(--status-success)] dark:bg-[var(--status-success-bg)] dark:text-[var(--text-primary)]',
         warning:

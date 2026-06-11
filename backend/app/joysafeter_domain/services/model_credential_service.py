@@ -1,0 +1,238 @@
+"""
+Model credential service.
+
+Simplified principle: one credential per provider, looked up by provider_id.
+"""
+
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError
+from app.joysafeter_shared.model import validate_provider_credentials
+from app.joysafeter_shared.model.utils import decrypt_credentials, encrypt_credentials
+from app.joysafeter_domain.repositories.model_credential import ModelCredentialRepository
+from app.joysafeter_domain.repositories.model_provider import ModelProviderRepository
+
+from .base import BaseService
+
+
+class ModelCredentialService(BaseService):
+    """Model credential service."""
+
+    def __init__(self, db: AsyncSession):
+        super().__init__(db)
+        self.repo = ModelCredentialRepository(db)
+        self.provider_repo = ModelProviderRepository(db)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    async def _upsert_credential(
+        self,
+        provider_id: uuid.UUID,
+        encrypted: str,
+        is_valid: bool,
+        validation_error: Optional[str],
+        user_id: Optional[str] = None,
+    ) -> Any:
+        """Upsert one credential per provider. Update if exists, create otherwise."""
+        existing = await self.repo.get_by_provider(provider_id)
+        now = datetime.now(timezone.utc) if is_valid else None
+
+        if existing:
+            existing.credentials = encrypted
+            existing.is_valid = is_valid
+            existing.last_validated_at = now
+            existing.validation_error = validation_error
+            await self.db.flush()
+            await self.db.refresh(existing)
+            return existing
+
+        return await self.repo.create(
+            {
+                "user_id": user_id,
+                "workspace_id": None,
+                "provider_id": provider_id,
+                "credentials": encrypted,
+                "is_valid": is_valid,
+                "last_validated_at": now,
+                "validation_error": validation_error,
+            }
+        )
+
+    async def _validate_for_provider(
+        self, provider: Any, credentials: Dict[str, Any], provider_id: uuid.UUID
+    ) -> tuple[bool, Optional[str]]:
+        """Validate credentials. For custom providers, validate with the actual model name."""
+        implementation_name = provider.template_name or provider.name
+        model_name = None
+        if provider.provider_type == "custom":
+            from app.joysafeter_domain.repositories.model_instance import ModelInstanceRepository
+
+            instance_repo = ModelInstanceRepository(self.db)
+            instances = await instance_repo.list_by_provider(provider_id=provider_id)
+            model_name = instances[0].model_name if instances else None
+        return await validate_provider_credentials(implementation_name, credentials, model_name=model_name)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    async def upsert_credential(
+        self,
+        user_id: str,
+        provider_name: str,
+        credentials: Dict[str, Any],
+        validate: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Create or update credentials for a built-in provider.
+        One credential per provider, upsert by provider_id.
+        """
+        provider = await self.provider_repo.get_by_name(provider_name)
+        if not provider:
+            raise NotFoundError(
+                "Provider not found",
+                code="MODEL_PROVIDER_NOT_FOUND",
+                data={"provider_name": provider_name},
+            )
+
+        is_valid = False
+        validation_error = None
+        if validate:
+            is_valid, validation_error = await self._validate_for_provider(provider, credentials, provider.id)
+
+        encrypted = encrypt_credentials(credentials)
+        credential = await self._upsert_credential(
+            provider_id=provider.id,
+            encrypted=encrypted,
+            is_valid=is_valid,
+            validation_error=validation_error,
+            user_id=user_id,
+        )
+
+        # ensure model instances exist
+        from app.joysafeter_domain.services.model_provider_service import ModelProviderService
+
+        provider_service = ModelProviderService(self.db)
+        await provider_service._ensure_model_instances_for_provider(provider)
+
+        await self.commit()
+
+        return {
+            "id": str(credential.id),
+            "provider_name": provider.name,
+            "is_valid": credential.is_valid,
+            "last_validated_at": credential.last_validated_at,
+            "validation_error": credential.validation_error,
+        }
+
+    async def validate_credential(self, credential_id: uuid.UUID) -> Dict[str, Any]:
+        """Re-validate an existing credential. Look up by ID, decrypt, call API to validate."""
+        credential = await self.repo.get(credential_id, relations=["provider"])
+        if not credential:
+            raise NotFoundError(
+                "Credential not found",
+                code="MODEL_CREDENTIAL_NOT_FOUND",
+                data={"credential_id": str(credential_id)},
+            )
+        if not credential.provider:
+            raise NotFoundError(
+                "Credential's associated provider not found",
+                code="MODEL_PROVIDER_NOT_FOUND",
+                data={"credential_id": str(credential_id)},
+            )
+
+        decrypted = decrypt_credentials(credential.credentials)
+        is_valid, error = await self._validate_for_provider(credential.provider, decrypted, credential.provider_id)
+
+        credential.is_valid = is_valid
+        credential.last_validated_at = datetime.now(timezone.utc) if is_valid else None
+        credential.validation_error = error or ""
+        await self.commit()
+
+        return {
+            "is_valid": is_valid,
+            "error": error or "",
+            "last_validated_at": credential.last_validated_at,
+        }
+
+    async def get_credential(self, credential_id: uuid.UUID, include_credentials: bool = False) -> Dict[str, Any]:
+        """Get credential details."""
+        credential = await self.repo.get(credential_id, relations=["provider"])
+        if not credential:
+            raise NotFoundError(
+                "Credential not found",
+                code="MODEL_CREDENTIAL_NOT_FOUND",
+                data={"credential_id": str(credential_id)},
+            )
+
+        pname = credential.provider.name if credential.provider else ""
+        pdisplay = credential.provider.display_name if credential.provider else ""
+        result: Dict[str, Any] = {
+            "id": str(credential.id),
+            "provider_name": pname,
+            "provider_display_name": pdisplay,
+            "is_valid": credential.is_valid,
+            "last_validated_at": credential.last_validated_at,
+            "validation_error": credential.validation_error,
+        }
+        if include_credentials:
+            result["credentials"] = decrypt_credentials(credential.credentials)
+        return result
+
+    async def list_credentials(self) -> List[Dict[str, Any]]:
+        """Get credential list."""
+        credentials = await self.repo.list_all()
+        return [
+            {
+                "id": str(c.id),
+                "provider_name": c.provider.name if c.provider else "",
+                "provider_display_name": c.provider.display_name if c.provider else "",
+                "is_valid": c.is_valid,
+                "last_validated_at": c.last_validated_at,
+                "validation_error": c.validation_error,
+            }
+            for c in credentials
+        ]
+
+    async def delete_credential(self, credential_id: uuid.UUID) -> None:
+        """Delete a built-in provider's credential. Custom provider credentials cannot be deleted separately."""
+        credential = await self.repo.get(credential_id, relations=["provider"])
+        if not credential:
+            raise NotFoundError(
+                "Credential not found",
+                code="MODEL_CREDENTIAL_NOT_FOUND",
+                data={"credential_id": str(credential_id)},
+            )
+
+        if (
+            credential.provider
+            and credential.provider.provider_type == "custom"
+            and not credential.provider.is_template
+        ):
+            raise InvalidRequestError(
+                f"Cannot delete credentials for custom provider separately. Use DELETE /model-providers/{credential.provider.name} to remove the entire provider.",
+                code="MODEL_CREDENTIAL_CUSTOM_DELETE_FORBIDDEN",
+                data={"provider_name": credential.provider.name},
+            )
+
+        await self.repo.delete(credential_id)
+        await self.commit()
+
+    async def get_decrypted_credentials(
+        self, provider_name: str, user_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Get decrypted credentials by provider_name."""
+        provider = await self.provider_repo.get_by_name(provider_name)
+        if not provider:
+            return None
+
+        credential = await self.repo.get_by_provider(provider.id)
+        if credential and credential.is_valid:
+            return decrypt_credentials(credential.credentials)
+        return None

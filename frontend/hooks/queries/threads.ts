@@ -15,30 +15,30 @@ import { STALE_TIME } from './constants'
 
 export const threadKeys = {
   all: ['threads'] as const,
-  list: (agentId: string, workspaceId: string) =>
-    [...threadKeys.all, 'list', agentId, workspaceId] as const,
-  detail: (threadId: string, workspaceId: string) =>
-    [...threadKeys.all, 'detail', threadId, workspaceId] as const,
+  list: (agentId: string, projectId: string) =>
+    [...threadKeys.all, 'list', agentId, projectId] as const,
+  detail: (threadId: string, projectId: string) =>
+    [...threadKeys.all, 'detail', threadId, projectId] as const,
 }
 
 // ==================== Query Hooks ====================
 
-export function useThreads(agentId: string, workspaceId: string, options?: { enabled?: boolean }) {
+export function useThreads(agentId: string, projectId: string, options?: { enabled?: boolean }) {
   return useQuery({
-    queryKey: threadKeys.list(agentId, workspaceId),
-    queryFn: () => threadService.list(agentId, workspaceId),
-    enabled: Boolean(agentId) && Boolean(workspaceId) && options?.enabled !== false,
+    queryKey: threadKeys.list(agentId, projectId),
+    queryFn: () => threadService.list(agentId),
+    enabled: Boolean(agentId) && Boolean(projectId) && options?.enabled !== false,
     staleTime: STALE_TIME.SHORT,
     refetchOnWindowFocus: true,
     placeholderData: keepPreviousData,
   })
 }
 
-export function useThread(threadId: string, workspaceId: string, options?: { enabled?: boolean }) {
+export function useThread(threadId: string, projectId: string, options?: { enabled?: boolean }) {
   return useQuery({
-    queryKey: threadKeys.detail(threadId, workspaceId),
-    queryFn: () => threadService.get(threadId, workspaceId),
-    enabled: Boolean(threadId) && Boolean(workspaceId) && options?.enabled !== false,
+    queryKey: threadKeys.detail(threadId, projectId),
+    queryFn: () => threadService.get(threadId),
+    enabled: Boolean(threadId) && Boolean(projectId) && options?.enabled !== false,
     staleTime: STALE_TIME.SHORT,
   })
 }
@@ -49,7 +49,7 @@ export function useCreateThread() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (data: CreateThreadRequest & { workspace_id: string }) =>
+    mutationFn: (data: CreateThreadRequest) =>
       threadService.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: threadKeys.all })
@@ -63,10 +63,9 @@ export function useUpdateThread() {
   return useMutation({
     mutationFn: ({
       threadId,
-      workspaceId,
       ...updates
-    }: UpdateThreadRequest & { threadId: string; workspaceId: string }) =>
-      threadService.update(threadId, workspaceId, updates),
+    }: UpdateThreadRequest & { threadId: string }) =>
+      threadService.update(threadId, updates),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: threadKeys.all })
     },
@@ -77,8 +76,8 @@ export function useArchiveThread() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ threadId, workspaceId }: { threadId: string; workspaceId: string }) =>
-      threadService.archive(threadId, workspaceId),
+    mutationFn: ({ threadId }: { threadId: string }) =>
+      threadService.archive(threadId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: threadKeys.all })
     },

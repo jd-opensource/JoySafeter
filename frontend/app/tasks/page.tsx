@@ -16,8 +16,8 @@ import { useAgentNameMap, useAgents } from '@/hooks/queries/agents'
 import { useTasks } from '@/hooks/queries/tasks'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import { useCurrentWorkspace } from '@/providers/workspace-provider'
-import { useUserPermissionsContext } from '@/providers/workspace-permissions-provider'
+import { useProjectContext } from '@/hooks/managed/use-project-context'
+import { useUserPermissionsContext } from '@/providers/permissions-provider'
 
 type ViewMode = 'board' | 'list'
 
@@ -56,12 +56,12 @@ export default function TasksPage() {
     [searchParams, router],
   )
 
-  const { workspaceId, isLoading: isWorkspacesLoading } = useCurrentWorkspace()
+  const { projectId, isLoading: isWorkspacesLoading } = useProjectContext()
   const { canEdit } = useUserPermissionsContext()
 
-  const { data: allTasks = [], isLoading: isTasksLoading } = useTasks(workspaceId)
-  const { data: agents = [] } = useAgents(workspaceId)
-  const agentsMap = useAgentNameMap(workspaceId)
+  const { data: allTasks = [], isLoading: isTasksLoading } = useTasks(projectId)
+  const { data: agents = [] } = useAgents(projectId)
+  const agentsMap = useAgentNameMap(projectId)
 
   const isLoading = isWorkspacesLoading || isTasksLoading
 
@@ -145,9 +145,9 @@ export default function TasksPage() {
               </button>
             </div>
 
-            {workspaceId && canEdit && (
+            {projectId && canEdit && (
               <TaskCreateDialog
-                workspaceId={workspaceId}
+                projectId={projectId}
                 trigger={
                   <Button size="sm">
                     <Plus className="mr-1 h-4 w-4" />
@@ -219,7 +219,7 @@ export default function TasksPage() {
               {viewMode === 'board' ? (
                 <TaskBoard
                   tasks={tasks}
-                  workspaceId={workspaceId}
+                  projectId={projectId}
                   agentsMap={agentsMap}
                   onSelectTask={setSelectedTaskId}
                 />
@@ -235,10 +235,10 @@ export default function TasksPage() {
         )}
       </div>
 
-      {selectedTaskId && workspaceId && (
+      {selectedTaskId && projectId && (
         <TaskDetailPanel
           taskId={selectedTaskId}
-          workspaceId={workspaceId}
+          projectId={projectId}
           onClose={() => setSelectedTaskId(null)}
         />
       )}

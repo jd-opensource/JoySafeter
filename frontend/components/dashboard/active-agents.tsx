@@ -10,12 +10,12 @@ import type { Agent } from '@/types/agent'
 import type { Task } from '@/types/tasks'
 
 interface ActiveAgentsProps {
-  workspaceId: string
+  projectId: string
   agents: Agent[]
   tasks: Task[]
 }
 
-export function ActiveAgents({ workspaceId, agents, tasks }: ActiveAgentsProps) {
+export function ActiveAgents({ projectId, agents, tasks }: ActiveAgentsProps) {
   const { t } = useTranslation()
   const router = useRouter()
 

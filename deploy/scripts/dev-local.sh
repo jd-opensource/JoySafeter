@@ -186,7 +186,7 @@ show_startup_info() {
     echo "   $PROJECT_ROOT/deploy/scripts/dev-frontend.sh"
     echo ""
     echo "或手动启动:"
-    echo "  后端: cd $BACKEND_DIR && uv venv && source .venv/bin/activate && uv sync && alembic upgrade head && uv run uvicorn app.main:app --reload --port $backend_port"
+    echo "  后端: cd $BACKEND_DIR && uv venv && source .venv/bin/activate && uv sync && alembic upgrade head && uv run uvicorn app.joysafeter_api.main:app --reload --port $backend_port"
     echo "  前端: cd $FRONTEND_DIR && bun install && bun run dev"
     echo ""
     echo "访问地址:"

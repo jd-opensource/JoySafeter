@@ -18,12 +18,12 @@ import { useArchiveThread, useCreateThread } from '@/hooks/queries/threads'
 interface DebugPanelProps {
   agentId: string
   agentVersionId: string
-  workspaceId: string
+  projectId: string
 }
 
 type PanelMode = 'idle' | 'live' | 'replay'
 
-function DebugPanelInner({ agentId, agentVersionId, workspaceId }: DebugPanelProps) {
+function DebugPanelInner({ agentId, agentVersionId, projectId }: DebugPanelProps) {
   const [executionId, setExecutionId] = useState<string | null>(null)
   const [runId, setRunId] = useState<string | null>(null)
   const [mode, setMode] = useState<PanelMode>('idle')
@@ -54,26 +54,25 @@ function DebugPanelInner({ agentId, agentVersionId, workspaceId }: DebugPanelPro
       .mutateAsync({
         agent_id: agentId,
         title: `Debug session – ${new Date().toLocaleString()}`,
-        workspace_id: workspaceId,
       })
       .then((thread) => setThreadId(thread.id))
       .catch((err) => console.error('DebugPanel: thread provisioning failed', err))
     // mutate* identities from useMutation are stable; we only need to react to
     // threadId flipping to null (new session) or inputs changing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threadId, agentId, workspaceId])
+  }, [threadId, agentId, projectId])
 
-  const tracesQueryKey = ['traces', agentVersionId, workspaceId, threadId] as const
+  const tracesQueryKey = ['traces', agentVersionId, projectId, threadId] as const
   const { data: traces = [] } = useQuery({
     queryKey: tracesQueryKey,
     queryFn: async () => {
       const sessionFilter = threadId ? `&session_id=${threadId}` : ''
       const data = await apiGet<Array<{ id: string; created_at: string }>>(
-        `/traces?workspace_id=${workspaceId}&agent_version_id=${agentVersionId}&page_size=20${sessionFilter}`,
+        `/traces?project_id=${projectId}&agent_version_id=${agentVersionId}&page_size=20${sessionFilter}`,
       )
       return data.map((t) => ({ id: t.id, createdAt: t.created_at }))
     },
-    enabled: !!agentVersionId && !!workspaceId && !!threadId,
+    enabled: !!agentVersionId && !!projectId && !!threadId,
   })
 
   const { data: replayObservations } = useQuery({
@@ -113,7 +112,7 @@ function DebugPanelInner({ agentId, agentVersionId, workspaceId }: DebugPanelPro
           agent_id: agentId,
           agent_version_id: agentVersionId,
           prompt,
-          workspace_id: workspaceId,
+          project_id: projectId,
           thread_id: threadId,
         })
         setExecutionId(data.execution_id)
@@ -129,7 +128,7 @@ function DebugPanelInner({ agentId, agentVersionId, workspaceId }: DebugPanelPro
         console.error('Debug start failed:', err)
       }
     },
-    [agentId, agentVersionId, workspaceId, threadId, dispatch, queryClient, tracesQueryKey],
+    [agentId, agentVersionId, projectId, threadId, dispatch, queryClient, tracesQueryKey],
   )
 
   const handleStop = useCallback(async () => {
@@ -148,7 +147,7 @@ function DebugPanelInner({ agentId, agentVersionId, workspaceId }: DebugPanelPro
 
   const handleNewSession = useCallback(() => {
     if (threadId) {
-      archiveThread.mutate({ threadId, workspaceId })
+      archiveThread.mutate({ threadId })
     }
     dispatch({ type: 'RESET' })
     setThreadId(null)
@@ -157,7 +156,7 @@ function DebugPanelInner({ agentId, agentVersionId, workspaceId }: DebugPanelPro
     setRunId(null)
     setMode('idle')
     setReplayTraceId(null)
-  }, [threadId, workspaceId, dispatch, archiveThread])
+  }, [threadId, dispatch, archiveThread])
 
   // traces come from the API in DESC order (newest first). Reverse inline —
   // ≤20 items per session, not worth a useMemo.

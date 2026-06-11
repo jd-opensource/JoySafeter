@@ -1,30 +1,17 @@
 'use client'
 
-import { Cpu, Users, Box, Key } from 'lucide-react'
+import { Cpu, Box, Key } from 'lucide-react'
 import Link from 'next/link'
-import { usePathname, useParams } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import { useCurrentWorkspace } from '@/providers/workspace-provider'
 
-/**
- * Global settings layout (e.g. /settings/models)
- */
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation()
   const pathname = usePathname()
-  const params = useParams()
-  const { workspaceId: currentWorkspaceId } = useCurrentWorkspace()
-  const workspaceId = (params?.workspaceId as string) || currentWorkspaceId
 
   const navItems = [
-    {
-      id: 'members',
-      label: t('settings.membersManagementTitle'),
-      icon: Users,
-      href: workspaceId ? `/settings/members/${workspaceId}` : '/settings/members',
-    },
     {
       id: 'models',
       label: t('settings.models'),

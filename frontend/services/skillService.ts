@@ -78,25 +78,26 @@ interface BackendSkill {
  * # Markdown content here
  */
 export function parseSkillMd(content: string): ParsedSkillMd {
+  const normalizedContent = content.replace(/^\uFEFF/, '')
   const defaultResult: ParsedSkillMd = {
     frontmatter: { name: '', description: '' },
-    body: content || '',
+    body: normalizedContent || '',
   }
 
-  if (!content) {
+  if (!normalizedContent) {
     return defaultResult
   }
 
   // Match YAML frontmatter: starts with ---, ends with ---
   const frontmatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n?/
-  const match = content.match(frontmatterRegex)
+  const match = normalizedContent.match(frontmatterRegex)
 
   if (!match) {
     return defaultResult
   }
 
   const yamlContent = match[1]
-  const body = content.slice(match[0].length)
+  const body = normalizedContent.slice(match[0].length)
 
   // Simple YAML parser for frontmatter (handles basic key: value pairs)
   const frontmatter: SkillFrontmatter = { name: '', description: '' }
@@ -654,10 +655,43 @@ export interface ValidationResult {
  * Extract relative path from webkitRelativePath (removes root folder name).
  * Used when importing from local directory via browser file picker.
  */
-function extractRelativePath(webkitRelativePath: string): string {
+export function extractRelativePath(webkitRelativePath: string): string {
   const parts = webkitRelativePath.split('/')
   // Remove the first part (root folder name) to get the relative path
   return parts.slice(1).join('/')
+}
+
+function findCommonSkillImportRoot(relativePaths: string[]): string {
+  if (relativePaths.some((path) => path === 'SKILL.md')) return ''
+
+  const firstSegments = relativePaths
+    .map((path) => path.split('/').filter(Boolean)[0])
+    .filter(Boolean)
+
+  if (firstSegments.length !== relativePaths.length) return ''
+
+  const commonRoot = firstSegments[0]
+  if (!commonRoot || firstSegments.some((segment) => segment !== commonRoot)) return ''
+
+  return relativePaths.some((path) => path === `${commonRoot}/SKILL.md`) ? commonRoot : ''
+}
+
+function normalizeImportedRelativePath(file: File, commonRoot = ''): string {
+  const relativePath = extractRelativePath(file.webkitRelativePath || file.name)
+  return commonRoot && relativePath.startsWith(`${commonRoot}/`)
+    ? relativePath.slice(commonRoot.length + 1)
+    : relativePath
+}
+
+function getCommonSkillImportRoot(files: File[]): string {
+  return findCommonSkillImportRoot(
+    files
+      .map((file) => extractRelativePath(file.webkitRelativePath || file.name))
+      .filter((path) => {
+        const filename = getFilenameFromPath(path) || path
+        return Boolean(path) && !isSystemFile(filename)
+      }),
+  )
 }
 
 /**
@@ -706,6 +740,7 @@ export function validateImportedFiles(files: File[]): ValidationResult {
   const errors: string[] = []
   const warnings: string[] = []
   const rejectedFiles: RejectedFile[] = []
+  const commonRoot = getCommonSkillImportRoot(files)
 
   if (files.length === 0) {
     errors.push('No files selected')
@@ -715,7 +750,7 @@ export function validateImportedFiles(files: File[]): ValidationResult {
   // Filter out system files first (they won't be counted in validation)
   const validFiles: File[] = []
   for (const file of files) {
-    const relativePath = extractRelativePath(file.webkitRelativePath || file.name)
+    const relativePath = normalizeImportedRelativePath(file, commonRoot)
     const filename = getFilenameFromPath(relativePath) || file.name
 
     // Skip system files silently (don't show to user)
@@ -731,14 +766,14 @@ export function validateImportedFiles(files: File[]): ValidationResult {
 
   // Check total size limit
   if (totalSize > COMPLIANCE_CONFIG.maxTotalSize) {
-    errors.push(
+    warnings.push(
       `Total size ${(totalSize / 1024 / 1024).toFixed(2)}MB exceeds limit of ${COMPLIANCE_CONFIG.maxTotalSize / 1024 / 1024}MB`,
     )
   }
 
   // Check for SKILL.md (only in valid files)
   const hasSkillMd = validFiles.some((f) => {
-    const relativePath = extractRelativePath(f.webkitRelativePath || f.name)
+    const relativePath = normalizeImportedRelativePath(f, commonRoot)
     return relativePath === 'SKILL.md'
   })
 
@@ -748,7 +783,7 @@ export function validateImportedFiles(files: File[]): ValidationResult {
 
   // Check individual files
   for (const file of validFiles) {
-    const relativePath = extractRelativePath(file.webkitRelativePath || file.name)
+    const relativePath = normalizeImportedRelativePath(file, commonRoot)
     const filename = getFilenameFromPath(relativePath) || file.name
     const ext = getFileExtension(filename)
 
@@ -757,7 +792,7 @@ export function validateImportedFiles(files: File[]): ValidationResult {
 
     // Check file size
     if (file.size > COMPLIANCE_CONFIG.maxFileSize) {
-      errors.push(
+      warnings.push(
         `File "${relativePath}" (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds max size of ${COMPLIANCE_CONFIG.maxFileSize / 1024 / 1024}MB`,
       )
     }
@@ -787,11 +822,11 @@ export function validateSkillMdContent(content: string): ValidationResult {
   const parsed = parseSkillMd(content)
 
   if (!parsed.frontmatter.name || parsed.frontmatter.name.trim() === '') {
-    errors.push('SKILL.md frontmatter is missing required "name" field')
+    warnings.push('SKILL.md frontmatter is missing optional "name" field; folder name will be used')
   }
 
   if (!parsed.frontmatter.description || parsed.frontmatter.description.trim() === '') {
-    errors.push('SKILL.md frontmatter is missing required "description" field')
+    warnings.push('SKILL.md frontmatter is missing optional "description" field')
   }
 
   if (!parsed.body || parsed.body.trim() === '') {
@@ -808,18 +843,19 @@ export function validateSkillMdContent(content: string): ValidationResult {
 /**
  * Process files from a local directory selection
  */
-export async function processLocalDirectoryFiles(fileList: FileList): Promise<{
+export async function processLocalDirectoryFiles(fileList: FileList | File[]): Promise<{
   files: File[]
   validation: ValidationResult
 }> {
   const files = Array.from(fileList)
+  const commonRoot = getCommonSkillImportRoot(files)
 
   // Initial file structure validation (this filters system files)
   const validation = validateImportedFiles(files)
 
   // Filter out system files from the files array
   const validFiles = files.filter((file) => {
-    const relativePath = extractRelativePath(file.webkitRelativePath || file.name)
+    const relativePath = normalizeImportedRelativePath(file, commonRoot)
     const filename = getFilenameFromPath(relativePath) || file.name
     return !isSystemFile(filename)
   })
@@ -827,7 +863,7 @@ export async function processLocalDirectoryFiles(fileList: FileList): Promise<{
   // Detect binary files early (for validation display)
   const rejectedFiles: RejectedFile[] = []
   for (const file of validFiles) {
-    const relativePath = extractRelativePath(file.webkitRelativePath || file.name)
+    const relativePath = normalizeImportedRelativePath(file, commonRoot)
 
     // Skip empty files
     if (file.size === 0) continue
@@ -859,7 +895,7 @@ export async function processLocalDirectoryFiles(fileList: FileList): Promise<{
 
   // Find and validate SKILL.md content (from valid files, excluding binary)
   const skillMdFile = validFiles.find((f) => {
-    const relativePath = extractRelativePath(f.webkitRelativePath || f.name)
+    const relativePath = normalizeImportedRelativePath(f, commonRoot)
     return relativePath === 'SKILL.md' && !rejectedFiles.some((rf) => rf.path === relativePath)
   })
 
@@ -915,9 +951,10 @@ export async function convertFilesToSkillFiles(
   const now = new Date().toISOString()
   const skillFiles: SkillFile[] = []
   const rejectedFiles: RejectedFile[] = []
+  const commonRoot = getCommonSkillImportRoot(files)
 
   for (const file of files) {
-    const relativePath = extractRelativePath(file.webkitRelativePath || file.name)
+    const relativePath = normalizeImportedRelativePath(file, commonRoot)
     const filename = getFilenameFromPath(relativePath) || file.name
     const ext = getFileExtension(filename)
 

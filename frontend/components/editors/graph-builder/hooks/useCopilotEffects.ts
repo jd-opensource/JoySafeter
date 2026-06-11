@@ -96,8 +96,8 @@ export function useCopilotEffects({
   useEffect(() => {
     if (state.currentRunId || refs.isCreatingSessionRef.current) return
 
-    const { agentId, workspaceId } = useGraphStore.getState()
-    if (!agentId || !workspaceId) return
+    const { agentId, projectId } = useGraphStore.getState()
+    if (!agentId || !projectId) return
 
     const timer = setTimeout(() => {
       if (lastRestoredSessionIdRef.current || !refs.isMountedRef.current) return
@@ -105,7 +105,6 @@ export function useCopilotEffects({
       agentRunService
         .list({
           agent_id: agentId,
-          workspace_id: workspaceId,
           trigger_medium: 'ui',
           run_purpose: 'internal_builder',
           status: 'running',
