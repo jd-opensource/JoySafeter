@@ -41,7 +41,7 @@ def fetch_webpage_content(url: str, timeout: float = 10.0) -> str:
 
     try:
         from app.joysafeter_shared.security.ssrf_guard import validate_url
-        validate_url(url, allow_http=True, context="fetch_webpage_content")
+        validate_url(url, context="fetch_webpage_content")
         response = httpx.get(url, headers=headers, timeout=timeout, follow_redirects=False)
         response.raise_for_status()
         return str(markdownify(response.text))

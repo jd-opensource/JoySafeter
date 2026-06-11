@@ -1032,7 +1032,7 @@ async def session_event_stream(
                 if await request.is_disconnected():
                     break
                 try:
-                    event = await asyncio.wait_for(q.get(), timeout=15)
+                    event = await asyncio.wait_for(q.get(), timeout=2)
                     event_seq = event.get("seq", 0)
                     if event_seq <= last_seq:
                         continue
@@ -1042,6 +1042,21 @@ async def session_event_stream(
                         event_id = f"evt_{event_id}"
                     yield f"id: {event_id}\ndata: {json.dumps(event)}\n\n"
                 except asyncio.TimeoutError:
+                    from app.joysafeter_shared.database import AsyncSessionLocal
+
+                    async with AsyncSessionLocal() as poll_db:
+                        poll_svc = SessionService(poll_db)
+                        events, _ = await poll_svc.list_events(session_id, 1000, last_seq)
+                        for ev in events:
+                            last_seq = max(last_seq, ev.seq)
+                            data_dict = {
+                                "id": f"evt_{ev.id}",
+                                "type": ev.event_type,
+                                "seq": ev.seq,
+                            }
+                            if isinstance(ev.payload, dict):
+                                data_dict.update(ev.payload)
+                            yield f"id: evt_{ev.id}\ndata: {json.dumps(data_dict)}\n\n"
                     yield ": heartbeat\n\n"
         finally:
             broadcaster.unsubscribe(session_id, q)
