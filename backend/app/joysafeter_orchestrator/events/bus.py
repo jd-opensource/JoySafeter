@@ -26,37 +26,49 @@ class JoySafeterEventBus:
         logger.info("Registered joysafeter event subscriber: %s", sub.name)
 
     async def publish(self, envelope: JoySafeterEventEnvelope) -> None:
-        for sub in self._persist_subs:
-            await sub.handle(envelope)
-
-        if self._broadcast_subs:
-            results = await asyncio.gather(
-                *(sub.handle(envelope) for sub in self._broadcast_subs),
-                return_exceptions=True,
-            )
-            for i, result in enumerate(results):
-                if isinstance(result, Exception):
-                    logger.warning(
-                        "JoySafeter broadcast subscriber %s failed: %s",
-                        self._broadcast_subs[i].name,
-                        result,
-                    )
-
-    async def publish_batch(self, envelopes: list[JoySafeterEventEnvelope]) -> None:
-        for envelope in envelopes:
+        # Run persist and broadcast CONCURRENTLY — not sequentially.
+        # Previously broadcast waited for persist (100ms+ DB batch delay per event).
+        # Now SSE gets events immediately while DB persist happens in parallel.
+        async def _persist():
             for sub in self._persist_subs:
                 await sub.handle(envelope)
 
-        if self._broadcast_subs:
-            tasks = []
+        tasks: list = [_persist()]
+        for sub in self._broadcast_subs:
+            tasks.append(sub.handle(envelope))
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                if i == 0:
+                    logger.warning("JoySafeter persist phase failed: %s", result)
+                else:
+                    sub_idx = i - 1
+                    if sub_idx < len(self._broadcast_subs):
+                        logger.warning(
+                            "JoySafeter broadcast subscriber %s failed: %s",
+                            self._broadcast_subs[sub_idx].name,
+                            result,
+                        )
+
+    async def publish_batch(self, envelopes: list[JoySafeterEventEnvelope]) -> None:
+        # Same optimization: persist and broadcast in parallel
+        async def _persist():
             for envelope in envelopes:
-                for sub in self._broadcast_subs:
-                    tasks.append(sub.handle(envelope))
-            if tasks:
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                for i, result in enumerate(results):
-                    if isinstance(result, Exception):
-                        sub_idx = i % len(self._broadcast_subs)
+                for sub in self._persist_subs:
+                    await sub.handle(envelope)
+
+        tasks: list = [_persist()]
+        for envelope in envelopes:
+            for sub in self._broadcast_subs:
+                tasks.append(sub.handle(envelope))
+
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for i, result in enumerate(results):
+                if isinstance(result, Exception) and i > 0:
+                    sub_idx = (i - 1) % max(len(self._broadcast_subs), 1)
+                    if sub_idx < len(self._broadcast_subs):
                         logger.warning(
                             "JoySafeter broadcast subscriber %s failed: %s",
                             self._broadcast_subs[sub_idx].name,
