@@ -11,7 +11,7 @@ import type { Secret } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { MODEL_OPTIONS } from '@/lib/managed/secret-keys'
+import { getDefaultSecretPairs, MODEL_OPTIONS, SECRET_PROTOCOL_OPTIONS, SECRET_PROVIDER_OPTIONS } from '@/lib/managed/secret-keys'
 import { SecretKeySelect } from '@/components/managed/shared'
 import {
   PageHeader,
@@ -64,6 +64,8 @@ export default function SecretListPage() {
   const [createdFilter, setCreatedFilter] = useState('all')
   const [showCreate, setShowCreate] = useState(false)
   const [newName, setNewName] = useState('')
+  const [newProvider, setNewProvider] = useState('anthropic')
+  const [newProtocol, setNewProtocol] = useState('anthropic')
   const [pairs, setPairs] = useState<KVPair[]>([{ key: '', value: '' }])
   const [creating, setCreating] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Secret | null>(null)
@@ -80,6 +82,18 @@ export default function SecretListPage() {
 
   const addPair = () => {
     setPairs((prev) => [...prev, { key: '', value: '' }])
+  }
+
+  const updateProvider = (provider: string) => {
+    const nextProtocol = provider === 'anthropic' ? 'anthropic' : provider === 'openai' ? 'openai_compatible' : 'custom'
+    setNewProvider(provider)
+    setNewProtocol(nextProtocol)
+    setPairs(getDefaultSecretPairs(provider, nextProtocol))
+  }
+
+  const updateProtocol = (protocol: string) => {
+    setNewProtocol(protocol)
+    setPairs(getDefaultSecretPairs(newProvider, protocol))
   }
 
   const validPairs = pairs.filter((p) => p.key.trim())
@@ -103,8 +117,10 @@ export default function SecretListPage() {
       for (const p of validPairs) {
         data[p.key.trim()] = p.value
       }
-      await managedPost('/secrets', { name: newName.trim(), data })
+      await managedPost('/secrets', { name: newName.trim(), provider: newProvider, protocol: newProtocol, data })
       setNewName('')
+      setNewProvider('anthropic')
+      setNewProtocol('anthropic')
       setPairs([{ key: '', value: '' }])
       setShowCreate(false)
       queryClient.invalidateQueries({ queryKey: ['secrets'] })
@@ -139,6 +155,16 @@ export default function SecretListPage() {
       render: (s) => (
         <span className="font-medium text-foreground">{s.name}</span>
       ),
+    },
+    {
+      key: 'provider',
+      header: t('managed.secrets.provider'),
+      render: (s) => <span className="text-xs uppercase text-muted-foreground">{s.provider || 'custom'}</span>,
+    },
+    {
+      key: 'protocol',
+      header: t('managed.secrets.protocol'),
+      render: (s) => <span className="text-xs text-muted-foreground">{s.protocol || 'custom'}</span>,
     },
     {
       key: 'created_at',
@@ -217,6 +243,34 @@ export default function SecretListPage() {
                 onChange={(e) => setNewName(e.target.value)}
                 autoFocus
               />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-sm font-medium">{t('managed.secrets.provider')}</label>
+                <Select value={newProvider} onValueChange={updateProvider}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SECRET_PROVIDER_OPTIONS.map((provider) => (
+                      <SelectItem key={provider.value} value={provider.value}>{provider.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium">{t('managed.secrets.protocol')}</label>
+                <Select value={newProtocol} onValueChange={updateProtocol}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SECRET_PROTOCOL_OPTIONS.map((protocol) => (
+                      <SelectItem key={protocol.value} value={protocol.value}>{protocol.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">

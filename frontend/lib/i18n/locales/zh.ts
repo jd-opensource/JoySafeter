@@ -3186,6 +3186,8 @@ const zh = {
         name: '名称',
         namePlaceholder: '例如 my-api-secret',
         createDesc: '创建一个包含键值对的新密钥。',
+        provider: '模型提供商',
+        protocol: '协议类型',
         dataLabel: '密钥数据',
         keyPlaceholder: '键',
         selectKey: '选择键',

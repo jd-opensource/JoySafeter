@@ -39,11 +39,13 @@ async def create_secret(
         event_type="secret.created",
         target_type="secret",
         target_id=str(secret.id),
-        details={"name": secret.name, "keys": sorted((secret.data or {}).keys())},
+        details={"name": secret.name, "provider": secret.provider, "protocol": secret.protocol, "keys": sorted((secret.data or {}).keys())},
     )
     return SecretResponse(
         id=f"secret_{secret.id}",
         name=secret.name,
+        provider=secret.provider,
+        protocol=secret.protocol,
         secret_data=secret.data or {},
         created_at=secret.created_at,
         updated_at=secret.updated_at,
@@ -63,6 +65,8 @@ async def list_secrets(
         SecretListItem(
             id=f"secret_{s.id}",
             name=s.name,
+            provider=s.provider,
+            protocol=s.protocol,
             keys=list(s.data.keys()) if s.data else [],
             created_at=s.created_at,
             updated_at=s.updated_at,
@@ -92,6 +96,8 @@ async def get_secret(
     return SecretResponse(
         id=f"secret_{secret.id}",
         name=secret.name,
+        provider=secret.provider,
+        protocol=secret.protocol,
         secret_data=secret.data or {},
         created_at=secret.created_at,
         updated_at=secret.updated_at,
@@ -120,11 +126,13 @@ async def update_secret(
         event_type="secret.updated",
         target_type="secret",
         target_id=str(secret.id),
-        details={"name": secret.name, "keys": sorted((secret.data or {}).keys())},
+        details={"name": secret.name, "provider": secret.provider, "protocol": secret.protocol, "keys": sorted((secret.data or {}).keys())},
     )
     return SecretResponse(
         id=f"secret_{secret.id}",
         name=secret.name,
+        provider=secret.provider,
+        protocol=secret.protocol,
         secret_data=secret.data or {},
         created_at=secret.created_at,
         updated_at=secret.updated_at,

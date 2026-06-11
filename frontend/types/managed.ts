@@ -296,7 +296,10 @@ export interface MemberRecord {
 export interface Secret {
   id: string;
   name: string;
+  provider?: string;
+  protocol?: string;
   data?: Record<string, string>;
+  keys?: string[];
   created_at: string;
   updated_at: string;
 }

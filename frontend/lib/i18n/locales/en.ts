@@ -2862,6 +2862,8 @@ const en = {
         name: 'Name',
         namePlaceholder: 'e.g. my-api-secret',
         createDesc: 'Create a new secret with key-value pairs.',
+        provider: 'Provider',
+        protocol: 'Protocol',
         dataLabel: 'Secret Data',
         keyPlaceholder: 'Key',
         selectKey: 'Select key',

@@ -191,9 +191,10 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     retry: shouldRetryManagedResourceError,
     refetchInterval: (query) => {
       const status = query.state.data?.status
-      // When SSE is connected, reduce session status polling (SSE delivers events in real-time)
-      if (status === 'running' || streamForced) return sseConnected ? 10000 : 2000
-      return false
+      // SSE connected → no polling needed (SSE pushes status change events)
+      if (sseConnected) return false
+      // SSE not connected (fallback) → poll to detect status changes
+      return (status === 'running' || streamForced) ? 2000 : false
     },
   })
 
@@ -273,6 +274,25 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const canSendMessage = isIdle && !isArchived && !isSending
   const { events: streamEvents, connected: sseConnected } = useSessionStream(stripIdPrefix(id || ''), !!id)
   const wasRunningRef = useRef(false)
+
+  // Update session status from SSE events (no polling needed when SSE is connected)
+  useEffect(() => {
+    if (!sseConnected || streamEvents.length === 0) return
+    const statusEvents = streamEvents.filter((e) => {
+      const t = e.type || e.event_type || ''
+      return t.startsWith('session.status_')
+    })
+    if (statusEvents.length === 0) return
+    const latest = statusEvents[statusEvents.length - 1]
+    const eventType = latest.type || latest.event_type || ''
+    const newStatus = eventType.replace('session.status_', '')
+    if (newStatus && session && session.status !== newStatus) {
+      queryClient.setQueryData(['session', id], (old: Session | undefined) => {
+        if (!old) return old
+        return { ...old, status: newStatus, stop_reason: latest.stop_reason || old.stop_reason }
+      })
+    }
+  }, [streamEvents, sseConnected, session, id, queryClient])
 
   useEffect(() => {
     if (isRunning) wasRunningRef.current = true

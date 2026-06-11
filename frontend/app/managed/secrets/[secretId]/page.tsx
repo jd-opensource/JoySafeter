@@ -12,11 +12,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PageHeader, MonoId, RelativeTime, ResourceErrorState, SecretKeySelect } from '@/components/managed/shared'
-import { MODEL_OPTIONS } from '@/lib/managed/secret-keys'
+import { getDefaultSecretPairs, MODEL_OPTIONS, SECRET_PROTOCOL_OPTIONS, SECRET_PROVIDER_OPTIONS } from '@/lib/managed/secret-keys'
 
 interface SecretDetail {
   id: string
   name: string
+  provider: string
+  protocol: string
   secret_data: Record<string, string>
   created_at: string
   updated_at: string
@@ -34,6 +36,8 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
   const queryClient = useQueryClient()
 
   const [pairs, setPairs] = useState<KVPair[]>([])
+  const [provider, setProvider] = useState('custom')
+  const [protocol, setProtocol] = useState('custom')
   const [showValues, setShowValues] = useState(false)
   const [dirty, setDirty] = useState(false)
 
@@ -46,6 +50,8 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
 
   useEffect(() => {
     if (secret?.secret_data) {
+      setProvider(secret.provider || 'custom')
+      setProtocol(secret.protocol || 'custom')
       setPairs(Object.entries(secret.secret_data).map(([key, value]) => ({ key, value })))
       setDirty(false)
     }
@@ -66,6 +72,20 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
     setDirty(true)
   }
 
+  const updateProvider = (nextProvider: string) => {
+    const nextProtocol = nextProvider === 'anthropic' ? 'anthropic' : nextProvider === 'openai' ? 'openai_compatible' : 'custom'
+    setProvider(nextProvider)
+    setProtocol(nextProtocol)
+    setPairs(getDefaultSecretPairs(nextProvider, nextProtocol))
+    setDirty(true)
+  }
+
+  const updateProtocol = (nextProtocol: string) => {
+    setProtocol(nextProtocol)
+    setPairs(getDefaultSecretPairs(provider, nextProtocol))
+    setDirty(true)
+  }
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       const data: Record<string, string> = {}
@@ -74,7 +94,7 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
           data[p.key.trim()] = p.value
         }
       }
-      return managedPut(`/secrets/${stripIdPrefix(secretId)}`, { name: secret!.name, data })
+      return managedPut(`/secrets/${stripIdPrefix(secretId)}`, { name: secret!.name, provider, protocol, data })
     },
     onSuccess: () => {
       setDirty(false)
@@ -133,6 +153,34 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
       </div>
 
       <div className="border border-border rounded-lg p-6 space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-sm font-medium">{t('managed.secrets.provider')}</label>
+            <Select value={provider} onValueChange={updateProvider}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SECRET_PROVIDER_OPTIONS.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium">{t('managed.secrets.protocol')}</label>
+            <Select value={protocol} onValueChange={updateProtocol}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SECRET_PROTOCOL_OPTIONS.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
         <div className="flex items-center justify-between">
           <label className="text-sm font-medium">{t('managed.secrets.dataLabel')}</label>
           <Button
