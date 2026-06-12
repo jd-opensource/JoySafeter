@@ -11,6 +11,30 @@ from app.joysafeter_orchestrator.sandbox.provider import SandboxProvider
 logger = logging.getLogger(__name__)
 
 
+async def _retry_docker(coro_factory, max_retries: int = 2, delay: float = 1.0):
+    """Retry a Docker operation on transient errors (connection, 500, 503).
+    Does NOT retry create() — only start/stop/destroy to avoid duplicates."""
+    last_error = None
+    for attempt in range(max_retries + 1):
+        try:
+            return await coro_factory()
+        except (aiodocker.exceptions.DockerError, OSError, ConnectionError) as e:
+            last_error = e
+            err_msg = str(e)
+            # Don't retry on 404 (Not Found) or 409 (Conflict)
+            if "404" in err_msg or "No such container" in err_msg or "409" in err_msg:
+                raise
+            if attempt < max_retries:
+                logger.warning(
+                    "Docker operation failed (attempt %d/%d), retrying in %.1fs: %s",
+                    attempt + 1, max_retries + 1, delay, e,
+                )
+                await asyncio.sleep(delay)
+            else:
+                raise
+    raise last_error  # unreachable, but satisfies type checker
+
+
 class DockerSandboxProvider(SandboxProvider):
     def __init__(
         self,
@@ -134,30 +158,34 @@ class DockerSandboxProvider(SandboxProvider):
             raise RuntimeError(f"docker start failed: {e.message}") from e
 
     async def start(self, external_id: str) -> None:
-        await self._start_container(external_id)
+        await _retry_docker(lambda: self._start_container(external_id))
 
     async def stop(self, external_id: str) -> None:
-        try:
-            container = await self._docker.containers.get(external_id)
-            await container.stop(t=10)
-        except aiodocker.exceptions.DockerError as e:
-            msg = e.message
-            if "No such container" in msg or "304" in msg or "not running" in msg:
-                return
-            raise RuntimeError(f"docker stop failed: {msg}") from e
+        async def _do_stop():
+            try:
+                container = await self._docker.containers.get(external_id)
+                await container.stop(t=10)
+            except aiodocker.exceptions.DockerError as e:
+                msg = e.message
+                if "No such container" in msg or "304" in msg or "not running" in msg:
+                    return
+                raise RuntimeError(f"docker stop failed: {msg}") from e
+        await _retry_docker(_do_stop)
 
     async def destroy(self, external_id: str) -> None:
-        try:
-            container = await self._docker.containers.get(external_id)
-            await container.stop(t=10)
-        except Exception:
-            pass
-        try:
-            container = await self._docker.containers.get(external_id)
-            await container.delete(force=True)
-        except aiodocker.exceptions.DockerError as e:
-            if "No such container" not in e.message:
-                raise RuntimeError(f"docker rm failed: {e.message}") from e
+        async def _do_destroy():
+            try:
+                container = await self._docker.containers.get(external_id)
+                await container.stop(t=10)
+            except Exception:
+                pass
+            try:
+                container = await self._docker.containers.get(external_id)
+                await container.delete(force=True)
+            except aiodocker.exceptions.DockerError as e:
+                if "No such container" not in e.message:
+                    raise RuntimeError(f"docker rm failed: {e.message}") from e
+        await _retry_docker(_do_destroy)
 
     async def status(self, external_id: str) -> str:
         try:

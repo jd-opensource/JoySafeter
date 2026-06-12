@@ -204,10 +204,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     retry: shouldRetryManagedResourceError,
     refetchInterval: (query) => {
       const status = query.state.data?.status
-      // SSE connected → no polling needed (SSE pushes status change events)
-      if (sseConnected) return false
-      // SSE not connected (fallback) → poll to detect status changes
-      return (status === 'running' || streamForced) ? 2000 : false
+      // Always poll when running — SSE may miss status change events
+      if (status === 'running' || streamForced) return 3000
+      return false
     },
   })
 
@@ -287,23 +286,21 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const canSendMessage = isIdle && !isArchived && !isSending
   const wasRunningRef = useRef(false)
 
-  // Update session status from SSE events (no polling needed when SSE is connected)
+  // Update session status from live SSE events only. Initial SSE replay can contain
+  // legacy/out-of-order status events, while the session query is DB-authoritative.
   useEffect(() => {
     if (!sseConnected || streamEvents.length === 0) return
+    const sessionUpdatedAt = session?.updated_at ? new Date(session.updated_at).getTime() : 0
     const statusEvents = streamEvents.filter((e) => {
       const t = e.type || e.event_type || ''
-      return t.startsWith('session.status_')
+      if (!t.startsWith('session.status_')) return false
+      const eventCreatedAt = e.created_at ? new Date(e.created_at).getTime() : 0
+      return !sessionUpdatedAt || !eventCreatedAt || eventCreatedAt >= sessionUpdatedAt
     })
     if (statusEvents.length === 0) return
-    const latest = statusEvents[statusEvents.length - 1]
-    const eventType = latest.type || latest.event_type || ''
-    const newStatus = eventType.replace('session.status_', '')
-    if (newStatus && session && session.status !== newStatus) {
-      queryClient.setQueryData(['session', id], (old: Session | undefined) => {
-        if (!old) return old
-        return { ...old, status: newStatus, stop_reason: latest.stop_reason || old.stop_reason }
-      })
-    }
+    // Trigger API refetch instead of directly overriding status —
+    // prevents stale/out-of-order SSE events from showing wrong status
+    queryClient.invalidateQueries({ queryKey: ['session', id] })
   }, [streamEvents, sseConnected, session, id, queryClient])
 
   useEffect(() => {
@@ -369,19 +366,15 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const displayStatus = useMemo(() => {
     if (isArchived) return 'archived'
     const currentStatus = session?.status || 'idle'
-    if (currentStatus !== 'idle') return currentStatus
 
-    const latestStatusEvent = getLatestSessionStatusEvent(allEvents)
-    if (latestStatusEvent && isRequiresActionIdle(latestStatusEvent)) return 'running'
-
-    const latestStatusType = latestStatusEvent ? getEventType(latestStatusEvent) : ''
-    if (latestStatusType === 'session.status_running') return 'running'
-    if (latestStatusType === 'session.status_idle' || latestStatusType === 'session.status_terminated') return currentStatus
-
-    if (streamForced) return 'running'
+    // DB status is authoritative — only override for requires_action
+    if (currentStatus === 'idle') {
+      const latestStatusEvent = getLatestSessionStatusEvent(allEvents)
+      if (latestStatusEvent && isRequiresActionIdle(latestStatusEvent)) return 'running'
+    }
 
     return currentStatus
-  }, [allEvents, isArchived, session?.status, streamForced])
+  }, [allEvents, isArchived, session?.status])
 
   const availableTypes = useMemo(() => {
     const types = new Set<string>()
@@ -435,9 +428,10 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       const seenResultCallIds = new Set<string>()
       for (const evt of step1) {
         const t = evt.type || evt.event_type || ''
-        if ((t === 'agent.tool_result' || t === 'agent.mcp_tool_result') && evt.call_id && !seenResultCallIds.has(evt.call_id)) {
-          seenResultCallIds.add(evt.call_id)
-          resultsByCallId.set(evt.call_id, evt)
+        const callId = evt._call_id || evt.call_id || evt.tool_use_id || ''
+        if ((t === 'agent.tool_result' || t === 'agent.mcp_tool_result') && callId && !seenResultCallIds.has(callId)) {
+          seenResultCallIds.add(callId)
+          resultsByCallId.set(callId, evt)
         }
       }
 
@@ -451,14 +445,15 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
         if (t === 'agent.tool_result' || t === 'agent.mcp_tool_result') continue
 
         // Dedup tool_use by call_id and pair with result
-        if ((t === 'agent.tool_use' || t === 'agent.mcp_tool_use') && evt.call_id) {
-          if (seenUseCallIds.has(evt.call_id)) continue
-          seenUseCallIds.add(evt.call_id)
+        const useCallId = evt._call_id || evt.call_id || ''
+        if ((t === 'agent.tool_use' || t === 'agent.mcp_tool_use') && useCallId) {
+          if (seenUseCallIds.has(useCallId)) continue
+          seenUseCallIds.add(useCallId)
           debugMerged.push(evt)
-          const result = resultsByCallId.get(evt.call_id)
+          const result = resultsByCallId.get(useCallId)
           if (result) {
             debugMerged.push(result)
-            resultsByCallId.delete(evt.call_id)
+            resultsByCallId.delete(useCallId)
           }
           continue
         }
@@ -474,11 +469,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       return collapseRepeatedStatusEvents(debugMerged)
     }
 
-    // Transcript mode: merge events for display matching Anthropic console:
+    // Transcript mode only: merge events for display
+    if (tab !== 'transcript') {
+      return events
+    }
+
     // 1. Consecutive agent.message / agent.thinking -> combine text
-    // 2. Consecutive tool_use (parallel calls) -> deduplicate into comma-separated names
-    // 3. tool_result -> fold error into preceding tool_use, compute duration from timestamps
-    // 4. span.model_request_end -> attach usage (tokens) to preceding agent/tool row
+    // 2. tool_result -> fold into matching tool_use by call_id, compute duration
+    // 3. span.model_request_end -> attach usage (tokens) to preceding agent/tool row
     const TOOL_USE_TYPES_SET = new Set(['agent.tool_use', 'agent.mcp_tool_use', 'agent.custom_tool_use'])
     const TOOL_RESULT_TYPES_SET = new Set(['agent.tool_result', 'agent.mcp_tool_result', 'user.tool_result', 'user.custom_tool_result'])
     const merged: typeof events = []
@@ -503,29 +501,28 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
         continue
       }
 
-      // Merge consecutive tool_use: deduplicate names
-      if (TOOL_USE_TYPES_SET.has(t) && prev && TOOL_USE_TYPES_SET.has(prevType)) {
-        const curTool = evt.tool || evt.tool_name || evt.name || ''
-        const names: Set<string> = (prev as any)._toolNames || new Set((prev.tool || prev.tool_name || prev.name || '').split(', ').filter(Boolean))
-        if (curTool) names.add(curTool)
-        const display = Array.from(names).join(', ')
-        merged[merged.length - 1] = { ...prev, tool: display, _toolNames: names } as any
-        continue
-      }
-
-      // Fold tool_result into preceding tool_use -- compute duration from timestamps
-      if (TOOL_RESULT_TYPES_SET.has(t) && prev && TOOL_USE_TYPES_SET.has(prevType)) {
-        let durationMs = prev.duration_ms ?? 0
-        if (toolUseStartTime > 0 && evt.created_at) {
-          const resultTime = new Date(evt.created_at).getTime()
-          if (!isNaN(resultTime)) {
-            durationMs = Math.max(durationMs, resultTime - toolUseStartTime)
+      // Fold tool_result into matching tool_use by call_id — compute duration
+      if (TOOL_RESULT_TYPES_SET.has(t)) {
+        const resultCallId = evt._call_id || evt.call_id || evt.tool_use_id || ''
+        if (resultCallId) {
+          for (let j = merged.length - 1; j >= 0; j--) {
+            const candidate = merged[j]
+            const candidateType = candidate.type || candidate.event_type || ''
+            if (!TOOL_USE_TYPES_SET.has(candidateType)) continue
+            const useCallId = candidate._call_id || candidate.call_id || ''
+            if (useCallId === resultCallId) {
+              let durationMs = candidate.duration_ms ?? 0
+              if (candidate.created_at && evt.created_at) {
+                const start = new Date(candidate.created_at).getTime()
+                const end = new Date(evt.created_at).getTime()
+                if (!isNaN(start) && !isNaN(end)) {
+                  durationMs = end - start
+                }
+              }
+              merged[j] = { ...candidate, is_error: candidate.is_error || evt.is_error || false, duration_ms: durationMs }
+              break
+            }
           }
-        }
-        merged[merged.length - 1] = {
-          ...prev,
-          is_error: (prev.is_error || evt.is_error) || false,
-          duration_ms: durationMs,
         }
         continue
       }

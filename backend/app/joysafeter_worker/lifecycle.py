@@ -6,8 +6,12 @@ import asyncio
 
 from loguru import logger
 
+# Module-level reference to background tasks for health check inspection
+_worker_tasks: list[asyncio.Task] = []
+
 
 async def start_worker_loops() -> list[asyncio.Task]:
+    global _worker_tasks
     tasks: list[asyncio.Task] = []
 
     try:
@@ -61,12 +65,14 @@ async def start_worker_loops() -> list[asyncio.Task]:
     except Exception as e:
         logger.warning(f"   ⚠️  JoySafeter event stream worker failed to start: {e}")
 
+    _worker_tasks = list(tasks)
     return tasks
 
 
 async def stop_worker_loops(tasks: list[asyncio.Task]) -> None:
-    for task in tasks:
-        task.cancel()
+    # F7 fix: shut down subsystems first, then cancel tasks.
+    # This allows tasks that are mid-operation to complete their current
+    # iteration before being cancelled, preventing data loss in buffers.
 
     try:
         from app.joysafeter_worker.runtime.cli_backends.container_pool import container_pool as _cp
@@ -83,6 +89,11 @@ async def stop_worker_loops(tasks: list[asyncio.Task]) -> None:
         logger.info("   ✓ Sandbox pool shut down")
     except Exception as e:
         logger.warning(f"   ⚠️  Sandbox pool shutdown failed: {e}")
+
+    # Now cancel all background tasks
+    for task in tasks:
+        if not task.done():
+            task.cancel()
 
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)

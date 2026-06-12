@@ -56,33 +56,56 @@ class EventStreamWorker:
             self._consumer,
         )
 
+        backoff = 1
         try:
             while not self._stopping.is_set():
-                recovered = await self._process_pending(redis)
-                if recovered:
-                    continue
+                try:
+                    recovered = await self._process_pending(redis)
+                    if recovered:
+                        backoff = 1
+                        continue
 
-                messages = await redis.xreadgroup(
-                    self._group,
-                    self._consumer,
-                    {self._stream_key: ">"},
-                    count=self._batch_size,
-                    block=self._block_ms,
-                )
-                if not messages:
-                    continue
+                    messages = await redis.xreadgroup(
+                        self._group,
+                        self._consumer,
+                        {self._stream_key: ">"},
+                        count=self._batch_size,
+                        block=self._block_ms,
+                    )
+                    backoff = 1
+                    if not messages:
+                        continue
 
-                batch: list[tuple[str, BufferedEvent]] = []
-                for _stream_name, entries in messages:
-                    for message_id, fields in entries:
-                        try:
-                            event = self._decode_event(fields)
-                            batch.append((message_id, event))
-                        except Exception as e:
-                            logger.exception("Failed to handle joysafeter event stream message %s: %s", message_id, e)
+                    batch: list[tuple[str, BufferedEvent]] = []
+                    for _stream_name, entries in messages:
+                        for message_id, fields in entries:
+                            try:
+                                event = self._decode_event(fields)
+                                batch.append((message_id, event))
+                            except Exception as e:
+                                logger.exception("Failed to handle joysafeter event stream message %s: %s", message_id, e)
 
-                if batch:
-                    await self._persist_and_ack(redis, batch)
+                    if batch:
+                        await self._persist_and_ack(redis, batch)
+
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    # F4 fix: catch Redis/DB errors and retry with backoff
+                    # instead of letting the entire worker die permanently
+                    logger.error(
+                        "Event stream worker error (will retry in %ds): %s",
+                        backoff, e,
+                    )
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, 30)
+                    # Re-acquire Redis client in case connection was lost
+                    redis = RedisClient.get_client()
+                    if redis is None:
+                        logger.warning("Redis unavailable during reconnect, waiting...")
+                        continue
+                    await self._ensure_group(redis)
+
         except asyncio.CancelledError:
             raise
         finally:
@@ -137,10 +160,14 @@ class EventStreamWorker:
         session_id = uuid.UUID(str(fields["session_id"]))
         event_id_raw = str(fields.get("event_id") or "")
         payload_raw = fields.get("payload") or "{}"
+        # F1 fix: always assign an event_id so the batch writer's dedup check
+        # (which skips events with e.id is None) can prevent duplicates on
+        # crash-recovery re-delivery via XAUTOCLAIM.
+        event_id = uuid.UUID(event_id_raw) if event_id_raw else uuid.uuid4()
         return BufferedEvent(
             session_id=session_id,
             event_type=str(fields["event_type"]),
             payload=json.loads(payload_raw),
             seq=int(fields.get("seq") or 0),
-            id=uuid.UUID(event_id_raw) if event_id_raw else None,
+            id=event_id,
         )

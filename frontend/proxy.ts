@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server'
 import { createLogger } from '@/lib/logs/console/logger'
 import { generateNonce } from '@/lib/utils/uuid'
 
-const logger = createLogger('Middleware')
+const logger = createLogger('Proxy')
 
 // Necessary third-party domains (for CSP)
 const NECESSARY_DOMAIN =
@@ -225,10 +225,10 @@ function generateCSPHeader(whiteList: string, nonce: string, isProduction: boole
 }
 
 /**
- * Next.js middleware.
+ * Next.js proxy.
  * Handles security headers, CSP, X-Frame-Options, etc.
  */
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
   const requestHeaders = new Headers(request.headers)
 
@@ -294,8 +294,8 @@ export function middleware(request: NextRequest) {
 }
 
 /**
- * Middleware configuration.
- * Define which paths should be processed by the middleware.
+ * Proxy configuration.
+ * Define which paths should be processed by the proxy.
  */
 export const config = {
   matcher: [

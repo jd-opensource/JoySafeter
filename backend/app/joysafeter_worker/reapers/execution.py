@@ -38,40 +38,44 @@ async def task_dispatcher_loop() -> None:
     while True:
         await asyncio.sleep(_DISPATCH_INTERVAL)
         try:
-            async with AsyncSessionLocal() as db:
-                from sqlalchemy import select
-
-                from app.joysafeter_domain.models.task import Task
-
-                # Find backlog tasks with assigned agents
-                tasks = (
-                    (
-                        await db.execute(
-                            select(Task).where(
-                                Task.status == "backlog",
-                                Task.agent_id.isnot(None),
-                            )
-                        )
-                    )
-                    .scalars()
-                    .all()
-                )
-
-                count = 0
-                for task in tasks:
-                    try:
-                        from app.joysafeter_worker.services import DispatchService
-
-                        dispatch = DispatchService(db)
-                        await dispatch.dispatch_task(task.id, task.creator_id)
-                        count += 1
-                    except Exception as task_exc:
-                        logger.warning(f"Auto-dispatch failed for task {task.id}: {task_exc}")
-
-                if count:
-                    logger.info(f"Scheduler: auto-dispatched {count} tasks")
+            # F5 fix: timeout on each iteration to prevent silent hangs
+            await asyncio.wait_for(_dispatch_once(), timeout=120.0)
+        except asyncio.TimeoutError:
+            logger.error("Task dispatcher iteration timed out after 120s")
         except Exception as exc:
             logger.warning(f"Task dispatcher error: {exc}")
+
+
+async def _dispatch_once() -> None:
+    async with AsyncSessionLocal() as db:
+        from sqlalchemy import select
+        from app.joysafeter_domain.models.task import Task
+
+        tasks = (
+            (
+                await db.execute(
+                    select(Task).where(
+                        Task.status == "backlog",
+                        Task.agent_id.isnot(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        count = 0
+        for task in tasks:
+            try:
+                from app.joysafeter_worker.services import DispatchService
+                dispatch = DispatchService(db)
+                await dispatch.dispatch_task(task.id, task.creator_id)
+                count += 1
+            except Exception as task_exc:
+                logger.warning(f"Auto-dispatch failed for task {task.id}: {task_exc}")
+
+        if count:
+            logger.info(f"Scheduler: auto-dispatched {count} tasks")
 
 
 async def execution_reaper_loop() -> None:
@@ -79,9 +83,12 @@ async def execution_reaper_loop() -> None:
     while True:
         await asyncio.sleep(_REAPER_INTERVAL)
         try:
-            reaped = await _reap_stale_executions()
+            # F5 fix: timeout on each iteration to prevent silent hangs
+            reaped = await asyncio.wait_for(_reap_stale_executions(), timeout=120.0)
             if reaped:
                 logger.info(f"Scheduler: reaped {reaped} stale executions")
+        except asyncio.TimeoutError:
+            logger.error("Execution reaper iteration timed out after 120s")
         except Exception as exc:
             logger.warning(f"Execution reaper error: {exc}")
         try:

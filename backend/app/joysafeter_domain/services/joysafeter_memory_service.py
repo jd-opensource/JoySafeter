@@ -18,6 +18,13 @@ class PreconditionFailed(Exception):
     pass
 
 
+class MemoryStoreLimitExceeded(Exception):
+    pass
+
+
+MAX_MEMORIES_PER_STORE = 2000
+
+
 class MemoryService:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -110,6 +117,22 @@ class MemoryService:
     # --- Memory ---
 
     async def create_memory(self, store_id: uuid.UUID, path: str, content: str = "", session_id: uuid.UUID = None) -> JoySafeterMemory:
+        await self.db.execute(
+            select(JoySafeterMemoryStore.id).where(
+                JoySafeterMemoryStore.id == store_id
+            ).with_for_update()
+        )
+        count_result = await self.db.execute(
+            select(func.count()).select_from(JoySafeterMemory).where(
+                JoySafeterMemory.store_id == store_id
+            )
+        )
+        memory_count = count_result.scalar_one() or 0
+        if memory_count >= MAX_MEMORIES_PER_STORE:
+            raise MemoryStoreLimitExceeded(
+                f"Memory store has reached the maximum of {MAX_MEMORIES_PER_STORE} memories"
+            )
+
         sha = hashlib.sha256(content.encode()).hexdigest()
         mem = JoySafeterMemory(
             store_id=store_id,

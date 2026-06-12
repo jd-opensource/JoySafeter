@@ -393,7 +393,7 @@ class ModelProviderService(BaseService):
                         await self.instance_repo.create(
                             {
                                 "user_id": None,
-                                "workspace_id": None,
+                                "project_id": None,
                                 "provider_id": provider.id,
                                 "model_name": model_name,
                                 "model_parameters": {},

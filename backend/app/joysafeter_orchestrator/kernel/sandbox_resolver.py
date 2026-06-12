@@ -161,11 +161,18 @@ class SandboxResolver:
                         {"lock_key": lock_key},
                     )
                     try:
-                        return await self._resolve_inner(
-                            session_id, agent_env, image, networking,
-                            engine_kind=engine_kind,
-                            project_id=project_id,
+                        return await asyncio.wait_for(
+                            self._resolve_inner(
+                                session_id, agent_env, image, networking,
+                                engine_kind=engine_kind,
+                                project_id=project_id,
+                            ),
+                            timeout=120.0,
                         )
+                    except asyncio.TimeoutError:
+                        raise RuntimeError(
+                            f"Sandbox resolution timed out after 120s for session {session_id}"
+                        ) from None
                     finally:
                         await lock_db.execute(
                             text("SELECT pg_advisory_unlock(hashtext(:lock_key))"),
@@ -234,7 +241,7 @@ class SandboxResolver:
                     existing = None
 
             if existing:
-                if existing.status in ("idle", "running", "creating"):
+                if existing.status in ("idle", "running"):
                     logger.info(
                         "Reusing existing sandbox %s (status=%s) for session %s",
                         existing.id, existing.status, session_id,
@@ -246,12 +253,11 @@ class SandboxResolver:
                         "status": existing.status,
                         "created": False,
                     }
-                elif existing.status == "provisioning":
+                elif existing.status in ("provisioning", "creating"):
                     logger.info(
-                        "Sandbox %s is still provisioning for session %s, reusing",
-                        existing.id, session_id,
+                        "Sandbox %s is still %s for session %s, reusing without touch",
+                        existing.id, existing.status, session_id,
                     )
-                    await svc.touch(existing.id)
                     return {
                         "sandbox_id": existing.id,
                         "external_id": existing.external_id,

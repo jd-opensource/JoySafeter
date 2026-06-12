@@ -15,7 +15,11 @@ from app.joysafeter_domain.services.api_key_service import ApiKeyService
 from app.joysafeter_domain.services.auth_service import AuthService
 from app.joysafeter_domain.services.auth_session_service import AuthSessionService
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService as JoySafeterEnvironmentService
-from app.joysafeter_domain.services.joysafeter_memory_service import MemoryService as JoySafeterMemoryService, PreconditionFailed
+from app.joysafeter_domain.services.joysafeter_memory_service import (
+    MemoryService as JoySafeterMemoryService,
+    MemoryStoreLimitExceeded,
+    PreconditionFailed,
+)
 from app.joysafeter_domain.services.joysafeter_session_lifecycle import JoySafeterSessionLifecycleService
 from app.joysafeter_domain.services.custom_tool_service import CustomToolService
 from app.joysafeter_domain.services.dispatch_service import DispatchService
@@ -70,6 +74,7 @@ __all__ = [
     "McpClientService",
     "McpConnectionConfig",
     "MemoryService",
+    "MemoryStoreLimitExceeded",
     "ModelCredentialService",
     "ModelProviderService",
     "ModelService",

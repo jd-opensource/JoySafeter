@@ -217,6 +217,7 @@ class TaskController:
         from app.joysafeter_shared.database import AsyncSessionLocal
         from sqlalchemy import text
         from app.joysafeter_orchestrator.services import TaskService
+        from app.joysafeter_domain.models.task import JoySafeterTaskStatus as TaskStatus
 
         async with AsyncSessionLocal() as db:
             locked = False
@@ -227,19 +228,34 @@ class TaskController:
                     return
 
                 result = await db.execute(text(
-                    "SELECT id FROM joysafeter_tasks"
+                    "SELECT id, retry_count, max_retries FROM joysafeter_tasks"
                     " WHERE status = 'scheduling'"
                     " AND updated_at < NOW() - INTERVAL '2 minutes'"
                 ))
                 rows = result.all()
                 task_svc = TaskService(db)
+                requeue_ids = []
                 for row in rows:
                     task_id = row[0]
-                    await task_svc.increment_retry(task_id)
-                    logger.warning("Task %s stuck in scheduling >2min, reset to pending and re-enqueued", task_id)
+                    retry_count = row[1] or 0
+                    max_retries = row[2] or 3
+                    if retry_count >= max_retries:
+                        logger.warning(
+                            "Task %s stuck in scheduling >2min and retries exhausted (%d/%d), marking failed",
+                            task_id, retry_count, max_retries,
+                        )
+                        await task_svc.update_task_error(
+                            task_id,
+                            "Retries exhausted while stuck in scheduling",
+                            TaskStatus.FAILED,
+                        )
+                    else:
+                        await task_svc.increment_retry(task_id)
+                        requeue_ids.append(task_id)
+                        logger.warning("Task %s stuck in scheduling >2min, reset to pending and re-enqueued", task_id)
 
-                for row in rows:
-                    await self._queue.push_to_global(row[0])
+                for task_id in requeue_ids:
+                    await self._queue.push_to_global(task_id)
             finally:
                 if locked:
                     await db.execute(text("SELECT pg_advisory_unlock(hashtext('task_scheduling_watchdog'))"))

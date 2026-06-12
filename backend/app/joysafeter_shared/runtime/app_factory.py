@@ -54,6 +54,39 @@ def create_app(*, lifespan, title_suffix: str = "", expose_docs: bool = True) ->
 
     @app.get("/health", tags=["Health"])
     async def health():
-        return {"status": "ok", "role": current_role().value}
+        role = current_role().value
+        checks: dict = {"role": role, "status": "ok"}
+
+        # For worker role, verify critical background tasks are alive
+        if role == "worker":
+            try:
+                from app.joysafeter_worker.lifecycle import _worker_tasks
+                dead_tasks = []
+                for task in _worker_tasks:
+                    if task.done():
+                        if task.cancelled():
+                            dead_tasks.append(f"{task.get_name()}: cancelled")
+                        else:
+                            exc = task.exception()
+                            dead_tasks.append(f"{task.get_name()}: {exc}")
+                if dead_tasks:
+                    checks["status"] = "degraded"
+                    checks["dead_tasks"] = dead_tasks
+            except Exception:
+                pass
+
+        # Check DB connectivity
+        try:
+            from app.joysafeter_shared.database import engine
+            async with engine.connect() as conn:
+                from sqlalchemy import text
+                await conn.execute(text("SELECT 1"))
+        except Exception as e:
+            checks["status"] = "unhealthy"
+            checks["db_error"] = str(e)
+
+        from fastapi.responses import JSONResponse
+        status_code = 200 if checks["status"] == "ok" else 503
+        return JSONResponse(content=checks, status_code=status_code)
 
     return app

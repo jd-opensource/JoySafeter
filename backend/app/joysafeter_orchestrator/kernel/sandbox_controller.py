@@ -119,8 +119,10 @@ class SandboxController:
 
     async def run_idle_sweep(self) -> None:
         logger.info("SandboxController idle sweep started (30s interval)")
+        _orphan_cleanup_counter = 0
         while True:
             await asyncio.sleep(30)
+            _orphan_cleanup_counter += 1
             try:
                 await self._health_check_bridges()
             except Exception as e:
@@ -137,6 +139,12 @@ class SandboxController:
                 await self._destroy_stopped_sandboxes()
             except Exception as e:
                 logger.warning("Phase 3 destroy failed: %s", e)
+            # Run orphan cleanup every 10th iteration (~5 minutes)
+            if _orphan_cleanup_counter % 10 == 0:
+                try:
+                    await self.cleanup_orphaned_provider_sandboxes()
+                except Exception as e:
+                    logger.warning("Periodic orphan cleanup failed: %s", e)
 
     async def run_provisioning_poll(self) -> None:
         logger.info("SandboxController provisioning poll started (5s interval)")
@@ -271,6 +279,16 @@ class SandboxController:
                     cas_ok = await svc.update_status_cas(sb_id, "idle", "stopping")
                     if not cas_ok:
                         return
+
+                # Drain and requeue any tasks assigned to this sandbox before
+                # stopping it, so they are not lost during the grace period.
+                try:
+                    await self._queue.drain_and_requeue_sandbox(sb_id)
+                except Exception as e:
+                    logger.warning(
+                        "Failed to drain/requeue tasks for sandbox %s during idle stop: %s",
+                        sb_id, e,
+                    )
 
                 bridge = await self._bridge_registry.get(sb_id)
                 if bridge:

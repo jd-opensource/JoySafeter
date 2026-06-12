@@ -27,7 +27,11 @@ from app.joysafeter_domain.schemas.joysafeter_memory import (
     MEMORY_MAX_PATH_BYTES,
 )
 from app.joysafeter_domain.schemas.common import CursorPaginatedResponse as PaginatedResponse
-from app.joysafeter_api.services import JoySafeterMemoryService as MemoryService, PreconditionFailed
+from app.joysafeter_api.services import (
+    JoySafeterMemoryService as MemoryService,
+    MemoryStoreLimitExceeded,
+    PreconditionFailed,
+)
 
 router = APIRouter(tags=["joysafeter-memory-stores"])
 
@@ -319,7 +323,10 @@ async def create_memory(
     if existing:
         raise HTTPException(409, f"A memory already exists at path {normalized_path!r}")
 
-    mem = await svc.create_memory(store_id, normalized_path, req.content)
+    try:
+        mem = await svc.create_memory(store_id, normalized_path, req.content)
+    except MemoryStoreLimitExceeded as exc:
+        raise HTTPException(409, str(exc)) from exc
     return _memory_to_response(mem, view=view)
 
 
