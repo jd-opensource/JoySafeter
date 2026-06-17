@@ -118,6 +118,14 @@ deploy/docker-compose.remote.yml
 # Runtime data (user uploads, logs)
 backend/data/
 
+# Scripts, tests, logs, docs (not for git)
+scripts/
+logs/
+backend/tests/
+backend/scripts/
+backend/logs/
+backend/docs/
+
 # Spyder project settings
 .spyderproject
 .spyproject

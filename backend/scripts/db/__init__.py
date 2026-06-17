@@ -1,1 +1,0 @@
-# Database scripts package
