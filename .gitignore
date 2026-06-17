@@ -115,6 +115,9 @@ venvs/
 deploy/.env.remote.example
 deploy/docker-compose.remote.yml
 
+# Runtime data (user uploads, logs)
+backend/data/
+
 # Spyder project settings
 .spyderproject
 .spyproject
