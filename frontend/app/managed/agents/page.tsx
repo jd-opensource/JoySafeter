@@ -49,11 +49,12 @@ export default function AgentListPage() {
   const getEngineKindLabel = (engineKind?: string | null) => {
     switch (engineKind) {
       case 'claude':
-        return t('managed.agents.engineClaude')
+      case 'claude_code':
+        return 'Claude Code'
       case 'codex':
-        return t('managed.agents.engineCodex')
+        return 'Codex'
       case 'native':
-        return t('managed.agents.engineNative')
+        return 'Native'
       case 'langgraph_visual':
         return 'LangGraph Visual'
       case 'langgraph_code':

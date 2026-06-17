@@ -2497,6 +2497,12 @@ const en = {
         save: 'Save',
         filterAll: 'All',
         filterActive: 'Active',
+        table: {
+          id: 'ID',
+          name: 'Name',
+          status: 'Status',
+          type: 'Type',
+        },
       },
       vaults: {
         title: 'Vaults',

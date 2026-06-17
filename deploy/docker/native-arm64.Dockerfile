@@ -39,10 +39,15 @@ WORKDIR /workspace
 
 FROM base AS native
 
+ENV CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
+
+# Install as root (npm -g needs root); ccb itself refuses to run with
+# bypassPermissions under root, so the runtime user is switched to `agent` below.
 COPY deploy/docker/claude-code-best-2.5.5.tgz /tmp/claude-code-best-2.5.5.tgz
 RUN npm install -g /tmp/claude-code-best-2.5.5.tgz && rm -f /tmp/claude-code-best-2.5.5.tgz
 
 COPY target/aarch64-unknown-linux-musl/release/joysafeter-runner /usr/local/bin/joysafeter-runner
 RUN chmod +x /usr/local/bin/joysafeter-runner
 
+USER agent
 ENTRYPOINT ["joysafeter-runner"]

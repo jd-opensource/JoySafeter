@@ -463,9 +463,19 @@ ensure_runtime_runner_binary() {
     target=$(runtime_runner_target_for "$platform")
     local output="$PROJECT_ROOT/target/$target/release/joysafeter-runner"
 
-    if [ -x "$output" ]; then
-        log_success "runner 二进制已存在: $output"
-        return
+    # Reuse the existing binary only when it is up to date with the sandbox-runner
+    # sources. Otherwise stale binaries silently ship (e.g. missing new engine
+    # adapters), so rebuild when sources are newer or FORCE_RUNNER_REBUILD=1.
+    if [ -x "$output" ] && [ "${FORCE_RUNNER_REBUILD:-0}" != "1" ]; then
+        local newer_src
+        newer_src=$(find "$PROJECT_ROOT/sandbox-runner" -type f \
+            \( -name '*.rs' -o -name 'Cargo.toml' -o -name 'Cargo.lock' \) \
+            -newer "$output" -print -quit 2>/dev/null)
+        if [ -z "$newer_src" ]; then
+            log_success "runner 二进制已是最新: $output"
+            return
+        fi
+        log_info "检测到 sandbox-runner 源码更新，重新编译 runner"
     fi
 
     log_info "编译 runner 二进制: $target"

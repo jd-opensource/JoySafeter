@@ -115,6 +115,10 @@ venvs/
 deploy/.env.remote.example
 deploy/docker-compose.remote.yml
 
+# Docker image archives
+/deploy/*.tar
+/deploy/docker/claude-code-best-*.tgz
+
 # Runtime data (user uploads, logs)
 backend/data/
 

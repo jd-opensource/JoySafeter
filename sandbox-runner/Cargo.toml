@@ -60,3 +60,13 @@ libc = "0.2"
 unicode-normalization = "0.1"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 axum = { version = "0.8", features = ["ws"] }
+
+# Release profile tuned for small binary size.
+# LTO + single codegen unit + strip cut the sandbox runner from ~9.4M to a few MB.
+[profile.release]
+opt-level = "z"      # optimize for size
+lto = true           # link-time optimization across crates
+codegen-units = 1    # better cross-module optimization (slower build)
+panic = "abort"      # drop unwinding tables
+strip = true         # strip symbols
+

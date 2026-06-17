@@ -502,6 +502,7 @@ export default function QuickstartPage() {
   const [rightTab, setRightTab] = useState<'config' | 'preview'>('config')
   const [secretRef, setSecretRef] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const configScrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const [inputValue, setInputValue] = useState('')
   const [templateSearch, setTemplateSearch] = useState('')
@@ -906,6 +907,13 @@ export default function QuickstartPage() {
   }, [configObj, editorTab, currentStep])
 
   const codeLines = configText.split('\n')
+
+  useEffect(() => {
+    const el = configScrollRef.current
+    if (!el || rightTab !== 'config') return
+
+    el.scrollTop = el.scrollHeight
+  }, [configText, rightTab])
 
   const handleSend = () => {
     const text = inputValue.trim()
@@ -1667,7 +1675,7 @@ export default function QuickstartPage() {
                       <Search className="h-4 w-4" />
                     </button>
                   </div>
-                  <div className="h-[calc(100vh-285px)] overflow-auto px-3 py-3">
+                  <div ref={configScrollRef} className="h-[calc(100vh-285px)] overflow-auto px-3 py-3">
                     <div className="font-mono text-[14px] leading-7">
                       {codeLines.map((line, i) => (
                         <div
