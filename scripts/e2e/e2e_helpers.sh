@@ -22,8 +22,8 @@ ENGINE_KIND="${ENGINE_KIND:-claude}"
 
 engine_model() {
     case "$ENGINE_KIND" in
-        codex) echo "gpt-5.3-codex" ;;
-        *)     echo "Claude-Opus-4.6" ;;
+        codex) echo "${MODEL_ID:-}" ;;
+        *)     echo "${MODEL_ID:-Claude-Opus-4.6}" ;;
     esac
 }
 

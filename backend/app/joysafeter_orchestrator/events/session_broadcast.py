@@ -28,12 +28,12 @@ class SessionBroadcastSubscriber:
 
         if envelope.is_status_change:
             if envelope.seq:
-                event_dict["seq"] = envelope.seq
+                event_dict["_runner_seq"] = envelope.seq
             if envelope.stop_reason:
                 event_dict["stop_reason"] = envelope.stop_reason
         else:
             if envelope.seq:
-                event_dict["seq"] = envelope.seq
+                event_dict["_runner_seq"] = envelope.seq
             if envelope.payload:
                 event_dict.update(envelope.payload)
 

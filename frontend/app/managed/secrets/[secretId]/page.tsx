@@ -11,8 +11,8 @@ import { stripIdPrefix } from '@/lib/managed/id'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { PageHeader, MonoId, RelativeTime, ResourceErrorState, SecretKeySelect } from '@/components/managed/shared'
-import { getDefaultProtocol, getDefaultSecretPairs, isModelKey, MODEL_OPTIONS, SECRET_PROTOCOL_OPTIONS, SECRET_PROVIDER_OPTIONS } from '@/lib/managed/secret-keys'
+import { PageHeader, MonoId, RelativeTime, ResourceErrorState, SecretKeySelect, SecretModelInput } from '@/components/managed/shared'
+import { getDefaultProtocol, getDefaultSecretPairs, isModelKey, SECRET_PROTOCOL_OPTIONS, SECRET_PROVIDER_OPTIONS } from '@/lib/managed/secret-keys'
 
 interface SecretDetail {
   id: string
@@ -151,7 +151,7 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
       </div>
 
       <div className="border border-border rounded-lg p-6 space-y-4">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.5rem] gap-2">
           <div className="space-y-1">
             <label className="text-sm font-medium">{t('managed.secrets.provider')}</label>
             <Select value={provider} onValueChange={updateProvider}>
@@ -178,6 +178,7 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
               </SelectContent>
             </Select>
           </div>
+          <div className="h-10 w-10" />
         </div>
         <div className="flex items-center justify-between">
           <label className="text-sm font-medium">{t('managed.secrets.dataLabel')}</label>
@@ -193,32 +194,26 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
 
         <div className="space-y-2">
           {pairs.map((pair, i) => (
-            <div key={i} className="flex items-center gap-2">
+            <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.5rem] items-center gap-2">
               <SecretKeySelect
                 value={pair.key}
                 onChange={(v) => updatePair(i, 'key', v)}
                 placeholder={t('managed.secrets.keyPlaceholder')}
+                className="min-w-0"
               />
               {isModelKey(pair.key) ? (
-                <Select value={pair.value} onValueChange={(v) => updatePair(i, 'value', v)}>
-                  <SelectTrigger className="flex-1 font-mono text-sm">
-                    <SelectValue placeholder={t('managed.secrets.selectModel')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MODEL_OPTIONS.map((m) => (
-                      <SelectItem key={m} value={m} className="font-mono text-sm">{m}</SelectItem>
-                    ))}
-                    {pair.value && !MODEL_OPTIONS.includes(pair.value) && (
-                      <SelectItem value={pair.value} className="font-mono text-sm">{pair.value}</SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
+                <SecretModelInput
+                  value={pair.value}
+                  onChange={(v) => updatePair(i, 'value', v)}
+                  placeholder={t('managed.secrets.selectModel')}
+                  className="min-w-0"
+                />
               ) : (
                 <Input
                   placeholder={t('managed.secrets.valuePlaceholder')}
                   value={pair.value}
                   onChange={(e) => updatePair(i, 'value', e.target.value)}
-                  className="flex-1 font-mono text-sm"
+                  className="min-w-0 font-mono text-sm"
                   type={showValues ? 'text' : 'password'}
                 />
               )}
@@ -226,7 +221,7 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
                 variant="ghost"
                 size="icon"
                 onClick={() => removePair(i)}
-                className="text-muted-foreground hover:text-destructive"
+                className="h-10 w-10 text-muted-foreground hover:text-destructive"
               >
                 <Trash2 className="w-4 h-4" />
               </Button>

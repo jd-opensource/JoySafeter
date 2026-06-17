@@ -1,9 +1,9 @@
+use async_trait::async_trait;
 use joysafeter_types::harness::{
-    HarnessAdapter, HarnessError, HarnessEvent, HarnessInput, HarnessResult,
-    HarnessResultStatus, RunningHarness,
+    HarnessAdapter, HarnessError, HarnessEvent, HarnessInput, HarnessResult, HarnessResultStatus,
+    RunningHarness,
 };
 use joysafeter_types::token_usage::{ModelUsage, TokenUsage};
-use async_trait::async_trait;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -86,11 +86,7 @@ impl ClaudeAdapter {
         hasher.finish()
     }
 
-    async fn ensure_session(
-        &self,
-        input: &HarnessInput,
-        cwd: &Path,
-    ) -> Result<(), HarnessError> {
+    async fn ensure_session(&self, input: &HarnessInput, cwd: &Path) -> Result<(), HarnessError> {
         let mut guard = self.session.lock().await;
         let fp = Self::compute_fingerprint(input);
 
@@ -221,9 +217,7 @@ impl Drop for ClaudeAdapter {
                 {
                     let mut stdin_guard = s.stdin.lock().await;
                     if let Some(ref mut stdin) = *stdin_guard {
-                        let _ = stdin
-                            .write_all(format!("{}\n", msg).as_bytes())
-                            .await;
+                        let _ = stdin.write_all(format!("{}\n", msg).as_bytes()).await;
                         let _ = stdin.flush().await;
                     }
                 }
@@ -241,11 +235,7 @@ impl Drop for ClaudeAdapter {
 
 #[async_trait]
 impl HarnessAdapter for ClaudeAdapter {
-    async fn start(
-        &self,
-        input: HarnessInput,
-        cwd: &Path,
-    ) -> Result<RunningHarness, HarnessError> {
+    async fn start(&self, input: HarnessInput, cwd: &Path) -> Result<RunningHarness, HarnessError> {
         self.ensure_session(&input, cwd).await?;
 
         let start = Instant::now();
@@ -253,9 +243,9 @@ impl HarnessAdapter for ClaudeAdapter {
         let (result_tx, result_rx) = oneshot::channel();
 
         let guard = self.session.lock().await;
-        let session = guard.as_ref().ok_or_else(|| {
-            HarnessError::StartFailed("session disappeared after ensure".into())
-        })?;
+        let session = guard
+            .as_ref()
+            .ok_or_else(|| HarnessError::StartFailed("session disappeared after ensure".into()))?;
 
         let (td_tx, td_rx) = oneshot::channel::<bool>();
         let session_id_arc = Arc::new(std::sync::Mutex::new(None::<String>));
@@ -286,9 +276,7 @@ impl HarnessAdapter for ClaudeAdapter {
             });
             let mut guard = stdin.lock().await;
             if let Some(ref mut stdin) = *guard {
-                let _ = stdin
-                    .write_all(format!("{}\n", input_msg).as_bytes())
-                    .await;
+                let _ = stdin.write_all(format!("{}\n", input_msg).as_bytes()).await;
                 let _ = stdin.flush().await;
             }
         });
@@ -365,9 +353,7 @@ impl HarnessAdapter for ClaudeAdapter {
             {
                 let mut stdin_guard = session.stdin.lock().await;
                 if let Some(ref mut stdin) = *stdin_guard {
-                    let _ = stdin
-                        .write_all(format!("{}\n", msg).as_bytes())
-                        .await;
+                    let _ = stdin.write_all(format!("{}\n", msg).as_bytes()).await;
                     let _ = stdin.flush().await;
                 }
             }
@@ -400,9 +386,7 @@ impl HarnessAdapter for ClaudeAdapter {
         };
 
         if let Some(msg) = build_live_protocol_message(&content) {
-            stdin
-                .write_all(format!("{}\n", msg).as_bytes())
-                .await?;
+            stdin.write_all(format!("{}\n", msg).as_bytes()).await?;
             stdin.flush().await?;
             return Ok(());
         }
@@ -596,9 +580,7 @@ async fn persistent_claude_reader(
                                 block.get("type").and_then(|t| t.as_str()).unwrap_or("");
                             match block_type {
                                 "text" => {
-                                    if let Some(text) =
-                                        block.get("text").and_then(|t| t.as_str())
-                                    {
+                                    if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
                                         output.lock().unwrap().push_str(text);
                                         let _ = event_tx
                                             .send(HarnessEvent::Text {

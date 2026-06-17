@@ -46,6 +46,23 @@ class SkillFileCreate(BaseModel):
         return v
 
 
+class SkillSecurityScanSummary(BaseModel):
+    """Latest skill security scan summary."""
+
+    status: str = "not_scanned"
+    score: Optional[int] = None
+    severity: Optional[str] = None
+    recommendation: Optional[str] = None
+    issues_count: int = 0
+    critical_count: int = 0
+    high_count: int = 0
+    medium_count: int = 0
+    low_count: int = 0
+    scanned_at: ISODatetime = None
+    scan_id: Optional[UUIDStr] = None
+    target_hash: Optional[str] = None
+
+
 class SkillSchema(BaseModel):
     """Skill schema for API responses."""
 
@@ -68,6 +85,7 @@ class SkillSchema(BaseModel):
     updated_at: ISODatetime = None
     files: Optional[List[SkillFileSchema]] = None
     latest_version: Optional[str] = None
+    security_scan: SkillSecurityScanSummary = Field(default_factory=SkillSecurityScanSummary)
 
     @model_validator(mode="before")
     @classmethod
@@ -86,7 +104,7 @@ class SkillSchema(BaseModel):
                     else:
                         data_dict[key] = getattr(data, key, None)
             # Also get relationships and other attributes
-            for key in ["id", "created_at", "updated_at", "files", "latest_version"]:
+            for key in ["id", "created_at", "updated_at", "files", "latest_version", "security_scan"]:
                 if hasattr(data, key):
                     data_dict[key] = getattr(data, key)
             # Ensure meta_data is mapped to metadata

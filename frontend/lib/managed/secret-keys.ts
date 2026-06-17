@@ -1,6 +1,8 @@
 export const SECRET_PROVIDER_OPTIONS = [
   { value: 'anthropic', label: 'Anthropic' },
   { value: 'openai', label: 'OpenAI' },
+  { value: 'codex', label: 'Codex' },
+  { value: 'native', label: 'Native' },
   { value: 'deepseek', label: 'DeepSeek' },
   { value: 'custom', label: 'Custom' },
 ]
@@ -35,18 +37,31 @@ export const SECRET_KEY_GROUPS = [
       'OPENAI_MODEL',
     ],
   },
+  {
+    provider: 'Codex',
+    providerValue: 'codex',
+    icon: 'C',
+    bgColor: '#111827',
+    keys: [
+      'OPENAI_API_KEY',
+      'CODEX_BASE_URL',
+      'CODEX_MODEL',
+      'CODEX_REASONING_EFFORT',
+    ],
+  },
 ]
 
 export const SECRET_KEY_OPTIONS = SECRET_KEY_GROUPS.flatMap((g) => g.keys)
 
 export function getDefaultProtocol(provider: string) {
-  if (provider === 'anthropic') return 'anthropic_messages'
+  if (provider === 'anthropic' || provider === 'native') return 'anthropic_messages'
   if (provider === 'openai') return 'openai_responses'
+  if (provider === 'codex') return 'openai_responses'
   return 'chat_completions'
 }
 
 export function getDefaultSecretPairs(provider: string, protocol: string) {
-  if (provider === 'anthropic' && protocol === 'anthropic_messages') {
+  if ((provider === 'anthropic' || provider === 'native') && protocol === 'anthropic_messages') {
     return [
       { key: 'ANTHROPIC_API_KEY', value: '' },
       { key: 'ANTHROPIC_MODEL', value: 'claude-opus-4-20250514' },
@@ -57,6 +72,14 @@ export function getDefaultSecretPairs(provider: string, protocol: string) {
       { key: 'OPENAI_API_KEY', value: '' },
       { key: 'OPENAI_MODEL', value: '' },
       ...(protocol === 'chat_completions' ? [{ key: 'OPENAI_BASE_URL', value: '' }] : []),
+    ]
+  }
+  if (provider === 'codex') {
+    return [
+      { key: 'OPENAI_API_KEY', value: '' },
+      { key: 'CODEX_BASE_URL', value: '' },
+      { key: 'CODEX_MODEL', value: 'gpt-5.3-codex' },
+      { key: 'CODEX_REASONING_EFFORT', value: 'high' },
     ]
   }
   if (provider === 'deepseek') {
@@ -70,17 +93,14 @@ export function getDefaultSecretPairs(provider: string, protocol: string) {
 }
 
 export function isModelKey(key: string) {
-  return key === 'ANTHROPIC_MODEL' || key === 'OPENAI_MODEL'
+  return key === 'ANTHROPIC_MODEL' || key === 'OPENAI_MODEL' || key === 'CODEX_MODEL'
 }
 
 export const MODEL_OPTIONS = [
-  'claude-opus-4-20250514',
-  'claude-sonnet-4-20250514',
-  'claude-haiku-4-20250414',
+  'GPT-5.5',
+  'gpt-5.3-codex',
   'Claude-Opus-4.6',
-  'Claude-Sonnet-4.6',
-  'gpt-4.1',
-  'gpt-4.1-mini',
-  'deepseek-chat',
-  'deepseek-reasoner',
+  'Claude-Opus-4.7',
+  'Claude-Opus-4.8',
+  'deepseek-v4-pro',
 ]

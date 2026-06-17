@@ -5,11 +5,11 @@ Application configuration.
 import os
 import socket
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Annotated, List, Optional, Union
 
 from loguru import logger
 from pydantic import AliasChoices, Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from sqlalchemy.engine.url import make_url
 
 from app import __version__
@@ -422,6 +422,61 @@ class Settings(BaseSettings):
         description="Root directory for storing session files and sandbox data",
     )
 
+    # Skill security scanning
+    skill_security_scan_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("SKILL_SECURITY_SCAN_ENABLED", "JOYSAFETER_SKILL_SECURITY_SCAN_ENABLED"),
+        description="Enable Skill security scanning before skill writes.",
+    )
+    skill_security_scanner_url: str = Field(
+        default="http://skillspector:8010",
+        validation_alias=AliasChoices("SKILL_SECURITY_SCANNER_URL", "SKILLSPECTOR_URL"),
+        description="Internal SkillSpector scanner service URL.",
+    )
+    skill_security_timeout_seconds: float = Field(
+        default=30.0,
+        validation_alias=AliasChoices("SKILL_SECURITY_TIMEOUT_SECONDS", "SKILLSPECTOR_TIMEOUT_SECONDS"),
+        description="Skill security scanner request timeout.",
+    )
+    skill_security_fail_closed: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("SKILL_SECURITY_FAIL_CLOSED", "SKILLSPECTOR_FAIL_CLOSED"),
+        description="Reject skill writes when the scanner fails.",
+    )
+    skill_security_no_llm: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("SKILL_SECURITY_NO_LLM", "SKILLSPECTOR_NO_LLM"),
+        description="Run SkillSpector without LLM analysis by default.",
+    )
+    skill_security_block_recommendations: Annotated[List[str], NoDecode] = Field(
+        default=["DO_NOT_INSTALL"],
+        validation_alias=AliasChoices(
+            "SKILL_SECURITY_BLOCK_RECOMMENDATIONS",
+            "SKILLSPECTOR_BLOCK_RECOMMENDATIONS",
+        ),
+        description="Scanner recommendations that can reject skill writes when issue details are unavailable.",
+    )
+
+    @field_validator("skill_security_block_recommendations", mode="before")
+    @classmethod
+    def parse_skill_security_block_recommendations(cls, v: Union[str, List[str]]) -> List[str]:
+        """Parse recommendation names from CSV or JSON-array env vars."""
+        if isinstance(v, str):
+            value = v.strip()
+            if value.startswith("[") and value.endswith("]"):
+                try:
+                    import json
+
+                    parsed = json.loads(value)
+                    if isinstance(parsed, list):
+                        return [str(item).strip().upper() for item in parsed if str(item).strip()]
+                except Exception:
+                    pass
+            return [item.strip().upper() for item in value.split(",") if item.strip()]
+        if isinstance(v, list):
+            return [str(item).strip().upper() for item in v if str(item).strip()]
+        return []
+
     # OAuth Configuration
     oauth_config_path: Optional[str] = Field(
         default=None,
@@ -457,6 +512,7 @@ class JoySafeterConfig(BaseSettings):
     # Multi-image map: per-model sandbox images
     image_claude: str = ""
     image_codex: str = ""
+    image_native: str = ""
 
     # Event batching
     event_batch_enabled: bool = True
@@ -530,6 +586,8 @@ class JoySafeterConfig(BaseSettings):
             return self.image_codex
         if engine_kind == "claude" and self.image_claude:
             return self.image_claude
+        if engine_kind == "native":
+            return self.image_native if self.image_native else (self.image_claude if self.image_claude else self.sandbox_image)
         return self.sandbox_image
 
 

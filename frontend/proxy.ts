@@ -13,6 +13,10 @@ const NECESSARY_DOMAIN =
 // Paths allowed to be embedded in iframe (whitelist)
 const EMBEDDABLE_PATHS = ['']
 
+// SSO auto-redirect paths.
+const SSO_PUBLIC_PATHS = ['/verify', '/reset-password']
+const SSO_SKIP_PREFIXES = ['/_next', '/api', '/favicon', '/static', '/health']
+
 // Allowed redirect paths (prevent open redirect attacks)
 const ALLOWED_REDIRECT_PATHS = [
   '/dashboard',
@@ -224,11 +228,18 @@ function generateCSPHeader(whiteList: string, nonce: string, isProduction: boole
   return cspHeader.replace(/\s{2,}/g, ' ').trim()
 }
 
+function shouldSkipSsoRedirect(pathname: string): boolean {
+  return (
+    SSO_SKIP_PREFIXES.some((path) => pathname.startsWith(path)) ||
+    SSO_PUBLIC_PATHS.some((path) => pathname.startsWith(path))
+  )
+}
+
 /**
  * Next.js proxy.
  * Handles security headers, CSP, X-Frame-Options, etc.
  */
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
   const requestHeaders = new Headers(request.headers)
 
@@ -244,20 +255,15 @@ export function proxy(request: NextRequest) {
     return addSecurityHeaders(redirectResponse, request)
   }
 
-  // Create response
-  const response = NextResponse.next({
-    request: {
-      headers: requestHeaders,
-    },
-  })
-
   // Check if CSP is enabled (always enabled in production, controlled by env var in development)
   const isProduction = process.env.NODE_ENV === 'production'
   const enableCSP = isProduction || process.env.NEXT_PUBLIC_ENABLE_CSP_IN_DEV === 'true'
   const isWhiteListEnabled = !!process.env.NEXT_PUBLIC_CSP_WHITELIST
+  let nonce: string | undefined
+  let cspHeader: string | undefined
 
   if (enableCSP) {
-    const nonce = generateNonce()
+    nonce = generateNonce()
 
     // Build CSP whitelist (use configured whitelist in production, lenient config in development)
     let whiteList = ''
@@ -270,27 +276,40 @@ export function proxy(request: NextRequest) {
     }
 
     // Generate CSP header
-    const cspHeader = generateCSPHeader(whiteList, nonce, isProduction)
+    cspHeader = generateCSPHeader(whiteList, nonce, isProduction)
 
-    // Set CSP header
+    // Forward nonce/CSP to Server Components before the response is created.
     requestHeaders.set('Content-Security-Policy', cspHeader)
-    response.headers.set('Content-Security-Policy', cspHeader)
     requestHeaders.set('x-nonce', nonce)
-
-    // Add all security headers
-    addSecurityHeaders(response, request, nonce)
-  } else {
-    // If CSP is not enabled, still add basic security headers
-    addSecurityHeaders(response, request)
-
-    // Log warning in development environment
-    if (isProduction) {
-      logger.warn('CSP is disabled in production environment!')
-    }
   }
 
-  // Add X-Frame-Options
-  return wrapResponseWithXFrameOptions(response, pathname)
+  const createNextResponse = () => NextResponse.next({
+    request: {
+      headers: requestHeaders,
+    },
+  })
+
+  const secureResponse = (response: NextResponse) => {
+    if (enableCSP && nonce && cspHeader) {
+      response.headers.set('Content-Security-Policy', cspHeader)
+      // Add all security headers
+      addSecurityHeaders(response, request, nonce)
+    } else {
+      // If CSP is not enabled, still add basic security headers
+      addSecurityHeaders(response, request)
+
+      // Log warning in development environment
+      if (isProduction) {
+        logger.warn('CSP is disabled in production environment!')
+      }
+    }
+
+    // Add X-Frame-Options
+    return wrapResponseWithXFrameOptions(response, pathname)
+  }
+
+  // Create response after request headers have been finalized.
+  return secureResponse(createNextResponse())
 }
 
 /**

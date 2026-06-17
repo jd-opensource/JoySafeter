@@ -86,7 +86,9 @@ pub async fn handle_task(
         .get(provider)
         .ok_or_else(|| format!("No adapter for provider: {}", provider))?;
 
-    let work_dir = session_config.work_dir.clone()
+    let work_dir = session_config
+        .work_dir
+        .clone()
         .or_else(|| task.work_dir.as_deref().map(PathBuf::from))
         .unwrap_or_else(|| PathBuf::from("/workspace"));
 
@@ -98,9 +100,9 @@ pub async fn handle_task(
     // sandboxes can miss setup if the session link is established late.  StartTask
     // also carries skills, so unpack them here as an idempotent fallback before
     // the Claude process starts.
-    unpack_skills(&work_dir, &task.skills).await.map_err(|e| {
-        format!("unpack task skills to {}: {e}", work_dir.display())
-    })?;
+    unpack_skills(&work_dir, &task.skills)
+        .await
+        .map_err(|e| format!("unpack task skills to {}: {e}", work_dir.display()))?;
 
     // Execute environment setup commands (package installs etc.)
     for cmd in &task.setup_commands {
@@ -126,11 +128,21 @@ pub async fn handle_task(
     // Write MCP servers and custom tools to .claude/settings.json (per-task overrides only)
     write_settings_json(&work_dir, &task.mcp_servers, &task.custom_tools).await?;
 
-    let env = if session_config.env.is_empty() { task.env.clone() } else { session_config.env.clone() };
-    let secrets = if session_config.secrets.is_empty() { task.secrets.clone() } else { session_config.secrets.clone() };
+    let env = if session_config.env.is_empty() {
+        task.env.clone()
+    } else {
+        session_config.env.clone()
+    };
+    let secrets = if session_config.secrets.is_empty() {
+        task.secrets.clone()
+    } else {
+        session_config.secrets.clone()
+    };
     let model = session_config.model.clone().or(task.model.clone());
     let permission_mode = if session_config.permission_mode.is_empty() {
-        task.permission_mode.clone().unwrap_or_else(|| "bypassPermissions".into())
+        task.permission_mode
+            .clone()
+            .unwrap_or_else(|| "bypassPermissions".into())
     } else {
         session_config.permission_mode.clone()
     };
@@ -289,17 +301,18 @@ pub async fn handle_task(
         });
     }
 
-    let result = harness
-        .result
-        .await
-        .unwrap_or_else(|_| joysafeter_types::harness::HarnessResult {
-            status: joysafeter_types::harness::HarnessResultStatus::Failed,
-            output: String::new(),
-            error: Some("Failed to receive result".into()),
-            session_id: None,
-            usage: Default::default(),
-            duration: Duration::ZERO,
-        });
+    let result =
+        harness
+            .result
+            .await
+            .unwrap_or_else(|_| joysafeter_types::harness::HarnessResult {
+                status: joysafeter_types::harness::HarnessResultStatus::Failed,
+                output: String::new(),
+                error: Some("Failed to receive result".into()),
+                session_id: None,
+                usage: Default::default(),
+                duration: Duration::ZERO,
+            });
 
     info!(status = %result.status, "Task completed");
 
@@ -357,9 +370,9 @@ pub async fn handle_setup(
         .unwrap_or_else(|| PathBuf::from("/workspace"));
 
     if !work_dir.exists() {
-        tokio::fs::create_dir_all(&work_dir).await.map_err(|e| {
-            format!("Failed to create work_dir {}: {e}", work_dir.display())
-        })?;
+        tokio::fs::create_dir_all(&work_dir)
+            .await
+            .map_err(|e| format!("Failed to create work_dir {}: {e}", work_dir.display()))?;
     }
 
     // Ensure work_dir is writable by the current user
@@ -391,18 +404,18 @@ pub async fn handle_setup(
         }
     }
 
-    unpack_skills(&work_dir, &setup.skills).await.map_err(|e| {
-        format!("unpack_skills to {}: {e}", work_dir.display())
-    })?;
-    write_files(&work_dir, &setup.files).await.map_err(|e| {
-        format!("write_files to {}: {e}", work_dir.display())
-    })?;
-    download_file_refs(&setup.file_refs).await.map_err(|e| {
-        format!("download_file_refs: {e}")
-    })?;
-    write_settings_json(&work_dir, &setup.mcp_servers, &setup.custom_tools).await.map_err(|e| {
-        format!("write_settings_json to {}: {e}", work_dir.display())
-    })?;
+    unpack_skills(&work_dir, &setup.skills)
+        .await
+        .map_err(|e| format!("unpack_skills to {}: {e}", work_dir.display()))?;
+    write_files(&work_dir, &setup.files)
+        .await
+        .map_err(|e| format!("write_files to {}: {e}", work_dir.display()))?;
+    download_file_refs(&setup.file_refs)
+        .await
+        .map_err(|e| format!("download_file_refs: {e}"))?;
+    write_settings_json(&work_dir, &setup.mcp_servers, &setup.custom_tools)
+        .await
+        .map_err(|e| format!("write_settings_json to {}: {e}", work_dir.display()))?;
 
     #[cfg(target_os = "linux")]
     let memory_fuse_handle = if setup.provider != "docker"
@@ -411,7 +424,10 @@ pub async fn handle_setup(
     {
         match MemoryFuseHandle::mount_all(&setup.memory_mounts, runner_tx) {
             Ok(handle) => {
-                info!(count = setup.memory_mounts.len(), "FUSE memory mounts active");
+                info!(
+                    count = setup.memory_mounts.len(),
+                    "FUSE memory mounts active"
+                );
                 Some(Arc::new(handle))
             }
             Err(e) => {
@@ -423,7 +439,9 @@ pub async fn handle_setup(
         None
     };
 
-    let memory_mount_paths: HashMap<String, PathBuf> = setup.memory_mounts.iter()
+    let memory_mount_paths: HashMap<String, PathBuf> = setup
+        .memory_mounts
+        .iter()
         .map(|m| (m.mount_name.clone(), PathBuf::from(&m.mount_path)))
         .collect();
 
@@ -458,7 +476,9 @@ pub async fn handle_setup(
     let config = SessionConfig {
         env: setup.env,
         secrets: setup.secrets,
-        permission_mode: setup.permission_mode.unwrap_or_else(|| "bypassPermissions".into()),
+        permission_mode: setup
+            .permission_mode
+            .unwrap_or_else(|| "bypassPermissions".into()),
         provider: setup.provider,
         model: setup.model,
         work_dir: Some(work_dir.clone()),
@@ -478,15 +498,15 @@ async fn unpack_skills(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     for skill in skills {
         let target_dir = work_dir.join(".claude").join(&skill.target);
-        tokio::fs::create_dir_all(&target_dir).await.map_err(|e| {
-            format!("mkdir {}: {e}", target_dir.display())
-        })?;
+        tokio::fs::create_dir_all(&target_dir)
+            .await
+            .map_err(|e| format!("mkdir {}: {e}", target_dir.display()))?;
         let cursor = std::io::Cursor::new(&skill.tar_gz);
         let gz = flate2::read::GzDecoder::new(cursor);
         let mut archive = tar::Archive::new(gz);
-        archive.unpack(&target_dir).map_err(|e| {
-            format!("unpack tar to {}: {e}", target_dir.display())
-        })?;
+        archive
+            .unpack(&target_dir)
+            .map_err(|e| format!("unpack tar to {}: {e}", target_dir.display()))?;
         info!(name = %skill.name, target = %skill.target, "Unpacked to {}", target_dir.display());
     }
     Ok(())
@@ -499,13 +519,13 @@ async fn write_files(
     for file in files {
         let path = std::path::Path::new(&file.path);
         if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                format!("mkdir {}: {e}", parent.display())
-            })?;
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
         }
-        tokio::fs::write(path, &file.content).await.map_err(|e| {
-            format!("write {}: {e}", path.display())
-        })?;
+        tokio::fs::write(path, &file.content)
+            .await
+            .map_err(|e| format!("write {}: {e}", path.display()))?;
         info!(path = %file.path, filename = %file.filename, size = file.content.len(), "Wrote file");
     }
     Ok(())
@@ -517,24 +537,25 @@ async fn download_file_refs(
     for fr in file_refs {
         let path = std::path::Path::new(&fr.path);
         if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                format!("mkdir {}: {e}", parent.display())
-            })?;
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
         }
         info!(url = %fr.url, path = %fr.path, "Downloading file from presigned URL");
-        let resp = reqwest::get(&fr.url).await.map_err(|e| {
-            format!("download {}: {e}", fr.url)
-        })?;
+        let resp = reqwest::get(&fr.url)
+            .await
+            .map_err(|e| format!("download {}: {e}", fr.url))?;
         if !resp.status().is_success() {
             warn!(status = %resp.status(), url = %fr.url, "File download failed");
             continue;
         }
-        let bytes = resp.bytes().await.map_err(|e| {
-            format!("read body {}: {e}", fr.url)
-        })?;
-        tokio::fs::write(path, &bytes).await.map_err(|e| {
-            format!("write {}: {e}", path.display())
-        })?;
+        let bytes = resp
+            .bytes()
+            .await
+            .map_err(|e| format!("read body {}: {e}", fr.url))?;
+        tokio::fs::write(path, &bytes)
+            .await
+            .map_err(|e| format!("write {}: {e}", path.display()))?;
         info!(path = %fr.path, filename = %fr.filename, size = bytes.len(), "Downloaded file");
     }
     Ok(())
@@ -550,13 +571,15 @@ async fn write_settings_json(
     }
 
     let claude_dir = work_dir.join(".claude");
-    tokio::fs::create_dir_all(&claude_dir).await.map_err(|e| {
-        format!("mkdir {}: {e}", claude_dir.display())
-    })?;
+    tokio::fs::create_dir_all(&claude_dir)
+        .await
+        .map_err(|e| format!("mkdir {}: {e}", claude_dir.display()))?;
     let settings_path = claude_dir.join("settings.json");
 
     let mut settings: serde_json::Value = if settings_path.exists() {
-        let content = tokio::fs::read_to_string(&settings_path).await.unwrap_or_default();
+        let content = tokio::fs::read_to_string(&settings_path)
+            .await
+            .unwrap_or_default();
         serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
     } else {
         serde_json::json!({})
@@ -609,10 +632,7 @@ async fn write_settings_json(
 /// Handle a MemoryFileUpdate from the orchestrator (cross-session sync).
 /// For Docker: writes/deletes the file at the bind mount path.
 /// For FUSE (Linux): updates the in-memory filesystem.
-pub async fn handle_memory_update(
-    update: proto::MemoryFileUpdate,
-    config: &SessionConfig,
-) {
+pub async fn handle_memory_update(update: proto::MemoryFileUpdate, config: &SessionConfig) {
     let mount_name = &update.store_mount_name;
 
     #[cfg(target_os = "linux")]

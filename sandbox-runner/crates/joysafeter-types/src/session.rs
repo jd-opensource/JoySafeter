@@ -126,7 +126,9 @@ impl SessionStatus {
 pub enum StopReason {
     EndTurn,
     #[serde(rename = "requires_action")]
-    RequiresAction { event_ids: Vec<String> },
+    RequiresAction {
+        event_ids: Vec<String>,
+    },
     RetriesExhausted,
 }
 

@@ -39,8 +39,7 @@ struct SurvivingTask {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
@@ -162,10 +161,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 sandbox_id: sandbox_id.clone(),
                 is_reconnect,
                 active_task_id: active_task_id.clone(),
-                capabilities: vec![
-                    "file_mount".to_string(),
-                    "url_download".to_string(),
-                ],
+                capabilities: vec!["file_mount".to_string(), "url_download".to_string()],
                 runner_token: runner_token.clone(),
             })),
         };
@@ -211,7 +207,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             if replayed > 0 {
-                info!(count = replayed, "Replayed buffered events to new joysafeter");
+                info!(
+                    count = replayed,
+                    "Replayed buffered events to new joysafeter"
+                );
             }
         }
 

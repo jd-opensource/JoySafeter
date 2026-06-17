@@ -12,6 +12,9 @@ from app.joysafeter_orchestrator.runtime.adapter import HarnessInput, SkillArchi
 
 logger = logging.getLogger(__name__)
 
+CONVERSATION_HISTORY_EVENT_LIMIT = 100
+CONVERSATION_HISTORY_MAX_CHARS = 24_000
+
 # ------------------------------------------------------------------
 # Builder helpers — Rust parity (harness_input_builder.rs)
 # ------------------------------------------------------------------
@@ -58,6 +61,12 @@ def _extract_agent_setup_commands(agent) -> list[str]:
     if isinstance(metadata, dict):
         return list(metadata.get("setup_commands", []))
     return []
+
+
+def _session_container_work_dir(last_work_dir: Optional[str]) -> str:
+    if last_work_dir and os.path.isabs(last_work_dir):
+        return last_work_dir
+    return "/workspace"
 
 
 def _parse_tool_allow_lists(agent) -> tuple[list[str], list[str]]:
@@ -180,6 +189,7 @@ async def build_harness_input(
     memory_system_prompt: Optional[str] = None
     mcp_configs = list(agent.mcp_configs or [])
     harness_session_id: Optional[str] = None
+    work_dir = "/workspace" if session_id else sandbox_external_id
 
     from app.joysafeter_shared.config.settings import joysafeter_config
     workspace_path: Optional[str] = None
@@ -220,8 +230,13 @@ async def build_harness_input(
                 secrets = {k: str(v) for k, v in secret.data.items()}
                 if "ANTHROPIC_AUTH_TOKEN" in secrets and "ANTHROPIC_API_KEY" not in secrets:
                     secrets["ANTHROPIC_API_KEY"] = secrets["ANTHROPIC_AUTH_TOKEN"]
-                if not model and secrets.get("ANTHROPIC_MODEL"):
-                    model = secrets["ANTHROPIC_MODEL"]
+                if not model:
+                    if engine_kind == "codex" and secrets.get("OPENAI_MODEL"):
+                        model = secrets["OPENAI_MODEL"]
+                    elif secrets.get("ANTHROPIC_MODEL"):
+                        model = secrets["ANTHROPIC_MODEL"]
+                    elif secrets.get("OPENAI_MODEL"):
+                        model = secrets["OPENAI_MODEL"]
                 # Don't merge secrets into env — they are injected via container env at creation time
 
         if session_id:
@@ -229,6 +244,9 @@ async def build_harness_input(
             session = await session_svc.get_session(session_id)
             if session:
                 harness_session_id = getattr(session, "last_harness_session_id", None)
+                work_dir = _session_container_work_dir(
+                    getattr(session, "last_work_dir", None)
+                )
             vault_ids = (
                 session.vault_ids if session and hasattr(session, "vault_ids") else []
             )
@@ -345,10 +363,11 @@ async def build_harness_input(
         combined_system = base_system or None
 
     prompt = task.prompt
-    if engine_kind == "codex" and session_id:
-        history = await _build_codex_conversation_history(session_id, task.id)
+    has_harness_resume = bool(harness_session_id and harness_session_id.strip())
+    if _should_inject_conversation_history(engine_kind, has_harness_resume) and session_id:
+        history = await _build_conversation_history(session_id, task.id)
         if history:
-            logger.debug("Codex history injected (%d chars) for session=%s", len(history), session_id)
+            logger.debug("Conversation history injected (%d chars) for session=%s", len(history), session_id)
             prompt = f"{history}\n\n{prompt}"
 
     # Load session file resources for gRPC transfer
@@ -388,7 +407,7 @@ async def build_harness_input(
         prompt=prompt,
         system_prompt=combined_system,
         env=env,
-        work_dir=sandbox_external_id,
+        work_dir=work_dir,
         session_id=harness_session_id,
         permission_mode=extract_permission_mode(agent.tools),
         model=model,
@@ -453,40 +472,96 @@ def extract_tool_name_sets(agent) -> tuple[set[str], set[str]]:
     return custom_names, mcp_names
 
 
-async def _build_codex_conversation_history(
+def _should_inject_conversation_history(
+    engine_kind: str, has_harness_resume: bool
+) -> bool:
+    return engine_kind in {"claude", "codex", "native"} and not has_harness_resume
+
+
+def _extract_content_text(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+
+    content = payload.get("content")
+    if isinstance(content, str):
+        return content.strip()
+
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = block.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "".join(parts).strip()
+
+    return ""
+
+
+async def _build_conversation_history(
     session_id: uuid.UUID, current_task_id: uuid.UUID
 ) -> Optional[str]:
-    """Build conversation history for codex agents from session events.
+    """Build conversation history for CLI agents from session events.
 
     Uses persisted session events (user.message + agent.message) rather than
     tasks, since tasks may be retried/re-queued after sandbox death.
     """
+    from sqlalchemy import text
+
     from app.joysafeter_shared.database import AsyncSessionLocal
-    from app.joysafeter_orchestrator.services import SessionService
 
     async with AsyncSessionLocal() as db:
-        session_svc = SessionService(db)
-        events, _ = await session_svc.list_events(session_id, limit=500)
+        current_turn_running_seq = await db.scalar(
+            text(
+                """
+                SELECT MAX(seq) FROM joysafeter_session_events
+                WHERE session_id = :session_id
+                  AND event_type = 'session.status_running'
+                  AND payload->>'task_id' = :task_id
+                """
+            ),
+            {"session_id": session_id, "task_id": str(current_task_id)},
+        )
+
+        boundary_seq = current_turn_running_seq
+        if current_turn_running_seq is not None:
+            current_turn_user_msg_seq = await db.scalar(
+                text(
+                    """
+                    SELECT MAX(seq) FROM joysafeter_session_events
+                    WHERE session_id = :session_id
+                      AND event_type = 'user.message'
+                      AND seq < :running_seq
+                    """
+                ),
+                {"session_id": session_id, "running_seq": current_turn_running_seq},
+            )
+            boundary_seq = current_turn_user_msg_seq or current_turn_running_seq
+
+        result = await db.execute(
+            text(
+                """
+                SELECT event_type, payload, seq FROM (
+                    SELECT event_type, payload, seq, created_at
+                    FROM joysafeter_session_events
+                    WHERE session_id = :session_id
+                      AND (CAST(:boundary_seq AS BIGINT) IS NULL OR seq < :boundary_seq)
+                    ORDER BY seq DESC, created_at DESC
+                    LIMIT :limit
+                ) recent
+                ORDER BY seq ASC, created_at ASC
+                """
+            ),
+            {
+                "session_id": session_id,
+                "boundary_seq": boundary_seq,
+                "limit": CONVERSATION_HISTORY_EVENT_LIMIT,
+            },
+        )
+        events = list(result.mappings().all())
 
     if not events:
         return None
-
-    # Find the current turn's status_running event to know where prior history ends
-    # The user.message event immediately before status_running is part of the CURRENT turn
-    current_turn_start_seq = None
-    current_turn_user_msg_seq = None
-    for evt in events:
-        if evt.event_type == "session.status_running":
-            payload = evt.payload if isinstance(evt.payload, dict) else {}
-            if payload.get("task_id") == str(current_task_id):
-                current_turn_start_seq = evt.seq
-                break
-        if evt.event_type == "user.message":
-            current_turn_user_msg_seq = evt.seq
-
-    # The user.message right before current turn's status_running is the current prompt
-    # Exclude it from history by using its seq as the boundary
-    boundary_seq = current_turn_user_msg_seq if current_turn_user_msg_seq else current_turn_start_seq
 
     # Build conversation from user.message and agent.message events BEFORE current turn
     lines = []
@@ -494,37 +569,27 @@ async def _build_codex_conversation_history(
     current_agent_parts: list[str] = []
 
     for evt in events:
-        # Stop at the current turn's boundary (user.message for current turn)
-        if boundary_seq and evt.seq >= boundary_seq:
-            break
-
-        if evt.event_type == "user.message":
+        event_type = evt["event_type"]
+        payload = evt["payload"]
+        if event_type == "user.message":
             # Flush previous exchange
             if current_user_msg is not None:
-                lines.append(f"\nUser: {current_user_msg}")
+                lines.append(f"User: {current_user_msg}")
                 if current_agent_parts:
                     lines.append(f"Assistant: {''.join(current_agent_parts)}")
                 current_agent_parts = []
 
-            # Extract user message text
-            payload = evt.payload if isinstance(evt.payload, dict) else {}
-            content = payload.get("content", [])
-            text_parts = []
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    text_parts.append(block.get("text", ""))
-            current_user_msg = "".join(text_parts) if text_parts else None
+            text = _extract_content_text(payload)
+            current_user_msg = text or None
 
-        elif evt.event_type == "agent.message" and current_user_msg is not None:
-            payload = evt.payload if isinstance(evt.payload, dict) else {}
-            content = payload.get("content", [])
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    current_agent_parts.append(block.get("text", ""))
+        elif event_type == "agent.message" and current_user_msg is not None:
+            text = _extract_content_text(payload)
+            if text:
+                current_agent_parts.append(text)
 
     # Flush last exchange
     if current_user_msg is not None:
-        lines.append(f"\nUser: {current_user_msg}")
+        lines.append(f"User: {current_user_msg}")
         if current_agent_parts:
             lines.append(f"Assistant: {''.join(current_agent_parts)}")
 
@@ -532,5 +597,42 @@ async def _build_codex_conversation_history(
         return None
 
     header = "[CONVERSATION HISTORY - Prior turns in this session]"
-    footer = "\n[END CONVERSATION HISTORY]\n"
-    return f"{header}\n{''.join(lines)}\n{footer}"
+    footer = "[END CONVERSATION HISTORY]"
+    body = _trim_history_lines_to_budget(lines, CONVERSATION_HISTORY_MAX_CHARS)
+    if not body:
+        return None
+    return f"{header}\n{body}\n{footer}"
+
+
+def _trim_history_lines_to_budget(lines: list[str], max_chars: int) -> str:
+    if not lines or max_chars <= 0:
+        return ""
+
+    selected: list[str] = []
+    used = 0
+    for line in reversed(lines):
+        separator_chars = 0 if not selected else 2
+        line_chars = len(line)
+        if used + separator_chars + line_chars <= max_chars:
+            used += separator_chars + line_chars
+            selected.append(line)
+            continue
+
+        if not selected:
+            remaining = max_chars - separator_chars
+            selected.append(_truncate_start(line, remaining))
+        break
+
+    selected.reverse()
+    return "\n\n".join(line for line in selected if line)
+
+
+def _truncate_start(value: str, max_chars: int) -> str:
+    if len(value) <= max_chars:
+        return value
+    if max_chars <= 0:
+        return ""
+    prefix = "..."
+    if max_chars <= len(prefix):
+        return value[-max_chars:]
+    return f"{prefix}{value[-(max_chars - len(prefix)):]}"

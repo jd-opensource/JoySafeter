@@ -37,9 +37,12 @@ class _CodexTurnState:
         self.done = asyncio.Event()
         self.output_parts: list[str] = []
         self.usage: Optional[dict[str, Any]] = None
+        self.usage_event_emitted = False
         self.error: Optional[str] = None
         self.status: HarnessResultStatus = HarnessResultStatus.COMPLETED
         self.start_time: float = time.monotonic()
+        self.model: str = "codex"
+        self.agent_message_text_by_id: dict[str, str] = {}
 
 
 class CodexAdapter(HarnessAdapter):
@@ -189,6 +192,7 @@ class CodexAdapter(HarnessAdapter):
 
         session = await self._ensure_session(input)
         turn = _CodexTurnState()
+        turn.model = input.model or "codex"
         session.current_turn = turn
         harness.process = session.process
         harness._events = turn.events
@@ -246,13 +250,91 @@ class CodexAdapter(HarnessAdapter):
                 return
 
     def _extract_usage(self, data: dict) -> Optional[dict[str, Any]]:
+        usage: Optional[dict[str, Any]] = None
         for key in ("usage", "token_usage", "tokens"):
             if key in data and isinstance(data[key], dict):
-                return data[key]
+                usage = data[key]
+                break
         token_usage = data.get("tokenUsage")
-        if isinstance(token_usage, dict):
-            return token_usage.get("total") or token_usage.get("last") or token_usage
+        if usage is None and isinstance(token_usage, dict):
+            # Codex tokenUsage.total is thread-cumulative; use last for per-task accounting.
+            usage = token_usage.get("last") or token_usage.get("total") or token_usage
+        if not isinstance(usage, dict):
+            return None
+        return self._normalize_usage(usage)
+
+    def _normalize_usage(self, usage: dict[str, Any]) -> dict[str, int]:
+        def get_int(*keys: str) -> int:
+            for key in keys:
+                value = usage.get(key)
+                if isinstance(value, bool):
+                    continue
+                if isinstance(value, (int, float)) and value > 0:
+                    return int(value)
+            return 0
+
+        return {
+            "input_tokens": get_int("input_tokens", "input", "prompt_tokens", "inputTokens"),
+            "output_tokens": get_int("output_tokens", "output", "completion_tokens", "outputTokens"),
+            "cache_read_tokens": get_int(
+                "cache_read_tokens",
+                "cache_read_input_tokens",
+                "cachedInputTokens",
+            ),
+            "cache_write_tokens": get_int(
+                "cache_write_tokens",
+                "cache_creation_input_tokens",
+                "cacheWriteTokens",
+            ),
+        }
+
+    def _model_request_end_payload(self, model: str, usage: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "type": "model_request_end",
+            "model": model,
+            "input_tokens": usage.get("input_tokens", 0),
+            "output_tokens": usage.get("output_tokens", 0),
+            "cache_read_tokens": usage.get("cache_read_tokens", 0),
+            "cache_write_tokens": usage.get("cache_write_tokens", 0),
+        }
+
+    def _extract_text_value(self, value: Any) -> Optional[str]:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            for key in ("text", "content", "delta"):
+                text = self._extract_text_value(value.get(key))
+                if text:
+                    return text
+        if isinstance(value, list):
+            text = "".join(
+                part for item in value
+                if (part := self._extract_text_value(item))
+            )
+            return text or None
         return None
+
+    def _extract_agent_message_delta(self, params: dict[str, Any]) -> Optional[str]:
+        for key in ("delta", "textDelta", "contentDelta", "text", "content"):
+            text = self._extract_text_value(params.get(key))
+            if text:
+                return text
+
+        item = params.get("item")
+        if isinstance(item, dict):
+            for key in ("delta", "textDelta", "contentDelta"):
+                text = self._extract_text_value(item.get(key))
+                if text:
+                    return text
+        return None
+
+    def _assistant_text_event(self, text: str) -> dict[str, Any]:
+        return {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "text", "text": text}],
+            },
+        }
 
     async def _persistent_reader(self, session: _CodexSession) -> None:
         try:
@@ -345,20 +427,71 @@ class CodexAdapter(HarnessAdapter):
             await self._handle_legacy_event(session, params)
         elif method == "turn/started":
             if turn:
-                await turn.events.put(HarnessEvent(event_type="turn_started", payload=params))
+                await turn.events.put(HarnessEvent(
+                    event_type="model_request_start",
+                    payload={"type": "model_request_start", "model": turn.model},
+                ))
         elif method == "turn/completed":
             if turn:
                 turn.usage = self._extract_usage(params) or turn.usage
+                if turn.usage and not turn.usage_event_emitted:
+                    await turn.events.put(HarnessEvent(
+                        event_type="model_request_end",
+                        payload=self._model_request_end_payload(turn.model, turn.usage),
+                    ))
+                    turn.usage_event_emitted = True
                 if "output" in params:
                     turn.output_parts.append(params["output"])
                 turn.done.set()
                 session.current_turn = None
+        elif method == "thread/tokenUsage/updated":
+            if turn:
+                usage = self._extract_usage(params)
+                if usage:
+                    turn.usage = usage
+                    await turn.events.put(HarnessEvent(
+                        event_type="model_request_end",
+                        payload=self._model_request_end_payload(turn.model, usage),
+                    ))
+                    turn.usage_event_emitted = True
         elif method == "item/started":
             if turn:
                 await turn.events.put(HarnessEvent(event_type="item_started", payload=params))
+        elif method == "item/agentMessage/delta":
+            if turn:
+                text = self._extract_agent_message_delta(params)
+                if text:
+                    item = params.get("item") if isinstance(params.get("item"), dict) else {}
+                    item_id = item.get("id") or ""
+                    if item_id:
+                        turn.agent_message_text_by_id[item_id] = (
+                            turn.agent_message_text_by_id.get(item_id, "") + text
+                        )
+                    await turn.events.put(HarnessEvent(
+                        event_type="assistant",
+                        payload=self._assistant_text_event(text),
+                    ))
         elif method == "item/completed":
             if turn:
-                await turn.events.put(HarnessEvent(event_type="item_completed", payload=params))
+                item = params.get("item") if isinstance(params.get("item"), dict) else {}
+                if item.get("type") == "agentMessage":
+                    text = item.get("text") if isinstance(item.get("text"), str) else ""
+                    item_id = item.get("id") or ""
+                    already_sent = turn.agent_message_text_by_id.pop(item_id, "")
+                    remaining_text = (
+                        text[len(already_sent):]
+                        if already_sent and text.startswith(already_sent)
+                        else ("" if already_sent else text)
+                    )
+                    if remaining_text:
+                        await turn.events.put(HarnessEvent(
+                            event_type="assistant",
+                            payload=self._assistant_text_event(remaining_text),
+                        ))
+                    if text:
+                        turn.output_parts.append(text)
+                else:
+                    await turn.events.put(HarnessEvent(event_type="item_completed", payload=params))
                 if "output" in params:
                     turn.output_parts.append(params["output"])
         else:
@@ -387,6 +520,12 @@ class CodexAdapter(HarnessAdapter):
         elif event_name == "task_complete":
             if turn:
                 turn.usage = self._extract_usage(params) or turn.usage
+                if turn.usage and not turn.usage_event_emitted:
+                    await turn.events.put(HarnessEvent(
+                        event_type="model_request_end",
+                        payload=self._model_request_end_payload(turn.model, turn.usage),
+                    ))
+                    turn.usage_event_emitted = True
                 if "output" in params:
                     turn.output_parts.append(params["output"])
                 turn.done.set()

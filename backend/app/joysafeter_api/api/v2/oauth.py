@@ -101,18 +101,20 @@ async def oauth_authorize(
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
-    # Store state in Redis
-    if RedisClient.is_available():
-        try:
-            await RedisClient.set(f"oauth_state:{state}", json.dumps(state_data), expire=600)
-        except Exception as e:
-            logger.warning(f"{LOG_PREFIX} Failed to store state in Redis: {e}")
-
     authorization_url, resolved_state = await oauth_service.generate_authorization_url(
         provider_name=provider,
         redirect_uri=redirect_uri,
         state=state,
     )
+
+    # Store state after generating the authorization URL. OAuthService also writes
+    # state metadata, so this final write preserves callback_url for the callback.
+    state_data["state"] = resolved_state
+    if RedisClient.is_available():
+        try:
+            await RedisClient.set(f"oauth_state:{resolved_state}", json.dumps(state_data), expire=600)
+        except Exception as e:
+            logger.warning(f"{LOG_PREFIX} Failed to store state in Redis: {e}")
 
     logger.info(f"{LOG_PREFIX} Generated authorization URL for {provider}")
     return success_response(
@@ -132,6 +134,7 @@ async def oauth_callback(
     state: Optional[str] = Query(None, description="State parameter (optional for JD SSO)"),
     error: Optional[str] = Query(None, description="Error message"),
     error_description: Optional[str] = Query(None, description="Error description"),
+    retry: int = Query(0, description="Internal retry counter to avoid redirect loops"),
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
     """
@@ -245,6 +248,14 @@ async def oauth_callback(
         # Validation error raised by protocol handler
         logger.error(f"{LOG_PREFIX} OAuth callback validation error: {e}")
         await db.rollback()
+        # JD SSO: missing sso.jd.com cookie likely means the JD session was not yet
+        # established. Redirect back to the authorize URL once to let JD set the cookie
+        # (seamless if the user already has a JD session), instead of failing immediately.
+        if provider_config.protocol == "jd_sso" and retry < 1:
+            logger.info(f"{LOG_PREFIX} JD SSO retry: redirecting back to authorize URL")
+            return await _redirect_to_jd_authorize(
+                request, provider, callback_url, retry + 1, db
+            )
         return _redirect_with_error(frontend_url, "OAUTH_CALLBACK_INVALID", str(e))
     except Exception as e:
         logger.error(f"{LOG_PREFIX} OAuth callback error: {e}", exc_info=True)
@@ -328,6 +339,48 @@ def _get_base_url(request: Request) -> str:
         proto = forwarded_proto or "https"
         base_url = f"{proto}://{forwarded_host}"
     return base_url
+
+
+async def _redirect_to_jd_authorize(
+    request: Request,
+    provider: str,
+    callback_url: str,
+    retry: int,
+    db: AsyncSession,
+) -> RedirectResponse:
+    """
+    Re-redirect to the JD SSO authorize URL when the sso.jd.com cookie is missing.
+
+    This gives JD SSO a chance to establish its session and set the cookie.
+    If the user already has a JD session this is seamless (no password prompt).
+    The retry counter on the callback redirect_uri prevents infinite loops.
+    """
+    oauth_service = OAuthService(db)
+    base_url = _get_base_url(request)
+    # Embed retry counter in the callback so the loop terminates after one retry
+    redirect_uri = f"{base_url}/api/v2/auth/oauth/{provider}/callback?retry={retry}"
+
+    state = secrets.token_urlsafe(32)
+    authorization_url, resolved_state = await oauth_service.generate_authorization_url(
+        provider_name=provider,
+        redirect_uri=redirect_uri,
+        state=state,
+    )
+
+    if RedisClient.is_available():
+        try:
+            state_data = {
+                "provider": provider,
+                "redirect_uri": redirect_uri,
+                "callback_url": callback_url,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "state": resolved_state,
+            }
+            await RedisClient.set(f"oauth_state:{resolved_state}", json.dumps(state_data), expire=600)
+        except Exception as e:
+            logger.warning(f"{LOG_PREFIX} Failed to store retry state in Redis: {e}")
+
+    return RedirectResponse(url=authorization_url, status_code=302)
 
 
 def _get_client_ip(request: Request) -> str:

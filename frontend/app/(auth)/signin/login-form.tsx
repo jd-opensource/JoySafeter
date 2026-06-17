@@ -19,7 +19,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { client, useSession, type AuthError } from '@/lib/auth/auth-client'
-import { ApiError } from '@/lib/api-client'
+import { ApiError, managedGet } from '@/lib/api-client'
 import { getEnv, isFalsy } from '@/lib/core/config/env'
 import { getBaseUrl } from '@/lib/core/utils/urls'
 import { useTranslation } from '@/lib/i18n'
@@ -115,7 +115,11 @@ export default function LoginPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { refetch: refetchSession } = useSession()
+  const {
+    data: sessionData,
+    isPending: isSessionPending,
+    refetch: refetchSession,
+  } = useSession()
   const [isLoading, setIsLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -132,6 +136,11 @@ export default function LoginPage() {
     type: 'success' | 'error' | null
     message: string
   }>({ type: null, message: '' })
+
+  // When bypass_sso=true (SSO fallback), always show email/password form
+  const isBypassSso = searchParams?.get('bypass_sso') === 'true'
+  const showEmailPasswordForm =
+    isBypassSso || !isFalsy(getEnv('NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED'))
 
   const form = useForm<LoginFormData>({
     resolver: zodResolver(loginFormSchema),
@@ -178,6 +187,40 @@ export default function LoginPage() {
       }
     }
   }, [searchParams, t])
+
+  useEffect(() => {
+    if (isSessionPending || !sessionData?.user) {
+      return
+    }
+
+    // Clear SSO auto-redirect flag on successful login
+    sessionStorage.removeItem('sso_auto_attempted')
+    const safeCallbackUrl = validateCallbackUrl(callbackUrl) ? callbackUrl : '/managed/quickstart'
+    router.replace(safeCallbackUrl)
+  }, [callbackUrl, isSessionPending, router, sessionData?.user])
+
+  // SSO auto-redirect: if no OAuth error and not bypassed, redirect to SSO directly
+  useEffect(() => {
+    if (!mounted) return
+    if (sessionData?.user) return
+    if (oauthError) return
+    if (isBypassSso) return
+    // Prevent infinite redirect loop
+    const hasAttempted = sessionStorage.getItem('sso_auto_attempted')
+    if (hasAttempted === 'true') return
+    sessionStorage.setItem('sso_auto_attempted', 'true')
+    // Fetch SSO authorization URL from backend, then redirect
+    const ssoProvider = 'jd'
+    managedGet<{ authorization_url: string }>(`auth/oauth/${ssoProvider}?callback_url=${encodeURIComponent(callbackUrl)}`, {
+      withAuth: false,
+      skipManagedContext: true,
+    }).then((response) => {
+      window.location.href = response.authorization_url
+    }).catch(() => {
+      // Backend unreachable — clear flag so user can retry
+      sessionStorage.removeItem('sso_auto_attempted')
+    })
+  }, [mounted, sessionData?.user, oauthError, isBypassSso, callbackUrl])
 
   const handleForgotPassword = useCallback(async () => {
     if (!forgotPasswordEmail) {
@@ -406,7 +449,7 @@ export default function LoginPage() {
         </div>
       )}
 
-      {!isFalsy(getEnv('NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED')) && (
+      {showEmailPasswordForm && (
         <form
           onSubmit={form.handleSubmit(onSubmit)}
           className={`${inter.className} mt-8 space-y-8`}
@@ -503,10 +546,10 @@ export default function LoginPage() {
       {/* OAuth/SSO login buttons */}
       <OAuthButtons
         callbackUrl={callbackUrl}
-        showDivider={!isFalsy(getEnv('NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED'))}
+        showDivider={showEmailPasswordForm}
       />
 
-      {!isFalsy(getEnv('NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED')) && (
+      {showEmailPasswordForm && (
         <div
           className={`${inter.className} pt-6 text-center text-base font-light`}
           suppressHydrationWarning

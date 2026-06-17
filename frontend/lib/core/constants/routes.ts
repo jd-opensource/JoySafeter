@@ -24,7 +24,7 @@ export function isPublicRoute(pathname: string | null): boolean {
 /**
  * Default redirect route after login
  */
-export const DEFAULT_AUTHENTICATED_ROUTE = '/dashboard'
+export const DEFAULT_AUTHENTICATED_ROUTE = '/managed/quickstart'
 
 /**
  * Default sign-in route

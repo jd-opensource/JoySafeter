@@ -366,6 +366,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
               <SelectContent>
                 <SelectItem value="claude">{t('managed.agents.engineClaude')}</SelectItem>
                 <SelectItem value="codex">{t('managed.agents.engineCodex')}</SelectItem>
+                <SelectItem value="native">{t('managed.agents.engineNative')}</SelectItem>
               </SelectContent>
             </Select>
           </div>

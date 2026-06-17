@@ -23,7 +23,7 @@
 
 import { env as runtimeEnv } from 'next-runtime-env'
 
-import { getCsrfToken } from '@/lib/auth/csrf'
+import { getCsrfToken, setCsrfToken } from '@/lib/auth/csrf'
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { ErrorSource, UserAction } from '@/types/agent-run'
 
@@ -230,6 +230,19 @@ export async function refreshAccessTokenOrRelogin(timeout = 10000): Promise<void
 
       if (!response.ok) {
         throw await extractErrorFromResponse(response)
+      }
+
+      try {
+        const payload = await response.clone().json()
+        const csrfToken =
+          payload && typeof payload === 'object' && 'data' in payload
+            ? payload.data?.csrf_token
+            : payload?.csrf_token
+        if (typeof csrfToken === 'string' && csrfToken) {
+          setCsrfToken(csrfToken)
+        }
+      } catch {
+        /* refresh response without JSON body */
       }
     } catch (error) {
       clearTimeout(timeoutId)

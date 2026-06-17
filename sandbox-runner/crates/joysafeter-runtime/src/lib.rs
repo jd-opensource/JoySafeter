@@ -1,6 +1,7 @@
 pub mod claude;
 pub mod codex;
 pub mod mock;
+pub mod native;
 
 use joysafeter_types::harness::HarnessAdapter;
 use std::collections::HashMap;
@@ -19,12 +20,27 @@ impl AdapterRegistry {
             .unwrap_or(false);
 
         if mock_enabled {
-            adapters.insert("claude".to_string(), Arc::new(mock::MockAdapter::new("claude")));
-            adapters.insert("codex".to_string(), Arc::new(mock::MockAdapter::new("codex")));
+            adapters.insert(
+                "claude".to_string(),
+                Arc::new(mock::MockAdapter::new("claude")),
+            );
+            adapters.insert(
+                "codex".to_string(),
+                Arc::new(mock::MockAdapter::new("codex")),
+            );
+            adapters.insert(
+                "native".to_string(),
+                Arc::new(mock::MockAdapter::new("native")),
+            );
         } else {
             let claude = claude::ClaudeAdapter::new();
             if claude.is_available().await {
                 adapters.insert("claude".to_string(), Arc::new(claude));
+            }
+
+            let native_adapter = native::NativeAdapter::new();
+            if native_adapter.is_available().await {
+                adapters.insert("native".to_string(), Arc::new(native_adapter));
             }
 
             let codex = codex::CodexAdapter::new();

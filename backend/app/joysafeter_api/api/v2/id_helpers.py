@@ -51,3 +51,7 @@ def parse_skill_id(skill_id: str = Path(...)) -> uuid.UUID:
 
 def parse_skill_file_id(file_id: str = Path(...)) -> uuid.UUID:
     return _strip_prefix(file_id, "sklfile_")
+
+
+def parse_skill_security_scan_id(scan_id: str = Path(...)) -> uuid.UUID:
+    return _strip_prefix(scan_id, "sklscan_")

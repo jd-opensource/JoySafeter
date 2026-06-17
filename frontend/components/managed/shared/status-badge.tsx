@@ -20,6 +20,27 @@ const statusConfig: Record<
   idle: { variant: 'outline' },
   terminated: { variant: 'outline' },
   archived: { variant: 'outline' },
+  private: { variant: 'outline' },
+  passed: {
+    variant: 'outline',
+    className: 'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+  },
+  warning: {
+    variant: 'outline',
+    className: 'border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-400',
+  },
+  blocked: {
+    variant: 'outline',
+    className: 'border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-400',
+  },
+  failed: {
+    variant: 'outline',
+    className: 'border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-400',
+  },
+  not_scanned: {
+    variant: 'outline',
+    className: 'border-slate-400/50 bg-slate-400/10 text-slate-600 dark:text-slate-400',
+  },
 }
 
 const defaultConfig = { variant: 'outline' as const }
@@ -30,6 +51,12 @@ const statusI18nKeys: Record<string, string> = {
   idle: 'common.idle',
   terminated: 'common.terminated',
   archived: 'common.archived',
+  private: 'common.private',
+  passed: 'common.passed',
+  warning: 'common.warning',
+  blocked: 'common.blocked',
+  failed: 'common.failed',
+  not_scanned: 'common.notScanned',
 }
 
 export function StatusBadge({ status }: { status: Status }) {

@@ -62,6 +62,21 @@ export interface SkillFile {
   language?: string
 }
 
+export interface SkillSecurityScanSummary {
+  status: 'passed' | 'warning' | 'blocked' | 'failed' | 'not_scanned' | string
+  score: number | null
+  severity: string | null
+  recommendation: string | null
+  issues_count: number
+  critical_count: number
+  high_count: number
+  medium_count: number
+  low_count: number
+  scanned_at: string | null
+  scan_id: string | null
+  target_hash: string | null
+}
+
 // File tree node for hierarchical display
 export interface FileTreeNode {
   name: string
@@ -111,6 +126,7 @@ export interface Skill {
   allowed_tools?: string[] // list[str] (per Agent Skills spec)
   created_at: string
   updated_at: string
+  security_scan?: SkillSecurityScanSummary
   files?: SkillFile[]
   // Legacy fields for backward compatibility (deprecated, use source_type instead)
   source?: 'local' | 'git' | 's3' // Updated: 'aws' -> 's3' to match form schema

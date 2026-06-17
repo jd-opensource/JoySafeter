@@ -108,7 +108,7 @@ function compareSessionEvents(a: SessionEvent, b: SessionEvent) {
   const timeB = b.created_at ? new Date(b.created_at).getTime() : 0
   if (timeA !== timeB) return timeA - timeB
 
-  return a.id.localeCompare(b.id)
+  return (a.id || '').localeCompare(b.id || '')
 }
 
 function sortSessionEvents(events: SessionEvent[]) {
@@ -283,6 +283,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const isRunning = session?.status === 'running'
   const isIdle = session?.status === 'idle'
   const isArchived = !!session?.archived_at
+  const canEditMessage = !isArchived && !isSending
   const canSendMessage = isIdle && !isArchived && !isSending
   const wasRunningRef = useRef(false)
 
@@ -357,9 +358,15 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     const base = loadedEvents
     if (streamEvents.length === 0) return base
     const lastSeq = getMaxSeq(base)
-    const newOnes = streamEvents.filter((e) => (e.seq ?? 0) > lastSeq)
+    const newOnes = streamEvents.filter((e) => e.seq == null || e.seq > lastSeq)
     const byIdentity = new Map<string, SessionEvent>()
-    for (const event of [...base, ...newOnes]) byIdentity.set(getEventIdentity(event), event)
+    for (const event of base) byIdentity.set(getEventIdentity(event), event)
+    for (const event of newOnes) {
+      const identity = getEventIdentity(event)
+      const existing = byIdentity.get(identity)
+      if (existing?.seq != null && event.seq == null) continue
+      byIdentity.set(identity, event)
+    }
     return sortSessionEvents(Array.from(byIdentity.values()))
   }, [loadedEvents, streamEvents])
 
@@ -402,9 +409,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       })
     }
 
-    // Debug mode: merge text deltas, dedup tool events by call_id, pair tool_use -> tool_result
+    // Debug mode: keep agent.message deltas raw, dedup tool events by call_id, pair tool_use -> tool_result
     if (tab === 'debug') {
-      // Step 1: merge consecutive thinking/message text deltas
+      // Step 1: merge consecutive thinking deltas
       const step1: typeof events = []
       const extractDbgText = (e: SessionEvent): string => {
         if (Array.isArray(e.content)) return e.content.map((b) => b.text || '').join('')
@@ -415,7 +422,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
         const t = evt.type || evt.event_type || ''
         const prev = step1[step1.length - 1]
         const prevType = prev ? (prev.type || prev.event_type || '') : ''
-        if ((t === 'agent.message' || t === 'agent.thinking') && prevType === t) {
+        if (t === 'agent.thinking' && prevType === t) {
           const combined = extractDbgText(prev) + extractDbgText(evt)
           step1[step1.length - 1] = { ...prev, content: [{ type: 'text', text: combined }] }
           continue
@@ -681,7 +688,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
               <Button
                 size="sm"
                 onClick={() => inputRef.current?.focus()}
-                disabled={!canSendMessage}
+                disabled={!canEditMessage}
               >
                 <Send className="w-3.5 h-3.5 mr-1" />
                 {t('managed.sessions.sendMessage')}
@@ -821,7 +828,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
             value={msgInput}
             onChange={(e) => setMsgInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage() } }}
-            disabled={!canSendMessage}
+            disabled={!canEditMessage}
             placeholder={
               isArchived
                 ? t('managed.sessions.archivedReadOnly')

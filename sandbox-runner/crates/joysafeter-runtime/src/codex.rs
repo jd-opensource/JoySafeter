@@ -1,9 +1,9 @@
+use async_trait::async_trait;
 use joysafeter_types::harness::{
-    HarnessAdapter, HarnessError, HarnessEvent, HarnessInput, HarnessResult,
-    HarnessResultStatus, RunningHarness,
+    HarnessAdapter, HarnessError, HarnessEvent, HarnessInput, HarnessResult, HarnessResultStatus,
+    RunningHarness,
 };
 use joysafeter_types::token_usage::TokenUsage;
-use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -25,6 +25,8 @@ struct TurnState {
     usage: Arc<std::sync::Mutex<TokenUsage>>,
     output: Arc<std::sync::Mutex<String>>,
     call_id_to_tool: Arc<std::sync::Mutex<HashMap<String, String>>>,
+    agent_message_text_by_id: Arc<std::sync::Mutex<HashMap<String, String>>>,
+    model: String,
 }
 
 struct PersistentCodex {
@@ -54,11 +56,7 @@ impl CodexAdapter {
         }
     }
 
-    async fn ensure_session(
-        &self,
-        input: &HarnessInput,
-        cwd: &Path,
-    ) -> Result<(), HarnessError> {
+    async fn ensure_session(&self, input: &HarnessInput, cwd: &Path) -> Result<(), HarnessError> {
         let mut guard = self.session.lock().await;
 
         let alive = if let Some(ref mut session) = *guard {
@@ -142,11 +140,7 @@ impl CodexAdapter {
                     }
                 };
 
-                let has_id = msg
-                    .id
-                    .as_ref()
-                    .map(|v| !v.is_null())
-                    .unwrap_or(false);
+                let has_id = msg.id.as_ref().map(|v| !v.is_null()).unwrap_or(false);
                 let has_result_or_error = msg.result.is_some() || msg.error.is_some();
                 let has_method = msg.method.is_some();
 
@@ -206,11 +200,21 @@ impl CodexAdapter {
                                 turn.usage.clone(),
                                 turn.output.clone(),
                                 turn.call_id_to_tool.clone(),
+                                turn.agent_message_text_by_id.clone(),
+                                turn.model.clone(),
                             )
                         })
                     };
 
-                    if let Some((event_tx, usage, output, call_id_to_tool)) = turn_refs {
+                    if let Some((
+                        event_tx,
+                        usage,
+                        output,
+                        call_id_to_tool,
+                        agent_message_text_by_id,
+                        model,
+                    )) = turn_refs
+                    {
                         handle_notification(
                             method,
                             &params,
@@ -219,16 +223,18 @@ impl CodexAdapter {
                             &usage,
                             &output,
                             &call_id_to_tool,
+                            &agent_message_text_by_id,
                             &reader_current_turn,
+                            &model,
                         )
                         .await;
                     } else {
                         if method == "thread/tokenUsage/updated" {
-                            extract_usage(&params, &reader_last_usage);
+                            replace_usage(&params, &reader_last_usage);
                             info!(method = %method, "Late tokenUsage update applied to session-level usage");
                         } else if method == "turn/completed" {
                             let turn = params.get("turn").unwrap_or(&params);
-                            extract_usage(turn, &reader_last_usage);
+                            replace_usage(turn, &reader_last_usage);
                             debug!(method = %method, "Late turn/completed");
                         } else {
                             debug!(method = %method, "Notification received but no active turn");
@@ -328,11 +334,7 @@ impl CodexAdapter {
 
 #[async_trait]
 impl HarnessAdapter for CodexAdapter {
-    async fn start(
-        &self,
-        input: HarnessInput,
-        cwd: &Path,
-    ) -> Result<RunningHarness, HarnessError> {
+    async fn start(&self, input: HarnessInput, cwd: &Path) -> Result<RunningHarness, HarnessError> {
         self.ensure_session(&input, cwd).await?;
 
         let start = Instant::now();
@@ -340,9 +342,9 @@ impl HarnessAdapter for CodexAdapter {
         let (result_tx, result_rx) = oneshot::channel();
 
         let guard = self.session.lock().await;
-        let session = guard.as_ref().ok_or_else(|| {
-            HarnessError::StartFailed("session disappeared after ensure".into())
-        })?;
+        let session = guard
+            .as_ref()
+            .ok_or_else(|| HarnessError::StartFailed("session disappeared after ensure".into()))?;
 
         let turn_state = TurnState {
             event_tx: event_tx.clone(),
@@ -350,6 +352,8 @@ impl HarnessAdapter for CodexAdapter {
             usage: Arc::new(std::sync::Mutex::new(TokenUsage::default())),
             output: Arc::new(std::sync::Mutex::new(String::new())),
             call_id_to_tool: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            agent_message_text_by_id: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            model: input.model.clone().unwrap_or_else(|| "codex".to_string()),
         };
 
         let (td_tx, td_rx) = oneshot::channel::<bool>();
@@ -579,7 +583,9 @@ async fn handle_notification(
     usage: &Arc<std::sync::Mutex<TokenUsage>>,
     output: &Arc<std::sync::Mutex<String>>,
     call_id_to_tool: &Arc<std::sync::Mutex<HashMap<String, String>>>,
+    agent_message_text_by_id: &Arc<std::sync::Mutex<HashMap<String, String>>>,
     current_turn: &Arc<Mutex<Option<TurnState>>>,
+    model: &str,
 ) {
     let is_legacy = method == "codex/event" || method.starts_with("codex/event/");
     let is_raw = method == "turn/started"
@@ -602,7 +608,15 @@ async fn handle_notification(
     let current_protocol = protocol.lock().unwrap().clone();
 
     if is_legacy || current_protocol == "legacy" {
-        handle_legacy_event(params, event_tx, usage, output, call_id_to_tool, current_turn).await;
+        handle_legacy_event(
+            params,
+            event_tx,
+            usage,
+            output,
+            call_id_to_tool,
+            current_turn,
+        )
+        .await;
     } else if is_raw {
         handle_raw_notification(
             method,
@@ -611,7 +625,9 @@ async fn handle_notification(
             usage,
             output,
             call_id_to_tool,
+            agent_message_text_by_id,
             current_turn,
+            model,
         )
         .await;
     } else if method == "error" {
@@ -756,7 +772,7 @@ async fn handle_legacy_event(
                 .await;
         }
         "task_complete" => {
-            extract_usage(msg, usage);
+            replace_usage(msg, usage);
             signal_turn_done(current_turn, false).await;
         }
         "turn_aborted" => {
@@ -773,7 +789,9 @@ async fn handle_raw_notification(
     usage: &Arc<std::sync::Mutex<TokenUsage>>,
     output: &Arc<std::sync::Mutex<String>>,
     call_id_to_tool: &Arc<std::sync::Mutex<HashMap<String, String>>>,
+    agent_message_text_by_id: &Arc<std::sync::Mutex<HashMap<String, String>>>,
     current_turn: &Arc<Mutex<Option<TurnState>>>,
+    model: &str,
 ) {
     match method {
         "turn/started" => {
@@ -784,26 +802,21 @@ async fn handle_raw_notification(
                 .await;
             let _ = event_tx
                 .send(HarnessEvent::ModelRequestStart {
-                    model: "codex".into(),
+                    model: model.to_string(),
                 })
                 .await;
         }
         "turn/completed" => {
             info!(params = %params, "Codex turn/completed");
             let turn = params.get("turn").unwrap_or(params);
-            let status = turn
-                .get("status")
-                .and_then(|s| s.as_str())
-                .unwrap_or("");
-            let aborted = matches!(
-                status,
-                "cancelled" | "canceled" | "aborted" | "interrupted"
-            );
-            let (it, ot, crt, cwt) = extract_usage_values(turn);
-            extract_usage(turn, usage);
+            let status = turn.get("status").and_then(|s| s.as_str()).unwrap_or("");
+            let aborted = matches!(status, "cancelled" | "canceled" | "aborted" | "interrupted");
+            let effective_usage =
+                replace_usage(turn, usage).unwrap_or_else(|| usage.lock().unwrap().clone());
+            let (it, ot, crt, cwt) = usage_values(&effective_usage);
             let _ = event_tx
                 .send(HarnessEvent::ModelRequestEnd {
-                    model: "codex".into(),
+                    model: model.to_string(),
                     input_tokens: it,
                     output_tokens: ot,
                     cache_read_tokens: crt,
@@ -824,14 +837,22 @@ async fn handle_raw_notification(
         }
         "thread/tokenUsage/updated" => {
             info!(params = %params, "Codex token usage updated");
-            extract_usage(params, usage);
+            replace_usage(params, usage);
         }
         "account/rateLimits/updated" => {
             debug!(params = %params, "Codex rate limits updated");
         }
         _ if method.starts_with("item/") => {
-            handle_item_notification(method, params, event_tx, output, call_id_to_tool, current_turn)
-                .await;
+            handle_item_notification(
+                method,
+                params,
+                event_tx,
+                output,
+                call_id_to_tool,
+                agent_message_text_by_id,
+                current_turn,
+            )
+            .await;
         }
         _ => {}
     }
@@ -843,6 +864,7 @@ async fn handle_item_notification(
     event_tx: &mpsc::Sender<HarnessEvent>,
     output: &Arc<std::sync::Mutex<String>>,
     call_id_to_tool: &Arc<std::sync::Mutex<HashMap<String, String>>>,
+    agent_message_text_by_id: &Arc<std::sync::Mutex<HashMap<String, String>>>,
     current_turn: &Arc<Mutex<Option<TurnState>>>,
 ) {
     let item = match params.get("item") {
@@ -894,6 +916,22 @@ async fn handle_item_notification(
             }
             _ => {}
         },
+        "item/agentMessage/delta" => {
+            if item_type == "agentMessage" {
+                if let Some(text) = extract_agent_message_delta(params) {
+                    if !text.is_empty() {
+                        agent_message_text_by_id
+                            .lock()
+                            .unwrap()
+                            .entry(item_id)
+                            .or_default()
+                            .push_str(&text);
+                        output.lock().unwrap().push_str(&text);
+                        let _ = event_tx.send(HarnessEvent::Text { content: text }).await;
+                    }
+                }
+            }
+        }
         "item/completed" => match item_type {
             "commandExecution" => {
                 let output_text = item
@@ -936,13 +974,23 @@ async fn handle_item_notification(
                     .and_then(|t| t.as_str())
                     .unwrap_or("")
                     .to_string();
-                output.lock().unwrap().push_str(&text);
-                let _ = event_tx.send(HarnessEvent::Text { content: text }).await;
+                let already_sent = agent_message_text_by_id.lock().unwrap().remove(&item_id);
+                let remaining_text = match already_sent {
+                    Some(sent) if !sent.is_empty() => {
+                        text.strip_prefix(&sent).unwrap_or("").to_string()
+                    }
+                    _ => text,
+                };
+                if !remaining_text.is_empty() {
+                    output.lock().unwrap().push_str(&remaining_text);
+                    let _ = event_tx
+                        .send(HarnessEvent::Text {
+                            content: remaining_text,
+                        })
+                        .await;
+                }
 
-                let phase = item
-                    .get("phase")
-                    .and_then(|p| p.as_str())
-                    .unwrap_or("");
+                let phase = item.get("phase").and_then(|p| p.as_str()).unwrap_or("");
                 if phase == "final_answer" {
                     signal_turn_done(current_turn, false).await;
                 }
@@ -953,51 +1001,67 @@ async fn handle_item_notification(
     }
 }
 
+fn text_from_value(value: &Value) -> Option<String> {
+    if let Some(text) = value.as_str() {
+        return Some(text.to_string());
+    }
+
+    if let Some(obj) = value.as_object() {
+        for key in ["text", "content", "delta"] {
+            if let Some(text) = obj.get(key).and_then(text_from_value) {
+                return Some(text);
+            }
+        }
+    }
+
+    if let Some(array) = value.as_array() {
+        let text = array.iter().filter_map(text_from_value).collect::<String>();
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
+
+    None
+}
+
+fn extract_agent_message_delta(params: &Value) -> Option<String> {
+    for key in ["delta", "textDelta", "contentDelta", "text", "content"] {
+        if let Some(text) = params.get(key).and_then(text_from_value) {
+            return Some(text);
+        }
+    }
+
+    let item = params.get("item")?;
+    for key in ["delta", "textDelta", "contentDelta"] {
+        if let Some(text) = item.get(key).and_then(text_from_value) {
+            return Some(text);
+        }
+    }
+
+    None
+}
+
 fn find_usage_object(data: &Value) -> Option<&serde_json::Map<String, Value>> {
     ["usage", "token_usage", "tokens"]
         .iter()
         .find_map(|key| data.get(key))
         .and_then(|v| v.as_object())
         .or_else(|| {
-            // Codex: tokenUsage.total or tokenUsage.last
-            data.get("tokenUsage")
-                .and_then(|tu| tu.get("total").or_else(|| tu.get("last")))
-                .and_then(|v| v.as_object())
+            // Codex sends both last and total. total is thread-cumulative, so
+            // prefer last for per-turn events and task usage accounting.
+            data.get("tokenUsage").and_then(|tu| {
+                tu.get("last")
+                    .or_else(|| tu.get("total"))
+                    .or(Some(tu))
+                    .and_then(|v| v.as_object())
+            })
         })
 }
 
-fn extract_usage_values(data: &Value) -> (u64, u64, u64, u64) {
+fn usage_from_value(data: &Value) -> Option<TokenUsage> {
     let usage_obj = match find_usage_object(data) {
         Some(obj) => obj,
-        None => return (0, 0, 0, 0),
-    };
-
-    let get_u64 = |keys: &[&str]| -> u64 {
-        for key in keys {
-            if let Some(v) = usage_obj.get(*key) {
-                if let Some(n) = v.as_u64() {
-                    if n > 0 { return n; }
-                }
-                if let Some(n) = v.as_f64() {
-                    if n > 0.0 { return n as u64; }
-                }
-            }
-        }
-        0
-    };
-
-    (
-        get_u64(&["input_tokens", "input", "prompt_tokens", "inputTokens"]),
-        get_u64(&["output_tokens", "output", "completion_tokens", "outputTokens"]),
-        get_u64(&["cache_read_tokens", "cache_read_input_tokens", "cachedInputTokens"]),
-        get_u64(&["cache_write_tokens", "cache_creation_input_tokens"]),
-    )
-}
-
-fn extract_usage(data: &Value, usage: &Arc<std::sync::Mutex<TokenUsage>>) {
-    let usage_obj = match find_usage_object(data) {
-        Some(obj) => obj,
-        None => return,
+        None => return None,
     };
 
     let get_u64 = |keys: &[&str]| -> u64 {
@@ -1018,16 +1082,42 @@ fn extract_usage(data: &Value, usage: &Arc<std::sync::Mutex<TokenUsage>>) {
         0
     };
 
-    let input = get_u64(&["input_tokens", "input", "prompt_tokens", "inputTokens"]);
-    let out = get_u64(&["output_tokens", "output", "completion_tokens", "outputTokens"]);
-    let cache_read = get_u64(&["cache_read_tokens", "cache_read_input_tokens", "cachedInputTokens"]);
-    let cache_write = get_u64(&["cache_write_tokens", "cache_creation_input_tokens"]);
+    Some(TokenUsage {
+        input_tokens: get_u64(&["input_tokens", "input", "prompt_tokens", "inputTokens"]),
+        output_tokens: get_u64(&[
+            "output_tokens",
+            "output",
+            "completion_tokens",
+            "outputTokens",
+        ]),
+        cache_read_tokens: get_u64(&[
+            "cache_read_tokens",
+            "cache_read_input_tokens",
+            "cachedInputTokens",
+        ]),
+        cache_write_tokens: get_u64(&[
+            "cache_write_tokens",
+            "cache_creation_input_tokens",
+            "cacheWriteTokens",
+        ]),
+        by_model: HashMap::new(),
+    })
+}
 
+fn usage_values(usage: &TokenUsage) -> (u64, u64, u64, u64) {
+    (
+        usage.input_tokens,
+        usage.output_tokens,
+        usage.cache_read_tokens,
+        usage.cache_write_tokens,
+    )
+}
+
+fn replace_usage(data: &Value, usage: &Arc<std::sync::Mutex<TokenUsage>>) -> Option<TokenUsage> {
+    let parsed = usage_from_value(data)?;
     let mut u = usage.lock().unwrap();
-    u.input_tokens += input;
-    u.output_tokens += out;
-    u.cache_read_tokens += cache_read;
-    u.cache_write_tokens += cache_write;
+    *u = parsed.clone();
+    Some(parsed)
 }
 
 async fn signal_turn_done(current_turn: &Arc<Mutex<Option<TurnState>>>, aborted: bool) {
@@ -1036,5 +1126,76 @@ async fn signal_turn_done(current_turn: &Arc<Mutex<Option<TurnState>>>, aborted:
         if let Some(tx) = turn.turn_done_tx.take() {
             let _ = tx.send(aborted);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn codex_token_usage_prefers_last_and_normalizes_fields() {
+        let data = serde_json::json!({
+            "tokenUsage": {
+                "last": {
+                    "inputTokens": 10,
+                    "outputTokens": 4,
+                    "cachedInputTokens": 3,
+                    "cacheWriteTokens": 2
+                },
+                "total": {
+                    "inputTokens": 99,
+                    "outputTokens": 88,
+                    "cachedInputTokens": 77,
+                    "cacheWriteTokens": 66
+                }
+            }
+        });
+
+        let usage = usage_from_value(&data).expect("usage should parse");
+
+        assert_eq!(usage.input_tokens, 10);
+        assert_eq!(usage.output_tokens, 4);
+        assert_eq!(usage.cache_read_tokens, 3);
+        assert_eq!(usage.cache_write_tokens, 2);
+    }
+
+    #[test]
+    fn codex_token_usage_updates_as_snapshot_not_accumulator() {
+        let usage = Arc::new(std::sync::Mutex::new(TokenUsage::default()));
+
+        replace_usage(
+            &serde_json::json!({"tokenUsage": {"last": {"inputTokens": 10, "outputTokens": 4}}}),
+            &usage,
+        );
+        replace_usage(
+            &serde_json::json!({"tokenUsage": {"last": {"inputTokens": 12, "outputTokens": 5}}}),
+            &usage,
+        );
+
+        let usage = usage.lock().unwrap().clone();
+        assert_eq!(usage.input_tokens, 12);
+        assert_eq!(usage.output_tokens, 5);
+    }
+
+    #[test]
+    fn codex_agent_message_delta_extracts_text_shapes() {
+        assert_eq!(
+            extract_agent_message_delta(&serde_json::json!({
+                "item": {"id": "item-1", "type": "agentMessage"},
+                "delta": "hello"
+            }))
+            .as_deref(),
+            Some("hello"),
+        );
+
+        assert_eq!(
+            extract_agent_message_delta(&serde_json::json!({
+                "item": {"id": "item-1", "type": "agentMessage"},
+                "delta": {"content": [{"type": "text", "text": "hel"}, {"type": "text", "text": "lo"}]}
+            }))
+            .as_deref(),
+            Some("hello"),
+        );
     }
 }

@@ -14,10 +14,7 @@ fn serialize_memory_version_id<S: Serializer>(id: &uuid::Uuid, s: S) -> Result<S
     s.serialize_str(&format!("memver_{id}"))
 }
 
-fn serialize_session_resource_id<S: Serializer>(
-    id: &uuid::Uuid,
-    s: S,
-) -> Result<S::Ok, S::Error> {
+fn serialize_session_resource_id<S: Serializer>(id: &uuid::Uuid, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_str(&format!("sesrsc_{id}"))
 }
 
@@ -148,7 +145,10 @@ pub struct Memory {
     pub id: uuid::Uuid,
     #[serde(rename = "type", default = "default_memory_type")]
     pub object_type: String,
-    #[serde(rename = "memory_store_id", serialize_with = "serialize_memory_store_id")]
+    #[serde(
+        rename = "memory_store_id",
+        serialize_with = "serialize_memory_store_id"
+    )]
     pub store_id: uuid::Uuid,
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -175,7 +175,10 @@ pub struct MemoryVersion {
     pub id: uuid::Uuid,
     #[serde(rename = "type", default = "default_memory_version_type")]
     pub object_type: String,
-    #[serde(rename = "memory_store_id", serialize_with = "serialize_memory_store_id")]
+    #[serde(
+        rename = "memory_store_id",
+        serialize_with = "serialize_memory_store_id"
+    )]
     pub store_id: uuid::Uuid,
     #[serde(serialize_with = "serialize_memory_id")]
     pub memory_id: uuid::Uuid,

@@ -5,6 +5,7 @@ from typing import Optional
 from app.joysafeter_orchestrator.runtime.adapter import HarnessAdapter
 from app.joysafeter_orchestrator.runtime.claude_adapter import ClaudeAdapter
 from app.joysafeter_orchestrator.runtime.codex_adapter import CodexAdapter
+from app.joysafeter_orchestrator.runtime.native_adapter import NativeAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,11 @@ class AdapterRegistry:
         if await claude.is_available():
             registry._adapters["claude"] = claude
             logger.info("Claude adapter registered")
+
+        native = NativeAdapter()
+        if await native.is_available():
+            registry._adapters["native"] = native
+            logger.info("Native adapter registered")
 
         codex = CodexAdapter()
         if await codex.is_available():
@@ -41,7 +47,7 @@ class AdapterRegistry:
         return self._adapters.get(provider)
 
     def get_default(self) -> Optional[HarnessAdapter]:
-        for name in ("claude", "codex"):
+        for name in ("claude", "native", "codex"):
             if name in self._adapters:
                 return self._adapters[name]
         if self._adapters:

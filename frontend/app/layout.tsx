@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
+import { headers } from 'next/headers'
 import { PublicEnvScript } from 'next-runtime-env'
 
 import { AppShell } from '@/components/app-shell'
@@ -40,21 +41,23 @@ export const metadata: Metadata = {
   description: 'A multi-agent workflow platform powered by AI',
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const nonce = (await headers()).get('x-nonce') ?? undefined
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <PublicEnvScript />
+        <PublicEnvScript nonce={nonce} />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
         suppressHydrationWarning
       >
-        <ThemeProvider>
+        <ThemeProvider nonce={nonce}>
           <I18nProvider>
             <QueryProvider>
               <AuthGuard>

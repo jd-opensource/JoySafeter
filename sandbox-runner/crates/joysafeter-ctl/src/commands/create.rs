@@ -198,7 +198,7 @@ async fn create_agent(client: &JoysafeterClient) -> anyhow::Result<()> {
 
     let name = input_required("Agent name")?;
 
-    let engines = vec!["claude", "codex"];
+    let engines = vec!["claude", "codex", "native"];
     let engine_idx = Select::new()
         .with_prompt("Engine")
         .items(&engines)

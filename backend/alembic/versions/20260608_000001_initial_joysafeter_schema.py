@@ -550,6 +550,7 @@ def upgrade() -> None:
         sa.Column('provider', sa.String(length=64), server_default='custom', nullable=False),
         sa.Column('protocol', sa.String(length=64), server_default='custom', nullable=False),
         sa.Column('data', postgresql.JSONB(astext_type=sa.Text()), server_default='{}', nullable=False),
+        sa.Column('is_default', sa.Boolean(), server_default='false', nullable=False),
         sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('id', sa.UUID(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
@@ -559,6 +560,8 @@ def upgrade() -> None:
         sa.UniqueConstraint('name', name='idx_cs_name_unique')
         )
         op.create_index('idx_cs_provider_protocol', 'joysafeter_secrets', ['provider', 'protocol'], unique=False)
+        op.create_index('idx_cs_project_default', 'joysafeter_secrets', ['project_id', 'is_default'], unique=False)
+        op.create_index('idx_cs_one_default_per_project', 'joysafeter_secrets', ['project_id'], unique=True, postgresql_where='is_default = true AND deleted_at IS NULL')
         op.create_index(op.f('ix_joysafeter_secrets_project_id'), 'joysafeter_secrets', ['project_id'], unique=False)
         op.create_table('joysafeter_skills',
         sa.Column('name', sa.String(length=64), nullable=False),
@@ -576,6 +579,18 @@ def upgrade() -> None:
         sa.Column('compatibility', sa.String(length=500), nullable=True),
         sa.Column('metadata', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column('allowed_tools', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column('security_status', sa.String(length=32), server_default='not_scanned', nullable=False),
+        sa.Column('security_score', sa.Integer(), nullable=True),
+        sa.Column('security_severity', sa.String(length=32), nullable=True),
+        sa.Column('security_recommendation', sa.String(length=32), nullable=True),
+        sa.Column('security_scanned_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('security_scan_id', sa.UUID(), nullable=True),
+        sa.Column('security_scan_hash', sa.String(length=64), nullable=True),
+        sa.Column('security_issues_count', sa.Integer(), server_default='0', nullable=False),
+        sa.Column('security_critical_count', sa.Integer(), server_default='0', nullable=False),
+        sa.Column('security_high_count', sa.Integer(), server_default='0', nullable=False),
+        sa.Column('security_medium_count', sa.Integer(), server_default='0', nullable=False),
+        sa.Column('security_low_count', sa.Integer(), server_default='0', nullable=False),
         sa.Column('id', sa.UUID(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
@@ -589,7 +604,47 @@ def upgrade() -> None:
         op.create_index('skills_owner_idx', 'joysafeter_skills', ['owner_id'], unique=False)
         op.create_index('skills_project_idx', 'joysafeter_skills', ['project_id'], unique=False)
         op.create_index('skills_public_idx', 'joysafeter_skills', ['is_public'], unique=False)
+        op.create_index('skills_security_recommendation_idx', 'joysafeter_skills', ['security_recommendation'], unique=False)
+        op.create_index('skills_security_severity_idx', 'joysafeter_skills', ['security_severity'], unique=False)
+        op.create_index('skills_security_status_idx', 'joysafeter_skills', ['security_status'], unique=False)
         op.create_index('skills_tags_idx', 'joysafeter_skills', ['tags'], unique=False, postgresql_using='gin')
+        op.create_table('joysafeter_skill_security_scans',
+        sa.Column('skill_id', sa.UUID(), nullable=True),
+        sa.Column('project_id', sa.String(length=255), nullable=True),
+        sa.Column('owner_id', sa.String(length=255), nullable=True),
+        sa.Column('created_by_id', sa.String(length=255), nullable=False),
+        sa.Column('trigger', sa.String(length=32), nullable=False),
+        sa.Column('target_name', sa.String(length=128), nullable=True),
+        sa.Column('target_hash', sa.String(length=64), nullable=False),
+        sa.Column('scanner', sa.String(length=64), server_default='skillspector', nullable=False),
+        sa.Column('scanner_version', sa.String(length=64), nullable=True),
+        sa.Column('status', sa.String(length=32), nullable=False),
+        sa.Column('score', sa.Integer(), nullable=True),
+        sa.Column('severity', sa.String(length=32), nullable=True),
+        sa.Column('recommendation', sa.String(length=32), nullable=True),
+        sa.Column('issues_count', sa.Integer(), server_default='0', nullable=False),
+        sa.Column('critical_count', sa.Integer(), server_default='0', nullable=False),
+        sa.Column('high_count', sa.Integer(), server_default='0', nullable=False),
+        sa.Column('medium_count', sa.Integer(), server_default='0', nullable=False),
+        sa.Column('low_count', sa.Integer(), server_default='0', nullable=False),
+        sa.Column('report', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column('error_message', sa.Text(), nullable=True),
+        sa.Column('id', sa.UUID(), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.ForeignKeyConstraint(['created_by_id'], ['joysafeter_users.id'], name=op.f('fk_joysafeter_skill_security_scans_created_by_id_joysafeter_users'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['owner_id'], ['joysafeter_users.id'], name=op.f('fk_joysafeter_skill_security_scans_owner_id_joysafeter_users'), ondelete='SET NULL'),
+        sa.ForeignKeyConstraint(['project_id'], ['joysafeter_organization_projects.id'], name=op.f('fk_joysafeter_skill_security_scans_project_id_joysafeter_organization_projects'), ondelete='SET NULL'),
+        sa.ForeignKeyConstraint(['skill_id'], ['joysafeter_skills.id'], name=op.f('fk_joysafeter_skill_security_scans_skill_id_joysafeter_skills'), ondelete='SET NULL'),
+        sa.PrimaryKeyConstraint('id', name=op.f('pk_joysafeter_skill_security_scans'))
+        )
+        op.create_index('skill_security_scans_owner_created_idx', 'joysafeter_skill_security_scans', ['owner_id', 'created_at'], unique=False)
+        op.create_index('skill_security_scans_project_created_idx', 'joysafeter_skill_security_scans', ['project_id', 'created_at'], unique=False)
+        op.create_index('skill_security_scans_recommendation_created_idx', 'joysafeter_skill_security_scans', ['recommendation', 'created_at'], unique=False)
+        op.create_index('skill_security_scans_severity_created_idx', 'joysafeter_skill_security_scans', ['severity', 'created_at'], unique=False)
+        op.create_index('skill_security_scans_skill_created_idx', 'joysafeter_skill_security_scans', ['skill_id', 'created_at'], unique=False)
+        op.create_index('skill_security_scans_status_created_idx', 'joysafeter_skill_security_scans', ['status', 'created_at'], unique=False)
+        op.create_index('skill_security_scans_target_hash_idx', 'joysafeter_skill_security_scans', ['target_hash'], unique=False)
         op.create_table('joysafeter_vaults',
         sa.Column('project_id', sa.String(length=255), nullable=True),
         sa.Column('name', sa.Text(), nullable=False),
@@ -1162,6 +1217,7 @@ def downgrade() -> None:
         op.drop_table('model_instance')
         op.drop_table('model_credential')
         op.drop_table('joysafeter_vaults')
+        op.drop_table('joysafeter_skill_security_scans')
         op.drop_table('joysafeter_skills')
         op.drop_table('joysafeter_secrets')
         op.drop_table('joysafeter_sandboxes')

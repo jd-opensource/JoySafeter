@@ -1,6 +1,6 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use async_trait::async_trait;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Vault {
@@ -118,24 +118,50 @@ pub struct RefreshedToken {
 #[async_trait]
 pub trait VaultProvider: Send + Sync {
     // Core — used by kernel at SetupSandbox time
-    async fn resolve_credentials(&self, vault_ids: &[uuid::Uuid]) -> Result<Vec<VaultCredential>, VaultError>;
-    async fn refresh_token(&self, cred_id: uuid::Uuid, oauth: &OAuthConfig) -> Result<RefreshedToken, VaultError>;
+    async fn resolve_credentials(
+        &self,
+        vault_ids: &[uuid::Uuid],
+    ) -> Result<Vec<VaultCredential>, VaultError>;
+    async fn refresh_token(
+        &self,
+        cred_id: uuid::Uuid,
+        oauth: &OAuthConfig,
+    ) -> Result<RefreshedToken, VaultError>;
 
     // Vault CRUD
     async fn create_vault(&self, vault: &Vault) -> Result<(), VaultError>;
     async fn get_vault(&self, id: uuid::Uuid) -> Result<Option<Vault>, VaultError>;
     async fn list_vaults(&self) -> Result<Vec<Vault>, VaultError>;
-    async fn update_vault(&self, id: uuid::Uuid, description: Option<&str>, metadata: Option<&HashMap<String, String>>) -> Result<bool, VaultError>;
+    async fn update_vault(
+        &self,
+        id: uuid::Uuid,
+        description: Option<&str>,
+        metadata: Option<&HashMap<String, String>>,
+    ) -> Result<bool, VaultError>;
     async fn archive_vault(&self, id: uuid::Uuid) -> Result<bool, VaultError>;
     async fn delete_vault(&self, id: uuid::Uuid) -> Result<bool, VaultError>;
 
     // Credential CRUD
     async fn create_credential(&self, cred: &VaultCredential) -> Result<(), VaultError>;
     async fn get_credential(&self, id: uuid::Uuid) -> Result<Option<VaultCredential>, VaultError>;
-    async fn list_credentials(&self, vault_id: uuid::Uuid) -> Result<Vec<VaultCredential>, VaultError>;
-    async fn update_credential(&self, id: uuid::Uuid, name: Option<&str>, token: Option<&str>, oauth: Option<&serde_json::Value>) -> Result<bool, VaultError>;
+    async fn list_credentials(
+        &self,
+        vault_id: uuid::Uuid,
+    ) -> Result<Vec<VaultCredential>, VaultError>;
+    async fn update_credential(
+        &self,
+        id: uuid::Uuid,
+        name: Option<&str>,
+        token: Option<&str>,
+        oauth: Option<&serde_json::Value>,
+    ) -> Result<bool, VaultError>;
     async fn delete_credential(&self, id: uuid::Uuid) -> Result<bool, VaultError>;
-    async fn update_credential_token(&self, id: uuid::Uuid, token: &str, expires_at: Option<chrono::DateTime<chrono::Utc>>) -> Result<bool, VaultError>;
+    async fn update_credential_token(
+        &self,
+        id: uuid::Uuid,
+        token: &str,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<bool, VaultError>;
 
     fn provider_name(&self) -> &str;
 }

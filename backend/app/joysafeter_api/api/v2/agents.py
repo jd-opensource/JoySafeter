@@ -1,7 +1,7 @@
 import json
 import logging
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +22,7 @@ from app.joysafeter_domain.schemas.agent import (
 from app.joysafeter_domain.schemas.common import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.task import JoySafeterTaskResponse as TaskResponse
 from app.joysafeter_domain.schemas.session import SessionResponse
-from app.joysafeter_api.services import JoySafeterAgentService as AgentService, _split_packed_items
+from app.joysafeter_api.services import JoySafeterAgentService as AgentService, SecretService, _split_packed_items
 from app.joysafeter_api.services import SessionService
 
 logger = logging.getLogger(__name__)
@@ -70,13 +70,95 @@ def _validate_tool_mcp_references(
                 )
 
 
-def _agent_to_response(agent) -> AgentResponse:
+def _secret_matches_engine(secret, engine_kind: str) -> bool:
+    provider = (getattr(secret, "provider", "") or "").lower()
+    protocol = (getattr(secret, "protocol", "") or "").lower()
+    keys = set((getattr(secret, "data", None) or {}).keys())
+    if engine_kind == "codex":
+        return (
+            provider in {"codex", "openai", "deepseek"}
+            or protocol in {"openai_responses", "chat_completions"}
+            or "OPENAI_API_KEY" in keys
+            or "CODEX_API_KEY" in keys
+        )
+    if engine_kind in ("claude", "native"):
+        return (
+            provider in {"anthropic", "claude"}
+            or protocol == "anthropic_messages"
+            or "ANTHROPIC_API_KEY" in keys
+            or "ANTHROPIC_AUTH_TOKEN" in keys
+        )
+    return True
+
+
+async def _validate_secret_ref_for_engine(
+    db: AsyncSession,
+    *,
+    secret_ref: Optional[str],
+    engine_kind: str,
+    project_id: Optional[str],
+) -> None:
+    if not secret_ref:
+        return
+    secret_svc = SecretService(db)
+    secret = await secret_svc.get_secret_by_name(secret_ref, project_id=project_id)
+    if not secret:
+        raise HTTPException(400, f"Secret not found: {secret_ref}")
+    if not _secret_matches_engine(secret, engine_kind):
+        raise HTTPException(
+            400,
+            f"Secret '{secret_ref}' is not compatible with engine_kind '{engine_kind}'",
+        )
+
+
+def _model_from_secret_data(secret_data: dict[str, Any] | None, engine_kind: str | None) -> Optional[dict[str, str]]:
+    if not secret_data:
+        return None
+
+    if (engine_kind or "claude") == "codex":
+        model_id = (
+            secret_data.get("CODEX_MODEL")
+            or secret_data.get("OPENAI_MODEL")
+            or secret_data.get("MODEL")
+        )
+    else:
+        # claude, native, and any other engine
+        model_id = secret_data.get("ANTHROPIC_MODEL") or secret_data.get("MODEL")
+
+    return {"id": str(model_id)} if model_id else None
+
+
+async def _resolve_agent_model(
+    agent,
+    secret_svc: SecretService,
+    *,
+    project_id: Optional[str],
+    secret_cache: Optional[dict[str, Optional[dict[str, Any]]]] = None,
+) -> Optional[dict[str, Any]]:
+    if agent.model:
+        return agent.model
+    if not agent.secret_ref:
+        return None
+
+    if secret_cache is not None:
+        if agent.secret_ref not in secret_cache:
+            secret = await secret_svc.get_secret_by_name(agent.secret_ref, project_id=project_id)
+            secret_cache[agent.secret_ref] = secret.data if secret else None
+        secret_data = secret_cache.get(agent.secret_ref)
+    else:
+        secret = await secret_svc.get_secret_by_name(agent.secret_ref, project_id=project_id)
+        secret_data = secret.data if secret else None
+
+    return _model_from_secret_data(secret_data, getattr(agent, "engine_kind", None))
+
+
+def _agent_to_response(agent, *, model: Optional[dict[str, Any]] = None) -> AgentResponse:
     skills, agents, commands = _split_packed_items(agent.skills or [])
     return AgentResponse(
         id=agent.id,
         name=agent.name,
         engine_kind=agent.engine_kind,
-        model=agent.model,
+        model=model if model is not None else agent.model,
         system=agent.system_prompt,
         description=agent.description,
         metadata=agent.metadata_,
@@ -105,9 +187,17 @@ async def create_agent(
     mcp_dicts = [s.model_dump() for s in req.mcp_servers] if req.mcp_servers else None
     _validate_mcp_configs(mcp_dicts)
     _validate_tool_mcp_references(req.tools, mcp_dicts)
+    await _validate_secret_ref_for_engine(
+        db,
+        secret_ref=req.secret_ref,
+        engine_kind=req.engine_kind.value,
+        project_id=auth_ctx.project_id,
+    )
     svc = AgentService(db)
     agent = await svc.create_agent(req, project_id=auth_ctx.project_id)
-    return _agent_to_response(agent)
+    secret_svc = SecretService(db)
+    model = await _resolve_agent_model(agent, secret_svc, project_id=auth_ctx.project_id)
+    return _agent_to_response(agent, model=model)
 
 
 @router.get("")
@@ -120,7 +210,21 @@ async def list_agents(
 ) -> PaginatedResponse[AgentResponse]:
     svc = AgentService(db)
     agents, has_more = await svc.list_agents(limit, after_id, include_archived=include_archived, project_id=auth_ctx.project_id)
-    data = [_agent_to_response(a) for a in agents]
+
+    secret_svc = SecretService(db)
+    secret_cache: dict[str, Optional[dict]] = {}
+    data = [
+        _agent_to_response(
+            agent,
+            model=await _resolve_agent_model(
+                agent,
+                secret_svc,
+                project_id=auth_ctx.project_id,
+                secret_cache=secret_cache,
+            ),
+        )
+        for agent in agents
+    ]
     return PaginatedResponse(
         data=data,
         has_more=has_more,
@@ -141,7 +245,9 @@ async def get_agent(
         raise HTTPException(404, "Agent not found")
     if agent.project_id != auth_ctx.project_id:
         raise HTTPException(404, "Agent not found")
-    return _agent_to_response(agent)
+    secret_svc = SecretService(db)
+    model = await _resolve_agent_model(agent, secret_svc, project_id=auth_ctx.project_id)
+    return _agent_to_response(agent, model=model)
 
 
 @router.post("/{agent_id}")
@@ -181,6 +287,15 @@ async def update_agent(
     effective_tools = req.tools if req.tools is not None else (current_agent.tools or [])
     _validate_tool_mcp_references(effective_tools, mcp_dicts)
 
+    effective_engine_kind = req.engine_kind.value if req.engine_kind is not None else current_agent.engine_kind
+    effective_secret_ref = req.secret_ref if req.secret_ref is not None else current_agent.secret_ref
+    await _validate_secret_ref_for_engine(
+        db,
+        secret_ref=effective_secret_ref,
+        engine_kind=effective_engine_kind,
+        project_id=auth_ctx.project_id,
+    )
+
     # No-op detection: compare serialized JSON minus version/updated_at
     def _agent_snapshot(agent) -> str:
         skills, agents_list, commands = _split_packed_items(agent.skills or [])
@@ -213,11 +328,14 @@ async def update_agent(
         raise HTTPException(404, "Agent not found")
 
     after_snapshot = _agent_snapshot(agent)
+    secret_svc = SecretService(db)
     if before_snapshot == after_snapshot:
         # No real change — return existing agent without bumping version
-        return _agent_to_response(current_agent)
+        model = await _resolve_agent_model(current_agent, secret_svc, project_id=auth_ctx.project_id)
+        return _agent_to_response(current_agent, model=model)
 
-    return _agent_to_response(agent)
+    model = await _resolve_agent_model(agent, secret_svc, project_id=auth_ctx.project_id)
+    return _agent_to_response(agent, model=model)
 
 
 @router.delete("/{agent_id}", status_code=204)

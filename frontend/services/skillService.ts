@@ -11,6 +11,7 @@ import {
 import {
   Skill,
   SkillFile,
+  SkillSecurityScanSummary,
   SkillFrontmatter,
   ParsedSkillMd,
   FileTreeNode,
@@ -54,6 +55,7 @@ interface BackendSkill {
   license: string | null
   created_at: string
   updated_at: string
+  security_scan?: SkillSecurityScanSummary
   files?: BackendSkillFile[]
   // Legacy fields
   source?: string
@@ -486,6 +488,7 @@ function normalizeSkill(backendSkill: BackendSkill): Skill {
     license: backendSkill.license,
     created_at: backendSkill.created_at,
     updated_at: backendSkill.updated_at,
+    security_scan: backendSkill.security_scan,
     files: backendSkill.files?.map((f) => normalizeSkillFile(f)) || [],
     // Legacy fields for backward compatibility (deprecated, use source_type instead)
     // Map source_type directly to source without 'aws' conversion

@@ -140,10 +140,7 @@ pub trait SandboxProvider: Send + Sync {
         Ok(())
     }
 
-    async fn teardown_networking(
-        &self,
-        _sandbox_id: uuid::Uuid,
-    ) -> Result<(), SandboxError> {
+    async fn teardown_networking(&self, _sandbox_id: uuid::Uuid) -> Result<(), SandboxError> {
         Ok(())
     }
 }

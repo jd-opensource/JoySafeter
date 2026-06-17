@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 _IMAGE_CONFIG_MAP: dict[str, str] = {
     "claude": "image_claude",
     "codex": "image_codex",
+    "native": "image_native",
 }
 
 
@@ -310,8 +311,16 @@ class SandboxResolver:
 
         # Stage 2: Claim from pool + liveness check
         # Skip pool claim if net_type is "limited" (requires dedicated container)
+        # or if this session needs a persistent host workspace. Docker cannot add
+        # a session-specific bind mount to an already-created pooled container.
         net_type = (networking or {}).get("type", "unrestricted")
-        if self._pool_enabled and net_type != "limited" and self._env_allows_pool_claim(agent_env):
+        requires_persistent_workspace = self._workspace_host_root is not None
+        if (
+            self._pool_enabled
+            and net_type != "limited"
+            and not requires_persistent_workspace
+            and self._env_allows_pool_claim(agent_env)
+        ):
             async with AsyncSessionLocal() as db:
                 svc = SandboxService(db)
                 pooled = await svc.claim_from_pool(resolved_image, session_id)
@@ -382,6 +391,7 @@ class SandboxResolver:
                 memory_mounts=memory_mounts,
                 engine_kind=engine_kind,
                 runner_token=runner_token,
+                session_id=session_id,
             )
         except Exception as e:
             logger.error("Failed to provision sandbox container: %s", e)
@@ -768,6 +778,7 @@ class SandboxResolver:
         memory_mounts: Optional[list[dict]] = None,
         engine_kind: Optional[str] = None,
         runner_token: Optional[str] = None,
+        session_id: Optional[uuid.UUID] = None,
     ) -> str:
         if workspace_path:
             os.makedirs(workspace_path, mode=0o777, exist_ok=True)
@@ -792,6 +803,8 @@ class SandboxResolver:
             "joysafeter.sandbox_id": str(sandbox_id),
             "joysafeter.managed": "true",
         }
+        if session_id is not None:
+            labels["joysafeter.session_id"] = str(session_id)
 
         external_id = await provider.create(
             name=name,

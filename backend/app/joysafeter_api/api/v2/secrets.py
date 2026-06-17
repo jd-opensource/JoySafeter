@@ -46,6 +46,7 @@ async def create_secret(
         name=secret.name,
         provider=secret.provider,
         protocol=secret.protocol,
+        is_default=secret.is_default,
         secret_data=secret.data or {},
         created_at=secret.created_at,
         updated_at=secret.updated_at,
@@ -67,6 +68,7 @@ async def list_secrets(
             name=s.name,
             provider=s.provider,
             protocol=s.protocol,
+            is_default=s.is_default,
             keys=list(s.data.keys()) if s.data else [],
             created_at=s.created_at,
             updated_at=s.updated_at,
@@ -98,6 +100,7 @@ async def get_secret(
         name=secret.name,
         provider=secret.provider,
         protocol=secret.protocol,
+        is_default=secret.is_default,
         secret_data=secret.data or {},
         created_at=secret.created_at,
         updated_at=secret.updated_at,
@@ -133,6 +136,39 @@ async def update_secret(
         name=secret.name,
         provider=secret.provider,
         protocol=secret.protocol,
+        is_default=secret.is_default,
+        secret_data=secret.data or {},
+        created_at=secret.created_at,
+        updated_at=secret.updated_at,
+    )
+
+
+@router.post("/{secret_id}/default")
+async def set_default_secret(
+    request: Request,
+    secret_id: uuid.UUID = Depends(parse_secret_id),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+) -> SecretResponse:
+    svc = SecretService(db)
+    secret = await svc.set_default_secret(secret_id, project_id=auth_ctx.project_id)
+    if not secret:
+        raise HTTPException(404, "Secret not found")
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="secret.default_set",
+        target_type="secret",
+        target_id=str(secret.id),
+        details={"name": secret.name, "provider": secret.provider, "protocol": secret.protocol},
+    )
+    return SecretResponse(
+        id=f"secret_{secret.id}",
+        name=secret.name,
+        provider=secret.provider,
+        protocol=secret.protocol,
+        is_default=secret.is_default,
         secret_data=secret.data or {},
         created_at=secret.created_at,
         updated_at=secret.updated_at,

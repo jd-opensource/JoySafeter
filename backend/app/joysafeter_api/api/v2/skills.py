@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Path, Query, Upload
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_api.api.v2.id_helpers import parse_skill_id, parse_skill_file_id
+from app.joysafeter_api.api.v2.id_helpers import parse_skill_id, parse_skill_file_id, parse_skill_security_scan_id
 from app.joysafeter_shared.common.app_errors import AccessDeniedError, InvalidRequestError, NotFoundError
 from app.joysafeter_shared.database import get_db
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, get_joysafeter_auth_context, require_joysafeter_write
@@ -19,6 +19,7 @@ from app.joysafeter_domain.schemas.joysafeter_skill import (
     CreateSkillRequest,
     CreateSkillVersionRequest,
     SkillFileResponse,
+    SkillSecurityScanResponse,
     SkillResponse,
     SkillVersionFileResponse,
     SkillVersionResponse,
@@ -373,6 +374,20 @@ async def list_skills(
     }
 
 
+@router.get("/security-scans/{scan_id}")
+async def get_skill_security_scan(
+    scan_id: uuid.UUID = Depends(parse_skill_security_scan_id),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+) -> SkillSecurityScanResponse:
+    svc = SkillService(db)
+    try:
+        scan = await svc.get_security_scan(scan_id, current_user_id=auth_ctx.user_id)
+    except (NotFoundError, AccessDeniedError) as e:
+        return _handle_service_error(e)
+    return SkillSecurityScanResponse.model_validate(scan)
+
+
 @router.get("/{skill_id}")
 async def get_skill(
     skill_id: uuid.UUID = Depends(parse_skill_id),
@@ -385,6 +400,61 @@ async def get_skill(
     except (NotFoundError, AccessDeniedError) as e:
         return _handle_service_error(e)
     return SkillResponse.model_validate(skill)
+
+
+@router.get("/{skill_id}/security-scans/latest")
+async def get_latest_skill_security_scan(
+    skill_id: uuid.UUID = Depends(parse_skill_id),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+) -> SkillSecurityScanResponse:
+    svc = SkillService(db)
+    try:
+        scan = await svc.get_latest_security_scan(skill_id, current_user_id=auth_ctx.user_id)
+    except (NotFoundError, AccessDeniedError) as e:
+        return _handle_service_error(e)
+    return SkillSecurityScanResponse.model_validate(scan)
+
+
+@router.get("/{skill_id}/security-scans")
+async def list_skill_security_scans(
+    skill_id: uuid.UUID = Depends(parse_skill_id),
+    limit: int = Query(20, ge=1, le=100),
+    after_id: Optional[uuid.UUID] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+):
+    svc = SkillService(db)
+    try:
+        scans, has_more = await svc.list_security_scans(
+            skill_id,
+            current_user_id=auth_ctx.user_id,
+            limit=limit,
+            after_id=after_id,
+        )
+    except (NotFoundError, AccessDeniedError) as e:
+        return _handle_service_error(e)
+    data = [SkillSecurityScanResponse.model_validate(scan) for scan in scans]
+    return {
+        "data": data,
+        "has_more": has_more,
+        "first_id": str(data[0].id) if data else None,
+        "last_id": str(data[-1].id) if data else None,
+    }
+
+
+@router.post("/{skill_id}/security-scans/rescan")
+async def rescan_skill_security(
+    skill_id: uuid.UUID = Depends(parse_skill_id),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+) -> SkillSecurityScanResponse:
+    svc = SkillService(db)
+    try:
+        scan = await svc.rescan_skill(skill_id, current_user_id=auth_ctx.user_id)
+    except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
+        return _handle_service_error(e)
+    return SkillSecurityScanResponse.model_validate(scan)
 
 
 @router.put("/{skill_id}")

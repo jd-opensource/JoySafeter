@@ -36,6 +36,10 @@ ENV_REF="${3:-unrestricted_env}"
 
 API="${BASE_URL}/v1"
 MODEL_ID=$(engine_model)
+MODEL_JSON=''
+if [ -n "$MODEL_ID" ]; then
+    MODEL_JSON=",\n    \"model\": {\"id\": \"$MODEL_ID\"}"
+fi
 
 AGENT_ID=""
 SESSION_ID=""
@@ -140,8 +144,7 @@ fi
 AGENT_NAME="e2e-sbkill-$(date +%s)"
 call_api POST "$API/agents" "{
     \"name\": \"$AGENT_NAME\",
-    \"engine_kind\": \"$ENGINE_KIND\",
-    \"model\": {\"id\": \"$MODEL_ID\"},
+    \"engine_kind\": \"$ENGINE_KIND\"${MODEL_JSON},
     \"system_prompt\": \"You are a helpful assistant. Be concise. When asked to recall information from earlier in the conversation, do so accurately. Do not use auto-memory. Do not write memory files or create notes about the conversation. Only use tools when the user explicitly asks you to run a command.\",
     \"environment_ref\": \"$ENV_NAME\",
     \"secret_ref\": \"$SECRET_REF\",

@@ -204,7 +204,10 @@ class TaskScheduler:
                     sandbox_svc = SandboxService(db)
                     sandbox = await sandbox_svc.find_by_session(session_id)
                     fallback_image = resolved_image or joysafeter_config.sandbox_image
-                    if not sandbox:
+                    requires_persistent_workspace = (
+                        joysafeter_config.sandbox_workspace_root is not None
+                    )
+                    if not sandbox and not requires_persistent_workspace:
                         sandbox = await sandbox_svc.claim_from_pool(fallback_image, session_id)
                     if not sandbox:
                         sandbox = await sandbox_svc.create_sandbox(

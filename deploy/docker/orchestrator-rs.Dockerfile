@@ -7,6 +7,10 @@ FROM ${RUST_IMAGE} AS builder
 
 WORKDIR /src
 
+ENV CARGO_HTTP_TIMEOUT=600 \
+    CARGO_HTTP_MULTIPLEXING=false \
+    CARGO_NET_RETRY=10
+
 RUN apt-get update && apt-get install -y \
     protobuf-compiler \
     pkg-config \
@@ -25,7 +29,6 @@ FROM ${RUNTIME_IMAGE} AS runner
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     curl \
-    docker.io \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

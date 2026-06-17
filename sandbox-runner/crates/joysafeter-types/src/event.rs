@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize, Serializer};
 use serde::ser::SerializeMap;
+use serde::{Deserialize, Serialize, Serializer};
 
 pub fn parse_event_id(s: &str) -> Option<uuid::Uuid> {
     let s = s.strip_prefix("evt_").unwrap_or(s);
@@ -55,7 +55,12 @@ impl Serialize for SessionEvent {
 }
 
 impl SessionEvent {
-    pub fn new(session_id: uuid::Uuid, event_type: &str, payload: serde_json::Value, seq: i64) -> Self {
+    pub fn new(
+        session_id: uuid::Uuid,
+        event_type: &str,
+        payload: serde_json::Value,
+        seq: i64,
+    ) -> Self {
         Self {
             id: uuid::Uuid::now_v7(),
             event_type: event_type.to_string(),
@@ -67,7 +72,12 @@ impl SessionEvent {
         }
     }
 
-    pub fn new_processed(session_id: uuid::Uuid, event_type: &str, payload: serde_json::Value, seq: i64) -> Self {
+    pub fn new_processed(
+        session_id: uuid::Uuid,
+        event_type: &str,
+        payload: serde_json::Value,
+        seq: i64,
+    ) -> Self {
         let now = chrono::Utc::now();
         Self {
             id: uuid::Uuid::now_v7(),

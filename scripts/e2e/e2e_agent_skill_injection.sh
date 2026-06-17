@@ -296,10 +296,9 @@ fi
 info "Creating agent $AGENT_NAME with skill $SKILL_ID"
 AGENT_BODY=$(AGENT_NAME="$AGENT_NAME" ENGINE_KIND="$ENGINE_KIND" MODEL_ID="$MODEL_ID" ENV_REF="$ENV_REF" SECRET_REF="$SECRET_REF" SKILL_ID="$SKILL_ID" python3 - <<PY
 import json, os
-print(json.dumps({
+body = {
     "name": os.environ["AGENT_NAME"],
     "engine_kind": os.environ["ENGINE_KIND"],
-    "model": {"id": os.environ["MODEL_ID"]},
     "system_prompt": "You are a concise verification agent. Use Bash when asked to inspect the sandbox filesystem. If a loaded skill tells you to emit a marker, follow it exactly.",
     "environment_ref": os.environ["ENV_REF"],
     "secret_ref": os.environ["SECRET_REF"],
@@ -309,7 +308,11 @@ print(json.dumps({
         "default_config": {"permission_policy": {"type": "always_allow"}},
         "configs": [{"name": "Bash", "enabled": True}]
     }]
-}))
+}
+model_id = os.environ.get("MODEL_ID", "").strip()
+if model_id:
+    body["model"] = {"id": model_id}
+print(json.dumps(body))
 PY
 )
 call_api POST "$API/agents" "$AGENT_BODY"

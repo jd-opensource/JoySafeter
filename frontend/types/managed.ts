@@ -83,6 +83,7 @@ export interface SessionAgent {
   id: string;
   agent_id?: string;
   name: string;
+  engine_kind?: string | null;
   model?: { id: string } | null;
   version?: number;
 }
@@ -120,6 +121,8 @@ export interface SessionEvent {
   tool_name?: string;
   name?: string;
   call_id?: string;
+  _call_id?: string;
+  tool_use_id?: string;
   input?: unknown;
   output?: unknown;
   is_error?: boolean;
@@ -239,6 +242,38 @@ export interface AddFileResourceRequest {
   mount_path?: string;
 }
 
+export interface SkillSecurityScanSummary {
+  status: "passed" | "warning" | "blocked" | "failed" | "not_scanned" | string;
+  score: number | null;
+  severity: string | null;
+  recommendation: string | null;
+  issues_count: number;
+  critical_count: number;
+  high_count: number;
+  medium_count: number;
+  low_count: number;
+  scanned_at: string | null;
+  scan_id: string | null;
+  target_hash: string | null;
+}
+
+export interface SkillSecurityScanRecord extends SkillSecurityScanSummary {
+  id: string;
+  skill_id: string | null;
+  project_id: string | null;
+  owner_id: string | null;
+  created_by_id: string;
+  trigger: string;
+  target_name: string | null;
+  target_hash: string;
+  scanner: string;
+  scanner_version: string | null;
+  report: Record<string, unknown> | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface SkillRecord {
   id: string;
   display_title?: string;
@@ -257,6 +292,7 @@ export interface SkillRecord {
   source_url: string;
   created_at: string;
   updated_at: string;
+  security_scan?: SkillSecurityScanSummary;
 }
 
 export interface SkillVersionRecord {
@@ -298,6 +334,7 @@ export interface Secret {
   name: string;
   provider?: string;
   protocol?: string;
+  is_default?: boolean;
   data?: Record<string, string>;
   keys?: string[];
   created_at: string;

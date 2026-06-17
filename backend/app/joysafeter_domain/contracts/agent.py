@@ -11,6 +11,7 @@ EngineKind = Literal[
     "langgraph_code",
     "claude_code",
     "codex",
+    "native",
 ]
 ENGINE_KINDS: set[str] = set(get_args(EngineKind))
 
@@ -28,6 +29,7 @@ ENGINE_RUNTIME_MAP: dict[str, str] = {
     "langgraph_code": "server",
     "claude_code": "sandbox",
     "codex": "sandbox",
+    "native": "sandbox",
 }
 
 CLI_ENGINE_KINDS: set[str] = {k for k, v in ENGINE_RUNTIME_MAP.items() if v == "sandbox"}

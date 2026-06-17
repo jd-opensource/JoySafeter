@@ -4,6 +4,12 @@
 *
 !sandbox-runner/
 !sandbox-runner/**
+!proto/
+!proto/**
+!backend/
+!backend/app/
+!backend/app/joysafeter_orchestrator_rs/
+!backend/app/joysafeter_orchestrator_rs/**
 !deploy/
 !deploy/docker/
 !deploy/docker/**

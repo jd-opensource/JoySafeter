@@ -11,14 +11,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 
 interface SecretKeySelectProps {
   value: string
   onChange: (value: string) => void
   placeholder?: string
+  className?: string
 }
 
-export function SecretKeySelect({ value, onChange, placeholder }: SecretKeySelectProps) {
+export function SecretKeySelect({ value, onChange, placeholder, className }: SecretKeySelectProps) {
   const { t } = useTranslation()
 
   return (
@@ -29,7 +31,7 @@ export function SecretKeySelect({ value, onChange, placeholder }: SecretKeySelec
         onChange(v)
       }}
     >
-      <SelectTrigger className="flex-1 font-mono text-sm">
+      <SelectTrigger className={cn('flex-1 font-mono text-sm', className)}>
         <SelectValue placeholder={placeholder || t('managed.secrets.selectKey')} />
       </SelectTrigger>
       <SelectContent>

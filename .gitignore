@@ -111,6 +111,10 @@ venvs/
 !env.example
 !**/env.example
 
+# Deploy sensitive files (contain real secrets / site-specific config)
+deploy/.env.remote.example
+deploy/docker-compose.remote.yml
+
 # Spyder project settings
 .spyderproject
 .spyproject

@@ -57,15 +57,19 @@ pub fn harness_event_to_proto(seq: u64, event: &HarnessEvent) -> proto::RunnerHa
                 model: model.clone(),
             })
         }
-        HarnessEvent::ModelRequestEnd { model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens } => {
-            proto::runner_harness_event::Event::ModelRequestEnd(proto::ModelRequestEndEvent {
-                model: model.clone(),
-                input_tokens: *input_tokens,
-                output_tokens: *output_tokens,
-                cache_read_tokens: *cache_read_tokens,
-                cache_write_tokens: *cache_write_tokens,
-            })
-        }
+        HarnessEvent::ModelRequestEnd {
+            model,
+            input_tokens,
+            output_tokens,
+            cache_read_tokens,
+            cache_write_tokens,
+        } => proto::runner_harness_event::Event::ModelRequestEnd(proto::ModelRequestEndEvent {
+            model: model.clone(),
+            input_tokens: *input_tokens,
+            output_tokens: *output_tokens,
+            cache_read_tokens: *cache_read_tokens,
+            cache_write_tokens: *cache_write_tokens,
+        }),
     };
 
     proto::RunnerHarnessEvent {

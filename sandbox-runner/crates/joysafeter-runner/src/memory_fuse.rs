@@ -1,7 +1,7 @@
 use crate::proto::{self, RunnerMessage};
 use fuser::{
-    FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyCreate, ReplyData,
-    ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyWrite, Request,
+    FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory,
+    ReplyEmpty, ReplyEntry, ReplyWrite, Request,
 };
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -52,8 +52,14 @@ impl MemoryFuseFs {
         }
         drop(p2i);
         let ino = self.allocate_inode();
-        self.path_to_inode.write().unwrap().insert(path.to_string(), ino);
-        self.inode_to_path.write().unwrap().insert(ino, path.to_string());
+        self.path_to_inode
+            .write()
+            .unwrap()
+            .insert(path.to_string(), ino);
+        self.inode_to_path
+            .write()
+            .unwrap()
+            .insert(ino, path.to_string());
         ino
     }
 
@@ -543,11 +549,17 @@ impl Filesystem for MemoryFuseFs {
 
         let parent_path = match self.get_path(parent) {
             Some(p) => p,
-            None => { reply.error(libc::ENOENT); return; }
+            None => {
+                reply.error(libc::ENOENT);
+                return;
+            }
         };
         let newparent_path = match self.get_path(newparent) {
             Some(p) => p,
-            None => { reply.error(libc::ENOENT); return; }
+            None => {
+                reply.error(libc::ENOENT);
+                return;
+            }
         };
 
         let old_path = if parent_path == "/" {
@@ -569,8 +581,14 @@ impl Filesystem for MemoryFuseFs {
 
             if let Some(ino) = self.path_to_inode.write().unwrap().remove(&old_path) {
                 self.inode_to_path.write().unwrap().remove(&ino);
-                self.path_to_inode.write().unwrap().insert(new_path.clone(), ino);
-                self.inode_to_path.write().unwrap().insert(ino, new_path.clone());
+                self.path_to_inode
+                    .write()
+                    .unwrap()
+                    .insert(new_path.clone(), ino);
+                self.inode_to_path
+                    .write()
+                    .unwrap()
+                    .insert(ino, new_path.clone());
             }
 
             let _ = self.sync_tx.send(SyncRequest {
@@ -641,7 +659,11 @@ impl MemoryFuseHandle {
                     },
                 );
 
-                let parts: Vec<&str> = f.relative_path.split('/').filter(|s| !s.is_empty()).collect();
+                let parts: Vec<&str> = f
+                    .relative_path
+                    .split('/')
+                    .filter(|s| !s.is_empty())
+                    .collect();
                 let mut prefix = String::new();
                 for (i, part) in parts.iter().enumerate() {
                     prefix = format!("{prefix}/{part}");
@@ -661,12 +683,15 @@ impl MemoryFuseHandle {
             let path_to_inode_arc = Arc::new(RwLock::new(path_to_inode));
             let next_inode_arc = Arc::new(AtomicU64::new(next_inode_val));
 
-            stores.insert(mount.mount_name.clone(), FuseStoreRef {
-                files: files_arc.clone(),
-                inode_to_path: inode_to_path_arc.clone(),
-                path_to_inode: path_to_inode_arc.clone(),
-                next_inode: next_inode_arc.clone(),
-            });
+            stores.insert(
+                mount.mount_name.clone(),
+                FuseStoreRef {
+                    files: files_arc.clone(),
+                    inode_to_path: inode_to_path_arc.clone(),
+                    path_to_inode: path_to_inode_arc.clone(),
+                    next_inode: next_inode_arc.clone(),
+                },
+            );
 
             let fs = MemoryFuseFs {
                 read_write,
@@ -727,14 +752,19 @@ impl MemoryFuseHandle {
 
     /// Write (or overwrite) a file in the FUSE in-memory store from an external sync event.
     pub fn write_file(&self, mount_name: &str, relative_path: &str, content: &[u8]) {
-        let Some(store) = self.stores.get(mount_name) else { return };
+        let Some(store) = self.stores.get(mount_name) else {
+            return;
+        };
         let now = SystemTime::now();
         let mut files = store.files.write().unwrap();
-        files.insert(relative_path.to_string(), InMemoryFile {
-            content: content.to_vec(),
-            created_at: now,
-            modified_at: now,
-        });
+        files.insert(
+            relative_path.to_string(),
+            InMemoryFile {
+                content: content.to_vec(),
+                created_at: now,
+                modified_at: now,
+            },
+        );
         drop(files);
 
         // Ensure inode exists for the path and parent directories
@@ -754,7 +784,9 @@ impl MemoryFuseHandle {
 
     /// Remove a file from the FUSE in-memory store due to an external sync event.
     pub fn remove_file(&self, mount_name: &str, relative_path: &str) {
-        let Some(store) = self.stores.get(mount_name) else { return };
+        let Some(store) = self.stores.get(mount_name) else {
+            return;
+        };
         let mut files = store.files.write().unwrap();
         files.remove(relative_path);
     }

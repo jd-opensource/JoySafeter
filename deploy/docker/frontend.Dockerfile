@@ -21,11 +21,10 @@ RUN apk add --no-cache curl unzip bash && \
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json bun.lock* ./
 COPY . .
-# 使用 ARG 传递 API URL，支持通过环境变量配置（默认值保持向后兼容）
-ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+# Public runtime envs are injected by next-runtime-env when the container starts.
+# Do not bake deployment domains into the static bundle at image build time.
 ENV NEXT_TELEMETRY_DISABLED=1 \
-    NODE_ENV=production \
-    NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+    NODE_ENV=production
 RUN /root/.bun/bin/bun run build
 
 FROM base AS runner

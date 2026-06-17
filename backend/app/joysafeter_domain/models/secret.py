@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -22,6 +22,7 @@ class JoySafeterSecret(JoySafeterBaseModel):
     provider: Mapped[str] = mapped_column(String(64), nullable=False, server_default="custom")
     protocol: Mapped[str] = mapped_column(String(64), nullable=False, server_default="custom")
     data: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     deleted_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

@@ -21,20 +21,36 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 NUM_SESSIONS="${1:-3}"
 BASE_URL="${2:-${JOYSAFETER_URL:-http://localhost:8080}}"
+BASE_URL="${BASE_URL%/}"
 SECRET_REF="${3:-}"
 ENV_REF="${4:-unrestricted_env}"
+API_KEY="${JOYSAFETER_API_KEY:-${API_KEY:-}}"
+CURL_AUTH_ARGS=()
+if [ -n "$API_KEY" ]; then
+    CURL_AUTH_ARGS=(-H "X-Api-Key: $API_KEY")
+fi
+
+if [ -n "${JOYSAFETER_API_BASE:-}" ]; then
+    API="${JOYSAFETER_API_BASE%/}"
+elif [[ "$BASE_URL" == */api/v1 || "$BASE_URL" == */api/v2 || "$BASE_URL" == */v1 || "$BASE_URL" == */v2 ]]; then
+    API="$BASE_URL"
+else
+    API="${BASE_URL}/api/v2"
+fi
 
 ENGINE_KIND="${ENGINE_KIND:-claude}"
 
 # Engine-kind defaults
 case "$ENGINE_KIND" in
-    codex) _DEFAULT_SECRET="codex-secret"; _DEFAULT_MODEL="gpt-5.3-codex" ;;
+    codex) _DEFAULT_SECRET="codex-secret"; _DEFAULT_MODEL="" ;;
     *)     _DEFAULT_SECRET="opus4.6_secret"; _DEFAULT_MODEL="Claude-Opus-4.6" ;;
 esac
 SECRET_REF="${SECRET_REF:-$_DEFAULT_SECRET}"
 MODEL_ID="${MODEL_ID:-$_DEFAULT_MODEL}"
-
-API="${BASE_URL}/v1"
+MODEL_JSON=''
+if [ -n "$MODEL_ID" ]; then
+    MODEL_JSON=",\n        \"model\": \"$MODEL_ID\""
+fi
 
 TMPDIR_TEST=$(mktemp -d)
 trap "rm -rf ${TMPDIR_TEST}" EXIT
@@ -57,6 +73,11 @@ echo "  Engine:      $ENGINE_KIND"
 echo "  Model:       $MODEL_ID"
 echo "  Secret:      $SECRET_REF"
 echo "  Environment: $ENV_REF"
+if [ -n "$API_KEY" ]; then
+    echo "  Auth:        X-Api-Key (${API_KEY:0:10}...)"
+else
+    echo "  Auth:        none (set JOYSAFETER_API_KEY or API_KEY if required)"
+fi
 echo ""
 
 # ──────────────────────────────────────────────────────────────
@@ -73,6 +94,7 @@ send_event() {
     local code body
     for attempt in $(seq 1 20); do
         body=$(curl -s -w "\n%{http_code}" -X POST "${API}/sessions/${sid}/events" \
+            "${CURL_AUTH_ARGS[@]}" \
             -H "Content-Type: application/json" \
             -d "{\"events\":[{\"type\":\"user.message\",\"content\":[{\"type\":\"text\",\"text\":${escaped}}]}]}")
         code=$(echo "$body" | tail -1)
@@ -96,7 +118,7 @@ wait_session_idle() {
     for _i in $(seq 1 "$max_wait"); do
         sleep "$interval"
         local state
-        state=$(curl -sf "${API}/sessions/${sid}" 2>/dev/null || echo '{}')
+        state=$(curl -sf "${CURL_AUTH_ARGS[@]}" "${API}/sessions/${sid}" 2>/dev/null || echo '{}')
         local status
         status=$(echo "$state" | json_get "['status']" 2>/dev/null || echo "?")
         if [ "$status" = "idle" ]; then
@@ -111,7 +133,7 @@ print(sr.get('type',''))" 2>/dev/null || echo "")
                 for _stab in 1 2 3; do
                     sleep 5
                     local recheck_status
-                    recheck_status=$(curl -sf "${API}/sessions/${sid}" 2>/dev/null | json_get "['status']" 2>/dev/null || echo "?")
+                    recheck_status=$(curl -sf "${CURL_AUTH_ARGS[@]}" "${API}/sessions/${sid}" 2>/dev/null | json_get "['status']" 2>/dev/null || echo "?")
                     if [ "$recheck_status" != "idle" ]; then
                         stable=false
                         break
@@ -129,7 +151,7 @@ import sys,json; s=json.load(sys.stdin)
 print(s.get('stop_reason',{}).get('event_ids',[''])[0])" 2>/dev/null || echo "")
                 if [ -n "$eid" ]; then
                     local etype
-                    etype=$(curl -sf "${API}/sessions/${sid}/events?limit=50" 2>/dev/null | python3 -c "
+                    etype=$(curl -sf "${CURL_AUTH_ARGS[@]}" "${API}/sessions/${sid}/events?limit=50" 2>/dev/null | python3 -c "
 import sys,json
 r=json.load(sys.stdin)
 evts=r if isinstance(r,list) else r.get('events',r.get('data',[]))
@@ -142,10 +164,12 @@ else:
 " 2>/dev/null || echo "")
                     if [ "$etype" = "agent.custom_tool_use" ]; then
                         curl -sf -X POST "${API}/sessions/${sid}/events" \
+                            "${CURL_AUTH_ARGS[@]}" \
                             -H "Content-Type: application/json" \
                             -d "{\"events\":[{\"type\":\"user.custom_tool_result\",\"tool_use_event_id\":\"$eid\",\"content\":\"OK\"}]}" >/dev/null 2>&1
                     else
                         curl -sf -X POST "${API}/sessions/${sid}/events" \
+                            "${CURL_AUTH_ARGS[@]}" \
                             -H "Content-Type: application/json" \
                             -d "{\"events\":[{\"type\":\"user.tool_confirmation\",\"tool_use_id\":\"$eid\",\"result\":\"allow\"}]}" >/dev/null 2>&1
                     fi
@@ -161,7 +185,7 @@ get_last_agent_reply() {
     local sid="$1" retries="${2:-5}" interval="${3:-2}"
     local reply=""
     for _r in $(seq 1 "$retries"); do
-        reply=$(curl -sf "${API}/sessions/${sid}/events?limit=200" 2>/dev/null | python3 -c "
+        reply=$(curl -sf "${CURL_AUTH_ARGS[@]}" "${API}/sessions/${sid}/events?limit=200" 2>/dev/null | python3 -c "
 import sys, json
 try:
     r = json.load(sys.stdin)
@@ -196,7 +220,7 @@ print(reply)
 # Step 0: Health check
 # ──────────────────────────────────────────────────────────────
 echo -e "${BOLD}[0]${NC} Health check"
-HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' "$API/health/live" 2>/dev/null || echo "000")
+HTTP_CODE=$(curl -sf "${CURL_AUTH_ARGS[@]}" -o /dev/null -w '%{http_code}' "$API/health/live" 2>/dev/null || echo "000")
 if [ "$HTTP_CODE" = "200" ]; then
     echo -e "  ${GREEN}✓${NC} JoySafeter reachable"
 else
@@ -212,6 +236,7 @@ echo -e "${BOLD}[1]${NC} Create environment + agent"
 
 ENV_NAME="e2e-parallel-env-$$"
 ENV_RESP=$(curl -sf -X POST "${API}/environments" \
+    "${CURL_AUTH_ARGS[@]}" \
     -H "Content-Type: application/json" \
     -d "{
         \"name\": \"$ENV_NAME\",
@@ -227,11 +252,11 @@ fi
 
 AGENT_NAME="e2e-parallel-$$"
 AGENT_RESP=$(curl -sf -X POST "${API}/agents" \
+    "${CURL_AUTH_ARGS[@]}" \
     -H "Content-Type: application/json" \
     -d "{
         \"name\": \"$AGENT_NAME\",
-        \"engine_kind\": \"$ENGINE_KIND\",
-        \"model\": \"$MODEL_ID\",
+        \"engine_kind\": \"$ENGINE_KIND\"${MODEL_JSON},
         \"system_prompt\": \"You are a helpful assistant. Follow instructions precisely. Be concise. When asked to recall information from earlier in the conversation, do so accurately. Do not use auto-memory. Do not write memory files or create notes about the conversation. Only use tools when the user explicitly asks you to run a command.\",
         \"environment_ref\": \"$ENV_NAME\",
         \"secret_ref\": \"$SECRET_REF\",
@@ -258,6 +283,7 @@ echo -e "${BOLD}[2]${NC} Create $NUM_SESSIONS sessions"
 SESSION_IDS=()
 for i in $(seq 1 "$NUM_SESSIONS"); do
     resp=$(curl -sf -X POST "${API}/sessions" \
+        "${CURL_AUTH_ARGS[@]}" \
         -H "Content-Type: application/json" \
         -d "{\"agent\":\"$AGENT_ID\",\"environment_id\":\"$ENV_ID\"}" 2>/dev/null || echo '{}')
     sid=$(echo "$resp" | json_get "['id']" 2>/dev/null || echo "")
@@ -269,8 +295,8 @@ echo -e "  ${GREEN}✓${NC} Created ${#SESSION_IDS[@]}/$NUM_SESSIONS sessions"
 
 if [ "${#SESSION_IDS[@]}" -eq 0 ]; then
     echo -e "  ${RED}✗${NC} No sessions created"
-    curl -sf -X DELETE "${API}/agents/${AGENT_ID}?force=true" >/dev/null 2>&1 || true
-    curl -sf -X DELETE "${API}/environments/${ENV_ID}" >/dev/null 2>&1 || true
+    curl -sf "${CURL_AUTH_ARGS[@]}" -X DELETE "${API}/agents/${AGENT_ID}?force=true" >/dev/null 2>&1 || true
+    curl -sf "${CURL_AUTH_ARGS[@]}" -X DELETE "${API}/environments/${ENV_ID}" >/dev/null 2>&1 || true
     exit 1
 fi
 
@@ -408,7 +434,7 @@ run_session() {
 
     # Get token usage
     local usage
-    usage=$(curl -sf "${API}/sessions/${sid}" 2>/dev/null | python3 -c "
+    usage=$(curl -sf "${CURL_AUTH_ARGS[@]}" "${API}/sessions/${sid}" 2>/dev/null | python3 -c "
 import sys,json; s=json.load(sys.stdin); u=s.get('usage',{})
 print(u.get('input_tokens',0))" 2>/dev/null || echo "0")
 
@@ -499,14 +525,14 @@ echo ""
 echo -e "${BOLD}[5]${NC} Cleanup"
 
 for sid in "${SESSION_IDS[@]}"; do
-    curl -sf -X DELETE "${API}/sessions/${sid}" >/dev/null 2>&1 || true
+    curl -sf "${CURL_AUTH_ARGS[@]}" -X DELETE "${API}/sessions/${sid}" >/dev/null 2>&1 || true
 done
 echo -e "  ${GREEN}✓${NC} ${#SESSION_IDS[@]} sessions deleted"
 
-curl -sf -X DELETE "${API}/agents/${AGENT_ID}?force=true" >/dev/null 2>&1 || true
+curl -sf "${CURL_AUTH_ARGS[@]}" -X DELETE "${API}/agents/${AGENT_ID}?force=true" >/dev/null 2>&1 || true
 echo -e "  ${GREEN}✓${NC} Agent deleted"
 
-curl -sf -X DELETE "${API}/environments/${ENV_ID}" >/dev/null 2>&1 || true
+curl -sf "${CURL_AUTH_ARGS[@]}" -X DELETE "${API}/environments/${ENV_ID}" >/dev/null 2>&1 || true
 echo -e "  ${GREEN}✓${NC} Environment deleted"
 
 echo ""

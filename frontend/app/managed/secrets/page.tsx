@@ -4,15 +4,15 @@ import { useState } from 'react'
 import { useTranslation } from '@/lib/i18n'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2 } from 'lucide-react'
+import { Check, Plus, Star, Trash2 } from 'lucide-react'
 import { managedPost, managedDelete } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
 import type { Secret } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { getDefaultProtocol, getDefaultSecretPairs, isModelKey, MODEL_OPTIONS, SECRET_PROTOCOL_OPTIONS, SECRET_PROVIDER_OPTIONS } from '@/lib/managed/secret-keys'
-import { SecretKeySelect } from '@/components/managed/shared'
+import { getDefaultProtocol, getDefaultSecretPairs, isModelKey, SECRET_PROTOCOL_OPTIONS, SECRET_PROVIDER_OPTIONS } from '@/lib/managed/secret-keys'
+import { SecretKeySelect, SecretModelInput } from '@/components/managed/shared'
 import {
   PageHeader,
   FilterBar,
@@ -115,7 +115,13 @@ export default function SecretListPage() {
       for (const p of validPairs) {
         data[p.key.trim()] = p.value
       }
-      await managedPost('/secrets', { name: newName.trim(), provider: newProvider, protocol: newProtocol, data })
+      await managedPost('/secrets', {
+        name: newName.trim(),
+        provider: newProvider,
+        protocol: newProtocol,
+        data,
+        is_default: secrets.length === 0,
+      })
       setNewName('')
       setNewProvider('anthropic')
       setNewProtocol('anthropic_messages')
@@ -141,6 +147,15 @@ export default function SecretListPage() {
     }
   }
 
+  const handleSetDefault = async (secret: Secret) => {
+    try {
+      await managedPost(`/secrets/${secret.id}/default`, {})
+      queryClient.invalidateQueries({ queryKey: ['secrets'] })
+    } catch (e) {
+      toastOperationError(t, e, 'common.operationFailed')
+    }
+  }
+
   const columns: Column<Secret>[] = [
     {
       key: 'id',
@@ -151,7 +166,15 @@ export default function SecretListPage() {
       key: 'name',
       header: t('managed.table.name'),
       render: (s) => (
-        <span className="font-medium text-foreground">{s.name}</span>
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-foreground">{s.name}</span>
+          {s.is_default && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+              <Check className="h-3 w-3" />
+              {t('managed.secrets.default')}
+            </span>
+          )}
+        </div>
       ),
     },
     {
@@ -212,6 +235,11 @@ export default function SecretListPage() {
         fetching={secretsFetching}
         onRowClick={(s) => router.push(`/managed/secrets/${s.id}`)}
         actionMenu={(s) => [
+          ...(s.is_default ? [] : [{
+            label: t('managed.secrets.setDefault'),
+            icon: <Star className="w-4 h-4" />,
+            onClick: () => handleSetDefault(s),
+          }]),
           {
             label: t('common.delete'),
             onClick: () => setDeleteTarget(s),
@@ -250,7 +278,7 @@ export default function SecretListPage() {
                 autoFocus
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.5rem] gap-2">
               <div className="space-y-1">
                 <label className="text-sm font-medium">{t('managed.secrets.provider')}</label>
                 <Select value={newProvider} onValueChange={updateProvider}>
@@ -277,46 +305,47 @@ export default function SecretListPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="h-10 w-10" />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">
                 {t('managed.secrets.dataLabel')}
               </label>
               {pairs.map((pair, i) => (
-                <div key={i} className="flex items-center gap-2">
+                <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.5rem] items-center gap-2">
                   <SecretKeySelect
                     value={pair.key}
                     onChange={(v) => updatePair(i, 'key', v)}
                     placeholder={t('managed.secrets.keyPlaceholder')}
+                    className="min-w-0"
                   />
                   {isModelKey(pair.key) ? (
-                    <Select value={pair.value} onValueChange={(v) => updatePair(i, 'value', v)}>
-                      <SelectTrigger className="flex-1 font-mono text-sm">
-                        <SelectValue placeholder={t('managed.secrets.selectModel')} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {MODEL_OPTIONS.map((m) => (
-                          <SelectItem key={m} value={m} className="font-mono text-sm">{m}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <SecretModelInput
+                      value={pair.value}
+                      onChange={(v) => updatePair(i, 'value', v)}
+                      placeholder={t('managed.secrets.selectModel')}
+                      className="min-w-0"
+                    />
                   ) : (
                     <Input
                       placeholder={t('managed.secrets.valuePlaceholder')}
                       value={pair.value}
                       onChange={(e) => updatePair(i, 'value', e.target.value)}
-                      className="flex-1"
+                      className="min-w-0"
                       type="password"
                     />
                   )}
-                  {pairs.length > 1 && (
+                  {pairs.length > 1 ? (
                     <Button
                       variant="ghost"
                       size="icon"
                       onClick={() => removePair(i)}
+                      className="h-10 w-10"
                     >
                       <Trash2 className="w-4 h-4 text-muted-foreground" />
                     </Button>
+                  ) : (
+                    <div className="h-10 w-10" />
                   )}
                 </div>
               ))}

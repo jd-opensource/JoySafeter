@@ -8,7 +8,7 @@ set -euo pipefail
 #   0. Health check
 #   1. Concurrent health baseline
 #   2. Create N agents with secret/env
-#   3. Read pressure (concurrent GET /v1/agents)
+#   3. Read pressure (concurrent GET /agents on the configured API base)
 #   4. Submit N tasks with diverse prompts (coding, math, SQL, etc.)
 #   5. Poll tasks to completion
 #   6. Cleanup agents
@@ -24,14 +24,28 @@ set -euo pipefail
 
 CONCURRENCY="${1:-3}"
 BASE="${2:-${JOYSAFETER_URL:-http://localhost:8080}}"
+BASE="${BASE%/}"
 SECRET_REF="${3:-}"
 ENV_REF="${4:-unrestricted_env}"
+API_KEY="${JOYSAFETER_API_KEY:-${API_KEY:-}}"
+CURL_AUTH_ARGS=()
+if [ -n "$API_KEY" ]; then
+  CURL_AUTH_ARGS=(-H "X-Api-Key: $API_KEY")
+fi
+
+if [ -n "${JOYSAFETER_API_BASE:-}" ]; then
+  API="${JOYSAFETER_API_BASE%/}"
+elif [[ "$BASE" == */api/v1 || "$BASE" == */api/v2 || "$BASE" == */v1 || "$BASE" == */v2 ]]; then
+  API="$BASE"
+else
+  API="${BASE}/api/v2"
+fi
 
 ENGINE_KIND="${ENGINE_KIND:-claude}"
 
 # Engine-kind defaults
 case "$ENGINE_KIND" in
-    codex) _DEFAULT_SECRET="codex-secret"; _DEFAULT_MODEL="gpt-5.3-codex" ;;
+    codex) _DEFAULT_SECRET="codex-secret"; _DEFAULT_MODEL="" ;;
     *)     _DEFAULT_SECRET="deepseekv4-pro-secret"; _DEFAULT_MODEL="Claude-Opus-4.6" ;;
 esac
 SECRET_REF="${SECRET_REF:-$_DEFAULT_SECRET}"
@@ -79,28 +93,34 @@ echo -e "${BOLD}============================================${NC}"
 echo -e "${BOLD} JoySafeter E2E Concurrency Test${NC}"
 echo -e "   Concurrency:  ${CONCURRENCY}"
 echo -e "   Target:       ${BASE}"
+echo -e "   API:          ${API}"
 echo -e "   Engine:       ${ENGINE_KIND}"
 echo -e "   Model:        ${MODEL_ID}"
 echo -e "   Secret:       ${SECRET_REF}"
 echo -e "   Environment:  ${ENV_REF}"
+if [ -n "$API_KEY" ]; then
+  echo -e "   Auth:         X-Api-Key (${API_KEY:0:10}...)"
+else
+  echo -e "   Auth:         none (set JOYSAFETER_API_KEY or API_KEY if required)"
+fi
 echo -e "${BOLD}============================================${NC}"
 
 # ==================================================================
 # Phase 0: Health check
 # ==================================================================
 header "0" "Health check"
-HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' "${BASE}/v1/health/live" 2>/dev/null || echo "000")
+HTTP_CODE=$(curl -sf "${CURL_AUTH_ARGS[@]}" -o /dev/null -w '%{http_code}' "${API}/health/live" 2>/dev/null || echo "000")
 if [ "$HTTP_CODE" = "200" ]; then
   ok "JoySafeter is reachable (HTTP $HTTP_CODE)"
 else
-  fail "Cannot reach ${BASE}/v1/health/live (HTTP $HTTP_CODE)"
+  fail "Cannot reach ${API}/health/live (HTTP $HTTP_CODE)"
   exit 1
 fi
 
 # ==================================================================
 # Phase 1: Concurrent health endpoint (baseline)
 # ==================================================================
-header "1" "Baseline: ${CONCURRENCY} concurrent GET /v1/health/live"
+header "1" "Baseline: ${CONCURRENCY} concurrent GET ${API}/health/live"
 
 HEALTH_DIR="${TMPDIR_BENCH}/health"
 mkdir -p "$HEALTH_DIR"
@@ -109,7 +129,7 @@ hit_health() {
   local i=$1
   local start_ms end_ms elapsed_ms code
   start_ms=$(now_ms)
-  code=$(curl -sf -o /dev/null -w '%{http_code}' "${BASE}/v1/health/live" 2>/dev/null || echo "000")
+  code=$(curl -sf "${CURL_AUTH_ARGS[@]}" -o /dev/null -w '%{http_code}' "${API}/health/live" 2>/dev/null || echo "000")
   end_ms=$(now_ms)
   elapsed_ms=$((end_ms - start_ms))
   echo "$elapsed_ms" > "${HEALTH_DIR}/${i}.ms"
@@ -140,25 +160,30 @@ mkdir -p "$AGENT_DIR"
 AGENT_BODY_TEMPLATE='{
   "name": "__NAME__",
   "engine_kind": "__ENGINE__",
-  "model": {"id": "__MODEL__"},
+  __MODEL_FIELD__
   "system_prompt": "You are a senior software engineer. Answer precisely and concisely. When writing code, write clean production-quality code without excessive comments. Do not use auto-memory. Do not write memory files or create notes about the conversation. Only use tools when the user explicitly asks you to run a command.",
   "secret_ref": "__SECRET__",
   "environment_ref": "__ENV__"
 }'
 
-SAMPLE_BODY=$(echo "$AGENT_BODY_TEMPLATE" | sed "s/__NAME__/bench-agent-1-$$/;s/__ENGINE__/${ENGINE_KIND}/;s/__MODEL__/${MODEL_ID}/;s/__SECRET__/${SECRET_REF}/;s/__ENV__/${ENV_REF}/")
-echo -e "  ${DIM}Sample request: POST /v1/agents${NC}"
+MODEL_FIELD=''
+if [ -n "$MODEL_ID" ]; then
+  MODEL_FIELD="\"model\": {\"id\": \"$MODEL_ID\"},"
+fi
+SAMPLE_BODY=$(echo "$AGENT_BODY_TEMPLATE" | sed "s/__NAME__/bench-agent-1-$$/;s/__ENGINE__/${ENGINE_KIND}/;s#__MODEL_FIELD__#${MODEL_FIELD}#;s/__SECRET__/${SECRET_REF}/;s/__ENV__/${ENV_REF}/")
+echo -e "  ${DIM}Sample request: POST ${API}/agents${NC}"
 echo -e "  ${DIM}${SAMPLE_BODY}${NC}"
 
 create_agent() {
   local i=$1
   local name="bench-agent-${i}-$$"
   local body
-  body=$(echo "$AGENT_BODY_TEMPLATE" | sed "s/__NAME__/${name}/;s/__ENGINE__/${ENGINE_KIND}/;s/__MODEL__/${MODEL_ID}/;s/__SECRET__/${SECRET_REF}/;s/__ENV__/${ENV_REF}/")
+  body=$(echo "$AGENT_BODY_TEMPLATE" | sed "s/__NAME__/${name}/;s/__ENGINE__/${ENGINE_KIND}/;s#__MODEL_FIELD__#${MODEL_FIELD}#;s/__SECRET__/${SECRET_REF}/;s/__ENV__/${ENV_REF}/")
   local start_ms end_ms elapsed_ms
   start_ms=$(now_ms)
   local resp
-  resp=$(curl -sf -X POST "${BASE}/v1/agents" \
+  resp=$(curl -sf -X POST "${API}/agents" \
+    "${CURL_AUTH_ARGS[@]}" \
     -H 'content-type: application/json' \
     -d "$body" 2>/dev/null || echo '{}')
   end_ms=$(now_ms)
@@ -195,7 +220,7 @@ calc_stats "${TMPDIR_BENCH}/agent_create_all.ms"
 # ==================================================================
 # Phase 3: Read pressure
 # ==================================================================
-header "3" "Read pressure: ${CONCURRENCY} concurrent GET /v1/agents"
+header "3" "Read pressure: ${CONCURRENCY} concurrent GET ${API}/agents"
 
 LIST_DIR="${TMPDIR_BENCH}/list"
 mkdir -p "$LIST_DIR"
@@ -204,7 +229,7 @@ list_agents() {
   local i=$1
   local start_ms end_ms elapsed_ms code
   start_ms=$(now_ms)
-  code=$(curl -sf -o /dev/null -w '%{http_code}' "${BASE}/v1/agents" 2>/dev/null || echo "000")
+  code=$(curl -sf "${CURL_AUTH_ARGS[@]}" -o /dev/null -w '%{http_code}' "${API}/agents" 2>/dev/null || echo "000")
   end_ms=$(now_ms)
   elapsed_ms=$((end_ms - start_ms))
   echo "$elapsed_ms" > "${LIST_DIR}/${i}.ms"
@@ -254,7 +279,7 @@ else
   }
 
   SAMPLE_PROMPT=$(get_prompt 1)
-  echo -e "  ${DIM}Sample request: POST /v1/tasks${NC}"
+  echo -e "  ${DIM}Sample request: POST ${API}/tasks${NC}"
   echo -e "  ${DIM}{\"agent_name\":\"${AGENT_NAMES[0]}\",\"prompt\":\"${SAMPLE_PROMPT:0:80}...\",\"timeout_sec\":180,\"max_retries\":0}${NC}"
   echo -e "  ${DIM}(10 diverse prompts: coding, math, system design, SQL, algorithms)${NC}"
 
@@ -269,7 +294,8 @@ else
     escaped_prompt=$(printf '%s' "$prompt" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
     start_ms=$(now_ms)
     local resp
-    resp=$(curl -sf -X POST "${BASE}/v1/tasks" \
+    resp=$(curl -sf -X POST "${API}/tasks" \
+      "${CURL_AUTH_ARGS[@]}" \
       -H 'content-type: application/json' \
       -d "{
         \"agent_name\": \"${aname}\",
@@ -342,7 +368,7 @@ else
       for tid in "${TASK_IDS[@]}"; do
         cur=$(cat "${STATUS_DIR}/${tid}" 2>/dev/null || echo "pending")
         if ! is_terminal "$cur"; then
-          full_resp=$(curl -sf "${BASE}/v1/tasks/${tid}" 2>/dev/null || echo '{}')
+          full_resp=$(curl -sf "${CURL_AUTH_ARGS[@]}" "${API}/tasks/${tid}" 2>/dev/null || echo '{}')
           cur=$(echo "$full_resp" | jq -r '.status // "unknown"' 2>/dev/null || echo "unknown")
           echo "$cur" > "${STATUS_DIR}/${tid}"
           if is_terminal "$cur"; then
@@ -412,7 +438,7 @@ else
         sid=$(jq -r '.chat_session_id // empty' "${RESULT_DIR}/${tid}.json" 2>/dev/null)
         out_tokens=""
         if [ -n "$sid" ]; then
-          out_tokens=$(curl -sf "${BASE}/v1/sessions/${sid}/events" 2>/dev/null | \
+          out_tokens=$(curl -sf "${CURL_AUTH_ARGS[@]}" "${API}/sessions/${sid}/events" 2>/dev/null | \
             jq '[.data[] | select(.type=="span.model_request_end") | .usage.output_tokens // 0] | add // 0' 2>/dev/null || echo "?")
         fi
         output_preview="${output:0:60}"
@@ -442,7 +468,7 @@ else
       if [ -n "$SAMPLE_SID" ]; then
         echo ""
         echo -e "  ${BOLD}--- Sample session events (task #1) ---${NC}"
-        curl -sf "${BASE}/v1/sessions/${SAMPLE_SID}/events" 2>/dev/null | \
+        curl -sf "${CURL_AUTH_ARGS[@]}" "${API}/sessions/${SAMPLE_SID}/events" 2>/dev/null | \
           jq '.data[] | {type, content: .content, usage: .usage, stop_reason: .stop_reason}' 2>/dev/null | sed 's/^/  /'
       fi
     fi
@@ -467,7 +493,7 @@ if [ "${#AGENT_IDS[@]}" -gt 0 ]; then
     local i=$1; local aid=$2
     local start_ms end_ms elapsed_ms code
     start_ms=$(now_ms)
-    code=$(curl -sf -o /dev/null -w '%{http_code}' -X DELETE "${BASE}/v1/agents/${aid}" 2>/dev/null || echo "000")
+    code=$(curl -sf "${CURL_AUTH_ARGS[@]}" -o /dev/null -w '%{http_code}' -X DELETE "${API}/agents/${aid}" 2>/dev/null || echo "000")
     end_ms=$(now_ms)
     elapsed_ms=$((end_ms - start_ms))
     echo "$elapsed_ms" > "${DEL_DIR}/${i}.ms"

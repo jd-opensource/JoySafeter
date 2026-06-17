@@ -10,12 +10,33 @@ export function shouldRetryManagedResourceError(failureCount: number, error: unk
 }
 
 export function getOperationErrorMessage(t: Translator, error: unknown, fallbackKey: string): string {
-  const apiError = error as { status?: number; code?: string; message?: string; payload?: { message?: string } }
+  const apiError = error as {
+    status?: number
+    code?: string
+    message?: string
+    payload?: { message?: string; data?: Record<string, unknown> | null }
+    data?: Record<string, unknown> | null
+  }
   const code = apiError?.code || ''
   const message = (apiError?.message || apiError?.payload?.message || '').toLowerCase()
+  const data = apiError?.data || apiError?.payload?.data || null
 
   if (message.includes('archived')) {
     return t('managed.errors.resourceArchived')
+  }
+
+  if (code === 'SKILL_SECURITY_SCAN_REJECTED') {
+    return t('managed.errors.skillSecurityRejected', {
+      score: data?.score ?? '-',
+      severity: data?.severity ?? '-',
+      recommendation: data?.recommendation ?? '-',
+      issues: data?.issues_count ?? 0,
+    })
+  }
+  if (code === 'SKILL_SECURITY_SCAN_FAILED') {
+    return t('managed.errors.skillSecurityScanFailed', {
+      error: data?.error_message || '',
+    })
   }
 
   if (apiError?.status === 403 || code === 'JOYSAFETER_WRITE_REQUIRED' || code === 'WRITE_ACCESS_DENIED' || message.includes('write access required')) {

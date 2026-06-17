@@ -5,9 +5,10 @@ Skill model
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -47,6 +48,18 @@ class Skill(BaseModel):
     compatibility: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     meta_data: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
     allowed_tools: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    security_status: Mapped[str] = mapped_column(String(32), nullable=False, default="not_scanned")
+    security_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    security_severity: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    security_recommendation: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    security_scanned_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    security_scan_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    security_scan_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    security_issues_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    security_critical_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    security_high_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    security_medium_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    security_low_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # relationships
     owner: Mapped[Optional["AuthUser"]] = relationship(
@@ -73,7 +86,28 @@ class Skill(BaseModel):
         Index("skills_public_idx", "is_public"),
         Index("skills_project_idx", "project_id"),
         Index("skills_tags_idx", "tags", postgresql_using="gin"),
+        Index("skills_security_status_idx", "security_status"),
+        Index("skills_security_severity_idx", "security_severity"),
+        Index("skills_security_recommendation_idx", "security_recommendation"),
     )
+
+    @property
+    def security_scan(self) -> dict:
+        """Latest security scan summary for API responses."""
+        return {
+            "status": self.security_status,
+            "score": self.security_score,
+            "severity": self.security_severity,
+            "recommendation": self.security_recommendation,
+            "issues_count": self.security_issues_count,
+            "critical_count": self.security_critical_count,
+            "high_count": self.security_high_count,
+            "medium_count": self.security_medium_count,
+            "low_count": self.security_low_count,
+            "scanned_at": self.security_scanned_at,
+            "scan_id": self.security_scan_id,
+            "target_hash": self.security_scan_hash,
+        }
 
 
 class SkillFile(BaseModel):
@@ -100,4 +134,57 @@ class SkillFile(BaseModel):
     __table_args__ = (
         Index("skill_files_skill_idx", "skill_id"),
         Index("skill_files_path_idx", "skill_id", "path"),
+    )
+
+
+class SkillSecurityScan(BaseModel):
+    """Security scan history for Skill content."""
+
+    __tablename__ = "joysafeter_skill_security_scans"
+
+    skill_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("joysafeter_skills.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    project_id: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        ForeignKey("joysafeter_organization_projects.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    owner_id: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        ForeignKey("joysafeter_users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_by_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    trigger: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    target_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    scanner: Mapped[str] = mapped_column(String(64), nullable=False, default="skillspector")
+    scanner_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    severity: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    recommendation: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    issues_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    critical_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    high_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    medium_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    low_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    report: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("skill_security_scans_skill_created_idx", "skill_id", "created_at"),
+        Index("skill_security_scans_project_created_idx", "project_id", "created_at"),
+        Index("skill_security_scans_owner_created_idx", "owner_id", "created_at"),
+        Index("skill_security_scans_status_created_idx", "status", "created_at"),
+        Index("skill_security_scans_severity_created_idx", "severity", "created_at"),
+        Index("skill_security_scans_recommendation_created_idx", "recommendation", "created_at"),
+        Index("skill_security_scans_target_hash_idx", "target_hash"),
     )

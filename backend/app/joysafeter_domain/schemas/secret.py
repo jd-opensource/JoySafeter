@@ -10,6 +10,7 @@ class CreateSecretRequest(BaseModel):
     provider: str = "custom"
     protocol: str = "custom"
     data: dict[str, str] = Field(default_factory=dict)
+    is_default: bool = False
 
 
 class UpdateSecretRequest(BaseModel):
@@ -23,6 +24,7 @@ class SecretListItem(BaseModel):
     name: str
     provider: str = "custom"
     protocol: str = "custom"
+    is_default: bool = False
     keys: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
@@ -35,6 +37,7 @@ class SecretResponse(BaseModel):
     name: str
     provider: str = "custom"
     protocol: str = "custom"
+    is_default: bool = False
     secret_data: dict[str, str] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime

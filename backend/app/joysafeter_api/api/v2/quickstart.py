@@ -1,14 +1,14 @@
-"""Quickstart chat endpoint — streams Claude responses via SSE.
+"""Quickstart chat endpoint — streams provider responses via SSE.
 
 Translates user intent into agent/environment/vault configurations using
-Claude tool_use, streaming text deltas and config updates back to the frontend.
+tool calls, streaming text deltas and config updates back to the frontend.
 """
 
 import json
 from typing import Literal, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,6 +44,7 @@ class QuickstartAgentContext(BaseModel):
 class QuickstartChatRequest(BaseModel):
     messages: list[QuickstartMessage] = Field(..., max_length=50)
     current_step: int = Field(default=1, ge=1, le=5)
+    provider: Literal["claude", "claudecode", "codex", "native"] = "claude"
     secret_ref: str = ""
     agent_context: Optional[QuickstartAgentContext] = None
 
@@ -169,6 +170,32 @@ def _build_tools(step: int) -> list[dict]:
     return []
 
 
+def _build_openai_chat_tools(tools: list[dict]) -> list[dict]:
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": tool["name"],
+                "description": tool.get("description", ""),
+                "parameters": tool.get("input_schema", {"type": "object"}),
+            },
+        }
+        for tool in tools
+    ]
+
+
+def _build_openai_responses_tools(tools: list[dict]) -> list[dict]:
+    return [
+        {
+            "type": "function",
+            "name": tool["name"],
+            "description": tool.get("description", ""),
+            "parameters": tool.get("input_schema", {"type": "object"}),
+        }
+        for tool in tools
+    ]
+
+
 def _generate_curl(tool_name: str, config: dict) -> str:
     pretty_config = json.dumps(config, indent=2, ensure_ascii=False)
     endpoints = {
@@ -193,7 +220,6 @@ def _try_parse_partial_json(input_str: str) -> Optional[dict]:
     if not trimmed or not trimmed.startswith("{"):
         return None
 
-    patched = list(input_str)
     in_string = False
     escape_next = False
     stack = []
@@ -235,6 +261,328 @@ def _try_parse_partial_json(input_str: str) -> Optional[dict]:
         return None
 
 
+def _sse_event(payload: dict) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _upstream_error_message(status: int) -> str:
+    if status == 401:
+        return "Authentication failed — check your API key."
+    if status == 429:
+        return "Rate limited by upstream API. Please try again later."
+    if status == 400:
+        return "Invalid request to upstream API. Check your configuration."
+    if status == 403:
+        return "Access denied by upstream API."
+    if status >= 500:
+        return "Upstream API is temporarily unavailable."
+    return f"Upstream API error ({status})."
+
+
+def _url_join(base_url: str, path: str) -> str:
+    return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+
+
+def _messages_to_transcript(messages: list[dict]) -> str:
+    return "\n\n".join(f"{message['role']}: {message['content']}" for message in messages)
+
+
+async def _stream_anthropic(
+    *,
+    base_url: str,
+    api_key: str,
+    body: dict,
+    current_step: int,
+):
+    tool_name = ""
+    tool_json = ""
+    in_tool_use = False
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        try:
+            async with client.stream(
+                "POST",
+                _url_join(base_url, "/v1/messages"),
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                    "accept": "text/event-stream",
+                },
+                json=body,
+            ) as response:
+                if response.status_code != 200:
+                    yield _sse_event({"type": "error", "message": _upstream_error_message(response.status_code)})
+                    return
+
+                buffer = ""
+                async for chunk in response.aiter_text():
+                    buffer += chunk
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        line = line.strip()
+                        if not line or line.startswith(":"):
+                            continue
+                        if not line.startswith("data: "):
+                            continue
+
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            continue
+                        try:
+                            evt = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+
+                        evt_type = evt.get("type", "")
+
+                        if evt_type == "content_block_start":
+                            block = evt.get("content_block", {})
+                            if block.get("type") == "tool_use":
+                                tool_name = block.get("name", "")
+                                tool_json = ""
+                                in_tool_use = True
+
+                        elif evt_type == "content_block_delta":
+                            delta = evt.get("delta", {})
+                            delta_type = delta.get("type", "")
+
+                            if delta_type == "text_delta":
+                                text = delta.get("text", "")
+                                yield _sse_event({"type": "text_delta", "text": text})
+
+                            elif delta_type == "input_json_delta":
+                                partial = delta.get("partial_json", "")
+                                tool_json += partial
+                                config = _try_parse_partial_json(tool_json)
+                                if config:
+                                    yield _sse_event({"type": "config_update", "step": current_step, "config": config})
+
+                        elif evt_type == "content_block_stop":
+                            if in_tool_use:
+                                try:
+                                    config = json.loads(tool_json)
+                                except json.JSONDecodeError:
+                                    config = {}
+                                yield _sse_event({"type": "config_update", "step": current_step, "config": config})
+
+                                curl = _generate_curl(tool_name, config)
+                                yield _sse_event({"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl})
+                                in_tool_use = False
+
+                        elif evt_type == "error":
+                            error = evt.get("error", {})
+                            msg = error.get("message", "Unknown error")
+                            yield _sse_event({"type": "error", "message": msg})
+
+        except httpx.HTTPError:
+            yield _sse_event({"type": "error", "message": "Failed to connect to upstream API."})
+
+
+async def _stream_openai_chat_completions(
+    *,
+    base_url: str,
+    api_key: str,
+    body: dict,
+    current_step: int,
+):
+    tool_calls: dict[str, dict[str, str]] = {}
+    completed_tool_key: Optional[str] = None
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        try:
+            async with client.stream(
+                "POST",
+                _url_join(base_url, "/chat/completions"),
+                headers={
+                    "authorization": f"Bearer {api_key}",
+                    "content-type": "application/json",
+                    "accept": "text/event-stream",
+                },
+                json=body,
+            ) as response:
+                if response.status_code != 200:
+                    yield _sse_event({"type": "error", "message": _upstream_error_message(response.status_code)})
+                    return
+
+                buffer = ""
+                async for chunk in response.aiter_text():
+                    buffer += chunk
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        line = line.strip()
+                        if not line or line.startswith(":"):
+                            continue
+                        if not line.startswith("data: "):
+                            continue
+
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            continue
+                        try:
+                            evt = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+
+                        choices = evt.get("choices") or []
+                        if not choices:
+                            continue
+
+                        choice = choices[0]
+                        delta = choice.get("delta") or {}
+                        content = delta.get("content")
+                        if content:
+                            yield _sse_event({"type": "text_delta", "text": content})
+
+                        for call in delta.get("tool_calls") or []:
+                            key = str(call.get("index", call.get("id", "0")))
+                            state = tool_calls.setdefault(key, {"name": "", "json": ""})
+                            fn = call.get("function") or {}
+                            if fn.get("name"):
+                                state["name"] = fn["name"]
+                            if fn.get("arguments"):
+                                state["json"] += fn["arguments"]
+                                config = _try_parse_partial_json(state["json"])
+                                if config:
+                                    yield _sse_event({"type": "config_update", "step": current_step, "config": config})
+
+                        finish_reason = choice.get("finish_reason")
+                        if finish_reason in ("tool_calls", "stop") and tool_calls and completed_tool_key is None:
+                            completed_tool_key = next(iter(tool_calls))
+                            state = tool_calls[completed_tool_key]
+                            try:
+                                config = json.loads(state["json"])
+                            except json.JSONDecodeError:
+                                config = {}
+                            yield _sse_event({"type": "config_update", "step": current_step, "config": config})
+                            curl = _generate_curl(state["name"], config)
+                            yield _sse_event({"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl})
+
+        except httpx.HTTPError:
+            yield _sse_event({"type": "error", "message": "Failed to connect to upstream API."})
+
+
+async def _stream_openai_responses(
+    *,
+    base_url: str,
+    api_key: str,
+    body: dict,
+    current_step: int,
+):
+    tool_calls: dict[str, dict[str, str]] = {}
+    completed_tool_key: Optional[str] = None
+
+    def tool_key(evt: dict) -> str:
+        return str(evt.get("item_id") or evt.get("output_index") or "0")
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        try:
+            async with client.stream(
+                "POST",
+                _url_join(base_url, "/responses"),
+                headers={
+                    "authorization": f"Bearer {api_key}",
+                    "content-type": "application/json",
+                    "accept": "text/event-stream",
+                },
+                json=body,
+            ) as response:
+                if response.status_code != 200:
+                    yield _sse_event({"type": "error", "message": _upstream_error_message(response.status_code)})
+                    return
+
+                buffer = ""
+                async for chunk in response.aiter_text():
+                    buffer += chunk
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        line = line.strip()
+                        if not line or line.startswith(":"):
+                            continue
+                        if not line.startswith("data: "):
+                            continue
+
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            continue
+                        try:
+                            evt = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+
+                        evt_type = evt.get("type", "")
+
+                        if evt_type in ("response.output_text.delta", "response.refusal.delta"):
+                            delta = evt.get("delta", "")
+                            if delta:
+                                yield _sse_event({"type": "text_delta", "text": delta})
+
+                        elif evt_type in ("response.output_item.added", "response.output_item.done"):
+                            item = evt.get("item") or {}
+                            if item.get("type") == "function_call":
+                                key = str(item.get("id") or evt.get("output_index") or "0")
+                                state = tool_calls.setdefault(key, {"name": "", "json": ""})
+                                if item.get("name"):
+                                    state["name"] = item["name"]
+                                if item.get("arguments"):
+                                    state["json"] = item["arguments"]
+                                    config = _try_parse_partial_json(state["json"])
+                                    if config:
+                                        yield _sse_event({"type": "config_update", "step": current_step, "config": config})
+
+                        elif evt_type == "response.function_call_arguments.delta":
+                            key = tool_key(evt)
+                            state = tool_calls.setdefault(key, {"name": "", "json": ""})
+                            state["json"] += evt.get("delta", "")
+                            config = _try_parse_partial_json(state["json"])
+                            if config:
+                                yield _sse_event({"type": "config_update", "step": current_step, "config": config})
+
+                        elif evt_type == "response.function_call_arguments.done":
+                            key = tool_key(evt)
+                            state = tool_calls.setdefault(key, {"name": "", "json": ""})
+                            if evt.get("arguments"):
+                                state["json"] = evt["arguments"]
+                            if completed_tool_key is None:
+                                completed_tool_key = key
+                                try:
+                                    config = json.loads(state["json"])
+                                except json.JSONDecodeError:
+                                    config = {}
+                                yield _sse_event({"type": "config_update", "step": current_step, "config": config})
+                                curl = _generate_curl(state["name"], config)
+                                yield _sse_event({"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl})
+
+                        elif evt_type == "response.completed" and completed_tool_key is None:
+                            response_obj = evt.get("response") or {}
+                            for item in response_obj.get("output") or []:
+                                if item.get("type") != "function_call":
+                                    continue
+                                key = str(item.get("id") or item.get("call_id") or "0")
+                                state = tool_calls.setdefault(key, {"name": "", "json": ""})
+                                if item.get("name"):
+                                    state["name"] = item["name"]
+                                if item.get("arguments"):
+                                    state["json"] = item["arguments"]
+                                completed_tool_key = key
+                                try:
+                                    config = json.loads(state["json"])
+                                except json.JSONDecodeError:
+                                    config = {}
+                                yield _sse_event({"type": "config_update", "step": current_step, "config": config})
+                                curl = _generate_curl(state["name"], config)
+                                yield _sse_event({"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl})
+                                break
+
+                        elif evt_type == "response.failed":
+                            response_obj = evt.get("response") or {}
+                            error = response_obj.get("error") or evt.get("error") or {}
+                            yield _sse_event({"type": "error", "message": error.get("message", "Upstream API failed.")})
+
+        except httpx.HTTPError:
+            yield _sse_event({"type": "error", "message": "Failed to connect to upstream API."})
+
+
 @router.post("/chat")
 async def quickstart_chat(
     req: QuickstartChatRequest,
@@ -247,144 +595,99 @@ async def quickstart_chat(
         raise HTTPException(404, "Secret not found or missing required keys")
 
     data = secret.data or {}
-    api_key = data.get("ANTHROPIC_AUTH_TOKEN") or data.get("ANTHROPIC_API_KEY") or ""
-    base_url = data.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
+    provider = "codex" if req.provider == "codex" else "claude"
 
     # SSRF protection: block cloud metadata endpoints, allow internal network
     from app.joysafeter_shared.security.ssrf_guard import validate_url, SSRFError
-    try:
-        validate_url(base_url, allow_http=True, allow_private=True, context="ANTHROPIC_BASE_URL")
-    except SSRFError:
-        raise HTTPException(400, "Invalid ANTHROPIC_BASE_URL")
-
-    if not api_key:
-        raise HTTPException(404, "Secret not found or missing required keys")
 
     system_prompt = _build_system_prompt(req.current_step, req.agent_context)
     tools = _build_tools(req.current_step)
 
     messages = [{"role": m.role, "content": m.content} for m in req.messages]
 
-    model = data.get("MODEL") or data.get("ANTHROPIC_MODEL") or "claude-sonnet-4-20250514"
+    stream_provider = _stream_anthropic
+    stream_kwargs = {}
 
-    claude_body = {
-        "model": model,
-        "max_tokens": 4096,
-        "system": system_prompt,
-        "messages": messages,
-        "stream": True,
-    }
-    if tools:
-        claude_body["tools"] = tools
-        if req.current_step in (2, 3, 4):
-            claude_body["tool_choice"] = {"type": "tool", "name": tools[0]["name"]}
+    if provider == "claude":
+        api_key = data.get("ANTHROPIC_AUTH_TOKEN") or data.get("ANTHROPIC_API_KEY") or ""
+        base_url = data.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
+        try:
+            validate_url(base_url, allow_http=True, allow_private=True, context="ANTHROPIC_BASE_URL")
+        except SSRFError:
+            raise HTTPException(400, "Invalid ANTHROPIC_BASE_URL")
+
+        if not api_key:
+            raise HTTPException(404, "Secret not found or missing required keys")
+
+        model = data.get("MODEL") or data.get("ANTHROPIC_MODEL") or "claude-sonnet-4-20250514"
+        claude_body = {
+            "model": model,
+            "max_tokens": 4096,
+            "system": system_prompt,
+            "messages": messages,
+            "stream": True,
+        }
+        if tools:
+            claude_body["tools"] = tools
+            if req.current_step in (2, 3, 4):
+                claude_body["tool_choice"] = {"type": "tool", "name": tools[0]["name"]}
+
+        stream_kwargs = {"base_url": base_url, "api_key": api_key, "body": claude_body}
+
+    else:
+        api_key = data.get("OPENAI_API_KEY") or data.get("CODEX_API_KEY") or ""
+        base_url = data.get("CODEX_BASE_URL") or data.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+        try:
+            validate_url(base_url, allow_http=True, allow_private=True, context="CODEX_BASE_URL")
+        except SSRFError:
+            raise HTTPException(400, "Invalid CODEX_BASE_URL")
+
+        if not api_key:
+            raise HTTPException(404, "Secret not found or missing required keys")
+
+        model = data.get("CODEX_MODEL") or data.get("OPENAI_MODEL") or data.get("MODEL") or "gpt-5.3-codex"
+        protocol = getattr(secret, "protocol", "") or ""
+        if protocol == "chat_completions":
+            openai_tools = _build_openai_chat_tools(tools)
+            chat_body = {
+                "model": model,
+                "messages": [{"role": "system", "content": system_prompt}, *messages],
+                "stream": True,
+                "max_tokens": 4096,
+            }
+            if openai_tools:
+                chat_body["tools"] = openai_tools
+                if req.current_step in (2, 3, 4):
+                    chat_body["tool_choice"] = {
+                        "type": "function",
+                        "function": {"name": openai_tools[0]["function"]["name"]},
+                    }
+            stream_provider = _stream_openai_chat_completions
+            stream_kwargs = {"base_url": base_url, "api_key": api_key, "body": chat_body}
+        else:
+            responses_tools = _build_openai_responses_tools(tools)
+            responses_body = {
+                "model": model,
+                "instructions": system_prompt,
+                "input": _messages_to_transcript(messages),
+                "stream": True,
+                "max_output_tokens": 4096,
+            }
+            if responses_tools:
+                responses_body["tools"] = responses_tools
+                if req.current_step in (2, 3, 4):
+                    responses_body["tool_choice"] = {
+                        "type": "function",
+                        "name": responses_tools[0]["name"],
+                    }
+            stream_provider = _stream_openai_responses
+            stream_kwargs = {"base_url": base_url, "api_key": api_key, "body": responses_body}
 
     async def event_generator():
-        tool_name = ""
-        tool_json = ""
-        in_tool_use = False
-        current_step = req.current_step
+        async for event in stream_provider(current_step=req.current_step, **stream_kwargs):
+            yield event
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            try:
-                async with client.stream(
-                    "POST",
-                    f"{base_url}/v1/messages",
-                    headers={
-                        "x-api-key": api_key,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json",
-                        "accept": "text/event-stream",
-                    },
-                    json=claude_body,
-                ) as response:
-                    if response.status_code != 200:
-                        status = response.status_code
-                        if status == 401:
-                            msg = "Authentication failed — check your API key."
-                        elif status == 429:
-                            msg = "Rate limited by upstream API. Please try again later."
-                        elif status == 400:
-                            msg = "Invalid request to upstream API. Check your configuration."
-                        elif status == 403:
-                            msg = "Access denied by upstream API."
-                        elif status >= 500:
-                            msg = "Upstream API is temporarily unavailable."
-                        else:
-                            msg = f"Upstream API error ({status})."
-                        event = json.dumps({"type": "error", "message": msg})
-                        yield f"data: {event}\n\n"
-                        return
-
-                    buffer = ""
-                    async for chunk in response.aiter_text():
-                        buffer += chunk
-                        while "\n" in buffer:
-                            line, buffer = buffer.split("\n", 1)
-                            line = line.strip()
-                            if not line or line.startswith(":"):
-                                continue
-                            if line.startswith("data: "):
-                                data_str = line[6:]
-                                if data_str == "[DONE]":
-                                    continue
-                                try:
-                                    evt = json.loads(data_str)
-                                except json.JSONDecodeError:
-                                    continue
-
-                                evt_type = evt.get("type", "")
-
-                                if evt_type == "content_block_start":
-                                    block = evt.get("content_block", {})
-                                    if block.get("type") == "tool_use":
-                                        tool_name = block.get("name", "")
-                                        tool_json = ""
-                                        in_tool_use = True
-
-                                elif evt_type == "content_block_delta":
-                                    delta = evt.get("delta", {})
-                                    delta_type = delta.get("type", "")
-
-                                    if delta_type == "text_delta":
-                                        text = delta.get("text", "")
-                                        event = json.dumps({"type": "text_delta", "text": text})
-                                        yield f"data: {event}\n\n"
-
-                                    elif delta_type == "input_json_delta":
-                                        partial = delta.get("partial_json", "")
-                                        tool_json += partial
-                                        config = _try_parse_partial_json(tool_json)
-                                        if config:
-                                            event = json.dumps({"type": "config_update", "step": current_step, "config": config})
-                                            yield f"data: {event}\n\n"
-
-                                elif evt_type == "content_block_stop":
-                                    if in_tool_use:
-                                        try:
-                                            config = json.loads(tool_json)
-                                        except json.JSONDecodeError:
-                                            config = {}
-                                        event = json.dumps({"type": "config_update", "step": current_step, "config": config})
-                                        yield f"data: {event}\n\n"
-
-                                        curl = _generate_curl(tool_name, config)
-                                        event = json.dumps({"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl})
-                                        yield f"data: {event}\n\n"
-                                        in_tool_use = False
-
-                                elif evt_type == "error":
-                                    error = evt.get("error", {})
-                                    msg = error.get("message", "Unknown error")
-                                    event = json.dumps({"type": "error", "message": msg})
-                                    yield f"data: {event}\n\n"
-
-            except httpx.HTTPError:
-                event = json.dumps({"type": "error", "message": "Failed to connect to upstream API."})
-                yield f"data: {event}\n\n"
-
-        event = json.dumps({"type": "done"})
-        yield f"data: {event}\n\n"
+        yield _sse_event({"type": "done"})
 
     return StreamingResponse(
         event_generator(),

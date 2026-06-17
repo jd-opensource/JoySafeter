@@ -34,6 +34,51 @@ def _get_samesite_value(value: str) -> Optional[SameSiteType]:
     return None
 
 
+def _set_auth_cookies(response: Response, result: dict) -> None:
+    """Write auth cookies from a login/refresh result."""
+    access_token = result.get("access_token")
+    refresh_token = result.get("refresh_token")
+    csrf_token = result.get("csrf_token")
+    expires_in = result.get("expires_in", settings.cookie_max_age)
+
+    if access_token:
+        response.set_cookie(
+            key=settings.cookie_name,
+            value=access_token,
+            max_age=expires_in,
+            httponly=True,
+            secure=settings.cookie_secure_effective,
+            samesite=_get_samesite_value(settings.cookie_samesite),
+            domain=settings.cookie_domain,
+            path="/",
+        )
+
+    if refresh_token:
+        refresh_expires = settings.refresh_token_expire_days * 24 * 60 * 60
+        response.set_cookie(
+            key="refresh_token",
+            value=refresh_token,
+            max_age=refresh_expires,
+            httponly=True,
+            secure=settings.cookie_secure_effective,
+            samesite=_get_samesite_value(settings.cookie_samesite),
+            domain=settings.cookie_domain,
+            path="/",
+        )
+
+    if csrf_token:
+        response.set_cookie(
+            key="csrf_token",
+            value=csrf_token,
+            max_age=expires_in,
+            httponly=False,
+            secure=settings.cookie_secure_effective,
+            samesite=_get_samesite_value(settings.cookie_samesite),
+            domain=settings.cookie_domain,
+            path="/",
+        )
+
+
 # Schemas
 
 
@@ -119,41 +164,7 @@ async def sign_in_with_email(
     service = AuthService(db)
     result = await service.login(email=body.email, password=body.password)
 
-    access_token = result.get("access_token")
-    refresh_token = result.get("refresh_token")
-    csrf_token = result.get("csrf_token")
-    expires_in = result.get("expires_in", settings.cookie_max_age)
-
-    if access_token:
-        response.set_cookie(
-            key=settings.cookie_name,
-            value=access_token,
-            max_age=expires_in,
-            httponly=True,
-            secure=settings.cookie_secure_effective,
-            samesite=_get_samesite_value(settings.cookie_samesite),
-            domain=settings.cookie_domain,
-            path="/",
-        )
-
-    if refresh_token:
-        refresh_expires = settings.refresh_token_expire_days * 24 * 60 * 60
-        response.set_cookie(
-            key="refresh_token",
-            value=refresh_token,
-            max_age=refresh_expires,
-            httponly=True,
-            secure=settings.cookie_secure_effective,
-            samesite=_get_samesite_value(settings.cookie_samesite),
-            domain=settings.cookie_domain,
-            path="/",
-        )
-
-    # Return CSRF token in response body, not via non-HttpOnly Cookie
-    # Frontend stores it in memory and sends via X-CSRF-Token header
-    # This avoids XSS stealing CSRF tokens
-    if csrf_token:
-        result["csrf_token"] = csrf_token
+    _set_auth_cookies(response, result)
 
     return success_response(data=result, message="Login successful")
 
@@ -350,6 +361,7 @@ async def get_ws_token(
 @router.post("/refresh")
 async def refresh_token(
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     token: Optional[str] = Header(None, alias="Authorization"),
 ):
@@ -379,11 +391,20 @@ async def refresh_token(
                         access_expires,
                         refresh_expires,
                     ) = await service._issue_jwt_tokens(user.id)
+                    result = {
+                        "access_token": access_token,
+                        "refresh_token": new_refresh_token,
+                        "csrf_token": csrf_token,
+                        "token_type": "bearer",
+                        "expires_in": int((access_expires - datetime.now(timezone.utc)).total_seconds()),
+                    }
+                    _set_auth_cookies(response, result)
                     return success_response(
                         data={
-                            "access_token": access_token,
-                            "token_type": "bearer",
-                            "expires_in": int((access_expires - datetime.now(timezone.utc)).total_seconds()),
+                            "access_token": result["access_token"],
+                            "csrf_token": result["csrf_token"],
+                            "token_type": result["token_type"],
+                            "expires_in": result["expires_in"],
                         }
                     )
         except Exception:
@@ -392,9 +413,11 @@ async def refresh_token(
     if refresh_token_value:
         try:
             result = await service.refresh_token(refresh_token_value)
+            _set_auth_cookies(response, result)
             return success_response(
                 data={
                     "access_token": result["access_token"],
+                    "csrf_token": result["csrf_token"],
                     "token_type": result["token_type"],
                     "expires_in": result["expires_in"],
                 }

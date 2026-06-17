@@ -11,7 +11,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.joysafeter_domain.models.skill import Skill, SkillFile
+from app.joysafeter_domain.models.skill import Skill, SkillFile, SkillSecurityScan
 from app.joysafeter_domain.models.skill_collaborator import SkillCollaborator
 
 from .base import BaseRepository
@@ -107,3 +107,35 @@ class SkillFileRepository(BaseRepository[SkillFile]):
         stmt = delete(SkillFile).where(SkillFile.skill_id == skill_id)
         result = await self.db.execute(stmt)
         return result.rowcount if result.rowcount is not None else 0  # type: ignore
+
+
+class SkillSecurityScanRepository(BaseRepository[SkillSecurityScan]):
+    def __init__(self, db: AsyncSession):
+        super().__init__(SkillSecurityScan, db)
+
+    async def list_by_skill(
+        self,
+        skill_id: uuid.UUID,
+        limit: int = 20,
+        after_id: Optional[uuid.UUID] = None,
+    ) -> tuple[List[SkillSecurityScan], bool]:
+        """List scan history for a skill with cursor pagination."""
+        query = select(SkillSecurityScan).where(SkillSecurityScan.skill_id == skill_id)
+        if after_id:
+            query = query.where(SkillSecurityScan.id < after_id)
+        query = query.order_by(SkillSecurityScan.created_at.desc()).limit(limit + 1)
+        result = await self.db.execute(query)
+        items = list(result.scalars().all())
+        has_more = len(items) > limit
+        return items[:limit], has_more
+
+    async def get_latest_by_skill(self, skill_id: uuid.UUID) -> Optional[SkillSecurityScan]:
+        """Get the latest scan for a skill."""
+        query = (
+            select(SkillSecurityScan)
+            .where(SkillSecurityScan.skill_id == skill_id)
+            .order_by(SkillSecurityScan.created_at.desc())
+            .limit(1)
+        )
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()

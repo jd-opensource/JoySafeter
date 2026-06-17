@@ -29,9 +29,12 @@ class SecretService:
             provider=req.provider,
             protocol=req.protocol,
             data=req.data,
+            is_default=req.is_default,
         )
         if project_id is not None:
             kwargs["project_id"] = project_id
+        if req.is_default:
+            await self.clear_default_secret(project_id=project_id)
         secret = JoySafeterSecret(**kwargs)
         self.db.add(secret)
         await self.db.commit()
@@ -63,6 +66,43 @@ class SecretService:
         )
         return result.scalar_one_or_none()
 
+    async def get_default_secret(self, project_id: Optional[str] = None) -> Optional[JoySafeterSecret]:
+        conditions = [
+            JoySafeterSecret.is_default.is_(True),
+            JoySafeterSecret.deleted_at.is_(None),
+        ]
+        if project_id:
+            conditions.append(JoySafeterSecret.project_id == project_id)
+        result = await self.db.execute(
+            select(JoySafeterSecret).where(and_(*conditions)).order_by(JoySafeterSecret.updated_at.desc()).limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def clear_default_secret(self, project_id: Optional[str] = None) -> None:
+        conditions = [
+            JoySafeterSecret.is_default.is_(True),
+            JoySafeterSecret.deleted_at.is_(None),
+        ]
+        if project_id:
+            conditions.append(JoySafeterSecret.project_id == project_id)
+        result = await self.db.execute(select(JoySafeterSecret).where(and_(*conditions)))
+        for secret in result.scalars().all():
+            secret.is_default = False
+            secret.updated_at = utc_now()
+
+    async def set_default_secret(self, secret_id: uuid.UUID, project_id: Optional[str] = None) -> Optional[JoySafeterSecret]:
+        secret = await self.get_secret(secret_id)
+        if not secret:
+            return None
+        if project_id is not None and secret.project_id != project_id:
+            return None
+        await self.clear_default_secret(project_id=project_id)
+        secret.is_default = True
+        secret.updated_at = utc_now()
+        await self.db.commit()
+        await self.db.refresh(secret)
+        return secret
+
     async def list_secrets(
         self, limit: int = 20, after_id: Optional[uuid.UUID] = None, project_id: Optional[str] = None
     ) -> tuple[list[JoySafeterSecret], bool]:
@@ -71,7 +111,7 @@ class SecretService:
             q = q.where(JoySafeterSecret.project_id == project_id)
         if after_id:
             q = q.where(JoySafeterSecret.id < after_id)
-        q = q.order_by(JoySafeterSecret.created_at.desc()).limit(limit + 1)
+        q = q.order_by(JoySafeterSecret.is_default.desc(), JoySafeterSecret.created_at.desc()).limit(limit + 1)
         result = await self.db.execute(q)
         secrets = list(result.scalars().all())
         has_more = len(secrets) > limit
@@ -98,6 +138,8 @@ class SecretService:
         if not secret:
             return False
         secret.deleted_at = utc_now()
+        if secret.is_default:
+            secret.is_default = False
         await self.db.commit()
         return True
 

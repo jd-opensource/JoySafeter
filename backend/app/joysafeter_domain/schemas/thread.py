@@ -133,6 +133,7 @@ class SessionAgent(BaseModel):
     id: uuid.UUID
     version: int
     name: str
+    engine_kind: Optional[str] = None
     description: Optional[str] = None
     model: Optional[Dict[str, Any]] = None
     system: Optional[str] = None
@@ -151,6 +152,7 @@ class SessionAgent(BaseModel):
             id=agent.id,
             version=agent.version,
             name=agent.name,
+            engine_kind=getattr(agent, "engine_kind", None),
             description=agent.description,
             model=agent.model,
             system=agent.system_prompt,

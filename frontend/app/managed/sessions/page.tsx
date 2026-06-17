@@ -34,9 +34,35 @@ export default function SessionListPage() {
   const { data, isLoading, isFetching, isError, error, hasNext, hasPrev, page, pageSize, pageSizeOptions, goNext, goPrev, goToPage, setPageSize } =
     usePaginatedList<Session>({ queryKey: 'sessions', path: '/sessions', includeArchived: showArchived })
 
+  const getEngineKindLabel = (engineKind?: string | null) => {
+    switch (engineKind) {
+      case 'claude':
+      case 'claude_code':
+        return 'Claude Code'
+      case 'codex':
+        return 'Codex'
+      case 'native':
+        return 'Native'
+      case 'langgraph_visual':
+        return 'LangGraph Visual'
+      case 'langgraph_code':
+        return 'LangGraph Code'
+      default:
+        return engineKind || '-'
+    }
+  }
+
   const sessions = data.filter((s) =>
     filterByCreatedTime(s.created_at, createdFilter) &&
-    matchesSearch(searchQuery, [s.id, s.title, s.status, s.agent?.name, s.agent?.id]),
+    matchesSearch(searchQuery, [
+      s.id,
+      s.title,
+      s.status,
+      s.agent?.name,
+      s.agent?.id,
+      s.agent?.engine_kind,
+      getEngineKindLabel(s.agent?.engine_kind),
+    ]),
   )
 
   const filters: FilterDef[] = [
@@ -71,6 +97,15 @@ export default function SessionListPage() {
       key: 'status',
       header: t('managed.table.status'),
       render: (s) => <StatusBadge status={s.status} />,
+    },
+    {
+      key: 'engine_kind',
+      header: t('managed.table.engineKind'),
+      render: (s) => (
+        <span className="text-muted-foreground whitespace-nowrap">
+          {getEngineKindLabel(s.agent?.engine_kind)}
+        </span>
+      ),
     },
     {
       key: 'agent',

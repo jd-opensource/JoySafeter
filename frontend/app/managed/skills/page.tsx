@@ -26,12 +26,14 @@ import {
   Camera,
   History,
   Upload,
+  RefreshCw,
 } from 'lucide-react'
 import { managedGet, managedPost, managedPut, managedDelete, managedUpload } from '@/lib/api-client'
 import type {
   SkillRecord,
   SkillFileRecord,
   SkillVersionRecord,
+  SkillSecurityScanRecord,
 } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -142,6 +144,24 @@ const FILE_TYPE_EXT: Record<string, string> = {
   shell: '.sh',
 }
 
+function SkillScanProgressNotice({
+  title,
+  description,
+}: {
+  title: string
+  description: string
+}) {
+  return (
+    <div className="mb-4 flex items-start gap-3 rounded-md border border-border bg-muted/35 px-4 py-3">
+      <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary" />
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-foreground">{title}</div>
+        <div className="mt-1 text-xs text-muted-foreground">{description}</div>
+      </div>
+    </div>
+  )
+}
+
 function ensureExtension(name: string, fileType: string): string {
   if (name.includes('.')) return name
   return name + (FILE_TYPE_EXT[fileType] || '.txt')
@@ -164,6 +184,174 @@ function timeAgo(dateStr: string, lang?: string): string {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+function skillSecurityStatus(skill: SkillRecord): string {
+  return skill.security_scan?.status || 'not_scanned'
+}
+
+function skillSecurityScore(skill: SkillRecord): number | null {
+  return typeof skill.security_scan?.score === 'number' ? skill.security_scan.score : null
+}
+
+function skillSecuritySearchTerms(skill: SkillRecord): string[] {
+  const scan = skill.security_scan
+  if (!scan) return ['not_scanned']
+  return [
+    scan.status,
+    scan.severity || '',
+    scan.recommendation || '',
+    scan.score !== null && scan.score !== undefined ? String(scan.score) : '',
+  ]
+}
+
+type SecurityIssueView = {
+  key: string
+  severity: string
+  title: string
+  category: string | null
+  finding: string | null
+  explanation: string | null
+  remediation: string | null
+  confidence: string | null
+  location: string | null
+  codeSnippet: string | null
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function readString(record: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  }
+  return null
+}
+
+function readNumber(record: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value)
+      if (Number.isFinite(parsed)) return parsed
+    }
+  }
+  return null
+}
+
+function formatIssueConfidence(value: unknown): string | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  const percent = value <= 1 ? value * 100 : value
+  return `${Math.round(percent)}%`
+}
+
+function formatIssueLocation(value: unknown): string | null {
+  if (!isRecord(value)) return null
+  const file = readString(value, ['file', 'path', 'filename'])
+  const line = readString(value, ['start_line', 'line', 'line_number'])
+  const endLine = readString(value, ['end_line'])
+  if (!file && !line) return null
+  if (!file) return `L${line}`
+  if (!line) return file
+  if (endLine && endLine !== line) return `${file}:${line}-${endLine}`
+  return `${file}:${line}`
+}
+
+const SECURITY_ISSUE_SEVERITY_ORDER: Record<string, number> = {
+  CRITICAL: 0,
+  HIGH: 1,
+  MEDIUM: 2,
+  LOW: 3,
+  INFO: 4,
+  INFORMATIONAL: 4,
+}
+
+function getSecurityIssueSeverityDistribution(scan: SkillSecurityScanRecord): Array<{ severity: string; count: number }> {
+  return [
+    { severity: 'CRITICAL', count: scan.critical_count },
+    { severity: 'HIGH', count: scan.high_count },
+    { severity: 'MEDIUM', count: scan.medium_count },
+    { severity: 'LOW', count: scan.low_count },
+  ]
+}
+
+function getRawScannerRisk(scan: SkillSecurityScanRecord): { score: number | null; severity: string | null; recommendation: string | null } | null {
+  const report = scan.report
+  if (!isRecord(report)) return null
+
+  const risk = isRecord(report.risk_assessment) ? report.risk_assessment : null
+  if (!risk) return null
+
+  const score = readNumber(risk, ['score'])
+  const severity = readString(risk, ['severity'])
+  const recommendation = readString(risk, ['recommendation'])
+  if (score === null && !severity && !recommendation) return null
+
+  return {
+    score,
+    severity: severity ? severity.toUpperCase() : null,
+    recommendation: recommendation ? recommendation.toUpperCase() : null,
+  }
+}
+
+function securityIssueSeverityClass(severity: string): string {
+  switch (severity) {
+    case 'CRITICAL':
+    case 'HIGH':
+      return 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300'
+    case 'MEDIUM':
+      return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-300'
+    case 'LOW':
+      return 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300'
+    default:
+      return 'border-border bg-muted text-muted-foreground'
+  }
+}
+
+function securityIssueBorderClass(severity: string): string {
+  if (severity === 'CRITICAL' || severity === 'HIGH') return 'border-red-200 dark:border-red-900/50'
+  if (severity === 'MEDIUM') return 'border-amber-200 dark:border-amber-900/50'
+  return 'border-border'
+}
+
+function getSecurityIssues(scan: SkillSecurityScanRecord): SecurityIssueView[] {
+  const report = scan.report
+  if (!isRecord(report) || !Array.isArray(report.issues)) return []
+
+  return report.issues
+    .filter(isRecord)
+    .map((issue, index) => {
+      const severity = (readString(issue, ['severity', 'level', 'risk', 'priority']) || 'UNKNOWN').toUpperCase()
+      const id = readString(issue, ['id', 'rule_id', 'ruleId', 'code'])
+      const pattern = readString(issue, ['pattern', 'rule', 'title', 'name'])
+      const category = readString(issue, ['category', 'type'])
+      const finding = readString(issue, ['finding', 'message', 'description'])
+      const explanation = readString(issue, ['explanation', 'details', 'detail'])
+      const remediation = readString(issue, ['remediation', 'recommendation', 'fix', 'suggestion'])
+      const title = pattern || category || finding || id || `Issue ${index + 1}`
+
+      return {
+        key: `${id || title}-${index}`,
+        severity,
+        title,
+        category,
+        finding,
+        explanation,
+        remediation,
+        confidence: formatIssueConfidence(issue.confidence),
+        location: formatIssueLocation(issue.location),
+        codeSnippet: readString(issue, ['code_snippet', 'snippet', 'evidence']),
+      }
+    })
+    .sort((a, b) => {
+      const aOrder = SECURITY_ISSUE_SEVERITY_ORDER[a.severity] ?? 99
+      const bOrder = SECURITY_ISSUE_SEVERITY_ORDER[b.severity] ?? 99
+      return aOrder - bOrder
+    })
 }
 
 // -- Center Panel: File tree --
@@ -741,6 +929,7 @@ export default function SkillManagerPage() {
     null,
   )
   const [showImportDialog, setShowImportDialog] = useState(false)
+  const [showSecurityHistoryDialog, setShowSecurityHistoryDialog] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [createdFilter, setCreatedFilter] = useState('all')
   const [savedFlash, setSavedFlash] = useState(false)
@@ -813,6 +1002,21 @@ export default function SkillManagerPage() {
       return Array.isArray(res) ? res : res.data || []
     },
     enabled: !!selectedSkillId,
+  })
+
+  const {
+    data: securityScans = [],
+    isFetching: securityScansFetching,
+    isError: securityScansIsError,
+  } = useQuery({
+    queryKey: ['skill-security-scans', selectedSkillId],
+    queryFn: async () => {
+      const res = await managedGet<{ data: SkillSecurityScanRecord[] } | SkillSecurityScanRecord[]>(
+        `/skills/${stripId(selectedSkillId!)}/security-scans?limit=20`,
+      )
+      return Array.isArray(res) ? res : res.data || []
+    },
+    enabled: !!selectedSkillId && showSecurityHistoryDialog,
   })
 
   // -- Load skill into form --
@@ -988,6 +1192,9 @@ export default function SkillManagerPage() {
       queryClient.invalidateQueries({
         queryKey: ['skill-files', selectedSkillId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ['skill-security-scans', selectedSkillId],
+      })
       loadSkillIntoForm(updated)
       triggerFlash()
     },
@@ -1058,6 +1265,13 @@ export default function SkillManagerPage() {
       queryClient.invalidateQueries({
         queryKey: ['skill-files', selectedSkillId],
       })
+      queryClient.invalidateQueries({ queryKey: ['skills'] })
+      queryClient.invalidateQueries({
+        queryKey: ['skill', selectedSkillId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ['skill-security-scans', selectedSkillId],
+      })
       if (mode === 'file') {
         setSelectedFileId(_file.id)
         setFileContent('')
@@ -1087,6 +1301,9 @@ export default function SkillManagerPage() {
       queryClient.invalidateQueries({
         queryKey: ['skill', selectedSkillId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ['skill-security-scans', selectedSkillId],
+      })
       setFileContentSnapshot(fileContent)
       triggerFlash()
     },
@@ -1103,6 +1320,13 @@ export default function SkillManagerPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ['skill-files', selectedSkillId],
+      })
+      queryClient.invalidateQueries({ queryKey: ['skills'] })
+      queryClient.invalidateQueries({
+        queryKey: ['skill', selectedSkillId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ['skill-security-scans', selectedSkillId],
       })
       if (selectedFileId === deleteFileTarget) {
         setSelectedFileId(null)
@@ -1130,6 +1354,13 @@ export default function SkillManagerPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ['skill-files', selectedSkillId],
+      })
+      queryClient.invalidateQueries({ queryKey: ['skills'] })
+      queryClient.invalidateQueries({
+        queryKey: ['skill', selectedSkillId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ['skill-security-scans', selectedSkillId],
       })
       const folderPath = deleteFolderTarget
       if (
@@ -1163,6 +1394,27 @@ export default function SkillManagerPage() {
       queryClient.invalidateQueries({
         queryKey: ['skill-versions', selectedSkillId],
       })
+    },
+    onError: (error) => {
+      toastOperationError(t, error, 'common.operationFailed')
+    },
+  })
+
+  const rescanSecurityMutation = useMutation({
+    mutationFn: () =>
+      managedPost<SkillSecurityScanRecord>(
+        `/skills/${stripId(selectedSkillId!)}/security-scans/rescan`,
+        {},
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['skills'] })
+      queryClient.invalidateQueries({
+        queryKey: ['skill', selectedSkillId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ['skill-security-scans', selectedSkillId],
+      })
+      toast({ title: t('managed.skills.rescanSecuritySuccess') })
     },
     onError: (error) => {
       toastOperationError(t, error, 'common.operationFailed')
@@ -1251,7 +1503,14 @@ export default function SkillManagerPage() {
     // -- List Homepage (consistent with other pages) --
     const filteredSkills = skills.filter((s) =>
       filterByCreatedTime(s.created_at, createdFilter) &&
-      matchesSearch(searchQuery, [s.id, s.name, s.description, s.license, s.is_public ? 'public' : 'private']),
+      matchesSearch(searchQuery, [
+        s.id,
+        s.name,
+        s.description,
+        s.license,
+        s.is_public ? 'public' : 'private',
+        ...skillSecuritySearchTerms(s),
+      ]),
     )
 
     const filters: FilterDef[] = [
@@ -1266,11 +1525,13 @@ export default function SkillManagerPage() {
       {
         key: 'id',
         header: t('managed.table.id'),
+        width: '12%',
         render: (s) => <MonoId id={s.id} />,
       },
       {
         key: 'name',
         header: t('managed.table.name'),
+        width: '14%',
         render: (s) => (
           <span className="font-medium text-foreground">{s.name}</span>
         ),
@@ -1278,8 +1539,9 @@ export default function SkillManagerPage() {
       {
         key: 'description',
         header: t('managed.skills.description'),
+        width: '30%',
         render: (s) => (
-          <span className="text-muted-foreground line-clamp-1">
+          <span className="block truncate text-muted-foreground">
             {s.description || '-'}
           </span>
         ),
@@ -1287,6 +1549,7 @@ export default function SkillManagerPage() {
       {
         key: 'license',
         header: t('managed.skills.license'),
+        width: '13%',
         render: (s) => (
           <span className="text-muted-foreground">{s.license || '-'}</span>
         ),
@@ -1294,13 +1557,33 @@ export default function SkillManagerPage() {
       {
         key: 'status',
         header: t('managed.table.status'),
+        width: '7%',
         render: (s) => (
           <StatusBadge status={s.is_public ? 'active' : 'private'} />
         ),
       },
       {
+        key: 'security',
+        header: t('managed.table.security'),
+        width: '12%',
+        render: (s) => {
+          const score = skillSecurityScore(s)
+          return (
+            <div className="flex items-center gap-2">
+              <StatusBadge status={skillSecurityStatus(s)} />
+              {score !== null && (
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {t('managed.skills.securityScore', { score })}
+                </span>
+              )}
+            </div>
+          )
+        },
+      },
+      {
         key: 'updated_at',
         header: t('managed.table.lastUpdated'),
+        width: '9%',
         render: (s) => (
           <span className="text-muted-foreground text-xs">
             <RelativeTime date={s.updated_at} />
@@ -1321,8 +1604,14 @@ export default function SkillManagerPage() {
                 disabled={isImporting}
                 onClick={() => setShowImportDialog(true)}
               >
-                <Upload className="h-4 w-4" strokeWidth={2.25} />
-                {t('managed.skills.importSkill')}
+                {isImporting ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={2.25} />
+                ) : (
+                  <Upload className="h-4 w-4" strokeWidth={2.25} />
+                )}
+                {isImporting
+                  ? t('managed.skills.importingSkill')
+                  : t('managed.skills.importSkill')}
               </Button>
               <Button
                 className="h-10 gap-2 px-4 text-sm font-medium leading-none"
@@ -1351,6 +1640,13 @@ export default function SkillManagerPage() {
           accept=".zip,application/zip"
           onChange={handleZipImportChange}
         />
+
+        {isImporting && (
+          <SkillScanProgressNotice
+            title={t('managed.skills.importScanInProgressTitle')}
+            description={t('managed.skills.importScanInProgressDescription')}
+          />
+        )}
 
         <FilterBar
           searchPlaceholder={t('managed.search.skills')}
@@ -1507,12 +1803,31 @@ export default function SkillManagerPage() {
   const selectedFile = skillFiles.find((file) => file.id === selectedFileId)
   const isEditingFile = selectedFileId !== null && selectedFile !== undefined
   const canSave = isEditingFile ? isFileDirty : isDirty
+  const selectedSecurityScore = skillSecurityScore(selectedSkill)
+  const securityTriggerLabels: Record<string, string> = {
+    create: t('managed.skills.securityTriggers.create'),
+    update: t('managed.skills.securityTriggers.update'),
+    file_add: t('managed.skills.securityTriggers.fileAdd'),
+    file_update: t('managed.skills.securityTriggers.fileUpdate'),
+    file_delete: t('managed.skills.securityTriggers.fileDelete'),
+    manual: t('managed.skills.securityTriggers.manual'),
+  }
 
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col px-6 py-5">
       <div className="shrink-0">
         <PageHeader
           title={selectedSkill.name}
+          titleExtra={(
+            <div className="flex items-center gap-2">
+              <StatusBadge status={skillSecurityStatus(selectedSkill)} />
+              {selectedSecurityScore !== null && (
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {t('managed.skills.securityScore', { score: selectedSecurityScore })}
+                </span>
+              )}
+            </div>
+          )}
           subtitle={selectedFile ? selectedFile.file_name : t('managed.skills.detailSubtitle')}
           breadcrumb={[
             {
@@ -1530,6 +1845,25 @@ export default function SkillManagerPage() {
                 </span>
               )}
               <Button
+                variant="outline"
+                className="h-9 gap-2"
+                onClick={() => setShowSecurityHistoryDialog(true)}
+              >
+                <History className="h-4 w-4" />
+                {t('managed.skills.viewSecurityHistory')}
+              </Button>
+              <Button
+                variant="outline"
+                className="h-9 gap-2"
+                onClick={() => rescanSecurityMutation.mutate()}
+                disabled={rescanSecurityMutation.isPending || saveMutation.isPending || saveFileMutation.isPending}
+              >
+                <RefreshCw className={`h-4 w-4 ${rescanSecurityMutation.isPending ? 'animate-spin' : ''}`} />
+                {rescanSecurityMutation.isPending
+                  ? t('managed.skills.rescanningSecurity')
+                  : t('managed.skills.rescanSecurity')}
+              </Button>
+              <Button
                 className="h-9 gap-2"
                 onClick={isEditingFile ? () => saveFileMutation.mutate() : () => saveMutation.mutate()}
                 disabled={saveMutation.isPending || saveFileMutation.isPending || !canSave}
@@ -1541,6 +1875,13 @@ export default function SkillManagerPage() {
           )}
         />
       </div>
+
+      {rescanSecurityMutation.isPending && (
+        <SkillScanProgressNotice
+          title={t('managed.skills.securityScanInProgressTitle')}
+          description={t('managed.skills.securityScanInProgressDescription')}
+        />
+      )}
 
       <div className="flex min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-background">
         {/* Center panel -- file tree */}
@@ -1582,6 +1923,217 @@ export default function SkillManagerPage() {
           isCreatingVersion={createVersionMutation.isPending}
         />
       </div>
+
+      <Dialog open={showSecurityHistoryDialog} onOpenChange={setShowSecurityHistoryDialog}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{t('managed.skills.securityHistory')}</DialogTitle>
+            <DialogDescription>
+              {t('managed.skills.securityHistoryDescription')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-auto rounded-md border border-border">
+            {securityScansFetching ? (
+              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                {t('common.loading')}
+              </div>
+            ) : securityScansIsError ? (
+              <div className="px-4 py-8 text-center text-sm text-destructive">
+                {t('managed.skills.securityHistoryLoadFailed')}
+              </div>
+            ) : securityScans.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                {t('managed.skills.securityHistoryEmpty')}
+              </div>
+            ) : (
+              <div className="divide-y divide-border">
+                {securityScans.map((scan) => {
+                  const issues = getSecurityIssues(scan)
+                  const severityDistribution = getSecurityIssueSeverityDistribution(scan)
+                  const rawScannerRisk = getRawScannerRisk(scan)
+                  return (
+                    <div key={scan.id} className="grid gap-3 px-4 py-3 md:grid-cols-[1.2fr_1fr_1fr]">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <StatusBadge status={scan.status} />
+                          <span className="text-xs text-muted-foreground">
+                            {securityTriggerLabels[scan.trigger] || scan.trigger.replace(/_/g, ' ')}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          <RelativeTime date={scan.created_at} />
+                        </div>
+                      </div>
+                      <div className="text-sm">
+                        <div className="text-xs text-muted-foreground">
+                          {t('managed.skills.securityScoreLabel')}
+                        </div>
+                        <div className="font-medium">
+                          {scan.score !== null && scan.score !== undefined ? scan.score : '-'}
+                        </div>
+                      </div>
+                      <div className="text-sm">
+                        <div className="text-xs text-muted-foreground">
+                          {t('managed.skills.securityIssues')}
+                        </div>
+                        <div className="font-medium">
+                          {scan.issues_count}
+                          {scan.critical_count > 0 || scan.high_count > 0 ? (
+                            <span className="ml-2 text-xs text-destructive">
+                              {t('managed.skills.securityCriticalHigh', {
+                                critical: scan.critical_count,
+                                high: scan.high_count,
+                              })}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="min-w-0 text-xs text-muted-foreground md:col-span-3">
+                        {t('managed.skills.securitySeverity')}: {scan.severity || '-'} ·{' '}
+                        {t('managed.skills.securityRecommendation')}: {scan.recommendation || '-'}
+                        {scan.error_message ? (
+                          <span className="ml-2 text-destructive">{scan.error_message}</span>
+                        ) : null}
+                      </div>
+                      {scan.issues_count > 0 ? (
+                        <div className="min-w-0 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs md:col-span-3">
+                          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <span className="font-medium text-foreground">
+                              {t('managed.skills.securityAggregateRisk')}
+                            </span>
+                            <span className="text-muted-foreground">
+                              {t('managed.skills.securitySeverity')}: {scan.severity || '-'}
+                            </span>
+                            <span className="text-muted-foreground">
+                              {t('managed.skills.securityRecommendation')}: {scan.recommendation || '-'}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {severityDistribution.map((item) => (
+                              <span
+                                key={item.severity}
+                                className={`rounded-full border px-2 py-0.5 font-medium ${securityIssueSeverityClass(item.severity)}`}
+                              >
+                                {item.severity} {item.count}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="mt-2 text-muted-foreground">
+                            {t('managed.skills.securityAggregateRiskDescription', {
+                              score: scan.score !== null && scan.score !== undefined ? scan.score : '-',
+                              severity: scan.severity || '-',
+                              recommendation: scan.recommendation || '-',
+                            })}
+                          </div>
+                          {rawScannerRisk ? (
+                            <div className="mt-1 text-muted-foreground">
+                              {t('managed.skills.securityRawScannerRiskDescription', {
+                                score: rawScannerRisk.score !== null ? rawScannerRisk.score : '-',
+                                severity: rawScannerRisk.severity || '-',
+                                recommendation: rawScannerRisk.recommendation || '-',
+                              })}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {scan.issues_count > 0 ? (
+                        <div className="min-w-0 md:col-span-3">
+                          <div className="mb-2 flex items-center justify-between gap-3 text-xs">
+                            <span className="font-medium text-foreground">
+                              {t('managed.skills.securityIssueDetails')}
+                            </span>
+                            <span className="text-muted-foreground">
+                              {t('managed.skills.securityIssueDetailsCount', {
+                                shown: issues.length,
+                                total: scan.issues_count,
+                              })}
+                            </span>
+                          </div>
+                          {issues.length > 0 ? (
+                            <div className="space-y-2">
+                              {issues.map((issue) => {
+                                const isHighRisk = issue.severity === 'CRITICAL' || issue.severity === 'HIGH'
+                                return (
+                                  <details
+                                    key={issue.key}
+                                    open={isHighRisk}
+                                    className={`rounded-md border bg-background ${securityIssueBorderClass(issue.severity)}`}
+                                  >
+                                    <summary className="grid cursor-pointer gap-2 px-3 py-2 text-sm outline-none transition-colors hover:bg-muted/60 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
+                                      <span className={`w-fit rounded-full border px-2 py-0.5 text-[11px] font-medium ${securityIssueSeverityClass(issue.severity)}`}>
+                                        {t('managed.skills.securitySingleIssueSeverity', {
+                                          severity: issue.severity,
+                                        })}
+                                      </span>
+                                      <span className="min-w-0 truncate font-medium text-foreground">
+                                        {issue.title}
+                                      </span>
+                                      <span className="min-w-0 truncate text-xs text-muted-foreground">
+                                        {issue.location || issue.category || '-'}
+                                      </span>
+                                    </summary>
+                                    <div className="space-y-2 border-t border-border px-3 py-2 text-xs text-muted-foreground">
+                                      <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                        {issue.category ? (
+                                          <span>
+                                            {t('managed.skills.securityIssueCategory')}: {issue.category}
+                                          </span>
+                                        ) : null}
+                                        {issue.confidence ? (
+                                          <span>
+                                            {t('managed.skills.securityIssueConfidence')}: {issue.confidence}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                      {issue.finding ? (
+                                        <div>
+                                          <span className="font-medium text-foreground">
+                                            {t('managed.skills.securityIssueFinding')}:{' '}
+                                          </span>
+                                          {issue.finding}
+                                        </div>
+                                      ) : null}
+                                      {issue.explanation ? (
+                                        <div>
+                                          <span className="font-medium text-foreground">
+                                            {t('managed.skills.securityIssueExplanation')}:{' '}
+                                          </span>
+                                          {issue.explanation}
+                                        </div>
+                                      ) : null}
+                                      {issue.remediation ? (
+                                        <div>
+                                          <span className="font-medium text-foreground">
+                                            {t('managed.skills.securityIssueRemediation')}:{' '}
+                                          </span>
+                                          {issue.remediation}
+                                        </div>
+                                      ) : null}
+                                      {issue.codeSnippet ? (
+                                        <pre className="max-h-32 overflow-auto rounded border border-border bg-muted px-3 py-2 font-mono text-[11px] text-foreground">
+                                          {issue.codeSnippet}
+                                        </pre>
+                                      ) : null}
+                                    </div>
+                                  </details>
+                                )
+                              })}
+                            </div>
+                          ) : (
+                            <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+                              {t('managed.skills.securityIssueDetailsUnavailable')}
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Add file/folder dialog */}
       <Dialog

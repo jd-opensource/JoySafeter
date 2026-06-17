@@ -6,6 +6,7 @@ use std::collections::HashMap;
 pub enum EngineKind {
     Claude,
     Codex,
+    Native,
 }
 
 impl std::fmt::Display for EngineKind {
@@ -13,6 +14,7 @@ impl std::fmt::Display for EngineKind {
         match self {
             Self::Claude => write!(f, "claude"),
             Self::Codex => write!(f, "codex"),
+            Self::Native => write!(f, "native"),
         }
     }
 }
@@ -21,6 +23,7 @@ impl EngineKind {
     pub fn from_str_lossy(s: &str) -> Self {
         match s {
             "codex" => Self::Codex,
+            "native" => Self::Native,
             _ => Self::Claude,
         }
     }
@@ -137,7 +140,10 @@ impl PermissionPolicy {
 pub fn extract_permission_mode(tools: &[AgentTool]) -> String {
     for tool in tools {
         match tool {
-            AgentTool::AgentToolset { default_config, configs } => {
+            AgentTool::AgentToolset {
+                default_config,
+                configs,
+            } => {
                 let base = default_config
                     .as_ref()
                     .map(|c| &c.permission_policy)
@@ -145,11 +151,18 @@ pub fn extract_permission_mode(tools: &[AgentTool]) -> String {
                 if matches!(base, PermissionPolicy::AlwaysAsk) {
                     return "default".to_string();
                 }
-                if configs.iter().any(|c| matches!(c.permission_policy, Some(PermissionPolicy::AlwaysAsk))) {
+                if configs
+                    .iter()
+                    .any(|c| matches!(c.permission_policy, Some(PermissionPolicy::AlwaysAsk)))
+                {
                     return "default".to_string();
                 }
             }
-            AgentTool::McpToolset { default_config, configs, .. } => {
+            AgentTool::McpToolset {
+                default_config,
+                configs,
+                ..
+            } => {
                 let base = default_config
                     .as_ref()
                     .map(|c| &c.permission_policy)
@@ -157,7 +170,10 @@ pub fn extract_permission_mode(tools: &[AgentTool]) -> String {
                 if matches!(base, PermissionPolicy::AlwaysAsk) {
                     return "default".to_string();
                 }
-                if configs.iter().any(|c| matches!(c.permission_policy, Some(PermissionPolicy::AlwaysAsk))) {
+                if configs
+                    .iter()
+                    .any(|c| matches!(c.permission_policy, Some(PermissionPolicy::AlwaysAsk)))
+                {
                     return "default".to_string();
                 }
             }
@@ -220,21 +236,28 @@ pub struct InjectConfig {
 #[serde(tag = "type")]
 pub enum McpServerConfig {
     #[serde(rename = "url")]
-    Url {
-        name: String,
-        url: String,
-    },
+    Url { name: String, url: String },
 }
 
 impl<'de> Deserialize<'de> for McpServerConfig {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let v = serde_json::Value::deserialize(deserializer)?;
-        let obj = v.as_object().ok_or_else(|| serde::de::Error::custom("expected object"))?;
+        let obj = v
+            .as_object()
+            .ok_or_else(|| serde::de::Error::custom("expected object"))?;
         let typ = obj.get("type").and_then(|t| t.as_str()).unwrap_or("");
         match typ {
             "url" => {
-                let name = obj.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let url = obj.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let name = obj
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let url = obj
+                    .get("url")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 Ok(McpServerConfig::Url { name, url })
             }
             _ => Err(serde::de::Error::custom(

@@ -32,6 +32,7 @@ from app.joysafeter_domain.repositories.skill import SkillFileRepository, SkillR
 from app.joysafeter_domain.repositories.skill_version import SkillVersionRepository
 
 from .base import BaseService
+from .skill_security_service import SkillSecurityService
 
 
 class SkillService(BaseService[Skill]):
@@ -39,6 +40,7 @@ class SkillService(BaseService[Skill]):
         super().__init__(db)
         self.repo = SkillRepository(db)
         self.file_repo = SkillFileRepository(db)
+        self.security_service = SkillSecurityService(db)
 
     def _invalid_import_files_error(self, invalid_files: List[str]) -> InvalidRequestError:
         invalid_list = "\n".join(f"  - {file_name}" for file_name in invalid_files)
@@ -48,6 +50,50 @@ class SkillService(BaseService[Skill]):
             code="SKILL_IMPORT_FILES_INVALID",
             data={"files": invalid_files},
         )
+
+    def _is_skill_md_file(self, path: Optional[str], file_name: Optional[str]) -> bool:
+        normalized_path = (path or "").replace("\\", "/").strip("/")
+        normalized_name = (file_name or "").replace("\\", "/").rsplit("/", 1)[-1]
+        return normalized_path.lower() == "skill.md" or normalized_name.lower() == "skill.md"
+
+    def _skill_md_candidate_fields(
+        self,
+        skill: Skill,
+        content: Optional[str],
+    ) -> dict[str, Any]:
+        fields: dict[str, Any] = {
+            "name": skill.name,
+            "description": skill.description,
+            "content": skill.content,
+            "tags": list(skill.tags or []),
+            "license": skill.license,
+        }
+        if not content:
+            return fields
+
+        frontmatter, body = parse_skill_md(content)
+        metadata = extract_metadata_from_frontmatter(frontmatter)
+        if metadata.get("name"):
+            fields["name"] = metadata["name"]
+        if metadata.get("description"):
+            fields["description"] = metadata["description"]
+        if metadata.get("tags") and isinstance(metadata["tags"], list):
+            fields["tags"] = metadata["tags"]
+        if metadata.get("license"):
+            fields["license"] = metadata["license"]
+        if body:
+            fields["content"] = body.strip()
+        return fields
+
+    def _apply_skill_md_content(self, skill: Skill, content: Optional[str]) -> None:
+        if not content:
+            return
+        fields = self._skill_md_candidate_fields(skill, content)
+        skill.name = fields["name"]
+        skill.description = fields["description"]
+        skill.content = fields["content"]
+        skill.tags = fields["tags"]
+        skill.license = fields["license"]
 
     async def list_skills(
         self,
@@ -228,6 +274,43 @@ class SkillService(BaseService[Skill]):
                 data={"name": name},
             )
 
+        if files:
+            invalid_files = []
+            for file_data in files:
+                file_path = file_data.get("path", "")
+                file_name = file_data.get("file_name", "")
+                file_content_raw = file_data.get("content")
+                file_content_val: Optional[str] = (
+                    file_content_raw
+                    if isinstance(file_content_raw, (str, type(None)))
+                    else str(file_content_raw)
+                    if file_content_raw is not None
+                    else None
+                )
+                if is_system_file(file_path) or is_system_file(file_name):
+                    invalid_files.append(f"{file_path} (system file)")
+                    continue
+                if file_content_val is not None:
+                    is_valid, error_msg = is_valid_text_content(file_content_val)
+                    if not is_valid:
+                        invalid_files.append(f"{file_path} ({error_msg})")
+            if invalid_files:
+                raise self._invalid_import_files_error(invalid_files)
+
+        security_scan = await self.security_service.scan_for_write(
+            trigger="create",
+            created_by_id=created_by_id,
+            owner_id=owner_id,
+            project_id=project_id,
+            skill_id=None,
+            name=name,
+            description=description,
+            content=content,
+            tags=tags or [],
+            license=license,
+            files=files,
+        )
+
         skill = Skill(
             name=name,
             description=description,
@@ -248,6 +331,9 @@ class SkillService(BaseService[Skill]):
         self.db.add(skill)
         await self.db.flush()
         await self.db.refresh(skill)
+        if security_scan is not None:
+            security_scan.skill_id = skill.id
+            self.security_service.apply_latest_scan(skill, security_scan)
 
         # Create associated files
         if files:
@@ -323,7 +409,7 @@ class SkillService(BaseService[Skill]):
 
         If files are provided, they will replace all existing files for this skill.
         """
-        skill = await self.repo.get(skill_id)
+        skill = await self.repo.get_with_files(skill_id)
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
 
@@ -373,7 +459,21 @@ class SkillService(BaseService[Skill]):
                     if warning:
                         logger.warning(f"Skill file warning: {warning}")
 
-        # Validate and update name if provided
+        proposed_name = skill.name if name is None else name
+        proposed_description = skill.description if description is None else description
+        proposed_content = skill.content if content is None else content
+        proposed_tags = skill.tags if tags is None else tags
+        proposed_source_type = skill.source_type if source_type is None else source_type
+        proposed_source_url = skill.source_url if source_url is None else source_url
+        proposed_root_path = skill.root_path if root_path is None else root_path
+        proposed_owner_id = skill.owner_id if owner_id is None else owner_id
+        proposed_is_public = skill.is_public if is_public is None else is_public
+        proposed_license = skill.license if license is None else license
+        proposed_compatibility = skill.compatibility if compatibility is None else compatibility
+        proposed_metadata = skill.meta_data
+        proposed_allowed_tools = skill.allowed_tools
+
+        # Validate name if provided
         if name and name != skill.name:
             is_valid, error = validate_skill_name(name)
             if not is_valid:
@@ -390,56 +490,85 @@ class SkillService(BaseService[Skill]):
                     code="SKILL_NAME_ALREADY_EXISTS",
                     data={"name": name},
                 )
-            skill.name = name
 
-        # Validate and update description if provided
+        # Validate description if provided
         if description is not None:
             is_valid, error = validate_skill_description(description)
             if not is_valid:
                 # Truncate if too long (warn but continue)
                 logger.warning(f"Skill description exceeds 1024 characters, truncating: {error}")
-                description = truncate_description(description)
-            skill.description = description
-        if content is not None:
-            skill.content = content
-        if tags is not None:
-            skill.tags = tags
-        if source_type is not None:
-            skill.source_type = source_type
-        if source_url is not None:
-            skill.source_url = source_url
-        if root_path is not None:
-            skill.root_path = root_path
-        if owner_id is not None:
-            skill.owner_id = owner_id
-        if is_public is not None:
-            skill.is_public = is_public
-        if license is not None:
-            skill.license = license
+                proposed_description = truncate_description(description)
 
-        # Validate and update compatibility if provided
+        # Validate compatibility if provided
         if compatibility is not None:
             is_valid, error = validate_compatibility(compatibility)
             if not is_valid:
                 # Truncate if too long (warn but continue)
                 logger.warning(f"Skill compatibility exceeds 500 characters, truncating: {error}")
-                compatibility = truncate_compatibility(compatibility)
-            skill.compatibility = compatibility
+                proposed_compatibility = truncate_compatibility(compatibility)
 
-        # Update metadata if provided
+        # Prepare metadata if provided
         if metadata is not None:
             # Ensure all values are strings (per spec)
             if isinstance(metadata, dict):
-                skill.meta_data = {k: str(v) for k, v in metadata.items() if isinstance(k, str)}
+                proposed_metadata = {k: str(v) for k, v in metadata.items() if isinstance(k, str)}
             else:
-                skill.meta_data = {}
+                proposed_metadata = {}
 
-        # Update allowed_tools if provided
+        # Prepare allowed_tools if provided
         if allowed_tools is not None:
             if isinstance(allowed_tools, list):
-                skill.allowed_tools = allowed_tools
+                proposed_allowed_tools = allowed_tools
             else:
-                skill.allowed_tools = []
+                proposed_allowed_tools = []
+
+        proposed_files = files if files is not None else self.security_service.files_from_skill(skill)
+        if files is not None:
+            invalid_files = []
+            for file_data in files:
+                file_path = file_data.get("path", "")
+                file_name = file_data.get("file_name", "")
+                file_content = file_data.get("content")
+
+                if is_system_file(file_path) or is_system_file(file_name):
+                    invalid_files.append(f"{file_path} (system file)")
+                    continue
+
+                if file_content is not None:
+                    is_valid, error_msg = is_valid_text_content(file_content)
+                    if not is_valid:
+                        invalid_files.append(f"{file_path} ({error_msg})")
+                        continue
+            if invalid_files:
+                raise self._invalid_import_files_error(invalid_files)
+
+        security_scan = await self.security_service.scan_for_write(
+            trigger="update",
+            created_by_id=current_user_id,
+            owner_id=proposed_owner_id,
+            project_id=skill.project_id,
+            skill_id=skill.id,
+            name=proposed_name,
+            description=proposed_description,
+            content=proposed_content,
+            tags=proposed_tags or [],
+            license=proposed_license,
+            files=proposed_files,
+        )
+
+        skill.name = proposed_name
+        skill.description = proposed_description
+        skill.content = proposed_content
+        skill.tags = proposed_tags or []
+        skill.source_type = proposed_source_type
+        skill.source_url = proposed_source_url
+        skill.root_path = proposed_root_path
+        skill.owner_id = proposed_owner_id
+        skill.is_public = proposed_is_public
+        skill.license = proposed_license
+        skill.compatibility = proposed_compatibility
+        skill.meta_data = proposed_metadata or {}
+        skill.allowed_tools = proposed_allowed_tools or []
 
         # Handle file updates - replace all files if files are provided
         if files is not None:
@@ -481,6 +610,9 @@ class SkillService(BaseService[Skill]):
             if invalid_files:
                 raise self._invalid_import_files_error(invalid_files)
 
+        if security_scan is not None:
+            self.security_service.apply_latest_scan(skill, security_scan)
+
         await self.db.commit()
         await self.db.refresh(skill)
         result = skill
@@ -492,7 +624,7 @@ class SkillService(BaseService[Skill]):
         current_user_id: str,
     ) -> None:
         """Delete Skill"""
-        skill = await self.repo.get(skill_id)
+        skill = await self.repo.get_with_files(skill_id)
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
 
@@ -520,7 +652,7 @@ class SkillService(BaseService[Skill]):
         size: int = 0,
     ) -> SkillFile:
         """Add file to Skill"""
-        skill = await self.repo.get(skill_id)
+        skill = await self.repo.get_with_files(skill_id)
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
 
@@ -556,6 +688,43 @@ class SkillService(BaseService[Skill]):
             if warning:
                 logger.warning(f"Skill file warning: {warning}")
 
+        proposed_files = self.security_service.files_from_skill(skill)
+        proposed_files.append(
+            {
+                "path": path,
+                "file_name": file_name,
+                "file_type": file_type,
+                "content": content or "",
+                "storage_type": storage_type,
+                "storage_key": storage_key,
+                "size": size,
+            }
+        )
+        scan_fields = (
+            self._skill_md_candidate_fields(skill, content)
+            if self._is_skill_md_file(path, file_name)
+            else {
+                "name": skill.name,
+                "description": skill.description,
+                "content": skill.content,
+                "tags": list(skill.tags or []),
+                "license": skill.license,
+            }
+        )
+        security_scan = await self.security_service.scan_for_write(
+            trigger="file_add",
+            created_by_id=current_user_id,
+            owner_id=skill.owner_id,
+            project_id=skill.project_id,
+            skill_id=skill.id,
+            name=scan_fields["name"],
+            description=scan_fields["description"],
+            content=scan_fields["content"],
+            tags=scan_fields["tags"],
+            license=scan_fields["license"],
+            files=proposed_files,
+        )
+
         file_obj = SkillFile(
             skill_id=skill_id,
             path=path,
@@ -567,12 +736,12 @@ class SkillService(BaseService[Skill]):
             size=size,
         )
         self.db.add(file_obj)
+        if self._is_skill_md_file(path, file_name):
+            self._apply_skill_md_content(skill, content)
+        if security_scan is not None:
+            self.security_service.apply_latest_scan(skill, security_scan)
         await self.db.commit()
         await self.db.refresh(file_obj)
-
-        # If adding/updating SKILL.md, sync metadata to skill
-        if path == "SKILL.md" or file_name == "SKILL.md":
-            await self._sync_skill_from_skill_md(skill, content)
 
         return file_obj
 
@@ -586,7 +755,7 @@ class SkillService(BaseService[Skill]):
         if not file_obj:
             raise NotFoundError("Skill file not found", code="SKILL_FILE_NOT_FOUND", data={"file_id": str(file_id)})
 
-        skill = await self.repo.get(file_obj.skill_id)
+        skill = await self.repo.get_with_files(file_obj.skill_id)
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(file_obj.skill_id)})
 
@@ -598,7 +767,37 @@ class SkillService(BaseService[Skill]):
             CollaboratorRole.editor,
         )
 
+        proposed_files = [
+            {
+                "path": existing_file.path,
+                "file_name": existing_file.file_name,
+                "file_type": existing_file.file_type,
+                "content": existing_file.content or "",
+                "storage_type": existing_file.storage_type,
+                "storage_key": existing_file.storage_key,
+                "size": existing_file.size,
+            }
+            for existing_file in (skill.files or [])
+            if existing_file.id != file_obj.id
+        ]
+        security_scan = await self.security_service.scan_for_write(
+            enforce_write_policy=False,
+            trigger="file_delete",
+            created_by_id=current_user_id,
+            owner_id=skill.owner_id,
+            project_id=skill.project_id,
+            skill_id=skill.id,
+            name=skill.name,
+            description=skill.description,
+            content=skill.content,
+            tags=list(skill.tags or []),
+            license=skill.license,
+            files=proposed_files,
+        )
+
         await self.file_repo.delete(file_id)
+        if security_scan is not None:
+            self.security_service.apply_latest_scan(skill, security_scan)
         await self.db.commit()
 
     async def update_file(
@@ -614,7 +813,7 @@ class SkillService(BaseService[Skill]):
         if not file_obj:
             raise NotFoundError("Skill file not found", code="SKILL_FILE_NOT_FOUND", data={"file_id": str(file_id)})
 
-        skill = await self.repo.get(file_obj.skill_id)
+        skill = await self.repo.get_with_files(file_obj.skill_id)
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(file_obj.skill_id)})
 
@@ -650,6 +849,61 @@ class SkillService(BaseService[Skill]):
                     data={"path": file_obj.path},
                 )
 
+        proposed_path = file_obj.path if path is None else path
+        proposed_file_name = file_obj.file_name if file_name is None else file_name
+        proposed_content = file_obj.content if content is None else content
+        proposed_files = []
+        for existing_file in skill.files or []:
+            if existing_file.id == file_obj.id:
+                proposed_files.append(
+                    {
+                        "path": proposed_path,
+                        "file_name": proposed_file_name,
+                        "file_type": existing_file.file_type,
+                        "content": proposed_content or "",
+                        "storage_type": existing_file.storage_type,
+                        "storage_key": existing_file.storage_key,
+                        "size": len(proposed_content) if proposed_content else 0,
+                    }
+                )
+            else:
+                proposed_files.append(
+                    {
+                        "path": existing_file.path,
+                        "file_name": existing_file.file_name,
+                        "file_type": existing_file.file_type,
+                        "content": existing_file.content or "",
+                        "storage_type": existing_file.storage_type,
+                        "storage_key": existing_file.storage_key,
+                        "size": existing_file.size,
+                    }
+                )
+        scan_fields = (
+            self._skill_md_candidate_fields(skill, proposed_content)
+            if self._is_skill_md_file(proposed_path, proposed_file_name)
+            else {
+                "name": skill.name,
+                "description": skill.description,
+                "content": skill.content,
+                "tags": list(skill.tags or []),
+                "license": skill.license,
+            }
+        )
+        security_scan = await self.security_service.scan_for_write(
+            trigger="file_update",
+            created_by_id=current_user_id,
+            owner_id=skill.owner_id,
+            project_id=skill.project_id,
+            skill_id=skill.id,
+            name=scan_fields["name"],
+            description=scan_fields["description"],
+            content=scan_fields["content"],
+            tags=scan_fields["tags"],
+            license=scan_fields["license"],
+            files=proposed_files,
+        )
+
+        if content is not None:
             file_obj.content = content
             file_obj.size = len(content) if content else 0
         if path is not None:
@@ -657,12 +911,12 @@ class SkillService(BaseService[Skill]):
         if file_name is not None:
             file_obj.file_name = file_name
 
+        if self._is_skill_md_file(file_obj.path, file_obj.file_name):
+            self._apply_skill_md_content(skill, file_obj.content)
+        if security_scan is not None:
+            self.security_service.apply_latest_scan(skill, security_scan)
         await self.db.commit()
         await self.db.refresh(file_obj)
-
-        # If updating SKILL.md, sync metadata to skill
-        if file_obj.path == "SKILL.md" or file_obj.file_name == "SKILL.md":
-            await self._sync_skill_from_skill_md(skill, file_obj.content)
 
         # Type assertion: refresh updates the object in place
         return file_obj  # type: ignore
@@ -681,22 +935,7 @@ class SkillService(BaseService[Skill]):
         if not content:
             return
 
-        frontmatter, body = parse_skill_md(content)
-
-        # Update skill fields from frontmatter
-        if frontmatter.get("name"):
-            skill.name = frontmatter["name"]
-        if frontmatter.get("description"):
-            skill.description = frontmatter["description"]
-        if frontmatter.get("tags") and isinstance(frontmatter["tags"], list):
-            skill.tags = frontmatter["tags"]
-        if frontmatter.get("license"):
-            skill.license = frontmatter["license"]
-
-        # Update content with markdown body
-        if body:
-            skill.content = body.strip()
-
+        self._apply_skill_md_content(skill, content)
         await self.db.commit()
         await self.db.refresh(skill)
 
@@ -794,6 +1033,28 @@ class SkillService(BaseService[Skill]):
                 owner_id=owner_id,
                 is_public=is_public,
             )
+
+    async def list_security_scans(
+        self,
+        skill_id: uuid.UUID,
+        current_user_id: str,
+        limit: int = 20,
+        after_id: Optional[uuid.UUID] = None,
+    ):
+        """List security scan history for a skill."""
+        return await self.security_service.list_scans(skill_id, current_user_id, limit=limit, after_id=after_id)
+
+    async def get_latest_security_scan(self, skill_id: uuid.UUID, current_user_id: str):
+        """Get latest security scan for a skill."""
+        return await self.security_service.get_latest_scan(skill_id, current_user_id)
+
+    async def get_security_scan(self, scan_id: uuid.UUID, current_user_id: str):
+        """Get a security scan by id."""
+        return await self.security_service.get_scan(scan_id, current_user_id)
+
+    async def rescan_skill(self, skill_id: uuid.UUID, current_user_id: str):
+        """Run a manual security rescan for persisted skill content."""
+        return await self.security_service.rescan_existing_skill(skill_id, current_user_id)
 
     def _detect_file_type(self, file_path: Union[str, Path]) -> str:
         """Simple file type detection"""

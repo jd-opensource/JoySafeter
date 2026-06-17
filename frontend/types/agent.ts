@@ -3,6 +3,7 @@ export const ENGINE_KINDS = [
   'langgraph_code',
   'claude_code',
   'codex',
+  'native',
 ] as const
 
 export type EngineKind = (typeof ENGINE_KINDS)[number]

@@ -117,7 +117,7 @@ class OAuthProviderConfig:
 class OAuthSettings:
     """OAuth global settings."""
 
-    default_redirect_url: str = "/chat"
+    default_redirect_url: str = "/managed/quickstart"
     allow_registration: bool = True
     auto_link_by_email: bool = True
 
@@ -174,7 +174,7 @@ class OAuthConfigLoader:
             # Load global settings
             settings_raw = raw.get("settings", {})
             self._settings = OAuthSettings(
-                default_redirect_url=settings_raw.get("default_redirect_url", "/chat"),
+                default_redirect_url=settings_raw.get("default_redirect_url", "/managed/quickstart"),
                 allow_registration=settings_raw.get("allow_registration", True),
                 auto_link_by_email=settings_raw.get("auto_link_by_email", True),
             )

@@ -10,6 +10,7 @@ export interface Column<T> {
   header: string
   render: (row: T) => ReactNode
   className?: string
+  width?: string
 }
 
 interface DataTableProps<T> {
@@ -50,6 +51,7 @@ export function DataTable<T>({
   const [selected, setSelected] = useState<Set<number>>(new Set())
 
   const allSelected = data.length > 0 && selected.size === data.length
+  const hasColumnWidths = columns.some((col) => col.width)
 
   const toggleAll = () => {
     if (allSelected) {
@@ -86,7 +88,16 @@ export function DataTable<T>({
             <div className="h-full w-1/3 bg-primary animate-[slide_1s_ease-in-out_infinite]" />
           </div>
         )}
-        <table className="w-full">
+        <table className={`w-full ${hasColumnWidths ? 'table-fixed' : ''}`}>
+          {hasColumnWidths && (
+            <colgroup>
+              {selectable && <col className="w-10" />}
+              {columns.map((col) => (
+                <col key={col.key} style={col.width ? { width: col.width } : undefined} />
+              ))}
+              {actionMenu && <col className="w-10" />}
+            </colgroup>
+          )}
           <thead>
             <tr className="border-b border-border bg-muted/30">
               {selectable && (

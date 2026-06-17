@@ -99,6 +99,7 @@ from pydantic import ConfigDict, field_serializer, field_validator, model_valida
 class JoySafeterEngineKind(str, Enum):
     CLAUDE = "claude"
     CODEX = "codex"
+    NATIVE = "native"
 
 
 class JoySafeterModelConfig(BaseModel):

@@ -8,30 +8,32 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v2.id_helpers import parse_session_id as _parse_session_id
+from app.joysafeter_api.services import JoySafeterAgentService as AgentService
+from app.joysafeter_api.services import SessionService
+from app.joysafeter_domain.models.agent import JoySafeterAgent
+from app.joysafeter_domain.schemas.common import CursorPaginatedResponse as PaginatedResponse
+from app.joysafeter_domain.schemas.session import (
+    MAX_MEMORY_STORE_RESOURCES,
+    CreateSessionRequest,
+    EventListParams,
+    SendEventRequest,
+    SessionAgent,
+    SessionEventResponse,
+    SessionResourceResponse,
+    SessionResponse,
+    SessionUsage,
+    SingleEventRequest,
+)
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
     get_joysafeter_auth_context,
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_domain.schemas.session import (
-    CreateSessionRequest,
-    EventListParams,
-    MAX_MEMORY_STORE_RESOURCES,
-    SendEventRequest,
-    SingleEventRequest,
-    SessionEventResponse,
-    SessionResourceResponse,
-    SessionResponse,
-    SessionAgent,
-    SessionUsage,
-)
-from app.joysafeter_domain.schemas.common import CursorPaginatedResponse as PaginatedResponse
-from app.joysafeter_api.services import JoySafeterAgentService as AgentService
-from app.joysafeter_api.services import SessionService
 
 logger = logging.getLogger(__name__)
 
@@ -58,16 +60,18 @@ def _slugify_mount_name(name: str) -> str:
 
 
 def _session_to_response(session, agent=None, resources=None) -> SessionResponse:
+    agent_snapshot = session.agent_snapshot or {}
     agent_data = SessionAgent(
         id=session.agent_id,
         version=session.agent_version or 1,
-        name=agent.name if agent else "",
-        description=agent.description if agent else None,
-        model=agent.model if agent else None,
-        system=agent.system_prompt if agent else None,
-        tools=agent.tools if agent else [],
-        skills=agent.skills if agent else [],
-        mcp_servers=agent.mcp_configs if agent else [],
+        name=agent.name if agent else agent_snapshot.get("name", ""),
+        engine_kind=agent.engine_kind if agent else agent_snapshot.get("engine_kind"),
+        description=agent.description if agent else agent_snapshot.get("description"),
+        model=agent.model if agent else agent_snapshot.get("model"),
+        system=agent.system_prompt if agent else agent_snapshot.get("system"),
+        tools=agent.tools if agent else agent_snapshot.get("tools") or [],
+        skills=agent.skills if agent else agent_snapshot.get("skills") or [],
+        mcp_servers=agent.mcp_configs if agent else agent_snapshot.get("mcp_servers") or [],
     )
     usage_data = session.usage or {}
     resource_responses = []
@@ -130,7 +134,11 @@ async def create_session(
 
     # --- Build agent_snapshot ---
     agent_version = agent.version
-    agent_snapshot: dict = {"name": agent.name, "model": agent.model}
+    agent_snapshot: dict = {
+        "name": agent.name,
+        "engine_kind": agent.engine_kind,
+        "model": agent.model,
+    }
     if pinned_version is not None:
         snapshot = await agent_svc.get_agent_version_snapshot(agent.id, pinned_version)
         if snapshot is None:
@@ -272,11 +280,22 @@ async def list_sessions(
         if not agent:
             raise HTTPException(404, "Agent not found")
         sessions, has_more = await svc.list_sessions_by_agent(
-            agent_id, limit, after_id, project_id=auth_ctx.project_id
+            agent_id, limit, after_id, project_id=auth_ctx.project_id, include_archived=include_archived
         )
     else:
         sessions, has_more = await svc.list_sessions(limit, after_id, include_archived=include_archived, project_id=auth_ctx.project_id)
-    data = [_session_to_response(s) for s in sessions]
+    agent_ids = {s.agent_id for s in sessions if s.agent_id}
+    agents_by_id = {}
+    if agent_ids:
+        agent_query = select(JoySafeterAgent).where(
+            JoySafeterAgent.id.in_(agent_ids),
+            JoySafeterAgent.deleted_at.is_(None),
+        )
+        if auth_ctx.project_id is not None:
+            agent_query = agent_query.where(JoySafeterAgent.project_id == auth_ctx.project_id)
+        result = await db.execute(agent_query)
+        agents_by_id = {agent.id: agent for agent in result.scalars().all()}
+    data = [_session_to_response(s, agents_by_id.get(s.agent_id)) for s in sessions]
     return PaginatedResponse(
         data=data,
         has_more=has_more,
@@ -1066,21 +1085,23 @@ async def session_event_stream(
                     if event.get("lagged"):
                         yield f"data: {json.dumps({'lagged': True})}\n\n"
                         break  # frontend will reconnect and replay from DB
-                    event_seq = event.get("seq", 0)
-                    if event_seq <= last_seq:
-                        continue
-                    last_seq = event_seq
-                    event_id = event.get("id", "")
-                    if not event_id.startswith("evt_"):
+                    event_seq = event.get("seq")
+                    if event_seq is not None:
+                        if event_seq <= last_seq:
+                            continue
+                        last_seq = event_seq
+                    event_id = event.get("id") or ""
+                    if event_id and not event_id.startswith("evt_"):
                         event_id = f"evt_{event_id}"
                     logger.debug(
                         "SSE live_push session=%s source=%s seq=%s type=%s",
                         session_id,
                         event.get("_sse_source") or "unknown_live",
-                        event_seq,
+                        event_seq if event_seq is not None else event.get("_runner_seq"),
                         event.get("type"),
                     )
-                    yield f"id: {event_id}\ndata: {json.dumps(event)}\n\n"
+                    id_line = f"id: {event_id}\n" if event_id else ""
+                    yield f"{id_line}data: {json.dumps(event)}\n\n"
                 except asyncio.TimeoutError:
                     from app.joysafeter_shared.database import AsyncSessionLocal
 

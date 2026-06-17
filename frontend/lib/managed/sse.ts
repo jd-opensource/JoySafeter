@@ -83,10 +83,15 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
             const toAdd = batch
             batch = []
             setEvents((prev) => {
-              const seen = new Set(prev.map((event) => event.id || `${event.seq}:${event.type}`))
+              const eventKey = (event: SessionEvent) => {
+                if (event.id) return event.id
+                if (event.seq != null) return `${event.seq}:${event.type}`
+                return `live:${event.type}:${JSON.stringify(event.content ?? event.usage ?? event.stop_reason ?? event.tool ?? '')}`
+              }
+              const seen = new Set(prev.map(eventKey))
               const next = [...prev]
               for (const event of toAdd) {
-                const key = event.id || `${event.seq}:${event.type}`
+                const key = eventKey(event)
                 if (seen.has(key)) continue
                 seen.add(key)
                 next.push(event)

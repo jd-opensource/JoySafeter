@@ -46,9 +46,33 @@ export default function AgentListPage() {
   const { data, isLoading, isFetching, isError, error, hasNext, hasPrev, page, pageSize, pageSizeOptions, goNext, goPrev, goToPage, setPageSize } =
     usePaginatedList<Agent>({ queryKey: 'agents', path: '/agents', includeArchived: showArchived })
 
+  const getEngineKindLabel = (engineKind?: string | null) => {
+    switch (engineKind) {
+      case 'claude':
+        return t('managed.agents.engineClaude')
+      case 'codex':
+        return t('managed.agents.engineCodex')
+      case 'native':
+        return t('managed.agents.engineNative')
+      case 'langgraph_visual':
+        return 'LangGraph Visual'
+      case 'langgraph_code':
+        return 'LangGraph Code'
+      default:
+        return engineKind || '-'
+    }
+  }
+
   const agents = data.filter((a) =>
     filterByCreatedTime(a.created_at, createdFilter) &&
-    matchesSearch(searchQuery, [a.id, a.name, a.model?.id, a.archived_at ? 'archived' : 'active']),
+    matchesSearch(searchQuery, [
+      a.id,
+      a.name,
+      a.model?.id,
+      a.engine_kind,
+      getEngineKindLabel(a.engine_kind),
+      a.archived_at ? 'archived' : 'active',
+    ]),
   )
 
   const filters: FilterDef[] = [
@@ -99,6 +123,11 @@ export default function AgentListPage() {
       key: 'model',
       header: t('managed.table.model'),
       render: (a) => <span className="text-muted-foreground">{a.model?.id || '-'}</span>,
+    },
+    {
+      key: 'engine_kind',
+      header: t('managed.table.engineKind'),
+      render: (a) => <span className="text-muted-foreground whitespace-nowrap">{getEngineKindLabel(a.engine_kind)}</span>,
     },
     {
       key: 'status',

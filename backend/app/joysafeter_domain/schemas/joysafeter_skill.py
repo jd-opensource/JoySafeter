@@ -44,6 +44,63 @@ class UpdateSkillRequest(BaseModel):
     license: Optional[str] = None
 
 
+class SkillSecurityScanSummary(BaseModel):
+    status: str = "not_scanned"
+    score: Optional[int] = None
+    severity: Optional[str] = None
+    recommendation: Optional[str] = None
+    issues_count: int = 0
+    critical_count: int = 0
+    high_count: int = 0
+    medium_count: int = 0
+    low_count: int = 0
+    scanned_at: Optional[datetime] = None
+    scan_id: Optional[uuid.UUID] = None
+    target_hash: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("scan_id")
+    def serialize_scan_id(self, v: Optional[uuid.UUID]) -> Optional[str]:
+        return f"sklscan_{v}" if v else None
+
+
+class SkillSecurityScanResponse(BaseModel):
+    id: uuid.UUID
+    skill_id: Optional[uuid.UUID] = None
+    project_id: Optional[str] = None
+    owner_id: Optional[str] = None
+    created_by_id: str
+    trigger: str
+    target_name: Optional[str] = None
+    target_hash: str
+    scanner: str = "skillspector"
+    scanner_version: Optional[str] = None
+    status: str
+    score: Optional[int] = None
+    severity: Optional[str] = None
+    recommendation: Optional[str] = None
+    issues_count: int = 0
+    critical_count: int = 0
+    high_count: int = 0
+    medium_count: int = 0
+    low_count: int = 0
+    report: Optional[dict[str, Any]] = None
+    error_message: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("id")
+    def serialize_id(self, v: uuid.UUID) -> str:
+        return f"sklscan_{v}"
+
+    @field_serializer("skill_id")
+    def serialize_skill_id(self, v: Optional[uuid.UUID]) -> Optional[str]:
+        return f"skill_{v}" if v else None
+
+
 class SkillResponse(BaseModel):
     id: uuid.UUID
     name: str
@@ -57,6 +114,7 @@ class SkillResponse(BaseModel):
     compatibility: Optional[str] = None
     metadata: dict = Field(default_factory=dict, alias="meta_data")
     allowed_tools: list = Field(default_factory=list)
+    security_scan: SkillSecurityScanSummary = Field(default_factory=SkillSecurityScanSummary)
     created_at: datetime
     updated_at: datetime
 

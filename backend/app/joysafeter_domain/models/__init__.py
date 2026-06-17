@@ -39,7 +39,7 @@ from .project import Project
 from .secret import JoySafeterSecret  # noqa: F401 — alembic discovery
 from .security_audit_log import SecurityAuditLog
 from .settings import Environment, ProjectEnvironment, Settings
-from .skill import Skill, SkillFile
+from .skill import Skill, SkillFile, SkillSecurityScan
 from .skill_collaborator import CollaboratorRole, SkillCollaborator
 from .skill_version import SkillVersion, SkillVersionFile
 from .task import Task, TaskPriority, TaskStatus
@@ -74,6 +74,7 @@ __all__ = [
     "ModelInstance",
     "Skill",
     "SkillFile",
+    "SkillSecurityScan",
     "SecurityAuditLog",
     "Memory",
     "CollaboratorRole",

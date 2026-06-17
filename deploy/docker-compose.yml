@@ -1,5 +1,5 @@
 # =============================================================================
-# JoySafeter 三服务容器化部署（本地 PostgreSQL / Redis）
+# JoySafeter 三服务容器化部署（本地 PostgreSQL / 云 Redis）
 # =============================================================================
 # 用法：
 #   cd deploy
@@ -21,6 +21,14 @@ x-orchestrator-rs-build: &orchestrator-rs-build
   args:
     RUST_IMAGE: ${RUST_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/rust:1.85-bookworm}
     RUNTIME_IMAGE: ${RUNTIME_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/debian:bookworm-slim}
+
+x-skillspector-build: &skillspector-build
+  context: .
+  dockerfile: docker/skillspector-service.Dockerfile
+  additional_contexts:
+    skillspector: ${SKILLSPECTOR_SOURCE_PATH:-../../SkillSpector}
+  args:
+    PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
 
 x-backend-env-files: &backend-env-files
   - ../backend/.env
@@ -49,6 +57,14 @@ x-backend-common-env: &backend-common-env
   JOYSAFETER_SANDBOX_IMAGE: ${JOYSAFETER_SANDBOX_IMAGE:-joysafeter-claudecode:latest}
   JOYSAFETER_IMAGE_CLAUDE: ${JOYSAFETER_IMAGE_CLAUDE:-joysafeter-claudecode:latest}
   JOYSAFETER_IMAGE_CODEX: ${JOYSAFETER_IMAGE_CODEX:-joysafeter-codex:latest}
+  JOYSAFETER_IMAGE_NATIVE: ${JOYSAFETER_IMAGE_NATIVE:-joysafeter-native:latest}
+  JOYSAFETER_SANDBOX_WORKSPACE_ROOT: ${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}
+  SKILL_SECURITY_SCAN_ENABLED: ${SKILL_SECURITY_SCAN_ENABLED:-true}
+  SKILL_SECURITY_SCANNER_URL: ${SKILL_SECURITY_SCANNER_URL:-http://skillspector:8010}
+  SKILL_SECURITY_TIMEOUT_SECONDS: ${SKILL_SECURITY_TIMEOUT_SECONDS:-30}
+  SKILL_SECURITY_FAIL_CLOSED: ${SKILL_SECURITY_FAIL_CLOSED:-true}
+  SKILL_SECURITY_NO_LLM: ${SKILL_SECURITY_NO_LLM:-true}
+  SKILL_SECURITY_BLOCK_RECOMMENDATIONS: ${SKILL_SECURITY_BLOCK_RECOMMENDATIONS:-DO_NOT_INSTALL}
 
 x-backend-volumes: &backend-volumes
   - backend-logs:/app/app/logs
@@ -58,7 +74,7 @@ x-backend-volumes: &backend-volumes
 x-backend-depends: &backend-depends
   db:
     condition: service_healthy
-  redis:
+  skillspector:
     condition: service_healthy
 
 x-backend-health-common: &backend-health-common
@@ -68,6 +84,28 @@ x-backend-health-common: &backend-health-common
   start_period: 180s
 
 services:
+  skillspector:
+    image: ${SKILLSPECTOR_FULL_IMAGE:-joysafeter-skillspector:latest}
+    build: *skillspector-build
+    container_name: joysafeter-skillspector
+    restart: unless-stopped
+    environment:
+      SKILLSPECTOR_VERSION: ${SKILLSPECTOR_VERSION:-local}
+      SKILLSPECTOR_SERVICE_SCAN_TIMEOUT: ${SKILLSPECTOR_SERVICE_SCAN_TIMEOUT:-120}
+      SKILLSPECTOR_SERVICE_MAX_FILES: ${SKILLSPECTOR_SERVICE_MAX_FILES:-100}
+      SKILLSPECTOR_SERVICE_MAX_FILE_BYTES: ${SKILLSPECTOR_SERVICE_MAX_FILE_BYTES:-1048576}
+      SKILLSPECTOR_SERVICE_MAX_TOTAL_BYTES: ${SKILLSPECTOR_SERVICE_MAX_TOTAL_BYTES:-5242880}
+    expose:
+      - "8010"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - joysafeter-network
+
   db:
     image: ${DB_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/postgres:15}
     container_name: joysafeter-db
@@ -91,6 +129,7 @@ services:
       - joysafeter-network
 
   redis:
+    profiles: ["local-redis"]
     image: ${REDIS_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/redis:alpine3.22}
     container_name: joysafeter-redis
     restart: unless-stopped
@@ -158,6 +197,7 @@ services:
       - ../skills:/app/skills:ro
       - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
       - ${DOCKER_BIN_PATH:-/usr/bin/docker}:/usr/bin/docker:ro
+      - ${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}:${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}
     healthcheck:
       <<: *backend-health-common
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)"]
@@ -186,6 +226,7 @@ services:
       - ../skills:/app/skills:ro
       - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
       - ${DOCKER_BIN_PATH:-/usr/bin/docker}:/usr/bin/docker:ro
+      - ${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}:${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}
     networks:
       - joysafeter-network
 
@@ -228,6 +269,8 @@ services:
       NEXT_PUBLIC_CSP_NECESSARY_DOMAIN: ${NEXT_PUBLIC_CSP_NECESSARY_DOMAIN:-http://localhost:* http://127.0.0.1:*}
       NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA: ${NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA:-}
       NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA: ${NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA:-}
+      NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED: ${NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED:-}
+      SSO_DEFAULT_PROVIDER: ${SSO_DEFAULT_PROVIDER:-}
     ports:
       - "${FRONTEND_BIND_HOST:-0.0.0.0}:${FRONTEND_PORT_HOST:-3000}:3000"
     depends_on:

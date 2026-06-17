@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::any::Any;
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 use thiserror::Error;
@@ -43,15 +43,44 @@ pub struct HarnessInput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum HarnessEvent {
-    Text { content: String },
-    Thinking { content: String },
-    ToolUse { tool: String, call_id: String, input: serde_json::Value, #[serde(default)] is_control_request: bool },
-    ToolResult { tool: String, call_id: String, output: String },
-    Error { message: String },
-    Status { state: String },
-    Log { level: String, message: String },
-    ModelRequestStart { model: String },
-    ModelRequestEnd { model: String, input_tokens: u64, output_tokens: u64, cache_read_tokens: u64, cache_write_tokens: u64 },
+    Text {
+        content: String,
+    },
+    Thinking {
+        content: String,
+    },
+    ToolUse {
+        tool: String,
+        call_id: String,
+        input: serde_json::Value,
+        #[serde(default)]
+        is_control_request: bool,
+    },
+    ToolResult {
+        tool: String,
+        call_id: String,
+        output: String,
+    },
+    Error {
+        message: String,
+    },
+    Status {
+        state: String,
+    },
+    Log {
+        level: String,
+        message: String,
+    },
+    ModelRequestStart {
+        model: String,
+    },
+    ModelRequestEnd {
+        model: String,
+        input_tokens: u64,
+        output_tokens: u64,
+        cache_read_tokens: u64,
+        cache_write_tokens: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,11 +122,7 @@ pub struct RunningHarness {
 
 #[async_trait]
 pub trait HarnessAdapter: Send + Sync {
-    async fn start(
-        &self,
-        input: HarnessInput,
-        cwd: &Path,
-    ) -> Result<RunningHarness, HarnessError>;
+    async fn start(&self, input: HarnessInput, cwd: &Path) -> Result<RunningHarness, HarnessError>;
 
     async fn cancel(&self, harness: &mut RunningHarness) -> Result<(), HarnessError>;
 

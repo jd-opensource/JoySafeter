@@ -161,8 +161,7 @@ impl<'de> Deserialize<'de> for Networking {
         }
 
         let mut raw = RawNetworking::deserialize(deserializer)?;
-        raw.net_type = normalize_network_type(&raw.net_type)
-            .map_err(serde::de::Error::custom)?;
+        raw.net_type = normalize_network_type(&raw.net_type).map_err(serde::de::Error::custom)?;
         raw.allowed_hosts = raw
             .allowed_hosts
             .into_iter()

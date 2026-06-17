@@ -9,8 +9,8 @@ import { stripIdPrefix } from '@/lib/managed/id'
 import { generateUUID } from '@/lib/utils/uuid'
 import { useProjectStore } from '@/stores/managed/project-store'
 
-export type StepId = 1 | 2 | 3 | 4 | 5
-export type QuickstartEngine = 'claude' | 'codex'
+export type StepId = 1 | 2 | 3 | 4 | 5 | 6
+export type QuickstartEngine = 'claude' | 'codex' | 'native'
 
 export interface ChatMessage {
   id: string
@@ -25,9 +25,19 @@ export interface QuickstartConfig {
   vault?: Record<string, unknown>
 }
 
-const ENGINE_CONFIG: Record<QuickstartEngine, { engineKind: string; model: string }> = {
-  claude: { engineKind: 'claude', model: 'Claude-Opus-4.6' },
-  codex: { engineKind: 'codex', model: 'Codex' },
+const ENGINE_CONFIG: Record<QuickstartEngine, { engineKind: string }> = {
+  claude: { engineKind: 'claude' },
+  codex: { engineKind: 'codex' },
+  native: { engineKind: 'native' },
+}
+
+function apiStepForUiStep(step: StepId): number {
+  if (step <= 2) return step
+  return step - 1
+}
+
+function uiStepForApiStep(step: number): StepId {
+  return Math.min(step + 1, 6) as StepId
 }
 
 interface QuickstartEvent {
@@ -77,7 +87,10 @@ function getCreatedResourceId(payload: unknown): string | null {
   return null
 }
 
-export function useQuickstartChat(secretRef: string) {
+export function useQuickstartChat(
+  agentSecretRef: string,
+  generationSecret?: { secretRef: string; provider: QuickstartEngine },
+) {
   const { t } = useTranslation()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const messagesRef = useRef<ChatMessage[]>([])
@@ -90,7 +103,7 @@ export function useQuickstartChat(secretRef: string) {
   }, [config])
   const [isStreaming, setIsStreaming] = useState(false)
   const [curls, setCurls] = useState<Record<number, string>>({})
-  // resourceIds: { 2: agentId, 3: envId, 4: vaultId, 5: sessionId }
+  // resourceIds: { 3: agentId, 4: envId, 5: vaultId, 6: sessionId }
   const [resourceIds, setResourceIds] = useState<Record<number, string>>({})
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set())
   const [pendingConfirmation, setPendingConfirmation] = useState<{
@@ -110,10 +123,20 @@ export function useQuickstartChat(secretRef: string) {
   }, [messages])
 
   const sendMessage = useCallback(
-    async (text: string, options?: { stepOverride?: StepId; hidden?: boolean }) => {
+    async (
+      text: string,
+      options?: {
+        stepOverride?: StepId
+        hidden?: boolean
+        providerOverride?: QuickstartEngine
+        secretRefOverride?: string
+      },
+    ) => {
       if (isStreaming || !text.trim()) return
       const step = options?.stepOverride ?? currentStep
       const hidden = options?.hidden ?? false
+      const provider = options?.providerOverride ?? generationSecret?.provider ?? 'claude'
+      const requestSecretRef = options?.secretRefOverride ?? generationSecret?.secretRef ?? agentSecretRef
 
       const userMsg: ChatMessage = {
         id: generateUUID(),
@@ -129,7 +152,7 @@ export function useQuickstartChat(secretRef: string) {
       }
 
       const newMessages = [...messages, userMsg]
-      if (step === 1) {
+      if (step <= 2) {
         setMessages(newMessages)
         messagesRef.current = newMessages
         return
@@ -154,9 +177,10 @@ export function useQuickstartChat(secretRef: string) {
           headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
           body: JSON.stringify({
             messages: historyForApi,
-            current_step: step,
-            secret_ref: secretRef,
-            agent_context: step === 3 || step === 4 ? configRef.current.agent : undefined,
+            current_step: apiStepForUiStep(step),
+            provider,
+            secret_ref: requestSecretRef,
+            agent_context: step === 4 || step === 5 ? configRef.current.agent : undefined,
           }),
           signal: controller.signal,
         })
@@ -215,13 +239,14 @@ export function useQuickstartChat(secretRef: string) {
 
                 case 'step_complete':
                   if (event.step) {
+                    const uiStep = uiStepForApiStep(event.step)
                     setPendingConfirmation({
-                      step: event.step,
+                      step: uiStep,
                       curl: event.curl || '',
                     })
                     if (event.resource_id) {
                       setResourceIds((prev) => {
-                        const next = { ...prev, [event.step!]: event.resource_id! }
+                        const next = { ...prev, [uiStep]: event.resource_id! }
                         resourceIdsRef.current = next
                         return next
                       })
@@ -276,13 +301,13 @@ export function useQuickstartChat(secretRef: string) {
         abortRef.current = null
       }
     },
-    [messages, currentStep, secretRef, isStreaming, t],
+    [messages, currentStep, generationSecret, agentSecretRef, isStreaming, t],
   )
 
   const createSession = useCallback(async () => {
-    const agentId = resourceIdsRef.current[2]
-    const envId = resourceIdsRef.current[3]
-    const vaultId = resourceIdsRef.current[4]
+    const agentId = resourceIdsRef.current[3]
+    const envId = resourceIdsRef.current[4]
+    const vaultId = resourceIdsRef.current[5]
     if (!agentId) {
       setMessages((prev) => [
         ...prev,
@@ -317,7 +342,7 @@ export function useQuickstartChat(secretRef: string) {
       const sessionId = getCreatedResourceId(result)
       if (sessionId) {
         setResourceIds((prev) => {
-          const next = { ...prev, [5]: sessionId }
+          const next = { ...prev, [6]: sessionId }
           resourceIdsRef.current = next
           return next
         })
@@ -328,8 +353,8 @@ export function useQuickstartChat(secretRef: string) {
   -H "x-api-key: $API_KEY" \\
   -d '${JSON.stringify(body, null, 2)}'`
 
-      setCompletedSteps((prev) => new Set([...prev, 5]))
-      setCurls((prev) => ({ ...prev, [5]: sessionCurl }))
+      setCompletedSteps((prev) => new Set([...prev, 6]))
+      setCurls((prev) => ({ ...prev, [6]: sessionCurl }))
     } catch (err) {
       setMessages((prev) => [
         ...prev,
@@ -377,7 +402,7 @@ export function useQuickstartChat(secretRef: string) {
         const environmentId = getCreatedResourceId(result)
         if (environmentId) {
           setResourceIds((prev) => {
-            const next = { ...prev, [3]: environmentId }
+            const next = { ...prev, [4]: environmentId }
             resourceIdsRef.current = next
             return next
           })
@@ -388,8 +413,8 @@ export function useQuickstartChat(secretRef: string) {
   -H "x-api-key: $API_KEY" \\
   -d '${JSON.stringify(envBody, null, 2)}'`
 
-        setCompletedSteps((prev) => new Set([...prev, 3]))
-        setCurls((prev) => ({ ...prev, [3]: envCurl }))
+        setCompletedSteps((prev) => new Set([...prev, 4]))
+        setCurls((prev) => ({ ...prev, [4]: envCurl }))
       } catch (err) {
         setMessages((prev) => [
           ...prev,
@@ -426,7 +451,7 @@ export function useQuickstartChat(secretRef: string) {
       const vaultId = getCreatedResourceId(result)
       if (vaultId) {
         setResourceIds((prev) => {
-          const next = { ...prev, [4]: vaultId }
+          const next = { ...prev, [5]: vaultId }
           resourceIdsRef.current = next
           return next
         })
@@ -437,8 +462,8 @@ export function useQuickstartChat(secretRef: string) {
   -H "x-api-key: $API_KEY" \\
   -d '${JSON.stringify(vaultBody, null, 2)}'`
 
-      setCompletedSteps((prev) => new Set([...prev, 4]))
-      setCurls((prev) => ({ ...prev, [4]: vaultCurl }))
+      setCompletedSteps((prev) => new Set([...prev, 5]))
+      setCurls((prev) => ({ ...prev, [5]: vaultCurl }))
     } catch (err) {
       setMessages((prev) => [
         ...prev,
@@ -457,15 +482,22 @@ export function useQuickstartChat(secretRef: string) {
     setSelectedEngine(engine)
     setCompletedSteps((prev) => new Set([...prev, 1]))
     setCurrentStep(2)
+  }, [])
 
+  const selectAgentSecret = useCallback(() => {
+    setCompletedSteps((prev) => new Set([...prev, 2]))
+    setCurrentStep(3)
     const lastUserMessage = [...messagesRef.current].reverse().find((message) => message.role === 'user')
     if (lastUserMessage?.content && !configRef.current.agent && !isStreaming) {
-      void sendMessage(lastUserMessage.content, { stepOverride: 2, hidden: true })
+      void sendMessage(lastUserMessage.content, {
+        stepOverride: 3,
+        hidden: true,
+      })
     }
   }, [isStreaming, sendMessage])
 
   const advanceStep = useCallback(() => {
-    const nextStep = Math.min(currentStep + 1, 5) as StepId
+    const nextStep = Math.min(currentStep + 1, 6) as StepId
     setCurrentStep(nextStep)
   }, [currentStep])
 
@@ -481,7 +513,7 @@ export function useQuickstartChat(secretRef: string) {
 
       const latestConfig = configRef.current
 
-      if (step === 2) {
+      if (step === 3) {
         const a = latestConfig.agent
         if (!a) throw new Error(t('managed.quickstart.errors.agentConfigMissing'))
         const engine = selectedEngine || 'claude'
@@ -493,13 +525,12 @@ export function useQuickstartChat(secretRef: string) {
           body: JSON.stringify({
             name: (a.name || 'Untitled Agent') + suffix,
             engine_kind: engineConfig.engineKind,
-            model: engineConfig.model,
             system_prompt: a.system_prompt || a.system || null,
-            secret_ref: secretRef,
+            secret_ref: agentSecretRef,
             tools: a.tools || [],
           }),
         })
-      } else if (step === 3) {
+      } else if (step === 4) {
         const e = latestConfig.environment
         if (!e) throw new Error(t('managed.quickstart.errors.environmentConfigMissing'))
         const networking = e.networking as Record<string, unknown> | undefined
@@ -519,7 +550,7 @@ export function useQuickstartChat(secretRef: string) {
             },
           }),
         })
-      } else if (step === 4) {
+      } else if (step === 5) {
         const v = latestConfig.vault
         if (!v) throw new Error(t('managed.quickstart.errors.vaultConfigMissing'))
         resp = await fetch(`${MANAGED_API_BASE}/vaults`, {
@@ -541,6 +572,25 @@ export function useQuickstartChat(secretRef: string) {
       }
 
       const result = await resp.json()
+      const createdResource = unwrapManagedResponse<Record<string, unknown>>(result)
+      const createdAgent =
+        step === 3
+          ? (
+              createdResource?.agent &&
+              typeof createdResource.agent === 'object'
+                ? createdResource.agent
+                : createdResource
+            ) as Record<string, unknown>
+          : null
+      if (createdAgent?.model) {
+        setConfig((prev) => ({
+          ...prev,
+          agent: {
+            ...(prev.agent || {}),
+            model: createdAgent.model,
+          },
+        }))
+      }
       const resourceId = getCreatedResourceId(result)
       if (resourceId) {
         setResourceIds((prev) => {
@@ -567,7 +617,7 @@ export function useQuickstartChat(secretRef: string) {
     } finally {
       setIsCreating(false)
     }
-  }, [pendingConfirmation, isCreating, secretRef, selectedEngine, t])
+  }, [pendingConfirmation, isCreating, agentSecretRef, selectedEngine, t])
 
   const keepRefining = useCallback(() => {
     setPendingConfirmation(null)
@@ -575,20 +625,20 @@ export function useQuickstartChat(secretRef: string) {
 
   const selectExistingEnvironment = useCallback((envId: string) => {
     setResourceIds((prev) => {
-      const next = { ...prev, [3]: envId }
-      resourceIdsRef.current = next
-      return next
-    })
-    setCompletedSteps((prev) => new Set([...prev, 3]))
-  }, [])
-
-  const selectExistingVault = useCallback((vaultId: string) => {
-    setResourceIds((prev) => {
-      const next = { ...prev, [4]: vaultId }
+      const next = { ...prev, [4]: envId }
       resourceIdsRef.current = next
       return next
     })
     setCompletedSteps((prev) => new Set([...prev, 4]))
+  }, [])
+
+  const selectExistingVault = useCallback((vaultId: string) => {
+    setResourceIds((prev) => {
+      const next = { ...prev, [5]: vaultId }
+      resourceIdsRef.current = next
+      return next
+    })
+    setCompletedSteps((prev) => new Set([...prev, 5]))
   }, [])
 
   const goToStep = useCallback((step: StepId) => {
@@ -597,22 +647,22 @@ export function useQuickstartChat(secretRef: string) {
 
   const sendAutoIntro = useCallback(
     async (step: StepId) => {
-      if (step === 2) {
+      if (step === 3) {
         await sendMessage('Create an agent configuration for my use case.', {
-          stepOverride: 2,
+          stepOverride: 3,
           hidden: true,
         })
-      } else if (step === 3) {
+      } else if (step === 4) {
         const agentName =
           (configRef.current.agent as Record<string, unknown> | undefined)?.name || 'the agent'
         await sendMessage(
           `I just configured an agent called "${agentName}". What environment configuration does it need?`,
-          { stepOverride: 3, hidden: true },
+          { stepOverride: 4, hidden: true },
         )
-      } else if (step === 4) {
+      } else if (step === 5) {
         await sendMessage(
           'What vault configuration does my agent need for MCP server credentials?',
-          { stepOverride: 4, hidden: true },
+          { stepOverride: 5, hidden: true },
         )
       }
     },
@@ -639,7 +689,8 @@ ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
         body: JSON.stringify({
           messages: [{ role: 'user', content: prompt }],
           current_step: 5,
-          secret_ref: secretRef,
+          provider: generationSecret?.provider ?? 'claude',
+          secret_ref: generationSecret?.secretRef ?? agentSecretRef,
           agent_context: agent,
         }),
       })
@@ -678,7 +729,7 @@ ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
     } catch {
       return t('managed.quickstart.trialRun.defaultPrompt', { agentName })
     }
-  }, [secretRef, t])
+  }, [agentSecretRef, generationSecret, t])
 
   return {
     messages,
@@ -693,6 +744,7 @@ ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
     isCreating,
     sendMessage,
     selectEngine,
+    selectAgentSecret,
     advanceStep,
     confirmStep,
     keepRefining,
