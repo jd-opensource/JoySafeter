@@ -18,7 +18,7 @@ import {
   SelectItem,
   SelectValue,
 } from '@/components/ui/select'
-import { FieldHelp, PageHeader } from '@/components/managed/shared'
+import { FieldHelp, PageHeader, SkillVersionSelect } from '@/components/managed/shared'
 import { Plus, Trash2 } from 'lucide-react'
 
 const BUILTIN_TOOLS = [
@@ -29,12 +29,13 @@ const BUILTIN_TOOLS = [
 const PERMISSION_MODES = [
   { value: 'bypassPermissions', labelKey: 'agents.edit.permBypass' },
   { value: 'default', labelKey: 'agents.edit.permAsk' },
-  { value: 'deny', labelKey: 'agents.edit.permDeny' },
 ]
 
 interface McpServerEntry {
   name: string
   url: string
+  /** Permission policy for this server's tools. Defaults to always_ask. */
+  policy?: 'always_allow' | 'always_ask'
 }
 
 interface EnvVarEntry {
@@ -112,6 +113,8 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
 
   // ── Skills state ──
   const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(new Set())
+  /** skill_id → chosen version keyword ("latest", "draft") or semver string. */
+  const [skillVersions, setSkillVersions] = useState<Record<string, string>>({})
 
   // ── Secret ref ──
   const [secretRef, setSecretRef] = useState('')
@@ -134,9 +137,26 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
     setEngineKind(agent.engine_kind || 'claude')
     setSystemPrompt(agent.system || agent.system_prompt || '')
 
-    // MCP servers
+    // MCP servers — merge url (from mcp_servers) with policy (from the
+    // matching mcp_toolset tool's default_config, default always_ask).
     if (agent.mcp_servers && agent.mcp_servers.length > 0) {
-      setMcpServers(agent.mcp_servers.map((m) => ({ name: m.name, url: m.url })))
+      const policyByServer = new Map<string, 'always_allow' | 'always_ask'>()
+      for (const tool of agent.tools || []) {
+        if (tool.type === 'mcp_toolset' && tool.mcp_server_name) {
+          const pol = tool.default_config?.permission_policy?.type
+          policyByServer.set(
+            tool.mcp_server_name,
+            pol === 'always_allow' ? 'always_allow' : 'always_ask',
+          )
+        }
+      }
+      setMcpServers(
+        agent.mcp_servers.map((m) => ({
+          name: m.name,
+          url: m.url,
+          policy: policyByServer.get(m.name) || 'always_ask',
+        })),
+      )
     }
 
     // Tools
@@ -169,6 +189,9 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
     // Skills
     if (agent.skills && agent.skills.length > 0) {
       setSelectedSkillIds(new Set(agent.skills.map((s) => s.skill_id)))
+      setSkillVersions(
+        Object.fromEntries(agent.skills.map((s) => [s.skill_id, s.version || 'latest'])),
+      )
     }
 
     // Secret ref
@@ -207,10 +230,14 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
       toastOperationError(t, new Error(urlError), 'common.error')
       return
     }
-    setMcpServers((prev) => [...prev, { name: mcpName.trim(), url: mcpUrl.trim() }])
+    setMcpServers((prev) => [...prev, { name: mcpName.trim(), url: mcpUrl.trim(), policy: 'always_ask' }])
     setMcpName('')
     setMcpUrl('')
     setShowMcpForm(false)
+  }
+
+  const setMcpPolicy = (index: number, policy: 'always_allow' | 'always_ask') => {
+    setMcpServers((prev) => prev.map((m, i) => (i === index ? { ...m, policy } : m)))
   }
 
   const removeMcpServer = (idx: number) => {
@@ -261,6 +288,9 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
       tools.push({
         type: 'mcp_toolset',
         mcp_server_name: mcp.name,
+        default_config: {
+          permission_policy: { type: mcp.policy || 'always_ask' },
+        },
       })
     }
     return tools
@@ -293,7 +323,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
         skills: Array.from(selectedSkillIds).map((id) => ({
           type: 'custom' as const,
           skill_id: id,
-          version: 'latest',
+          version: skillVersions[id] || 'latest',
         })),
         secret_ref: secretRef || undefined,
         environment_ref: environmentRef || undefined,
@@ -407,6 +437,15 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
             <div key={i} className="flex items-center gap-2 text-sm">
               <span className="font-medium">{m.name}</span>
               <span className="text-muted-foreground truncate flex-1">{m.url}</span>
+              <select
+                value={m.policy || 'always_ask'}
+                onChange={(e) => setMcpPolicy(i, e.target.value as 'always_allow' | 'always_ask')}
+                className="h-7 rounded border border-border bg-background px-1.5 text-xs"
+                title={t('managed.agents.create.mcpPolicyHint')}
+              >
+                <option value="always_ask">{t('managed.policy.alwaysAsk')}</option>
+                <option value="always_allow">{t('managed.policy.alwaysAllow')}</option>
+              </select>
               <button
                 type="button"
                 onClick={() => removeMcpServer(i)}
@@ -481,9 +520,26 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
               </label>
             ))}
           </div>
+
+          {/* Permission mode — applies to the whole toolset */}
+          <div>
+            <label className="text-sm font-medium text-foreground block mb-1.5">
+              {t('agents.edit.permissionMode')}
+            </label>
+            <select
+              className="flex w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              value={permissionMode}
+              onChange={(e) => setPermissionMode(e.target.value)}
+            >
+              {PERMISSION_MODES.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {t(m.labelKey)}
+                </option>
+              ))}
+            </select>
+          </div>
         </section>
 
-        {/* ───────── Skills ───────── */}
         <section className="space-y-3">
           <h3 className="text-sm font-semibold text-foreground border-b border-border pb-2">
             {t('agents.edit.skills')}
@@ -497,27 +553,39 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
             </p>
           ) : (
             <div className="space-y-2">
-              {skills.map((skill) => (
-                <label key={skill.id} className="flex items-center gap-2 cursor-pointer select-none">
-                  <span
-                    className={`flex h-5 w-5 items-center justify-center rounded border transition-colors ${
-                      selectedSkillIds.has(skill.id)
-                        ? 'bg-emerald-400 border-emerald-400 text-white'
-                        : 'border-border bg-background'
-                    }`}
-                    onClick={() => toggleSkill(skill.id)}
-                  >
-                    {selectedSkillIds.has(skill.id) && (
-                      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
+              {skills.map((skill) => {
+                const isSelected = selectedSkillIds.has(skill.id)
+                return (
+                  <div key={skill.id} className="flex items-center gap-2">
+                    <label className="flex flex-1 items-center gap-2 cursor-pointer select-none min-w-0">
+                      <span
+                        className={`flex h-5 w-5 items-center justify-center rounded border transition-colors shrink-0 ${
+                          isSelected
+                            ? 'bg-emerald-400 border-emerald-400 text-white'
+                            : 'border-border bg-background'
+                        }`}
+                        onClick={() => toggleSkill(skill.id)}
+                      >
+                        {isSelected && (
+                          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className="text-sm text-foreground truncate" onClick={() => toggleSkill(skill.id)}>
+                        {skill.display_title || skill.name || skill.id}
+                      </span>
+                    </label>
+                    {isSelected && (
+                      <SkillVersionSelect
+                        skillId={skill.id}
+                        value={skillVersions[skill.id] || 'latest'}
+                        onChange={(v) => setSkillVersions((prev) => ({ ...prev, [skill.id]: v }))}
+                      />
                     )}
-                  </span>
-                  <span className="text-sm text-foreground" onClick={() => toggleSkill(skill.id)}>
-                    {skill.display_title || skill.name || skill.id}
-                  </span>
-                </label>
-              ))}
+                  </div>
+                )
+              })}
             </div>
           )}
         </section>

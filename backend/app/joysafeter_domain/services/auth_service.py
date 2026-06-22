@@ -12,7 +12,6 @@ from app.joysafeter_shared.common.app_errors import (
     AuthenticationError,
     InternalServiceError,
     InvalidRequestError,
-    ServiceUnavailableError,
 )
 from app.joysafeter_shared.security import (
     generate_email_verify_token,
@@ -32,6 +31,8 @@ from app.joysafeter_domain.services.security_audit_service import SecurityAuditS
 
 class AuthService(BaseService):
     """User authentication service."""
+
+    _REFRESH_SESSION_PREFIX = "refresh:"
 
     def __init__(self, db: AsyncSession):
         super().__init__(db)
@@ -119,7 +120,7 @@ class AuthService(BaseService):
             role=role,
         )
 
-        # generate refresh token (random string, stored in Redis)
+        # generate refresh token (random string, stored in Redis and DB session fallback)
         refresh_token = generate_refresh_token()
         refresh_token_key = f"refresh_token:{refresh_token}"
         refresh_token_user_key = f"account_refresh_token:{user_id}"
@@ -133,13 +134,57 @@ class AuthService(BaseService):
             except Exception:
                 logger.debug("Failed to store refresh token in Redis", exc_info=True)
 
+        await self._store_refresh_session(refresh_token, user_id, refresh_expires)
+
         # generate CSRF token (JWT)
         csrf_token = create_csrf_token(user_id)
 
         return access_token, refresh_token, csrf_token, access_expires, refresh_expires
 
+    def _refresh_session_token(self, refresh_token: str) -> str:
+        """Namespace refresh tokens so they cannot be used as legacy access sessions."""
+        return f"{self._REFRESH_SESSION_PREFIX}{refresh_token}"
+
+    async def _store_refresh_session(
+        self,
+        refresh_token: str,
+        user_id: str,
+        refresh_expires: datetime,
+    ) -> None:
+        """Persist refresh token in DB as a durable fallback to Redis."""
+        user = await self.user_repo.get_by(id=user_id)  # type: ignore[arg-type]
+        if not user:
+            logger.warning(f"Cannot persist refresh session: user not found user_id={user_id}")
+            return
+
+        await self.session_service.create_session(
+            user=user,
+            token=self._refresh_session_token(refresh_token),
+            expires_at=refresh_expires,
+        )
+
+    async def _get_refresh_session_user_id(self, refresh_token: str) -> Optional[str]:
+        """Resolve a refresh token from the durable DB session store."""
+        session_token = self._refresh_session_token(refresh_token)
+        session = await self.session_service.session_repo.get_by_token(session_token)
+        if not session:
+            return None
+
+        now = datetime.now(timezone.utc)
+        expires_at = session.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+        if expires_at < now:
+            await self.session_service.invalidate_session(session_token)
+            return None
+
+        session.last_activity_at = now
+        await self.commit()
+        return session.user_id
+
     async def _delete_refresh_token(self, refresh_token: str, user_id: str) -> None:
-        """Delete the refresh token from Redis."""
+        """Delete the refresh token from Redis and the durable DB session store."""
         from app.joysafeter_shared.cache.redis import RedisClient
 
         redis_client = RedisClient.get_client()
@@ -148,6 +193,8 @@ class AuthService(BaseService):
             refresh_token_user_key = f"account_refresh_token:{user_id}"
             await redis_client.delete(refresh_token_key)
             await redis_client.delete(refresh_token_user_key)
+
+        await self.session_service.invalidate_session(self._refresh_session_token(refresh_token))
 
     def _build_jwt_login_response(
         self,
@@ -177,6 +224,15 @@ class AuthService(BaseService):
             "expires_in": int((access_expires - datetime.now(timezone.utc)).total_seconds()),
         }
         return response
+
+    async def issue_login_tokens(self, user: AuthUser) -> dict:
+        """Issue access/refresh/csrf tokens for an already authenticated user."""
+        access_token, refresh_token, csrf_token, access_expires, refresh_expires = await self._issue_jwt_tokens(
+            user.id
+        )
+        return self._build_jwt_login_response(
+            user, access_token, refresh_token, csrf_token, access_expires, refresh_expires
+        )
 
     async def _build_login_response(
         self,
@@ -496,22 +552,17 @@ class AuthService(BaseService):
         """Refresh the access token."""
         from app.joysafeter_shared.cache.redis import RedisClient
 
-        if not RedisClient.is_available():
-            raise ServiceUnavailableError(
-                "Token refresh service unavailable. Please login again.",
-                code="TOKEN_REFRESH_UNAVAILABLE",
-            )
-
-        redis_client = RedisClient.get_client()
-        if not redis_client:
-            raise ServiceUnavailableError(
-                "Token refresh service unavailable. Please login again.",
-                code="TOKEN_REFRESH_UNAVAILABLE",
-            )
-
         try:
-            refresh_token_key = f"refresh_token:{refresh_token}"
-            user_id = await redis_client.get(refresh_token_key)
+            user_id = None
+            redis_client = RedisClient.get_client() if RedisClient.is_available() else None
+            if redis_client:
+                refresh_token_key = f"refresh_token:{refresh_token}"
+                user_id = await redis_client.get(refresh_token_key)
+                if isinstance(user_id, bytes):
+                    user_id = user_id.decode()
+
+            if not user_id:
+                user_id = await self._get_refresh_session_user_id(refresh_token)
 
             if not user_id:
                 raise AuthenticationError("Invalid or expired refresh token", code="REFRESH_TOKEN_INVALID")

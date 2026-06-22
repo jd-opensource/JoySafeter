@@ -8,7 +8,7 @@ from typing import List, Optional
 
 import semver
 
-from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError
+from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError, ResourceConflictError
 from app.joysafeter_shared.common.skill_permissions import check_skill_access
 from app.joysafeter_domain.models.skill import Skill, SkillFile
 from app.joysafeter_domain.models.skill_collaborator import CollaboratorRole
@@ -176,6 +176,7 @@ class SkillVersionService(BaseService[SkillVersion]):
         version_str: str,
         current_user_id: str,
         is_superuser: bool = False,
+        force: bool = False,
     ) -> None:
         skill = await self._get_skill_or_404(skill_id)
         await check_skill_access(
@@ -192,8 +193,80 @@ class SkillVersionService(BaseService[SkillVersion]):
                 code="SKILL_VERSION_NOT_FOUND",
                 data={"skill_id": str(skill_id), "version": version_str},
             )
+
+        # Reference check: any live agent.skills OR persisted agent_version
+        # snapshot.skills entry that points at this specific version.
+        if not force:
+            referrers = await self._find_version_referrers(skill_id, version_str)
+            if referrers:
+                raise ResourceConflictError(
+                    "Skill version is in use",
+                    code="SKILL_VERSION_IN_USE",
+                    data={
+                        "skill_id": str(skill_id),
+                        "version": version_str,
+                        "referrers": referrers,
+                        "hint": "Pass force=true to delete anyway. Agents pointing at this version will fall back according to their current 'version' field.",
+                    },
+                )
+
         await self.db.delete(sv)
         await self.db.commit()
+
+    async def _find_version_referrers(
+        self, skill_id: uuid.UUID, version_str: str
+    ) -> list[dict]:
+        """Find agents (live draft + persisted agent_versions) that reference
+        ``(skill_id, version_str)`` in their ``skills`` array. Returns a list
+        of compact descriptors usable in the error payload."""
+        from sqlalchemy import text as sa_text
+        import json
+
+        from app.joysafeter_domain.models.agent import (
+            JoySafeterAgent,
+            JoySafeterAgentVersion,
+        )
+
+        # JSONB array containment: skills @> [{"skill_id": "...", "version": "..."}]
+        sid_str = str(skill_id)
+        # Match both prefixed and unprefixed skill_id forms — the codebase uses
+        # both shapes in different paths.
+        candidates = [
+            json.dumps([{"skill_id": sid_str, "version": version_str}]),
+            json.dumps([{"skill_id": f"skill_{sid_str}", "version": version_str}]),
+        ]
+
+        referrers: list[dict] = []
+
+        # 1) Live agent.skills
+        for needle in candidates:
+            stmt = sa_text(
+                "SELECT id, name FROM joysafeter_agents "
+                "WHERE skills @> CAST(:needle AS jsonb)"
+            ).bindparams(needle=needle)
+            result = await self.db.execute(stmt)
+            for row in result.mappings():
+                referrers.append({
+                    "kind": "agent",
+                    "agent_id": str(row["id"]),
+                    "name": row["name"],
+                })
+
+        # 2) Frozen agent_version snapshots
+        for needle in candidates:
+            stmt = sa_text(
+                "SELECT agent_id, version FROM joysafeter_agent_versions "
+                "WHERE (snapshot->'skills') @> CAST(:needle AS jsonb)"
+            ).bindparams(needle=needle)
+            result = await self.db.execute(stmt)
+            for row in result.mappings():
+                referrers.append({
+                    "kind": "agent_version",
+                    "agent_id": str(row["agent_id"]),
+                    "agent_version": row["version"],
+                })
+
+        return referrers
 
     async def restore_draft(
         self,

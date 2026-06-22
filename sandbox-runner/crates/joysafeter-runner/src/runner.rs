@@ -125,8 +125,19 @@ pub async fn handle_task(
         }
     }
 
+    // Clone configured repos (idempotent fallback for pooled/reconnected sandboxes
+    // that may have missed SetupSandbox).
+    crate::repos::clone_repos(&work_dir, &task.repos).await;
+
     // Write MCP servers and custom tools to .claude/settings.json (per-task overrides only)
-    write_settings_json(&work_dir, &task.mcp_servers, &task.custom_tools).await?;
+    write_settings_json(
+        &work_dir,
+        &task.mcp_servers,
+        &task.custom_tools,
+        &task.allowed_tools,
+        &task.ask_tools,
+    )
+    .await?;
 
     let env = if session_config.env.is_empty() {
         task.env.clone()
@@ -160,8 +171,22 @@ pub async fn handle_task(
         timeout: Duration::from_secs(task.timeout_seconds),
         env,
         secrets,
-        mcp_configs: vec![],
+        // Forward MCP servers from the orchestrator-built proto into the
+        // engine adapter. Adapters that target HTTP MCP (e.g. codex) write
+        // these into their CLI's config; adapters that already write their
+        // own config via task.mcp_servers (claude) simply ignore this.
+        mcp_configs: task
+            .mcp_servers
+            .iter()
+            .filter(|s| !s.url.is_empty())
+            .map(|s| joysafeter_types::agent::McpServerConfig::Url {
+                name: s.name.clone(),
+                url: s.url.clone(),
+            })
+            .collect(),
         permission_mode,
+        allowed_tools: task.allowed_tools.clone(),
+        ask_tools: task.ask_tools.clone(),
     };
 
     info!(provider = %provider, "Dispatching task to agent CLI...");
@@ -413,9 +438,16 @@ pub async fn handle_setup(
     download_file_refs(&setup.file_refs)
         .await
         .map_err(|e| format!("download_file_refs: {e}"))?;
-    write_settings_json(&work_dir, &setup.mcp_servers, &setup.custom_tools)
-        .await
-        .map_err(|e| format!("write_settings_json to {}: {e}", work_dir.display()))?;
+    crate::repos::clone_repos(&work_dir, &setup.repos).await;
+    write_settings_json(
+        &work_dir,
+        &setup.mcp_servers,
+        &setup.custom_tools,
+        &setup.allowed_tools,
+        &setup.ask_tools,
+    )
+    .await
+    .map_err(|e| format!("write_settings_json to {}: {e}", work_dir.display()))?;
 
     #[cfg(target_os = "linux")]
     let memory_fuse_handle = if setup.provider != "docker"
@@ -565,8 +597,35 @@ async fn write_settings_json(
     work_dir: &PathBuf,
     mcp_servers: &[proto::McpConfig],
     custom_tools: &[proto::CustomTool],
+    allowed_tools: &[String],
+    ask_tools: &[String],
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    if mcp_servers.is_empty() && custom_tools.is_empty() {
+    if mcp_servers.is_empty()
+        && custom_tools.is_empty()
+        && allowed_tools.is_empty()
+        && ask_tools.is_empty()
+    {
+        return Ok(());
+    }
+
+    // MCP server *definitions* must live in the project-root `.mcp.json` file.
+    // Claude Code discovers project-scoped servers from `<cwd>/.mcp.json`
+    // (key: "mcpServers"); it does NOT read server definitions from
+    // `.claude/settings.json`. See claude-code src/services/mcp/config.ts
+    // (getMcpConfigsByScope -> 'project' reads `.mcp.json`).
+    if !mcp_servers.is_empty() {
+        write_mcp_json(work_dir, mcp_servers).await?;
+    }
+
+    // `.claude/settings.json` carries the *approval* + custom tools + permission rules.
+    // Project-scoped servers from `.mcp.json` are pending approval by default; the
+    // sandbox runs non-interactively so there is no approval dialog.
+    // `enableAllProjectMcpServers: true` auto-approves them.
+    let need_settings = !mcp_servers.is_empty()
+        || !custom_tools.is_empty()
+        || !allowed_tools.is_empty()
+        || !ask_tools.is_empty();
+    if !need_settings {
         return Ok(());
     }
 
@@ -586,24 +645,8 @@ async fn write_settings_json(
     };
 
     if !mcp_servers.is_empty() {
-        let mut mcp_obj = serde_json::Map::new();
-        for server in mcp_servers {
-            let entry = if server.server_type == "url" && !server.url.is_empty() {
-                let mut e = serde_json::json!({"type": "url", "url": server.url});
-                if !server.headers.is_empty() {
-                    e["headers"] = serde_json::json!(server.headers);
-                }
-                e
-            } else {
-                let mut e = serde_json::json!({"command": server.command, "args": server.args});
-                if !server.env.is_empty() {
-                    e["env"] = serde_json::json!(server.env);
-                }
-                e
-            };
-            mcp_obj.insert(server.name.clone(), entry);
-        }
-        settings["mcpServers"] = serde_json::Value::Object(mcp_obj);
+        // Auto-approve all project-scoped (.mcp.json) servers in this sandbox.
+        settings["enableAllProjectMcpServers"] = serde_json::Value::Bool(true);
     }
 
     if !custom_tools.is_empty() {
@@ -623,9 +666,90 @@ async fn write_settings_json(
         settings["customTools"] = serde_json::Value::Array(tools);
     }
 
+    // Tool permission rules (official Managed Agents model: allow + ask only).
+    if !allowed_tools.is_empty() || !ask_tools.is_empty() {
+        let mut perms = serde_json::Map::new();
+        if !allowed_tools.is_empty() {
+            perms.insert("allow".to_string(), serde_json::json!(allowed_tools));
+        }
+        if !ask_tools.is_empty() {
+            perms.insert("ask".to_string(), serde_json::json!(ask_tools));
+        }
+        settings["permissions"] = serde_json::Value::Object(perms);
+    }
+
     let content = serde_json::to_string_pretty(&settings).unwrap_or_default();
     tokio::fs::write(&settings_path, content).await?;
     info!("Wrote .claude/settings.json");
+    Ok(())
+}
+
+/// Write MCP server definitions to the project-root `.mcp.json` so Claude Code
+/// discovers them as project-scoped servers.
+///
+/// Structure: `{ "mcpServers": { "<name>": { ... } } }`.
+/// Remote servers (url present) use `type: "http"` (Claude Code accepts
+/// `streamable-http` as an alias; `sse` is honored when explicitly requested).
+/// Local servers use `command` / `args` / `env`.
+async fn write_mcp_json(
+    work_dir: &PathBuf,
+    mcp_servers: &[proto::McpConfig],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mcp_json_path = work_dir.join(".mcp.json");
+
+    // Merge into any existing `.mcp.json` (e.g. one checked into the repo).
+    let mut root: serde_json::Value = if mcp_json_path.exists() {
+        let content = tokio::fs::read_to_string(&mcp_json_path)
+            .await
+            .unwrap_or_default();
+        serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+    if !root.is_object() {
+        root = serde_json::json!({});
+    }
+
+    let mut mcp_obj = root
+        .get("mcpServers")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .unwrap_or_default();
+
+    for server in mcp_servers {
+        let is_remote = !server.url.is_empty();
+        let entry = if is_remote {
+            // `server_type` may arrive as "sse", "url", "streamable-http", or
+            // empty. Only "sse" needs the distinct transport; everything else
+            // (including the legacy "url") maps to Claude Code's "http".
+            let transport = if server.server_type == "sse" {
+                "sse"
+            } else {
+                "http"
+            };
+            let mut e = serde_json::json!({"type": transport, "url": server.url});
+            if !server.headers.is_empty() {
+                e["headers"] = serde_json::json!(server.headers);
+            }
+            e
+        } else {
+            let mut e = serde_json::json!({"command": server.command, "args": server.args});
+            if !server.env.is_empty() {
+                e["env"] = serde_json::json!(server.env);
+            }
+            e
+        };
+        mcp_obj.insert(server.name.clone(), entry);
+    }
+
+    root["mcpServers"] = serde_json::Value::Object(mcp_obj);
+
+    let content = serde_json::to_string_pretty(&root).unwrap_or_default();
+    tokio::fs::write(&mcp_json_path, content).await?;
+    info!(
+        servers = mcp_servers.len(),
+        "Wrote .mcp.json with project-scoped MCP servers"
+    );
     Ok(())
 }
 
@@ -699,5 +823,48 @@ mod tests {
 
         assert!(should_forward_control_input(&mut seen, a));
         assert!(!should_forward_control_input(&mut seen, b));
+    }
+
+    #[tokio::test]
+    async fn write_settings_json_emits_permissions_and_mcp() {
+        let dir = std::env::temp_dir().join(format!("jsf_test_{}", std::process::id()));
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+
+        let mcp = vec![proto::McpConfig {
+            name: "github".into(),
+            url: "https://mcp.example.com".into(),
+            server_type: "url".into(),
+            ..Default::default()
+        }];
+        let allowed = vec!["Bash".to_string(), "Read".to_string()];
+        let ask = vec!["mcp__github__*".to_string()];
+
+        write_settings_json(&dir, &mcp, &[], &allowed, &ask)
+            .await
+            .unwrap();
+
+        // settings.json: permissions (allow/ask) + enableAllProjectMcpServers, NO mcpServers
+        let settings: serde_json::Value = serde_json::from_str(
+            &tokio::fs::read_to_string(dir.join(".claude/settings.json"))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(settings["permissions"]["allow"], serde_json::json!(["Bash", "Read"]));
+        assert_eq!(settings["permissions"]["ask"], serde_json::json!(["mcp__github__*"]));
+        assert_eq!(settings["enableAllProjectMcpServers"], serde_json::json!(true));
+        assert!(settings.get("mcpServers").is_none(), "MCP defs must NOT be in settings.json");
+        assert!(settings["permissions"].get("deny").is_none(), "no deny in official model");
+
+        // .mcp.json: server definition lives here
+        let mcp_json: serde_json::Value = serde_json::from_str(
+            &tokio::fs::read_to_string(dir.join(".mcp.json")).await.unwrap(),
+        )
+        .unwrap();
+        assert_eq!(mcp_json["mcpServers"]["github"]["type"], serde_json::json!("http"));
+        assert_eq!(mcp_json["mcpServers"]["github"]["url"], serde_json::json!("https://mcp.example.com"));
+
+        let _ = tokio::fs::remove_dir_all(&dir).await;
     }
 }

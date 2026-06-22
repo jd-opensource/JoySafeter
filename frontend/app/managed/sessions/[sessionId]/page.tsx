@@ -5,12 +5,12 @@ import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useMemo, useRef, useEffect, type ReactNode } from 'react'
 import { i18n, useTranslation } from '@/lib/i18n'
-import { Copy, Search, Package, Globe, KeyRound, Timer, MessageSquare, Clock, X, ArrowRight, Circle, Square, ChevronRight, ChevronDown, Send, Archive, StopCircle, FileIcon, Plus, Trash2 } from 'lucide-react'
-import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
+import { Copy, Search, Package, Globe, KeyRound, Timer, MessageSquare, Clock, X, ArrowRight, Circle, ChevronRight, ChevronDown, Send, Archive, StopCircle, FileIcon, Plus, Trash2, GitBranch } from 'lucide-react'
+import { managedGet, managedPost, managedDelete, managedPatch } from '@/lib/api-client'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import { stripIdPrefix } from '@/lib/managed/id'
 import { useSessionStream } from '@/lib/managed/sse'
-import type { Agent, Environment, Vault, VaultCredential, Session, SessionEvent, AgentTool, McpServer, SessionFileResource, FileRecord } from '@/types/managed'
+import type { Agent, Environment, Vault, VaultCredential, Session, SessionEvent, AgentTool, McpServer, SessionFileResource, SessionRepoResource, SessionResource, FileRecord } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -98,6 +98,15 @@ const STATUS_EVENT_TYPES = new Set([
   'session.thread_status_running',
   'session.thread_status_terminated',
 ])
+
+const ENGINE_KIND_LABELS: Record<string, string> = {
+  claude: 'Claude Code',
+  claude_code: 'Claude Code',
+  codex: 'Codex',
+  native: 'Native',
+  langgraph_visual: 'LangGraph Visual',
+  langgraph_code: 'LangGraph Code',
+}
 
 function compareSessionEvents(a: SessionEvent, b: SessionEvent) {
   const seqA = a.seq ?? Number.MAX_SAFE_INTEGER
@@ -189,7 +198,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const [debugFilter, setDebugFilter] = useState<Set<string>>(ALL_EVENT_TYPES)
   const [searchText, setSearchText] = useState('')
   const [showSearch, setShowSearch] = useState(false)
-  const [activeDrawer, setActiveDrawer] = useState<'agent' | 'env' | 'vault' | 'files' | null>(null)
+  const [activeDrawer, setActiveDrawer] = useState<'agent' | 'env' | 'vault' | 'files' | 'repos' | null>(null)
   const [msgInput, setMsgInput] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [streamForced, setStreamForced] = useState(false)
@@ -239,10 +248,17 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
 
   const { data: sessionResources } = useQuery({
     queryKey: ['session-resources', id],
-    queryFn: () => managedGet<{ data: SessionFileResource[] }>(`/sessions/${stripIdPrefix(id)}/resources`),
+    queryFn: () => managedGet<{ data: SessionResource[] }>(`/sessions/${stripIdPrefix(id)}/resources`),
     enabled: !!id,
   })
-  const mountedFiles = sessionResources?.data || []
+  const mountedFiles = useMemo(
+    () => (sessionResources?.data || []).filter((r): r is SessionFileResource => r.type === 'file'),
+    [sessionResources],
+  )
+  const mountedRepos = useMemo(
+    () => (sessionResources?.data || []).filter((r): r is SessionRepoResource => r.type === 'github_repository'),
+    [sessionResources],
+  )
 
   const [loadedEvents, setLoadedEvents] = useState<SessionEvent[]>([])
   const [hasMoreEvents, setHasMoreEvents] = useState(true)
@@ -333,6 +349,35 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     }
   }
 
+  // ---- Tool-confirmation (always_ask) approval ----
+  const [approvingCallId, setApprovingCallId] = useState<string | null>(null)
+  const [denyDraft, setDenyDraft] = useState<Record<string, string>>({})
+  const sendToolConfirmation = useCallback(
+    async (callId: string, approved: boolean, denyMessage?: string) => {
+      if (!id || !callId) return
+      setApprovingCallId(callId)
+      setStreamForced(true)
+      try {
+        const payload: Record<string, unknown> = {
+          type: 'user.tool_confirmation',
+          tool_use_id: callId,
+          approved,
+        }
+        if (!approved && denyMessage) payload.deny_message = denyMessage
+        await managedPost(`/sessions/${stripIdPrefix(id)}/events`, {
+          events: [payload],
+        })
+        queryClient.invalidateQueries({ queryKey: ['session', id] })
+        eventsLoadedRef.current = false; setLoadedEvents([]); loadEvents()
+      } catch (e) {
+        toastOperationError(t, e, 'common.operationFailed')
+      } finally {
+        setApprovingCallId(null)
+      }
+    },
+    [id, queryClient, loadEvents, t],
+  )
+
   const handleArchiveSession = async () => {
     if (!id) return
     try {
@@ -370,6 +415,36 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     return sortSessionEvents(Array.from(byIdentity.values()))
   }, [loadedEvents, streamEvents])
 
+  // Pending tool-confirmation approvals (always_ask): control_request events
+  // that have no matching user.tool_confirmation reply yet.
+  const pendingApprovals = useMemo(() => {
+    const confirmed = new Set<string>()
+    for (const evt of allEvents) {
+      const t = evt.type || evt.event_type || ''
+      if (t === 'user.tool_confirmation') {
+        const cid = (evt as { call_id?: string; tool_use_id?: string }).call_id
+          || (evt as { tool_use_id?: string }).tool_use_id
+        if (cid) confirmed.add(cid)
+      }
+    }
+    const pending: Array<{ callId: string; tool: string; input: unknown; evt: SessionEvent }> = []
+    for (const evt of allEvents) {
+      const t = evt.type || evt.event_type || ''
+      if (t !== 'agent.tool_use') continue
+      const e = evt as SessionEvent & { is_control_request?: boolean; _call_id?: string }
+      if (!e.is_control_request) continue
+      const cid = e._call_id || (evt as { call_id?: string }).call_id || ''
+      if (!cid || confirmed.has(cid)) continue
+      pending.push({
+        callId: cid,
+        tool: (evt.name as string) || (evt.tool as string) || 'tool',
+        input: (evt as { input?: unknown }).input,
+        evt,
+      })
+    }
+    return pending
+  }, [allEvents])
+
   const displayStatus = useMemo(() => {
     if (isArchived) return 'archived'
     const currentStatus = session?.status || 'idle'
@@ -397,6 +472,19 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
 
     if (tab === 'transcript') {
       events = events.filter((e) => TRANSCRIPT_TYPES.has(e.type || e.event_type || ''))
+      // Hide stdio-protocol noise that the approval banner already covers:
+      // - claude's --permission-prompt-tool emits an extra agent.tool_use
+      //   with is_control_request:true alongside the real LLM tool_use
+      //   (same name + args, no real tool_result), making it look like the
+      //   tool ran twice.
+      // - user.tool_confirmation is just the protocol ack of the approval
+      //   button; the banner already represents the UX.
+      events = events.filter((e) => {
+        const t = e.type || e.event_type || ''
+        if (t === 'user.tool_confirmation') return false
+        if (t !== 'agent.tool_use') return true
+        return !(e as { is_control_request?: boolean }).is_control_request
+      })
     } else {
       events = events.filter((e) => debugFilter.has(e.type || e.event_type || ''))
     }
@@ -645,6 +733,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       onClick: () => setActiveDrawer('files'),
     })
   }
+  // Mounted repos
+  if (mountedRepos.length > 0) {
+    metaItems.push({
+      icon: <GitBranch className="w-3.5 h-3.5" />,
+      label: `${mountedRepos.length} ${t('managed.sessions.create.repositories').toLowerCase()}`,
+      onClick: () => setActiveDrawer('repos'),
+    })
+  }
   // Created time
   metaItems.push({
     icon: <Clock className="w-3.5 h-3.5" />,
@@ -687,7 +783,13 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
               </DropdownMenu>
               <Button
                 size="sm"
-                onClick={() => inputRef.current?.focus()}
+                onClick={() => {
+                  if (msgInput.trim() && canSendMessage) {
+                    handleSendMessage()
+                  } else {
+                    inputRef.current?.focus()
+                  }
+                }}
                 disabled={!canEditMessage}
               >
                 <Send className="w-3.5 h-3.5 mr-1" />
@@ -742,15 +844,6 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
           {isRunning && (
             <Circle className="w-3 h-3 fill-red-500 text-red-500" />
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            title={t('managed.sessions.stopSession')}
-            disabled={!isRunning}
-          >
-            <Square className="w-3.5 h-3.5" />
-          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -819,6 +912,77 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
         )}
       </div>
 
+      {/* Tool-confirmation approvals (always_ask) */}
+      {pendingApprovals.length > 0 && (
+        <div className="shrink-0 border-t border-amber-300 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 space-y-2">
+          {pendingApprovals.map((p) => {
+            const sending = approvingCallId === p.callId
+            const previewText = (() => {
+              try {
+                const i = typeof p.input === 'string' ? JSON.parse(p.input) : p.input
+                if (i && typeof i === 'object') {
+                  const obj = i as Record<string, unknown>
+                  if (typeof obj.command === 'string') return obj.command
+                  if (typeof obj.file_path === 'string') return obj.file_path
+                  if (typeof obj.url === 'string') return obj.url
+                  return JSON.stringify(obj).slice(0, 200)
+                }
+              } catch {}
+              return ''
+            })()
+            return (
+              <div
+                key={p.callId}
+                className="flex items-start gap-3 rounded-md border border-amber-300 bg-white dark:bg-background p-2"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-medium text-amber-800 dark:text-amber-300">
+                    {t('managed.sessions.events.approvalBannerTitle', { tool: p.tool })}
+                  </div>
+                  {previewText && (
+                    <div className="text-xs text-muted-foreground font-mono truncate mt-1">
+                      {previewText}
+                    </div>
+                  )}
+                  <Input
+                    className="mt-2 text-xs h-7"
+                    placeholder={t('managed.sessions.events.approvalDenyPlaceholder')}
+                    value={denyDraft[p.callId] || ''}
+                    onChange={(e) =>
+                      setDenyDraft((prev) => ({ ...prev, [p.callId]: e.target.value }))
+                    }
+                    disabled={sending}
+                  />
+                </div>
+                <div className="flex flex-col gap-1 shrink-0">
+                  <Button
+                    size="sm"
+                    className="h-7 px-3 bg-emerald-500 hover:bg-emerald-600 text-white"
+                    disabled={sending}
+                    onClick={() => sendToolConfirmation(p.callId, true)}
+                  >
+                    {sending
+                      ? t('managed.sessions.events.approvalSending')
+                      : t('managed.sessions.events.approvalApprove')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-3"
+                    disabled={sending}
+                    onClick={() =>
+                      sendToolConfirmation(p.callId, false, denyDraft[p.callId] || undefined)
+                    }
+                  >
+                    {t('managed.sessions.events.approvalDeny')}
+                  </Button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
       {/* Message input */}
       <div className="shrink-0 border-t border-border px-1 py-3">
         <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2">
@@ -879,6 +1043,15 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
         <FilesDrawer
           sessionId={stripIdPrefix(id)}
           files={mountedFiles}
+          isIdle={isIdle && !isArchived}
+          onClose={() => setActiveDrawer(null)}
+          onChanged={() => queryClient.invalidateQueries({ queryKey: ['session-resources', id] })}
+        />
+      )}
+      {activeDrawer === 'repos' && (
+        <ReposDrawer
+          sessionId={stripIdPrefix(id)}
+          repos={mountedRepos}
           isIdle={isIdle && !isArchived}
           onClose={() => setActiveDrawer(null)}
           onChanged={() => queryClient.invalidateQueries({ queryKey: ['session-resources', id] })}
@@ -1008,6 +1181,16 @@ function AgentDrawer({
             <div className="text-sm text-muted-foreground">{t('managed.sessions.loadingAgent')}</div>
           ) : (
             <>
+              {/* Engine */}
+              <section>
+                <h3 className="text-sm font-semibold text-foreground mb-1">{t('managed.sessions.engineKind')}</h3>
+                <p className="text-sm text-muted-foreground font-mono">
+                  {displayAgent.engine_kind
+                    ? ENGINE_KIND_LABELS[displayAgent.engine_kind] || displayAgent.engine_kind
+                    : '-'}
+                </p>
+              </section>
+
               {/* Model */}
               <section>
                 <h3 className="text-sm font-semibold text-foreground mb-1">{t('managed.sessions.model')}</h3>
@@ -1097,14 +1280,41 @@ function DrawerToolCard({ tool, mcpServers }: { tool: AgentTool; mcpServers?: Mc
         </div>
         {expanded && configs.length > 0 && (
           <div className="mt-2 ml-5 space-y-1 border-l border-border pl-3">
-            {configs.map((cfg, j) => (
-              <div key={j} className="flex items-center justify-between text-xs py-0.5">
-                <span className="font-mono text-foreground">{cfg.name}</span>
-                <span className="text-muted-foreground">
-                  {cfg.permission_policy ? formatPolicy(cfg.permission_policy.type, t) : '—'}
-                </span>
-              </div>
-            ))}
+            {configs.map((cfg, j) => {
+              const enabled = cfg.enabled !== false
+              const effectivePolicy = cfg.permission_policy?.type || defaultPolicy
+              const isInherited = !cfg.permission_policy
+              return (
+                <div key={j} className="flex items-center justify-between text-xs py-0.5">
+                  <span className="flex items-center gap-2">
+                    {enabled ? (
+                      <span
+                        className="inline-flex h-3.5 w-3.5 items-center justify-center rounded bg-emerald-500 text-white"
+                        aria-label="enabled"
+                      >
+                        <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={4}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      </span>
+                    ) : (
+                      <span
+                        className="inline-flex h-3.5 w-3.5 items-center justify-center rounded border border-border bg-background"
+                        aria-label="disabled"
+                      />
+                    )}
+                    <span className={`font-mono ${enabled ? 'text-foreground' : 'text-muted-foreground line-through'}`}>
+                      {cfg.name}
+                    </span>
+                  </span>
+                  <span className="text-muted-foreground">
+                    {formatPolicy(effectivePolicy, t)}
+                    {isInherited && (
+                      <span className="ml-1 text-[10px] opacity-60">({t('managed.policy.inherit')})</span>
+                    )}
+                  </span>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
@@ -1114,7 +1324,7 @@ function DrawerToolCard({ tool, mcpServers }: { tool: AgentTool; mcpServers?: Mc
   if (tool.type === 'mcp_toolset') {
     const configs = tool.configs || []
     const server = mcpServers?.find((s) => s.name === tool.mcp_server_name)
-    const defaultPolicy = tool.default_config?.permission_policy?.type
+    const defaultPolicy = tool.default_config?.permission_policy?.type || 'always_ask'
     return (
       <div className="border border-border rounded-lg p-3">
         <div className="flex items-center gap-2">
@@ -1143,14 +1353,41 @@ function DrawerToolCard({ tool, mcpServers }: { tool: AgentTool; mcpServers?: Mc
         )}
         {expanded && configs.length > 0 && (
           <div className="mt-2 ml-5 space-y-1 border-l border-border pl-3">
-            {configs.map((cfg, j) => (
-              <div key={j} className="flex items-center justify-between text-xs py-0.5">
-                <span className="font-mono text-foreground">{cfg.name}</span>
-                <span className="text-muted-foreground">
-                  {cfg.permission_policy ? formatPolicy(cfg.permission_policy.type, t) : '—'}
-                </span>
-              </div>
-            ))}
+            {configs.map((cfg, j) => {
+              const enabled = cfg.enabled !== false
+              const effectivePolicy = cfg.permission_policy?.type || defaultPolicy
+              const isInherited = !cfg.permission_policy
+              return (
+                <div key={j} className="flex items-center justify-between text-xs py-0.5">
+                  <span className="flex items-center gap-2">
+                    {enabled ? (
+                      <span
+                        className="inline-flex h-3.5 w-3.5 items-center justify-center rounded bg-emerald-500 text-white"
+                        aria-label="enabled"
+                      >
+                        <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={4}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      </span>
+                    ) : (
+                      <span
+                        className="inline-flex h-3.5 w-3.5 items-center justify-center rounded border border-border bg-background"
+                        aria-label="disabled"
+                      />
+                    )}
+                    <span className={`font-mono ${enabled ? 'text-foreground' : 'text-muted-foreground line-through'}`}>
+                      {cfg.name}
+                    </span>
+                  </span>
+                  <span className="text-muted-foreground">
+                    {formatPolicy(effectivePolicy, t)}
+                    {isInherited && (
+                      <span className="ml-1 text-[10px] opacity-60">({t('managed.policy.inherit')})</span>
+                    )}
+                  </span>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
@@ -1178,9 +1415,11 @@ function DrawerToolCard({ tool, mcpServers }: { tool: AgentTool; mcpServers?: Mc
 
 function formatPolicy(policy: string, t: (key: string) => string): string {
   switch (policy) {
-    case 'always_allow': return t('managed.sessions.alwaysAllow')
-    case 'always_deny': return t('managed.sessions.alwaysDeny')
-    case 'ask': return t('managed.sessions.ask')
+    case 'always_allow': return t('managed.policy.alwaysAllow')
+    case 'always_ask': return t('managed.policy.alwaysAsk')
+    case 'always_deny': return t('managed.policy.alwaysDeny')
+    case 'ask': return t('managed.policy.ask')
+    case 'inherit': return t('managed.policy.inherit')
     default: return policy.replace(/_/g, ' ')
   }
 }
@@ -1565,6 +1804,107 @@ function FilesDrawer({
                     <span className="w-20 shrink-0">{t('managed.sessions.type')}</span>
                     <span>{f.access}</span>
                   </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ReposDrawer({
+  sessionId,
+  repos,
+  isIdle,
+  onClose,
+  onChanged,
+}: {
+  sessionId: string
+  repos: SessionRepoResource[]
+  isIdle: boolean
+  onClose: () => void
+  onChanged: () => void
+}) {
+  const { t } = useTranslation()
+  const [tokenEdits, setTokenEdits] = useState<Record<string, string>>({})
+
+  const rotateMutation = useMutation({
+    mutationFn: ({ resourceId, token }: { resourceId: string; token: string }) =>
+      managedPatch(`/sessions/${sessionId}/resources/${resourceId}`, {
+        authorization_token: token,
+      }),
+    onSuccess: (_data, vars) => {
+      setTokenEdits((prev) => {
+        const next = { ...prev }
+        delete next[vars.resourceId]
+        return next
+      })
+      onChanged()
+    },
+    onError: (error) => {
+      toastOperationError(t, error, 'common.operationFailed')
+    },
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/20" onClick={onClose} />
+      <div className="relative w-[480px] max-w-full bg-background border-l border-border h-full overflow-y-auto shadow-xl">
+        <Button variant="ghost" size="icon" className="absolute right-4 top-4 h-8 w-8 z-10" onClick={onClose}>
+          <X className="w-4 h-4" />
+        </Button>
+
+        <div className="px-6 py-5 space-y-6">
+          <section>
+            <h2 className="text-base font-semibold text-foreground">{t('managed.sessions.mountedRepos')}</h2>
+            <p className="text-xs text-muted-foreground mt-1">{t('managed.sessions.create.repositoriesDesc')}</p>
+          </section>
+
+          {repos.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t('managed.sessions.noMountedRepos')}</p>
+          ) : (
+            <div className="space-y-3">
+              {repos.map((r) => (
+                <div key={r.id} className="border border-border rounded-lg p-3 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <GitBranch className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <span className="text-sm font-medium font-mono truncate">{r.url}</span>
+                  </div>
+                  {r.branch && (
+                    <div className="flex items-center text-xs text-muted-foreground">
+                      <span className="w-20 shrink-0">{t('managed.sessions.create.repoBranch')}</span>
+                      <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{r.branch}</code>
+                    </div>
+                  )}
+                  {r.mount_path && (
+                    <div className="flex items-center text-xs text-muted-foreground">
+                      <span className="w-20 shrink-0">{t('managed.sessions.create.mountPath')}</span>
+                      <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{r.mount_path}</code>
+                    </div>
+                  )}
+                  {isIdle && (
+                    <div className="flex items-center gap-1.5 pt-1.5">
+                      <Input
+                        type="password"
+                        autoComplete="new-password"
+                        value={tokenEdits[r.id] ?? ''}
+                        onChange={(e) => setTokenEdits((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                        className="h-7 text-xs font-mono"
+                        placeholder={t('managed.sessions.rotateTokenPlaceholder')}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0"
+                        disabled={!(tokenEdits[r.id] ?? '').trim() || rotateMutation.isPending}
+                        onClick={() => rotateMutation.mutate({ resourceId: r.id, token: (tokenEdits[r.id] ?? '').trim() })}
+                      >
+                        {t('managed.sessions.rotateToken')}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

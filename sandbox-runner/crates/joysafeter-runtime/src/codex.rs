@@ -18,6 +18,33 @@ use tracing::{debug, info, warn};
 
 type SharedStdin = Arc<Mutex<Option<tokio::process::ChildStdin>>>;
 type PendingMap = Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value, String>>>>>;
+/// jsonrpc-id-as-string → user-approval oneshot. Used to route
+/// codex's approval requests (execCommandApproval / applyPatchApproval)
+/// out to the user (as agent.tool_use is_control_request) and resolve them
+/// when the user posts a user.tool_confirmation back via send_input.
+type PendingApprovals = Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>;
+
+/// Prefix used by the orchestrator's "live input" channel for steering an
+/// in-flight task — same string as in claude.rs. Kept duplicated to avoid
+/// pulling a public type out of claude.rs for one constant.
+const LIVE_INPUT_PREFIX: &str = "__joysafeter_input_v1__:";
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum CodexLiveInput {
+    ToolConfirmation {
+        tool_use_call_id: String,
+        approved: bool,
+        #[serde(default)]
+        #[allow(dead_code)]
+        deny_message: Option<String>,
+    },
+    // Other live-input variants (custom_tool_result / interrupt) are routed
+    // through different mechanisms for codex; only tool_confirmation is
+    // consumed here.
+    #[serde(other)]
+    Other,
+}
 
 struct TurnState {
     event_tx: mpsc::Sender<HarnessEvent>,
@@ -27,12 +54,22 @@ struct TurnState {
     call_id_to_tool: Arc<std::sync::Mutex<HashMap<String, String>>>,
     agent_message_text_by_id: Arc<std::sync::Mutex<HashMap<String, String>>>,
     model: String,
+    /// Tool names from `HarnessInput.allowed_tools` for this turn. Used by the
+    /// reader loop to auto-accept ExecApprovalRequest events whose derived tool
+    /// name matches the agent's allowlist — i.e. translate JoySafeter's
+    /// `always_allow` to codex's approval protocol without going through the UI.
+    allowed_tools: Vec<String>,
+    /// Tool names the agent explicitly wants to ask the user about. Listed here
+    /// so we can treat them as the only ones that always reach the user, even
+    /// if we later refine the default behavior.
+    ask_tools: Vec<String>,
 }
 
 struct PersistentCodex {
     stdin: SharedStdin,
     next_id: Arc<AtomicI64>,
     pending: PendingMap,
+    pending_approvals: PendingApprovals,
     #[allow(dead_code)]
     reader_handle: tokio::task::JoinHandle<()>,
     current_turn: Arc<Mutex<Option<TurnState>>>,
@@ -94,6 +131,13 @@ impl CodexAdapter {
             cmd.env(k, v);
         }
 
+        // Merge MCP servers from HarnessInput into ~/.codex/config.toml so the
+        // codex CLI advertises them to the model. Codex CLI looks for
+        // ``[mcp_servers.<name>]`` blocks in this file.
+        if let Err(e) = merge_codex_mcp_servers(&input.mcp_configs).await {
+            warn!(error = %e, "Failed to write codex MCP servers config");
+        }
+
         let mut child = cmd
             .spawn()
             .map_err(|e| HarnessError::StartFailed(format!("failed to spawn codex: {e}")))?;
@@ -111,6 +155,7 @@ impl CodexAdapter {
         let stdin: SharedStdin = Arc::new(Mutex::new(Some(stdin)));
         let next_id = Arc::new(AtomicI64::new(1));
         let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
+        let pending_approvals: PendingApprovals = Arc::new(Mutex::new(HashMap::new()));
         let current_turn: Arc<Mutex<Option<TurnState>>> = Arc::new(Mutex::new(None));
         let notification_protocol: Arc<std::sync::Mutex<String>> =
             Arc::new(std::sync::Mutex::new("unknown".into()));
@@ -118,6 +163,7 @@ impl CodexAdapter {
             Arc::new(std::sync::Mutex::new(TokenUsage::default()));
 
         let reader_pending = pending.clone();
+        let reader_pending_approvals = pending_approvals.clone();
         let reader_stdin = stdin.clone();
         let reader_current_turn = current_turn.clone();
         let reader_protocol = notification_protocol.clone();
@@ -167,25 +213,153 @@ impl CodexAdapter {
                     }
                 } else if has_id && has_method {
                     let method = msg.method.as_deref().unwrap_or("");
-                    let response_result = match method {
-                        "item/commandExecution/requestApproval"
-                        | "execCommandApproval"
-                        | "item/fileChange/requestApproval"
-                        | "applyPatchApproval" => serde_json::json!({"decision": "accept"}),
-                        _ => serde_json::json!({}),
-                    };
+                    // Classify the server→client request into an approval kind.
+                    // Each kind serializes its decision differently (see
+                    // ApprovalKind::result_json).
+                    let approval_kind = ApprovalKind::from_method(method);
 
-                    let response = serde_json::json!({
-                        "jsonrpc": "2.0",
-                        "id": msg.id,
-                        "result": response_result,
-                    });
+                    if let Some(approval_kind) = approval_kind {
+                        // Route the approval request out to the user instead of
+                        // auto-accepting. Steps:
+                        //  1) Build a stable string id from the jsonrpc id.
+                        //  2) Register a oneshot in pending_approvals.
+                        //  3) Emit agent.tool_use with is_control_request=true so
+                        //     the frontend banner picks it up (same shape claude
+                        //     uses for its can_use_tool control_request).
+                        //  4) Spawn a task that awaits the oneshot, then writes
+                        //     a jsonrpc response back to codex's stdin with the
+                        //     user's decision.
+                        let req_id_value = msg.id.clone().unwrap_or(Value::Null);
+                        let req_id_str = match &req_id_value {
+                            Value::Number(n) => n.to_string(),
+                            Value::String(s) => s.clone(),
+                            other => other.to_string(),
+                        };
+                        let params = msg.params.clone().unwrap_or(Value::Null);
+                        let tool_name = derive_approval_tool_name(method, &params);
 
-                    let line = format!("{}\n", response);
-                    let mut guard = reader_stdin.lock().await;
-                    if let Some(ref mut stdin) = *guard {
-                        let _ = stdin.write_all(line.as_bytes()).await;
-                        let _ = stdin.flush().await;
+                        // Fast path: if the current turn's allowed_tools list
+                        // covers this approval, skip the UI roundtrip and reply
+                        // accept directly. This is how JoySafeter's
+                        // ``always_allow`` policy maps onto codex's approval
+                        // protocol. ``ask_tools`` is checked separately so it
+                        // explicitly takes priority over allow when both lists
+                        // somehow contain the same tool (mirrors claude
+                        // settings.json semantics).
+                        let auto_accept: Option<bool> = {
+                            let turn_guard = reader_current_turn.lock().await;
+                            if let Some(turn) = turn_guard.as_ref() {
+                                if approval_matches_tool(&turn.ask_tools, &tool_name) {
+                                    None
+                                } else if approval_matches_tool(&turn.allowed_tools, &tool_name) {
+                                    Some(true)
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        };
+
+                        if auto_accept == Some(true) {
+                            info!(
+                                method = %method,
+                                tool = %tool_name,
+                                "Auto-approving codex tool call from allowed_tools"
+                            );
+                            let response = serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "id": req_id_value,
+                                "result": approval_kind.result_json(true)
+                            });
+                            let line = format!("{}\n", response);
+                            let mut guard = reader_stdin.lock().await;
+                            if let Some(ref mut stdin) = *guard {
+                                let _ = stdin.write_all(line.as_bytes()).await;
+                                let _ = stdin.flush().await;
+                            }
+                            continue;
+                        }
+
+                        let (tx, rx) = oneshot::channel::<bool>();
+                        reader_pending_approvals
+                            .lock()
+                            .await
+                            .insert(req_id_str.clone(), tx);
+
+                        // Emit the approval-request event to the user. Best-effort:
+                        // only if a turn is active and the event channel is alive.
+                        {
+                            let turn_guard = reader_current_turn.lock().await;
+                            if let Some(turn) = turn_guard.as_ref() {
+                                let _ = turn
+                                    .event_tx
+                                    .send(HarnessEvent::ToolUse {
+                                        tool: tool_name.clone(),
+                                        call_id: req_id_str.clone(),
+                                        input: params.clone(),
+                                        is_control_request: true,
+                                    })
+                                    .await;
+                            } else {
+                                warn!(
+                                    method = %method,
+                                    "Codex approval request arrived without an active turn; \
+                                     event will not surface to user — denying"
+                                );
+                                // No way to surface to the user → deny so codex
+                                // doesn't hang forever.
+                                if let Some(tx) = reader_pending_approvals
+                                    .lock()
+                                    .await
+                                    .remove(&req_id_str)
+                                {
+                                    let _ = tx.send(false);
+                                }
+                            }
+                        }
+
+                        // Background waiter → jsonrpc response. The decision
+                        // serialization is kind-specific (ApprovalKind::result_json):
+                        //  - exec/patch v2 → {decision: "accept"|"decline"}
+                        //  - exec/patch v1 → {decision: "approved"|"denied"}
+                        //  - MCP elicitation → {action: "accept"|"decline", content: null}
+                        // Sending the wrong shape makes codex misread the decision
+                        // and report the tool as user-rejected even on approval.
+                        let waiter_stdin = reader_stdin.clone();
+                        let waiter_id = req_id_value;
+                        let waiter_method = method.to_string();
+                        tokio::spawn(async move {
+                            let approved = rx.await.unwrap_or(false);
+                            let response = serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "id": waiter_id,
+                                "result": approval_kind.result_json(approved)
+                            });
+                            let line = format!("{}\n", response);
+                            let mut guard = waiter_stdin.lock().await;
+                            if let Some(ref mut stdin) = *guard {
+                                if let Err(e) = stdin.write_all(line.as_bytes()).await {
+                                    warn!(error = %e, method = %waiter_method,
+                                          "Failed to write approval response to codex stdin");
+                                }
+                                let _ = stdin.flush().await;
+                            }
+                        });
+                    } else {
+                        // Non-approval server→client request: keep historical
+                        // behavior of acknowledging with an empty result.
+                        let response = serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": msg.id,
+                            "result": {}
+                        });
+                        let line = format!("{}\n", response);
+                        let mut guard = reader_stdin.lock().await;
+                        if let Some(ref mut stdin) = *guard {
+                            let _ = stdin.write_all(line.as_bytes()).await;
+                            let _ = stdin.flush().await;
+                        }
                     }
                 } else if has_method {
                     let method = msg.method.as_deref().unwrap_or("");
@@ -319,6 +493,7 @@ impl CodexAdapter {
             stdin,
             next_id,
             pending,
+            pending_approvals,
             reader_handle,
             current_turn,
             notification_protocol,
@@ -346,6 +521,10 @@ impl HarnessAdapter for CodexAdapter {
             .as_ref()
             .ok_or_else(|| HarnessError::StartFailed("session disappeared after ensure".into()))?;
 
+        // Capture the pending-approvals handle so send_input on the returned
+        // RunningHarness can resolve user.tool_confirmation by call_id.
+        let pending_approvals_handle: PendingApprovals = session.pending_approvals.clone();
+
         let turn_state = TurnState {
             event_tx: event_tx.clone(),
             turn_done_tx: None,
@@ -354,6 +533,8 @@ impl HarnessAdapter for CodexAdapter {
             call_id_to_tool: Arc::new(std::sync::Mutex::new(HashMap::new())),
             agent_message_text_by_id: Arc::new(std::sync::Mutex::new(HashMap::new())),
             model: input.model.clone().unwrap_or_else(|| "codex".to_string()),
+            allowed_tools: input.allowed_tools.clone(),
+            ask_tools: input.ask_tools.clone(),
         };
 
         let (td_tx, td_rx) = oneshot::channel::<bool>();
@@ -455,7 +636,7 @@ impl HarnessAdapter for CodexAdapter {
             events: event_rx,
             result: result_rx,
             child: None,
-            input: None,
+            input: Some(Box::new(pending_approvals_handle)),
         })
     }
 
@@ -470,6 +651,49 @@ impl HarnessAdapter for CodexAdapter {
             }
         }
         Ok(())
+    }
+
+    /// Accept live-input messages and route `user.tool_confirmation` to the
+    /// matching pending approval. Other live-input variants are not consumed
+    /// here (custom_tool_result and interrupt don't apply to the codex
+    /// app-server protocol the same way they do for claude). Plain non-live
+    /// content is ignored — codex turns are driven by Op::UserTurn / Op::UserInput
+    /// dispatched through start(), not through send_input.
+    async fn send_input(
+        &self,
+        harness: &mut RunningHarness,
+        content: String,
+    ) -> Result<(), HarnessError> {
+        let Some(any) = harness.input.as_ref() else {
+            return Err(HarnessError::UnsupportedInput);
+        };
+        let Some(pending) = any.downcast_ref::<PendingApprovals>() else {
+            return Err(HarnessError::UnsupportedInput);
+        };
+
+        let Some(raw) = content.strip_prefix(LIVE_INPUT_PREFIX) else {
+            // Not a live-input frame — codex doesn't accept free-form steering
+            // mid-turn through this channel.
+            return Ok(());
+        };
+        let payload: CodexLiveInput = match serde_json::from_str(raw) {
+            Ok(p) => p,
+            Err(e) => return Err(HarnessError::ParseError(e.to_string())),
+        };
+
+        match payload {
+            CodexLiveInput::ToolConfirmation {
+                tool_use_call_id,
+                approved,
+                ..
+            } => {
+                if let Some(tx) = pending.lock().await.remove(&tool_use_call_id) {
+                    let _ = tx.send(approved);
+                }
+                Ok(())
+            }
+            CodexLiveInput::Other => Ok(()),
+        }
     }
 
     fn provider(&self) -> &str {
@@ -572,6 +796,134 @@ async fn send_notification(stdin: &SharedStdin, method: &str, params: Value) {
         let line = format!("{}\n", msg);
         let _ = stdin.write_all(line.as_bytes()).await;
         let _ = stdin.flush().await;
+    }
+}
+
+/// Classifies a codex server→client approval request and serializes decisions
+/// in the shape that specific request expects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ApprovalKind {
+    /// v2 exec/patch — `{decision: "accept"|"decline"}`.
+    ExecV2,
+    /// v1 exec/patch — `{decision: "approved"|"denied"}`.
+    ExecV1,
+    /// MCP tool elicitation — `{action: "accept"|"decline", content: null}`.
+    McpElicitation,
+}
+
+impl ApprovalKind {
+    fn from_method(method: &str) -> Option<Self> {
+        match method {
+            "item/commandExecution/requestApproval" | "item/fileChange/requestApproval" => {
+                Some(Self::ExecV2)
+            }
+            "execCommandApproval" | "applyPatchApproval" => Some(Self::ExecV1),
+            "mcpServer/elicitation/request" => Some(Self::McpElicitation),
+            _ => None,
+        }
+    }
+
+    /// Build the JSON-RPC `result` payload for an approve/deny decision.
+    fn result_json(self, approved: bool) -> Value {
+        match self {
+            Self::ExecV2 => {
+                serde_json::json!({ "decision": if approved { "accept" } else { "decline" } })
+            }
+            Self::ExecV1 => {
+                serde_json::json!({ "decision": if approved { "approved" } else { "denied" } })
+            }
+            Self::McpElicitation => {
+                // codex parses {action:"accept", content:null} → Accept (its
+                // fallback maps the empty-content Cancel back to Accept), and
+                // {action:"decline"} → Decline.
+                serde_json::json!({
+                    "action": if approved { "accept" } else { "decline" },
+                    "content": Value::Null
+                })
+            }
+        }
+    }
+}
+
+/// Return true if the agent's tool list authorizes the approval whose derived
+/// name is ``tool_name``.
+///
+/// ``derive_approval_tool_name`` produces strings like ``"Bash"`` or
+/// ``"Bash (git)"`` (exec) and ``"mcp__<server>__*"`` (MCP elicitation).
+/// JoySafeter agents express permissions by short tool name (``Bash``, ``Write``,
+/// …) and MCP rules as ``mcp__<server>__*`` / ``mcp__<server>__<tool>``. We match:
+///  - exact (``rule == tool_name``),
+///  - by leading word (``Bash (git)`` matches rule ``Bash``), or
+///  - by MCP server prefix, so the derived ``mcp__server__*`` matches a more
+///    specific rule ``mcp__server__tool`` (and vice-versa).
+fn approval_matches_tool(rules: &[String], tool_name: &str) -> bool {
+    if rules.is_empty() {
+        return false;
+    }
+    let leading = tool_name
+        .split_whitespace()
+        .next()
+        .unwrap_or(tool_name);
+
+    // For MCP names, compare on the ``mcp__<server>__`` prefix so wildcard and
+    // per-tool rules are interchangeable at the server granularity codex gives us.
+    let mcp_server_prefix = |s: &str| -> Option<String> {
+        let rest = s.strip_prefix("mcp__")?;
+        let server = rest.split("__").next()?;
+        if server.is_empty() {
+            None
+        } else {
+            Some(format!("mcp__{server}__"))
+        }
+    };
+    let tool_mcp_prefix = mcp_server_prefix(leading);
+
+    rules.iter().any(|r| {
+        if r == tool_name || r == leading {
+            return true;
+        }
+        match (&tool_mcp_prefix, mcp_server_prefix(r)) {
+            (Some(tp), Some(rp)) => tp == &rp,
+            _ => false,
+        }
+    })
+}
+
+/// Pick a user-facing tool name for an approval request so the frontend banner
+/// can show something meaningful. `params` typically carries the command being
+/// approved (for exec) or the patch metadata (for fileChange).
+fn derive_approval_tool_name(method: &str, params: &Value) -> String {
+    match method {
+        "item/commandExecution/requestApproval" | "execCommandApproval" => {
+            // Try to surface the first token of the command if available.
+            if let Some(cmd) = params.get("command").and_then(|c| c.as_array()) {
+                if let Some(first) = cmd.first().and_then(|v| v.as_str()) {
+                    return format!("Bash ({first})");
+                }
+            }
+            if let Some(cmd_str) = params.get("command").and_then(|c| c.as_str()) {
+                let first = cmd_str.split_whitespace().next().unwrap_or("Bash");
+                return format!("Bash ({first})");
+            }
+            "Bash".to_string()
+        }
+        "item/fileChange/requestApproval" | "applyPatchApproval" => {
+            "ApplyPatch".to_string()
+        }
+        "mcpServer/elicitation/request" => {
+            // codex sends camelCase `serverName`; tool name is NOT exposed in the
+            // elicitation params, so we can only resolve to server granularity.
+            let server = params
+                .get("serverName")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if server.is_empty() {
+                "mcp".to_string()
+            } else {
+                format!("mcp__{server}__*")
+            }
+        }
+        _ => method.to_string(),
     }
 }
 
@@ -1129,6 +1481,101 @@ async fn signal_turn_done(current_turn: &Arc<Mutex<Option<TurnState>>>, aborted:
     }
 }
 
+/// Merge MCP servers into ``~/.codex/config.toml``.
+///
+/// The codex CLI reads ``[mcp_servers.<name>]`` tables from this file to decide
+/// which MCP servers to mount for the model. We append (or replace by name)
+/// the entries described by ``HarnessInput.mcp_configs`` without touching the
+/// rest of the file (so the entrypoint's [model_providers.*] etc. survive).
+///
+/// Currently we only handle URL servers — that's the only shape JoySafeter's
+/// public schema accepts. URL servers translate to:
+///
+/// ```toml
+/// [mcp_servers.echo-test]
+/// url = "http://host.docker.internal:8765/"
+/// ```
+async fn merge_codex_mcp_servers(
+    servers: &[joysafeter_types::agent::McpServerConfig],
+) -> Result<(), String> {
+    use joysafeter_types::agent::McpServerConfig;
+
+    if servers.is_empty() {
+        return Ok(());
+    }
+
+    let config_dir = match std::env::var("HOME") {
+        Ok(h) => std::path::PathBuf::from(h).join(".codex"),
+        Err(_) => std::path::PathBuf::from("/home/agent/.codex"),
+    };
+    tokio::fs::create_dir_all(&config_dir)
+        .await
+        .map_err(|e| format!("mkdir {}: {e}", config_dir.display()))?;
+
+    let path = config_dir.join("config.toml");
+    let existing = tokio::fs::read_to_string(&path).await.unwrap_or_default();
+
+    // Strip any previous block this writer owned. We delimit our managed region
+    // with sentinel comments so re-runs replace cleanly instead of stacking.
+    const BEGIN: &str = "# >>> joysafeter mcp_servers >>>";
+    const END: &str = "# <<< joysafeter mcp_servers <<<";
+    let mut base = String::new();
+    let mut in_block = false;
+    for line in existing.lines() {
+        if line.trim_start().starts_with(BEGIN) {
+            in_block = true;
+            continue;
+        }
+        if line.trim_start().starts_with(END) {
+            in_block = false;
+            continue;
+        }
+        if !in_block {
+            base.push_str(line);
+            base.push('\n');
+        }
+    }
+    // Ensure a trailing newline before our block.
+    if !base.is_empty() && !base.ends_with('\n') {
+        base.push('\n');
+    }
+
+    let mut block = String::new();
+    block.push_str(BEGIN);
+    block.push('\n');
+    for server in servers {
+        match server {
+            McpServerConfig::Url { name, url } => {
+                if name.is_empty() || url.is_empty() {
+                    continue;
+                }
+                // TOML keys with hyphens / non-bare-key chars must be quoted.
+                block.push_str(&format!("[mcp_servers.\"{}\"]\n", toml_escape(name)));
+                block.push_str(&format!("url = \"{}\"\n", toml_escape(url)));
+                block.push('\n');
+            }
+        }
+    }
+    block.push_str(END);
+    block.push('\n');
+
+    let final_contents = format!("{base}\n{block}");
+    tokio::fs::write(&path, final_contents)
+        .await
+        .map_err(|e| format!("write {}: {e}", path.display()))?;
+    info!(
+        path = %path.display(),
+        count = servers.len(),
+        "Wrote codex MCP servers config"
+    );
+    Ok(())
+}
+
+/// Minimal TOML basic-string escaper (handles backslash and double-quote).
+fn toml_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1197,5 +1644,148 @@ mod tests {
             .as_deref(),
             Some("hello"),
         );
+    }
+
+    #[test]
+    fn approval_matches_tool_handles_exact_and_leading_word() {
+        let rules: Vec<String> = vec!["Bash".into(), "Write".into()];
+        assert!(super::approval_matches_tool(&rules, "Bash"));
+        assert!(super::approval_matches_tool(&rules, "Bash (git)"));
+        assert!(super::approval_matches_tool(&rules, "Write"));
+        assert!(!super::approval_matches_tool(&rules, "Read"));
+        assert!(!super::approval_matches_tool(&rules, "ApplyPatch"));
+        assert!(!super::approval_matches_tool(&[], "Bash"));
+        // Exact-match still wins when a rule includes the parens form
+        let exact: Vec<String> = vec!["Bash (git)".into()];
+        assert!(super::approval_matches_tool(&exact, "Bash (git)"));
+        // …but doesn't accidentally match a different leading word
+        assert!(!super::approval_matches_tool(&exact, "Read"));
+    }
+
+    #[test]
+    fn approval_matches_tool_handles_mcp_server_granularity() {
+        // Wildcard rule (what _build_permission_rules emits for a server-level
+        // mcp_toolset) matches the derived ``mcp__server__*`` name.
+        let wildcard: Vec<String> = vec!["mcp__echo-test__*".into()];
+        assert!(super::approval_matches_tool(&wildcard, "mcp__echo-test__*"));
+        // Per-tool rule still matches at server granularity (codex only gives
+        // us the server name in elicitation requests).
+        let per_tool: Vec<String> = vec!["mcp__echo-test__echo".into()];
+        assert!(super::approval_matches_tool(&per_tool, "mcp__echo-test__*"));
+        // A different server must NOT match.
+        assert!(!super::approval_matches_tool(&wildcard, "mcp__other__*"));
+        // MCP rule must not match a plain builtin tool and vice-versa.
+        assert!(!super::approval_matches_tool(&wildcard, "Bash"));
+        assert!(!super::approval_matches_tool(&["Bash".into()], "mcp__echo-test__*"));
+    }
+
+    #[test]
+    fn approval_kind_serializes_per_protocol() {
+        use super::ApprovalKind;
+        assert_eq!(
+            ApprovalKind::from_method("item/commandExecution/requestApproval"),
+            Some(ApprovalKind::ExecV2)
+        );
+        assert_eq!(
+            ApprovalKind::from_method("applyPatchApproval"),
+            Some(ApprovalKind::ExecV1)
+        );
+        assert_eq!(
+            ApprovalKind::from_method("mcpServer/elicitation/request"),
+            Some(ApprovalKind::McpElicitation)
+        );
+        assert_eq!(ApprovalKind::from_method("notifications/foo"), None);
+
+        assert_eq!(
+            ApprovalKind::ExecV2.result_json(true),
+            serde_json::json!({"decision": "accept"})
+        );
+        assert_eq!(
+            ApprovalKind::ExecV1.result_json(false),
+            serde_json::json!({"decision": "denied"})
+        );
+        assert_eq!(
+            ApprovalKind::McpElicitation.result_json(true),
+            serde_json::json!({"action": "accept", "content": serde_json::Value::Null})
+        );
+        assert_eq!(
+            ApprovalKind::McpElicitation.result_json(false),
+            serde_json::json!({"action": "decline", "content": serde_json::Value::Null})
+        );
+    }
+
+    #[test]
+    fn derive_approval_tool_name_for_elicitation() {
+        let params = serde_json::json!({"serverName": "echo-test", "turnId": "t1"});
+        assert_eq!(
+            super::derive_approval_tool_name("mcpServer/elicitation/request", &params),
+            "mcp__echo-test__*"
+        );
+    }
+
+    #[tokio::test]
+    async fn merge_codex_mcp_servers_writes_toml_block() {
+        use joysafeter_types::agent::McpServerConfig;
+
+        let tmp = std::env::temp_dir().join(format!(
+            "codex_mcp_test_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::env::set_var("HOME", &tmp);
+
+        let servers = vec![
+            McpServerConfig::Url {
+                name: "echo-test".to_string(),
+                url: "http://host.docker.internal:8765/".to_string(),
+            },
+        ];
+        super::merge_codex_mcp_servers(&servers).await.unwrap();
+
+        let path = tmp.join(".codex/config.toml");
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert!(body.contains("[mcp_servers.\"echo-test\"]"), "block missing: {body}");
+        assert!(body.contains("url = \"http://host.docker.internal:8765/\""));
+        assert!(body.contains("# >>> joysafeter mcp_servers >>>"));
+
+        // Second call replaces (does not stack) the managed block.
+        super::merge_codex_mcp_servers(&servers).await.unwrap();
+        let body2 = std::fs::read_to_string(&path).unwrap();
+        let count = body2.matches("# >>> joysafeter mcp_servers >>>").count();
+        assert_eq!(count, 1, "managed block must replace, not stack: {body2}");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[tokio::test]
+    async fn merge_codex_mcp_servers_preserves_existing_file_content() {
+        use joysafeter_types::agent::McpServerConfig;
+
+        let tmp = std::env::temp_dir().join(format!(
+            "codex_mcp_preserve_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join(".codex")).unwrap();
+        let path = tmp.join(".codex/config.toml");
+        std::fs::write(
+            &path,
+            "model = \"gpt-5\"\n\n[model_providers.codex]\nname = \"codex\"\n",
+        )
+        .unwrap();
+
+        std::env::set_var("HOME", &tmp);
+        let servers = vec![McpServerConfig::Url {
+            name: "echo".to_string(),
+            url: "http://x:1/".to_string(),
+        }];
+        super::merge_codex_mcp_servers(&servers).await.unwrap();
+
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert!(body.contains("model = \"gpt-5\""));
+        assert!(body.contains("[model_providers.codex]"));
+        assert!(body.contains("[mcp_servers.\"echo\"]"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

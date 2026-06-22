@@ -1,5 +1,6 @@
 #[cfg(target_os = "linux")]
 mod memory_fuse;
+mod repos;
 mod runner;
 mod stream;
 

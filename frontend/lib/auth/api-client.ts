@@ -65,9 +65,14 @@ export { ApiError as AuthError }
 
 // ==================== Session Management ====================
 const SESSION_CHANGE_KEY = 'auth_session_change'
+type SessionChangeType = 'signin' | 'logout' | 'refresh'
+const sessionChangeListeners = new Set<(type: SessionChangeType) => void>()
 
-function notifySessionChange(type: 'signin' | 'logout' | 'refresh'): void {
+function notifySessionChange(type: SessionChangeType): void {
   if (typeof window === 'undefined') return
+  sessionChangeListeners.forEach((listener) => {
+    listener(type)
+  })
   try {
     const event = { type, timestamp: Date.now() }
     localStorage.setItem(SESSION_CHANGE_KEY, JSON.stringify(event))
@@ -78,9 +83,10 @@ function notifySessionChange(type: 'signin' | 'logout' | 'refresh'): void {
 }
 
 export function onSessionChange(
-  callback: (type: 'signin' | 'logout' | 'refresh') => void,
+  callback: (type: SessionChangeType) => void,
 ): () => void {
   if (typeof window === 'undefined') return () => {}
+  sessionChangeListeners.add(callback)
 
   const handler = (e: StorageEvent) => {
     if (e.key === SESSION_CHANGE_KEY && e.newValue) {
@@ -94,7 +100,10 @@ export function onSessionChange(
   }
 
   window.addEventListener('storage', handler)
-  return () => window.removeEventListener('storage', handler)
+  return () => {
+    sessionChangeListeners.delete(callback)
+    window.removeEventListener('storage', handler)
+  }
 }
 
 // ==================== Utility Functions ====================
@@ -192,7 +201,7 @@ export const authApi = {
         return null
       }
       logger.warn('Failed to get session', { error })
-      return null
+      throw error
     }
   },
 

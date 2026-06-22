@@ -17,6 +17,7 @@ from .chat import Chat  # noqa: F401 — alembic discovery
 from .joysafeter_api_key import JoySafeterApiKey
 from .joysafeter_file import JoySafeterFile  # noqa: F401 — alembic discovery
 from .joysafeter_session_file import JoySafeterSessionFile  # noqa: F401 — alembic discovery
+from .joysafeter_session_repo import JoySafeterSessionRepo  # noqa: F401 — alembic discovery
 from .joysafeter_memory import (  # noqa: F401 — alembic discovery
     JoySafeterMemory,
     JoySafeterMemoryStore,

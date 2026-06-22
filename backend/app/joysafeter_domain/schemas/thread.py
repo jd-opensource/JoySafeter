@@ -256,8 +256,34 @@ class SessionFileResourceRequest(BaseModel):
         return self
 
 
+class SessionRepoResourceRequest(BaseModel):
+    """A git repository to clone into the sandbox — mirrors the official
+    ``github_repository`` session resource. ``authorization_token`` is a
+    clone-only credential, stored encrypted and never echoed in responses."""
+
+    type: str = "github_repository"
+    url: str
+    branch: str = ""
+    mount_path: Optional[str] = None
+    mount_name: Optional[str] = None
+    authorization_token: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_mount_path(self):
+        if self.mount_path:
+            import os
+            normalized = os.path.normpath(self.mount_path)
+            if ".." in normalized.split("/") or ".." in normalized.split("\\"):
+                raise ValueError("mount_path must not contain path traversal")
+            if not normalized.startswith("/workspace"):
+                raise ValueError("mount_path must be under /workspace/")
+            self.mount_path = normalized
+        return self
+
+
 MAX_MEMORY_STORE_RESOURCES = 8
 MAX_FILE_RESOURCES = 100
+MAX_REPO_RESOURCES = 16
 
 
 def _parse_agent_id(raw: str) -> uuid.UUID:
@@ -276,6 +302,7 @@ class CreateSessionRequest(BaseModel):
     environment_id: Optional[str] = None
     resources: list[SessionResourceRequest] = Field(default_factory=list)
     file_resources: list[SessionFileResourceRequest] = Field(default_factory=list)
+    repo_resources: list[SessionRepoResourceRequest] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -299,6 +326,24 @@ class SessionResourceResponse(BaseModel):
         return f"memstore_{v}"
 
 
+class SessionRepoResourceResponse(BaseModel):
+    """Repo resource as returned by the API. Deliberately omits the
+    ``authorization_token`` — clone credentials are never echoed."""
+
+    id: uuid.UUID
+    type: str = "github_repository"
+    url: str
+    branch: str = ""
+    mount_path: str = ""
+    mount_name: str = ""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("id")
+    def serialize_id(self, v: uuid.UUID) -> str:
+        return f"sesrsc_{v}"
+
+
 class SessionResponse(BaseModel):
     id: uuid.UUID
     type: str = "session"
@@ -310,6 +355,7 @@ class SessionResponse(BaseModel):
     metadata: dict[str, str] = Field(default_factory=dict)
     vault_ids: list[str] = Field(default_factory=list)
     resources: list[SessionResourceResponse] = Field(default_factory=list)
+    repo_resources: list[SessionRepoResourceResponse] = Field(default_factory=list)
     usage: SessionUsage = Field(default_factory=SessionUsage)
     stats: SessionStats = Field(default_factory=SessionStats)
     created_at: datetime

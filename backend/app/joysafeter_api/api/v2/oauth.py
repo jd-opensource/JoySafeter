@@ -15,7 +15,7 @@ import json
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
@@ -28,9 +28,8 @@ from app.joysafeter_shared.common.dependencies import get_db
 from app.joysafeter_shared.common.response import success_response
 from app.joysafeter_shared.oauth import get_oauth_config, get_protocol_handler
 from app.joysafeter_shared.cache.redis import RedisClient
-from app.joysafeter_shared.security import create_access_token, create_csrf_token, generate_refresh_token
 from app.joysafeter_shared.config.settings import settings
-from app.joysafeter_api.services import OAuthService
+from app.joysafeter_api.services import AuthService, OAuthService
 
 LOG_PREFIX = "[OAuthAPI]"
 router = APIRouter(tags=["joysafeter-oauth"])
@@ -215,24 +214,17 @@ async def oauth_callback(
 
         await run_post_login_init(db, user, ip_address)
 
-        # 6. Issue JWT tokens
-        jwt_access_token = create_access_token(
-            subject=user.id,
-            expires_delta=timedelta(minutes=settings.access_token_expire_minutes),
-        )
-        jwt_refresh_token = generate_refresh_token()
-        csrf_token = create_csrf_token(user.id)
-
-        # Store refresh token in Redis
-        await _store_refresh_token(jwt_refresh_token, user.id)
+        # 6. Issue JWT tokens and persist refresh session.
+        auth_service = AuthService(db)
+        token_result = await auth_service.issue_login_tokens(user)
 
         # 7. Set cookies and redirect
         response = _create_auth_response(
             frontend_url=frontend_url,
             callback_url=callback_url,
-            access_token=jwt_access_token,
-            refresh_token=jwt_refresh_token,
-            csrf_token=csrf_token,
+            access_token=token_result["access_token"],
+            refresh_token=token_result["refresh_token"],
+            csrf_token=token_result["csrf_token"],
         )
 
         logger.info(
@@ -333,12 +325,18 @@ async def unlink_oauth_account(
 def _get_base_url(request: Request) -> str:
     """Get base URL, with proxy support."""
     base_url = str(request.base_url).rstrip("/")
-    forwarded_proto = request.headers.get("x-forwarded-proto")
-    forwarded_host = request.headers.get("x-forwarded-host")
+    forwarded_proto = _first_forwarded_header_value(request.headers.get("x-forwarded-proto"))
+    forwarded_host = _first_forwarded_header_value(request.headers.get("x-forwarded-host"))
     if forwarded_host:
-        proto = forwarded_proto or "https"
+        proto = forwarded_proto or request.url.scheme
         base_url = f"{proto}://{forwarded_host}"
     return base_url
+
+
+def _first_forwarded_header_value(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    return value.split(",", 1)[0].strip() or None
 
 
 async def _redirect_to_jd_authorize(
@@ -401,6 +399,31 @@ def _redirect_with_error(frontend_url: str, error_code: str, message: Optional[s
     return RedirectResponse(url=error_url, status_code=302)
 
 
+def _resolve_frontend_callback_url(frontend_url: str, callback_url: str) -> str:
+    frontend_url = frontend_url.rstrip("/")
+    default_url = f"{frontend_url}/managed/quickstart"
+    callback_url = (callback_url or "").strip()
+    if not callback_url:
+        return default_url
+
+    if callback_url.startswith("/") and not callback_url.startswith("//"):
+        return f"{frontend_url}{callback_url}"
+
+    parsed_callback = urlparse(callback_url)
+    parsed_frontend = urlparse(frontend_url)
+    if (
+        parsed_callback.scheme in ("http", "https")
+        and parsed_callback.netloc == parsed_frontend.netloc
+    ):
+        return callback_url
+
+    if not parsed_callback.scheme and not parsed_callback.netloc:
+        return f"{frontend_url}/{callback_url.lstrip('/')}"
+
+    logger.warning(f"{LOG_PREFIX} Blocked unsafe OAuth callback URL: {callback_url}")
+    return default_url
+
+
 async def _validate_state(state: str, oauth_config) -> tuple[Optional[Dict], str]:
     """Validate state and return state_data and callback_url."""
     callback_url = oauth_config.settings.default_redirect_url
@@ -424,19 +447,6 @@ async def _validate_state(state: str, oauth_config) -> tuple[Optional[Dict], str
         return {}, callback_url
 
 
-async def _store_refresh_token(refresh_token: str, user_id: str) -> None:
-    """Store refresh token in Redis."""
-    if not RedisClient.is_available():
-        return
-
-    try:
-        expire_seconds = settings.refresh_token_expire_days * 24 * 60 * 60
-        await RedisClient.set(f"refresh_token:{refresh_token}", user_id, expire=expire_seconds)
-        await RedisClient.set(f"account_refresh_token:{user_id}", refresh_token, expire=expire_seconds)
-    except Exception as e:
-        logger.warning(f"{LOG_PREFIX} Failed to store refresh token: {e}")
-
-
 def _create_auth_response(
     frontend_url: str,
     callback_url: str,
@@ -445,9 +455,7 @@ def _create_auth_response(
     csrf_token: str,
 ) -> RedirectResponse:
     """Create redirect response with auth cookies."""
-    if not callback_url.startswith("/"):
-        callback_url = f"/{callback_url}"
-    final_url = f"{frontend_url}{callback_url}"
+    final_url = _resolve_frontend_callback_url(frontend_url, callback_url)
 
     response = RedirectResponse(url=final_url, status_code=302)
 

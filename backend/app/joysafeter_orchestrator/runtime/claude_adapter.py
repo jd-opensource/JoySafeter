@@ -17,8 +17,18 @@ from app.joysafeter_orchestrator.runtime.adapter import (
     RunningHarness,
     SkillArchive,
 )
+from app.joysafeter_orchestrator.runtime.claude_settings import (
+    write_claude_settings,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _secret_fingerprint_items(secrets: dict[str, str]) -> list[tuple[str, str]]:
+    return [
+        (str(key), hashlib.sha256(str(value).encode("utf-8")).hexdigest())
+        for key, value in sorted((secrets or {}).items())
+    ]
 
 
 def _compute_fingerprint(input: HarnessInput) -> str:
@@ -27,8 +37,10 @@ def _compute_fingerprint(input: HarnessInput) -> str:
         input.model or "",
         input.system_prompt or "",
         json.dumps(sorted(input.env.items())),
-        json.dumps(sorted(input.secrets.items())),
+        json.dumps(_secret_fingerprint_items(input.secrets)),
         json.dumps(input.mcp_servers, sort_keys=True),
+        json.dumps(sorted(input.allowed_tools)),
+        json.dumps(sorted(input.ask_tools)),
     ]
     return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
 
@@ -92,6 +104,11 @@ class ClaudeAdapter(HarnessAdapter):
 
         session = _PersistentSession()
         session.fingerprint = fingerprint
+
+        # Write tool permissions + MCP servers to work_dir/.claude/settings.json
+        # before spawning so claude picks them up at startup.
+        if input.work_dir:
+            write_claude_settings(input.work_dir, input)
 
         cmd = [
             self._binary,

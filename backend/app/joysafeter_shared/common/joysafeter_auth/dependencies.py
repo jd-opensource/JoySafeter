@@ -103,6 +103,7 @@ async def _auth_via_jwt_claims(request: Request, db: AsyncSession) -> JoySafeter
 
     Returns None if the token doesn't carry org/project claims (old tokens).
     """
+    from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
     from app.joysafeter_shared.security import decode_token
 
     # Extract token from Authorization header or cookie
@@ -111,7 +112,7 @@ async def _auth_via_jwt_claims(request: Request, db: AsyncSession) -> JoySafeter
     if auth_header.startswith("Bearer "):
         token = auth_header[7:]
     if not token:
-        token = request.cookies.get("access_token")
+        token = extract_token_from_cookies(request.cookies)
     if not token:
         return None
 

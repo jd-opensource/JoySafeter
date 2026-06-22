@@ -868,6 +868,8 @@ mod tests {
             secrets: HashMap::new(),
             mcp_configs: vec![],
             permission_mode: "bypassPermissions".into(),
+            allowed_tools: vec![],
+            ask_tools: vec![],
         };
         let fp1 = ClaudeAdapter::compute_fingerprint(&input);
         let fp2 = ClaudeAdapter::compute_fingerprint(&input);
@@ -887,6 +889,8 @@ mod tests {
             secrets: HashMap::new(),
             mcp_configs: vec![],
             permission_mode: "bypassPermissions".into(),
+            allowed_tools: vec![],
+            ask_tools: vec![],
         };
         let input2 = HarnessInput {
             prompt: "different prompt".into(),
@@ -899,6 +903,8 @@ mod tests {
             secrets: HashMap::new(),
             mcp_configs: vec![],
             permission_mode: "bypassPermissions".into(),
+            allowed_tools: vec![],
+            ask_tools: vec![],
         };
         assert_eq!(
             ClaudeAdapter::compute_fingerprint(&input1),
@@ -919,6 +925,8 @@ mod tests {
             secrets: HashMap::new(),
             mcp_configs: vec![],
             permission_mode: "bypassPermissions".into(),
+            allowed_tools: vec![],
+            ask_tools: vec![],
         };
         let input2 = HarnessInput {
             model: Some("sonnet".into()),

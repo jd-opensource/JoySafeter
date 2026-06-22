@@ -1124,6 +1124,20 @@ def upgrade() -> None:
         )
         op.create_index('idx_session_files_file', 'joysafeter_session_files', ['file_id'], unique=False)
         op.create_index('idx_session_files_session', 'joysafeter_session_files', ['session_id'], unique=False)
+        op.create_table('joysafeter_session_repos',
+        sa.Column('id', sa.UUID(), nullable=False),
+        sa.Column('session_id', sa.UUID(), nullable=False),
+        sa.Column('url', sa.Text(), nullable=False),
+        sa.Column('branch', sa.String(length=255), server_default='', nullable=False),
+        sa.Column('mount_path', sa.Text(), nullable=False),
+        sa.Column('mount_name', sa.String(length=255), server_default='', nullable=False),
+        sa.Column('encrypted_token', sa.Text(), server_default='', nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.ForeignKeyConstraint(['session_id'], ['joysafeter_sessions.id'], name=op.f('fk_joysafeter_session_repos_session_id_joysafeter_sessions'), ondelete='CASCADE'),
+        sa.PrimaryKeyConstraint('id', name=op.f('pk_joysafeter_session_repos'))
+        )
+        op.create_index('idx_session_repos_session', 'joysafeter_session_repos', ['session_id'], unique=False)
         op.create_table('task_activities',
         sa.Column('task_id', sa.UUID(), nullable=False),
         sa.Column('project_id', sa.String(length=255), nullable=False),
@@ -1192,6 +1206,7 @@ def downgrade() -> None:
         op.drop_table('artifacts')
         op.drop_table('executions')
         op.drop_table('task_activities')
+        op.drop_table('joysafeter_session_repos')
         op.drop_table('joysafeter_session_files')
         op.drop_table('agent_runs')
         op.drop_table('tasks')

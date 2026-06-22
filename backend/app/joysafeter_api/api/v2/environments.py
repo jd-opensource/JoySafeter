@@ -74,12 +74,34 @@ def _env_to_response(env) -> EnvironmentResponse:
     )
 
 
+async def _validate_secret_refs(
+    db: AsyncSession,
+    secret_refs: list[str],
+    project_id: Optional[str],
+) -> None:
+    if not secret_refs:
+        return
+
+    from app.joysafeter_api.services import SecretService
+
+    secret_svc = SecretService(db)
+    for secret_ref in secret_refs:
+        ref = str(secret_ref).strip()
+        if not ref:
+            continue
+        secret = await secret_svc.get_secret_by_name(ref, project_id=project_id)
+        if not secret:
+            raise HTTPException(400, f"Secret not found: {ref}")
+
+
 @router.post("", status_code=201)
 async def create_environment(
     req: CreateEnvironmentRequest,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> EnvironmentResponse:
+    await _validate_secret_refs(db, req.config.secret_refs, auth_ctx.project_id)
+
     svc = EnvironmentService(db)
     env = await svc.create_environment(req, project_id=auth_ctx.project_id)
 
@@ -143,6 +165,9 @@ async def update_environment(
 
     if env.archived_at is not None:
         raise HTTPException(409, "Cannot update an archived environment")
+
+    if req.config is not None:
+        await _validate_secret_refs(db, req.config.secret_refs, auth_ctx.project_id)
 
     env = await svc.update_environment(env_id, req, project_id=auth_ctx.project_id)
     if not env:

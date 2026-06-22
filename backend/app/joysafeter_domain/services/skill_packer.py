@@ -69,7 +69,15 @@ class SkillPacker:
         return None
 
     async def _pack_custom(self, skill_id: str, version: str, target: str) -> Optional[SkillArchive]:
-        """Resolve a custom skill by ID, fetch files from DB, and pack into tar.gz."""
+        """Resolve a custom skill by ID, fetch files from DB, and pack into tar.gz.
+
+        Version keyword semantics (aligned with npm/Cargo/MCP conventions):
+
+        - ``"latest"`` (or unset) → the highest published ``SkillVersion``;
+          falls back to draft only when the skill has never been published.
+        - ``"draft"`` → the current mutable working copy (``skill_files``).
+        - explicit ``"x.y.z"`` → that exact published version.
+        """
         sid = skill_id.removeprefix("skill_")
         try:
             uid = uuid.UUID(sid)
@@ -77,12 +85,27 @@ class SkillPacker:
             logger.warning("Invalid skill_id format: %s", skill_id)
             return None
 
+        # Explicit draft request always uses the working copy.
+        if version == "draft":
+            return await self._pack_draft(uid, target)
+
+        # Explicit semver — must hit a published version.
         if version and version != "latest":
             return await self._pack_version(uid, version, target)
 
-        # latest: use skill_files (working copy)
+        # "latest" (or empty): prefer the highest published version; fall back to
+        # draft when nothing has been published yet, so brand-new skills still work.
+        from app.joysafeter_domain.repositories.skill_version import SkillVersionRepository
+        repo = SkillVersionRepository(self.db)
+        highest = await repo.get_highest_version_str(uid)
+        if highest:
+            return await self._pack_version(uid, highest, target)
+        return await self._pack_draft(uid, target)
+
+    async def _pack_draft(self, skill_id: uuid.UUID, target: str) -> Optional[SkillArchive]:
+        """Pack the mutable working copy (``Skill`` + ``SkillFile``)."""
         from sqlalchemy import select as sa_select, and_
-        conditions = [Skill.id == uid]
+        conditions = [Skill.id == skill_id]
         if self._project_id:
             conditions.append(Skill.project_id == self._project_id)
         result = await self.db.execute(

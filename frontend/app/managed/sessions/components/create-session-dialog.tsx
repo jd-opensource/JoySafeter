@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from '@/lib/i18n'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { Plus, ExternalLink, X, Check, FileIcon } from 'lucide-react'
+import { Plus, ExternalLink, X, Check, FileIcon, GitBranch } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { managedGet, managedPost } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
@@ -28,6 +28,14 @@ interface SelectedFile {
   mount_path: string
 }
 
+interface SelectedRepo {
+  key: string
+  url: string
+  branch: string
+  mount_path: string
+  authorization_token: string
+}
+
 interface CreateSessionDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -45,6 +53,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const [showVaultDropdown, setShowVaultDropdown] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([])
   const [showFileDropdown, setShowFileDropdown] = useState(false)
+  const [selectedRepos, setSelectedRepos] = useState<SelectedRepo[]>([])
 
   const { data: agents = [] } = useQuery({
     queryKey: ['agents-for-session'],
@@ -113,6 +122,16 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
           mount_path: f.mount_path,
         }))
       }
+      const validRepos = selectedRepos.filter((r) => r.url.trim())
+      if (validRepos.length > 0) {
+        body.repo_resources = validRepos.map((r) => ({
+          type: 'github_repository',
+          url: r.url.trim(),
+          ...(r.branch.trim() ? { branch: r.branch.trim() } : {}),
+          ...(r.mount_path.trim() ? { mount_path: r.mount_path.trim() } : {}),
+          ...(r.authorization_token.trim() ? { authorization_token: r.authorization_token.trim() } : {}),
+        }))
+      }
       return managedPost<{ id: string }>('/sessions', body)
     },
     onSuccess: (res) => {
@@ -135,6 +154,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     setEnvId('')
     setSelectedVaultIds([])
     setSelectedFiles([])
+    setSelectedRepos([])
   }
 
   const toggleVault = (id: string) => {
@@ -159,6 +179,21 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     setSelectedFiles((prev) =>
       prev.map((f) => (f.file_id === fileId ? { ...f, mount_path: mountPath } : f)),
     )
+  }
+
+  const addRepo = () => {
+    setSelectedRepos((prev) => [
+      ...prev,
+      { key: `repo-${prev.length}-${Date.now()}`, url: '', branch: '', mount_path: '', authorization_token: '' },
+    ])
+  }
+
+  const removeRepo = (key: string) => {
+    setSelectedRepos((prev) => prev.filter((r) => r.key !== key))
+  }
+
+  const updateRepo = (key: string, patch: Partial<SelectedRepo>) => {
+    setSelectedRepos((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)))
   }
 
   const selectedVaultNames = activeVaults
@@ -392,6 +427,67 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                 </div>
               )}
             </div>
+          </div>
+
+          {/* Git Repositories */}
+          <div>
+            <label className="mb-0.5 block text-sm font-medium">{t('managed.sessions.create.repositories')}</label>
+            <p className="mb-2 text-xs text-muted-foreground">{t('managed.sessions.create.repositoriesDesc')}</p>
+
+            {selectedRepos.length > 0 && (
+              <div className="mb-3 space-y-2">
+                {selectedRepos.map((r) => (
+                  <div key={r.key} className="rounded-md border border-border p-2.5">
+                    <div className="flex items-start gap-2">
+                      <GitBranch className="mt-0.5 h-4 w-4 text-muted-foreground shrink-0" />
+                      <div className="flex-1 min-w-0 space-y-1.5">
+                        <Input
+                          value={r.url}
+                          onChange={(e) => updateRepo(r.key, { url: e.target.value })}
+                          className="h-7 text-xs font-mono"
+                          placeholder={t('managed.sessions.create.repoUrlPlaceholder')}
+                        />
+                        <div className="flex gap-1.5">
+                          <Input
+                            value={r.branch}
+                            onChange={(e) => updateRepo(r.key, { branch: e.target.value })}
+                            className="h-7 text-xs font-mono"
+                            placeholder={t('managed.sessions.create.repoBranch')}
+                          />
+                          <Input
+                            value={r.mount_path}
+                            onChange={(e) => updateRepo(r.key, { mount_path: e.target.value })}
+                            className="h-7 text-xs font-mono"
+                            placeholder={t('managed.sessions.create.mountPath')}
+                          />
+                        </div>
+                        <Input
+                          type="password"
+                          autoComplete="new-password"
+                          value={r.authorization_token}
+                          onChange={(e) => updateRepo(r.key, { authorization_token: e.target.value })}
+                          className="h-7 text-xs font-mono"
+                          placeholder={t('managed.sessions.create.repoTokenPlaceholder')}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeRepo(r.key)}
+                        className="text-muted-foreground hover:text-destructive shrink-0"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <p className="text-xs text-muted-foreground">{t('managed.sessions.create.repoTokenHint')}</p>
+              </div>
+            )}
+
+            <Button variant="outline" size="sm" onClick={addRepo} type="button">
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              {t('managed.sessions.create.addRepository')}
+            </Button>
           </div>
         </div>
 

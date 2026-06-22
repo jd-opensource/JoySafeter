@@ -237,32 +237,32 @@ async fn run_step_secret(
                         );
                     }
                     let base_url: String = Input::new()
-                        .with_prompt("CODEX_BASE_URL (API base URL, empty for default: https://code.ppchat.vip/v1)")
+                        .with_prompt("OPENAI_BASE_URL (API base URL, empty for default: https://api.openai.com/v1)")
                         .allow_empty(true)
                         .interact_text()?;
                     if !base_url.trim().is_empty() {
                         data.insert(
-                            "CODEX_BASE_URL".to_string(),
+                            "OPENAI_BASE_URL".to_string(),
                             serde_json::Value::String(base_url.trim().to_string()),
                         );
                     }
                     let model: String = Input::new()
-                        .with_prompt("CODEX_MODEL (empty for default: gpt-5.3-codex)")
+                        .with_prompt("OPENAI_MODEL (empty for default: gpt-5.3-codex)")
                         .allow_empty(true)
                         .interact_text()?;
                     if !model.trim().is_empty() {
                         data.insert(
-                            "CODEX_MODEL".to_string(),
+                            "OPENAI_MODEL".to_string(),
                             serde_json::Value::String(model.trim().to_string()),
                         );
                     }
                     let effort: String = Input::new()
-                        .with_prompt("CODEX_REASONING_EFFORT (empty for default: high)")
+                        .with_prompt("OPENAI_REASONING_EFFORT (empty for default: high)")
                         .allow_empty(true)
                         .interact_text()?;
                     if !effort.trim().is_empty() {
                         data.insert(
-                            "CODEX_REASONING_EFFORT".to_string(),
+                            "OPENAI_REASONING_EFFORT".to_string(),
                             serde_json::Value::String(effort.trim().to_string()),
                         );
                     }

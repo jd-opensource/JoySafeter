@@ -30,6 +30,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["joysafeter-agents"])
 
 
+_LOCAL_MCP_HOSTS = {"localhost", "127.0.0.1", "host.docker.internal", "::1"}
+
+
 def _validate_mcp_configs(mcp_configs: list[dict] | None) -> None:
     if not mcp_configs:
         return
@@ -39,7 +42,12 @@ def _validate_mcp_configs(mcp_configs: list[dict] | None) -> None:
             continue
         url = cfg.get("url", "")
         if url.startswith("http://"):
-            raise HTTPException(400, f"MCP server URL must use HTTPS: {url}")
+            # Allow http:// for clearly-local development addresses so users can
+            # point MCP at a host-side dev server. Everything else must be HTTPS.
+            from urllib.parse import urlparse
+            host = (urlparse(url).hostname or "").lower()
+            if host not in _LOCAL_MCP_HOSTS:
+                raise HTTPException(400, f"MCP server URL must use HTTPS: {url}")
         name = cfg.get("name", "")
         if name:
             if name in seen_names:
@@ -76,10 +84,9 @@ def _secret_matches_engine(secret, engine_kind: str) -> bool:
     keys = set((getattr(secret, "data", None) or {}).keys())
     if engine_kind == "codex":
         return (
-            provider in {"codex", "openai", "deepseek"}
+            provider == "codex"
             or protocol in {"openai_responses", "chat_completions"}
             or "OPENAI_API_KEY" in keys
-            or "CODEX_API_KEY" in keys
         )
     if engine_kind in ("claude", "native"):
         return (
@@ -116,11 +123,7 @@ def _model_from_secret_data(secret_data: dict[str, Any] | None, engine_kind: str
         return None
 
     if (engine_kind or "claude") == "codex":
-        model_id = (
-            secret_data.get("CODEX_MODEL")
-            or secret_data.get("OPENAI_MODEL")
-            or secret_data.get("MODEL")
-        )
+        model_id = secret_data.get("OPENAI_MODEL")
     else:
         # claude, native, and any other engine
         model_id = secret_data.get("ANTHROPIC_MODEL") or secret_data.get("MODEL")
@@ -143,11 +146,11 @@ async def _resolve_agent_model(
     if secret_cache is not None:
         if agent.secret_ref not in secret_cache:
             secret = await secret_svc.get_secret_by_name(agent.secret_ref, project_id=project_id)
-            secret_cache[agent.secret_ref] = secret.data if secret else None
+            secret_cache[agent.secret_ref] = secret_svc.get_secret_data(secret) if secret else None
         secret_data = secret_cache.get(agent.secret_ref)
     else:
         secret = await secret_svc.get_secret_by_name(agent.secret_ref, project_id=project_id)
-        secret_data = secret.data if secret else None
+        secret_data = secret_svc.get_secret_data(secret) if secret else None
 
     return _model_from_secret_data(secret_data, getattr(agent, "engine_kind", None))
 

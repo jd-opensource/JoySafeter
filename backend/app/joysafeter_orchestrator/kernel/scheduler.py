@@ -139,20 +139,6 @@ class TaskScheduler:
                     task.chat_session_id = session_id
                     await db.commit()
 
-                agent_env = dict(agent.env or {})
-
-                if getattr(agent, "secret_ref", None):
-                    from app.joysafeter_orchestrator.services import SecretService
-                    secret_svc = SecretService(db)
-                    secret = await secret_svc.get_secret_by_name(
-                        agent.secret_ref, project_id=str(agent.project_id)
-                    )
-                    if secret and secret.data:
-                        for k, v in secret.data.items():
-                            agent_env.setdefault(k, str(v))
-                        if "ANTHROPIC_AUTH_TOKEN" in agent_env and "ANTHROPIC_API_KEY" not in agent_env:
-                            agent_env["ANTHROPIC_API_KEY"] = agent_env["ANTHROPIC_AUTH_TOKEN"]
-
                 env_ref = None
                 if session_id and task.chat_session_id:
                     session = await session_svc.get_session(session_id)
@@ -169,6 +155,7 @@ class TaskScheduler:
 
                 resolved_image = default_image
                 networking = None
+                environment_config = {}
                 if env_ref:
                     from app.joysafeter_orchestrator.services import EnvironmentService
                     env_svc = EnvironmentService(db)
@@ -176,7 +163,8 @@ class TaskScheduler:
                     if environment:
                         resolved_image = environment.image_tag or default_image
                         config = environment.config or {}
-                        net_cfg = config.get("networking")
+                        environment_config = config if isinstance(config, dict) else {}
+                        net_cfg = environment_config.get("networking")
                         if net_cfg and isinstance(net_cfg, dict):
                             networking = net_cfg
                             if net_cfg.get("type") == "limited":
@@ -187,6 +175,29 @@ class TaskScheduler:
                                         if host and host not in allowed:
                                             allowed.append(host)
                                 networking = {**net_cfg, "allowed_hosts": allowed}
+
+                from app.joysafeter_orchestrator.services import SecretService
+                secret_svc = SecretService(db)
+                project_id = (
+                    str(agent.project_id)
+                    if getattr(agent, "project_id", None) is not None
+                    else None
+                )
+                agent_env: dict[str, str] = {}
+                env_vars = environment_config.get("env_vars")
+                if isinstance(env_vars, dict):
+                    agent_env.update({str(k): str(v) for k, v in env_vars.items()})
+                secret_refs = environment_config.get("secret_refs")
+                if isinstance(secret_refs, list):
+                    agent_env = await secret_svc.merge_secret_refs_into_env(
+                        agent_env, secret_refs, project_id=project_id
+                    )
+                if getattr(agent, "secret_ref", None):
+                    agent_env = await secret_svc.merge_secret_refs_into_env(
+                        agent_env, [agent.secret_ref], project_id=project_id, override=True
+                    )
+                agent_env.update({str(k): str(v) for k, v in (agent.env or {}).items()})
+                secret_svc.apply_provider_aliases(agent_env)
 
             resolver = get_sandbox_resolver()
             if resolver:

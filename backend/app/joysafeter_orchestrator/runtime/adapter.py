@@ -52,6 +52,7 @@ class HarnessInput:
     setup_commands: list[str] = field(default_factory=list)
     allowed_tools: list[str] = field(default_factory=list)
     disallowed_tools: list[str] = field(default_factory=list)
+    ask_tools: list[str] = field(default_factory=list)
     max_turns: int = 100
     repos: list[dict[str, Any]] = field(default_factory=list)
 

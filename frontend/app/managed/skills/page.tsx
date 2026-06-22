@@ -597,6 +597,7 @@ function SkillEditor({
   setFileContent,
   versions,
   onCreateVersion,
+  onDeleteVersion,
   isCreatingVersion,
 }: {
   skill: SkillRecord
@@ -607,7 +608,11 @@ function SkillEditor({
   fileContent: string
   setFileContent: (c: string) => void
   versions: SkillVersionRecord[]
-  onCreateVersion: (releaseNotes: string) => void
+  onCreateVersion: (releaseNotes: string, version?: string) => void
+  onDeleteVersion: (
+    version: string,
+    force?: boolean,
+  ) => Promise<{ ok: true } | { ok: false; referrers: Array<Record<string, unknown>>; hint?: string }>
   isCreatingVersion: boolean
 }) {
   const { t, i18n } = useTranslation()
@@ -615,6 +620,14 @@ function SkillEditor({
   const [contentMode, setContentMode] = useState<'edit' | 'preview'>('edit')
   const [showVersionForm, setShowVersionForm] = useState(false)
   const [newReleaseNotes, setNewReleaseNotes] = useState('')
+  const [newVersionStr, setNewVersionStr] = useState('')
+  /** Per-row delete state: keyed by version string. */
+  const [deleteState, setDeleteState] = useState<{
+    version: string
+    referrers?: Array<Record<string, unknown>>
+    hint?: string
+    pending?: boolean
+  } | null>(null)
 
   const selectedFile = files.find((f) => f.id === selectedFileId)
   const isEditingFile = selectedFileId !== null && selectedFile !== undefined
@@ -795,39 +808,95 @@ function SkillEditor({
                     <Camera className="h-4 w-4 text-primary" />
                     {t('managed.skills.createVersionBtn')}
                   </div>
-                  <textarea
-                    value={newReleaseNotes}
-                    onChange={(e) => setNewReleaseNotes(e.target.value)}
-                    placeholder={t('managed.skills.releaseNotesPlaceholder')}
-                    rows={2}
-                    className="w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                  />
-                  <div className="mt-3 flex justify-end gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={() => {
-                        setShowVersionForm(false)
-                        setNewReleaseNotes('')
-                      }}
-                    >
-                      {t('managed.skills.cancel')}
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="h-7 text-xs"
-                      disabled={isCreatingVersion}
-                      onClick={() => {
-                        onCreateVersion(newReleaseNotes.trim())
-                        setShowVersionForm(false)
-                        setNewReleaseNotes('')
-                      }}
-                    >
-                      <Camera className="mr-1 h-3 w-3" />
-                      {t('managed.skills.createVersionBtn')}
-                    </Button>
-                  </div>
+                  {(() => {
+                    const trimmed = newVersionStr.trim()
+                    const semverOk = trimmed === '' || /^\d+\.\d+\.\d+$/.test(trimmed)
+                    const highest = (() => {
+                      const candidates = versions
+                        .map((v) => v.version)
+                        .filter((v) => /^\d+\.\d+\.\d+$/.test(v))
+                      if (candidates.length === 0) return null
+                      candidates.sort((a, b) => {
+                        const pa = a.split('.').map(Number)
+                        const pb = b.split('.').map(Number)
+                        for (let i = 0; i < 3; i++) {
+                          if (pa[i] !== pb[i]) return pb[i] - pa[i]
+                        }
+                        return 0
+                      })
+                      return candidates[0]
+                    })()
+                    return (
+                      <>
+                        <div className="mb-3">
+                          <input
+                            type="text"
+                            value={newVersionStr}
+                            onChange={(e) => setNewVersionStr(e.target.value)}
+                            placeholder={t(
+                              'managed.skills.versionInputPlaceholder',
+                              'Version (e.g. 1.2.0) — leave empty to auto-bump patch',
+                            )}
+                            className={`w-full rounded-md border bg-background px-3 py-2 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-ring ${
+                              semverOk ? 'border-border' : 'border-red-500'
+                            }`}
+                          />
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {!semverOk
+                              ? t(
+                                  'managed.skills.versionInvalidSemver',
+                                  'Must be MAJOR.MINOR.PATCH (e.g. 1.2.0)',
+                                )
+                              : highest
+                                ? t(
+                                    'managed.skills.versionCurrentHighest',
+                                    'Current highest: v{{v}}. New version must be greater.',
+                                    { v: highest },
+                                  )
+                                : t(
+                                    'managed.skills.versionFirstHint',
+                                    'Leave empty to start at v0.1.0.',
+                                  )}
+                          </div>
+                        </div>
+                        <textarea
+                          value={newReleaseNotes}
+                          onChange={(e) => setNewReleaseNotes(e.target.value)}
+                          placeholder={t('managed.skills.releaseNotesPlaceholder')}
+                          rows={2}
+                          className="w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                        />
+                        <div className="mt-3 flex justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => {
+                              setShowVersionForm(false)
+                              setNewReleaseNotes('')
+                              setNewVersionStr('')
+                            }}
+                          >
+                            {t('managed.skills.cancel')}
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="h-7 text-xs"
+                            disabled={isCreatingVersion || !semverOk}
+                            onClick={() => {
+                              onCreateVersion(newReleaseNotes.trim(), trimmed || undefined)
+                              setShowVersionForm(false)
+                              setNewReleaseNotes('')
+                              setNewVersionStr('')
+                            }}
+                          >
+                            <Camera className="mr-1 h-3 w-3" />
+                            {t('managed.skills.createVersionBtn')}
+                          </Button>
+                        </div>
+                      </>
+                    )
+                  })()}
                 </div>
               ) : (
                 <button
@@ -892,6 +961,15 @@ function SkillEditor({
                           <div className="flex shrink-0 items-center gap-1 pt-0.5 text-[11px] text-muted-foreground/60">
                             <Clock className="h-3 w-3" />
                             {timeAgo(v.created_at, i18n.language)}
+                            <button
+                              type="button"
+                              aria-label={t('managed.skills.deleteVersion', 'Delete version')}
+                              title={t('managed.skills.deleteVersion', 'Delete version')}
+                              onClick={() => setDeleteState({ version: v.version })}
+                              className="ml-1 rounded p-1 text-muted-foreground/60 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -903,6 +981,85 @@ function SkillEditor({
           </div>
         </div>
       )}
+
+      {/* Delete version dialog (handles 409 SKILL_VERSION_IN_USE with force-confirm) */}
+      <Dialog
+        open={!!deleteState}
+        onOpenChange={(open) => {
+          if (!open) setDeleteState(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle>
+              {t('managed.skills.deleteVersionTitle', 'Delete version v{{v}}', {
+                v: deleteState?.version || '',
+              })}
+            </DialogTitle>
+            <DialogDescription>
+              {deleteState?.referrers && deleteState.referrers.length > 0
+                ? t(
+                    'managed.skills.deleteVersionInUse',
+                    'This version is referenced by {{n}} agent(s) or saved agent versions. Deleting will leave them pointing at a missing version.',
+                    { n: deleteState.referrers.length },
+                  )
+                : t(
+                    'managed.skills.deleteVersionConfirm',
+                    'This permanently removes the published snapshot. Agents pinned to this version will fail to load it.',
+                  )}
+            </DialogDescription>
+          </DialogHeader>
+          {deleteState?.referrers && deleteState.referrers.length > 0 && (
+            <div className="max-h-48 overflow-y-auto rounded-md border border-border bg-muted/30 p-2">
+              <ul className="space-y-1 text-xs">
+                {deleteState.referrers.map((r, i) => {
+                  const kind = String(r.kind ?? '')
+                  const agentId = String(r.agent_id ?? '')
+                  const label =
+                    kind === 'agent'
+                      ? `agent · ${(r.name as string) || agentId}`
+                      : `agent_version · ${agentId} (v${r.agent_version ?? ''})`
+                  return (
+                    <li key={i} className="font-mono">
+                      {label}
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteState(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteState?.pending}
+              onClick={async () => {
+                if (!deleteState) return
+                const force = (deleteState.referrers?.length ?? 0) > 0
+                setDeleteState({ ...deleteState, pending: true })
+                const res = await onDeleteVersion(deleteState.version, force)
+                if (res.ok) {
+                  setDeleteState(null)
+                } else {
+                  // 409 came back — surface referrers and switch to force mode.
+                  setDeleteState({
+                    version: deleteState.version,
+                    referrers: res.referrers,
+                    hint: res.hint,
+                    pending: false,
+                  })
+                }
+              }}
+            >
+              {(deleteState?.referrers?.length ?? 0) > 0
+                ? t('managed.skills.deleteAnyway', 'Delete anyway')
+                : t('managed.skills.delete', 'Delete')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -1380,7 +1537,7 @@ export default function SkillManagerPage() {
   })
 
   const createVersionMutation = useMutation({
-    mutationFn: ({ releaseNotes }: { releaseNotes: string }) =>
+    mutationFn: ({ releaseNotes, version }: { releaseNotes: string; version?: string }) =>
       managedPost<SkillVersionRecord>(
         `/skills/${stripId(selectedSkillId!)}/versions`,
         {
@@ -1388,6 +1545,7 @@ export default function SkillManagerPage() {
           description: form.description,
           content: form.content,
           release_notes: releaseNotes,
+          ...(version ? { version } : {}),
         },
       ),
     onSuccess: () => {
@@ -1399,6 +1557,37 @@ export default function SkillManagerPage() {
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
+
+  /** Delete a published skill version. Returns 409-payload referrers on conflict
+   * so the dialog can offer a force retry; throws on any other error. */
+  const deleteVersion = useCallback(
+    async (version: string, force = false): Promise<
+      { ok: true } | { ok: false; referrers: Array<Record<string, unknown>>; hint?: string }
+    > => {
+      try {
+        await managedDelete(
+          `/skills/${stripId(selectedSkillId!)}/versions/${encodeURIComponent(version)}${
+            force ? '?force=true' : ''
+          }`,
+        )
+        queryClient.invalidateQueries({ queryKey: ['skill-versions', selectedSkillId] })
+        return { ok: true }
+      } catch (e) {
+        // 409 with referrer list → caller shows a force-confirm UI.
+        const err = e as { status?: number; code?: string; data?: { referrers?: unknown[]; hint?: string } }
+        if (err?.status === 409 && err?.code === 'SKILL_VERSION_IN_USE') {
+          return {
+            ok: false,
+            referrers: (err.data?.referrers as Array<Record<string, unknown>>) || [],
+            hint: err.data?.hint,
+          }
+        }
+        toastOperationError(t, e, 'common.operationFailed')
+        throw e
+      }
+    },
+    [selectedSkillId, queryClient, t],
+  )
 
   const rescanSecurityMutation = useMutation({
     mutationFn: () =>
@@ -1915,11 +2104,13 @@ export default function SkillManagerPage() {
           fileContent={fileContent}
           setFileContent={setFileContent}
           versions={versions}
-          onCreateVersion={(notes) =>
+          onCreateVersion={(notes, version) =>
             createVersionMutation.mutate({
               releaseNotes: notes,
+              version,
             })
           }
+          onDeleteVersion={deleteVersion}
           isCreatingVersion={createVersionMutation.isPending}
         />
       </div>

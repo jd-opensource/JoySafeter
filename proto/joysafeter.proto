@@ -125,6 +125,10 @@ message SetupSandbox {
   repeated MemoryStoreMount memory_mounts = 12;
   repeated FileMount files = 13;
   repeated FileRef file_refs = 14;
+  repeated string allowed_tools = 15;
+  repeated string disallowed_tools = 16;
+  repeated string ask_tools = 17;
+  repeated RepoConfig repos = 18;
 }
 
 message MemoryStoreMount {
@@ -167,6 +171,7 @@ message StartTask {
   optional string permission_mode = 17;
   repeated string setup_commands = 18;
   repeated CustomTool custom_tools = 19;
+  repeated string ask_tools = 20;
 }
 
 message CustomTool {
@@ -208,6 +213,9 @@ message RepoConfig {
   string url = 1;
   string branch = 2;
   string path = 3;
+  // Clone-only credential. Never logged or echoed in API responses.
+  string authorization_token = 4;
+  string mount_name = 5;
 }
 
 message CancelTask {

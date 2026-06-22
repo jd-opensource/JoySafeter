@@ -594,7 +594,7 @@ async def quickstart_chat(
     if not secret:
         raise HTTPException(404, "Secret not found or missing required keys")
 
-    data = secret.data or {}
+    data = svc.get_secret_data(secret)
     provider = "codex" if req.provider == "codex" else "claude"
 
     # SSRF protection: block cloud metadata endpoints, allow internal network
@@ -635,17 +635,17 @@ async def quickstart_chat(
         stream_kwargs = {"base_url": base_url, "api_key": api_key, "body": claude_body}
 
     else:
-        api_key = data.get("OPENAI_API_KEY") or data.get("CODEX_API_KEY") or ""
-        base_url = data.get("CODEX_BASE_URL") or data.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+        api_key = data.get("OPENAI_API_KEY") or ""
+        base_url = data.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
         try:
-            validate_url(base_url, allow_http=True, allow_private=True, context="CODEX_BASE_URL")
+            validate_url(base_url, allow_http=True, allow_private=True, context="OPENAI_BASE_URL")
         except SSRFError:
-            raise HTTPException(400, "Invalid CODEX_BASE_URL")
+            raise HTTPException(400, "Invalid OPENAI_BASE_URL")
 
         if not api_key:
             raise HTTPException(404, "Secret not found or missing required keys")
 
-        model = data.get("CODEX_MODEL") or data.get("OPENAI_MODEL") or data.get("MODEL") or "gpt-5.3-codex"
+        model = data.get("OPENAI_MODEL") or "gpt-5.3-codex"
         protocol = getattr(secret, "protocol", "") or ""
         if protocol == "chat_completions":
             openai_tools = _build_openai_chat_tools(tools)

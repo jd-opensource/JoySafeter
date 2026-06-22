@@ -4,21 +4,21 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_shared.common.joysafeter_auth import (
-    JoySafeterAuthContext,
-    get_joysafeter_auth_context,
-    require_joysafeter_write,
-)
-from app.joysafeter_shared.database import get_db
 from app.joysafeter_api.api.v2.audit import audit_joysafeter_event
 from app.joysafeter_api.api.v2.id_helpers import parse_secret_id
+from app.joysafeter_api.services import SecretService
 from app.joysafeter_domain.schemas.secret import (
     CreateSecretRequest,
     SecretListItem,
     SecretResponse,
     UpdateSecretRequest,
 )
-from app.joysafeter_api.services import SecretService
+from app.joysafeter_shared.common.joysafeter_auth import (
+    JoySafeterAuthContext,
+    get_joysafeter_auth_context,
+    require_joysafeter_write,
+)
+from app.joysafeter_shared.database import get_db
 
 router = APIRouter(tags=["joysafeter-secrets"])
 
@@ -31,7 +31,10 @@ async def create_secret(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SecretResponse:
     svc = SecretService(db)
-    secret = await svc.create_secret(req, project_id=auth_ctx.project_id)
+    try:
+        secret = await svc.create_secret(req, project_id=auth_ctx.project_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     await audit_joysafeter_event(
         db,
         request,
@@ -39,7 +42,12 @@ async def create_secret(
         event_type="secret.created",
         target_type="secret",
         target_id=str(secret.id),
-        details={"name": secret.name, "provider": secret.provider, "protocol": secret.protocol, "keys": sorted((secret.data or {}).keys())},
+        details={
+            "name": secret.name,
+            "provider": secret.provider,
+            "protocol": secret.protocol,
+            "keys": sorted((secret.data or {}).keys()),
+        },
     )
     return SecretResponse(
         id=f"secret_{secret.id}",
@@ -47,7 +55,7 @@ async def create_secret(
         provider=secret.provider,
         protocol=secret.protocol,
         is_default=secret.is_default,
-        secret_data=secret.data or {},
+        secret_data=svc.get_masked_secret_data(secret),
         created_at=secret.created_at,
         updated_at=secret.updated_at,
     )
@@ -101,7 +109,7 @@ async def get_secret(
         provider=secret.provider,
         protocol=secret.protocol,
         is_default=secret.is_default,
-        secret_data=secret.data or {},
+        secret_data=svc.get_masked_secret_data(secret),
         created_at=secret.created_at,
         updated_at=secret.updated_at,
     )
@@ -121,7 +129,10 @@ async def update_secret(
         raise HTTPException(404, "Secret not found")
     if secret.project_id != auth_ctx.project_id:
         raise HTTPException(404, "Secret not found")
-    secret = await svc.update_secret(secret_id, req)
+    try:
+        secret = await svc.update_secret(secret_id, req)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     await audit_joysafeter_event(
         db,
         request,
@@ -129,7 +140,12 @@ async def update_secret(
         event_type="secret.updated",
         target_type="secret",
         target_id=str(secret.id),
-        details={"name": secret.name, "provider": secret.provider, "protocol": secret.protocol, "keys": sorted((secret.data or {}).keys())},
+        details={
+            "name": secret.name,
+            "provider": secret.provider,
+            "protocol": secret.protocol,
+            "keys": sorted((secret.data or {}).keys()),
+        },
     )
     return SecretResponse(
         id=f"secret_{secret.id}",
@@ -137,7 +153,7 @@ async def update_secret(
         provider=secret.provider,
         protocol=secret.protocol,
         is_default=secret.is_default,
-        secret_data=secret.data or {},
+        secret_data=svc.get_masked_secret_data(secret),
         created_at=secret.created_at,
         updated_at=secret.updated_at,
     )
@@ -169,7 +185,7 @@ async def set_default_secret(
         provider=secret.provider,
         protocol=secret.protocol,
         is_default=secret.is_default,
-        secret_data=secret.data or {},
+        secret_data={},
         created_at=secret.created_at,
         updated_at=secret.updated_at,
     )

@@ -386,14 +386,41 @@ function ToolCard({ tool, mcpServers }: { tool: AgentTool; mcpServers?: McpServe
         </div>
         {expanded && configs.length > 0 && (
           <div className="mt-2 ml-5 space-y-1 border-l border-border pl-3">
-            {configs.map((cfg, j) => (
-              <div key={j} className="flex items-center justify-between text-xs py-0.5">
-                <span className="font-mono text-foreground">{cfg.name}</span>
-                <span className="text-muted-foreground">
-                  {cfg.permission_policy ? formatPolicy(cfg.permission_policy.type, t) : '—'}
-                </span>
-              </div>
-            ))}
+            {configs.map((cfg, j) => {
+              const enabled = cfg.enabled !== false
+              const effectivePolicy = cfg.permission_policy?.type || defaultPolicy
+              const isInherited = !cfg.permission_policy
+              return (
+                <div key={j} className="flex items-center justify-between text-xs py-0.5">
+                  <span className="flex items-center gap-2">
+                    {enabled ? (
+                      <span
+                        className="inline-flex h-3.5 w-3.5 items-center justify-center rounded bg-emerald-500 text-white"
+                        aria-label="enabled"
+                      >
+                        <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={4}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      </span>
+                    ) : (
+                      <span
+                        className="inline-flex h-3.5 w-3.5 items-center justify-center rounded border border-border bg-background"
+                        aria-label="disabled"
+                      />
+                    )}
+                    <span className={`font-mono ${enabled ? 'text-foreground' : 'text-muted-foreground line-through'}`}>
+                      {cfg.name}
+                    </span>
+                  </span>
+                  <span className="text-muted-foreground">
+                    {formatPolicy(effectivePolicy, t)}
+                    {isInherited && (
+                      <span className="ml-1 text-[10px] opacity-60">({t('managed.policy.inherit')})</span>
+                    )}
+                  </span>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
@@ -404,7 +431,8 @@ function ToolCard({ tool, mcpServers }: { tool: AgentTool; mcpServers?: McpServe
     const configs = tool.configs || []
     const serverName = tool.mcp_server_name
     const server = mcpServers?.find((s) => s.name === serverName)
-    const defaultPolicy = tool.default_config?.permission_policy?.type
+    // Official Managed Agents default for mcp_toolset is always_ask when unset.
+    const defaultPolicy = tool.default_config?.permission_policy?.type || 'always_ask'
     return (
       <div className="border border-border rounded-lg p-4">
         <div className="flex items-center gap-3">
@@ -429,22 +457,27 @@ function ToolCard({ tool, mcpServers }: { tool: AgentTool; mcpServers?: McpServe
               <Badge variant="outline" className="ml-1 text-[10px] px-1.5 py-0">{configs.length}</Badge>
             )}
           </button>
-          {defaultPolicy && (
-            <span className="text-xs text-muted-foreground">
-              {formatPolicy(defaultPolicy, t)}
-            </span>
-          )}
+          <span className="text-xs text-muted-foreground">
+            {formatPolicy(defaultPolicy, t)}
+          </span>
         </div>
         {expanded && configs.length > 0 && (
           <div className="mt-2 ml-5 space-y-1 border-l border-border pl-3">
-            {configs.map((cfg, j) => (
-              <div key={j} className="flex items-center justify-between text-xs py-0.5">
-                <span className="font-mono text-foreground">{cfg.name}</span>
-                <span className="text-muted-foreground">
-                  {cfg.permission_policy ? formatPolicy(cfg.permission_policy.type, t) : '—'}
-                </span>
-              </div>
-            ))}
+            {configs.map((cfg, j) => {
+              const effectivePolicy = cfg.permission_policy?.type || defaultPolicy
+              const isInherited = !cfg.permission_policy
+              return (
+                <div key={j} className="flex items-center justify-between text-xs py-0.5">
+                  <span className="font-mono text-foreground">{cfg.name}</span>
+                  <span className="text-muted-foreground">
+                    {formatPolicy(effectivePolicy, t)}
+                    {isInherited && (
+                      <span className="ml-1 text-[10px] opacity-60">({t('managed.policy.inherit')})</span>
+                    )}
+                  </span>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
@@ -473,8 +506,10 @@ function ToolCard({ tool, mcpServers }: { tool: AgentTool; mcpServers?: McpServe
 function formatPolicy(policy: string, t: (key: string) => string): string {
   switch (policy) {
     case 'always_allow': return t('managed.policy.alwaysAllow')
+    case 'always_ask': return t('managed.policy.alwaysAsk')
     case 'always_deny': return t('managed.policy.alwaysDeny')
     case 'ask': return t('managed.policy.ask')
+    case 'inherit': return t('managed.policy.inherit')
     default: return policy.replace(/_/g, ' ')
   }
 }

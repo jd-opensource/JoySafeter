@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_shared.common.app_errors import AppError, AuthenticationError
+from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
 from app.joysafeter_shared.common.response import success_response
 from app.joysafeter_shared.database import get_db
 from app.joysafeter_shared.rate_limit import auth_rate_limit, strict_rate_limit
@@ -342,7 +343,9 @@ async def get_session(
         current_user = await _get_current_auth_user(token, db, request)
         return success_response(data={"user": _user_to_response(current_user)})
     except AppError:
-        # Return null user when unauthenticated
+        if _has_auth_credentials(request, token):
+            raise
+        # Return null user only when no auth credential was provided.
         return success_response(data={"user": None})
 
 
@@ -437,6 +440,19 @@ def _extract_bearer(auth_header: Optional[str]) -> str:
     return auth_header.split(" ", 1)[1]
 
 
+def _has_auth_credentials(request: Request, auth_header: Optional[str]) -> bool:
+    """Return true when the client sent an access credential or refresh credential."""
+    if auth_header:
+        return True
+    if request.cookies.get("refresh_token"):
+        return True
+    try:
+        return bool(extract_token_from_cookies(request.cookies))
+    except Exception:
+        logger.debug("Failed to inspect auth cookies", exc_info=True)
+        return False
+
+
 async def _get_current_auth_user(
     auth_header: Optional[str], db: AsyncSession, request: Optional[Request] = None
 ) -> AuthUser:
@@ -451,8 +467,6 @@ async def _get_current_auth_user(
 
     if not token and request:
         try:
-            from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
-
             token = extract_token_from_cookies(request.cookies)
         except Exception:
             logger.debug("Failed to read token from cookies", exc_info=True)

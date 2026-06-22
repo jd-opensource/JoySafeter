@@ -86,12 +86,9 @@ function isSecretCompatible(secret: QuickstartSecret | undefined, engine: Quicks
   if (engine === 'codex') {
     return (
       provider === 'codex' ||
-      provider === 'openai' ||
-      provider === 'deepseek' ||
       protocol === 'openai_responses' ||
       protocol === 'chat_completions' ||
-      keys.has('OPENAI_API_KEY') ||
-      keys.has('CODEX_API_KEY')
+      keys.has('OPENAI_API_KEY')
     )
   }
   return (
@@ -106,7 +103,7 @@ function isSecretCompatible(secret: QuickstartSecret | undefined, engine: Quicks
 function secretDetail(secret: QuickstartSecret) {
   const provider = secret.provider && secret.provider !== 'custom' ? secret.provider : ''
   const modelKey = secret.keys?.find((key) =>
-    ['ANTHROPIC_MODEL', 'OPENAI_MODEL', 'CODEX_MODEL'].includes(key),
+    ['ANTHROPIC_MODEL', 'OPENAI_MODEL'].includes(key),
   )
   return [provider, modelKey, secret.is_default ? 'default' : ''].filter(Boolean).join(' · ')
 }

@@ -23,6 +23,7 @@ from app.joysafeter_domain.schemas.session import (
     SendEventRequest,
     SessionAgent,
     SessionEventResponse,
+    SessionRepoResourceResponse,
     SessionResourceResponse,
     SessionResponse,
     SessionUsage,
@@ -59,7 +60,18 @@ def _slugify_mount_name(name: str) -> str:
     return _NON_ALNUM_RE.sub("-", name.lower()).strip("-")
 
 
-def _session_to_response(session, agent=None, resources=None) -> SessionResponse:
+async def _load_session_repos(db: AsyncSession, session_id: uuid.UUID) -> list:
+    """Load a session's repo resources (without decrypting tokens)."""
+    from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
+    result = await db.execute(
+        select(JoySafeterSessionRepo)
+        .where(JoySafeterSessionRepo.session_id == session_id)
+        .order_by(JoySafeterSessionRepo.created_at)
+    )
+    return list(result.scalars().all())
+
+
+def _session_to_response(session, agent=None, resources=None, repo_resources=None) -> SessionResponse:
     agent_snapshot = session.agent_snapshot or {}
     agent_data = SessionAgent(
         id=session.agent_id,
@@ -82,6 +94,15 @@ def _session_to_response(session, agent=None, resources=None) -> SessionResponse
             instructions=r.instructions,
             mount_name=r.mount_name,
         ))
+    repo_responses = []
+    for rr in (repo_resources or []):
+        repo_responses.append(SessionRepoResourceResponse(
+            id=rr.id,
+            url=rr.url,
+            branch=rr.branch or "",
+            mount_path=rr.mount_path or "",
+            mount_name=rr.mount_name or "",
+        ))
     return SessionResponse(
         id=session.id,
         agent=agent_data,
@@ -92,6 +113,7 @@ def _session_to_response(session, agent=None, resources=None) -> SessionResponse
         metadata=session.metadata_,
         vault_ids=session.vault_ids or [],
         resources=resource_responses,
+        repo_resources=repo_responses,
         usage=SessionUsage(**usage_data) if isinstance(usage_data, dict) else SessionUsage(),
         created_at=session.created_at,
         updated_at=session.updated_at,
@@ -219,26 +241,48 @@ async def create_session(
             db.add(session_file)
         await db.commit()
 
+    # --- Attach repo resources (github_repository) ---
+    from app.joysafeter_domain.schemas.thread import MAX_REPO_RESOURCES
+    if len(req.repo_resources) > MAX_REPO_RESOURCES:
+        raise HTTPException(400, f"Too many repo resources (max {MAX_REPO_RESOURCES})")
+    if req.repo_resources:
+        from app.joysafeter_api.services import SecretService
+        from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
+
+        repo_secret_svc = SecretService(db)
+        for rr in req.repo_resources:
+            if not rr.url or not rr.url.strip():
+                raise HTTPException(400, "repo resource url is required")
+            mount_path = _validate_mount_path(rr.mount_path) if rr.mount_path else ""
+            mount_name = rr.mount_name or _slugify_mount_name(
+                rr.url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+            )
+            # Encrypt the clone token at rest; never store or echo it in plaintext.
+            encrypted_token = ""
+            if rr.authorization_token:
+                encrypted_token = repo_secret_svc.encrypt_data_for_storage(
+                    {"token": rr.authorization_token}
+                )["token"]
+            db.add(JoySafeterSessionRepo(
+                session_id=session.id,
+                url=rr.url.strip(),
+                branch=rr.branch or "",
+                mount_path=mount_path,
+                mount_name=mount_name,
+                encrypted_token=encrypted_token,
+            ))
+        await db.commit()
+
     # Provision sandbox at session creation time (per API spec)
     try:
         from app.joysafeter_orchestrator.lifespan import get_sandbox_resolver
         resolver = get_sandbox_resolver()
         if resolver:
-            agent_env = dict(agent.env or {})
-            if getattr(agent, "secret_ref", None):
-                from app.joysafeter_api.services import SecretService
-                secret_svc = SecretService(db)
-                secret = await secret_svc.get_secret_by_name(
-                    agent.secret_ref, project_id=auth_ctx.project_id
-                )
-                if secret and secret.data:
-                    for k, v in secret.data.items():
-                        agent_env.setdefault(k, str(v))
-                    if "ANTHROPIC_AUTH_TOKEN" in agent_env and "ANTHROPIC_API_KEY" not in agent_env:
-                        agent_env["ANTHROPIC_API_KEY"] = agent_env["ANTHROPIC_AUTH_TOKEN"]
             env_ref = environment_ref or agent.environment_ref
+            agent_env: dict[str, str] = {}
             resolved_image = None
             networking = None
+            environment_config = {}
             if env_ref:
                 from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
                 env_svc = EnvironmentService(db)
@@ -246,9 +290,26 @@ async def create_session(
                 if environment:
                     resolved_image = getattr(environment, "image_tag", None)
                     config = environment.config or {}
-                    net_cfg = config.get("networking")
+                    environment_config = config if isinstance(config, dict) else {}
+                    net_cfg = environment_config.get("networking")
                     if net_cfg and isinstance(net_cfg, dict):
                         networking = net_cfg
+            from app.joysafeter_api.services import SecretService
+            secret_svc = SecretService(db)
+            env_vars = environment_config.get("env_vars")
+            if isinstance(env_vars, dict):
+                agent_env.update({str(k): str(v) for k, v in env_vars.items()})
+            secret_refs = environment_config.get("secret_refs")
+            if isinstance(secret_refs, list):
+                agent_env = await secret_svc.merge_secret_refs_into_env(
+                    agent_env, secret_refs, project_id=auth_ctx.project_id
+                )
+            if getattr(agent, "secret_ref", None):
+                agent_env = await secret_svc.merge_secret_refs_into_env(
+                    agent_env, [agent.secret_ref], project_id=auth_ctx.project_id, override=True
+                )
+            agent_env.update({str(k): str(v) for k, v in (agent.env or {}).items()})
+            secret_svc.apply_provider_aliases(agent_env)
             resolved = await resolver.resolve(
                 session.id, agent_env, image=resolved_image, networking=networking,
                 engine_kind=getattr(agent, "engine_kind", None),
@@ -261,7 +322,8 @@ async def create_session(
             exc_info=True,
         )
 
-    return _session_to_response(session, agent, resources=resources)
+    repo_records = await _load_session_repos(db, session.id)
+    return _session_to_response(session, agent, resources=resources, repo_resources=repo_records)
 
 
 @router.get("")
@@ -317,11 +379,12 @@ async def get_session(
     if session.project_id != auth_ctx.project_id:
         raise HTTPException(404, "Session not found")
     resources = await svc.list_session_memory_stores(session_id)
+    repo_records = await _load_session_repos(db, session_id)
     agent = None
     if session.agent_id:
         agent_svc = AgentService(db)
         agent = await agent_svc.get_agent(session.agent_id, project_id=auth_ctx.project_id)
-    return _session_to_response(session, agent=agent, resources=resources)
+    return _session_to_response(session, agent=agent, resources=resources, repo_resources=repo_records)
 
 
 @router.delete("/{session_id}", status_code=200)
@@ -579,6 +642,118 @@ def _encode_live_input(
     return None
 
 
+async def _relay_control_via_redis(
+    event: SingleEventRequest,
+    *,
+    session,
+    event_id: str,
+) -> bool:
+    """Relay a control event (tool_confirmation / custom_tool_result / interrupt) to
+    the sandbox owner instance via Redis pub/sub.
+
+    Used when the in-process Python bridge isn't available (e.g. the active
+    orchestrator is the Rust binary, or the bridge runs in another worker).
+    The Rust orchestrator's command_listener subscribes to
+    ``joysafeter:cmd:{instance_id}`` and dispatches ``input`` commands to its
+    local bridge → SendInput gRPC → runner stdin → claude control_response.
+
+    Returns True on successful publish (does NOT confirm delivery on the
+    sandbox side; that arrives later as agent.tool_result events).
+    """
+    if not getattr(session, "last_sandbox_id", None):
+        return False
+
+    # In the API process the orchestrator's RedisCoordinator may not be
+    # initialized (it lives in the orchestrator process). Use the shared
+    # RedisClient directly — we only need GET + PUBLISH, both stateless.
+    try:
+        from app.joysafeter_shared.cache.redis import RedisClient
+    except Exception:
+        return False
+    redis_client = RedisClient.get_client()
+    if redis_client is None:
+        return False
+
+    sandbox_id = str(session.last_sandbox_id)
+    try:
+        owner = await redis_client.get(f"joysafeter:sandbox_owner:{sandbox_id}")
+    except Exception:
+        return False
+    if not owner:
+        return False
+    if isinstance(owner, bytes):
+        owner = owner.decode()
+
+    live_input = _encode_live_input(event, source_event_id=event_id)
+    if not live_input:
+        return False
+
+    channel = f"joysafeter:cmd:{owner}"
+    command = json.dumps(
+        {
+            "type": "input",
+            "sandbox_id": sandbox_id,
+            "content": live_input,
+        }
+    )
+    try:
+        receivers = await redis_client.publish(channel, command)
+    except Exception:
+        logger.debug(
+            "Redis relay PUBLISH failed for %s on session %s",
+            event.type,
+            getattr(session, "id", "?"),
+        )
+        return False
+    # receivers == 0 means no subscriber — the owner instance is offline.
+    # Treat as failure so the fallback retry-task path runs.
+    if receivers is None or int(receivers) == 0:
+        return False
+    return True
+
+
+async def _relay_cancel_via_redis(session, *, reason: str) -> bool:
+    """Send a `cancel` command for this session's active sandbox via Redis.
+
+    Used by user.interrupt to force the task to terminate after the LLM has
+    been aborted (claude's stdio `interrupt` only aborts the current turn but
+    leaves the claude CLI waiting for the next user message — the task never
+    completes). Pairing interrupt with cancel ensures the task transitions
+    to a terminal status so the session can be sent a fresh user.message.
+    """
+    if not getattr(session, "last_sandbox_id", None):
+        return False
+    try:
+        from app.joysafeter_shared.cache.redis import RedisClient
+    except Exception:
+        return False
+    redis_client = RedisClient.get_client()
+    if redis_client is None:
+        return False
+    sandbox_id = str(session.last_sandbox_id)
+    try:
+        owner = await redis_client.get(f"joysafeter:sandbox_owner:{sandbox_id}")
+    except Exception:
+        return False
+    if not owner:
+        return False
+    if isinstance(owner, bytes):
+        owner = owner.decode()
+    command = json.dumps(
+        {
+            "type": "cancel",
+            "sandbox_id": sandbox_id,
+            "reason": reason,
+        }
+    )
+    try:
+        await redis_client.publish(f"joysafeter:cmd:{owner}", command)
+    except Exception:
+        logger.debug("Redis relay cancel PUBLISH failed for session %s", getattr(session, "id", "?"))
+        return False
+    return True
+
+
 def _build_resume_prompt(event: SingleEventRequest, event_id: str) -> Optional[str]:
     event_type = event.type
     if event_type == "user.custom_tool_result":
@@ -831,6 +1006,13 @@ async def send_event(
                             logger.debug(
                                 "Bridge injection failed for custom_tool_result, falling back to task",
                             )
+            # Cross-process relay: route via Redis to the sandbox owner instance.
+            if not injected and await _relay_control_via_redis(
+                single, session=session, event_id=str(event.id)
+            ):
+                injected = True
+                await svc.mark_event_processed(event.id)
+                await svc.update_session_status(session_id, "running")
             # Fallback: create a retry task when bridge injection was not possible
             if not injected:
                 resume_prompt = _build_resume_prompt(single, str(event.id))
@@ -879,6 +1061,14 @@ async def send_event(
                                 "Bridge injection failed for tool_confirmation on session %s",
                                 session_id,
                             )
+            # Cross-process relay: route via Redis to the sandbox owner instance
+            # (Rust orchestrator or another API worker) when no local bridge.
+            if not injected and await _relay_control_via_redis(
+                single, session=session, event_id=str(event.id)
+            ):
+                injected = True
+                await svc.mark_event_processed(event.id)
+                await svc.update_session_status(session_id, "running")
             # Fallback: create a retry task
             if not injected:
                 resume_prompt = _build_resume_prompt(single, str(event.id))
@@ -921,6 +1111,17 @@ async def send_event(
                                 "Bridge injection failed for interrupt on session %s",
                                 session_id,
                             )
+            # Cross-process relay: route via Redis to the sandbox owner instance.
+            if not injected and await _relay_control_via_redis(
+                single, session=session, event_id=str(event.id)
+            ):
+                injected = True
+                await svc.mark_event_processed(event.id)
+            # interrupt 单独 abort 当前 LLM turn,但 claude headless 不会因此
+            # emit `result` 让 task 结束(它认为后面会有新的 user.message)。
+            # 为了产品语义"中断 = task 终结,session 可续聊",额外发一次 cancel
+            # 强制结束 task;下一条 user.message 会重新起 claude 进程。
+            await _relay_cancel_via_redis(session, reason="user requested interrupt")
             # Fallback: create a retry task when bridge injection was not possible
             if not injected:
                 resume_prompt = _build_resume_prompt(single, str(event.id))
@@ -1164,6 +1365,25 @@ class AddSessionFileRequest(PydanticBaseModel):
     mount_path: Optional[str] = None
 
 
+class AddSessionRepoRequest(PydanticBaseModel):
+    """Mount a github_repository on an already-running session.
+
+    Mirrors the official ``resources.add`` semantics: the unified endpoint
+    accepts either a file or a github_repository, discriminated by ``type``.
+    """
+    type: str = "github_repository"
+    url: str
+    branch: Optional[str] = None
+    mount_path: Optional[str] = None
+    mount_name: Optional[str] = None
+    authorization_token: Optional[str] = None
+
+
+class UpdateRepoResourceRequest(PydanticBaseModel):
+    """Rotate the clone credential on a github_repository resource."""
+    authorization_token: str
+
+
 @router.get("/{session_id}/resources")
 async def list_session_resources(
     session_id: uuid.UUID,
@@ -1191,23 +1411,72 @@ async def list_session_resources(
         ).model_dump(mode="json")
         for r in rows
     ]
+
+    # Repo resources — never include the clone token.
+    repo_records = await _load_session_repos(db, session_id)
+    data.extend(
+        SessionRepoResourceResponse(
+            id=rr.id,
+            url=rr.url,
+            branch=rr.branch or "",
+            mount_path=rr.mount_path or "",
+            mount_name=rr.mount_name or "",
+        ).model_dump(mode="json")
+        for rr in repo_records
+    )
     return {"data": data}
 
 
 @router.post("/{session_id}/resources", status_code=201)
 async def add_session_resource(
     session_id: uuid.UUID,
-    req: AddSessionFileRequest,
+    req: dict,
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
     db: AsyncSession = Depends(get_db),
-) -> SessionFileResourceResponse:
-    from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
-    from app.joysafeter_api.services import FileService
-    from app.joysafeter_shared.storage import get_storage
+):
+    """Add a resource to a running session.
+
+    Discriminated by ``type``:
+    - ``file`` (default for back-compat): mounts an uploaded file
+    - ``github_repository``: clones a repo on the next task
+
+    Matches the official Managed Agents unified ``resources.add`` endpoint.
+    """
+    if not isinstance(req, dict):
+        raise HTTPException(400, "Request body must be an object")
+    rtype = req.get("type") or "file"
+
     svc = SessionService(db)
     session = await svc.get_session(session_id)
     if not session or session.project_id != auth_ctx.project_id:
         raise HTTPException(404, "Session not found")
+
+    if rtype == "file":
+        try:
+            file_req = AddSessionFileRequest.model_validate(req)
+        except Exception as e:
+            raise HTTPException(400, f"Invalid file resource: {e}")
+        return await _add_file_resource(db, session_id, file_req, auth_ctx)
+
+    if rtype == "github_repository":
+        try:
+            repo_req = AddSessionRepoRequest.model_validate(req)
+        except Exception as e:
+            raise HTTPException(400, f"Invalid repo resource: {e}")
+        return await _add_repo_resource(db, session_id, repo_req)
+
+    raise HTTPException(400, f"Unsupported resource type: {rtype}")
+
+
+async def _add_file_resource(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    req: AddSessionFileRequest,
+    auth_ctx: JoySafeterAuthContext,
+) -> SessionFileResourceResponse:
+    from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
+    from app.joysafeter_api.services import FileService
+    from app.joysafeter_shared.storage import get_storage
 
     file_id_str = req.file_id.removeprefix("file_")
     try:
@@ -1240,6 +1509,56 @@ async def add_session_resource(
     )
 
 
+async def _add_repo_resource(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    req: AddSessionRepoRequest,
+) -> SessionRepoResourceResponse:
+    from app.joysafeter_api.services import SecretService
+    from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
+
+    if not req.url or not req.url.strip():
+        raise HTTPException(400, "Repo url is required")
+
+    # Enforce per-session repo cap (mirrors create flow).
+    from app.joysafeter_domain.schemas.thread import MAX_REPO_RESOURCES
+    existing = await _load_session_repos(db, session_id)
+    if len(existing) >= MAX_REPO_RESOURCES:
+        raise HTTPException(400, f"Too many repo resources (max {MAX_REPO_RESOURCES})")
+
+    mount_path = _validate_mount_path(req.mount_path) if req.mount_path else ""
+    mount_name = req.mount_name or _slugify_mount_name(
+        req.url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+    )
+
+    encrypted_token = ""
+    if req.authorization_token:
+        secret_svc = SecretService(db)
+        encrypted_token = secret_svc.encrypt_data_for_storage(
+            {"token": req.authorization_token}
+        )["token"]
+
+    repo = JoySafeterSessionRepo(
+        session_id=session_id,
+        url=req.url.strip(),
+        branch=req.branch or "",
+        mount_path=mount_path,
+        mount_name=mount_name,
+        encrypted_token=encrypted_token,
+    )
+    db.add(repo)
+    await db.commit()
+    await db.refresh(repo)
+
+    return SessionRepoResourceResponse(
+        id=repo.id,
+        url=repo.url,
+        branch=repo.branch or "",
+        mount_path=repo.mount_path or "",
+        mount_name=repo.mount_name or "",
+    )
+
+
 @router.delete("/{session_id}/resources/{resource_id}")
 async def delete_session_resource(
     session_id: uuid.UUID,
@@ -1248,6 +1567,7 @@ async def delete_session_resource(
     db: AsyncSession = Depends(get_db),
 ):
     from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
+    from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
     from sqlalchemy import select as sa_select
     svc = SessionService(db)
     session = await svc.get_session(session_id)
@@ -1260,6 +1580,7 @@ async def delete_session_resource(
     except ValueError:
         raise HTTPException(400, "Invalid resource_id")
 
+    # Resource id space is shared by files and repos — look in both tables.
     result = await db.execute(
         sa_select(JoySafeterSessionFile).where(
             JoySafeterSessionFile.id == rid_uuid,
@@ -1268,8 +1589,69 @@ async def delete_session_resource(
     )
     row = result.scalar_one_or_none()
     if not row:
+        result = await db.execute(
+            sa_select(JoySafeterSessionRepo).where(
+                JoySafeterSessionRepo.id == rid_uuid,
+                JoySafeterSessionRepo.session_id == session_id,
+            )
+        )
+        row = result.scalar_one_or_none()
+    if not row:
         raise HTTPException(404, "Resource not found")
 
     await db.delete(row)
     await db.commit()
     return {"id": resource_id, "deleted": True}
+
+
+@router.patch("/{session_id}/resources/{resource_id}")
+async def update_repo_resource_token(
+    session_id: uuid.UUID,
+    resource_id: str,
+    req: UpdateRepoResourceRequest,
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+    db: AsyncSession = Depends(get_db),
+) -> SessionRepoResourceResponse:
+    """Rotate the clone credential on a github_repository resource.
+
+    The new token is re-encrypted at rest; the response never echoes it.
+    """
+    from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
+    from app.joysafeter_api.services import SecretService
+    from sqlalchemy import select as sa_select
+
+    svc = SessionService(db)
+    session = await svc.get_session(session_id)
+    if not session or session.project_id != auth_ctx.project_id:
+        raise HTTPException(404, "Session not found")
+
+    rid = resource_id.removeprefix("sesrsc_")
+    try:
+        rid_uuid = uuid.UUID(rid)
+    except ValueError:
+        raise HTTPException(400, "Invalid resource_id")
+
+    result = await db.execute(
+        sa_select(JoySafeterSessionRepo).where(
+            JoySafeterSessionRepo.id == rid_uuid,
+            JoySafeterSessionRepo.session_id == session_id,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "Repo resource not found")
+
+    secret_svc = SecretService(db)
+    row.encrypted_token = secret_svc.encrypt_data_for_storage(
+        {"token": req.authorization_token}
+    )["token"] if req.authorization_token else ""
+    await db.commit()
+    await db.refresh(row)
+
+    return SessionRepoResourceResponse(
+        id=row.id,
+        url=row.url,
+        branch=row.branch or "",
+        mount_path=row.mount_path or "",
+        mount_name=row.mount_name or "",
+    )

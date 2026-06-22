@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Plus, Trash2 } from 'lucide-react'
 import { managedGet, managedPost } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
-import { FieldHelp } from '@/components/managed/shared'
+import { FieldHelp, SkillVersionSelect } from '@/components/managed/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -33,12 +33,14 @@ const BUILTIN_TOOLS = [
 const PERMISSION_MODES = [
   { value: 'bypassPermissions', labelKey: 'managed.agents.edit.permBypass' },
   { value: 'default', labelKey: 'managed.agents.edit.permAsk' },
-  { value: 'deny', labelKey: 'managed.agents.edit.permDeny' },
 ]
 
 interface McpServerEntry {
   name: string
   url: string
+  /** Permission policy for this server's tools. Defaults to always_ask
+   * (matches the Managed Agents default for mcp_toolset). */
+  policy?: 'always_allow' | 'always_ask'
 }
 
 interface EnvVarEntry {
@@ -82,6 +84,8 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   const [environmentRef, setEnvironmentRef] = useState('')
   const [permissionMode, setPermissionMode] = useState('bypassPermissions')
   const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(new Set())
+  /** skill_id → chosen version keyword ("latest", "draft") or semver string. */
+  const [skillVersions, setSkillVersions] = useState<Record<string, string>>({})
   const [envVars, setEnvVars] = useState<EnvVarEntry[]>([])
   const [submitting, setSubmitting] = useState(false)
 
@@ -130,6 +134,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
     setEnvironmentRef('')
     setPermissionMode('bypassPermissions')
     setSelectedSkillIds(new Set())
+    setSkillVersions({})
     setEnvVars([])
     setSubmitting(false)
   }
@@ -152,10 +157,14 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
       toastOperationError(t, new Error(urlError), 'common.error')
       return
     }
-    setMcpServers((prev) => [...prev, { name: mcpName.trim(), url: mcpUrl.trim() }])
+    setMcpServers((prev) => [...prev, { name: mcpName.trim(), url: mcpUrl.trim(), policy: 'always_ask' }])
     setMcpName('')
     setMcpUrl('')
     setShowMcpForm(false)
+  }
+
+  const setMcpPolicy = (index: number, policy: 'always_allow' | 'always_ask') => {
+    setMcpServers((prev) => prev.map((m, i) => (i === index ? { ...m, policy } : m)))
   }
 
   const removeMcpServer = (idx: number) => {
@@ -195,6 +204,9 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
         tools.push({
           type: 'mcp_toolset',
           mcp_server_name: mcp.name,
+          default_config: {
+            permission_policy: { type: mcp.policy || 'always_ask' },
+          },
         })
       }
 
@@ -219,7 +231,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
         skills: Array.from(selectedSkillIds).map((id) => ({
           type: 'custom' as const,
           skill_id: id,
-          version: 'latest',
+          version: skillVersions[id] || 'latest',
         })),
         env: Object.keys(envPayload).length > 0 ? envPayload : undefined,
       })
@@ -360,6 +372,24 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
                 </label>
               ))}
             </div>
+
+            {/* Permission mode — applies to the whole toolset */}
+            <div className="mt-4">
+              <label className="text-sm font-medium text-foreground block mb-1.5">
+                {t('managed.agents.edit.permissionMode')}
+              </label>
+              <select
+                className="flex w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                value={permissionMode}
+                onChange={(e) => setPermissionMode(e.target.value)}
+              >
+                {PERMISSION_MODES.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {t(m.labelKey)}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <hr className="border-dashed" />
@@ -383,6 +413,15 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
               <div key={i} className="flex items-center gap-2 mb-2 text-sm">
                 <span className="font-medium">{m.name}</span>
                 <span className="text-muted-foreground truncate flex-1">{m.url}</span>
+                <select
+                  value={m.policy || 'always_ask'}
+                  onChange={(e) => setMcpPolicy(i, e.target.value as 'always_allow' | 'always_ask')}
+                  className="h-7 rounded border border-border bg-background px-1.5 text-xs"
+                  title={t('managed.agents.create.mcpPolicyHint')}
+                >
+                  <option value="always_ask">{t('managed.policy.alwaysAsk')}</option>
+                  <option value="always_allow">{t('managed.policy.alwaysAllow')}</option>
+                </select>
                 <button
                   type="button"
                   onClick={() => removeMcpServer(i)}
@@ -428,41 +467,47 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
               </p>
             ) : (
               <div className="space-y-2">
-                {skills.map((skill) => (
-                  <label key={skill.id} className="flex items-center gap-2 cursor-pointer select-none">
-                    <span
-                      className={`flex h-5 w-5 items-center justify-center rounded border transition-colors ${
-                        selectedSkillIds.has(skill.id)
-                          ? 'bg-emerald-400 border-emerald-400 text-white'
-                          : 'border-border bg-background'
-                      }`}
-                      onClick={() => {
-                        setSelectedSkillIds((prev) => {
-                          const next = new Set(prev)
-                          if (next.has(skill.id)) next.delete(skill.id)
-                          else next.add(skill.id)
-                          return next
-                        })
-                      }}
-                    >
-                      {selectedSkillIds.has(skill.id) && (
-                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
+                {skills.map((skill) => {
+                  const isSelected = selectedSkillIds.has(skill.id)
+                  const toggle = () => {
+                    setSelectedSkillIds((prev) => {
+                      const next = new Set(prev)
+                      if (next.has(skill.id)) next.delete(skill.id)
+                      else next.add(skill.id)
+                      return next
+                    })
+                  }
+                  return (
+                    <div key={skill.id} className="flex items-center gap-2">
+                      <label className="flex flex-1 items-center gap-2 cursor-pointer select-none min-w-0">
+                        <span
+                          className={`flex h-5 w-5 items-center justify-center rounded border transition-colors shrink-0 ${
+                            isSelected
+                              ? 'bg-emerald-400 border-emerald-400 text-white'
+                              : 'border-border bg-background'
+                          }`}
+                          onClick={toggle}
+                        >
+                          {isSelected && (
+                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </span>
+                        <span className="text-sm text-foreground truncate" onClick={toggle}>
+                          {skill.name || skill.id}
+                        </span>
+                      </label>
+                      {isSelected && (
+                        <SkillVersionSelect
+                          skillId={skill.id}
+                          value={skillVersions[skill.id] || 'latest'}
+                          onChange={(v) => setSkillVersions((prev) => ({ ...prev, [skill.id]: v }))}
+                        />
                       )}
-                    </span>
-                    <span className="text-sm text-foreground" onClick={() => {
-                      setSelectedSkillIds((prev) => {
-                        const next = new Set(prev)
-                        if (next.has(skill.id)) next.delete(skill.id)
-                        else next.add(skill.id)
-                        return next
-                      })
-                    }}>
-                      {skill.name || skill.id}
-                    </span>
-                  </label>
-                ))}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>

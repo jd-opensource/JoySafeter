@@ -26,11 +26,8 @@ def _resolve_environment_setup_commands(environment) -> list[str]:
     """Generate apt/pip/npm/cargo/gem/go install commands from environment config."""
     if not environment:
         return []
-    config = getattr(environment, "config", None) or {}
-    if isinstance(config, dict):
-        packages = config.get("packages", {})
-    else:
-        packages = getattr(config, "packages", {}) or {}
+    config = _environment_config_dict(environment)
+    packages = config.get("packages", {})
 
     commands: list[str] = []
     if isinstance(packages, dict):
@@ -55,6 +52,17 @@ def _resolve_environment_setup_commands(environment) -> list[str]:
     return commands
 
 
+def _environment_config_dict(environment) -> dict[str, Any]:
+    if not environment:
+        return {}
+    config = getattr(environment, "config", None) or {}
+    if isinstance(config, dict):
+        return config
+    if hasattr(config, "model_dump"):
+        return config.model_dump()
+    return {}
+
+
 def _extract_agent_setup_commands(agent) -> list[str]:
     """Extract setup_commands from agent.metadata."""
     metadata = getattr(agent, "metadata", None) or {}
@@ -69,33 +77,114 @@ def _session_container_work_dir(last_work_dir: Optional[str]) -> str:
     return "/workspace"
 
 
-def _parse_tool_allow_lists(agent) -> tuple[list[str], list[str]]:
-    """Parse agent_toolset_20260401 into allowed/disallowed tool lists.
+def _policy_type(cfg: dict, default_cfg: dict) -> str:
+    """Resolve a config's effective permission_policy type.
 
-    Reads from the nested ``configs[]`` array inside each toolset entry,
-    matching Rust ``parse_tool_allow_lists`` (harness_input_builder.rs).
+    Prefers the config's own policy, falling back to the toolset's
+    default_config policy. Returns the ``type`` string (e.g. "always_ask",
+    "always_allow") or "" when unset.
     """
-    tools = agent.tools or []
-    allowed: list[str] = []
-    disallowed: list[str] = []
-    for tool in tools:
+    policy = cfg.get("permission_policy")
+    if not isinstance(policy, dict) or not policy.get("type"):
+        policy = default_cfg.get("permission_policy") or {}
+    if isinstance(policy, dict):
+        return policy.get("type", "") or ""
+    return ""
+
+
+def _mcp_rule_name(server: str, tool_name: str) -> str:
+    """Map an MCP tool config to a Claude permission rule name.
+
+    A bare server name maps to the whole-server wildcard
+    ``mcp__<server>__*``; a config that names a specific tool maps to
+    ``mcp__<server>__<tool>``. Returns "" when server is empty.
+    """
+    if not server:
+        return ""
+    # When the config name equals the server (group-level), use the wildcard.
+    if not tool_name or tool_name == server:
+        return f"mcp__{server}__*"
+    return f"mcp__{server}__{tool_name}"
+
+
+def _build_permission_rules(agent) -> tuple[list[str], list[str]]:
+    """Parse agent toolsets into (allow, ask) permission rule lists.
+
+    Mirrors the Anthropic Managed Agents permission model exactly — the only
+    two policies are ``always_allow`` and ``always_ask``; there is no "disable"
+    concept. Defaults match the API:
+
+    - ``agent_toolset_20260401`` -> default ``always_allow``
+    - ``mcp_toolset``            -> default ``always_ask`` (new MCP tools must
+                                    be approved before they run)
+
+    A per-tool ``configs[].permission_policy`` overrides the toolset default.
+    MCP tool names are mapped to ``mcp__<server>__*`` rule form.
+    """
+    allow: list[str] = []
+    ask: list[str] = []
+
+    for tool in agent.tools or []:
         if not isinstance(tool, dict):
             continue
-        if tool.get("type") != "agent_toolset_20260401":
-            continue
-        # Rust reads from nested configs[] array
-        configs = tool.get("configs") or []
-        for cfg in configs:
-            if not isinstance(cfg, dict):
+        tool_type = tool.get("type", "")
+        default_cfg = tool.get("default_config") or {}
+
+        if tool_type == "agent_toolset_20260401":
+            for cfg in tool.get("configs") or []:
+                if not isinstance(cfg, dict):
+                    continue
+                name = cfg.get("name", "")
+                if not name:
+                    continue
+                # Agent toolset default is always_allow.
+                if _policy_type(cfg, default_cfg) == "always_ask":
+                    ask.append(name)
+                else:
+                    allow.append(name)
+
+        elif tool_type == "mcp_toolset":
+            # I15 fix: Rust reads "name", Python historically read
+            # "mcp_server_name" — check both.
+            server = tool.get("name") or tool.get("mcp_server_name", "")
+            configs = tool.get("configs") or []
+            if not configs:
+                rule = _mcp_rule_name(server, "")
+                if rule:
+                    # MCP toolset default is always_ask.
+                    if _policy_type({}, default_cfg) == "always_allow":
+                        allow.append(rule)
+                    else:
+                        ask.append(rule)
                 continue
-            cfg_name = cfg.get("name", "")
-            if not cfg_name:
-                continue
-            if cfg.get("enabled", True):
-                allowed.append(cfg_name)
-            else:
-                disallowed.append(cfg_name)
-    return allowed, disallowed
+            for cfg in configs:
+                if not isinstance(cfg, dict):
+                    continue
+                rule = _mcp_rule_name(server, cfg.get("name", ""))
+                if not rule:
+                    continue
+                # MCP toolset default is always_ask.
+                if _policy_type(cfg, default_cfg) == "always_allow":
+                    allow.append(rule)
+                else:
+                    ask.append(rule)
+
+    return allow, ask
+
+
+def build_permissions_dict(
+    allow: list[str], ask: list[str]
+) -> dict[str, list[str]]:
+    """Build a Claude Code settings.json ``permissions`` object.
+
+    Omits empty buckets so the written settings stay minimal.
+    """
+    perms: dict[str, list[str]] = {}
+    if allow:
+        perms["allow"] = allow
+    if ask:
+        perms["ask"] = ask
+    return perms
 
 
 def _extract_max_turns(agent) -> int:
@@ -174,7 +263,7 @@ async def build_harness_input(
     from app.joysafeter_orchestrator.services import SessionService
     from app.joysafeter_orchestrator.services import MemoryService
 
-    env = dict(agent.env or {})
+    env: dict[str, str] = {}
     model = None
     if agent.model:
         model = (
@@ -199,45 +288,57 @@ async def build_harness_input(
         )
 
     engine_kind = getattr(agent, "engine_kind", None) or "claude"
+    project_id = (
+        str(agent.project_id)
+        if getattr(agent, "project_id", None) is not None
+        else None
+    )
 
     # Resolve environment for setup commands
     environment = None
+    environment_config: dict[str, Any] = {}
     environment_ref = getattr(agent, "environment_ref", None)
     if environment_ref:
         from app.joysafeter_orchestrator.services import EnvironmentService
         async with AsyncSessionLocal() as db:
             env_svc = EnvironmentService(db)
-            environment = await env_svc.get_environment_by_ref(environment_ref)
+            environment = await env_svc.get_environment_by_ref(environment_ref, project_id=project_id)
+            environment_config = _environment_config_dict(environment)
+
+    env_vars = environment_config.get("env_vars")
+    if isinstance(env_vars, dict):
+        env.update({str(k): str(v) for k, v in env_vars.items()})
 
     # Build setup commands (Rust parity)
     env_setup = _resolve_environment_setup_commands(environment)
     agent_setup = _extract_agent_setup_commands(agent)
     setup_commands = env_setup + agent_setup
 
-    # Parse tool allow lists (Rust parity)
-    allowed_tools, disallowed_tools = _parse_tool_allow_lists(agent)
+    # Parse tool permission rules into allow/ask (official Managed Agents model)
+    allowed_tools, ask_tools = _build_permission_rules(agent)
 
     # Extract max turns (Rust parity)
     max_turns = _extract_max_turns(agent)
 
     async with AsyncSessionLocal() as db:
-        if getattr(agent, "secret_ref", None):
-            secret_svc = SecretService(db)
-            secret = await secret_svc.get_secret_by_name(
-                agent.secret_ref, project_id=str(agent.project_id)
+        secret_svc = SecretService(db)
+        secret_refs = environment_config.get("secret_refs")
+        if isinstance(secret_refs, list):
+            secrets = await secret_svc.merge_secret_refs_into_env(
+                secrets, secret_refs, project_id=project_id
             )
-            if secret and secret.data:
-                secrets = {k: str(v) for k, v in secret.data.items()}
-                if "ANTHROPIC_AUTH_TOKEN" in secrets and "ANTHROPIC_API_KEY" not in secrets:
-                    secrets["ANTHROPIC_API_KEY"] = secrets["ANTHROPIC_AUTH_TOKEN"]
-                if not model:
-                    if engine_kind == "codex" and secrets.get("OPENAI_MODEL"):
-                        model = secrets["OPENAI_MODEL"]
-                    elif secrets.get("ANTHROPIC_MODEL"):
-                        model = secrets["ANTHROPIC_MODEL"]
-                    elif secrets.get("OPENAI_MODEL"):
-                        model = secrets["OPENAI_MODEL"]
-                # Don't merge secrets into env — they are injected via container env at creation time
+
+        if getattr(agent, "secret_ref", None):
+            secrets = await secret_svc.merge_secret_refs_into_env(
+                secrets, [agent.secret_ref], project_id=project_id, override=True
+            )
+        if secrets and not model:
+            if engine_kind == "codex":
+                model = secrets.get("OPENAI_MODEL")
+            else:
+                model = secrets.get("ANTHROPIC_MODEL") or secrets.get("MODEL")
+        # Don't merge secrets into env for gRPC. Docker sandboxes receive them
+        # via container env; local runtime adapters merge HarnessInput.secrets.
 
         if session_id:
             session_svc = SessionService(db)
@@ -308,6 +409,8 @@ async def build_harness_input(
                     )
 
                 memory_system_prompt = "\n".join(prompt_lines)
+
+    env.update({str(k): str(v) for k, v in (agent.env or {}).items()})
 
     if memory_mounts and session_id:
         from app.joysafeter_orchestrator.lifespan import get_memory_subscribers
@@ -403,6 +506,38 @@ async def build_harness_input(
                 except Exception:
                     pass
 
+    # Load session repo resources (github_repository) for cloning in the sandbox.
+    # Tokens are decrypted here and never logged.
+    repos: list[dict[str, Any]] = []
+    if session_id:
+        from app.joysafeter_domain.models.joysafeter_session_repo import (
+            JoySafeterSessionRepo,
+        )
+        from sqlalchemy import select as _sa_select
+
+        async with AsyncSessionLocal() as repo_db:
+            secret_svc = SecretService(repo_db)
+            result = await repo_db.execute(
+                _sa_select(JoySafeterSessionRepo)
+                .where(JoySafeterSessionRepo.session_id == session_id)
+                .order_by(JoySafeterSessionRepo.created_at)
+            )
+            for rr in result.scalars().all():
+                token = ""
+                if rr.encrypted_token:
+                    try:
+                        token = secret_svc.decrypt_data({"token": rr.encrypted_token})["token"]
+                    except Exception:
+                        logger.warning("Failed to decrypt clone token for repo resource %s", rr.id)
+                        continue
+                repos.append({
+                    "url": rr.url,
+                    "branch": rr.branch or "",
+                    "path": rr.mount_path or "",
+                    "authorization_token": token,
+                    "mount_name": rr.mount_name or "",
+                })
+
     return HarnessInput(
         prompt=prompt,
         system_prompt=combined_system,
@@ -426,8 +561,9 @@ async def build_harness_input(
         provider=engine_kind,
         setup_commands=setup_commands,
         allowed_tools=allowed_tools,
-        disallowed_tools=disallowed_tools,
+        ask_tools=ask_tools,
         max_turns=max_turns,
+        repos=repos,
     )
 
 

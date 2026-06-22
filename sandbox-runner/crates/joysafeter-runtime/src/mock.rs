@@ -192,6 +192,8 @@ mod tests {
             secrets: HashMap::new(),
             mcp_configs: vec![],
             permission_mode: "default".to_string(),
+            allowed_tools: vec![],
+            ask_tools: vec![],
         }
     }
 

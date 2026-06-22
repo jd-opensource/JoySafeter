@@ -72,6 +72,7 @@ export interface Session {
   title?: string;
   metadata?: Record<string, unknown>;
   vault_ids?: string[];
+  repo_resources?: SessionRepoResource[];
   usage?: SessionUsage;
   stats?: SessionStats;
   created_at: string;
@@ -236,10 +237,30 @@ export interface SessionFileResource {
   created_at: string;
 }
 
+export interface SessionRepoResource {
+  id: string;
+  type: "github_repository";
+  url: string;
+  branch: string;
+  mount_path: string;
+  mount_name: string;
+  // The clone token (authorization_token) is never returned by the API.
+}
+
+export type SessionResource = SessionFileResource | SessionRepoResource;
+
 export interface AddFileResourceRequest {
   type: "file";
   file_id: string;
   mount_path?: string;
+}
+
+export interface AddRepoResourceRequest {
+  type: "github_repository";
+  url: string;
+  branch?: string;
+  mount_path?: string;
+  authorization_token?: string;
 }
 
 export interface SkillSecurityScanSummary {

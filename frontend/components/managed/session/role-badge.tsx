@@ -6,7 +6,7 @@ import { useTranslation } from "@/lib/i18n"
 const roleStyles: Record<string, { bg: string; labelKey: string }> = {
   // User events — red
   "user.message": { bg: "bg-red-500 text-white", labelKey: "user" },
-  "user.interrupt": { bg: "bg-red-500 text-white", labelKey: "user" },
+  "user.interrupt": { bg: "bg-gray-600 text-white", labelKey: "interrupt" },
   "user.define_outcome": { bg: "bg-red-500 text-white", labelKey: "user" },
   "user.tool_result": { bg: "bg-gray-600 text-white", labelKey: "result" },
   "user.custom_tool_result": { bg: "bg-gray-600 text-white", labelKey: "result" },

@@ -38,6 +38,11 @@ pub struct HarnessInput {
     pub secrets: HashMap<String, String>,
     pub mcp_configs: Vec<crate::agent::McpServerConfig>,
     pub permission_mode: String,
+    /// Tool permission rules (Claude Code settings.json permissions).
+    /// Official Managed Agents model: allow + ask only (no deny).
+    /// allowed -> permissions.allow, ask -> permissions.ask.
+    pub allowed_tools: Vec<String>,
+    pub ask_tools: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -10,9 +10,9 @@ import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/mana
 import { stripIdPrefix } from '@/lib/managed/id'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PageHeader, MonoId, RelativeTime, ResourceErrorState, SecretKeySelect, SecretModelInput } from '@/components/managed/shared'
-import { getDefaultProtocol, getDefaultSecretPairs, isModelKey, SECRET_PROTOCOL_OPTIONS, SECRET_PROVIDER_OPTIONS } from '@/lib/managed/secret-keys'
+import { getDefaultProtocol, isModelKey, normalizeSecretProvider, SECRET_PROTOCOL_OPTIONS, SECRET_PROVIDER_GROUPS } from '@/lib/managed/secret-keys'
 
 interface SecretDetail {
   id: string
@@ -50,7 +50,7 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
 
   useEffect(() => {
     if (secret?.secret_data) {
-      setProvider(secret.provider || 'custom')
+      setProvider(normalizeSecretProvider(secret.provider))
       setProtocol(secret.protocol || 'custom')
       setPairs(Object.entries(secret.secret_data).map(([key, value]) => ({ key, value })))
       setDirty(false)
@@ -159,8 +159,32 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {SECRET_PROVIDER_OPTIONS.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                {SECRET_PROVIDER_GROUPS.map((group) => (
+                  <SelectGroup key={group.label}>
+                    <SelectLabel className="flex items-center gap-2 px-2 py-2">
+                      <span
+                        className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                        style={{ backgroundColor: group.bgColor }}
+                      >
+                        {group.icon}
+                      </span>
+                      <span className="text-sm font-semibold text-foreground">
+                        {t(group.labelKey, { defaultValue: group.label })}
+                      </span>
+                    </SelectLabel>
+                    {group.options.map((item, i) => {
+                      const isLast = i === group.options.length - 1
+                      const prefix = isLast ? '└' : '├'
+                      return (
+                        <SelectItem key={item.value} value={item.value} className="text-sm pl-8">
+                          <span className="flex items-center gap-1.5">
+                            <span className="text-muted-foreground/50 text-xs">{prefix}</span>
+                            {item.label}
+                          </span>
+                        </SelectItem>
+                      )
+                    })}
+                  </SelectGroup>
                 ))}
               </SelectContent>
             </Select>
@@ -200,6 +224,8 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
                 onChange={(v) => updatePair(i, 'key', v)}
                 placeholder={t('managed.secrets.keyPlaceholder')}
                 className="min-w-0"
+                provider={provider}
+                protocol={protocol}
               />
               {isModelKey(pair.key) ? (
                 <SecretModelInput

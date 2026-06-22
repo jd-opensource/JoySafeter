@@ -18,8 +18,8 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { client, useSession, type AuthError } from '@/lib/auth/auth-client'
 import { ApiError, managedGet } from '@/lib/api-client'
+import { client, useSession, type AuthError } from '@/lib/auth/auth-client'
 import { getEnv, isFalsy } from '@/lib/core/config/env'
 import { getBaseUrl } from '@/lib/core/utils/urls'
 import { useTranslation } from '@/lib/i18n'
@@ -34,6 +34,20 @@ import { soehne } from '@/styles/fonts/soehne/soehne'
 import { loginFormSchema, type LoginFormData } from './schemas/loginFormSchema'
 
 const logger = createLogger('LoginForm')
+const SSO_AUTO_ATTEMPTED_KEY = 'sso_auto_attempted'
+const SSO_AUTO_ATTEMPTED_TTL_MS = 60_000
+
+interface OAuthProvider {
+  id: string
+}
+
+interface OAuthProvidersResponse {
+  providers: OAuthProvider[]
+}
+
+interface OAuthAuthorizationResponse {
+  authorization_url: string
+}
 
 const getEmailErrorKey = (reason?: string): string => {
   if (!reason) return 'auth.emailInvalid'
@@ -111,6 +125,24 @@ const validateCallbackUrl = (url: string): boolean => {
   }
 }
 
+function hasRecentSsoAutoAttempt(): boolean {
+  const raw = sessionStorage.getItem(SSO_AUTO_ATTEMPTED_KEY)
+  if (!raw) return false
+
+  const attemptedAt = Number(raw)
+  if (!Number.isFinite(attemptedAt)) {
+    sessionStorage.removeItem(SSO_AUTO_ATTEMPTED_KEY)
+    return false
+  }
+
+  if (Date.now() - attemptedAt > SSO_AUTO_ATTEMPTED_TTL_MS) {
+    sessionStorage.removeItem(SSO_AUTO_ATTEMPTED_KEY)
+    return false
+  }
+
+  return true
+}
+
 export default function LoginPage() {
   const { t } = useTranslation()
   const router = useRouter()
@@ -132,7 +164,7 @@ export default function LoginPage() {
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState('')
   const [isSubmittingReset, setIsSubmittingReset] = useState(false)
   const [isResetButtonHovered, setIsResetButtonHovered] = useState(false)
-  const [resetStatus, setResetStatus] = useState<{
+  const [, setResetStatus] = useState<{
     type: 'success' | 'error' | null
     message: string
   }>({ type: null, message: '' })
@@ -194,7 +226,7 @@ export default function LoginPage() {
     }
 
     // Clear SSO auto-redirect flag on successful login
-    sessionStorage.removeItem('sso_auto_attempted')
+    sessionStorage.removeItem(SSO_AUTO_ATTEMPTED_KEY)
     const safeCallbackUrl = validateCallbackUrl(callbackUrl) ? callbackUrl : '/managed/quickstart'
     router.replace(safeCallbackUrl)
   }, [callbackUrl, isSessionPending, router, sessionData?.user])
@@ -206,20 +238,47 @@ export default function LoginPage() {
     if (oauthError) return
     if (isBypassSso) return
     // Prevent infinite redirect loop
-    const hasAttempted = sessionStorage.getItem('sso_auto_attempted')
-    if (hasAttempted === 'true') return
-    sessionStorage.setItem('sso_auto_attempted', 'true')
-    // Fetch SSO authorization URL from backend, then redirect
-    const ssoProvider = 'jd'
-    managedGet<{ authorization_url: string }>(`auth/oauth/${ssoProvider}?callback_url=${encodeURIComponent(callbackUrl)}`, {
-      withAuth: false,
-      skipManagedContext: true,
-    }).then((response) => {
-      window.location.href = response.authorization_url
-    }).catch(() => {
-      // Backend unreachable — clear flag so user can retry
-      sessionStorage.removeItem('sso_auto_attempted')
-    })
+    if (hasRecentSsoAutoAttempt()) return
+    sessionStorage.setItem(SSO_AUTO_ATTEMPTED_KEY, String(Date.now()))
+
+    let cancelled = false
+    const redirectToSso = async () => {
+      try {
+        const providersResponse = await managedGet<OAuthProvidersResponse>('auth/oauth/providers', {
+          withAuth: false,
+          skipManagedContext: true,
+        })
+        const ssoProvider = providersResponse.providers?.[0]?.id
+        if (!ssoProvider) {
+          sessionStorage.removeItem(SSO_AUTO_ATTEMPTED_KEY)
+          return
+        }
+
+        const params = new URLSearchParams()
+        params.set('callback_url', callbackUrl)
+        const response = await managedGet<OAuthAuthorizationResponse>(
+          `auth/oauth/${encodeURIComponent(ssoProvider)}?${params.toString()}`,
+          {
+            withAuth: false,
+            skipManagedContext: true,
+          },
+        )
+        if (!cancelled) {
+          window.location.href = response.authorization_url
+        }
+      } catch (error) {
+        if (!cancelled) {
+          logger.warn('Failed to initiate SSO auto-redirect:', { error })
+          // Backend unreachable or SSO unavailable: clear flag so user can retry.
+          sessionStorage.removeItem(SSO_AUTO_ATTEMPTED_KEY)
+        }
+      }
+    }
+
+    redirectToSso()
+    return () => {
+      cancelled = true
+    }
   }, [mounted, sessionData?.user, oauthError, isBypassSso, callbackUrl])
 
   const handleForgotPassword = useCallback(async () => {

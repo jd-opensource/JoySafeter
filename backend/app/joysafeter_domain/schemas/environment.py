@@ -55,6 +55,8 @@ class EnvironmentConfig(BaseModel):
     type: str = "cloud"
     packages: Packages = Field(default_factory=Packages)
     networking: Networking = Field(default_factory=Networking)
+    env_vars: dict[str, str] = Field(default_factory=dict)
+    secret_refs: list[str] = Field(default_factory=list)
 
 
 class CreateEnvironmentRequest(BaseModel):

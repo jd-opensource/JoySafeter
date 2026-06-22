@@ -10,8 +10,8 @@ import { toastOperationError } from '@/lib/managed/errors'
 import type { Secret } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { getDefaultProtocol, getDefaultSecretPairs, isModelKey, SECRET_PROTOCOL_OPTIONS, SECRET_PROVIDER_OPTIONS } from '@/lib/managed/secret-keys'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { getDefaultProtocol, getDefaultSecretPairs, getSecretProviderLabel, isModelKey, SECRET_PROTOCOL_OPTIONS, SECRET_PROVIDER_GROUPS } from '@/lib/managed/secret-keys'
 import { SecretKeySelect, SecretModelInput } from '@/components/managed/shared'
 import {
   PageHeader,
@@ -64,7 +64,7 @@ export default function SecretListPage() {
   const [createdFilter, setCreatedFilter] = useState('all')
   const [showCreate, setShowCreate] = useState(false)
   const [newName, setNewName] = useState('')
-  const [newProvider, setNewProvider] = useState('anthropic')
+  const [newProvider, setNewProvider] = useState('claude')
   const [newProtocol, setNewProtocol] = useState('anthropic_messages')
   const [pairs, setPairs] = useState<KVPair[]>([{ key: '', value: '' }])
   const [creating, setCreating] = useState(false)
@@ -88,10 +88,12 @@ export default function SecretListPage() {
     const nextProtocol = getDefaultProtocol(provider)
     setNewProvider(provider)
     setNewProtocol(nextProtocol)
+    setPairs(getDefaultSecretPairs(provider, nextProtocol))
   }
 
   const updateProtocol = (protocol: string) => {
     setNewProtocol(protocol)
+    setPairs(getDefaultSecretPairs(newProvider, protocol))
   }
 
   const validPairs = pairs.filter((p) => p.key.trim())
@@ -123,7 +125,7 @@ export default function SecretListPage() {
         is_default: secrets.length === 0,
       })
       setNewName('')
-      setNewProvider('anthropic')
+      setNewProvider('claude')
       setNewProtocol('anthropic_messages')
       setPairs([{ key: '', value: '' }])
       setShowCreate(false)
@@ -180,7 +182,7 @@ export default function SecretListPage() {
     {
       key: 'provider',
       header: t('managed.secrets.provider'),
-      render: (s) => <span className="text-xs uppercase text-muted-foreground">{s.provider || 'custom'}</span>,
+      render: (s) => <span className="text-xs text-muted-foreground">{getSecretProviderLabel(s.provider)}</span>,
     },
     {
       key: 'protocol',
@@ -211,9 +213,9 @@ export default function SecretListPage() {
           <Button
             size="sm"
             onClick={() => {
-              setNewProvider('anthropic')
+              setNewProvider('claude')
               setNewProtocol('anthropic_messages')
-              setPairs(getDefaultSecretPairs('anthropic', 'anthropic_messages'))
+              setPairs(getDefaultSecretPairs('claude', 'anthropic_messages'))
               setShowCreate(true)
             }}
           >
@@ -286,8 +288,32 @@ export default function SecretListPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {SECRET_PROVIDER_OPTIONS.map((provider) => (
-                      <SelectItem key={provider.value} value={provider.value}>{provider.label}</SelectItem>
+                    {SECRET_PROVIDER_GROUPS.map((group) => (
+                      <SelectGroup key={group.label}>
+                        <SelectLabel className="flex items-center gap-2 px-2 py-2">
+                          <span
+                            className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                            style={{ backgroundColor: group.bgColor }}
+                          >
+                            {group.icon}
+                          </span>
+                          <span className="text-sm font-semibold text-foreground">
+                            {t(group.labelKey, { defaultValue: group.label })}
+                          </span>
+                        </SelectLabel>
+                        {group.options.map((provider, i) => {
+                          const isLast = i === group.options.length - 1
+                          const prefix = isLast ? '└' : '├'
+                          return (
+                            <SelectItem key={provider.value} value={provider.value} className="text-sm pl-8">
+                              <span className="flex items-center gap-1.5">
+                                <span className="text-muted-foreground/50 text-xs">{prefix}</span>
+                                {provider.label}
+                              </span>
+                            </SelectItem>
+                          )
+                        })}
+                      </SelectGroup>
                     ))}
                   </SelectContent>
                 </Select>
@@ -318,6 +344,8 @@ export default function SecretListPage() {
                     onChange={(v) => updatePair(i, 'key', v)}
                     placeholder={t('managed.secrets.keyPlaceholder')}
                     className="min-w-0"
+                    provider={newProvider}
+                    protocol={newProtocol}
                   />
                   {isModelKey(pair.key) ? (
                     <SecretModelInput

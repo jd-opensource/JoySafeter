@@ -1161,7 +1161,10 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         from app.joysafeter_orchestrator.services import AgentService
         from app.joysafeter_orchestrator.services import SessionService
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
-        from app.joysafeter_orchestrator.kernel.harness_input_builder import build_harness_input, extract_tool_name_sets
+        from app.joysafeter_orchestrator.kernel.harness_input_builder import (
+            build_harness_input,
+            extract_tool_name_sets,
+        )
         from app.joysafeter_orchestrator.events.event_mapping import map_harness_event, is_control_request
         from app.joysafeter_shared.config.settings import joysafeter_config
         from app.joysafeter_orchestrator.lifespan import get_session_broadcaster, get_redis_coordinator
@@ -1243,7 +1246,9 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 if env_ref:
                     from app.joysafeter_orchestrator.services import EnvironmentService
                     env_svc = EnvironmentService(db)
-                    environment = await env_svc.get_environment_by_ref(env_ref, project_id=getattr(agent, "project_id", None))
+                    environment = await env_svc.get_environment_by_ref(
+                        env_ref, project_id=getattr(agent, "project_id", None)
+                    )
 
             harness_input = await build_harness_input(
                 task, agent, session_id, bridge.external_id, sandbox_id,
@@ -2269,14 +2274,18 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 if env_ref:
                     from app.joysafeter_orchestrator.services import EnvironmentService
                     env_svc = EnvironmentService(db)
-                    environment = await env_svc.get_environment_by_ref(env_ref, project_id=getattr(agent, "project_id", None))
+                    environment = await env_svc.get_environment_by_ref(
+                        env_ref, project_id=getattr(agent, "project_id", None)
+                    )
 
                 # workspace_path on the record is the HOST path; inside the container it's always /workspace
                 work_dir = session.last_work_dir or (
                     "/workspace" if getattr(sandbox, "workspace_path", None) else None
                 )
 
-            setup_msg = _build_setup_sandbox(harness_input, agent, environment, work_dir=work_dir)
+            setup_msg = _build_setup_sandbox(
+                harness_input, agent, environment, work_dir=work_dir
+            )
             orch_msg = joysafeter_pb2.OrchestratorMessage(setup=setup_msg)
             await bridge.runner_stream.write(orch_msg)
             bridge.setup_done = True
@@ -2647,6 +2656,26 @@ def _extract_setup_commands(agent=None, environment=None) -> list[str]:
     return commands
 
 
+def _build_repo_configs(harness_input) -> list:
+    """Build RepoConfig protos from harness_input.repos.
+
+    Tokens come pre-decrypted on harness_input and are passed straight to the
+    runner over the gRPC channel; they are never logged here.
+    """
+    repos = []
+    for rc in getattr(harness_input, "repos", None) or []:
+        if not isinstance(rc, dict) or not rc.get("url"):
+            continue
+        repos.append(joysafeter_pb2.RepoConfig(
+            url=rc.get("url", ""),
+            branch=rc.get("branch", ""),
+            path=rc.get("path", ""),
+            authorization_token=rc.get("authorization_token", ""),
+            mount_name=rc.get("mount_name", ""),
+        ))
+    return repos
+
+
 def _build_setup_sandbox(
     harness_input, agent, environment=None, work_dir=None,
 ) -> joysafeter_pb2.SetupSandbox:
@@ -2665,7 +2694,10 @@ def _build_setup_sandbox(
             command=cfg.get("command", ""),
             args=cfg.get("args", []),
             env=cfg.get("env", {}),
-            server_type=cfg.get("server_type", ""),
+            # mcp_configs store the transport under "type" (schema McpServerConfig),
+            # but older payloads used "server_type"/"transport". Accept all three so
+            # the sandbox runner can tell remote (http/sse) from stdio servers.
+            server_type=cfg.get("type") or cfg.get("server_type") or cfg.get("transport") or "",
             url=cfg.get("url", ""),
             headers=cfg.get("headers", {}),
         ))
@@ -2731,7 +2763,12 @@ def _build_setup_sandbox(
         memory_mounts=memory_mounts,
         files=file_mounts,
         file_refs=file_refs,
+        allowed_tools=list(harness_input.allowed_tools or []),
+        ask_tools=list(harness_input.ask_tools or []),
     )
+    repos = _build_repo_configs(harness_input)
+    if repos:
+        kwargs["repos"] = repos
     if work_dir:
         kwargs["work_dir"] = work_dir
     return joysafeter_pb2.SetupSandbox(**kwargs)
@@ -2761,7 +2798,10 @@ def _build_start_task(
             command=cfg.get("command", ""),
             args=cfg.get("args", []),
             env=cfg.get("env", {}),
-            server_type=cfg.get("server_type", ""),
+            # mcp_configs store the transport under "type" (schema McpServerConfig),
+            # but older payloads used "server_type"/"transport". Accept all three so
+            # the sandbox runner can tell remote (http/sse) from stdio servers.
+            server_type=cfg.get("type") or cfg.get("server_type") or cfg.get("transport") or "",
             url=cfg.get("url", ""),
             headers=cfg.get("headers", {}),
         ))
@@ -2776,17 +2816,12 @@ def _build_start_task(
             input_schema_json=schema_json,
         ))
 
-    allowed = []
-    disallowed = []
-    for tool in (harness_input.tools or []):
-        if isinstance(tool, dict) and tool.get("type") == "agent_toolset_20260401":
-            for tcfg in tool.get("configs", []):
-                if isinstance(tcfg, dict):
-                    name = tcfg.get("name", "")
-                    if tcfg.get("enabled", True):
-                        allowed.append(name)
-                    else:
-                        disallowed.append(name)
+    # Use the permission rules resolved by harness_input_builder
+    # Use the permission rules resolved by harness_input_builder
+    # (_build_permission_rules): allow + ask, matching the official Managed
+    # Agents model (always_allow / always_ask only). Do NOT re-derive here.
+    allowed = list(harness_input.allowed_tools or [])
+    ask = list(harness_input.ask_tools or [])
 
     timeout = task.timeout_sec or config.task_default_timeout
 
@@ -2803,7 +2838,7 @@ def _build_start_task(
         mcp_servers=mcp_servers,
         skills=skills,
         allowed_tools=allowed,
-        disallowed_tools=disallowed,
+        ask_tools=ask,
         permission_mode=harness_input.permission_mode,
         custom_tools=custom_tools,
     )
@@ -2823,17 +2858,7 @@ def _build_start_task(
     if session and getattr(session, "last_work_dir", None):
         kwargs["work_dir"] = session.last_work_dir
 
-    repos = []
-    if agent and getattr(agent, "metadata_", None):
-        agent_repos = agent.metadata_.get("repos")
-        if isinstance(agent_repos, list):
-            for repo_cfg in agent_repos:
-                if isinstance(repo_cfg, dict) and repo_cfg.get("url"):
-                    repos.append(joysafeter_pb2.RepoConfig(
-                        url=repo_cfg.get("url", ""),
-                        branch=repo_cfg.get("branch", ""),
-                        path=repo_cfg.get("path", ""),
-                    ))
+    repos = _build_repo_configs(harness_input)
     if repos:
         kwargs["repos"] = repos
 

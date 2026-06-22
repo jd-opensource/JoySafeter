@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v2.id_helpers import parse_skill_id, parse_skill_file_id, parse_skill_security_scan_id
-from app.joysafeter_shared.common.app_errors import AccessDeniedError, InvalidRequestError, NotFoundError
+from app.joysafeter_shared.common.app_errors import AccessDeniedError, InvalidRequestError, NotFoundError, ResourceConflictError
 from app.joysafeter_shared.database import get_db
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, get_joysafeter_auth_context, require_joysafeter_write
 from app.joysafeter_shared.skill.yaml_parser import extract_metadata_from_frontmatter, is_system_file, parse_skill_md
@@ -70,6 +70,8 @@ def _handle_service_error(e: Exception):
         return JSONResponse(status_code=403, content=e.to_payload())
     if isinstance(e, InvalidRequestError):
         return JSONResponse(status_code=400, content=e.to_payload())
+    if isinstance(e, ResourceConflictError):
+        return JSONResponse(status_code=409, content=e.to_payload())
     raise
 
 
@@ -664,13 +666,16 @@ async def get_skill_version(
 async def delete_skill_version(
     version: str,
     skill_id: uuid.UUID = Depends(parse_skill_id),
+    force: bool = Query(False, description="Delete even if agents reference this version"),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ):
     svc = SkillVersionService(db)
     try:
-        await svc.delete_version(skill_id, version, current_user_id=auth_ctx.user_id)
-    except (NotFoundError, AccessDeniedError) as e:
+        await svc.delete_version(
+            skill_id, version, current_user_id=auth_ctx.user_id, force=force,
+        )
+    except (NotFoundError, AccessDeniedError, ResourceConflictError) as e:
         return _handle_service_error(e)
     return {"type": "skill_version_deleted"}
 

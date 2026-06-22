@@ -191,6 +191,111 @@ async function parseResponse<T>(response: Response): Promise<T> {
 // ==================== Token Refresh ====================
 let isRefreshing = false
 let refreshPromise: Promise<void> | null = null
+const AUTH_SESSION_CHANGE_KEY = 'auth_session_change'
+const AUTH_REFRESH_LOCK_KEY = 'auth_refresh_lock'
+const AUTH_REFRESHED_AT_KEY = 'auth_refresh_completed_at'
+const AUTH_REFRESH_LOCK_TTL_MS = 15_000
+const AUTH_REFRESH_LOCK_WAIT_STEP_MS = 150
+
+const authRefreshOwner = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+type RefreshLock = {
+  owner: string
+  expiresAt: number
+}
+
+function readRefreshLock(): RefreshLock | null {
+  try {
+    const raw = localStorage.getItem(AUTH_REFRESH_LOCK_KEY)
+    if (!raw) return null
+    const lock = JSON.parse(raw) as Partial<RefreshLock>
+    if (!lock.owner || typeof lock.expiresAt !== 'number') {
+      localStorage.removeItem(AUTH_REFRESH_LOCK_KEY)
+      return null
+    }
+    if (lock.expiresAt <= Date.now()) {
+      localStorage.removeItem(AUTH_REFRESH_LOCK_KEY)
+      return null
+    }
+    return { owner: lock.owner, expiresAt: lock.expiresAt }
+  } catch {
+    return null
+  }
+}
+
+function tryAcquireRefreshLock(): boolean {
+  if (typeof window === 'undefined') return true
+
+  try {
+    const current = readRefreshLock()
+    if (current && current.owner !== authRefreshOwner) {
+      return false
+    }
+
+    const lock: RefreshLock = {
+      owner: authRefreshOwner,
+      expiresAt: Date.now() + AUTH_REFRESH_LOCK_TTL_MS,
+    }
+    localStorage.setItem(AUTH_REFRESH_LOCK_KEY, JSON.stringify(lock))
+    return readRefreshLock()?.owner === authRefreshOwner
+  } catch {
+    return true
+  }
+}
+
+function releaseRefreshLock(): void {
+  if (typeof window === 'undefined') return
+  try {
+    if (readRefreshLock()?.owner === authRefreshOwner) {
+      localStorage.removeItem(AUTH_REFRESH_LOCK_KEY)
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function getLastRefreshCompletedAt(): number {
+  try {
+    return Number(localStorage.getItem(AUTH_REFRESHED_AT_KEY) || 0)
+  } catch {
+    return 0
+  }
+}
+
+function publishRefreshCompleted(): void {
+  if (typeof window === 'undefined') return
+  try {
+    const timestamp = Date.now()
+    localStorage.setItem(AUTH_REFRESHED_AT_KEY, String(timestamp))
+    localStorage.setItem(
+      AUTH_SESSION_CHANGE_KEY,
+      JSON.stringify({ type: 'refresh', timestamp }),
+    )
+    setTimeout(() => localStorage.removeItem(AUTH_SESSION_CHANGE_KEY), 100)
+  } catch {
+    /* ignore */
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+async function waitForRefreshLockRelease(startedAt: number, timeout: number): Promise<boolean> {
+  const deadline = Date.now() + timeout
+
+  while (Date.now() < deadline) {
+    if (getLastRefreshCompletedAt() >= startedAt) {
+      return true
+    }
+    if (!readRefreshLock()) {
+      return getLastRefreshCompletedAt() >= startedAt
+    }
+    await sleep(AUTH_REFRESH_LOCK_WAIT_STEP_MS)
+  }
+
+  return getLastRefreshCompletedAt() >= startedAt
+}
 
 export async function refreshAccessTokenOrRelogin(timeout = 10000): Promise<void> {
   if (typeof window === 'undefined') {
@@ -207,10 +312,28 @@ export async function refreshAccessTokenOrRelogin(timeout = 10000): Promise<void
 
   isRefreshing = true
   refreshPromise = (async () => {
+    const startedAt = Date.now()
+    let lockAcquired = tryAcquireRefreshLock()
+    if (!lockAcquired) {
+      const refreshedByOtherTab = await waitForRefreshLockRelease(startedAt, timeout)
+      if (refreshedByOtherTab) {
+        return
+      }
+      lockAcquired = tryAcquireRefreshLock()
+    }
+
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), timeout)
 
     try {
+      if (!lockAcquired) {
+        throw createApiError(408, 'Request Timeout', {
+          code: 'REFRESH_LOCK_TIMEOUT',
+          message: 'Timed out waiting for token refresh',
+          data: null,
+        })
+      }
+
       const response = await fetch(`${API_BASE}/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
@@ -244,6 +367,7 @@ export async function refreshAccessTokenOrRelogin(timeout = 10000): Promise<void
       } catch {
         /* refresh response without JSON body */
       }
+      publishRefreshCompleted()
     } catch (error) {
       clearTimeout(timeoutId)
       if (error instanceof Error && error.name === 'AbortError') {
@@ -256,6 +380,9 @@ export async function refreshAccessTokenOrRelogin(timeout = 10000): Promise<void
       if (error instanceof ApiError) throw error
       throw error
     } finally {
+      if (lockAcquired) {
+        releaseRefreshLock()
+      }
       isRefreshing = false
       refreshPromise = null
     }
@@ -301,6 +428,7 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
   const fullUrl = buildUrl(url)
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), timeout)
+  let didRefresh = false
 
   const makeRequest = async (): Promise<Response> => {
     try {
@@ -313,14 +441,18 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
         credentials: 'include',
       })
 
-      if (response.status === 401 && withAuth) {
+      if (response.status === 401 && withAuth && !didRefresh) {
         try {
+          didRefresh = true
           await refreshAccessTokenOrRelogin()
           const newCsrfToken = getCsrfToken()
           if (newCsrfToken) headers['X-CSRF-Token'] = newCsrfToken
           return makeRequest()
-        } catch {
-          // Refresh failed, continue throwing original error
+        } catch (refreshError) {
+          if (!(refreshError instanceof ApiError && refreshError.status === 401)) {
+            throw refreshError
+          }
+          // Refresh token is invalid/expired, continue throwing original 401.
         }
       }
 
@@ -437,6 +569,7 @@ export async function apiStream(
   }
 
   const fullUrl = buildUrl(url)
+  let didRefresh = false
 
   const makeRequest = async (): Promise<Response> => {
     const response = await fetch(fullUrl, {
@@ -447,14 +580,18 @@ export async function apiStream(
       signal,
     })
 
-    if (response.status === 401 && withAuth) {
+    if (response.status === 401 && withAuth && !didRefresh) {
       try {
+        didRefresh = true
         await refreshAccessTokenOrRelogin()
         const newCsrfToken = getCsrfToken()
         if (newCsrfToken) headers['X-CSRF-Token'] = newCsrfToken
         return makeRequest()
-      } catch {
-        /* ignore */
+      } catch (refreshError) {
+        if (!(refreshError instanceof ApiError && refreshError.status === 401)) {
+          throw refreshError
+        }
+        /* Refresh token is invalid/expired, continue throwing original 401. */
       }
     }
 
