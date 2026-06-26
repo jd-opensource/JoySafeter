@@ -40,7 +40,7 @@ async def _check_redis_connection() -> None:
 
 
 async def _check_docker_availability() -> None:
-    from app.joysafeter_domain.agent.backends.docker_check import is_docker_available
+    from app.joysafeter_shared.runtime.docker_check import is_docker_available
 
     docker_ok = await asyncio.to_thread(is_docker_available)
     if docker_ok:

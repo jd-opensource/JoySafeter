@@ -6,7 +6,7 @@ use joysafeter_types::harness::{
 use joysafeter_types::token_usage::TokenUsage;
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
@@ -63,6 +63,29 @@ struct TurnState {
     /// so we can treat them as the only ones that always reach the user, even
     /// if we later refine the default behavior.
     ask_tools: Vec<String>,
+    /// Multi-agent active-thread tracker.
+    ///
+    /// Codex's parent turn ends as soon as the parent model loop returns,
+    /// independent of any sub-agents it spawned via `spawn_agent` — that's
+    /// fire-and-forget at the wire-protocol level. The orchestrator can only
+    /// declare RunnerIdle when *all* threads (parent + spawned children) are
+    /// idle, so we mirror the aggregation codex itself does internally with
+    /// `running_turn_count` in `thread_status.rs`. We hold a set of every
+    /// thread id we've seen go busy, and `signal_turn_done_for` only fires
+    /// the oneshot once the set is empty.
+    ///
+    /// Seeded with the main thread id at turn start. Children are added on
+    /// `turn/started{threadId}`, `thread/status/changed{threadId, busy}`,
+    /// and proactively on `collabAgentToolCall item/started`'s
+    /// `receiverThreadIds` (in case the spawn event races the child's own
+    /// `turn/started`). Removed on `turn/completed{threadId}` and on
+    /// `thread/status/changed{threadId, idle}`.
+    active_threads: HashSet<String>,
+    /// The parent thread id for this turn. Used as the implicit target when
+    /// a legacy (multi-agent-unaware) signal like `task_complete` or
+    /// `turn_aborted` fires — those events don't carry a threadId, but they
+    /// always describe the parent's loop.
+    main_thread_id: String,
 }
 
 struct PersistentCodex {
@@ -309,10 +332,8 @@ impl CodexAdapter {
                                 );
                                 // No way to surface to the user → deny so codex
                                 // doesn't hang forever.
-                                if let Some(tx) = reader_pending_approvals
-                                    .lock()
-                                    .await
-                                    .remove(&req_id_str)
+                                if let Some(tx) =
+                                    reader_pending_approvals.lock().await.remove(&req_id_str)
                                 {
                                     let _ = tx.send(false);
                                 }
@@ -525,6 +546,10 @@ impl HarnessAdapter for CodexAdapter {
         // RunningHarness can resolve user.tool_confirmation by call_id.
         let pending_approvals_handle: PendingApprovals = session.pending_approvals.clone();
 
+        let main_thread_id = session.thread_id.clone();
+        let mut active_threads = HashSet::new();
+        active_threads.insert(main_thread_id.clone());
+
         let turn_state = TurnState {
             event_tx: event_tx.clone(),
             turn_done_tx: None,
@@ -535,6 +560,8 @@ impl HarnessAdapter for CodexAdapter {
             model: input.model.clone().unwrap_or_else(|| "codex".to_string()),
             allowed_tools: input.allowed_tools.clone(),
             ask_tools: input.ask_tools.clone(),
+            active_threads,
+            main_thread_id,
         };
 
         let (td_tx, td_rx) = oneshot::channel::<bool>();
@@ -860,10 +887,7 @@ fn approval_matches_tool(rules: &[String], tool_name: &str) -> bool {
     if rules.is_empty() {
         return false;
     }
-    let leading = tool_name
-        .split_whitespace()
-        .next()
-        .unwrap_or(tool_name);
+    let leading = tool_name.split_whitespace().next().unwrap_or(tool_name);
 
     // For MCP names, compare on the ``mcp__<server>__`` prefix so wildcard and
     // per-tool rules are interchangeable at the server granularity codex gives us.
@@ -907,9 +931,7 @@ fn derive_approval_tool_name(method: &str, params: &Value) -> String {
             }
             "Bash".to_string()
         }
-        "item/fileChange/requestApproval" | "applyPatchApproval" => {
-            "ApplyPatch".to_string()
-        }
+        "item/fileChange/requestApproval" | "applyPatchApproval" => "ApplyPatch".to_string(),
         "mcpServer/elicitation/request" => {
             // codex sends camelCase `serverName`; tool name is NOT exposed in the
             // elicitation params, so we can only resolve to server granularity.
@@ -1147,6 +1169,14 @@ async fn handle_raw_notification(
 ) {
     match method {
         "turn/started" => {
+            // Track this thread as active so signal_thread_done can't
+            // declare the turn complete before it finishes. The first
+            // turn/started we see for the parent thread is a no-op
+            // (already seeded at start), but child threads spawned via
+            // spawn_agent arrive here for the first time.
+            if let Some(tid) = params.get("threadId").and_then(|v| v.as_str()) {
+                note_thread_active(current_turn, tid).await;
+            }
             let _ = event_tx
                 .send(HarnessEvent::Status {
                     state: "running".into(),
@@ -1175,7 +1205,17 @@ async fn handle_raw_notification(
                     cache_write_tokens: cwt,
                 })
                 .await;
-            signal_turn_done(current_turn, aborted).await;
+            // Route the done signal to the specific thread that completed
+            // — could be the parent or any spawned child. Only fires the
+            // turn_done oneshot when every thread has reported done.
+            let thread_id = params
+                .get("threadId")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            match thread_id {
+                Some(tid) => signal_thread_done(current_turn, &tid, aborted).await,
+                None => signal_turn_done(current_turn, aborted).await,
+            }
         }
         "thread/status/changed" => {
             let status_type = params
@@ -1183,8 +1223,23 @@ async fn handle_raw_notification(
                 .and_then(|s| s.get("type"))
                 .and_then(|t| t.as_str())
                 .unwrap_or("");
+            let thread_id = params
+                .get("threadId")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             if status_type == "idle" {
-                signal_turn_done(current_turn, false).await;
+                // Mirror what codex itself does in thread_status.rs:
+                // running_turn_count drops when *any* thread goes idle, and
+                // the whole conversation is only globally idle at count=0.
+                match thread_id {
+                    Some(tid) => signal_thread_done(current_turn, &tid, false).await,
+                    None => signal_turn_done(current_turn, false).await,
+                }
+            } else if let Some(tid) = thread_id {
+                // Any non-idle status (running / awaiting input / etc.)
+                // means this thread is active — register it so a stale
+                // empty set can't mistakenly fire the done signal.
+                note_thread_active(current_turn, &tid).await;
             }
         }
         "thread/tokenUsage/updated" => {
@@ -1265,6 +1320,36 @@ async fn handle_item_notification(
                         is_control_request: false,
                     })
                     .await;
+            }
+            // Background sub-agent lifecycle (codex multi-agent v2). Mapped to
+            // the same TaskNotification surface as Claude Code's Task tool so the
+            // orchestrator/frontend bg_task rendering works for both engines.
+            "collabAgentToolCall" => {
+                // Pre-register every receiver thread as active. Without
+                // this, a small race is possible: the child's own
+                // `turn/started{threadId=X}` might still be in flight
+                // when the parent's signal_thread_done fires for itself,
+                // and the empty-set check would wrongly declare the turn
+                // complete. By the time the child's turn/started arrives
+                // we'd be too late. Note: insertions are idempotent.
+                if let Some(receivers) = item
+                    .get("receiverThreadIds")
+                    .and_then(|v| v.as_array())
+                {
+                    for r in receivers {
+                        if let Some(tid) = r.as_str() {
+                            note_thread_active(current_turn, tid).await;
+                        }
+                    }
+                }
+                if let Some(ev) = collab_agent_to_task_event(item, /*completed=*/ false) {
+                    let _ = event_tx.send(ev).await;
+                }
+            }
+            "subAgentActivity" => {
+                if let Some(ev) = sub_agent_activity_to_task_event(item) {
+                    let _ = event_tx.send(ev).await;
+                }
             }
             _ => {}
         },
@@ -1347,10 +1432,148 @@ async fn handle_item_notification(
                     signal_turn_done(current_turn, false).await;
                 }
             }
+            // Background sub-agent completion (codex multi-agent v2).
+            "collabAgentToolCall" => {
+                if let Some(ev) = collab_agent_to_task_event(item, /*completed=*/ true) {
+                    let _ = event_tx.send(ev).await;
+                }
+            }
+            "subAgentActivity" => {
+                if let Some(ev) = sub_agent_activity_to_task_event(item) {
+                    let _ = event_tx.send(ev).await;
+                }
+            }
             _ => {}
         },
         _ => {}
     }
+}
+
+/// Truncate a string to at most `max` chars (char-boundary safe).
+fn truncate_chars(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        s.chars().take(max).collect()
+    }
+}
+
+/// Map a codex `collabAgentToolCall` item to a background-task notification.
+///
+/// `completed=false` for `item/started` (spawn → "started", others → "progress"),
+/// `completed=true` for `item/completed` (status=failed → "failed" else "completed").
+fn collab_agent_to_task_event(item: &Value, completed: bool) -> Option<HarnessEvent> {
+    let tool = item.get("tool").and_then(|t| t.as_str()).unwrap_or("");
+    // task_id: prefer the spawned receiver thread, fall back to sender thread.
+    let task_id = item
+        .get("receiverThreadIds")
+        .and_then(|r| r.as_array())
+        .and_then(|a| a.first())
+        .and_then(|v| v.as_str())
+        .or_else(|| item.get("senderThreadId").and_then(|s| s.as_str()))
+        .unwrap_or("")
+        .to_string();
+    if task_id.is_empty() {
+        return None;
+    }
+    let description = item
+        .get("prompt")
+        .and_then(|p| p.as_str())
+        .filter(|p| !p.is_empty())
+        .map(|p| truncate_chars(p, 80))
+        .unwrap_or_else(|| tool.to_string());
+    let tool_use_id = item
+        .get("id")
+        .and_then(|i| i.as_str())
+        .map(|s| s.to_string());
+
+    let (phase, status, summary) = if completed {
+        let status_str = item
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("completed");
+        let p = if status_str == "failed" {
+            "failed"
+        } else {
+            "completed"
+        };
+        (
+            p.to_string(),
+            Some(p.to_string()),
+            Some(format!("Sub-agent \"{description}\" {p}")),
+        )
+    } else {
+        let p = if tool == "spawnAgent" {
+            "started"
+        } else {
+            "progress"
+        };
+        (p.to_string(), None, None)
+    };
+
+    Some(HarnessEvent::TaskNotification {
+        phase,
+        task_id,
+        tool_use_id,
+        description: Some(description),
+        status,
+        summary,
+        result: None,
+        output_file: None,
+        last_tool_name: None,
+        total_tokens: None,
+        tool_uses: None,
+        duration_ms: None,
+    })
+}
+
+/// Map a codex `subAgentActivity` item to a background-task notification.
+fn sub_agent_activity_to_task_event(item: &Value) -> Option<HarnessEvent> {
+    let task_id = item
+        .get("agentThreadId")
+        .and_then(|s| s.as_str())
+        .unwrap_or("")
+        .to_string();
+    if task_id.is_empty() {
+        return None;
+    }
+    let description = item
+        .get("agentPath")
+        .and_then(|p| p.as_str())
+        .map(|s| s.to_string());
+    let kind = item.get("kind").and_then(|k| k.as_str()).unwrap_or("");
+    let (phase, status, summary) = match kind {
+        "started" => ("started".to_string(), None, None),
+        "interrupted" => (
+            "stopped".to_string(),
+            Some("stopped".to_string()),
+            Some(format!(
+                "Sub-agent {} stopped",
+                description.as_deref().unwrap_or("")
+            )),
+        ),
+        // "interacted" and any other activity → progress ping
+        _ => ("progress".to_string(), None, None),
+    };
+    let tool_use_id = item
+        .get("id")
+        .and_then(|i| i.as_str())
+        .map(|s| s.to_string());
+
+    Some(HarnessEvent::TaskNotification {
+        phase,
+        task_id,
+        tool_use_id,
+        description,
+        status,
+        summary,
+        result: None,
+        output_file: None,
+        last_tool_name: None,
+        total_tokens: None,
+        tool_uses: None,
+        duration_ms: None,
+    })
 }
 
 fn text_from_value(value: &Value) -> Option<String> {
@@ -1472,12 +1695,54 @@ fn replace_usage(data: &Value, usage: &Arc<std::sync::Mutex<TokenUsage>>) -> Opt
     Some(parsed)
 }
 
-async fn signal_turn_done(current_turn: &Arc<Mutex<Option<TurnState>>>, aborted: bool) {
+/// Mark `thread_id` as no longer running. If the active set is now empty
+/// (parent + every spawned child have all reported done), fire the
+/// turn_done oneshot so the runner can finalize the turn and emit
+/// RunnerIdle. While the set still has anything in it we do nothing —
+/// this is the multi-agent case where the parent finished but a sub-agent
+/// it spawned via `spawn_agent` is still running.
+async fn signal_thread_done(
+    current_turn: &Arc<Mutex<Option<TurnState>>>,
+    thread_id: &str,
+    aborted: bool,
+) {
     let mut guard = current_turn.lock().await;
     if let Some(ref mut turn) = *guard {
-        if let Some(tx) = turn.turn_done_tx.take() {
-            let _ = tx.send(aborted);
+        turn.active_threads.remove(thread_id);
+        if turn.active_threads.is_empty() {
+            if let Some(tx) = turn.turn_done_tx.take() {
+                let _ = tx.send(aborted);
+            }
         }
+    }
+}
+
+/// Mark `thread_id` as currently running. Idempotent: a second insert is
+/// a no-op. Called on `turn/started`, on busy `thread/status/changed`, and
+/// proactively for every receiver in `collabAgentToolCall item/started`
+/// so the spawn handshake doesn't race the child's own `turn/started`.
+async fn note_thread_active(
+    current_turn: &Arc<Mutex<Option<TurnState>>>,
+    thread_id: &str,
+) {
+    let mut guard = current_turn.lock().await;
+    if let Some(ref mut turn) = *guard {
+        turn.active_threads.insert(thread_id.to_string());
+    }
+}
+
+/// Legacy entry point for callers that don't carry a thread id (the codex
+/// 1.x `task_complete` / `turn_aborted` events from `handle_event_msg`,
+/// and the `phase == "final_answer"` path in `handle_item_notification`).
+/// Routes the signal to the parent thread — those events always describe
+/// the parent's loop in practice.
+async fn signal_turn_done(current_turn: &Arc<Mutex<Option<TurnState>>>, aborted: bool) {
+    let main_id = {
+        let guard = current_turn.lock().await;
+        guard.as_ref().map(|t| t.main_thread_id.clone())
+    };
+    if let Some(id) = main_id {
+        signal_thread_done(current_turn, &id, aborted).await;
     }
 }
 
@@ -1676,7 +1941,10 @@ mod tests {
         assert!(!super::approval_matches_tool(&wildcard, "mcp__other__*"));
         // MCP rule must not match a plain builtin tool and vice-versa.
         assert!(!super::approval_matches_tool(&wildcard, "Bash"));
-        assert!(!super::approval_matches_tool(&["Bash".into()], "mcp__echo-test__*"));
+        assert!(!super::approval_matches_tool(
+            &["Bash".into()],
+            "mcp__echo-test__*"
+        ));
     }
 
     #[test]
@@ -1727,24 +1995,22 @@ mod tests {
     async fn merge_codex_mcp_servers_writes_toml_block() {
         use joysafeter_types::agent::McpServerConfig;
 
-        let tmp = std::env::temp_dir().join(format!(
-            "codex_mcp_test_{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("codex_mcp_test_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::env::set_var("HOME", &tmp);
 
-        let servers = vec![
-            McpServerConfig::Url {
-                name: "echo-test".to_string(),
-                url: "http://host.docker.internal:8765/".to_string(),
-            },
-        ];
+        let servers = vec![McpServerConfig::Url {
+            name: "echo-test".to_string(),
+            url: "http://host.docker.internal:8765/".to_string(),
+        }];
         super::merge_codex_mcp_servers(&servers).await.unwrap();
 
         let path = tmp.join(".codex/config.toml");
         let body = std::fs::read_to_string(&path).unwrap();
-        assert!(body.contains("[mcp_servers.\"echo-test\"]"), "block missing: {body}");
+        assert!(
+            body.contains("[mcp_servers.\"echo-test\"]"),
+            "block missing: {body}"
+        );
         assert!(body.contains("url = \"http://host.docker.internal:8765/\""));
         assert!(body.contains("# >>> joysafeter mcp_servers >>>"));
 
@@ -1761,10 +2027,7 @@ mod tests {
     async fn merge_codex_mcp_servers_preserves_existing_file_content() {
         use joysafeter_types::agent::McpServerConfig;
 
-        let tmp = std::env::temp_dir().join(format!(
-            "codex_mcp_preserve_{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("codex_mcp_preserve_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(tmp.join(".codex")).unwrap();
         let path = tmp.join(".codex/config.toml");

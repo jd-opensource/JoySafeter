@@ -240,6 +240,10 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     await _svc_init.update_status(sandbox_id, "idle")
 
                 await _svc_init.touch(sandbox_id)
+                # Successful runner attach → clear any stale disconnect
+                # marker left by an earlier crash, so the fallback sweeper
+                # doesn't reap a sandbox that just reconnected.
+                await _svc_init.mark_bridge_connected(sandbox_id)
 
             bridge.status = SandboxBridgeStatus.IDLE
 
@@ -327,6 +331,17 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 bridge.status = SandboxBridgeStatus.DISCONNECTED
                 logger.info("Runner disconnected: sandbox=%s", sandbox_id)
             if sandbox_id:
+                # Stamp disconnected_at so the fallback sweeper can reap this
+                # sandbox after the grace window if no reconnect arrives. Best
+                # effort — a failure here just means the sweeper waits for
+                # idle_timeout / hard_timeout instead.
+                try:
+                    async with AsyncSessionLocal() as _dc_db:
+                        await SandboxService(_dc_db).mark_bridge_disconnected(sandbox_id)
+                except Exception as _dc_err:
+                    logger.debug(
+                        "mark_bridge_disconnected(%s) failed: %s", sandbox_id, _dc_err
+                    )
                 await self._cleanup_sandbox(
                     sandbox_id,
                     session_id=linked_session_id,
@@ -353,8 +368,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         bridge.setup_done = True so that _send_setup is skipped on reconnect.
         """
         from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_domain.models.task import JoySafeterTaskStatus as TaskStatus
-        from app.joysafeter_domain.models.session import SessionStatus
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_domain.models.joysafeter_session import SessionStatus
         from app.joysafeter_orchestrator.services import TaskService
         from app.joysafeter_orchestrator.services import SessionService
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
@@ -917,7 +932,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         """Re-queue running tasks orphaned by a runner that reconnected without active_task_id."""
         from app.joysafeter_shared.database import AsyncSessionLocal
         from app.joysafeter_orchestrator.services import TaskService
-        from app.joysafeter_domain.models.task import JoySafeterTaskStatus as TaskStatus, JoySafeterTask
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus, JoySafeterTask
         from sqlalchemy import select, and_
 
         try:
@@ -1036,6 +1051,12 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     payload_type = msg.WhichOneof("payload")
                     if payload_type == "heartbeat":
                         heartbeat_deadline = _time.monotonic() + _get_heartbeat_timeout()
+                        # Heartbeats no longer touch last_used_at: the idle
+                        # sweep now drives off idle_since (set on RunnerIdle)
+                        # plus a disconnect/hard-timeout fallback, so the
+                        # row doesn't need a per-heartbeat write to stay
+                        # alive. This eliminates the per-row bloat we used
+                        # to see on long-running sandboxes.
                     continue
 
                 if pop_task in done:
@@ -1155,8 +1176,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
           - task_completed: True if the task ended with Completed status.
         """
         from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_domain.models.task import JoySafeterTaskStatus as TaskStatus
-        from app.joysafeter_domain.models.session import SessionStatus
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_domain.models.joysafeter_session import SessionStatus
         from app.joysafeter_orchestrator.services import TaskService
         from app.joysafeter_orchestrator.services import AgentService
         from app.joysafeter_orchestrator.services import SessionService
@@ -1670,6 +1691,13 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
                     persisted_event_id = uuid7() if session_id else None
 
+                    # Background sub-agent activity no longer touches
+                    # last_used_at — idle_since (set by RunnerIdle) is the
+                    # authoritative idle anchor now, and RunnerIdle is held
+                    # back by the runtime until all background agents finish
+                    # (cc: heldBackResult; codex multi-agent: aggregated child
+                    # threads), so a sandbox can't be reaped mid-activity.
+
                     if self._event_bus and session_id:
                         await self._event_bus.publish(JoySafeterEventEnvelope(
                             session_id=session_id,
@@ -1938,8 +1966,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         result: joysafeter_pb2.RunnerHarnessResult,
     ) -> None:
         from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_domain.models.task import JoySafeterTaskStatus as TaskStatus
-        from app.joysafeter_domain.models.session import SessionStatus
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_domain.models.joysafeter_session import SessionStatus
         from app.joysafeter_orchestrator.services import TaskService
         from app.joysafeter_orchestrator.services import SessionService
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
@@ -2089,7 +2117,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
     @staticmethod
     def _stop_reason_from_result(status: "TaskStatus", error: Optional[str]) -> dict:
-        from app.joysafeter_domain.models.task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
         if status == TaskStatus.COMPLETED:
             return {"type": "end_turn"}
         elif status == TaskStatus.TIMEOUT:
@@ -2111,7 +2139,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
     ) -> None:
         """Reconnect result handler — with CAS check and event buffer flush."""
         from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_domain.models.task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
         from app.joysafeter_orchestrator.services import TaskService
         from app.joysafeter_orchestrator.services import SessionService
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
@@ -2639,7 +2667,7 @@ def _extract_setup_commands(agent=None, environment=None) -> list[str]:
         if isinstance(env_config, dict):
             packages = env_config.get("packages", {})
             if isinstance(packages, dict):
-                from app.joysafeter_domain.schemas.environment import Packages
+                from app.joysafeter_domain.schemas.joysafeter_environment import Packages
                 try:
                     pkg = Packages(**packages)
                     commands.extend(pkg.install_commands())
@@ -2948,6 +2976,37 @@ def _proto_event_to_dict(event: joysafeter_pb2.RunnerHarnessEvent) -> dict[str, 
             "cache_read_tokens": mre.cache_read_tokens,
             "cache_write_tokens": mre.cache_write_tokens,
         }
+    elif event_field == "task_notification":
+        tn = event.task_notification
+        # Background sub-agent lifecycle event (claude-code Task tool with
+        # run_in_background=true). Surface the full payload so the event-mapper
+        # downstream can write it as a first-class session event.
+        payload: dict[str, Any] = {
+            "type": "task_notification",
+            "phase": tn.phase,
+            "task_id": tn.task_id,
+        }
+        if tn.HasField("tool_use_id"):
+            payload["tool_use_id"] = tn.tool_use_id
+        if tn.HasField("description"):
+            payload["description"] = tn.description
+        if tn.HasField("status"):
+            payload["status"] = tn.status
+        if tn.HasField("summary"):
+            payload["summary"] = tn.summary
+        if tn.HasField("result"):
+            payload["result"] = tn.result
+        if tn.HasField("output_file"):
+            payload["output_file"] = tn.output_file
+        if tn.HasField("last_tool_name"):
+            payload["last_tool_name"] = tn.last_tool_name
+        if tn.HasField("total_tokens"):
+            payload["total_tokens"] = tn.total_tokens
+        if tn.HasField("tool_uses"):
+            payload["tool_uses"] = tn.tool_uses
+        if tn.HasField("duration_ms"):
+            payload["duration_ms"] = tn.duration_ms
+        return payload
 
     return {"type": "unknown"}
 

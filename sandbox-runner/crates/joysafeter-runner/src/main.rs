@@ -1,3 +1,4 @@
+mod archive;
 #[cfg(target_os = "linux")]
 mod memory_fuse;
 mod repos;
@@ -19,6 +20,9 @@ use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::Streaming;
 use tracing::{error, info, warn};
+
+const GRPC_MAX_RECV_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
+const GRPC_MAX_SEND_MESSAGE_SIZE: usize = 8 * 1024 * 1024;
 
 enum ConnectionResult {
     Shutdown,
@@ -136,7 +140,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-        let mut client = AgentBridgeClient::new(channel);
+        let mut client = AgentBridgeClient::new(channel)
+            .max_decoding_message_size(GRPC_MAX_RECV_MESSAGE_SIZE)
+            .max_encoding_message_size(GRPC_MAX_SEND_MESSAGE_SIZE);
         let (runner_tx, runner_rx) = mpsc::channel::<RunnerMessage>(256);
         let outbound = ReceiverStream::new(runner_rx);
 

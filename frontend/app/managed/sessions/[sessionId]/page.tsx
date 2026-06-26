@@ -36,6 +36,9 @@ const TRANSCRIPT_TYPES = new Set([
   'agent.custom_tool_use',
   'user.custom_tool_result',
   'user.tool_result',
+  'agent.bg_task_started',
+  'agent.bg_task_progress',
+  'agent.bg_task_finished',
   'span.model_request_start',
   'span.model_request_end',
 ])
@@ -48,11 +51,17 @@ const TRANSCRIPT_DISPLAY_TYPES = new Set([
   'agent.custom_tool_use',
   'user.custom_tool_result',
   'user.tool_result',
+  'agent.bg_task_started',
+  'agent.bg_task_progress',
+  'agent.bg_task_finished',
   'span.model_request_start',
   'span.model_request_end',
 ])
 
 const ALL_EVENT_TYPES = new Set([
+  'agent.bg_task_finished',
+  'agent.bg_task_progress',
+  'agent.bg_task_started',
   'agent.custom_tool_use',
   'agent.error',
   'agent.mcp_tool_result',
@@ -104,8 +113,6 @@ const ENGINE_KIND_LABELS: Record<string, string> = {
   claude_code: 'Claude Code',
   codex: 'Codex',
   native: 'Native',
-  langgraph_visual: 'LangGraph Visual',
-  langgraph_code: 'LangGraph Code',
 }
 
 function compareSessionEvents(a: SessionEvent, b: SessionEvent) {
@@ -204,6 +211,11 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const [streamForced, setStreamForced] = useState(false)
   const queryClient = useQueryClient()
   const inputRef = useRef<HTMLInputElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  // Track whether the user is pinned to the bottom of the transcript. When true,
+  // new events auto-scroll into view; when the user scrolls up to read history,
+  // we stop yanking them back down.
+  const stickToBottomRef = useRef(true)
   const { events: streamEvents, connected: sseConnected } = useSessionStream(stripIdPrefix(id || ''), !!id)
 
   const { data: session, isLoading, isError, error } = useQuery({
@@ -664,6 +676,59 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     }
   }, [tab, searchText, hasMoreEvents, isLoadingMore, loadedEvents.length, filteredEvents.length, loadMoreEvents, sseConnected])
 
+  // Auto-scroll to the newest event when the transcript grows, but only while
+  // the user is pinned to the bottom (stickToBottomRef). Scrolling up to read
+  // history flips the flag off in the container's onScroll handler.
+  useEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    if (!stickToBottomRef.current) return
+    el.scrollTop = el.scrollHeight
+  }, [filteredEvents.length])
+
+  // Runtime duration — sum of each "running → idle" active period, not wall-clock.
+  // Using allEvents (already loaded) so we exclude all idle gaps between tasks.
+  // Fallback to stats.duration_seconds if events aren't loaded yet.
+  const runtimeSec = useMemo(() => {
+    // Last event timestamp — used to close an unterminated "running" period
+    // (e.g. a task that timed out / was reaped and never emitted status_idle).
+    let lastEventMs = 0
+    for (const e of allEvents) {
+      const ts = e.created_at ? new Date(e.created_at).getTime() : 0
+      if (ts > lastEventMs) lastEventMs = ts
+    }
+    const statusEvts = allEvents.filter((e) => {
+      const t2 = e.type || e.event_type || ''
+      return t2 === 'session.status_running' || t2 === 'session.status_idle'
+    })
+    if (statusEvts.length >= 2) {
+      let total = 0
+      let runningAt: number | null = null
+      for (const evt of statusEvts) {
+        const t2 = evt.type || evt.event_type || ''
+        const ts = evt.created_at ? new Date(evt.created_at).getTime() : null
+        if (!ts) continue
+        if (t2 === 'session.status_running') {
+          runningAt = ts
+        } else if (t2 === 'session.status_idle' && runningAt !== null) {
+          total += (ts - runningAt) / 1000
+          runningAt = null
+        }
+      }
+      // Unterminated running period: still running → count to now; otherwise
+      // (timed out / reaped without a closing idle) → count to last activity.
+      if (runningAt !== null) {
+        const endMs = session?.status === 'running'
+          ? Date.now()
+          : Math.max(lastEventMs, runningAt)
+        total += (endMs - runningAt) / 1000
+      }
+      if (total > 0) return Math.round(total)
+    }
+    const statsDur = session?.stats?.duration_seconds ?? (session?.stats?.duration_ms ? session.stats.duration_ms / 1000 : 0)
+    return statsDur > 0 ? Math.round(statsDur) : 0
+  }, [allEvents, session?.stats, session?.status])
+
   if (isError) {
     return (
       <ResourceErrorState
@@ -741,13 +806,26 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       onClick: () => setActiveDrawer('repos'),
     })
   }
+  // Runtime duration (computed via useMemo above the early returns) — sum of
+  // active "running → idle" periods, excluding idle gaps between tasks.
+  if (runtimeSec > 0) {
+    const h = Math.floor(runtimeSec / 3600)
+    const m = Math.floor((runtimeSec % 3600) / 60)
+    const s = runtimeSec % 60
+    const runtimeLabel = h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`
+    metaItems.push({
+      icon: <Timer className="w-3.5 h-3.5" />,
+      label: runtimeLabel,
+      tooltip: t('managed.sessions.runtimeDuration'),
+    })
+  }
   // Created time
   metaItems.push({
     icon: <Clock className="w-3.5 h-3.5" />,
     label: formatRelativeTime(session.created_at),
   })
 
-  const sessionDisplayName = session.title?.trim() || formatSessionId(session.id)
+  const sessionDisplayName = formatSessionId(session.id)
 
   return (
     <div className="h-[calc(100vh-4rem)] flex flex-col">
@@ -880,9 +958,13 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
 
       {/* Content: event list + detail panel */}
       <div className="flex-1 flex overflow-hidden border border-border rounded-lg">
-        <div className="flex-1 overflow-y-auto" onScroll={(e) => {
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto" onScroll={(e) => {
           const el = e.currentTarget
-          if (el.scrollHeight - el.scrollTop - el.clientHeight < 100 && hasMoreEvents && !isLoadingMore) {
+          const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+          // Pin to bottom only when the user is within 80px of it, so live events
+          // keep following; scrolling up to read history releases the pin.
+          stickToBottomRef.current = distanceFromBottom < 80
+          if (distanceFromBottom < 100 && hasMoreEvents && !isLoadingMore) {
             loadMoreEvents()
           }
         }}>

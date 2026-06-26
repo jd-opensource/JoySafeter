@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Protocol
 
+from app.joysafeter_orchestrator.sandbox.archive_utils import auto_extract_archive
 from app.joysafeter_shared.storage.base import StorageBackend
 
 logger = logging.getLogger(__name__)
@@ -161,6 +162,10 @@ class HostMountStrategy:
                 data = await ctx.storage.get(f.storage_key)
                 with open(host_file_path, "wb") as fh:
                     fh.write(data)
+                try:
+                    auto_extract_archive(host_file_path)
+                except Exception as e:
+                    logger.warning("HostMount: failed to auto-extract %s: %s", f.filename, e)
                 count += 1
             except Exception as e:
                 logger.warning("HostMount: failed to write %s: %s", f.filename, e)

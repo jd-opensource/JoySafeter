@@ -102,8 +102,8 @@ class TaskRunner:
     async def _execute_task(self, task_id: uuid.UUID) -> None:
         from app.joysafeter_shared.database import AsyncSessionLocal
         from app.joysafeter_shared.config.settings import joysafeter_config
-        from app.joysafeter_domain.models.task import JoySafeterTaskStatus as TaskStatus
-        from app.joysafeter_domain.models.session import SessionStatus
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_domain.models.joysafeter_session import SessionStatus
         from app.joysafeter_orchestrator.services import TaskService
         from app.joysafeter_orchestrator.services import SessionService
         from app.joysafeter_orchestrator.services import AgentService
@@ -705,7 +705,7 @@ class TaskRunner:
             if session_id:
                 from app.joysafeter_shared.database import AsyncSessionLocal
                 from app.joysafeter_orchestrator.services import SessionService
-                from app.joysafeter_domain.models.session import SessionStatus
+                from app.joysafeter_domain.models.joysafeter_session import SessionStatus
 
                 stop_reason = {
                     "type": "requires_action",
@@ -741,7 +741,7 @@ class TaskRunner:
             if session_id:
                 from app.joysafeter_shared.database import AsyncSessionLocal
                 from app.joysafeter_orchestrator.services import SessionService
-                from app.joysafeter_domain.models.session import SessionStatus
+                from app.joysafeter_domain.models.joysafeter_session import SessionStatus
 
                 async with AsyncSessionLocal() as db:
                     svc = SessionService(db)

@@ -6,7 +6,7 @@ use crate::stream::harness_event_to_proto;
 use joysafeter_runtime::AdapterRegistry;
 use joysafeter_types::harness::HarnessInput;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
@@ -100,7 +100,7 @@ pub async fn handle_task(
     // sandboxes can miss setup if the session link is established late.  StartTask
     // also carries skills, so unpack them here as an idempotent fallback before
     // the Claude process starts.
-    unpack_skills(&work_dir, &task.skills)
+    unpack_skills(&work_dir, &task.skills, provider)
         .await
         .map_err(|e| format!("unpack task skills to {}: {e}", work_dir.display()))?;
 
@@ -429,7 +429,7 @@ pub async fn handle_setup(
         }
     }
 
-    unpack_skills(&work_dir, &setup.skills)
+    unpack_skills(&work_dir, &setup.skills, &setup.provider)
         .await
         .map_err(|e| format!("unpack_skills to {}: {e}", work_dir.display()))?;
     write_files(&work_dir, &setup.files)
@@ -524,12 +524,32 @@ pub async fn handle_setup(
     Ok(config)
 }
 
+/// Resolve the skill directory layout for a given engine/provider.
+///
+/// Each agent CLI discovers skills from a different directory convention:
+///   - Claude Code / native (claude binary) → `<work_dir>/.claude/skills/...`
+///   - Codex                                → `<work_dir>/.agents/skills/...`
+///     (codex scans `.agents/skills` from cwd up to the project root, see
+///      codex-rs/core-skills/src/loader.rs `repo_agents_skill_roots`)
+///
+/// `target` is the leaf subdir name supplied by the orchestrator (always
+/// "skills" today); we honour it under the engine-specific parent so future
+/// targets keep working.
+fn skill_base_dir(work_dir: &Path, provider: &str, target: &str) -> PathBuf {
+    match provider {
+        "codex" => work_dir.join(".agents").join(target),
+        // "claude", "native", and anything else default to Claude's layout.
+        _ => work_dir.join(".claude").join(target),
+    }
+}
+
 async fn unpack_skills(
     work_dir: &PathBuf,
     skills: &[proto::SkillArchive],
+    provider: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     for skill in skills {
-        let target_dir = work_dir.join(".claude").join(&skill.target);
+        let target_dir = skill_base_dir(work_dir, provider, &skill.target);
         tokio::fs::create_dir_all(&target_dir)
             .await
             .map_err(|e| format!("mkdir {}: {e}", target_dir.display()))?;
@@ -539,7 +559,13 @@ async fn unpack_skills(
         archive
             .unpack(&target_dir)
             .map_err(|e| format!("unpack tar to {}: {e}", target_dir.display()))?;
-        info!(name = %skill.name, target = %skill.target, "Unpacked to {}", target_dir.display());
+        info!(
+            name = %skill.name,
+            target = %skill.target,
+            provider = %provider,
+            "Unpacked to {}",
+            target_dir.display()
+        );
     }
     Ok(())
 }
@@ -558,6 +584,9 @@ async fn write_files(
         tokio::fs::write(path, &file.content)
             .await
             .map_err(|e| format!("write {}: {e}", path.display()))?;
+        if let Err(e) = crate::archive::auto_extract_archive(path).await {
+            warn!(path = %file.path, filename = %file.filename, error = %e, "Failed to auto-extract file archive");
+        }
         info!(path = %file.path, filename = %file.filename, size = file.content.len(), "Wrote file");
     }
     Ok(())
@@ -588,6 +617,9 @@ async fn download_file_refs(
         tokio::fs::write(path, &bytes)
             .await
             .map_err(|e| format!("write {}: {e}", path.display()))?;
+        if let Err(e) = crate::archive::auto_extract_archive(path).await {
+            warn!(path = %fr.path, filename = %fr.filename, error = %e, "Failed to auto-extract downloaded archive");
+        }
         info!(path = %fr.path, filename = %fr.filename, size = bytes.len(), "Downloaded file");
     }
     Ok(())

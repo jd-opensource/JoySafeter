@@ -4,9 +4,9 @@ from typing import Optional
 from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_domain.models.environment import JoySafeterEnvironment
-from app.joysafeter_domain.models.session import JoySafeterSession
-from app.joysafeter_domain.schemas.environment import (
+from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
+from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+from app.joysafeter_domain.schemas.joysafeter_environment import (
     CreateEnvironmentRequest,
     UpdateEnvironmentRequest,
 )

@@ -17,9 +17,26 @@ RUN pip install --no-cache-dir --upgrade pip -i ${PIP_INDEX_URL} \
     && pip install --no-cache-dir -i ${PIP_INDEX_URL} . fastapi "uvicorn[standard]"
 
 WORKDIR /app
-COPY skillspector_service/ /app/skillspector_service/
+COPY app.py /app/joysafeter_skillspector/app.py
 
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8010
 
-CMD ["uvicorn", "skillspector_service.app:app", "--host", "0.0.0.0", "--port", "8010"]
+# Concurrency tuning (override via the skillspector service environment):
+#   SKILLSPECTOR_WORKERS           — uvicorn worker processes. Scans are
+#                                    CPU-bound (semgrep static analysis), so set
+#                                    this to the container's CPU quota to get
+#                                    real parallelism past the GIL. Default 2.
+#   SKILLSPECTOR_LIMIT_CONCURRENCY — max in-flight requests before uvicorn
+#                                    returns 503. Keep it a touch above
+#                                    workers so a small queue is allowed but
+#                                    overload sheds fast (backend treats a
+#                                    failed scan as fail-open). Default 4.
+ENV SKILLSPECTOR_WORKERS=2 \
+    SKILLSPECTOR_LIMIT_CONCURRENCY=4
+
+# Shell form so the env vars expand at container start.
+CMD uvicorn joysafeter_skillspector.app:app \
+    --host 0.0.0.0 --port 8010 \
+    --workers "${SKILLSPECTOR_WORKERS}" \
+    --limit-concurrency "${SKILLSPECTOR_LIMIT_CONCURRENCY}"

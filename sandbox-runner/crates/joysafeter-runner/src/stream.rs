@@ -70,6 +70,33 @@ pub fn harness_event_to_proto(seq: u64, event: &HarnessEvent) -> proto::RunnerHa
             cache_read_tokens: *cache_read_tokens,
             cache_write_tokens: *cache_write_tokens,
         }),
+        HarnessEvent::TaskNotification {
+            phase,
+            task_id,
+            tool_use_id,
+            description,
+            status,
+            summary,
+            result,
+            output_file,
+            last_tool_name,
+            total_tokens,
+            tool_uses,
+            duration_ms,
+        } => proto::runner_harness_event::Event::TaskNotification(proto::TaskNotificationEvent {
+            phase: phase.clone(),
+            task_id: task_id.clone(),
+            tool_use_id: tool_use_id.clone(),
+            description: description.clone(),
+            status: status.clone(),
+            summary: summary.clone(),
+            result: result.clone(),
+            output_file: output_file.clone(),
+            last_tool_name: last_tool_name.clone(),
+            total_tokens: *total_tokens,
+            tool_uses: *tool_uses,
+            duration_ms: *duration_ms,
+        }),
     };
 
     proto::RunnerHarnessEvent {

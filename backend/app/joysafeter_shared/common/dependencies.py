@@ -15,12 +15,12 @@ from app.joysafeter_shared.common.app_errors import AccessDeniedError, Authentic
 from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
 from app.joysafeter_shared.database import get_db
 from app.joysafeter_shared.security import decode_token
-from app.joysafeter_domain.models.auth import AuthUser as User
+from app.joysafeter_domain.models.joysafeter_auth import AuthUser as User
 from app.joysafeter_domain.models.enums import OrgRole
-from app.joysafeter_domain.models.organization import Member as OrgMember
-from app.joysafeter_domain.services.auth_session_service import AuthSessionService
+from app.joysafeter_domain.models.joysafeter_organization import Member as OrgMember
+from app.joysafeter_domain.services.joysafeter_auth_service import AuthSessionService
 
-oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login/form", auto_error=False)
 
 
 async def get_current_user(
@@ -175,7 +175,7 @@ def require_project_access():
         if not pid:
             raise NotFoundError("project_id required", code="PROJECT_ID_REQUIRED")
 
-        from app.joysafeter_domain.models.project import Project
+        from app.joysafeter_domain.models.joysafeter_project import Project
         result = await db.execute(
             select(Project).where(Project.id == pid)
         )

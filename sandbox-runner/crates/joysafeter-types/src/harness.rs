@@ -86,6 +86,34 @@ pub enum HarnessEvent {
         cache_read_tokens: u64,
         cache_write_tokens: u64,
     },
+    /// Background sub-agent (Task tool with `run_in_background`) lifecycle event.
+    /// Sourced from claude-code's stream-json `type=system` envelope with
+    /// subtype task_started / task_progress / task_notification. Collapsed into
+    /// a single variant keyed by `phase` so the upstream proto stays compact.
+    TaskNotification {
+        /// "started" | "progress" | "completed" | "failed" | "stopped"
+        phase: String,
+        /// claude-code's internal task id (also used as agentId for SendMessage routing)
+        task_id: String,
+        /// Tool-use id of the Agent/Task tool call that launched this sub-agent
+        tool_use_id: Option<String>,
+        /// Short label (e.g. "Audit auth code")
+        description: Option<String>,
+        /// Terminal status — only set on completed/failed/stopped events
+        status: Option<String>,
+        /// Final summary line (e.g. `Agent "Audit auth code" completed`)
+        summary: Option<String>,
+        /// Final agent text output, parsed from `<result>` block
+        result: Option<String>,
+        /// Path inside the sandbox where full agent output was written
+        output_file: Option<String>,
+        /// Most recent tool the sub-agent invoked (progress events only)
+        last_tool_name: Option<String>,
+        /// Cumulative usage at the time of the event
+        total_tokens: Option<u64>,
+        tool_uses: Option<u64>,
+        duration_ms: Option<u64>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

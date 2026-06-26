@@ -24,7 +24,7 @@ class SessionStateSubscriber:
 
         from app.joysafeter_shared.database import AsyncSessionLocal
         from app.joysafeter_orchestrator.services import SessionService
-        from app.joysafeter_domain.models.session import SessionStatus
+        from app.joysafeter_domain.models.joysafeter_session import SessionStatus
 
         status_str = self._event_type_to_status(envelope.event_type)
         if status_str is None:

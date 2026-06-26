@@ -4,7 +4,7 @@ import {
   parseSkillMd,
   processLocalDirectoryFiles,
   type ValidationResult,
-} from '@/services/skillService'
+} from './skill-import-utils'
 import type { SkillFileRecord } from '@/types/managed'
 
 export interface ManagedSkillImportResult {

@@ -1,9 +1,8 @@
 'use client'
 
 import { Settings, LogOut, ChevronDown } from 'lucide-react'
-import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 
-import { SettingsDialog } from '@/components/settings'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
   DropdownMenu,
@@ -44,7 +43,7 @@ function getInitials(name?: string | null, email?: string): string {
 export function UserInfo({ isCollapsed: _isCollapsed = false, showContent = true }: UserInfoProps) {
   const session = useSession()
   const { t } = useTranslation()
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const router = useRouter()
 
   const user = session.data?.user
 
@@ -64,7 +63,9 @@ export function UserInfo({ isCollapsed: _isCollapsed = false, showContent = true
   }
 
   const handleSettingsClick = () => {
-    setSettingsOpen(true)
+    // The old in-app SettingsDialog was removed along with the v1 platform
+    // settings page. Route to the managed settings page instead.
+    router.push('/managed/settings')
   }
 
   return (
@@ -132,7 +133,6 @@ export function UserInfo({ isCollapsed: _isCollapsed = false, showContent = true
           </DropdownMenu>
         </div>
       </div>
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </>
   )
 }

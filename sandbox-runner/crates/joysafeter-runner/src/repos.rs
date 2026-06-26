@@ -179,9 +179,18 @@ mod tests {
 
     #[test]
     fn derives_name_from_url() {
-        assert_eq!(repo_name_from_url("https://github.com/org/repo.git").unwrap(), "repo");
-        assert_eq!(repo_name_from_url("https://github.com/org/repo").unwrap(), "repo");
-        assert_eq!(repo_name_from_url("git@github.com:org/repo.git").unwrap(), "repo");
+        assert_eq!(
+            repo_name_from_url("https://github.com/org/repo.git").unwrap(),
+            "repo"
+        );
+        assert_eq!(
+            repo_name_from_url("https://github.com/org/repo").unwrap(),
+            "repo"
+        );
+        assert_eq!(
+            repo_name_from_url("git@github.com:org/repo.git").unwrap(),
+            "repo"
+        );
     }
 
     #[test]
@@ -194,7 +203,10 @@ mod tests {
     #[test]
     fn resolves_relative_and_absolute_under_workdir() {
         let wd = Path::new("/workspace");
-        assert_eq!(resolve_dest(wd, &repo("u", "repo")).unwrap(), PathBuf::from("/workspace/repo"));
+        assert_eq!(
+            resolve_dest(wd, &repo("u", "repo")).unwrap(),
+            PathBuf::from("/workspace/repo")
+        );
         assert_eq!(
             resolve_dest(wd, &repo("u", "/workspace/sub/repo")).unwrap(),
             PathBuf::from("/workspace/sub/repo")
@@ -217,9 +229,20 @@ mod tests {
 
     #[tokio::test]
     async fn askpass_script_has_no_token_in_body() {
-        let helper = AskpassHelper::create("secret-token-123").await.unwrap().unwrap();
-        let body = tokio::fs::read_to_string(&helper.script_path).await.unwrap();
-        assert!(!body.contains("secret-token-123"), "token must not be in script body");
-        assert!(body.contains(ASKPASS_TOKEN_ENV), "script reads token from env");
+        let helper = AskpassHelper::create("secret-token-123")
+            .await
+            .unwrap()
+            .unwrap();
+        let body = tokio::fs::read_to_string(&helper.script_path)
+            .await
+            .unwrap();
+        assert!(
+            !body.contains("secret-token-123"),
+            "token must not be in script body"
+        );
+        assert!(
+            body.contains(ASKPASS_TOKEN_ENV),
+            "script reads token from env"
+        );
     }
 }

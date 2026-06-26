@@ -72,6 +72,10 @@ docs/_build/
 .pybuilder/
 target/
 
+# Rust / Cargo build + vendored caches (sandbox-runner)
+.cargo-home*/
+**/.cargo-home*/
+
 # Jupyter Notebook
 .ipynb_checkpoints
 
@@ -91,6 +95,11 @@ __pypackages__/
 # Environments
 *.env
 .env
+# .env backups / variants (.env.bak, .env.local, .env.prod, ...). The bare
+# `.env`/`*.env` rules above do NOT match `.env.<suffix>`, so list it
+# explicitly — these files routinely hold real secrets.
+.env.*
+**/.env.*
 .venv
 # env.* 会误伤 backend/alembic/env.py，故只忽略根目录下的 env.*
 /env.*

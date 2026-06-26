@@ -481,9 +481,9 @@ impl JoysafeterClient {
 
 fn normalize_base_url(base_url: &str) -> String {
     let trimmed = base_url.trim_end_matches('/');
-    if trimmed.ends_with("/api/v2") {
+    if trimmed.ends_with("/api/v1") {
         trimmed.to_string()
     } else {
-        format!("{}/api/v2", trimmed)
+        format!("{}/api/v1", trimmed)
     }
 }

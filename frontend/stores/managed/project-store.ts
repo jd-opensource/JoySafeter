@@ -10,6 +10,7 @@ export interface OrgInfo {
 
 export interface ProjectInfo {
   id: string
+  org_id?: string
   name: string
   slug: string
   is_default: boolean

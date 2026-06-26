@@ -24,8 +24,25 @@
 import { env as runtimeEnv } from 'next-runtime-env'
 
 import { getCsrfToken, setCsrfToken } from '@/lib/auth/csrf'
+import { trimConfigStringFields } from '@/lib/utils/url-trim'
 import { useProjectStore } from '@/stores/managed/project-store'
-import type { ErrorSource, UserAction } from '@/types/agent-run'
+
+// ==================== Error taxonomy ====================
+// ApiError field types. Colocated here (api-client is the only consumer) after
+// the legacy types/agent-run.ts module was retired in the v1 frontend cleanup.
+export type ErrorSource =
+  | 'api'
+  | 'engine'
+  | 'runtime'
+  | 'node'
+  | 'tool'
+  | 'websocket'
+  | 'auth'
+  | 'validation'
+  | 'permission'
+  | 'internal'
+
+export type UserAction = 'retry' | 'configure_model' | 'relogin' | 'fix_input' | 'contact_support'
 
 // ==================== Configuration ====================
 const getBaseUrl = (): string => {
@@ -39,8 +56,15 @@ export const API_BASE_URL = `${getBaseUrl()}/api`
 export const API_VERSION = 'v1'
 /** Complete API base path */
 export const API_BASE = `${API_BASE_URL}/${API_VERSION}`
-/** Managed JoySafeter API base path */
-export const MANAGED_API_BASE = `${API_BASE_URL}/v2`
+/**
+ * Managed-context base path. Historically distinct from API_BASE — the
+ * codebase used to expose two parallel surfaces, v1 (legacy) and v2
+ * (managed). v1 is fully retired now and the surviving surface has been
+ * remounted under /api/v1, so both constants point at the same prefix.
+ * Kept as a separate export only so existing `MANAGED_API_BASE` import
+ * sites don't need to change.
+ */
+export const MANAGED_API_BASE = `${API_BASE_URL}/${API_VERSION}`
 
 /** Common endpoint constants (simplify path concatenation) */
 export const API_ENDPOINTS = {
@@ -334,7 +358,7 @@ export async function refreshAccessTokenOrRelogin(timeout = 10000): Promise<void
         })
       }
 
-      const response = await fetch(`${API_BASE}/auth/refresh`, {
+      const response = await fetch(`${MANAGED_API_BASE}/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -407,8 +431,6 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
     method = 'GET',
     ...restOptions
   } = options
-  void skipManagedContext
-
   const headers: Record<string, string> = {
     ...(json ? { 'Content-Type': 'application/json' } : {}),
     ...(customHeaders as Record<string, string>),
@@ -419,9 +441,11 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
     if (csrfToken) {
       headers['X-CSRF-Token'] = csrfToken
     }
-    const projectId = useProjectStore.getState().currentProjectId
-    if (projectId && !headers['X-Project-Id']) {
-      headers['X-Project-Id'] = projectId
+    if (!skipManagedContext) {
+      const projectId = useProjectStore.getState().currentProjectId
+      if (projectId && !headers['X-Project-Id']) {
+        headers['X-Project-Id'] = projectId
+      }
     }
   }
 
@@ -429,6 +453,7 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), timeout)
   let didRefresh = false
+  const requestBody = json ? trimConfigStringFields(body) : body
 
   const makeRequest = async (): Promise<Response> => {
     try {
@@ -436,7 +461,7 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
         ...restOptions,
         method,
         headers,
-        body: body ? (json ? JSON.stringify(body) : (body as BodyInit)) : undefined,
+        body: body ? (json ? JSON.stringify(requestBody) : (body as BodyInit)) : undefined,
         signal: controller.signal,
         credentials: 'include',
       })
@@ -623,10 +648,10 @@ function getManagedHeaders(
   if (skipManagedContext) {
     return headers
   }
-  if (currentOrgId) {
+  if (currentOrgId && !headers['X-Org-Id']) {
     headers['X-Org-Id'] = currentOrgId
   }
-  if (currentProjectId) {
+  if (currentProjectId && !headers['X-Project-Id']) {
     headers['X-Project-Id'] = currentProjectId
   }
   return headers

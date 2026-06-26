@@ -80,8 +80,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("WORKER_HTTP_HOST", "JOYSAFETER_WORKER_HTTP_HOST"),
         description="Worker HTTP bind host for health/internal endpoints",
     )
-    # API settings
-    api_v1_prefix: str = "/api/v1"
+    # API settings — all live endpoints are served under /api/v1.
     reload: bool = Field(
         default=True,
         validation_alias=AliasChoices("RELOAD", "AUTO_RELOAD"),
@@ -456,6 +455,20 @@ class Settings(BaseSettings):
         ),
         description="Scanner recommendations that can reject skill writes when issue details are unavailable.",
     )
+    # P2: scans larger than this run as a FastAPI BackgroundTask instead
+    # of blocking the request. The unit is total scan-input bytes
+    # (SKILL.md frontmatter + concatenated file contents); the call site
+    # passes ``mode='auto'`` to ``scan_for_write`` and the service
+    # decides per-skill. Set to 0 to force every scan async; set very
+    # high to keep the pre-P2 sync-only behavior.
+    skill_security_async_threshold_bytes: int = Field(
+        default=100 * 1024,
+        validation_alias=AliasChoices(
+            "SKILL_SECURITY_ASYNC_THRESHOLD_BYTES",
+            "SKILLSPECTOR_ASYNC_THRESHOLD_BYTES",
+        ),
+        description="Total scan-input size above which scan_for_write defers to a background task.",
+    )
 
     @field_validator("skill_security_block_recommendations", mode="before")
     @classmethod
@@ -476,6 +489,50 @@ class Settings(BaseSettings):
         if isinstance(v, list):
             return [str(item).strip().upper() for item in v if str(item).strip()]
         return []
+
+    # Skill ZIP import limits — protect against zip bombs / huge uploads while
+    # still allowing legitimate skills with many reference files. All four can
+    # be tuned independently via env vars.
+    skill_import_max_zip_bytes: int = Field(
+        default=20 * 1024 * 1024,
+        validation_alias=AliasChoices(
+            "SKILL_IMPORT_MAX_ZIP_BYTES",
+            "JOYSAFETER_SKILL_IMPORT_MAX_ZIP_BYTES",
+        ),
+        description="Max raw ZIP archive size accepted for skill import (bytes).",
+    )
+    skill_import_max_files: int = Field(
+        default=200,
+        validation_alias=AliasChoices(
+            "SKILL_IMPORT_MAX_FILES",
+            "JOYSAFETER_SKILL_IMPORT_MAX_FILES",
+        ),
+        description="Max number of files inside a skill-import ZIP.",
+    )
+    skill_import_max_file_bytes: int = Field(
+        default=2 * 1024 * 1024,
+        validation_alias=AliasChoices(
+            "SKILL_IMPORT_MAX_FILE_BYTES",
+            "JOYSAFETER_SKILL_IMPORT_MAX_FILE_BYTES",
+        ),
+        description="Max size of any single file inside a skill-import ZIP (bytes).",
+    )
+    skill_import_max_total_file_bytes: int = Field(
+        default=10 * 1024 * 1024,
+        validation_alias=AliasChoices(
+            "SKILL_IMPORT_MAX_TOTAL_FILE_BYTES",
+            "JOYSAFETER_SKILL_IMPORT_MAX_TOTAL_FILE_BYTES",
+        ),
+        description="Max combined uncompressed size of all files in a skill-import ZIP (bytes).",
+    )
+    max_upload_file_bytes: int = Field(
+        default=50 * 1024 * 1024,
+        validation_alias=AliasChoices(
+            "JOYSAFETER_MAX_UPLOAD_FILE_BYTES",
+            "MAX_UPLOAD_FILE_BYTES",
+        ),
+        description="Max size accepted by the user file upload APIs (bytes).",
+    )
 
     # OAuth Configuration
     oauth_config_path: Optional[str] = Field(
@@ -498,7 +555,7 @@ class JoySafeterConfig(BaseSettings):
 
     enabled: bool = True
 
-    api_prefix: str = "/api/v2"
+    api_prefix: str = "/api/v1"
 
     redis_queue_prefix: str = "joysafeter"
 
@@ -532,6 +589,14 @@ class JoySafeterConfig(BaseSettings):
     sandbox_image: str = "joysafeter-claudecode:latest"
     sandbox_idle_timeout: int = 300
     sandbox_stopped_ttl: int = 600
+    # Hard wall-clock cap on any non-terminal sandbox lifetime: reaps zombies
+    # whose runner crashed before sending RunnerIdle and whose heartbeat
+    # never timed out (e.g. provider froze). 0 disables. Default 6h.
+    sandbox_hard_timeout: int = 6 * 3600
+    # Grace period for a sandbox whose bridge has been disconnected — once the
+    # bridge is gone we can no longer learn anything new about the runner, so
+    # we wait this long before declaring it dead. Default 90s.
+    sandbox_bridge_disconnect_grace: int = 90
     sandbox_pool_enabled: bool = False
     sandbox_pool_min_size: int = 2
     sandbox_pool_max_age: int = 1800
@@ -541,6 +606,37 @@ class JoySafeterConfig(BaseSettings):
     sandbox_cpu: Optional[float] = None
     sandbox_memory_mb: Optional[int] = None
     sandbox_disk_mb: Optional[int] = None
+
+    # -- Sandbox container hardening (P0.1) ------------------------------------
+    # These default to the values from Anthropic's "Securely deploying AI agents"
+    # guide, applied via the docker provider when launching every sandbox
+    # container. They tighten the privilege boundary an attacker would need to
+    # cross if prompt injection lands code execution inside the sandbox.
+    #
+    # All four can be disabled per-deployment via env vars (e.g. to debug a
+    # stuck capability), but the secure defaults should stay on in any non-dev
+    # deployment. Turning them off should be an explicit, recorded decision.
+    #
+    # Linux capabilities: drop the full default-14 set Docker grants. Coding
+    # agents (cc/codex/native) run as non-root inside the container and never
+    # call syscalls that require any cap, so this has no operational impact —
+    # but it removes the privilege escalation surface that would open up if an
+    # attacker found a setuid binary or pivoted to root some other way.
+    sandbox_drop_all_caps: bool = True
+    # Forbid setuid/file-capability based privilege escalation entirely. With
+    # this on, even a setuid-root binary inside the container can't escalate
+    # — `sudo`, `mount`, `ping`, etc. simply fail. Coding agents don't need
+    # any of these. Safe default.
+    sandbox_no_new_privileges: bool = True
+    # Cap on the number of processes the sandbox can spawn. Prevents fork
+    # bombs and runaway test loops. 256 is generous for a coding agent
+    # (compilation can fan out, but rarely past a few dozen).
+    sandbox_pids_limit: int = 256
+    # Force-run the sandbox process as this uid:gid even if the image's
+    # USER directive was overridden / removed. Defense in depth — our base
+    # images already USER agent (uid 1000), but this guarantees it.
+    # Set to empty string to skip (use the image default).
+    sandbox_run_as_user: str = "1000:1000"
 
     # Sandbox - Daytona
     daytona_api_url: str = ""

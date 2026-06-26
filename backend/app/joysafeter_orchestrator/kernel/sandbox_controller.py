@@ -130,7 +130,7 @@ class SandboxController:
             try:
                 await self._expire_idle_sandboxes()
             except Exception as e:
-                logger.warning("Phase 1 idle expiry failed: %s", e)
+                logger.warning("Phase 1 reap (idle/disconnect/hard-timeout) failed: %s", e)
             try:
                 await self._force_stop_stuck()
             except Exception as e:
@@ -236,32 +236,75 @@ class SandboxController:
 
     async def _expire_idle_sandboxes(self) -> None:
         from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_domain.models.sandbox import JoySafeterSandbox
+        from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
-        from sqlalchemy import select, and_, text
+        from sqlalchemy import select, and_, or_, text
 
         async with AsyncSessionLocal() as db:
             from app.joysafeter_orchestrator.lifespan import get_runtime_config
             rc = get_runtime_config()
             idle_timeout = rc.idle_timeout_sec if rc else joysafeter_config.sandbox_idle_timeout
-            result = await db.execute(
-                select(JoySafeterSandbox).where(
+            disconnect_grace = joysafeter_config.sandbox_bridge_disconnect_grace
+            hard_timeout = joysafeter_config.sandbox_hard_timeout
+
+            # Three independent reap criteria:
+            #
+            #   1) idle_since: the precise "all done" signal the runner sent us
+            #      (RunnerIdle, which on cc & native covers any background
+            #      sub-agents, and on codex with multi-agent will once the
+            #      runtime adapter aggregates child threads).
+            #   2) disconnected_at: bridge has been gone past the grace window
+            #      — the runner crashed and we'll never see RunnerIdle.
+            #   3) hard_timeout: absolute wall-clock cap on a non-terminal
+            #      sandbox lifetime (zombie defence in depth).
+            #
+            # Status filter excludes sandboxes already on their way out
+            # (stopping/stopped/destroyed) and pooled/creating/provisioning,
+            # which have their own poll loops.
+            conditions = [
+                and_(
+                    JoySafeterSandbox.status == "idle",
+                    JoySafeterSandbox.idle_since.isnot(None),
+                    text("idle_since < NOW() - make_interval(secs => :idle_timeout)"),
+                ),
+                and_(
+                    JoySafeterSandbox.status.in_(
+                        ["idle", "running", "creating", "provisioning"]
+                    ),
+                    JoySafeterSandbox.disconnected_at.isnot(None),
+                    text(
+                        "disconnected_at < NOW() - make_interval(secs => :disconnect_grace)"
+                    ),
+                ),
+            ]
+            if hard_timeout > 0:
+                conditions.append(
                     and_(
-                        JoySafeterSandbox.status == "idle",
+                        JoySafeterSandbox.status.in_(
+                            ["idle", "running", "creating", "provisioning"]
+                        ),
                         text(
-                            "last_used_at < NOW() - make_interval(secs => :timeout)"
+                            "created_at < NOW() - make_interval(secs => :hard_timeout)"
                         ),
                     )
-                ).params(timeout=idle_timeout)
+                )
+            result = await db.execute(
+                select(JoySafeterSandbox)
+                .where(or_(*conditions))
+                .params(
+                    idle_timeout=idle_timeout,
+                    disconnect_grace=disconnect_grace,
+                    hard_timeout=hard_timeout,
+                )
             )
             sandboxes = [
-                (sb.id, sb.external_id) for sb in result.scalars().all()
+                (sb.id, sb.external_id, sb.status) for sb in result.scalars().all()
             ]
 
         if not sandboxes:
             return
 
-        async def _stop_one(sb_id: uuid.UUID, external_id: str) -> None:
+        async def _stop_one(sb_id: uuid.UUID, external_id: str, current_status: str) -> None:
             async with self._stop_semaphore:
                 # HA: skip sandboxes owned by another instance
                 if self._coordinator:
@@ -274,11 +317,28 @@ class SandboxController:
                 from app.joysafeter_shared.database import AsyncSessionLocal
                 from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
 
+                # For the idle-timeout path we go idle→stopping→stopped so the
+                # provider gets a chance to flush the container cleanly. For
+                # disconnect/hard-timeout reaps the sandbox may be in any
+                # non-terminal status — the state machine forbids most of
+                # those transitions to "stopping", so we skip the grace
+                # period and jump straight to "stopped" (provider.stop is
+                # idempotent and we don't trust the runner to still be there).
+                graceful = current_status == "idle"
                 async with AsyncSessionLocal() as db:
                     svc = SandboxService(db)
-                    cas_ok = await svc.update_status_cas(sb_id, "idle", "stopping")
-                    if not cas_ok:
-                        return
+                    if graceful:
+                        cas_ok = await svc.update_status_cas(sb_id, "idle", "stopping")
+                        if not cas_ok:
+                            return
+                    else:
+                        # Status may have changed since we read the snapshot;
+                        # skip if it's already on its way out.
+                        rec = await svc.get_sandbox(sb_id)
+                        if rec is None or rec.status in (
+                            "stopping", "stopped", "destroyed", "error", "pooled"
+                        ):
+                            return
 
                 # Drain and requeue any tasks assigned to this sandbox before
                 # stopping it, so they are not lost during the grace period.
@@ -295,7 +355,7 @@ class SandboxController:
                     from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
                     shutdown_msg = joysafeter_pb2.OrchestratorMessage(
                         shutdown=joysafeter_pb2.Shutdown(
-                            reason="idle timeout",
+                            reason="idle timeout" if graceful else "reaped",
                         )
                     )
                     try:
@@ -304,7 +364,11 @@ class SandboxController:
                         pass
                     await self._bridge_registry.remove(sb_id)
 
-                await asyncio.sleep(3)
+                # Only the graceful idle-timeout path waits for the runner to
+                # flush — for disconnect/hard-timeout reaps we already gave up
+                # on the runner, no point sleeping.
+                if graceful:
+                    await asyncio.sleep(3)
 
                 try:
                     await self._provider.stop(external_id)
@@ -316,26 +380,33 @@ class SandboxController:
                             await svc.update_status(sb_id, "stopped")
                     else:
                         logger.warning(
-                            "provider.stop(%s) failed: %s, reverting to idle",
+                            "provider.stop(%s) failed: %s",
                             external_id,
                             e,
                         )
-                        async with AsyncSessionLocal() as db:
-                            svc = SandboxService(db)
-                            await svc.update_status_cas(
-                                sb_id, "stopping", "idle"
-                            )
+                        # Only revert to idle when we were on the graceful
+                        # path — for non-graceful reaps there's nothing
+                        # sensible to revert to.
+                        if graceful:
+                            async with AsyncSessionLocal() as db:
+                                svc = SandboxService(db)
+                                await svc.update_status_cas(
+                                    sb_id, "stopping", "idle"
+                                )
                     return
 
                 async with AsyncSessionLocal() as db:
                     svc = SandboxService(db)
                     await svc.update_status(sb_id, "stopped")
 
-                logger.info("Sandbox %s stopped after idle expiry", sb_id)
+                logger.info(
+                    "Sandbox %s stopped (was %s, graceful=%s)",
+                    sb_id, current_status, graceful,
+                )
 
         tasks = [
-            asyncio.create_task(_stop_one(sb_id, ext_id))
-            for sb_id, ext_id in sandboxes
+            asyncio.create_task(_stop_one(sb_id, ext_id, sb_status))
+            for sb_id, ext_id, sb_status in sandboxes
         ]
         await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -343,7 +414,7 @@ class SandboxController:
 
     async def _force_stop_stuck(self) -> None:
         from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_domain.models.sandbox import JoySafeterSandbox
+        from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
         from sqlalchemy import select, and_, text
 
@@ -403,7 +474,7 @@ class SandboxController:
 
     async def _destroy_stopped_sandboxes(self) -> None:
         from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_domain.models.sandbox import JoySafeterSandbox
+        from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
         from sqlalchemy import select, and_, text
 
@@ -465,8 +536,8 @@ class SandboxController:
 
     async def _check_provisioning_timeout(self) -> None:
         from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_domain.models.task import JoySafeterTask, JoySafeterTaskStatus
-        from app.joysafeter_domain.models.sandbox import JoySafeterSandbox
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
+        from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
         from app.joysafeter_orchestrator.services import TaskService
         from sqlalchemy import and_, select
@@ -626,7 +697,7 @@ class SandboxController:
 
     async def _manage_pool_inner(self) -> None:
         from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_domain.models.sandbox import JoySafeterSandbox
+        from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
         from sqlalchemy import select, func, and_, text
 

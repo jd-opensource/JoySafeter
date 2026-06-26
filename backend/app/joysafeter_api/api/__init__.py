@@ -1,14 +1,11 @@
 """
-API route aggregation
+API route aggregation.
 
-- /api/v1/... versioned endpoints (including auth, organizations, projects, environment, etc.)
+All live endpoints are served under ``/api/v1`` and live in
+``./v1/``. The codebase previously split a legacy v1 surface and a
+managed v2 surface; the v1 cleanup waves retired the legacy surface
+and the managed surface was then remounted as /api/v1 (and its
+package directory renamed from ``v2`` to ``v1``). The FastAPI app
+wires up the surviving router via
+``app.joysafeter_api.api.v1.router.joysafeter_router``.
 """
-
-from fastapi import APIRouter
-
-from .v1 import api_router as api_v1_router
-
-api_router = APIRouter()
-api_router.include_router(api_v1_router)
-
-__all__ = ["api_router"]

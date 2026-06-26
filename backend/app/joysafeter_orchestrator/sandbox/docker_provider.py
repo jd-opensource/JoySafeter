@@ -123,6 +123,24 @@ class DockerSandboxProvider(SandboxProvider):
         if memory_mb is not None:
             host_config["Memory"] = memory_mb * 1024 * 1024
 
+        # ---- P0.1 hardening (mirror of Rust orchestrator docker.rs) ---------
+        # Drop the default-14 Linux capabilities, forbid privilege escalation,
+        # cap PID count, and force the unprivileged uid:gid. Coding agents
+        # don't need any of these capabilities — they run as the `agent`
+        # user inside the container and only issue user-mode syscalls — so
+        # these defaults are pure security upside with zero operational cost.
+        # Disable individually via the matching JOYSAFETER_SANDBOX_* env vars
+        # only when debugging a stuck capability.
+        if joysafeter_config.sandbox_drop_all_caps:
+            host_config["CapDrop"] = ["ALL"]
+        sec_opts: list[str] = list(host_config.get("SecurityOpt") or [])
+        if joysafeter_config.sandbox_no_new_privileges:
+            sec_opts.append("no-new-privileges:true")
+        if sec_opts:
+            host_config["SecurityOpt"] = sec_opts
+        if joysafeter_config.sandbox_pids_limit and joysafeter_config.sandbox_pids_limit > 0:
+            host_config["PidsLimit"] = int(joysafeter_config.sandbox_pids_limit)
+
         config: dict[str, Any] = {
             "Image": image,
             "Env": [f"{k}={v}" for k, v in env.items()],
@@ -131,6 +149,9 @@ class DockerSandboxProvider(SandboxProvider):
         }
         if work_dir:
             config["WorkingDir"] = "/workspace"
+        run_as_user = (joysafeter_config.sandbox_run_as_user or "").strip()
+        if run_as_user:
+            config["User"] = run_as_user
 
         try:
             container = await self._docker.containers.create_or_replace(
@@ -316,6 +337,9 @@ class DockerSandboxProvider(SandboxProvider):
         from app.joysafeter_shared.database import AsyncSessionLocal
         from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
         from app.joysafeter_domain.models.joysafeter_file import JoySafeterFile
+        from app.joysafeter_orchestrator.sandbox.archive_utils import (
+            auto_extract_archive_into_container,
+        )
         from app.joysafeter_shared.storage import get_storage
         from sqlalchemy import select
 
@@ -347,6 +371,19 @@ class DockerSandboxProvider(SandboxProvider):
                 parent_dir = os.path.dirname(normalized)
                 await self._exec_docker("exec", external_id, "mkdir", "-p", parent_dir)
                 await self._exec_docker("cp", tmp_path, f"{external_id}:{normalized}")
+                try:
+                    await auto_extract_archive_into_container(
+                        self._exec_docker,
+                        external_id,
+                        normalized,
+                        data,
+                    )
+                except Exception as extract_error:
+                    logger.warning(
+                        "Failed to auto-extract injected archive %s: %s",
+                        mount_path,
+                        extract_error,
+                    )
             except Exception as e:
                 logger.warning("Failed to inject file %s: %s", mount_path, e)
             finally:

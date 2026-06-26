@@ -131,6 +131,8 @@ function getEventColor(type: string): string {
   if (type === "agent.message") return "#2563eb"
   if (type === "agent.thinking" || type === "thinking") return "#ec4899"
   if (type === "agent.error") return "#dc2626"
+  // Background sub-agent — indigo
+  if (type === "agent.bg_task_started" || type === "agent.bg_task_progress" || type === "agent.bg_task_finished") return "#6366f1"
   if (type.startsWith("agent.")) return "#374151"
 
   // Session status

@@ -102,7 +102,7 @@ class TaskScheduler:
                     task.agent_id, project_id=getattr(task, "project_id", None)
                 )
                 if not agent:
-                    from app.joysafeter_domain.models.task import JoySafeterTaskStatus
+                    from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
                     await task_svc.update_task_error(
                         task_id, "Agent not found", JoySafeterTaskStatus.FAILED
                     )
@@ -110,7 +110,7 @@ class TaskScheduler:
 
                 if getattr(agent, "archived_at", None) is not None:
                     logger.warning("Agent {} is archived, cancelling task {}", task.agent_id, task_id)
-                    from app.joysafeter_domain.models.task import JoySafeterTaskStatus
+                    from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
                     await task_svc.update_task_status(task_id, JoySafeterTaskStatus.CANCELLED)
                     return
 
@@ -232,7 +232,7 @@ class TaskScheduler:
 
             async with AsyncSessionLocal() as db:
                 task_svc = TaskService(db)
-                from app.joysafeter_domain.models.task import JoySafeterTaskStatus
+                from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
 
                 current_task = await task_svc.get_task(task_id)
                 current_status = (

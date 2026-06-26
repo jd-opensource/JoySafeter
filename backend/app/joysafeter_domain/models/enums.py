@@ -8,18 +8,6 @@ varchar — no migration needed.  They provide type safety and IDE autocomplete.
 import enum
 
 
-class InstanceStatus(str, enum.Enum):
-    """Lifecycle status for managed container instances."""
-
-    PENDING = "pending"
-    CREATING = "creating"
-    STARTING = "starting"
-    RUNNING = "running"
-    STOPPED = "stopped"
-    FAILED = "failed"
-    TERMINATING = "terminating"
-
-
 class OrgRole(str, enum.Enum):
     """Organization membership roles."""
 

@@ -728,7 +728,7 @@ class SandboxResolver:
 
     async def _find_stopped_for_session(self, svc, session_id: uuid.UUID):
         from sqlalchemy import and_, select
-        from app.joysafeter_domain.models.sandbox import JoySafeterSandbox
+        from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
 
         result = await svc.db.execute(
             select(JoySafeterSandbox).where(

@@ -99,7 +99,7 @@ function parseEventTime(value: string): number {
   return NaN
 }
 
-function getPreview(event: SessionEvent, mode: "transcript" | "debug", t: (key: string, options?: Record<string, unknown>) => string): string {
+function getPreview(event: SessionEvent, mode: "transcript" | "debug", t: (key: string, options?: Record<string, unknown>) => string): ReactNode {
   const eventType = event.type || event.event_type || ""
   const withCollapsedCount = (label: string) => {
     const collapsedSuffix = event._collapsedCount && event._collapsedCount > 1 ? ` ×${event._collapsedCount}` : ""
@@ -129,17 +129,53 @@ function getPreview(event: SessionEvent, mode: "transcript" | "debug", t: (key: 
     if (eventType === "agent.thinking") return t("managed.sessions.events.thinking")
   }
 
-  // Tool use: preview shows tool name(s)
+  // Tool use: preview shows `ToolName(args)` like claude-code's TUI.
+  // Bash → Bash(grep -rn "..."), Read → Read(/path/to/file),
+  // Grep → Grep(pattern: "..."), etc. Long values get truncated.
   const isToolUse = eventType === "agent.tool_use" || eventType === "agent.mcp_tool_use" || eventType === "agent.custom_tool_use" || eventType === "tool_use"
   if (isToolUse) {
-    return event.tool || event.tool_name || event.name || eventType
+    return formatToolUsePreview(event)
+  }
+
+  // Background sub-agent lifecycle (Task tool with run_in_background=true)
+  if (eventType === "agent.bg_task_started"
+      || eventType === "agent.bg_task_progress"
+      || eventType === "agent.bg_task_finished") {
+    const ev = event as unknown as {
+      description?: string
+      task_id?: string
+      status?: string
+      summary?: string
+      last_tool_name?: string
+      total_tokens?: number
+      tool_uses?: number
+      duration_ms?: number
+    }
+    const desc = ev.description || ev.task_id || ""
+    if (eventType === "agent.bg_task_started") {
+      return truncateRowText(withCollapsedCount(
+        t("managed.sessions.events.bgTaskStarted", { description: desc }),
+      ))
+    }
+    if (eventType === "agent.bg_task_progress") {
+      const lastTool = ev.last_tool_name ? ` · ${ev.last_tool_name}` : ""
+      return truncateRowText(withCollapsedCount(
+        t("managed.sessions.events.bgTaskProgress", { description: desc }) + lastTool,
+      ))
+    }
+    // finished
+    const status = ev.status || "completed"
+    return truncateRowText(withCollapsedCount(
+      ev.summary
+        || t("managed.sessions.events.bgTaskFinished", { description: desc, status }),
+    ))
   }
 
   if (event.content && Array.isArray(event.content) && event.content[0]?.text) {
-    return event.content[0].text
+    return truncateRowText(event.content[0].text)
   }
   if (typeof event.content === "string" && event.content) {
-    return event.content
+    return truncateRowText(event.content)
   }
 
   // Friendly preview for the stdio-protocol approval ack — never expose the
@@ -240,4 +276,152 @@ function getMetrics(event: SessionEvent, t: (key: string) => string): ReactNode 
 function formatTokens(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
   return String(n)
+}
+
+/**
+ * Format a tool_use event preview as `**ToolName**(<dim>args</dim>)`,
+ * mirroring claude-code's TUI (AssistantToolUseMessage.tsx):
+ *   - tool name is bold + emphasised so it can be scanned vertically
+ *   - args wrapped in parens, dimmed, single-line truncated
+ *
+ * Returns a JSX element so the visual hierarchy doesn't collapse into a
+ * single text run (which is what made it look noisy before).
+ */
+// Single-line truncation cap shared across all event-row previews
+// (user/agent messages, tool args, bg-task progress). Matches claude-code's
+// MAX_COMMAND_DISPLAY_CHARS in src/tools/BashTool/UI.tsx so the visual
+// density is consistent with what users see in the cc TUI.
+const ROW_DISPLAY_MAX_CHARS = 160
+
+/**
+ * Collapse newlines/whitespace and truncate to ROW_DISPLAY_MAX_CHARS.
+ * Used to normalize free-form text fields (user/agent messages, summaries)
+ * so every row in the timeline keeps a consistent height and density.
+ */
+function truncateRowText(text: string): string {
+  const collapsed = text.replace(/\s+/g, " ").trim()
+  return collapsed.length > ROW_DISPLAY_MAX_CHARS
+    ? collapsed.slice(0, ROW_DISPLAY_MAX_CHARS) + "…"
+    : collapsed
+}
+
+/**
+ * Strip the sandbox cwd prefix (`/workspace/`) from a path so the timeline
+ * shows relative paths the way claude-code's TUI does via `getDisplayPath`.
+ * Bare `/workspace` becomes `.` for clarity.
+ */
+function stripSandboxCwd(p: string): string {
+  if (p === "/workspace" || p === "/workspace/") return "."
+  if (p.startsWith("/workspace/")) return p.slice("/workspace/".length)
+  return p
+}
+
+/**
+ * Strip the sandbox cwd from any `/workspace/...` substring inside a Bash
+ * command so long greps/finds shrink nicely. We're conservative — only swap
+ * when the prefix is preceded by a token boundary so we don't mangle URLs
+ * or quoted strings that happen to contain "/workspace/".
+ */
+function stripSandboxCwdInCommand(cmd: string): string {
+  return cmd.replace(/(^|[\s"'`(=:])\/workspace\//g, "$1")
+}
+
+function formatToolUsePreview(event: SessionEvent): ReactNode {
+  const toolName = String(event.tool || event.tool_name || event.name || "")
+  if (!toolName) return event.type || event.event_type || ""
+  const arg = extractToolArgString(event, toolName)
+  if (!arg) {
+    return <span className="font-medium text-foreground">{toolName}</span>
+  }
+  return (
+    <span className="inline-flex items-baseline gap-0.5 align-baseline">
+      <span className="font-medium text-foreground">{toolName}</span>
+      <span className="text-muted-foreground font-mono text-xs">({arg})</span>
+    </span>
+  )
+}
+
+function extractToolArgString(event: SessionEvent, toolName: string): string {
+  // Normalize: event.input may be an object or a (legacy) JSON string.
+  let raw = event.input as unknown
+  if (typeof raw === "string") {
+    try { raw = JSON.parse(raw) } catch { /* keep as string */ }
+  }
+  const input = (raw && typeof raw === "object") ? (raw as Record<string, unknown>) : null
+
+  let arg: string | null = null
+  if (input) {
+    switch (toolName) {
+      case "Bash":
+      case "BashOutput":
+      case "KillBash":
+        if (typeof input.command === "string") {
+          arg = stripSandboxCwdInCommand(input.command)
+        } else if (typeof input.bash_id === "string") {
+          arg = input.bash_id
+        }
+        break
+      case "Read":
+      case "Write":
+      case "FileRead":
+      case "FileWrite":
+        if (typeof input.file_path === "string") arg = stripSandboxCwd(input.file_path)
+        break
+      case "Edit":
+      case "FileEdit":
+      case "NotebookEdit":
+        if (typeof input.file_path === "string" || typeof input.notebook_path === "string") {
+          arg = stripSandboxCwd(String(input.file_path || input.notebook_path))
+        }
+        break
+      case "Grep": {
+        const parts: string[] = []
+        if (input.pattern) parts.push(`"${String(input.pattern)}"`)
+        if (input.path) parts.push(stripSandboxCwd(String(input.path)))
+        if (parts.length) arg = parts.join(", ")
+        break
+      }
+      case "Glob": {
+        if (input.pattern) arg = String(input.pattern)
+        if (input.path) {
+          const p = stripSandboxCwd(String(input.path))
+          arg = arg ? `${arg}, ${p}` : p
+        }
+        break
+      }
+      case "WebFetch":
+        if (typeof input.url === "string") arg = input.url
+        break
+      case "WebSearch":
+        if (typeof input.query === "string") arg = `"${input.query}"`
+        break
+      case "Task":
+      case "Agent":
+        if (typeof input.description === "string") arg = input.description
+        else if (typeof input.subagent_type === "string") arg = input.subagent_type
+        break
+      case "TodoWrite":
+        if (Array.isArray(input.todos)) arg = `${input.todos.length} items`
+        break
+      case "LSP":
+        if (typeof input.operation === "string") arg = String(input.operation)
+        break
+      default:
+        for (const key of ["query", "name", "path", "file_path", "command", "url", "input"]) {
+          const v = input[key]
+          if (typeof v === "string") {
+            arg = (key === "path" || key === "file_path") ? stripSandboxCwd(v) : v
+            break
+          }
+        }
+        break
+    }
+  }
+
+  if (arg == null || arg.length === 0) return ""
+  // Collapse internal whitespace/newlines so the row stays single-line.
+  const collapsed = arg.replace(/\s+/g, " ").trim()
+  return collapsed.length > ROW_DISPLAY_MAX_CHARS
+    ? collapsed.slice(0, ROW_DISPLAY_MAX_CHARS) + "…"
+    : collapsed
 }

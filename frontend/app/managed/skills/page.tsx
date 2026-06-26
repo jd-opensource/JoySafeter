@@ -59,6 +59,13 @@ import {
   ConfirmDialog,
   ResourceErrorState,
 } from '@/components/managed/shared'
+import {
+  SkillLifecycleBadge,
+  SkillSecurityBadge,
+  SkillStatusBadges,
+  SkillVisibilityBadge,
+} from '@/components/managed/skills/skill-status-badges'
+import { SkillLifecycleActions } from '@/components/managed/skills/skill-lifecycle-actions'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import {
   getManagedSkillImportApiErrorMessage,
@@ -133,6 +140,12 @@ function SkillCodeEditor({
 }
 
 const MAX_FOLDER_DEPTH = 2
+
+// Skill writes (create/update/file edits/version publish/rescan) run the
+// security scan synchronously on the backend. With LLM semantic analysis
+// enabled a scan can take well over a minute, so these calls override the
+// default 30s client timeout. Backend scanner timeout is 180s.
+const SKILL_SCAN_TIMEOUT_MS = 200000
 
 const FILE_TYPE_EXT: Record<string, string> = {
   text: '.txt',
@@ -584,6 +597,7 @@ interface SkillFormState {
   license: string
   tags: string
   is_public: boolean
+  visibility?: string
   source_type: string
   source_url: string
 }
@@ -670,8 +684,8 @@ function SkillEditor({
             </div>
           ) : (
             <div className="mx-auto max-w-3xl space-y-5">
-              {/* Name + License row */}
-              <div className="grid grid-cols-[1fr,200px] gap-3">
+              {/* Name + License + Visibility row */}
+              <div className="grid grid-cols-[1fr,160px,160px] gap-3">
                 <div>
                   <div className="mb-1.5 flex items-center justify-between">
                     <label className="text-xs font-medium text-muted-foreground">
@@ -705,6 +719,37 @@ function SkillEditor({
                     placeholder="MIT"
                     className="h-8 text-sm"
                   />
+                </div>
+                {/* Visibility selector (P2.8) — drives the four-tier
+                    sharing surface; legacy ``is_public`` derives from
+                    this on submit. */}
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                    {t('managed.skills.visibility.label')}
+                  </label>
+                  <Select
+                    value={form.visibility || 'private'}
+                    onValueChange={(v) =>
+                      setForm({
+                        ...form,
+                        visibility: v,
+                        // Keep legacy is_public in sync so any cached
+                        // read still landing on the old column matches
+                        // the new column.
+                        is_public: v === 'public',
+                      })
+                    }
+                  >
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="private" title={t('managed.skills.visibility.privateHint')}>{t('managed.skills.visibility.private')}</SelectItem>
+                      <SelectItem value="project" title={t('managed.skills.visibility.projectHint')}>{t('managed.skills.visibility.project')}</SelectItem>
+                      <SelectItem value="organization" title={t('managed.skills.visibility.organizationHint')}>{t('managed.skills.visibility.organization')}</SelectItem>
+                      <SelectItem value="public" title={t('managed.skills.visibility.publicHint')}>{t('managed.skills.visibility.public')}</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 
@@ -1101,6 +1146,7 @@ export default function SkillManagerPage() {
     license: '',
     tags: '',
     is_public: false,
+    visibility: 'private',
     source_type: '',
     source_url: '',
   })
@@ -1137,6 +1183,13 @@ export default function SkillManagerPage() {
     queryFn: () =>
       managedGet<SkillRecord>(`/skills/${stripId(selectedSkillId!)}`),
     enabled: !!selectedSkillId,
+    // While a security scan is running in the background (rescan dispatches
+    // async because LLM analysis is slow), poll the skill so the security
+    // badge / score refresh automatically once the verdict lands.
+    refetchInterval: (query) => {
+      const data = query.state.data as SkillRecord | undefined
+      return data?.security_scan?.status === 'scanning' ? 3000 : false
+    },
   })
 
   const { data: skillFiles = [] } = useQuery({
@@ -1189,6 +1242,7 @@ export default function SkillManagerPage() {
       license: skill.license || '',
       tags: tagsStr,
       is_public: skill.is_public || false,
+      visibility: skill.visibility || (skill.is_public ? 'public' : 'private'),
       source_type: skill.source_type || '',
       source_url: skill.source_url || '',
     }
@@ -1258,7 +1312,9 @@ export default function SkillManagerPage() {
       if (!result.valid || !result.skillData) {
         throw new Error(getManagedSkillImportValidationMessage(result.validation, fileList, t))
       }
-      return managedPost<SkillRecord>('/skills', result.skillData)
+      return managedPost<SkillRecord>('/skills', result.skillData, {
+        timeout: SKILL_SCAN_TIMEOUT_MS,
+      })
     },
     onSuccess: (skill) => {
       queryClient.invalidateQueries({ queryKey: ['skills'] })
@@ -1336,9 +1392,11 @@ export default function SkillManagerPage() {
           license: form.license,
           tags,
           is_public: form.is_public,
+          visibility: form.visibility,
           source_type: form.source_type,
           source_url: form.source_url,
         },
+        { timeout: SKILL_SCAN_TIMEOUT_MS },
       )
     },
     onSuccess: (updated) => {
@@ -1416,6 +1474,7 @@ export default function SkillManagerPage() {
           file_type: fileType,
           content: '',
         },
+        { timeout: SKILL_SCAN_TIMEOUT_MS },
       )
     },
     onSuccess: (_file, { mode }) => {
@@ -1449,6 +1508,7 @@ export default function SkillManagerPage() {
       managedPut<SkillFileRecord>(
         `/skills/${stripId(selectedSkillId!)}/files/${stripId(selectedFileId!)}`,
         { content: fileContent },
+        { timeout: SKILL_SCAN_TIMEOUT_MS },
       ),
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -1594,6 +1654,10 @@ export default function SkillManagerPage() {
       managedPost<SkillSecurityScanRecord>(
         `/skills/${stripId(selectedSkillId!)}/security-scans/rescan`,
         {},
+        // Rescan dispatches asynchronously on the backend and returns
+        // immediately with a scanning-state row, so the default 30s client
+        // timeout is plenty — no override needed. The selectedSkill query
+        // polls (refetchInterval) until the background verdict lands.
       ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['skills'] })
@@ -1603,7 +1667,9 @@ export default function SkillManagerPage() {
       queryClient.invalidateQueries({
         queryKey: ['skill-security-scans', selectedSkillId],
       })
-      toast({ title: t('managed.skills.rescanSecuritySuccess') })
+      // Scan now runs in the background; tell the user it started rather
+      // than that it completed.
+      toast({ title: t('managed.skills.rescanStarted') })
     },
     onError: (error) => {
       toastOperationError(t, error, 'common.operationFailed')
@@ -1746,9 +1812,15 @@ export default function SkillManagerPage() {
       {
         key: 'status',
         header: t('managed.table.status'),
-        width: '7%',
+        width: '14%',
         render: (s) => (
-          <StatusBadge status={s.is_public ? 'active' : 'private'} />
+          <div className="flex flex-wrap items-center gap-1">
+            <SkillLifecycleBadge status={s.lifecycle_status} />
+            <SkillVisibilityBadge
+              visibility={s.visibility}
+              isPublic={s.is_public}
+            />
+          </div>
         ),
       },
       {
@@ -1759,7 +1831,7 @@ export default function SkillManagerPage() {
           const score = skillSecurityScore(s)
           return (
             <div className="flex items-center gap-2">
-              <StatusBadge status={skillSecurityStatus(s)} />
+              <SkillSecurityBadge status={s.security_scan?.status} />
               {score !== null && (
                 <span className="text-xs tabular-nums text-muted-foreground">
                   {t('managed.skills.securityScore', { score })}
@@ -2008,8 +2080,67 @@ export default function SkillManagerPage() {
         <PageHeader
           title={selectedSkill.name}
           titleExtra={(
-            <div className="flex items-center gap-2">
-              <StatusBadge status={skillSecurityStatus(selectedSkill)} />
+            <div className="flex items-center gap-2 flex-wrap">
+              <SkillStatusBadges skill={selectedSkill} />
+              {/* Visibility selector lives in the header so it's always
+                  reachable, regardless of whether the user is editing a
+                  file or the metadata form. Bound to the same ``form``
+                  state the save mutation reads, so picking a value here
+                  is persisted by the next save. */}
+              <div className="ml-1 flex items-center gap-1.5">
+                <span className="text-[11px] text-muted-foreground">
+                  {t('managed.skills.visibility.label')}
+                </span>
+                <Select
+                  value={form.visibility || (form.is_public ? 'public' : 'private')}
+                  onValueChange={async (v) => {
+                    // Optimistically update local form so the UI
+                    // doesn't flicker.
+                    setForm({
+                      ...form,
+                      visibility: v,
+                      is_public: v === 'public',
+                    })
+                    // Fire a focused PUT carrying ONLY visibility +
+                    // the legacy ``is_public`` mirror. We don't piggy-
+                    // back on ``saveMutation`` because that one bundles
+                    // every editable field (name / description /
+                    // content / tags / ...), and a stray empty value
+                    // there would overwrite real data. The minimal
+                    // payload keeps the change scoped to the dropdown
+                    // the user actually moved.
+                    try {
+                      await managedPut<SkillRecord>(
+                        `/skills/${stripId(selectedSkillId!)}`,
+                        {
+                          visibility: v,
+                          is_public: v === 'public',
+                        },
+                        { timeout: SKILL_SCAN_TIMEOUT_MS },
+                      )
+                      queryClient.invalidateQueries({ queryKey: ['skills'] })
+                      queryClient.invalidateQueries({
+                        queryKey: ['skill', selectedSkillId],
+                      })
+                      toast({
+                        title: t('managed.skills.savedSuccess'),
+                      })
+                    } catch (error) {
+                      toastOperationError(t, error, 'managed.skills.save.failed')
+                    }
+                  }}
+                >
+                  <SelectTrigger className="h-7 w-[110px] text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="private" title={t('managed.skills.visibility.privateHint')}>{t('managed.skills.visibility.private')}</SelectItem>
+                    <SelectItem value="project" title={t('managed.skills.visibility.projectHint')}>{t('managed.skills.visibility.project')}</SelectItem>
+                    <SelectItem value="organization" title={t('managed.skills.visibility.organizationHint')}>{t('managed.skills.visibility.organization')}</SelectItem>
+                    <SelectItem value="public" title={t('managed.skills.visibility.publicHint')}>{t('managed.skills.visibility.public')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               {selectedSecurityScore !== null && (
                 <span className="text-xs tabular-nums text-muted-foreground">
                   {t('managed.skills.securityScore', { score: selectedSecurityScore })}
@@ -2033,6 +2164,16 @@ export default function SkillManagerPage() {
                   {t('managed.skills.savedSuccess')}
                 </span>
               )}
+              {/* Lifecycle transition buttons — only the legal next
+                  edges from the current state are rendered. */}
+              <SkillLifecycleActions
+                skillId={selectedSkill.id}
+                currentStatus={selectedSkill.lifecycle_status}
+                invalidateKeys={[
+                  ['skill', selectedSkillId],
+                  ['skills'],
+                ]}
+              />
               <Button
                 variant="outline"
                 className="h-9 gap-2"

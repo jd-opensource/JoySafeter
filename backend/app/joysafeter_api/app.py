@@ -7,11 +7,9 @@ import json
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from loguru import logger
 
-from app.joysafeter_api.api import api_router
-from app.joysafeter_api.api.v2.middleware import V2ResponseWrapperMiddleware
-from app.joysafeter_api.api.v2.router import joysafeter_router
+from app.joysafeter_api.api.v1.middleware import ApiV1ResponseWrapperMiddleware
+from app.joysafeter_api.api.v1.router import joysafeter_router
 from app.joysafeter_api.websocket.auth import WebSocketCloseCode, authenticate_websocket, reject_websocket
-from app.joysafeter_api.websocket.execution_subscription_handler import execution_subscription_handler
 from app.joysafeter_api.websocket.notification_manager import NotificationType, notification_manager
 from app.joysafeter_shared.runtime.app_factory import create_app
 
@@ -24,9 +22,9 @@ def create_api_app(*, lifespan) -> FastAPI:
 
 
 def register_api_routes(app: FastAPI) -> None:
-    app.add_middleware(V2ResponseWrapperMiddleware)
-    app.include_router(api_router, prefix="/api")
-    app.include_router(joysafeter_router, prefix="/api/v2")
+    app.add_middleware(ApiV1ResponseWrapperMiddleware)
+    # All API routes live under /api/v1/*.
+    app.include_router(joysafeter_router, prefix="/api/v1")
 
 
 def register_websocket_routes(app: FastAPI) -> None:
@@ -64,14 +62,6 @@ def register_websocket_routes(app: FastAPI) -> None:
             await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
             return
         await _run_notification_loop(websocket, user_id)
-
-    @app.websocket("/ws/executions")
-    async def executions_websocket_endpoint(websocket: WebSocket):
-        is_authenticated, user_id = await authenticate_websocket(websocket)
-        if not is_authenticated or not user_id:
-            await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
-            return
-        await execution_subscription_handler.handle_connection(websocket, str(user_id))
 
 
 

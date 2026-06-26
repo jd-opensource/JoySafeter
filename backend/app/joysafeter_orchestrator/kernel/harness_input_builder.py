@@ -336,7 +336,14 @@ async def build_harness_input(
             if engine_kind == "codex":
                 model = secrets.get("OPENAI_MODEL")
             else:
-                model = secrets.get("ANTHROPIC_MODEL") or secrets.get("MODEL")
+                # claude / native: prefer Anthropic model, but fall back to
+                # OPENAI_MODEL so a native agent configured with an OpenAI-
+                # compatible secret (OPENAI_API_KEY/BASE_URL) still resolves a model.
+                model = (
+                    secrets.get("ANTHROPIC_MODEL")
+                    or secrets.get("OPENAI_MODEL")
+                    or secrets.get("MODEL")
+                )
         # Don't merge secrets into env for gRPC. Docker sandboxes receive them
         # via container env; local runtime adapters merge HarnessInput.secrets.
 
@@ -448,12 +455,27 @@ async def build_harness_input(
             elif isinstance(item, dict) and item.get("skill_id"):
                 from app.joysafeter_orchestrator.services import SkillPacker
                 async with AsyncSessionLocal() as packer_db:
-                    packer = SkillPacker(packer_db, project_id=str(agent.project_id) if agent.project_id else None)
+                    packer = SkillPacker(
+                        packer_db,
+                        project_id=str(agent.project_id) if agent.project_id else None,
+                        # Audit ids for ``SkillUsageLog``. Each is optional;
+                        # the log row carries NULL for any id we can't
+                        # resolve at this point. ``user_id`` isn't on the
+                        # task model, so it stays NULL until the API
+                        # adds it.
+                        session_id=str(session_id) if session_id else None,
+                        agent_id=str(agent.id) if getattr(agent, "id", None) else None,
+                        user_id=None,
+                    )
                     archive = await packer._pack_custom(
                         item["skill_id"], item.get("version", "latest"), target
                     )
                     if archive:
                         skill_archives.append(archive)
+                    # Commit the usage_log row (and any audit-only writes
+                    # ``_record_usage`` did) since this DB session is scoped
+                    # to the packer alone.
+                    await packer_db.commit()
 
     base_system = task.system_prompt or agent.system_prompt or ""
     if memory_system_prompt:

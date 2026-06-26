@@ -7,7 +7,7 @@ license = {text = "Apache-2.0"}
 authors = [
     {name = "JoySafeter Team", email = "team@joysafeter.com"}
 ]
-keywords = ["agent", "langchain", "langgraph", "ai", "platform"]
+keywords = ["agent", "ai", "platform"]
 
 dependencies = [
     # Web Framework
@@ -20,17 +20,10 @@ dependencies = [
     # Database
     "sqlalchemy>=2.0.44",
     "asyncpg>=0.30.0",
-    "psycopg[binary,pool]>=3.1.0", # Psycopg 3 with binary for langgraph-checkpoint-postgres
+    "psycopg[binary,pool]>=3.1.0",
     "psycopg2-binary>=2.9.11", # Psycopg 2 for legacy scripts
     "alembic>=1.14.0",
     "greenlet>=3.0.0", # SQLAlchemy async support
-    # LangChain & LangGraph
-    "langchain-openai>=1.0.0",
-    "langgraph-checkpoint>=2.0.0",
-    "langgraph-checkpoint-postgres>=3.0.2",
-    "langchain-mcp-adapters>=0.1.13",
-    "deepagents>=0.4.0",
-    "pydantic-ai-backend[docker]>=0.1.14",
     # MCP
     "mcp>=1.20.0",
     "fastmcp>=2.14.1",
@@ -74,8 +67,6 @@ dependencies = [
     "protobuf>=5.0.0",
     # Search
     "tavily-python>=0.3.0",
-    "langchain-google-genai>=4.2.0",
-    "langchain-anthropic>=1.3.3",
     "semver>=3.0.4",
 ]
 

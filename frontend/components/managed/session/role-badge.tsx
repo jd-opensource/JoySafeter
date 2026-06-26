@@ -25,6 +25,11 @@ const roleStyles: Record<string, { bg: string; labelKey: string }> = {
   "agent.thread_message_received": { bg: "bg-blue-600 text-white", labelKey: "agent" },
   "agent.thread_context_compacted": { bg: "bg-gray-600 text-white", labelKey: "compact" },
 
+  // Background sub-agent lifecycle (Task tool, run_in_background=true)
+  "agent.bg_task_started": { bg: "bg-indigo-500 text-white", labelKey: "bgTaskStarted" },
+  "agent.bg_task_progress": { bg: "bg-indigo-400 text-white", labelKey: "bgTaskProgress" },
+  "agent.bg_task_finished": { bg: "bg-indigo-600 text-white", labelKey: "bgTaskFinished" },
+
   // Session events
   "session.created": { bg: "bg-gray-500 text-white", labelKey: "created" },
   "session.status_running": { bg: "bg-emerald-500 text-white", labelKey: "running" },

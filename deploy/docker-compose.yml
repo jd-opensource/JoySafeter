@@ -23,8 +23,8 @@ x-orchestrator-rs-build: &orchestrator-rs-build
     RUNTIME_IMAGE: ${RUNTIME_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/debian:bookworm-slim}
 
 x-skillspector-build: &skillspector-build
-  context: .
-  dockerfile: docker/skillspector-service.Dockerfile
+  context: ../backend/joysafeter_skillspector
+  dockerfile: ../../deploy/docker/skillspector-service.Dockerfile
   additional_contexts:
     skillspector: ${SKILLSPECTOR_SOURCE_PATH:-../../SkillSpector}
   args:
@@ -59,12 +59,21 @@ x-backend-common-env: &backend-common-env
   JOYSAFETER_IMAGE_CODEX: ${JOYSAFETER_IMAGE_CODEX:-joysafeter-codex:latest}
   JOYSAFETER_IMAGE_NATIVE: ${JOYSAFETER_IMAGE_NATIVE:-joysafeter-native:latest}
   JOYSAFETER_SANDBOX_WORKSPACE_ROOT: ${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}
+  JOYSAFETER_ENVOY_ENABLED: ${JOYSAFETER_ENVOY_ENABLED:-true}
+  JOYSAFETER_ENVOY_IMAGE: ${JOYSAFETER_ENVOY_IMAGE:-envoyproxy/envoy:v1.37.1}
+  JOYSAFETER_ENVOY_SOCKET_VOLUME: ${JOYSAFETER_ENVOY_SOCKET_VOLUME:-joysafeter-sockets}
+  JOYSAFETER_ENVOY_CONFIG_DIR: ${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}
+  JOYSAFETER_ENVOY_NETWORK: ${JOYSAFETER_ENVOY_NETWORK:-joysafeter-network}
+  JOYSAFETER_ENVOY_GRPC_HOST: ${JOYSAFETER_ENVOY_GRPC_HOST:-host.docker.internal}
+  JOYSAFETER_ENVOY_GRPC_PORT: ${JOYSAFETER_ENVOY_GRPC_PORT:-9090}
+  JOYSAFETER_ENVOY_CONTAINER_NAME: ${JOYSAFETER_ENVOY_CONTAINER_NAME:-joysafeter-envoy}
   SKILL_SECURITY_SCAN_ENABLED: ${SKILL_SECURITY_SCAN_ENABLED:-true}
   SKILL_SECURITY_SCANNER_URL: ${SKILL_SECURITY_SCANNER_URL:-http://skillspector:8010}
   SKILL_SECURITY_TIMEOUT_SECONDS: ${SKILL_SECURITY_TIMEOUT_SECONDS:-30}
   SKILL_SECURITY_FAIL_CLOSED: ${SKILL_SECURITY_FAIL_CLOSED:-true}
   SKILL_SECURITY_NO_LLM: ${SKILL_SECURITY_NO_LLM:-true}
   SKILL_SECURITY_BLOCK_RECOMMENDATIONS: ${SKILL_SECURITY_BLOCK_RECOMMENDATIONS:-DO_NOT_INSTALL}
+  JOYSAFETER_MAX_UPLOAD_FILE_BYTES: ${JOYSAFETER_MAX_UPLOAD_FILE_BYTES:-52428800}
 
 x-backend-volumes: &backend-volumes
   - backend-logs:/app/app/logs
@@ -84,6 +93,29 @@ x-backend-health-common: &backend-health-common
   start_period: 180s
 
 services:
+  joysafeter-envoy:
+    image: ${JOYSAFETER_ENVOY_IMAGE:-envoyproxy/envoy:v1.37.1}
+    container_name: ${JOYSAFETER_ENVOY_CONTAINER_NAME:-joysafeter-envoy}
+    restart: unless-stopped
+    entrypoint: ["/bin/sh"]
+    command:
+      - -c
+      - |
+        set -eu
+        mkdir -p /sockets /envoy-config/sandboxes
+        printf 'resources: []\n' > /envoy-config/lds.yaml
+        while [ ! -s /envoy-config/bootstrap.yaml ]; do
+          sleep 0.2
+        done
+        exec envoy -c /envoy-config/bootstrap.yaml --log-level ${JOYSAFETER_ENVOY_LOG_LEVEL:-info}
+    volumes:
+      - joysafeter-sockets:/sockets
+      - ${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}:/envoy-config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - joysafeter-network
+
   skillspector:
     image: ${SKILLSPECTOR_FULL_IMAGE:-joysafeter-skillspector:latest}
     build: *skillspector-build
@@ -95,8 +127,19 @@ services:
       SKILLSPECTOR_SERVICE_MAX_FILES: ${SKILLSPECTOR_SERVICE_MAX_FILES:-100}
       SKILLSPECTOR_SERVICE_MAX_FILE_BYTES: ${SKILLSPECTOR_SERVICE_MAX_FILE_BYTES:-1048576}
       SKILLSPECTOR_SERVICE_MAX_TOTAL_BYTES: ${SKILLSPECTOR_SERVICE_MAX_TOTAL_BYTES:-5242880}
+      # Concurrency: scans are CPU-bound (semgrep), so worker count should
+      # track the CPU limit below. limit-concurrency sheds load past a small
+      # queue (backend treats a failed scan as fail-open).
+      SKILLSPECTOR_WORKERS: ${SKILLSPECTOR_WORKERS:-2}
+      SKILLSPECTOR_LIMIT_CONCURRENCY: ${SKILLSPECTOR_LIMIT_CONCURRENCY:-4}
     expose:
       - "8010"
+    deploy:
+      resources:
+        limits:
+          # Keep CPU limit == SKILLSPECTOR_WORKERS so each worker gets a core.
+          cpus: "${SKILLSPECTOR_CPUS:-2}"
+          memory: ${SKILLSPECTOR_MEM_LIMIT:-2g}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health', timeout=5)"]
       interval: 30s
@@ -190,7 +233,10 @@ services:
     ports:
       - "${ORCHESTRATOR_HEALTH_BIND_HOST:-127.0.0.1}:${ORCHESTRATOR_HEALTH_PORT_HOST:-8001}:8001"
       - "${JOYSAFETER_GRPC_BIND_HOST:-0.0.0.0}:${JOYSAFETER_GRPC_PORT_HOST:-9090}:9090"
-    depends_on: *backend-depends
+    depends_on:
+      <<: *backend-depends
+      joysafeter-envoy:
+        condition: service_started
     volumes:
       - backend-logs:/app/app/logs
       - backend-files:/app/data/files
@@ -219,7 +265,10 @@ services:
       JOYSAFETER_GRPC_PUBLIC_URL: ${JOYSAFETER_GRPC_PUBLIC_URL:-http://host.docker.internal:9090}
     ports:
       - "${JOYSAFETER_GRPC_BIND_HOST:-0.0.0.0}:${JOYSAFETER_GRPC_PORT_HOST:-9090}:9090"
-    depends_on: *backend-depends
+    depends_on:
+      <<: *backend-depends
+      joysafeter-envoy:
+        condition: service_started
     volumes:
       - backend-logs:/app/app/logs
       - backend-files:/app/data/files
@@ -270,6 +319,7 @@ services:
       NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA: ${NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA:-}
       NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA: ${NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA:-}
       NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED: ${NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED:-}
+      NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES: ${NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES:-52428800}
       SSO_DEFAULT_PROVIDER: ${SSO_DEFAULT_PROVIDER:-}
     ports:
       - "${FRONTEND_BIND_HOST:-0.0.0.0}:${FRONTEND_PORT_HOST:-3000}:3000"
@@ -309,6 +359,9 @@ volumes:
   backend-files:
     driver: local
     name: joysafeter-backend-files
+  joysafeter-sockets:
+    driver: local
+    name: ${JOYSAFETER_ENVOY_SOCKET_VOLUME:-joysafeter-sockets}
 
 networks:
   joysafeter-network:

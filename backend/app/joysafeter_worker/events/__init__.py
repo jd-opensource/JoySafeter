@@ -1,15 +1,13 @@
-"""Events infrastructure — unified execution event bus."""
+"""Events infrastructure.
 
-from app.joysafeter_worker.events.bus import ExecutionEventBus, execution_event_bus
-from app.joysafeter_worker.events.envelope import ExecutionEventEnvelope
+The active path is the Redis Stream consumer (``stream_consumer.EventStreamWorker``)
+that persists session events emitted by the orchestrator-rs gRPC server.
+The legacy in-process ``execution_event_bus`` and its subscribers were
+removed along with the old DispatchService / ExecutionOrchestrator chain.
+"""
+
 from app.joysafeter_worker.events.event_types import ExecutionEventType
-from app.joysafeter_worker.events.subscriber import EventSubscriber, SubscriberPhase
 
 __all__ = [
-    "ExecutionEventBus",
-    "ExecutionEventEnvelope",
     "ExecutionEventType",
-    "EventSubscriber",
-    "SubscriberPhase",
-    "execution_event_bus",
 ]

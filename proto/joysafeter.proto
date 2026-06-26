@@ -47,6 +47,7 @@ message RunnerHarnessEvent {
     LogEvent log = 9;
     ModelRequestStartEvent model_request_start = 10;
     ModelRequestEndEvent model_request_end = 11;
+    TaskNotificationEvent task_notification = 12;
   }
 }
 
@@ -59,6 +60,27 @@ message StatusEvent { string state = 1; }
 message LogEvent { string level = 1; string message = 2; }
 message ModelRequestStartEvent { string model = 1; }
 message ModelRequestEndEvent { string model = 1; uint64 input_tokens = 2; uint64 output_tokens = 3; uint64 cache_read_tokens = 4; uint64 cache_write_tokens = 5; }
+
+// Background sub-agent (Task tool with run_in_background=true) lifecycle.
+// Sourced from claude-code's stream-json `type=system,subtype=task_started|task_progress|task_notification`.
+message TaskNotificationEvent {
+  // "started" | "progress" | "completed" | "failed" | "stopped"
+  string phase = 1;
+  string task_id = 2;
+  optional string tool_use_id = 3;
+  optional string description = 4;
+  // Terminal status — only set for completed/failed/stopped events
+  optional string status = 5;
+  optional string summary = 6;
+  // Final agent text output, parsed from <result> XML block in task_notification
+  optional string result = 7;
+  optional string output_file = 8;
+  // Most recent tool the sub-agent invoked (progress events only)
+  optional string last_tool_name = 9;
+  optional uint64 total_tokens = 10;
+  optional uint64 tool_uses = 11;
+  optional uint64 duration_ms = 12;
+}
 
 message RunnerHarnessResult {
   string status = 1;

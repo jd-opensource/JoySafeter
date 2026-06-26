@@ -12,7 +12,7 @@ interface AppLogoProps {
 export function AppLogo({ isCollapsed = false }: AppLogoProps) {
   return (
     <div className="flex h-[60px] min-w-0 items-center pl-2 pr-4">
-      <Link href="/agents" className="flex min-w-0 flex-1 items-center gap-1.5">
+      <Link href="/managed/quickstart" className="flex min-w-0 flex-1 items-center gap-1.5">
         <div className="relative flex h-8 w-8 flex-shrink-0 items-center justify-center">
           <div className="brand-gradient absolute inset-0 rounded-lg opacity-100" />
 

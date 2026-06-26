@@ -55,10 +55,6 @@ export default function AgentListPage() {
         return 'Codex'
       case 'native':
         return 'Native'
-      case 'langgraph_visual':
-        return 'LangGraph Visual'
-      case 'langgraph_code':
-        return 'LangGraph Code'
       default:
         return engineKind || '-'
     }

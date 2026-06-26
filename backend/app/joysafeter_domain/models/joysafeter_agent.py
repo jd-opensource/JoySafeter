@@ -1,0 +1,88 @@
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+from typing import Optional
+
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from uuid_utils import uuid7
+
+from app.joysafeter_shared.database import Base
+
+from .base import JoySafeterBaseModel, TimestampMixin
+
+
+# ---------------------------------------------------------------------------
+# JoySafeter Agent models
+#
+# NOTE: the legacy unprefixed ``Agent`` / ``AgentVersion`` / ``AgentRelease``
+# models (tables ``agents`` / ``agent_versions`` / ``agent_releases``) were
+# removed in the v1 cleanup — managed agents run entirely on the
+# ``JoySafeter*`` models below (``joysafeter_agents`` / ``joysafeter_agent_versions``).
+# Only the ORM classes were dropped; the old tables are left in place
+# (no drop migration).
+# ---------------------------------------------------------------------------
+
+
+class JoySafeterAgent(JoySafeterBaseModel):
+    __tablename__ = "joysafeter_agents"
+    __table_args__ = (
+        UniqueConstraint("name", name="idx_ca_name_unique"),
+        Index("idx_ca_created_at", "created_at"),
+        Index("idx_ca_project", "project_id"),
+    )
+
+    project_id: Mapped[Optional[str]] = mapped_column(
+        String(255), ForeignKey("joysafeter_organization_projects.id"), nullable=True, index=True,
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    engine_kind: Mapped[str] = mapped_column(Text, nullable=False, default="claude")
+    model: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    env: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+    mcp_configs: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    skills: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    tools: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    agents: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    commands: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    permission_mode: Mapped[str] = mapped_column(
+        Text, nullable=False, default="bypassPermissions"
+    )
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default="{}"
+    )
+    multiagent: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    environment_ref: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    secret_ref: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    archived_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    versions: Mapped[list["JoySafeterAgentVersion"]] = relationship(
+        back_populates="agent", lazy="selectin"
+    )
+
+
+class JoySafeterAgentVersion(Base, TimestampMixin):
+    __tablename__ = "joysafeter_agent_versions"
+    __table_args__ = (UniqueConstraint("agent_id", "version"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=lambda ctx=None: uuid7()
+    )
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("joysafeter_agents.id"),
+        nullable=False,
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+    agent: Mapped["JoySafeterAgent"] = relationship(back_populates="versions")

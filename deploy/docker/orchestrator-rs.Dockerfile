@@ -1,6 +1,6 @@
 # Rust orchestrator production image
 
-ARG RUST_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/rust:1.85-bookworm
+ARG RUST_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/rust:1-bookworm
 ARG RUNTIME_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/debian:bookworm-slim
 
 FROM ${RUST_IMAGE} AS builder

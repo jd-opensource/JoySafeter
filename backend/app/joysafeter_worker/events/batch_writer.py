@@ -335,7 +335,7 @@ class EventBatchSender:
         """Insert events for a single session within its own transaction."""
         from sqlalchemy import text, func, select
         from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_domain.models.session import JoySafeterSessionEvent
+        from app.joysafeter_domain.models.joysafeter_session import JoySafeterSessionEvent
 
         inserted_objs = []
         async with AsyncSessionLocal() as db:
@@ -413,7 +413,7 @@ class EventBatchSender:
     async def _write_single(self, event: BufferedEvent) -> BufferedEvent | None:
         from sqlalchemy import text, func, select
         from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_domain.models.session import JoySafeterSessionEvent
+        from app.joysafeter_domain.models.joysafeter_session import JoySafeterSessionEvent
 
         async with AsyncSessionLocal() as db:
             async with db.begin():
@@ -480,7 +480,7 @@ class EventBatchSender:
     async def _publish_inserted(self, events: list[BufferedEvent]) -> None:
         if not events:
             return
-        from app.joysafeter_domain.services.session_event_realtime import publish_session_event_realtime
+        from app.joysafeter_domain.services.joysafeter_session_service import publish_session_event_realtime
 
         for event in events:
             await publish_session_event_realtime(

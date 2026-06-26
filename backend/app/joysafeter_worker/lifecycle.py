@@ -1,4 +1,16 @@
-"""Worker service startup and shutdown loops."""
+"""Worker service startup and shutdown loops.
+
+Active worker background tasks:
+  - joysafeter-event-stream-worker — Redis Stream consumer that persists
+    session events emitted by orchestrator-rs.
+
+The legacy "task-dispatcher" / "execution-reaper" / "container-reaper" loops
+and the in-process ``execution_event_bus`` subscribers were removed along
+with the old DispatchService / ExecutionOrchestrator / AgentRun / Execution
+dispatch chain and the old CLI container pool. All sandbox dispatch now
+flows through the orchestrator gRPC ↔ sandbox-runner path; the worker only
+persists the resulting events.
+"""
 
 from __future__ import annotations
 
@@ -13,38 +25,6 @@ _worker_tasks: list[asyncio.Task] = []
 async def start_worker_loops() -> list[asyncio.Task]:
     global _worker_tasks
     tasks: list[asyncio.Task] = []
-
-    try:
-        from app.joysafeter_worker.runtime.cli_backends.container_pool import container_pool
-
-        async def _container_reaper() -> None:
-            while True:
-                await asyncio.sleep(300)
-                try:
-                    removed = await container_pool.cleanup_idle()
-                    if removed:
-                        logger.info(f"Container reaper: removed {removed} idle containers")
-                except Exception as e:
-                    logger.warning(f"Container reaper error: {e}")
-
-        tasks.append(asyncio.create_task(_container_reaper(), name="container-reaper"))
-        logger.info("   ✓ Container pool reaper started (idle_timeout=30m)")
-    except Exception as e:
-        logger.warning(f"   ⚠️  Container pool reaper failed to start: {e}")
-
-    try:
-        from app.joysafeter_worker.reapers.execution import (
-            execution_reaper_loop,
-            recover_stale_on_startup,
-            task_dispatcher_loop,
-        )
-
-        await recover_stale_on_startup()
-        tasks.append(asyncio.create_task(task_dispatcher_loop(), name="task-dispatcher"))
-        tasks.append(asyncio.create_task(execution_reaper_loop(), name="execution-reaper"))
-        logger.info("   ✓ Task dispatcher and execution reaper started (interval=30s)")
-    except Exception as e:
-        logger.warning(f"   ⚠️  Scheduler startup failed: {e}")
 
     try:
         from app.joysafeter_shared.config.settings import joysafeter_config
@@ -70,27 +50,6 @@ async def start_worker_loops() -> list[asyncio.Task]:
 
 
 async def stop_worker_loops(tasks: list[asyncio.Task]) -> None:
-    # F7 fix: shut down subsystems first, then cancel tasks.
-    # This allows tasks that are mid-operation to complete their current
-    # iteration before being cancelled, preventing data loss in buffers.
-
-    try:
-        from app.joysafeter_worker.runtime.cli_backends.container_pool import container_pool as _cp
-
-        await _cp.shutdown()
-        logger.info("   ✓ Container pool shut down (containers left running)")
-    except Exception as e:
-        logger.warning(f"   ⚠️  Container pool shutdown failed: {e}")
-
-    try:
-        from app.joysafeter_worker.services import _sandbox_pool
-
-        await _sandbox_pool.shutdown()
-        logger.info("   ✓ Sandbox pool shut down")
-    except Exception as e:
-        logger.warning(f"   ⚠️  Sandbox pool shutdown failed: {e}")
-
-    # Now cancel all background tasks
     for task in tasks:
         if not task.done():
             task.cancel()

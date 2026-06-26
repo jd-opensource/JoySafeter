@@ -12,9 +12,34 @@ class CreateSkillRequest(BaseModel):
     tags: list[str] = Field(default_factory=list)
     source_type: str = "manual"
     source_url: str = ""
+    # ``is_public`` is the legacy create knob. Kept for one release
+    # cycle so existing clients keep working; new clients should pass
+    # ``visibility`` instead. When both are present, ``visibility``
+    # wins (see ``SkillService.create_skill`` for the merge rule).
     is_public: bool = False
+    # P2.8 — explicit four-tier visibility on create.
+    # ``None`` means "derive from is_public + project_id" (the legacy
+    # rule). Any explicit value short-circuits that derivation.
+    visibility: Optional[str] = None
     license: str = ""
     files: Optional[list[dict[str, Any]]] = None
+
+    @field_validator("source_url")
+    @classmethod
+    def trim_source_url(cls, v: str) -> str:
+        return v.strip()
+
+    @field_validator("visibility")
+    @classmethod
+    def validate_visibility(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        allowed = {"private", "project", "organization", "public"}
+        if v not in allowed:
+            raise ValueError(
+                f"visibility must be one of {sorted(allowed)!r}; got {v!r}"
+            )
+        return v
 
     @field_validator("files")
     @classmethod
@@ -25,7 +50,14 @@ class CreateSkillRequest(BaseModel):
         for f in v:
             path = f.get("path", "")
             if path:
-                p = PurePosixPath(path)
+                # Normalize Windows-style separators BEFORE the parts
+                # check. Without this, ``..\\etc\\passwd`` would slip
+                # through (PurePosixPath wouldn't split on backslash),
+                # then be expanded by ``SkillPacker._safe_archive_path``
+                # later — defense-in-depth at the boundary saves the
+                # row from ever landing with a traversal-shaped path.
+                normalized = path.replace("\\", "/")
+                p = PurePosixPath(normalized)
                 if p.is_absolute():
                     raise ValueError(f"Skill file path must be relative: {path}")
                 if ".." in p.parts:
@@ -41,7 +73,25 @@ class UpdateSkillRequest(BaseModel):
     source_type: Optional[str] = None
     source_url: Optional[str] = None
     is_public: Optional[bool] = None
+    visibility: Optional[str] = None
     license: Optional[str] = None
+
+    @field_validator("source_url")
+    @classmethod
+    def trim_source_url(cls, v: Optional[str]) -> Optional[str]:
+        return v.strip() if v is not None else v
+
+    @field_validator("visibility")
+    @classmethod
+    def validate_visibility(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        allowed = {"private", "project", "organization", "public"}
+        if v not in allowed:
+            raise ValueError(
+                f"visibility must be one of {sorted(allowed)!r}; got {v!r}"
+            )
+        return v
 
 
 class SkillSecurityScanSummary(BaseModel):
@@ -110,6 +160,8 @@ class SkillResponse(BaseModel):
     source_type: str = "manual"
     source_url: Optional[str] = None
     is_public: bool = False
+    visibility: str = "private"
+    lifecycle_status: str = "draft"
     license: Optional[str] = None
     compatibility: Optional[str] = None
     metadata: dict = Field(default_factory=dict, alias="meta_data")
@@ -135,7 +187,9 @@ class CreateSkillFileRequest(BaseModel):
     @classmethod
     def validate_path(cls, v: str) -> str:
         from pathlib import PurePosixPath
-        p = PurePosixPath(v)
+        # Normalize Windows-style separators first (P2.14).
+        normalized = v.replace("\\", "/")
+        p = PurePosixPath(normalized)
         if p.is_absolute():
             raise ValueError("Skill file path must be relative")
         if ".." in p.parts:
@@ -154,7 +208,9 @@ class UpdateSkillFileRequest(BaseModel):
         if v is None:
             return v
         from pathlib import PurePosixPath
-        p = PurePosixPath(v)
+        # Normalize Windows-style separators first (P2.14).
+        normalized = v.replace("\\", "/")
+        p = PurePosixPath(normalized)
         if p.is_absolute():
             raise ValueError("Skill file path must be relative")
         if ".." in p.parts:
@@ -187,6 +243,26 @@ class SkillFileResponse(BaseModel):
 class CreateSkillVersionRequest(BaseModel):
     version: Optional[str] = None
     release_notes: str = ""
+
+
+class SkillLifecycleTransitionResponse(BaseModel):
+    """Result of a lifecycle transition.
+
+    Returned by ``submit-review`` / ``approve`` / ``reject`` / ``archive`` /
+    ``unarchive`` / ``reopen``. The client uses ``to_status`` to refresh
+    its local view; ``from_status`` is informational (lets the UI show
+    "moved from X to Y").
+    """
+
+    skill_id: uuid.UUID
+    from_status: str
+    to_status: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("skill_id")
+    def serialize_skill_id(self, v: uuid.UUID) -> str:
+        return f"skill_{v}"
 
 
 class SkillVersionResponse(BaseModel):

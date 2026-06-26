@@ -116,7 +116,7 @@ class BaseRepository(Generic[T]):
             return False
 
         if hasattr(instance, "deleted_at"):
-            instance.deleted_at = datetime.now(timezone.utc)
+            instance.deleted_at = datetime.now(timezone.utc)  # type: ignore[attr-defined]
             await self.db.flush()
             return True
 

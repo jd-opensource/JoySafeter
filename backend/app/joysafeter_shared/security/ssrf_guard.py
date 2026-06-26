@@ -78,6 +78,7 @@ def validate_url(
     Raises:
         SSRFError: If the URL fails validation.
     """
+    url = url.strip()
     if not url:
         raise SSRFError(f"Empty URL{_ctx(context)}")
 

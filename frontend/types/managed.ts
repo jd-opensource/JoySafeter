@@ -295,6 +295,15 @@ export interface SkillSecurityScanRecord extends SkillSecurityScanSummary {
   updated_at: string;
 }
 
+export type SkillVisibility = 'private' | 'project' | 'organization' | 'public';
+
+export type SkillLifecycleStatus =
+  | 'draft'
+  | 'pending_review'
+  | 'approved'
+  | 'rejected'
+  | 'archived';
+
 export interface SkillRecord {
   id: string;
   display_title?: string;
@@ -308,7 +317,11 @@ export interface SkillRecord {
   metadata: Record<string, unknown>;
   license: string;
   compatibility: Record<string, unknown>;
+  // DEPRECATED — kept for one release cycle while the dual-write
+  // transition is in flight. Read ``visibility`` instead.
   is_public: boolean;
+  visibility?: SkillVisibility;
+  lifecycle_status?: SkillLifecycleStatus;
   source_type: string;
   source_url: string;
   created_at: string;

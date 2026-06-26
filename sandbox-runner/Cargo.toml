@@ -50,6 +50,7 @@ bollard = "0.18"
 which = "7"
 tar = "0.4"
 flate2 = "1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 base64 = "0.22"
 sha2 = "0.10"
 rand = "0.8"
@@ -69,4 +70,3 @@ lto = true           # link-time optimization across crates
 codegen-units = 1    # better cross-module optimization (slower build)
 panic = "abort"      # drop unwinding tables
 strip = true         # strip symbols
-

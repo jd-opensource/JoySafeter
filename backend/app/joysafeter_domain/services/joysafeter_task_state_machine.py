@@ -5,7 +5,7 @@ from typing import Optional
 from sqlalchemy import and_, func, select, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_domain.models.task import (
+from app.joysafeter_domain.models.joysafeter_task import (
     JOYSAFETER_TERMINAL_STATUSES,
     JoySafeterTask,
     JoySafeterTaskStatus,

@@ -524,6 +524,37 @@ struct ClaudeMessage {
     request_id: Option<String>,
     #[serde(default)]
     request: Option<serde_json::Value>,
+    // ---- system/task_* SDK events (background sub-agents) ----
+    #[serde(default)]
+    task_id: Option<String>,
+    #[serde(default)]
+    tool_use_id: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    summary: Option<String>,
+    #[serde(default)]
+    output_file: Option<String>,
+    #[serde(default)]
+    last_tool_name: Option<String>,
+    #[serde(default)]
+    usage: Option<TaskUsage>,
+    /// Raw JSON for fields not captured above (e.g. result.usage,
+    /// result.modelUsage). Populated post-deser; not from serde.
+    #[serde(skip)]
+    raw: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskUsage {
+    #[serde(default)]
+    total_tokens: Option<u64>,
+    #[serde(default)]
+    tool_uses: Option<u64>,
+    #[serde(default)]
+    duration_ms: Option<u64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -543,10 +574,15 @@ async fn persistent_claude_reader(
             continue;
         }
 
-        let msg: ClaudeMessage = match serde_json::from_str(&line) {
+        // Parse twice: once into the strongly-typed struct, once as a raw
+        // Value so handlers can read fields the struct doesn't model (e.g.
+        // `result.usage`, `result.modelUsage`).
+        let raw_value: Option<serde_json::Value> = serde_json::from_str(&line).ok();
+        let mut msg: ClaudeMessage = match serde_json::from_str(&line) {
             Ok(m) => m,
             Err(_) => continue,
         };
+        msg.raw = raw_value;
 
         let turn_refs = {
             let guard = current_turn.lock().await;
@@ -633,6 +669,15 @@ async fn persistent_claude_reader(
                         }
                     }
 
+                    // Track the latest usage snapshot from this turn's assistant
+                    // messages. claude-code's stream-json sends `usage` on each
+                    // incremental `assistant` message and the value is a running
+                    // *cumulative total* for the turn — NOT a per-chunk delta.
+                    // We previously added each value, which double/triple-counted
+                    // and the user saw `output_tokens: 4` because we'd captured
+                    // an early streaming snapshot. The authoritative final value
+                    // is in the `result` message; here we just keep the latest
+                    // snapshot as the running view, replaced (not added).
                     if let Some(msg_usage) = message.get("usage") {
                         let input_tokens = msg_usage
                             .get("input_tokens")
@@ -651,35 +696,30 @@ async fn persistent_claude_reader(
                             .and_then(|v| v.as_u64())
                             .unwrap_or(0);
 
+                        // Overwrite (not accumulate) the running snapshot.
                         {
                             let mut u = usage.lock().unwrap();
-                            u.input_tokens += input_tokens;
-                            u.output_tokens += output_tokens;
-                            u.cache_read_tokens += cache_read;
-                            u.cache_write_tokens += cache_write;
+                            u.input_tokens = input_tokens;
+                            u.output_tokens = output_tokens;
+                            u.cache_read_tokens = cache_read;
+                            u.cache_write_tokens = cache_write;
 
                             let entry = u
                                 .by_model
                                 .entry(model_name.clone())
                                 .or_insert_with(ModelUsage::default);
-                            entry.input_tokens += input_tokens;
-                            entry.output_tokens += output_tokens;
-                            entry.cache_read_tokens += cache_read;
-                            entry.cache_write_tokens += cache_write;
+                            entry.input_tokens = input_tokens;
+                            entry.output_tokens = output_tokens;
+                            entry.cache_read_tokens = cache_read;
+                            entry.cache_write_tokens = cache_write;
                         }
 
+                        // Only emit ModelRequestStart from streaming chunks —
+                        // the authoritative ModelRequestEnd is emitted from the
+                        // `result` message below with the final usage.
                         let _ = event_tx
                             .send(HarnessEvent::ModelRequestStart {
                                 model: model_name.clone(),
-                            })
-                            .await;
-                        let _ = event_tx
-                            .send(HarnessEvent::ModelRequestEnd {
-                                model: model_name,
-                                input_tokens,
-                                output_tokens,
-                                cache_read_tokens: cache_read,
-                                cache_write_tokens: cache_write,
                             })
                             .await;
                     }
@@ -719,11 +759,55 @@ async fn persistent_claude_reader(
                 }
             }
             "system" => {
-                if let Some(sid) = msg.session_id {
+                if let Some(sid) = &msg.session_id {
                     *session_id.lock().unwrap() = Some(sid.clone());
-                    *last_session_id.lock().unwrap() = Some(sid);
+                    *last_session_id.lock().unwrap() = Some(sid.clone());
                 }
-                if let Some(subtype) = &msg.subtype {
+                // Background sub-agent lifecycle SDK events (task_started /
+                // task_progress / task_notification) carry rich payload — extract
+                // them into a structured HarnessEvent so the orchestrator sees
+                // sub-agent completion, output_file path, and summary.
+                let subtype = msg.subtype.as_deref().unwrap_or("");
+                let phase = match subtype {
+                    "task_started" => Some("started"),
+                    "task_progress" => Some("progress"),
+                    "task_notification" => {
+                        // status field discriminates terminal phase
+                        match msg.status.as_deref() {
+                            Some("failed") => Some("failed"),
+                            Some("stopped") | Some("killed") => Some("stopped"),
+                            _ => Some("completed"),
+                        }
+                    }
+                    _ => None,
+                };
+
+                if let Some(phase) = phase {
+                    if let Some(task_id) = msg.task_id.clone() {
+                        let (total_tokens, tool_uses, duration_ms) = match msg.usage {
+                            Some(u) => (u.total_tokens, u.tool_uses, u.duration_ms),
+                            None => (None, None, None),
+                        };
+                        let _ = event_tx
+                            .send(HarnessEvent::TaskNotification {
+                                phase: phase.to_string(),
+                                task_id,
+                                tool_use_id: msg.tool_use_id,
+                                description: msg.description,
+                                status: msg.status,
+                                summary: msg.summary,
+                                result: None, // SDK event doesn't carry <result>; orchestrator can read output_file
+                                output_file: msg.output_file,
+                                last_tool_name: msg.last_tool_name,
+                                total_tokens,
+                                tool_uses,
+                                duration_ms,
+                            })
+                            .await;
+                    }
+                } else if let Some(subtype) = &msg.subtype {
+                    // Non-task system events (e.g. init, session_state_changed)
+                    // continue to flow through Status as before.
                     let _ = event_tx
                         .send(HarnessEvent::Status {
                             state: subtype.clone(),
@@ -763,6 +847,86 @@ async fn persistent_claude_reader(
                 if let Some(text) = &msg.result {
                     *output.lock().unwrap() = text.clone();
                 }
+
+                // Final, authoritative usage for the turn. claude-code's
+                // `result` message carries `usage` (the final aggregate) and
+                // optionally `modelUsage` (per-model breakdown for multi-model
+                // sub-agents). Streaming `assistant` messages only carry
+                // running snapshots so we waited for this final value to emit
+                // ModelRequestEnd.
+                let raw = msg.raw.as_ref();
+                let result_usage = raw.and_then(|r| r.get("usage"));
+                let model_usage = raw
+                    .and_then(|r| r.get("modelUsage"))
+                    .and_then(|m| m.as_object());
+
+                // Helper to pull a u64 field with both snake/kebab fallbacks.
+                fn pull(v: Option<&serde_json::Value>, key: &str) -> u64 {
+                    v.and_then(|u| u.get(key))
+                        .and_then(|x| x.as_u64())
+                        .unwrap_or(0)
+                }
+
+                if let Some(usage_val) = result_usage {
+                    let input_tokens = pull(Some(usage_val), "input_tokens");
+                    let output_tokens = pull(Some(usage_val), "output_tokens");
+                    let cache_read = pull(Some(usage_val), "cache_read_input_tokens");
+                    let cache_write = pull(Some(usage_val), "cache_creation_input_tokens");
+
+                    // Overwrite the running snapshot with the final values.
+                    {
+                        let mut u = usage.lock().unwrap();
+                        u.input_tokens = input_tokens;
+                        u.output_tokens = output_tokens;
+                        u.cache_read_tokens = cache_read;
+                        u.cache_write_tokens = cache_write;
+
+                        // If modelUsage is present, rebuild the per-model map
+                        // from scratch so the totals stay consistent. Otherwise
+                        // attribute everything to the last-seen model below.
+                        if let Some(entries) = model_usage {
+                            u.by_model.clear();
+                            for (model_name, mu) in entries {
+                                let entry = u
+                                    .by_model
+                                    .entry(model_name.clone())
+                                    .or_insert_with(ModelUsage::default);
+                                entry.input_tokens = pull(Some(mu), "inputTokens")
+                                    .max(pull(Some(mu), "input_tokens"));
+                                entry.output_tokens = pull(Some(mu), "outputTokens")
+                                    .max(pull(Some(mu), "output_tokens"));
+                                entry.cache_read_tokens =
+                                    pull(Some(mu), "cachedInputTokens")
+                                        .max(pull(Some(mu), "cache_read_input_tokens"));
+                                entry.cache_write_tokens =
+                                    pull(Some(mu), "uncachedInputTokens")
+                                        .max(pull(Some(mu), "cache_creation_input_tokens"));
+                            }
+                        }
+                    }
+
+                    // Authoritative ModelRequestEnd for this turn. Use whichever
+                    // model name is known — either from result.modelUsage (first
+                    // key) or the last assistant-message model snapshot we kept.
+                    let final_model_name = model_usage
+                        .and_then(|m| m.keys().next().cloned())
+                        .or_else(|| {
+                            let u = usage.lock().unwrap();
+                            u.by_model.keys().next().cloned()
+                        })
+                        .unwrap_or_else(|| "unknown".to_string());
+
+                    let _ = event_tx
+                        .send(HarnessEvent::ModelRequestEnd {
+                            model: final_model_name,
+                            input_tokens,
+                            output_tokens,
+                            cache_read_tokens: cache_read,
+                            cache_write_tokens: cache_write,
+                        })
+                        .await;
+                }
+
                 // Signal turn completion — do NOT break the reader loop
                 let mut guard = current_turn.lock().await;
                 if let Some(ref mut turn) = *guard {

@@ -6,10 +6,10 @@
 import CryptoJS from 'crypto-js'
 
 import {
-  apiGet,
-  apiPost,
   ApiError,
   createApiError,
+  managedGet,
+  managedPost,
   refreshAccessTokenOrRelogin,
 } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
@@ -119,13 +119,13 @@ export const authApi = {
     callbackURL?: string
   }): Promise<LoginResponse> {
     const hashedPassword = hashPassword(params.password)
-    const response = await apiPost<LoginResponse>(
+    const response = await managedPost<LoginResponse>(
       'auth/sign-in/email',
       {
         email: params.email,
         password: hashedPassword,
       },
-      { withAuth: false },
+      { withAuth: false, skipManagedContext: true },
     )
 
     if (response.csrf_token) {
@@ -142,14 +142,14 @@ export const authApi = {
     name: string
   }): Promise<SignUpResponse> {
     const hashedPassword = hashPassword(params.password)
-    const response = await apiPost<SignUpResponse>(
+    const response = await managedPost<SignUpResponse>(
       'auth/sign-up/email',
       {
         email: params.email,
         password: hashedPassword,
         name: params.name,
       },
-      { withAuth: false },
+      { withAuth: false, skipManagedContext: true },
     )
 
     if (response.csrf_token) {
@@ -162,7 +162,7 @@ export const authApi = {
 
   async signOut(): Promise<void> {
     try {
-      await apiPost('auth/logout')
+      await managedPost('auth/logout', undefined, { skipManagedContext: true })
     } catch (error) {
       logger.warn('Logout request failed, clearing tokens anyway', { error })
     } finally {
@@ -173,7 +173,7 @@ export const authApi = {
 
   async getSession(): Promise<SessionResponse | null> {
     try {
-      const response = await apiGet<{
+      const response = await managedGet<{
         user: {
           id: string
           email: string
@@ -182,7 +182,7 @@ export const authApi = {
           email_verified: boolean
           is_super_user: boolean
         } | null
-      }>('auth/session')
+      }>('auth/session', { skipManagedContext: true })
 
       if (!response?.user) return null
 
@@ -211,50 +211,62 @@ export const authApi = {
   },
 
   async forgetPassword(params: { email: string; redirectTo?: string }): Promise<void> {
-    await apiPost('auth/forgot-password', { email: params.email, redirect_to: params.redirectTo })
+    await managedPost(
+      'auth/forgot-password',
+      { email: params.email, redirect_to: params.redirectTo },
+      { skipManagedContext: true },
+    )
   },
 
   async resetPassword(params: { token: string; newPassword: string }): Promise<void> {
     const hashedPassword = hashPassword(params.newPassword)
-    await apiPost('auth/reset-password', {
-      token: params.token,
-      new_password: hashedPassword,
-    })
+    await managedPost(
+      'auth/reset-password',
+      {
+        token: params.token,
+        new_password: hashedPassword,
+      },
+      { skipManagedContext: true },
+    )
   },
 
   async changePassword(params: { oldPassword: string; newPassword: string }): Promise<void> {
-    await apiPost('auth/me/change-password', {
+    await managedPost('auth/me/change-password', {
       old_password: params.oldPassword,
       new_password: params.newPassword,
     })
   },
 
   async verifyEmail(token: string): Promise<void> {
-    await apiPost('auth/verify-email', { token })
+    await managedPost('auth/verify-email', { token }, { skipManagedContext: true })
   },
 
   async resendVerificationEmail(): Promise<void> {
-    await apiPost('auth/resend-verification')
+    await managedPost('auth/resend-verification')
   },
 
   async sendVerificationOtp(params: {
     email: string
     type: 'sign-in' | 'email-verification' | 'forget-password'
   }): Promise<void> {
-    await apiPost('auth/email-otp/send', {
-      email: params.email,
-      type: params.type,
-    })
+    await managedPost(
+      'auth/email-otp/send',
+      {
+        email: params.email,
+        type: params.type,
+      },
+      { skipManagedContext: true },
+    )
   },
 
   async signInEmailOtp(params: { email: string; otp: string }): Promise<LoginResponse> {
-    const response = await apiPost<LoginResponse>(
+    const response = await managedPost<LoginResponse>(
       'auth/sign-in/email-otp',
       {
         email: params.email,
         otp: params.otp,
       },
-      { withAuth: false },
+      { withAuth: false, skipManagedContext: true },
     )
 
     if (response.csrf_token) {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { managedGet, managedPost } from '@/lib/api-client'
+import { ApiError, managedGet, managedPost } from '@/lib/api-client'
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { OrgInfo, ProjectInfo } from '@/stores/managed/project-store'
 
@@ -19,22 +19,33 @@ interface AuthMeResponse {
 }
 
 interface SwitchContextResponse {
+  org_id?: string
   project: ProjectInfo
   projects: ProjectInfo[]
+}
+
+async function loadAuthContext(): Promise<AuthMeResponse> {
+  try {
+    return await managedGet<AuthMeResponse>('/auth/me')
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+      return managedGet<AuthMeResponse>('/auth/me', { skipManagedContext: true })
+    }
+    throw error
+  }
 }
 
 export function useProjectContext() {
   const [isLoading, setIsLoading] = useState(true)
   const queryClient = useQueryClient()
-  const { currentOrgId, currentProjectId, organizations, projects, setContext, setCurrentProject } =
-    useProjectStore()
+  const { currentOrgId, currentProjectId, organizations, projects, setContext } = useProjectStore()
 
   useEffect(() => {
     let cancelled = false
 
     const loadContext = async () => {
       try {
-        const data = await managedGet<AuthMeResponse>('/auth/me', { skipManagedContext: true })
+        const data = await loadAuthContext()
         if (cancelled) return
 
         setContext(
@@ -58,18 +69,23 @@ export function useProjectContext() {
   }, [setContext])
 
   const switchProject = useCallback(
-    async (projectId: string) => {
+    async (projectId: string, orgId?: string) => {
       try {
         const data = await managedPost<SwitchContextResponse>('/auth/switch-context', {
+          org_id: orgId,
           project_id: projectId,
+        }, {
+          skipManagedContext: true,
+          headers: orgId ? { 'X-Org-Id': orgId } : undefined,
         })
-        setCurrentProject(data.project.id)
+        setContext(data.org_id || orgId || currentOrgId || '', data.project.id, organizations, data.projects)
         queryClient.invalidateQueries()
       } catch (err) {
         console.error('Failed to switch project:', err)
+        throw err
       }
     },
-    [setCurrentProject, queryClient],
+    [currentOrgId, organizations, setContext, queryClient],
   )
 
   return {

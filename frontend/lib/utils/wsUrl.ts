@@ -1,6 +1,6 @@
 import { env as runtimeEnv } from 'next-runtime-env'
 
-import { apiGet, createApiError } from '@/lib/api-client'
+import { createApiError, managedGet } from '@/lib/api-client'
 
 /**
  * Returns the WebSocket base URL derived from NEXT_PUBLIC_API_URL (preferred)
@@ -22,7 +22,7 @@ export function getWsBaseUrl(): string {
 
 /** Fetch a short-lived WS token from the backend and return a ready-to-use WS URL for the given path. */
 async function getWsTokenUrl(path: string): Promise<string> {
-  const response = await apiGet<{ token?: string }>('auth/ws-token')
+  const response = await managedGet<{ token?: string }>('auth/ws-token')
   const token = response?.token
   if (!token) {
     throw createApiError(500, 'Invalid WebSocket Token Response', {
@@ -37,9 +37,4 @@ async function getWsTokenUrl(path: string): Promise<string> {
 /** Fetch a short-lived WS token from the backend and return a ready-to-use notification WS URL. */
 export async function getWsNotificationUrl(): Promise<string> {
   return getWsTokenUrl('/ws/notifications')
-}
-
-/** Fetch a short-lived WS token from the backend and return a ready-to-use executions WS URL. */
-export async function getWsExecutionsUrl(): Promise<string> {
-  return getWsTokenUrl('/ws/executions')
 }

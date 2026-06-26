@@ -85,6 +85,19 @@ export const SECRET_KEY_GROUPS: SecretKeyGroup[] = [
       'ANTHROPIC_BASE_URL',
     ],
   },
+  {
+    id: 'native_openai',
+    label: 'Native (OpenAI)',
+    labelKey: 'managed.secrets.keyGroups.nativeOpenai',
+    icon: 'N',
+    bgColor: '#2563eb',
+    keys: [
+      'OPENAI_API_KEY',
+      'OPENAI_MODEL',
+      'OPENAI_BASE_URL',
+      'OPENAI_REASONING_EFFORT',
+    ],
+  },
 ]
 
 export const SECRET_KEY_OPTIONS = [...new Set(SECRET_KEY_GROUPS.flatMap((g) => g.keys))]
@@ -92,12 +105,22 @@ export const SECRET_KEY_OPTIONS = [...new Set(SECRET_KEY_GROUPS.flatMap((g) => g
 const SECRET_KEY_GROUP_IDS_BY_PROVIDER: Record<string, string[]> = {
   claude: ['claude'],
   anthropic: ['claude'],
-  native: ['native'],
+  // native is protocol-aware — resolved below
   codex: ['codex'],
 }
 
 export function getSecretKeyGroups(provider?: string, protocol?: string) {
   const normalizedProvider = (provider || '').toLowerCase()
+
+  // Native engine: key group depends on protocol
+  if (normalizedProvider === 'native') {
+    if (protocol === 'openai_responses' || protocol === 'chat_completions') {
+      return SECRET_KEY_GROUPS.filter((group) => group.id === 'native_openai')
+    }
+    // Default (anthropic_messages or unset)
+    return SECRET_KEY_GROUPS.filter((group) => group.id === 'native')
+  }
+
   const groupIds = SECRET_KEY_GROUP_IDS_BY_PROVIDER[normalizedProvider]
 
   if (groupIds) {
@@ -130,16 +153,18 @@ export function getDefaultProtocol(provider: string) {
 }
 
 export function getDefaultSecretPairs(provider: string, protocol: string) {
-  if ((provider === 'claude' || provider === 'anthropic' || provider === 'native') && protocol === 'anthropic_messages') {
+  const isOpenAIProtocol = protocol === 'openai_responses' || protocol === 'chat_completions'
+
+  if ((provider === 'claude' || provider === 'anthropic') || (provider === 'native' && !isOpenAIProtocol)) {
     return [
       { key: 'ANTHROPIC_API_KEY', value: '' },
       { key: 'ANTHROPIC_MODEL', value: 'claude-opus-4-20250514' },
     ]
   }
-  if (provider === 'codex') {
+  if (provider === 'codex' || (provider === 'native' && isOpenAIProtocol)) {
     return [
       { key: 'OPENAI_API_KEY', value: '' },
-      { key: 'OPENAI_MODEL', value: 'gpt-5.3-codex' },
+      { key: 'OPENAI_MODEL', value: provider === 'codex' ? 'gpt-5.3-codex' : '' },
       { key: 'OPENAI_BASE_URL', value: '' },
     ]
   }

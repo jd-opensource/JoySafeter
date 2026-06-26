@@ -1,6 +1,4 @@
 export const ENGINE_KINDS = [
-  'langgraph_visual',
-  'langgraph_code',
   'claude_code',
   'codex',
   'native',

@@ -31,10 +31,10 @@ class TaskController:
     async def recover_on_startup(self) -> None:
         from app.joysafeter_shared.database import AsyncSessionLocal
         from sqlalchemy import text
-        from app.joysafeter_domain.models.task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
         from app.joysafeter_orchestrator.services import TaskService
         from app.joysafeter_orchestrator.services import JoySafeterSessionLifecycleService
-        from app.joysafeter_domain.models.session import SessionStatus
+        from app.joysafeter_domain.models.joysafeter_session import SessionStatus
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
 
         async with AsyncSessionLocal() as db:
@@ -159,8 +159,8 @@ class TaskController:
     async def _check_overdue_tasks(self) -> None:
         from app.joysafeter_shared.database import AsyncSessionLocal
         from sqlalchemy import text
-        from app.joysafeter_domain.models.task import JoySafeterTaskStatus as TaskStatus
-        from app.joysafeter_domain.models.session import SessionStatus
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_domain.models.joysafeter_session import SessionStatus
         from app.joysafeter_orchestrator.services import JoySafeterSessionLifecycleService
         from app.joysafeter_orchestrator.services import TaskService
 
@@ -217,7 +217,7 @@ class TaskController:
         from app.joysafeter_shared.database import AsyncSessionLocal
         from sqlalchemy import text
         from app.joysafeter_orchestrator.services import TaskService
-        from app.joysafeter_domain.models.task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
 
         async with AsyncSessionLocal() as db:
             locked = False
@@ -293,7 +293,7 @@ class TaskController:
         from app.joysafeter_orchestrator.services import TaskService
         from app.joysafeter_orchestrator.services import JoySafeterSessionLifecycleService
         from app.joysafeter_orchestrator.services import SessionService
-        from app.joysafeter_domain.models.task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
 
         async with AsyncSessionLocal() as db:
             svc = TaskService(db)

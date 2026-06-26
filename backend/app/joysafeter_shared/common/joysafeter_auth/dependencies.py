@@ -17,8 +17,8 @@ from app.joysafeter_shared.common.app_errors import AccessDeniedError, Authentic
 from app.joysafeter_shared.common.dependencies import get_current_user
 from app.joysafeter_shared.database import get_db
 from app.joysafeter_domain.models.joysafeter_api_key import JoySafeterApiKey
-from app.joysafeter_domain.models.organization import Member
-from app.joysafeter_domain.models.project import Project
+from app.joysafeter_domain.models.joysafeter_organization import Member
+from app.joysafeter_domain.models.joysafeter_project import Project
 
 from .context import JoySafeterAuthContext, JoySafeterRole
 
@@ -124,12 +124,53 @@ async def _auth_via_jwt_claims(request: Request, db: AsyncSession) -> JoySafeter
     if not payload.org_id or not payload.project_id or not payload.role:
         return None
 
+    target_org_id = str(payload.org_id)
+    target_project_id = str(payload.project_id)
+    preferred_org_id = request.headers.get("X-Org-Id")
+    preferred_project_id = request.headers.get("X-Project-Id")
+
+    if preferred_org_id:
+        target_org_id = preferred_org_id
+    if preferred_project_id:
+        target_project_id = preferred_project_id
+    elif target_org_id != str(payload.org_id):
+        target_project_id = await _resolve_default_project_id(db, target_org_id)
+
     return await _verify_joysafeter_context(
         db,
         user_id=str(payload.sub),
-        org_id=str(payload.org_id),
-        project_id=str(payload.project_id),
+        org_id=target_org_id,
+        project_id=target_project_id,
         allow_archived_project=True,
+    )
+
+
+async def _resolve_default_project_id(db: AsyncSession, org_id: str) -> str:
+    """Resolve a usable project when the request switches org via header."""
+    result = await db.execute(
+        select(Project).where(
+            Project.org_id == org_id,
+            Project.is_default.is_(True),
+            Project.archived_at.is_(None),
+        ).limit(1)
+    )
+    project = result.scalar_one_or_none()
+    if project:
+        return project.id
+
+    result = await db.execute(
+        select(Project).where(
+            Project.org_id == org_id,
+            Project.archived_at.is_(None),
+        ).limit(1)
+    )
+    project = result.scalar_one_or_none()
+    if project:
+        return project.id
+
+    raise AuthenticationError(
+        "No project found for organization",
+        code="NO_PROJECT",
     )
 
 
@@ -284,7 +325,7 @@ async def _auth_via_user_session(
     if membership is None:
         # Auto-create a default organization and project for the user
         import uuid as _uuid
-        from app.joysafeter_domain.models.organization import Organization
+        from app.joysafeter_domain.models.joysafeter_organization import Organization
 
         org_id = str(_uuid.uuid4())
         org = Organization(id=org_id, name=user.name or "Default", slug="default")

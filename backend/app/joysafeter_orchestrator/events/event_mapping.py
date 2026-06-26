@@ -95,6 +95,20 @@ def map_harness_event(
     elif event_type == "log":
         pass
 
+    elif event_type == "task_notification":
+        # Background sub-agent lifecycle (claude-code Task tool, run_in_background=true).
+        # phase = "started" | "progress" | "completed" | "failed" | "stopped"
+        phase = event.get("phase", "")
+        if phase == "started":
+            event_name = "agent.bg_task_started"
+        elif phase == "progress":
+            event_name = "agent.bg_task_progress"
+        else:
+            # completed / failed / stopped
+            event_name = "agent.bg_task_finished"
+        payload = {k: v for k, v in event.items() if k != "type"}
+        results.append((event_name, payload))
+
     else:
         results.append((event_type, event))
 

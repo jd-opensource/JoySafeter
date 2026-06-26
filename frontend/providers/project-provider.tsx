@@ -1,6 +1,6 @@
 'use client'
 
-import { managedGet } from '@/lib/api-client'
+import { ApiError, managedGet } from '@/lib/api-client'
 import { useProjectStore } from '@/stores/managed/project-store'
 import { useSession } from '@/lib/auth/auth-client'
 import { useQuery } from '@tanstack/react-query'
@@ -19,7 +19,16 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
 
   const { data, isLoading } = useQuery({
     queryKey: ['auth-me'],
-    queryFn: () => managedGet<AuthMeResponse>('/auth/me', { skipManagedContext: true }),
+    queryFn: async () => {
+      try {
+        return await managedGet<AuthMeResponse>('/auth/me')
+      } catch (error) {
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          return managedGet<AuthMeResponse>('/auth/me', { skipManagedContext: true })
+        }
+        throw error
+      }
+    },
     enabled: !!session?.user,
     staleTime: 30_000,
   })

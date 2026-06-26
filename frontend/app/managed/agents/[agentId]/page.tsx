@@ -40,9 +40,9 @@ interface DeletePreview {
 
 const ENGINE_KIND_LABELS: Record<string, string> = {
   claude: 'Claude Code',
+  claude_code: 'Claude Code',
   codex: 'Codex',
-  langgraph_visual: 'LangGraph Visual',
-  langgraph_code: 'LangGraph Code',
+  native: 'Native',
 }
 
 export default function AgentDetailPage({ params }: { params: Promise<{ agentId: string }> }) {

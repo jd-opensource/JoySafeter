@@ -8,6 +8,7 @@ import { useTranslation } from '@/lib/i18n'
 import { useSidebarStore } from '@/stores/sidebar/store'
 import { useSession, client } from '@/lib/auth/auth-client'
 import { useTheme } from 'next-themes'
+import { managedGet } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 import {
@@ -36,13 +37,9 @@ import {
   PanelLeftOpen,
   FileText,
   FolderCode,
-  LayoutDashboard,
-  ListChecks,
   Lock,
   Sparkles,
-  Wrench,
   Shield,
-  Settings,
   LogOut,
   Check,
   Globe,
@@ -51,6 +48,7 @@ import {
   Users,
 } from 'lucide-react'
 import { useProjectStore } from '@/stores/managed/project-store'
+import type { ProjectInfo } from '@/stores/managed/project-store'
 import { useProjectContext } from '@/hooks/managed/use-project-context'
 
 interface NavItem {
@@ -74,14 +72,10 @@ const resourceItems: NavItem[] = [
   { to: '/managed/memory-stores', labelKey: 'nav.memory', icon: Brain },
 ]
 
-const platformItems: NavItem[] = [
-  { to: '/dashboard', labelKey: 'nav.dashboard', icon: LayoutDashboard },
-  { to: '/agents', labelKey: 'nav.platformAgents', icon: Bot },
-  { to: '/tasks', labelKey: 'nav.tasks', icon: ListChecks },
-  { to: '/skills', labelKey: 'nav.skills', icon: Sparkles },
-  { to: '/tools', labelKey: 'nav.tools', icon: Wrench },
-  { to: '/settings', labelKey: 'nav.settings', icon: Settings },
-]
+// platformItems (the old /dashboard /agents /tasks /skills /tools /settings
+// platform pages) were removed during the v1 cleanup — those pages relied on
+// the deep-agents-copilot + LangChain/LangGraph engines that no longer exist.
+// All navigation now flows through the managed (v2) routes above.
 
 const manageItems: NavItem[] = [
   { to: '/managed/settings', labelKey: 'nav.organization', icon: Building2 },
@@ -93,25 +87,31 @@ const manageItems: NavItem[] = [
 function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
   const { t } = useTranslation()
   const { projects, organizations, switchProject, orgId } = useProjectContext()
-  const { currentProjectId, currentOrgId, setCurrentOrg, setCurrentProject } = useProjectStore()
+  const { currentProjectId, currentOrgId } = useProjectStore()
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
-  const [allOrgProjects, setAllOrgProjects] = useState<Record<string, Array<{ id: string; name: string }>>>({})
+  const [allOrgProjects, setAllOrgProjects] = useState<Record<string, ProjectInfo[]>>({})
   const currentProject = projects.find((p) => p.id === currentProjectId)
   const currentOrg = organizations.find((o) => o.id === (currentOrgId || orgId))
+  const activeOrgId = currentOrgId || orgId
 
   const orgColors = ['bg-purple-500', 'bg-blue-500', 'bg-green-500', 'bg-orange-500', 'bg-pink-500']
 
+  const getProjectsForOrg = (targetOrgId: string) => {
+    const source =
+      allOrgProjects[targetOrgId] ||
+      (targetOrgId === activeOrgId
+        ? projects.map((project) => ({ ...project, org_id: project.org_id || targetOrgId }))
+        : [])
+
+    return source.filter((project) => !project.org_id || project.org_id === targetOrgId)
+  }
+
   const handleSwitchToProject = async (targetOrgId: string, targetProjectId: string) => {
     try {
-      const { managedPost } = await import('@/lib/api-client')
-      const { useQueryClient } = await import('@tanstack/react-query')
-      await managedPost('/auth/switch-context', { org_id: targetOrgId, project_id: targetProjectId })
-      setCurrentOrg(targetOrgId)
-      setCurrentProject(targetProjectId)
+      await switchProject(targetProjectId, targetOrgId)
       setOpen(false)
       setSearch('')
-      window.location.reload()
     } catch (e) {
       console.error('Failed to switch:', e)
     }
@@ -119,17 +119,24 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
 
   // Load projects for all orgs when dropdown opens
   const loadAllProjects = async () => {
-    const { managedPost } = await import('@/lib/api-client')
-    const result: Record<string, Array<{ id: string; name: string }>> = {}
+    const result: Record<string, ProjectInfo[]> = {}
     for (const org of organizations) {
-      if (org.id === (currentOrgId || orgId)) {
-        result[org.id] = projects
+      if (org.id === activeOrgId) {
+        result[org.id] = projects.map((project) => ({ ...project, org_id: project.org_id || org.id }))
       } else {
         try {
-          const data = await managedPost<{ projects: Array<{ id: string; name: string }> }>('/auth/switch-context', { org_id: org.id })
-          result[org.id] = data.projects || []
+          const data = await managedGet<ProjectInfo[]>(
+            '/auth/projects?include_archived=false',
+            {
+              skipManagedContext: true,
+              headers: { 'X-Org-Id': org.id },
+            },
+          )
+          result[org.id] = (data || [])
+            .filter((project) => !project.org_id || project.org_id === org.id)
+            .map((project) => ({ ...project, org_id: project.org_id || org.id }))
         } catch {
-          result[org.id] = [{ id: '', name: 'Default' }]
+          result[org.id] = []
         }
       }
     }
@@ -176,8 +183,8 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
               </div>
             </div>
             <div className="max-h-[360px] overflow-y-auto py-1">
-              {organizations.filter((o) => filterMatch(o.name) || (allOrgProjects[o.id] || []).some((p) => filterMatch(p.name))).map((org, idx) => {
-                const orgPrjs = (allOrgProjects[org.id] || (org.id === (currentOrgId || orgId) ? projects : []))
+              {organizations.filter((o) => filterMatch(o.name) || getProjectsForOrg(o.id).some((p) => filterMatch(p.name))).map((org, idx) => {
+                const orgPrjs = getProjectsForOrg(org.id)
                   .filter((p) => filterMatch(p.name) || filterMatch(org.name))
                 return (
                   <div key={org.id} className={idx > 0 ? 'border-t border-border/50 mt-1 pt-1' : ''}>
@@ -198,7 +205,7 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
                             'flex items-center gap-1.5 pl-6 pr-3 py-1 cursor-pointer hover:bg-accent/50 transition-colors text-xs rounded-sm mx-1',
                             isSelected && 'bg-accent font-medium'
                           )}
-                          onClick={() => project.id && handleSwitchToProject(org.id, project.id)}
+                          onClick={() => project.id && handleSwitchToProject(project.org_id || org.id, project.id)}
                         >
                           <span className="text-muted-foreground/40 text-[11px] w-3 shrink-0">{isLast ? '└' : '├'}</span>
                           <span className="flex-1 truncate">{project.name}</span>
@@ -258,8 +265,8 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
             </div>
           </div>
           <div className="max-h-[360px] overflow-y-auto py-1">
-            {organizations.filter((o) => filterMatch(o.name) || (allOrgProjects[o.id] || []).some((p) => filterMatch(p.name))).map((org, idx) => {
-              const orgPrjs = (allOrgProjects[org.id] || (org.id === (currentOrgId || orgId) ? projects : []))
+            {organizations.filter((o) => filterMatch(o.name) || getProjectsForOrg(o.id).some((p) => filterMatch(p.name))).map((org, idx) => {
+              const orgPrjs = getProjectsForOrg(org.id)
                 .filter((p) => filterMatch(p.name) || filterMatch(org.name))
               return (
                 <div key={org.id} className={idx > 0 ? 'border-t border-border/50 mt-1 pt-1' : ''}>
@@ -280,7 +287,7 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
                           'flex items-center gap-1.5 pl-6 pr-3 py-1.5 cursor-pointer hover:bg-accent/50 transition-colors text-xs rounded-sm mx-1',
                           isSelected && 'bg-accent font-medium'
                         )}
-                        onClick={() => project.id && handleSwitchToProject(org.id, project.id)}
+                        onClick={() => project.id && handleSwitchToProject(project.org_id || org.id, project.id)}
                       >
                         <span className="text-muted-foreground/40 text-[11px] w-3 shrink-0">{isLast ? '└' : '├'}</span>
                         <span className="flex-1 truncate">{project.name}</span>

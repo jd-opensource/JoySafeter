@@ -29,6 +29,7 @@ export const env = createEnv({
   client: {
     // Core Application URLs - Required for frontend functionality
     NEXT_PUBLIC_APP_URL: z.string().url().optional(), // Base URL of the application (e.g., https://www.jd.ai)
+    NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES: z.string().optional(), // Max client-side upload size in bytes
   },
 
   // Variables available on both server and client
@@ -38,6 +39,7 @@ export const env = createEnv({
 
   experimental__runtimeEnv: {
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+    NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES: process.env.NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES,
     NODE_ENV: process.env.NODE_ENV,
   },
 })
