@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from '@/lib/i18n'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { Plus, ExternalLink, X, Check, FileIcon, GitBranch } from 'lucide-react'
+import { Plus, ExternalLink, X, Check, FileIcon, GitBranch, Search } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { managedGet, managedPost } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
@@ -12,7 +12,7 @@ import { FieldHelp } from '@/components/managed/shared'
 import type { Agent, Environment, Vault, FileRecord, PaginatedResponse } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   Dialog,
   DialogContent,
@@ -48,6 +48,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
 
   const [title, setTitle] = useState('')
   const [agentId, setAgentId] = useState('')
+  const [agentSearch, setAgentSearch] = useState('')
   const [envId, setEnvId] = useState('')
   const [selectedVaultIds, setSelectedVaultIds] = useState<string[]>([])
   const [showVaultDropdown, setShowVaultDropdown] = useState(false)
@@ -91,6 +92,37 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   }, [filesResp])
 
   const activeAgents = useMemo(() => agents.filter((a) => !a.archived_at), [agents])
+  // Group the agent dropdown by engine so picking one is less of a flat scroll.
+  // Stable order: Claude Code → Codex → Native → anything else.
+  // Filters by ``agentSearch`` (case-insensitive substring on the agent name
+  // OR the engine label, so typing "claude" narrows to that group).
+  const agentGroups = useMemo(() => {
+    const labelFor = (k?: string | null) => {
+      switch (k) {
+        case 'claude':
+        case 'claude_code':
+          return 'Claude Code'
+        case 'codex':
+          return 'Codex'
+        case 'native':
+          return 'Native'
+        default:
+          return k || 'Other'
+      }
+    }
+    const order = ['Claude Code', 'Codex', 'Native']
+    const q = agentSearch.trim().toLowerCase()
+    const buckets = new Map<string, typeof activeAgents>()
+    for (const a of activeAgents) {
+      const label = labelFor(a.engine_kind)
+      if (q && !a.name.toLowerCase().includes(q) && !label.toLowerCase().includes(q)) continue
+      if (!buckets.has(label)) buckets.set(label, [])
+      buckets.get(label)!.push(a)
+    }
+    return Array.from(buckets.entries()).sort(
+      ([a], [b]) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99),
+    )
+  }, [activeAgents, agentSearch])
   const activeEnvs = useMemo(() => environments.filter((e) => !e.archived_at), [environments])
   const activeVaults = useMemo(() => vaults.filter((v) => !v.archived_at), [vaults])
   const selectedAgent = useMemo(() => activeAgents.find((agent) => agent.id === agentId), [activeAgents, agentId])
@@ -241,11 +273,71 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                 <SelectValue placeholder={t('managed.sessions.create.selectAgent')} />
               </SelectTrigger>
               <SelectContent>
-                {activeAgents.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    {a.name}
-                  </SelectItem>
-                ))}
+                {/* Sticky search box — typing narrows by agent name or engine
+                    label. ``onKeyDown stopPropagation`` keeps Radix from
+                    swallowing letters as its "type to focus" shortcut. */}
+                <div className="sticky top-0 z-10 border-b border-border bg-popover p-2">
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={agentSearch}
+                      onChange={(e) => setAgentSearch(e.target.value)}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      placeholder={t('managed.sessions.create.searchAgent')}
+                      className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-7 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                    {agentSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setAgentSearch('')}
+                        onMouseDown={(e) => e.preventDefault()}
+                        aria-label={t('managed.sessions.create.clearSearch')}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground/60 hover:bg-accent hover:text-foreground"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {agentGroups.length === 0 ? (
+                  <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                    {t('managed.sessions.create.noAgentMatch')}
+                  </div>
+                ) : (
+                  agentGroups.map(([engineLabel, groupAgents], gIdx) => {
+                    // engine-specific accent color, mirrors the org switcher
+                    // tree-grouped look. Order: claude → codex → native → other.
+                    const palette = ['bg-purple-500', 'bg-blue-500', 'bg-emerald-500', 'bg-slate-500']
+                    const dot = palette[gIdx % palette.length]
+                    return (
+                      <SelectGroup key={engineLabel}>
+                        <SelectLabel className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-muted-foreground">
+                          <span className={`inline-flex h-4 w-4 items-center justify-center rounded text-[8px] font-bold text-white ${dot} shrink-0`}>
+                            {engineLabel.charAt(0).toUpperCase()}
+                          </span>
+                          {engineLabel}
+                          <span className="text-[10px] font-normal text-muted-foreground/60">
+                            {t('managed.sessions.create.engineGroupBadge')}
+                          </span>
+                        </SelectLabel>
+                        {groupAgents.map((a, aIdx) => {
+                          const isLast = aIdx === groupAgents.length - 1
+                          return (
+                            <SelectItem key={a.id} value={a.id}>
+                              <span className="flex items-center gap-1.5">
+                                <span className="text-muted-foreground/40 text-[11px] w-3 shrink-0">
+                                  {isLast ? '└' : '├'}
+                                </span>
+                                <span className="truncate">{a.name}</span>
+                              </span>
+                            </SelectItem>
+                          )
+                        })}
+                      </SelectGroup>
+                    )
+                  })
+                )}
               </SelectContent>
             </Select>
           </div>

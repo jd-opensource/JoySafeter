@@ -12,9 +12,15 @@ CODEX_APPROVAL_POLICY_VALUE="${JOYSAFETER_CODEX_APPROVAL_POLICY:-on-request}"
 # Codex's filesystem sandbox tier (separate from JoySafeter's docker isolation).
 # Codex only auto-approves MCP tool calls when ``approval_policy = "never"`` AND
 # ``sandbox_mode ∈ {danger-full-access, external}``. JoySafeter sandboxes are
-# already docker-isolated, so "danger-full-access" is safe in this context.
-# Override via JOYSAFETER_CODEX_SANDBOX_MODE when a stricter tier is required.
-CODEX_SANDBOX_MODE_VALUE="${JOYSAFETER_CODEX_SANDBOX_MODE:-workspace-write}"
+# already docker-isolated + capability-dropped, so layering Codex's own
+# Landlock/seccomp sandbox on top causes endless fork retries inside the
+# container (cap-drop blocks the syscalls Codex needs to create its sandbox),
+# exhausts the per-UID nproc cap, and makes every later fork — including
+# ``bash`` / ``ls`` — fail with EAGAIN. Default to ``danger-full-access``
+# (safe in this context because Docker is already isolating us). Tighten via
+# JOYSAFETER_CODEX_SANDBOX_MODE only if you know Codex's Landlock can coexist
+# with the host cap-drop policy.
+CODEX_SANDBOX_MODE_VALUE="${JOYSAFETER_CODEX_SANDBOX_MODE:-danger-full-access}"
 # Codex multi-agent v2 (spawn_agent / send_message / followup_task).
 # Codex disables multi-agent for fresh threads by default. Honour that default
 # here — set JOYSAFETER_CODEX_MULTI_AGENT=true to opt in to multi-agent support.

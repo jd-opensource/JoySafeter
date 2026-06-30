@@ -129,9 +129,10 @@ pub async fn handle_task(
     // that may have missed SetupSandbox).
     crate::repos::clone_repos(&work_dir, &task.repos).await;
 
-    // Write MCP servers and custom tools to .claude/settings.json (per-task overrides only)
+    // Write MCP servers and custom tools to .claude/settings.json (Claude Code only)
     write_settings_json(
         &work_dir,
+        provider,
         &task.mcp_servers,
         &task.custom_tools,
         &task.allowed_tools,
@@ -441,6 +442,7 @@ pub async fn handle_setup(
     crate::repos::clone_repos(&work_dir, &setup.repos).await;
     write_settings_json(
         &work_dir,
+        &setup.provider,
         &setup.mcp_servers,
         &setup.custom_tools,
         &setup.allowed_tools,
@@ -627,11 +629,21 @@ async fn download_file_refs(
 
 async fn write_settings_json(
     work_dir: &PathBuf,
+    provider: &str,
     mcp_servers: &[proto::McpConfig],
     custom_tools: &[proto::CustomTool],
     allowed_tools: &[String],
     ask_tools: &[String],
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // ``.claude/settings.json`` is consumed only by the Claude Code CLI. Codex
+    // reads ``~/.codex/config.toml`` (merged separately by the codex runtime
+    // adapter) and the native adapter spawns processes directly without any
+    // config file, so writing this file for them just litters the sandbox
+    // workspace with an inert file that misleads operators (e.g. an empty
+    // ``.claude/`` showing up inside a codex sandbox).
+    if !matches!(provider, "claude" | "claude_code") {
+        return Ok(());
+    }
     if mcp_servers.is_empty()
         && custom_tools.is_empty()
         && allowed_tools.is_empty()

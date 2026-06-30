@@ -8,6 +8,7 @@ import { Pencil, ChevronRight, Package, Globe, Play, Sparkles, Archive } from 'l
 import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import { stripIdPrefix } from '@/lib/managed/id'
+import { VersionDiffView } from '@/components/managed/agent/version-diff-view'
 import type { Agent, AgentTool, McpServer, PaginatedResponse, Session } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -248,6 +249,10 @@ function AgentConfig({ agent, versions: apiVersions }: { agent: Agent; versions:
   const { t } = useTranslation()
   const currentVersion = agent.version || 1
   const [selectedVersion, setSelectedVersion] = useState<string>(String(currentVersion))
+  const [compareMode, setCompareMode] = useState(false)
+  const defaultBase = String(Math.max(1, currentVersion - 1))
+  const [baseVersion, setBaseVersion] = useState<string>(defaultBase)
+  const [targetVersion, setTargetVersion] = useState<string>(String(currentVersion))
 
   const allVersions: AgentVersion[] = (() => {
     const result: AgentVersion[] = []
@@ -258,95 +263,152 @@ function AgentConfig({ agent, versions: apiVersions }: { agent: Agent; versions:
     return result
   })()
 
-  const selectedAgent = (() => {
-    const ver = Number(selectedVersion)
+  const resolveAgent = (ver: number): Agent => {
     if (ver === currentVersion) return agent
     const entry = apiVersions.find((v) => v.version === ver)
     return entry ? (entry as AgentVersion & { snapshot?: Agent }).snapshot || agent : agent
-  })()
+  }
+
+  const selectedAgent = resolveAgent(Number(selectedVersion))
+  const baseAgent = resolveAgent(Number(baseVersion))
+  const targetAgent = resolveAgent(Number(targetVersion))
 
   return (
     <div className="space-y-6 mt-4">
-      {/* Version selector */}
-      <section>
-        <Select value={selectedVersion} onValueChange={setSelectedVersion}>
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder={t('managed.agents.detail.selectVersion')}>
-              {t('managed.agents.detail.version')}: v{selectedVersion}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {allVersions.map((v) => (
-              <SelectItem key={v.version} value={String(v.version)}>
-                v{v.version}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </section>
-
-      {/* Engine */}
-      <section>
-        <h3 className="text-sm font-medium text-foreground mb-1">{t('managed.agents.engineKind')}</h3>
-        <p className="text-sm text-muted-foreground font-mono">
-          {selectedAgent.engine_kind
-            ? ENGINE_KIND_LABELS[selectedAgent.engine_kind] || selectedAgent.engine_kind
-            : '-'}
-        </p>
-      </section>
-
-      {/* Model */}
-      <section>
-        <h3 className="text-sm font-medium text-foreground mb-1">{t('managed.agents.model')}</h3>
-        <p className="text-sm text-muted-foreground font-mono">{selectedAgent.model?.id || "-"}</p>
-      </section>
-
-      {/* System prompt */}
-      {(selectedAgent.system || selectedAgent.system_prompt) && (
-        <section>
-          <h3 className="text-sm font-medium text-foreground mb-2">{t('managed.agents.systemPrompt')}</h3>
-          <div className="relative">
-            <pre className="bg-muted p-4 rounded-lg text-xs overflow-x-auto whitespace-pre-wrap font-mono max-h-[300px] overflow-y-auto">
-              {selectedAgent.system || selectedAgent.system_prompt}
-            </pre>
-            <Button
-              variant="outline"
-              size="icon"
-              className="absolute top-2 right-2 h-7 w-7"
-              onClick={() => navigator.clipboard.writeText(selectedAgent.system || selectedAgent.system_prompt || '')}
-              title={t('common.copyAll')}
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-              </svg>
+      {/* Version selector + compare toggle */}
+      <section className="flex items-center gap-3">
+        {compareMode ? (
+          <>
+            <Select value={baseVersion} onValueChange={setBaseVersion}>
+              <SelectTrigger className="flex-1">
+                <SelectValue>
+                  {t('managed.agents.detail.baseVersion')}: v{baseVersion}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {allVersions.map((v) => (
+                  <SelectItem key={v.version} value={String(v.version)}>
+                    v{v.version}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={targetVersion} onValueChange={setTargetVersion}>
+              <SelectTrigger className="flex-1">
+                <SelectValue>
+                  {t('managed.agents.detail.targetVersion')}: v{targetVersion}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {allVersions.map((v) => (
+                  <SelectItem key={v.version} value={String(v.version)}>
+                    v{v.version}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" onClick={() => setCompareMode(false)}>
+              {t('managed.agents.detail.exitCompare')}
             </Button>
-          </div>
-        </section>
-      )}
+          </>
+        ) : (
+          <>
+            <Select value={selectedVersion} onValueChange={setSelectedVersion}>
+              <SelectTrigger className="flex-1">
+                <SelectValue placeholder={t('managed.agents.detail.selectVersion')}>
+                  {t('managed.agents.detail.version')}: v{selectedVersion}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {allVersions.map((v) => (
+                  <SelectItem key={v.version} value={String(v.version)}>
+                    v{v.version}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {currentVersion > 1 && (
+              <Button variant="outline" onClick={() => setCompareMode(true)}>
+                {t('managed.agents.detail.compareMode')}
+              </Button>
+            )}
+          </>
+        )}
+      </section>
 
-      {/* MCPs and tools */}
-      <section>
-        <h3 className="text-sm font-medium text-foreground mb-3">{t('managed.agents.mcpAndTools')}</h3>
-        <div className="space-y-3">
-          {selectedAgent.tools && selectedAgent.tools.map((tool, i) => (
-            <ToolCard key={i} tool={tool} mcpServers={selectedAgent.mcp_servers} />
-          ))}
-          {(!selectedAgent.tools || selectedAgent.tools.length === 0) && (
-            <p className="text-sm text-muted-foreground">{t('managed.agents.noTools')}</p>
+      {compareMode ? (
+        <VersionDiffView
+          base={baseAgent}
+          target={targetAgent}
+          baseVersion={Number(baseVersion)}
+          targetVersion={Number(targetVersion)}
+        />
+      ) : (
+        <>
+          {/* Engine */}
+          <section>
+            <h3 className="text-sm font-medium text-foreground mb-1">{t('managed.agents.engineKind')}</h3>
+            <p className="text-sm text-muted-foreground font-mono">
+              {selectedAgent.engine_kind
+                ? ENGINE_KIND_LABELS[selectedAgent.engine_kind] || selectedAgent.engine_kind
+                : '-'}
+            </p>
+          </section>
+
+          {/* Model */}
+          <section>
+            <h3 className="text-sm font-medium text-foreground mb-1">{t('managed.agents.model')}</h3>
+            <p className="text-sm text-muted-foreground font-mono">{selectedAgent.model?.id || "-"}</p>
+          </section>
+
+          {/* System prompt */}
+          {(selectedAgent.system || selectedAgent.system_prompt) && (
+            <section>
+              <h3 className="text-sm font-medium text-foreground mb-2">{t('managed.agents.systemPrompt')}</h3>
+              <div className="relative">
+                <pre className="bg-muted p-4 rounded-lg text-xs overflow-x-auto whitespace-pre-wrap font-mono max-h-[300px] overflow-y-auto">
+                  {selectedAgent.system || selectedAgent.system_prompt}
+                </pre>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="absolute top-2 right-2 h-7 w-7"
+                  onClick={() => navigator.clipboard.writeText(selectedAgent.system || selectedAgent.system_prompt || '')}
+                  title={t('common.copyAll')}
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                  </svg>
+                </Button>
+              </div>
+            </section>
           )}
-        </div>
-      </section>
 
-      {/* Skills */}
-      <section>
-        <h3 className="text-sm font-medium text-foreground mb-1">{t('managed.agents.skills')}</h3>
-        <p className="text-sm text-muted-foreground">
-          {selectedAgent.skills && selectedAgent.skills.length > 0
-            ? t('managed.agents.skillsCount', { count: selectedAgent.skills.length })
-            : t('managed.agents.noSkills')}
-        </p>
-      </section>
+          {/* MCPs and tools */}
+          <section>
+            <h3 className="text-sm font-medium text-foreground mb-3">{t('managed.agents.mcpAndTools')}</h3>
+            <div className="space-y-3">
+              {selectedAgent.tools && selectedAgent.tools.map((tool, i) => (
+                <ToolCard key={i} tool={tool} mcpServers={selectedAgent.mcp_servers} />
+              ))}
+              {(!selectedAgent.tools || selectedAgent.tools.length === 0) && (
+                <p className="text-sm text-muted-foreground">{t('managed.agents.noTools')}</p>
+              )}
+            </div>
+          </section>
+
+          {/* Skills */}
+          <section>
+            <h3 className="text-sm font-medium text-foreground mb-1">{t('managed.agents.skills')}</h3>
+            <p className="text-sm text-muted-foreground">
+              {selectedAgent.skills && selectedAgent.skills.length > 0
+                ? t('managed.agents.skillsCount', { count: selectedAgent.skills.length })
+                : t('managed.agents.noSkills')}
+            </p>
+          </section>
+        </>
+      )}
     </div>
   )
 }

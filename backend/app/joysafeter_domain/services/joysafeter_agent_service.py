@@ -162,45 +162,52 @@ class JoySafeterAgentService:
         if req.name is not None and req.name != agent.name:
             agent.name = req.name
             changed = True
-        if req.engine_kind is not None:
+        if req.engine_kind is not None and req.engine_kind.value != agent.engine_kind:
             agent.engine_kind = req.engine_kind.value
             changed = True
         if req.model is not None:
             model_data = req.model if isinstance(req.model, dict) else req.model.model_dump()
-            agent.model = model_data
-            changed = True
-        if req.system is not None:
+            if model_data != agent.model:
+                agent.model = model_data
+                changed = True
+        if req.system is not None and req.system != agent.system_prompt:
             agent.system_prompt = req.system
             changed = True
-        if req.description is not None:
+        if req.description is not None and req.description != agent.description:
             agent.description = req.description
             changed = True
-        if req.metadata is not None:
+        if req.metadata is not None and req.metadata != agent.metadata_:
             agent.metadata_ = req.metadata
             changed = True
-        if req.env is not None:
+        if req.env is not None and req.env != agent.env:
             agent.env = req.env
             changed = True
         if req.mcp_servers is not None:
-            agent.mcp_configs = [s.model_dump() for s in req.mcp_servers]
-            changed = True
+            new_mcp = [s.model_dump() for s in req.mcp_servers]
+            if new_mcp != agent.mcp_configs:
+                agent.mcp_configs = new_mcp
+                changed = True
         if req.skills is not None or req.agents is not None or req.commands is not None:
             cur_skills, cur_agents, cur_commands = _split_packed_items(agent.skills or [])
             new_skills = req.skills if req.skills is not None else cur_skills
             new_agents = req.agents if req.agents is not None else cur_agents
             new_commands = req.commands if req.commands is not None else cur_commands
-            agent.skills = _merge_packed_items(new_skills, new_agents, new_commands)
-            changed = True
+            merged = _merge_packed_items(new_skills, new_agents, new_commands)
+            if merged != (agent.skills or []):
+                agent.skills = merged
+                changed = True
         if req.tools is not None:
-            agent.tools = [t.model_dump() for t in req.tools]
-            changed = True
-        if req.multiagent is not None:
+            new_tools = [t.model_dump() for t in req.tools]
+            if new_tools != agent.tools:
+                agent.tools = new_tools
+                changed = True
+        if req.multiagent is not None and req.multiagent != agent.multiagent:
             agent.multiagent = req.multiagent
             changed = True
-        if req.environment_ref is not None:
+        if req.environment_ref is not None and req.environment_ref != agent.environment_ref:
             agent.environment_ref = req.environment_ref
             changed = True
-        if req.secret_ref is not None:
+        if req.secret_ref is not None and req.secret_ref != agent.secret_ref:
             agent.secret_ref = req.secret_ref
             changed = True
 

@@ -47,7 +47,7 @@ const defaultConfig = { variant: 'outline' as const }
 
 const statusI18nKeys: Record<string, string> = {
   active: 'common.active',
-  running: 'sessions.agentRunning',
+  running: 'managed.sessions.agentRunning',
   idle: 'common.idle',
   terminated: 'common.terminated',
   archived: 'common.archived',
