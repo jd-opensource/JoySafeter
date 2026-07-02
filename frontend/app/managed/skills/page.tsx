@@ -33,10 +33,7 @@ import {
 } from 'lucide-react'
 import { managedGet, managedPost, managedPut, managedDelete, managedUpload } from '@/lib/api-client'
 import { diffSkillVersionFiles } from '@/lib/managed/skill-version-diff'
-import {
-  SkillVersionDiffView,
-  type DiffViewMode,
-} from '@/components/managed/skills/skill-version-diff'
+import { SkillVersionDiffView, type DiffViewMode } from '@/components/managed/skills/skill-version-diff'
 import type {
   SkillRecord,
   SkillFileRecord,
@@ -45,13 +42,7 @@ import type {
 } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
@@ -172,7 +163,13 @@ const FILE_TYPE_EXT: Record<string, string> = {
   shell: '.sh',
 }
 
-function SkillScanProgressNotice({ title, description }: { title: string; description: string }) {
+function SkillScanProgressNotice({
+  title,
+  description,
+}: {
+  title: string
+  description: string
+}) {
   return (
     <div className="mb-4 flex items-start gap-3 rounded-md border border-border bg-muted/35 px-4 py-3">
       <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary" />
@@ -291,9 +288,7 @@ const SECURITY_ISSUE_SEVERITY_ORDER: Record<string, number> = {
   INFORMATIONAL: 4,
 }
 
-function getSecurityIssueSeverityDistribution(
-  scan: SkillSecurityScanRecord,
-): Array<{ severity: string; count: number }> {
+function getSecurityIssueSeverityDistribution(scan: SkillSecurityScanRecord): Array<{ severity: string; count: number }> {
   return [
     { severity: 'CRITICAL', count: scan.critical_count },
     { severity: 'HIGH', count: scan.high_count },
@@ -302,9 +297,7 @@ function getSecurityIssueSeverityDistribution(
   ]
 }
 
-function getRawScannerRisk(
-  scan: SkillSecurityScanRecord,
-): { score: number | null; severity: string | null; recommendation: string | null } | null {
+function getRawScannerRisk(scan: SkillSecurityScanRecord): { score: number | null; severity: string | null; recommendation: string | null } | null {
   const report = scan.report
   if (!isRecord(report)) return null
 
@@ -350,9 +343,7 @@ function getSecurityIssues(scan: SkillSecurityScanRecord): SecurityIssueView[] {
   return report.issues
     .filter(isRecord)
     .map((issue, index) => {
-      const severity = (
-        readString(issue, ['severity', 'level', 'risk', 'priority']) || 'UNKNOWN'
-      ).toUpperCase()
+      const severity = (readString(issue, ['severity', 'level', 'risk', 'priority']) || 'UNKNOWN').toUpperCase()
       const id = readString(issue, ['id', 'rule_id', 'ruleId', 'code'])
       const pattern = readString(issue, ['pattern', 'rule', 'title', 'name'])
       const category = readString(issue, ['category', 'type'])
@@ -385,7 +376,9 @@ function getSecurityIssues(scan: SkillSecurityScanRecord): SecurityIssueView[] {
 
 /** Drag payload for a move. A file carries its real id; a folder carries its
  * ``fullPath`` (trailing ``/``). ``path`` on a file is its directory. */
-type MoveSource = { kind: 'file'; id: string; path: string } | { kind: 'folder'; path: string }
+type MoveSource =
+  | { kind: 'file'; id: string; path: string }
+  | { kind: 'folder'; path: string }
 
 interface TreeNode {
   name: string
@@ -468,11 +461,7 @@ function FileTreeNode({
             ? (e) => {
                 e.dataTransfer.setData(
                   'text/plain',
-                  JSON.stringify({
-                    kind: 'file',
-                    id: node.file!.id,
-                    path: node.file!.path,
-                  } as MoveSource),
+                  JSON.stringify({ kind: 'file', id: node.file!.id, path: node.file!.path } as MoveSource),
                 )
                 e.dataTransfer.effectAllowed = 'move'
               }
@@ -548,7 +537,11 @@ function FileTreeNode({
         }`}
         style={{ paddingLeft }}
       >
-        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        {open ? (
+          <ChevronDown className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5" />
+        )}
         <FolderOpen className="h-4 w-4" />
         <span className="ml-1 flex-1">{node.name}/</span>
         <button
@@ -739,9 +732,7 @@ function SkillEditor({
   onDeleteVersion: (
     version: string,
     force?: boolean,
-  ) => Promise<
-    { ok: true } | { ok: false; referrers: Array<Record<string, unknown>>; hint?: string }
-  >
+  ) => Promise<{ ok: true } | { ok: false; referrers: Array<Record<string, unknown>>; hint?: string }>
   isCreatingVersion: boolean
   editorTab: 'editor' | 'metadata' | 'versions'
   setEditorTab: (tab: 'editor' | 'metadata' | 'versions') => void
@@ -811,7 +802,9 @@ function SkillEditor({
           <TabsList>
             <TabsTrigger value="editor">{t('managed.skills.editor')}</TabsTrigger>
             <TabsTrigger value="metadata">{t('managed.skills.metadata')}</TabsTrigger>
-            <TabsTrigger value="versions">{t('managed.skills.versionHistory')}</TabsTrigger>
+            <TabsTrigger value="versions">
+              {t('managed.skills.versionHistory')}
+            </TabsTrigger>
           </TabsList>
         </div>
       </Tabs>
@@ -823,8 +816,7 @@ function SkillEditor({
             <div className="flex h-full min-h-0 flex-col overflow-hidden">
               <div className="shrink-0 border-b border-border bg-muted/10 px-4 py-2 text-xs text-muted-foreground">
                 <FileText className="mr-1 inline h-3 w-3" />
-                {selectedFile.path}
-                {selectedFile.file_name}
+                {selectedFile.path}{selectedFile.file_name}
               </div>
               <div className="min-h-0 flex-1 overflow-hidden">
                 <SkillCodeEditor
@@ -886,7 +878,9 @@ function SkillEditor({
                   <div className="h-full overflow-y-auto bg-background p-6">
                     {form.content ? (
                       <div className="prose prose-sm max-w-none dark:prose-invert">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{form.content}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {form.content}
+                        </ReactMarkdown>
                       </div>
                     ) : (
                       <p className="text-sm italic text-muted-foreground">
@@ -933,7 +927,9 @@ function SkillEditor({
                 </label>
                 <Input
                   value={form.license}
-                  onChange={(e) => setForm({ ...form, license: e.target.value })}
+                  onChange={(e) =>
+                    setForm({ ...form, license: e.target.value })
+                  }
                   placeholder="MIT"
                   className="h-8 text-sm"
                 />
@@ -962,21 +958,10 @@ function SkillEditor({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="private" title={t('managed.skills.visibility.privateHint')}>
-                      {t('managed.skills.visibility.private')}
-                    </SelectItem>
-                    <SelectItem value="project" title={t('managed.skills.visibility.projectHint')}>
-                      {t('managed.skills.visibility.project')}
-                    </SelectItem>
-                    <SelectItem
-                      value="organization"
-                      title={t('managed.skills.visibility.organizationHint')}
-                    >
-                      {t('managed.skills.visibility.organization')}
-                    </SelectItem>
-                    <SelectItem value="public" title={t('managed.skills.visibility.publicHint')}>
-                      {t('managed.skills.visibility.public')}
-                    </SelectItem>
+                    <SelectItem value="private" title={t('managed.skills.visibility.privateHint')}>{t('managed.skills.visibility.private')}</SelectItem>
+                    <SelectItem value="project" title={t('managed.skills.visibility.projectHint')}>{t('managed.skills.visibility.project')}</SelectItem>
+                    <SelectItem value="organization" title={t('managed.skills.visibility.organizationHint')}>{t('managed.skills.visibility.organization')}</SelectItem>
+                    <SelectItem value="public" title={t('managed.skills.visibility.publicHint')}>{t('managed.skills.visibility.public')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1037,13 +1022,9 @@ function SkillEditor({
                   {t('managed.skills.diffBackToVersions')}
                 </button>
                 <div className="flex items-center gap-2 font-mono text-sm">
-                  <span className="rounded bg-muted px-1.5 py-0.5">
-                    {formatVersion(diffTarget.fromVersion)}
-                  </span>
+                  <span className="rounded bg-muted px-1.5 py-0.5">{formatVersion(diffTarget.fromVersion)}</span>
                   <span className="text-muted-foreground">→</span>
-                  <span className="rounded bg-muted px-1.5 py-0.5">
-                    {formatVersion(diffTarget.toVersion)}
-                  </span>
+                  <span className="rounded bg-muted px-1.5 py-0.5">{formatVersion(diffTarget.toVersion)}</span>
                 </div>
                 {/* Unified / Split toggle */}
                 <div className="ml-auto flex items-center gap-px rounded-md bg-muted p-0.5">
@@ -1076,17 +1057,11 @@ function SkillEditor({
                   {/* Summary bar */}
                   <div className="mb-2.5 flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-1.5 font-mono text-xs">
                     <span className="text-muted-foreground">
-                      {t('managed.skills.versionDiffFilesChanged', {
-                        count: versionDiff.changedCount,
-                      })}
+                      {t('managed.skills.versionDiffFilesChanged', { count: versionDiff.changedCount })}
                     </span>
                     <span className="ml-auto flex items-center gap-2">
-                      <span className="text-green-600 dark:text-green-400">
-                        +{versionDiff.totalAdded}
-                      </span>
-                      <span className="text-red-600 dark:text-red-400">
-                        −{versionDiff.totalRemoved}
-                      </span>
+                      <span className="text-green-600 dark:text-green-400">+{versionDiff.totalAdded}</span>
+                      <span className="text-red-600 dark:text-red-400">−{versionDiff.totalRemoved}</span>
                     </span>
                   </div>
                   <SkillVersionDiffView diff={versionDiff} mode={diffMode} />
@@ -1094,109 +1069,111 @@ function SkillEditor({
               ) : null}
             </div>
           ) : (
-            <div className="max-w-4xl">
-              {versions.length > 0 && (
-                <div className="mb-3 flex items-center gap-2">
-                  <History className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium text-foreground">
-                    {t('managed.skills.versionHistory')}
-                  </span>
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                    {versions.length}
-                  </span>
-                </div>
-              )}
+          <div className="max-w-4xl">
+            {versions.length > 0 && (
+              <div className="mb-3 flex items-center gap-2">
+                <History className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium text-foreground">
+                  {t('managed.skills.versionHistory')}
+                </span>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  {versions.length}
+                </span>
+              </div>
+            )}
 
-              {versions.length === 0 ? (
-                <div className="flex flex-col items-center gap-2 py-16 text-center">
-                  <History className="h-8 w-8 text-muted-foreground/30" />
-                  <p className="text-sm text-muted-foreground">{t('managed.skills.noVersions')}</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {versions.map((v, idx) => (
-                    <div key={v.id} className="flex gap-3">
-                      {/* Time column — the timeline axis */}
-                      <div className="w-24 shrink-0 pt-[13px] text-right leading-tight">
-                        <div className="text-xs font-medium text-foreground/80">
-                          {timelineDateParts(v.created_at, i18n.language).date}
-                        </div>
-                        <div className="text-[11px] tabular-nums text-muted-foreground/60">
-                          {timelineDateParts(v.created_at, i18n.language).time}
-                        </div>
+            {versions.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-16 text-center">
+                <History className="h-8 w-8 text-muted-foreground/30" />
+                <p className="text-sm text-muted-foreground">
+                  {t('managed.skills.noVersions')}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {versions.map((v, idx) => (
+                  <div key={v.id} className="flex gap-3">
+                    {/* Time column — the timeline axis */}
+                    <div className="w-24 shrink-0 pt-[13px] text-right leading-tight">
+                      <div className="text-xs font-medium text-foreground/80">
+                        {timelineDateParts(v.created_at, i18n.language).date}
                       </div>
-                      {/* Rail + node */}
-                      <div className="relative flex w-3 shrink-0 justify-center">
-                        {idx < versions.length - 1 && (
-                          <span className="absolute bottom-[-12px] top-6 w-px bg-border" />
-                        )}
-                        <span
-                          className={`absolute top-[15px] flex h-3.5 w-3.5 items-center justify-center rounded-full ring-4 ring-background ${
-                            idx === 0 ? 'bg-primary' : 'bg-muted-foreground/30'
-                          }`}
-                        >
-                          {idx === 0 && <span className="h-1.5 w-1.5 rounded-full bg-background" />}
-                        </span>
-                      </div>
-                      {/* Content card */}
-                      <div
-                        className={`group relative min-w-0 flex-1 overflow-hidden rounded-xl border bg-card p-4 transition-all hover:shadow-md ${
-                          idx === 0
-                            ? 'border-primary/40 bg-gradient-to-br from-primary/[0.04] to-transparent'
-                            : 'border-border/60 hover:border-border'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="flex min-w-0 items-center gap-2.5">
-                            <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 font-mono text-sm font-semibold text-foreground">
-                              {formatVersion(v.version)}
-                            </span>
-                            {idx === 0 && (
-                              <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                                latest
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex shrink-0 items-center gap-2">
-                            {idx < versions.length - 1 && (
-                              <button
-                                type="button"
-                                aria-label={t('managed.skills.compareWithPrevious')}
-                                title={t('managed.skills.compareWithPrevious')}
-                                onClick={() =>
-                                  setDiffTarget({
-                                    fromVersion: versions[idx + 1].version,
-                                    toVersion: v.version,
-                                  })
-                                }
-                                className="border-border/60 flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
-                              >
-                                <GitCompare className="h-3.5 w-3.5" />
-                                {t('managed.skills.compareWithPrevious')}
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              aria-label={t('managed.skills.deleteVersion', 'Delete version')}
-                              title={t('managed.skills.deleteVersion', 'Delete version')}
-                              onClick={() => setDeleteState({ version: v.version })}
-                              className="rounded-md p-1.5 text-muted-foreground/50 opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
-                        {v.release_notes && (
-                          <p className="border-border/50 mt-2.5 whitespace-pre-wrap border-l-2 pl-3 text-sm text-muted-foreground">
-                            {v.release_notes}
-                          </p>
-                        )}
+                      <div className="text-[11px] tabular-nums text-muted-foreground/60">
+                        {timelineDateParts(v.created_at, i18n.language).time}
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                    {/* Rail + node */}
+                    <div className="relative flex w-3 shrink-0 justify-center">
+                      {idx < versions.length - 1 && (
+                        <span className="absolute top-6 bottom-[-12px] w-px bg-border" />
+                      )}
+                      <span
+                        className={`absolute top-[15px] flex h-3.5 w-3.5 items-center justify-center rounded-full ring-4 ring-background ${
+                          idx === 0 ? 'bg-primary' : 'bg-muted-foreground/30'
+                        }`}
+                      >
+                        {idx === 0 && <span className="h-1.5 w-1.5 rounded-full bg-background" />}
+                      </span>
+                    </div>
+                    {/* Content card */}
+                    <div
+                      className={`group relative min-w-0 flex-1 overflow-hidden rounded-xl border bg-card p-4 transition-all hover:shadow-md ${
+                        idx === 0
+                          ? 'border-primary/40 bg-gradient-to-br from-primary/[0.04] to-transparent'
+                          : 'border-border/60 hover:border-border'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 font-mono text-sm font-semibold text-foreground">
+                            {formatVersion(v.version)}
+                          </span>
+                          {idx === 0 && (
+                            <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                              latest
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          {idx < versions.length - 1 && (
+                            <button
+                              type="button"
+                              aria-label={t('managed.skills.compareWithPrevious')}
+                              title={t('managed.skills.compareWithPrevious')}
+                              onClick={() =>
+                                setDiffTarget({
+                                  fromVersion: versions[idx + 1].version,
+                                  toVersion: v.version,
+                                })
+                              }
+                              className="flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                            >
+                              <GitCompare className="h-3.5 w-3.5" />
+                              {t('managed.skills.compareWithPrevious')}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            aria-label={t('managed.skills.deleteVersion', 'Delete version')}
+                            title={t('managed.skills.deleteVersion', 'Delete version')}
+                            onClick={() => setDeleteState({ version: v.version })}
+                            className="rounded-md p-1.5 text-muted-foreground/50 opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                      {v.release_notes && (
+                        <p className="mt-2.5 whitespace-pre-wrap border-l-2 border-border/50 pl-3 text-sm text-muted-foreground">
+                          {v.release_notes}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           )}
         </div>
       )}
@@ -1266,7 +1243,10 @@ function SkillEditor({
                               'Current highest: v{{v}}. New version must be greater.',
                               { v: highest },
                             )
-                          : t('managed.skills.versionFirstHint', 'Leave empty to start at v0.1.0.')}
+                          : t(
+                              'managed.skills.versionFirstHint',
+                              'Leave empty to start at v0.1.0.',
+                            )}
                     </div>
                   </div>
                   <textarea
@@ -1385,6 +1365,7 @@ function SkillEditor({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
     </div>
   )
 }
@@ -1414,7 +1395,9 @@ export default function SkillManagerPage() {
   const [newFileType, setNewFileType] = useState('text')
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [deleteFileTarget, setDeleteFileTarget] = useState<string | null>(null)
-  const [deleteFolderTarget, setDeleteFolderTarget] = useState<string | null>(null)
+  const [deleteFolderTarget, setDeleteFolderTarget] = useState<string | null>(
+    null,
+  )
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [showSecurityHistoryDialog, setShowSecurityHistoryDialog] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -1463,13 +1446,10 @@ export default function SkillManagerPage() {
     setPageSize,
   } = usePaginatedList<SkillRecord>({ queryKey: 'skills', path: '/skills' })
 
-  const {
-    data: selectedSkill,
-    isError: selectedSkillIsError,
-    error: selectedSkillError,
-  } = useQuery({
+  const { data: selectedSkill, isError: selectedSkillIsError, error: selectedSkillError } = useQuery({
     queryKey: ['skill', selectedSkillId],
-    queryFn: () => managedGet<SkillRecord>(`/skills/${stripId(selectedSkillId!)}`),
+    queryFn: () =>
+      managedGet<SkillRecord>(`/skills/${stripId(selectedSkillId!)}`),
     enabled: !!selectedSkillId,
     // While a security scan is running in the background (rescan dispatches
     // async because LLM analysis is slow), poll the skill so the security
@@ -1537,7 +1517,9 @@ export default function SkillManagerPage() {
   // -- Load skill into form --
 
   const loadSkillIntoForm = useCallback((skill: SkillRecord) => {
-    const tagsStr = Array.isArray(skill.tags) ? (skill.tags as string[]).join(', ') : ''
+    const tagsStr = Array.isArray(skill.tags)
+      ? (skill.tags as string[]).join(', ')
+      : ''
     const newForm: SkillFormState = {
       name: skill.name || '',
       description: skill.description || '',
@@ -1554,7 +1536,11 @@ export default function SkillManagerPage() {
   }, [])
 
   const prevSkillRef = useState<string | null>(null)
-  if (selectedSkill && selectedSkillId && prevSkillRef[0] !== selectedSkillId) {
+  if (
+    selectedSkill &&
+    selectedSkillId &&
+    prevSkillRef[0] !== selectedSkillId
+  ) {
     prevSkillRef[1](selectedSkillId)
     loadSkillIntoForm(selectedSkill)
   }
@@ -1720,7 +1706,8 @@ export default function SkillManagerPage() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => managedDelete(`/skills/${stripId(id)}`),
+    mutationFn: (id: string) =>
+      managedDelete(`/skills/${stripId(id)}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['skills'] })
       if (selectedSkillId === deleteTarget) {
@@ -1751,9 +1738,13 @@ export default function SkillManagerPage() {
       let name: string
 
       if (mode === 'folder') {
-        const depth = cleanDir ? cleanDir.split('/').filter(Boolean).length + 1 : 1
+        const depth = cleanDir
+          ? cleanDir.split('/').filter(Boolean).length + 1
+          : 1
         if (depth > MAX_FOLDER_DEPTH) {
-          return Promise.reject(new Error(`Folder nesting limited to ${MAX_FOLDER_DEPTH} levels`))
+          return Promise.reject(
+            new Error(`Folder nesting limited to ${MAX_FOLDER_DEPTH} levels`),
+          )
         }
         path = cleanDir ? `${cleanDir}/${fileName}/` : `${fileName}/`
         name = '.gitkeep'
@@ -1827,7 +1818,9 @@ export default function SkillManagerPage() {
 
   const deleteFileMutation = useMutation({
     mutationFn: (fileId: string) =>
-      managedDelete(`/skills/${stripId(selectedSkillId!)}/files/${stripId(fileId)}`),
+      managedDelete(
+        `/skills/${stripId(selectedSkillId!)}/files/${stripId(fileId)}`,
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ['skill-files', selectedSkillId],
@@ -1851,10 +1844,14 @@ export default function SkillManagerPage() {
 
   const deleteFolderMutation = useMutation({
     mutationFn: (folderPath: string) => {
-      const filesToDelete = skillFiles.filter((f) => f.path.startsWith(folderPath))
+      const filesToDelete = skillFiles.filter((f) =>
+        f.path.startsWith(folderPath),
+      )
       return Promise.all(
         filesToDelete.map((f) =>
-          managedDelete(`/skills/${stripId(selectedSkillId!)}/files/${stripId(f.id)}`),
+          managedDelete(
+            `/skills/${stripId(selectedSkillId!)}/files/${stripId(f.id)}`,
+          ),
         ),
       )
     },
@@ -1873,7 +1870,9 @@ export default function SkillManagerPage() {
       if (
         folderPath &&
         selectedFileId &&
-        skillFiles.find((f) => f.id === selectedFileId && f.path.startsWith(folderPath))
+        skillFiles.find(
+          (f) => f.id === selectedFileId && f.path.startsWith(folderPath),
+        )
       ) {
         setSelectedFileId(null)
       }
@@ -1944,10 +1943,7 @@ export default function SkillManagerPage() {
       queryClient.invalidateQueries({ queryKey: ['skill-security-scans', selectedSkillId] })
     },
     onError: (error) => {
-      if (
-        error instanceof Error &&
-        (error.message === 'MOVE_CONFLICT' || error.message === 'MOVE_INTO_SELF')
-      ) {
+      if (error instanceof Error && (error.message === 'MOVE_CONFLICT' || error.message === 'MOVE_INTO_SELF')) {
         toast({ title: t('managed.skills.moveConflict'), variant: 'destructive' })
         return
       }
@@ -1957,13 +1953,16 @@ export default function SkillManagerPage() {
 
   const createVersionMutation = useMutation({
     mutationFn: ({ releaseNotes, version }: { releaseNotes: string; version?: string }) =>
-      managedPost<SkillVersionRecord>(`/skills/${stripId(selectedSkillId!)}/versions`, {
-        name: form.name,
-        description: form.description,
-        content: form.content,
-        release_notes: releaseNotes,
-        ...(version ? { version } : {}),
-      }),
+      managedPost<SkillVersionRecord>(
+        `/skills/${stripId(selectedSkillId!)}/versions`,
+        {
+          name: form.name,
+          description: form.description,
+          content: form.content,
+          release_notes: releaseNotes,
+          ...(version ? { version } : {}),
+        },
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ['skill-versions', selectedSkillId],
@@ -1977,10 +1976,7 @@ export default function SkillManagerPage() {
   /** Delete a published skill version. Returns 409-payload referrers on conflict
    * so the dialog can offer a force retry; throws on any other error. */
   const deleteVersion = useCallback(
-    async (
-      version: string,
-      force = false,
-    ): Promise<
+    async (version: string, force = false): Promise<
       { ok: true } | { ok: false; referrers: Array<Record<string, unknown>>; hint?: string }
     > => {
       try {
@@ -1993,11 +1989,7 @@ export default function SkillManagerPage() {
         return { ok: true }
       } catch (e) {
         // 409 with referrer list → caller shows a force-confirm UI.
-        const err = e as {
-          status?: number
-          code?: string
-          data?: { referrers?: unknown[]; hint?: string }
-        }
+        const err = e as { status?: number; code?: string; data?: { referrers?: unknown[]; hint?: string } }
         if (err?.status === 409 && err?.code === 'SKILL_VERSION_IN_USE') {
           return {
             ok: false,
@@ -2114,38 +2106,25 @@ export default function SkillManagerPage() {
   // -- Render --
 
   if (skillsIsError) {
-    return (
-      <ResourceErrorState
-        error={skillsError}
-        resource="skill"
-        onRetry={() => queryClient.invalidateQueries({ queryKey: ['skills'] })}
-      />
-    )
+    return <ResourceErrorState error={skillsError} resource="skill" onRetry={() => queryClient.invalidateQueries({ queryKey: ['skills'] })} />
   }
 
   if (selectedSkillIsError) {
-    return (
-      <ResourceErrorState
-        error={selectedSkillError}
-        resource="skill"
-        onRetry={() => queryClient.invalidateQueries({ queryKey: ['skill', selectedSkillId] })}
-      />
-    )
+    return <ResourceErrorState error={selectedSkillError} resource="skill" onRetry={() => queryClient.invalidateQueries({ queryKey: ['skill', selectedSkillId] })} />
   }
 
   if (!selectedSkill) {
     // -- List Homepage (consistent with other pages) --
-    const filteredSkills = skills.filter(
-      (s) =>
-        filterByCreatedTime(s.created_at, createdFilter) &&
-        matchesSearch(searchQuery, [
-          s.id,
-          s.name,
-          s.description,
-          s.license,
-          s.is_public ? 'public' : 'private',
-          ...skillSecuritySearchTerms(s),
-        ]),
+    const filteredSkills = skills.filter((s) =>
+      filterByCreatedTime(s.created_at, createdFilter) &&
+      matchesSearch(searchQuery, [
+        s.id,
+        s.name,
+        s.description,
+        s.license,
+        s.is_public ? 'public' : 'private',
+        ...skillSecuritySearchTerms(s),
+      ]),
     )
 
     const filters: FilterDef[] = [
@@ -2160,37 +2139,47 @@ export default function SkillManagerPage() {
       {
         key: 'id',
         header: t('managed.table.id'),
-        width: '12%',
+        width: '10%',
         render: (s) => <MonoId id={s.id} />,
       },
       {
         key: 'name',
         header: t('managed.table.name'),
-        width: '14%',
-        render: (s) => <span className="font-medium text-foreground">{s.name}</span>,
+        width: '12%',
+        render: (s) => (
+          <span className="font-medium text-foreground">{s.name}</span>
+        ),
       },
       {
         key: 'description',
         header: t('managed.skills.description'),
-        width: '18%',
+        width: '16%',
         render: (s) => (
-          <span className="block truncate text-muted-foreground">{s.description || '-'}</span>
+          <span className="block truncate text-muted-foreground">
+            {s.description || '-'}
+          </span>
         ),
-      },
-      {
-        key: 'license',
-        header: t('managed.skills.license'),
-        width: '13%',
-        render: (s) => <span className="text-muted-foreground">{s.license || '-'}</span>,
       },
       {
         key: 'status',
         header: t('managed.table.status'),
-        width: '14%',
+        width: '24%',
         render: (s) => (
-          <div className="flex flex-wrap items-center gap-1">
+          <div className="flex flex-nowrap items-center gap-1 whitespace-nowrap">
             <SkillLifecycleBadge status={s.lifecycle_status} />
-            <SkillVisibilityBadge visibility={s.visibility} isPublic={s.is_public} />
+            <SkillVisibilityBadge
+              visibility={s.visibility}
+              isPublic={s.is_public}
+            />
+            {s.latest_version ? (
+              <span className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300">
+                {t('managed.skills.published')} v{s.latest_version}
+              </span>
+            ) : (
+              <span className="inline-flex items-center whitespace-nowrap rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                {t('managed.skills.unpublished')}
+              </span>
+            )}
           </div>
         ),
       },
@@ -2211,9 +2200,9 @@ export default function SkillManagerPage() {
       {
         key: 'updated_at',
         header: t('managed.table.lastUpdated'),
-        width: '9%',
+        width: '10%',
         render: (s) => (
-          <span className="text-xs text-muted-foreground">
+          <span className="text-muted-foreground text-xs">
             <RelativeTime date={s.updated_at} />
           </span>
         ),
@@ -2237,7 +2226,9 @@ export default function SkillManagerPage() {
                 ) : (
                   <Upload className="h-4 w-4" strokeWidth={2.25} />
                 )}
-                {isImporting ? t('managed.skills.importingSkill') : t('managed.skills.importSkill')}
+                {isImporting
+                  ? t('managed.skills.importingSkill')
+                  : t('managed.skills.importSkill')}
               </Button>
               <Button
                 className="h-10 gap-2 px-4 text-sm font-medium leading-none"
@@ -2280,7 +2271,9 @@ export default function SkillManagerPage() {
           onSearchChange={setSearchQuery}
           onSearch={(id) => {
             const match = skills.find(
-              (s) => s.id.includes(id) || s.name.toLowerCase().includes(id.toLowerCase()),
+              (s) =>
+                s.id.includes(id) ||
+                s.name.toLowerCase().includes(id.toLowerCase()),
             )
             if (match) handleSelectSkill(match.id)
           }}
@@ -2375,7 +2368,9 @@ export default function SkillManagerPage() {
           description={t('managed.skills.deleteConfirm')}
           confirmLabel={t('managed.skills.deleteSkill')}
           destructive
-          onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget)}
+          onConfirm={() =>
+            deleteTarget && deleteMutation.mutate(deleteTarget)
+          }
           onCancel={() => setDeleteTarget(null)}
         />
       </div>
@@ -2401,12 +2396,12 @@ export default function SkillManagerPage() {
   }
 
   return (
-    <div className="-m-5 flex h-screen flex-col px-6 py-5">
+    <div className="flex h-screen flex-col px-6 py-5 -m-5">
       <div className="shrink-0">
         <PageHeader
           title={selectedSkill.name}
-          titleExtra={
-            <div className="flex flex-wrap items-center gap-2">
+          titleExtra={(
+            <div className="flex items-center gap-2 flex-wrap">
               {/* Visibility is shown here as a read-only badge. Editing it
                   lives in the Metadata form (SkillEditor), so the header
                   stays a status snapshot rather than a control surface. */}
@@ -2415,7 +2410,7 @@ export default function SkillManagerPage() {
                 <SkillRiskScoreBadge score={selectedSecurityScore} />
               )}
             </div>
-          }
+          )}
           breadcrumb={[
             {
               label: t('managed.skills.title'),
@@ -2423,7 +2418,7 @@ export default function SkillManagerPage() {
             },
             { label: selectedSkill.name },
           ]}
-          action={
+          action={(
             <div className="flex items-center gap-3">
               {savedFlash && (
                 <span className="flex items-center gap-1 text-xs text-green-600">
@@ -2436,7 +2431,10 @@ export default function SkillManagerPage() {
               <SkillLifecycleActions
                 skillId={selectedSkill.id}
                 currentStatus={selectedSkill.lifecycle_status}
-                invalidateKeys={[['skill', selectedSkillId], ['skills']]}
+                invalidateKeys={[
+                  ['skill', selectedSkillId],
+                  ['skills'],
+                ]}
               />
               <Button
                 variant="outline"
@@ -2450,15 +2448,9 @@ export default function SkillManagerPage() {
                 variant="outline"
                 className="h-9 gap-2"
                 onClick={() => rescanSecurityMutation.mutate()}
-                disabled={
-                  rescanSecurityMutation.isPending ||
-                  saveMutation.isPending ||
-                  saveFileMutation.isPending
-                }
+                disabled={rescanSecurityMutation.isPending || saveMutation.isPending || saveFileMutation.isPending}
               >
-                <RefreshCw
-                  className={`h-4 w-4 ${rescanSecurityMutation.isPending ? 'animate-spin' : ''}`}
-                />
+                <RefreshCw className={`h-4 w-4 ${rescanSecurityMutation.isPending ? 'animate-spin' : ''}`} />
                 {rescanSecurityMutation.isPending
                   ? t('managed.skills.rescanningSecurity')
                   : t('managed.skills.rescanSecurity')}
@@ -2488,18 +2480,14 @@ export default function SkillManagerPage() {
               )}
               <Button
                 className="h-9 gap-2"
-                onClick={
-                  isEditingFile ? () => saveFileMutation.mutate() : () => saveMutation.mutate()
-                }
+                onClick={isEditingFile ? () => saveFileMutation.mutate() : () => saveMutation.mutate()}
                 disabled={saveMutation.isPending || saveFileMutation.isPending || !canSave}
               >
                 <Save className="h-4 w-4" />
-                {saveMutation.isPending || saveFileMutation.isPending
-                  ? t('managed.skills.saving')
-                  : t('managed.skills.saveChanges')}
+                {saveMutation.isPending || saveFileMutation.isPending ? t('managed.skills.saving') : t('managed.skills.saveChanges')}
               </Button>
             </div>
-          }
+          )}
         />
       </div>
 
@@ -2579,7 +2567,9 @@ export default function SkillManagerPage() {
         <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>{t('managed.skills.securityHistory')}</DialogTitle>
-            <DialogDescription>{t('managed.skills.securityHistoryDescription')}</DialogDescription>
+            <DialogDescription>
+              {t('managed.skills.securityHistoryDescription')}
+            </DialogDescription>
           </DialogHeader>
           <div className="max-h-[60vh] overflow-auto rounded-md border border-border">
             {securityScansFetching ? (
@@ -2601,10 +2591,7 @@ export default function SkillManagerPage() {
                   const severityDistribution = getSecurityIssueSeverityDistribution(scan)
                   const rawScannerRisk = getRawScannerRisk(scan)
                   return (
-                    <div
-                      key={scan.id}
-                      className="grid gap-3 px-4 py-3 md:grid-cols-[1.2fr_1fr_1fr]"
-                    >
+                    <div key={scan.id} className="grid gap-3 px-4 py-3 md:grid-cols-[1.2fr_1fr_1fr]">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <StatusBadge status={scan.status} />
@@ -2657,8 +2644,7 @@ export default function SkillManagerPage() {
                               {t('managed.skills.securitySeverity')}: {scan.severity || '-'}
                             </span>
                             <span className="text-muted-foreground">
-                              {t('managed.skills.securityRecommendation')}:{' '}
-                              {scan.recommendation || '-'}
+                              {t('managed.skills.securityRecommendation')}: {scan.recommendation || '-'}
                             </span>
                           </div>
                           <div className="flex flex-wrap gap-2">
@@ -2673,8 +2659,7 @@ export default function SkillManagerPage() {
                           </div>
                           <div className="mt-2 text-muted-foreground">
                             {t('managed.skills.securityAggregateRiskDescription', {
-                              score:
-                                scan.score !== null && scan.score !== undefined ? scan.score : '-',
+                              score: scan.score !== null && scan.score !== undefined ? scan.score : '-',
                               severity: scan.severity || '-',
                               recommendation: scan.recommendation || '-',
                             })}
@@ -2706,8 +2691,7 @@ export default function SkillManagerPage() {
                           {issues.length > 0 ? (
                             <div className="space-y-2">
                               {issues.map((issue) => {
-                                const isHighRisk =
-                                  issue.severity === 'CRITICAL' || issue.severity === 'HIGH'
+                                const isHighRisk = issue.severity === 'CRITICAL' || issue.severity === 'HIGH'
                                 return (
                                   <details
                                     key={issue.key}
@@ -2715,9 +2699,7 @@ export default function SkillManagerPage() {
                                     className={`rounded-md border bg-background ${securityIssueBorderClass(issue.severity)}`}
                                   >
                                     <summary className="grid cursor-pointer gap-2 px-3 py-2 text-sm outline-none transition-colors hover:bg-muted/60 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
-                                      <span
-                                        className={`w-fit rounded-full border px-2 py-0.5 text-[11px] font-medium ${securityIssueSeverityClass(issue.severity)}`}
-                                      >
+                                      <span className={`w-fit rounded-full border px-2 py-0.5 text-[11px] font-medium ${securityIssueSeverityClass(issue.severity)}`}>
                                         {t('managed.skills.securitySingleIssueSeverity', {
                                           severity: issue.severity,
                                         })}
@@ -2733,14 +2715,12 @@ export default function SkillManagerPage() {
                                       <div className="flex flex-wrap gap-x-4 gap-y-1">
                                         {issue.category ? (
                                           <span>
-                                            {t('managed.skills.securityIssueCategory')}:{' '}
-                                            {issue.category}
+                                            {t('managed.skills.securityIssueCategory')}: {issue.category}
                                           </span>
                                         ) : null}
                                         {issue.confidence ? (
                                           <span>
-                                            {t('managed.skills.securityIssueConfidence')}:{' '}
-                                            {issue.confidence}
+                                            {t('managed.skills.securityIssueConfidence')}: {issue.confidence}
                                           </span>
                                         ) : null}
                                       </div>
@@ -2840,12 +2820,16 @@ export default function SkillManagerPage() {
             {/* File / Folder toggle */}
             {newFileDir &&
               (() => {
-                const currentDepth = newFileDir.split('/').filter(Boolean).length
+                const currentDepth = newFileDir
+                  .split('/')
+                  .filter(Boolean).length
                 const canCreateSubfolder = currentDepth < MAX_FOLDER_DEPTH
                 return (
                   <div className="flex gap-2">
                     <Button
-                      variant={newFileMode === 'file' ? 'default' : 'outline'}
+                      variant={
+                        newFileMode === 'file' ? 'default' : 'outline'
+                      }
                       size="sm"
                       className="flex-1"
                       onClick={() => {
@@ -2857,7 +2841,9 @@ export default function SkillManagerPage() {
                       {t('managed.skills.file')}
                     </Button>
                     <Button
-                      variant={newFileMode === 'folder' ? 'default' : 'outline'}
+                      variant={
+                        newFileMode === 'folder' ? 'default' : 'outline'
+                      }
                       size="sm"
                       className="flex-1"
                       disabled={!canCreateSubfolder}
@@ -2918,9 +2904,7 @@ export default function SkillManagerPage() {
                     <SelectItem value="json">{t('managed.skills.fileTypeJSON')}</SelectItem>
                     <SelectItem value="yaml">{t('managed.skills.fileTypeYAML')}</SelectItem>
                     <SelectItem value="python">{t('managed.skills.fileTypePython')}</SelectItem>
-                    <SelectItem value="javascript">
-                      {t('managed.skills.fileTypeJavaScript')}
-                    </SelectItem>
+                    <SelectItem value="javascript">{t('managed.skills.fileTypeJavaScript')}</SelectItem>
                     <SelectItem value="shell">{t('managed.skills.fileTypeShell')}</SelectItem>
                   </SelectContent>
                 </Select>
@@ -2938,7 +2922,10 @@ export default function SkillManagerPage() {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddFileDialog(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setShowAddFileDialog(false)}
+            >
               {t('managed.skills.cancel')}
             </Button>
             <Button
@@ -2969,15 +2956,23 @@ export default function SkillManagerPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('managed.skills.deleteFile')}</DialogTitle>
-            <DialogDescription>{t('managed.skills.deleteFileConfirm')}</DialogDescription>
+            <DialogDescription>
+              {t('managed.skills.deleteFileConfirm')}
+            </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteFileTarget(null)}>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteFileTarget(null)}
+            >
               {t('managed.skills.cancel')}
             </Button>
             <Button
               variant="destructive"
-              onClick={() => deleteFileTarget && deleteFileMutation.mutate(deleteFileTarget)}
+              onClick={() =>
+                deleteFileTarget &&
+                deleteFileMutation.mutate(deleteFileTarget)
+              }
               disabled={deleteFileMutation.isPending}
             >
               {t('managed.skills.deleteFile')}
@@ -2994,15 +2989,23 @@ export default function SkillManagerPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('managed.skills.deleteFolder')}</DialogTitle>
-            <DialogDescription>{t('managed.skills.deleteFolderConfirm')}</DialogDescription>
+            <DialogDescription>
+              {t('managed.skills.deleteFolderConfirm')}
+            </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteFolderTarget(null)}>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteFolderTarget(null)}
+            >
               {t('managed.skills.cancel')}
             </Button>
             <Button
               variant="destructive"
-              onClick={() => deleteFolderTarget && deleteFolderMutation.mutate(deleteFolderTarget)}
+              onClick={() =>
+                deleteFolderTarget &&
+                deleteFolderMutation.mutate(deleteFolderTarget)
+              }
               disabled={deleteFolderMutation.isPending}
             >
               {t('managed.skills.deleteFolder')}

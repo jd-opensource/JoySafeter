@@ -1204,6 +1204,8 @@ const zh = {
         },
         workspace: '工作区',
         moveConflict: '目标位置已存在同名文件，移动已取消',
+        published: '已发布',
+        unpublished: '未发布',
         emptyWorkspace: '此技能暂无文件。添加 SKILL.md 开始使用。',
         editor: '编辑器',
         metadata: '元数据',
@@ -1412,6 +1414,7 @@ const zh = {
         type: '类型',
         size: '大小',
         agent: '智能体',
+        actions: '操作',
       },
       filters: {
         created: '创建时间',

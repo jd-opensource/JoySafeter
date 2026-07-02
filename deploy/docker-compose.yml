@@ -69,6 +69,7 @@ x-backend-common-env: &backend-common-env
   JOYSAFETER_ENVOY_GRPC_HOST: ${JOYSAFETER_ENVOY_GRPC_HOST:-host.docker.internal}
   JOYSAFETER_ENVOY_GRPC_PORT: ${JOYSAFETER_ENVOY_GRPC_PORT:-9090}
   JOYSAFETER_ENVOY_CONTAINER_NAME: ${JOYSAFETER_ENVOY_CONTAINER_NAME:-joysafeter-envoy}
+  JOYSAFETER_ENVOY_XDS_MODE: ${JOYSAFETER_ENVOY_XDS_MODE:-filesystem}
   SKILL_SECURITY_SCAN_ENABLED: ${SKILL_SECURITY_SCAN_ENABLED:-true}
   SKILL_SECURITY_SCANNER_URL: ${SKILL_SECURITY_SCANNER_URL:-http://skillspector:8010}
   SKILL_SECURITY_TIMEOUT_SECONDS: ${SKILL_SECURITY_TIMEOUT_SECONDS:-30}
@@ -105,11 +106,11 @@ services:
       - |
         set -eu
         mkdir -p /sockets /envoy-config/sandboxes
-        printf 'resources: []\n' > /envoy-config/lds.yaml
-        while [ ! -s /envoy-config/bootstrap.yaml ]; do
+        printf '{"version_info":"0","resources":[]}\n' > /envoy-config/lds.json
+        while [ ! -s /envoy-config/bootstrap.json ]; do
           sleep 0.2
         done
-        exec envoy -c /envoy-config/bootstrap.yaml --log-level ${JOYSAFETER_ENVOY_LOG_LEVEL:-info}
+        exec envoy -c /envoy-config/bootstrap.json --log-level ${JOYSAFETER_ENVOY_LOG_LEVEL:-info}
     volumes:
       - joysafeter-sockets:/sockets
       - ${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}:/envoy-config

@@ -982,6 +982,7 @@ const en = {
         type: 'Type',
         agent: 'Agent',
         version: 'Version',
+        actions: 'Actions',
       },
       policy: {
         alwaysAllow: 'Always Allow',
@@ -1194,6 +1195,8 @@ const en = {
         },
         workspace: 'Workspace',
         moveConflict: 'A file with that name already exists at the destination; move cancelled',
+        published: 'Published',
+        unpublished: 'Unpublished',
         emptyWorkspace: 'No files in this skill. Add a SKILL.md to get started.',
         editor: 'Editor',
         metadata: 'Metadata',
