@@ -175,7 +175,7 @@ Add these fields to `HarnessInput`:
 @dataclass
 class HarnessInput:
     # ... existing fields ...
-    
+
     # NEW — Rust parity
     provider: str = "claude"                    # engine kind: "claude" | "codex" | "mock"
     setup_commands: list[str] = field(default_factory=list)
@@ -217,7 +217,7 @@ _NONCE_SIZE = 12  # 96-bit nonce for AES-GCM
 
 class VaultCipher:
     """Encrypt/decrypt credential values with AES-256-GCM.
-    
+
     Values prefixed with ``enc:`` are base64-encoded ciphertext
     (nonce ∥ ciphertext ∥ tag).  Values without the prefix are
     returned as-is (passthrough).
@@ -363,7 +363,7 @@ def _resolve_environment_setup_commands(self, environment: dict | None) -> list[
     config = environment.get("config", {})
     packages = config.get("packages", {})
     commands: list[str] = []
-    
+
     apt = packages.get("apt", [])
     if apt:
         commands.append(f"apt-get update && apt-get install -y {' '.join(apt)}")
@@ -382,7 +382,7 @@ def _resolve_environment_setup_commands(self, environment: dict | None) -> list[
     go = packages.get("go", [])
     if go:
         commands.extend(f"go install {pkg}" for pkg in go)
-    
+
     return commands
 
 
@@ -465,7 +465,7 @@ async def _sweep_db_orphans(self) -> None:
     """Destroy DB records pointing to containers that no longer exist in the provider."""
     async with self._db_session() as session:
         active_sandboxes = await self._sandbox_svc.list_active_sandboxes(session)
-    
+
     for sandbox in active_sandboxes:
         if sandbox.status in ("destroyed", "stopped"):
             continue
@@ -643,14 +643,14 @@ async def _grace_period_cleanup(self, sandbox_id: str, sandbox_db_id, original_b
         if current_bridge is not None and current_bridge is not original_bridge:
             logger.info("Sandbox %s reconnected during grace period", sandbox_id)
             return
-    
+
     # Final sleep: 120 - 15 = 105s
     await asyncio.sleep(105)
     current_bridge = await self._bridge_registry.get(sandbox_id)
     if current_bridge is not None and current_bridge is not original_bridge:
         logger.info("Sandbox %s reconnected during final grace window", sandbox_id)
         return
-    
+
     # No reconnection — proceed with cleanup
     await self._execute_sandbox_cleanup(sandbox_id, sandbox_db_id)
 ```
@@ -663,7 +663,7 @@ git commit -am "fix(grpc): align grace period probe schedule with Rust (3s/5s/10
 
 ---
 
-### Task 11: Fix reconnect path to emit `session.status_idle` 
+### Task 11: Fix reconnect path to emit `session.status_idle`
 
 **Files:**
 - Modify: `backend/app/joysafeter_orchestrator/grpc/server.py`
@@ -793,7 +793,7 @@ Python event bus has no `flush()` method; the gRPC server calls `_event_buffer.f
 ```python
 class JoySafeterEventBus:
     # ... existing code ...
-    
+
     async def flush(self) -> None:
         """Force flush all buffered events to DB."""
         await self._persister.flush()
@@ -863,11 +863,11 @@ async def _handle_cancel(self, command: dict) -> None:
     if not bridge:
         logger.debug("Cancel command for unknown sandbox %s", sandbox_id)
         return
-    
+
     # Send CancelTask proto to runner
     cancel_msg = OrchestratorMessage(cancel=CancelTask(reason=reason))
     await bridge.runner_tx.put(cancel_msg)
-    
+
     # Signal cancellation
     bridge._cancel_event.set()
     logger.info("Forwarded cancel to sandbox %s: %s", sandbox_id, reason)
