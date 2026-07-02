@@ -28,48 +28,73 @@ for `all`.
 
 ```mermaid
 flowchart TB
-    subgraph Client
-        FE["Frontend<br/>Next.js 15 / React 19"]
+    FE["Frontend Browser<br/>Next.js 16 / React 19"]
+
+    subgraph API_S["API service　role=api"]
+        API["REST /api/v1/* · auth"]
+        BC["SSE endpoint<br/>SessionBroadcaster"]
     end
 
-    subgraph Services["Backend services (shared codebase, JOYSAFETER_SERVICE_ROLE)"]
-        API["API service<br/>REST + SSE + WS notifications"]
-        ORCH["Orchestrator service<br/>gRPC AgentBridge :9090<br/>scheduler · sandbox mgr · event bus"]
-        WORKER["Worker service<br/>Redis Stream consumer<br/>→ event persistence"]
+    subgraph ORCH_S["Orchestrator service　role=orchestrator"]
+        SCHED["Task scheduler<br/>DB pull · FOR UPDATE SKIP LOCKED"]
+        GRPC["gRPC AgentBridge :9090"]
+        BUS["Two-phase event bus<br/>persist ∥ broadcast"]
     end
 
-    subgraph Infra
-        PG[("PostgreSQL")]
-        REDIS[("Redis<br/>Streams · Pub/Sub · list")]
-        ENVOY["Envoy<br/>per-sandbox egress proxy"]
-        SKILLSPECTOR["skillspector<br/>skill security scanner"]
+    WK["Worker service　role=worker<br/>Stream consume → persist → republish"]
+
+    subgraph REDIS["Redis (three mechanisms)"]
+        RLIST[("list<br/>global_queue")]
+        RSTREAM[("stream<br/>orchestrator:events")]
+        RPUB[("pub/sub<br/>session_events:{id}")]
     end
+    PG[("PostgreSQL<br/>source of truth + event log")]
+    SKILLSPECTOR["skillspector<br/>skill security scan (fail-closed)"]
 
-    subgraph Sandboxes["Sandbox containers (per session)"]
-        RUNNER["Rust sandbox-runner<br/>+ claude / codex / ccb harness"]
+    subgraph SBX["Sandbox container (per session, NetworkMode=none)"]
+        RUN["Rust sandbox-runner<br/>+ claude / codex / ccb harness"]
     end
+    ENVOY["Envoy<br/>sandbox's sole network conduit"]
+    EXT["External: model API · MCP · targets<br/>(domain allowlist)"]
 
-    FE -->|"REST /api/v1/*"| API
-    FE -->|"SSE /sessions/{id}/events/stream"| API
-    FE -->|"WS /ws/notifications"| API
-
-    API -->|"enqueue task (Redis list)"| REDIS
+    %% submit & schedule
+    FE -->|"POST /sessions/{id}/events"| API
+    API -->|"create Task + rpush"| RLIST
     API -->|"read/write"| PG
-    ORCH -->|"claim tasks, persist"| PG
-    ORCH <-->|"Streams · Pub/Sub"| REDIS
-    WORKER -->|"XREADGROUP"| REDIS
-    WORKER -->|"persist events"| PG
-
-    ORCH -->|"provision"| RUNNER
-    RUNNER <-->|"gRPC AgentBridge<br/>(via Envoy socket)"| ORCH
-    RUNNER -.->|"egress allowlist"| ENVOY
     API -->|"scan on write"| SKILLSPECTOR
+    RLIST -.->|"wakeup signal"| SCHED
+    SCHED -->|"claim pending (DB authoritative)"| PG
+    SCHED -->|"provision container"| SBX
+
+    %% all sandbox traffic goes through Envoy
+    RUN <-->|"gRPC AgentBridge"| ENVOY
+    ENVOY <-->|"unix socket → TCP"| GRPC
+    RUN -->|"outbound HTTP"| ENVOY
+    ENVOY -->|"allowlist"| EXT
+
+    %% two-phase event bus
+    GRPC -->|"harness events"| BUS
+    BUS -->|"① persist phase XADD"| RSTREAM
+    BUS -->|"② broadcast phase PUBLISH"| RPUB
+    RSTREAM -->|"XREADGROUP (consumer group)"| WK
+    WK -->|"persist (seq/dedup)"| PG
+    WK -.->|"republish"| RPUB
+
+    %% SSE return path to the browser
+    RPUB -->|"subscribe"| BC
+    BC -->|"SSE stream (?after_seq replay)"| FE
 
     style API fill:#e1f5ff
-    style ORCH fill:#fff3e0
-    style WORKER fill:#fce4ec
-    style REDIS fill:#ffebee
-    style RUNNER fill:#e8f5e8
+    style BC fill:#e1f5ff
+    style SCHED fill:#fff3e0
+    style GRPC fill:#fff3e0
+    style BUS fill:#fff3e0
+    style WK fill:#fce4ec
+    style RLIST fill:#ffebee
+    style RSTREAM fill:#ffebee
+    style RPUB fill:#ffebee
+    style RUN fill:#e8f5e8
+    style ENVOY fill:#ede7f6
 ```
 
 ### Services & containers

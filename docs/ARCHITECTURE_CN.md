@@ -22,48 +22,73 @@ JoySafeter 以**三个 FastAPI 服务 + 支撑基础设施**的形态运行。�
 
 ```mermaid
 flowchart TB
-    subgraph Client
-        FE["前端<br/>Next.js 15 / React 19"]
+    FE["前端 Browser<br/>Next.js 16 / React 19"]
+
+    subgraph API_S["API 服务　role=api"]
+        API["REST /api/v1/* · 鉴权"]
+        BC["SSE 端点<br/>SessionBroadcaster"]
     end
 
-    subgraph Services["后端服务（共享代码库，按 JOYSAFETER_SERVICE_ROLE 切分）"]
-        API["API 服务<br/>REST + SSE + WS 通知"]
-        ORCH["Orchestrator 服务<br/>gRPC AgentBridge :9090<br/>调度器 · 沙箱管理 · 事件总线"]
-        WORKER["Worker 服务<br/>Redis Stream 消费者<br/>→ 事件持久化"]
+    subgraph ORCH_S["Orchestrator 服务　role=orchestrator"]
+        SCHED["任务调度器<br/>DB 拉取 · FOR UPDATE SKIP LOCKED"]
+        GRPC["gRPC AgentBridge :9090"]
+        BUS["两相事件总线<br/>持久化 ∥ 广播"]
     end
 
-    subgraph Infra
-        PG[("PostgreSQL")]
-        REDIS[("Redis<br/>Streams · Pub/Sub · list")]
-        ENVOY["Envoy<br/>每沙箱出口代理"]
-        SKILLSPECTOR["skillspector<br/>技能安全扫描器"]
+    WK["Worker 服务　role=worker<br/>Stream 消费 → 落库 → 再发布"]
+
+    subgraph REDIS["Redis（三种机制）"]
+        RLIST[("list<br/>global_queue")]
+        RSTREAM[("stream<br/>orchestrator:events")]
+        RPUB[("pub/sub<br/>session_events:{id}")]
     end
+    PG[("PostgreSQL<br/>权威状态 + 事件日志")]
+    SKILLSPECTOR["skillspector<br/>技能安全扫描（fail-closed）"]
 
-    subgraph Sandboxes["沙箱容器（每会话一个）"]
-        RUNNER["Rust sandbox-runner<br/>+ claude / codex / ccb harness"]
+    subgraph SBX["沙箱容器（每会话，NetworkMode=none）"]
+        RUN["Rust sandbox-runner<br/>+ claude / codex / ccb harness"]
     end
+    ENVOY["Envoy<br/>沙箱唯一网络出入口"]
+    EXT["外部：模型 API · MCP · 目标<br/>（域名白名单）"]
 
-    FE -->|"REST /api/v1/*"| API
-    FE -->|"SSE /sessions/{id}/events/stream"| API
-    FE -->|"WS /ws/notifications"| API
-
-    API -->|"入队 task（Redis list）"| REDIS
+    %% 提交与调度
+    FE -->|"POST /sessions/{id}/events"| API
+    API -->|"建 Task + rpush"| RLIST
     API -->|"读/写"| PG
-    ORCH -->|"认领 task、持久化"| PG
-    ORCH <-->|"Streams · Pub/Sub"| REDIS
-    WORKER -->|"XREADGROUP"| REDIS
-    WORKER -->|"持久化事件"| PG
-
-    ORCH -->|"provision"| RUNNER
-    RUNNER <-->|"gRPC AgentBridge<br/>（经 Envoy socket）"| ORCH
-    RUNNER -.->|"出口白名单"| ENVOY
     API -->|"写入时扫描"| SKILLSPECTOR
+    RLIST -.->|"唤醒信号"| SCHED
+    SCHED -->|"认领 pending（DB 权威）"| PG
+    SCHED -->|"provision 容器"| SBX
+
+    %% 沙箱流量全部经 Envoy
+    RUN <-->|"gRPC AgentBridge"| ENVOY
+    ENVOY <-->|"unix socket → TCP"| GRPC
+    RUN -->|"出站 HTTP"| ENVOY
+    ENVOY -->|"白名单放行"| EXT
+
+    %% 事件两相
+    GRPC -->|"harness 事件"| BUS
+    BUS -->|"① 持久化相 XADD"| RSTREAM
+    BUS -->|"② 广播相 PUBLISH"| RPUB
+    RSTREAM -->|"XREADGROUP（消费组）"| WK
+    WK -->|"seq/去重 落库"| PG
+    WK -.->|"再发布"| RPUB
+
+    %% SSE 回流到浏览器
+    RPUB -->|"订阅"| BC
+    BC -->|"SSE 事件流（可 ?after_seq 回放）"| FE
 
     style API fill:#e1f5ff
-    style ORCH fill:#fff3e0
-    style WORKER fill:#fce4ec
-    style REDIS fill:#ffebee
-    style RUNNER fill:#e8f5e8
+    style BC fill:#e1f5ff
+    style SCHED fill:#fff3e0
+    style GRPC fill:#fff3e0
+    style BUS fill:#fff3e0
+    style WK fill:#fce4ec
+    style RLIST fill:#ffebee
+    style RSTREAM fill:#ffebee
+    style RPUB fill:#ffebee
+    style RUN fill:#e8f5e8
+    style ENVOY fill:#ede7f6
 ```
 
 ### 服务与容器

@@ -4,8 +4,8 @@
 </h1>
 
 <p align="center">
-  <strong>The AI-native platform for building, orchestrating, and running security agents at scale.</strong><br/>
-  <sub>From idea to production-grade security automation — in minutes, not months.</sub>
+  <strong>The open, self-hostable managed-agent platform for security.</strong><br/>
+  <sub>Define an agent's tools, skills, and guardrails — JoySafeter runs it on your own hardened, observable infrastructure. From idea to production-grade security automation in minutes, not months.</sub>
 </p>
 
 <p align="center">
@@ -25,16 +25,32 @@
 
 ## Why JoySafeter
 
-Traditional security tooling hits a ceiling: scripts are brittle, single agents lack context, and complex scenarios require 2–3 engineers working in parallel. JoySafeter breaks that ceiling.
+The managed-agent operating model is the right one for autonomous work. But for **security** —
+where you operate on client systems under NDA and run aggressive tooling — *where and how* the
+agent runs is the whole decision. JoySafeter gives you that model **on your own infrastructure**:
 
-| Challenge | Traditional Approach | JoySafeter |
-|-----------|---------------------|------------|
-| APK vulnerability analysis | Manual MobSF + engineer review | Autonomous agent: upload → analyze → report |
-| Penetration testing | Fixed scripts, static playbooks | Autonomous agents that adapt to findings in real time |
-| Tool integration | Custom glue code per tool | Any tool via MCP Protocol, zero glue |
-| Scale | Linear headcount growth | Agent teams that multiply capacity |
+- **Your data and targets never leave your infra.** Fully self-hosted: prompts, findings, captured
+  traffic, and target details stay inside your network. No third party ever sees the engagement.
+- **Network-contained execution.** Every session runs in a `NetworkMode=none` sandbox behind an
+  Envoy proxy with a **deny-all-by-default egress allowlist** — offensive tools can't phone home or
+  pivot into your network unless you explicitly permit it.
+- **Fail-closed skill supply-chain control.** Skills are code that runs in your environment; every
+  skill is scanned before use (skillspector, fail-closed) and blocked at runtime if it isn't
+  approved or has drifted from its last scan.
+- **Engine-agnostic.** Claude Code, Codex, or the self-developed `ccb` engine behind one gRPC
+  contract — not locked to a single vendor or model.
 
-> JoySafeter defines a new paradigm: **AI-driven Security Operations (AISecOps)** — where multi-agent collaboration, cognitive memory, and scenario-matched skills replace manual coordination.
+| | Cloud managed agents | Build it yourself | **JoySafeter** |
+|---|---|---|---|
+| Data / target residency | Vendor cloud | Yours | **Yours — fully self-hosted** |
+| Engine / model | Single vendor | Whatever you wire | **Claude Code / Codex / native, per agent** |
+| Network isolation | Vendor-managed | You build it | **Per-sandbox Envoy deny-all egress** |
+| Skill & tool safety | Vendor-managed | You build it | **Fail-closed scan + runtime drift gate** |
+| Time to production | Days | Months | **Days, on your own hardware** |
+
+> JoySafeter frames this as **AI-driven Security Operations (AISecOps)**: the managed-agent model
+> — multi-step autonomy, sandboxed tools, sessions, full-chain observability — specialized for
+> security and run entirely under your control.
 
 ---
 
@@ -48,12 +64,15 @@ Traditional security tooling hits a ceiling: scripts are brittle, single agents 
   <img src="docs/assets/APK-case.gif" alt="APK Vulnerability Detection Demo" width="800" />
 </p>
 
+> **This is a demo workflow, not a built-in integration.** The agent is configured with the
+> `pentest-mobile-app` skill and a sandbox image carrying mobile-analysis tooling — you choose the tools.
+
 **How it works:**
 
 1. User uploads the APK file
-2. Agent invokes MobSF for static analysis
+2. The agent runs static analysis with the mobile tooling in its sandbox (e.g. MobSF)
 3. Extracts critical risk signals — permission abuse, hardcoded secrets, insecure network config
-4. Deep-validates high-severity findings via Frida dynamic instrumentation
+4. Deep-validates high-severity findings via dynamic instrumentation (e.g. Frida)
 5. Auto-generates a structured report aligned to OWASP Mobile Top 10
 
 The entire flow — from upload to report — requires zero manual intervention, covering work that traditionally takes 2–3 security engineers.
@@ -82,51 +101,97 @@ This dynamic decision-making — where the agent adapts its next step based on w
 
 ---
 
-## Core Capabilities
+## Core Capabilities — the managed-agent building blocks
+
+You declare an agent — engine, model, system prompt, tools, skills, MCP servers, guardrails — and
+JoySafeter runs it end-to-end on the same managed-agent building blocks Anthropic ships behind
+Claude Managed Agents, only **self-hosted and security-specialized**:
 
 <table>
 <tr>
 <td width="50%">
 
-### Agent Builder
+### 🧠 Managed harness & orchestration
 
-- **Configure once, run anywhere** — an agent bundles an engine, model, system prompt, tools, skills, and MCP servers
-- **Quickstart** — describe your goal in natural language and get a running agent in minutes
-- **AI skill authoring** — draft, edit, and version skills with an LLM-assisted editor
+- The **orchestrator** + gRPC `AgentBridge` + in-sandbox Rust `sandbox-runner` decide when to call tools, manage context, and recover from errors
+- **DB-backed scheduling** — tasks claimed from Postgres with `FOR UPDATE SKIP LOCKED`, with retries and timeouts
+- **Engine-agnostic** — Claude Code CLI, Codex app-server, or the self-developed `native` (`ccb`) harness, selected per agent
 
 </td>
 <td width="50%">
 
-### Security Tools, Ready to Use
+### 📦 Sandboxed execution
 
-- Pre-integrated security tooling such as **Nmap, Nuclei, Trivy**, and more
-- **MCP Protocol** — extend with any tool via Model Context Protocol
-- **30+ pre-built skills** — penetration testing, document analysis, planning/meta, and more
+- Every session runs in its **own hardened container** — dropped capabilities, non-root, no-new-privileges
+- **Pluggable providers** — Docker (default), E2B (Firecracker), Daytona, behind one SPI
+- **Egress control** — per-sandbox Envoy proxy with a deny-all-by-default domain allowlist
 
 </td>
 </tr>
 <tr>
 <td width="50%">
 
-### Multi-Engine Execution
+### 🔧 Tools, custom tools & MCP
 
-- **Pluggable engines** — Claude Code CLI, Codex app-server, and a self-developed `native` (`ccb`) engine, selected per agent
-- **Isolated sandboxes** — every session runs in its own hardened container; providers include Docker (default), E2B, and Daytona
-- **Skill system** — versioned, reusable capability packs with security scanning and progressive disclosure
+- Attach **builtin tools**, **custom tools** (name + JSON Schema), and **MCP servers** per agent
+- MCP configs + Vault credentials are resolved at run time and delivered to the sandbox over gRPC
+- **Security skill packs** drive tools like **Nmap / Nuclei / Trivy** inside the sandbox image; connect any external tool via the **MCP protocol**
 
 </td>
 <td width="50%">
 
-### Enterprise Ready
+### 📚 Skills
 
-- **Multi-tenancy** — isolated workspaces with role-based access control
-- **Full audit trail** — append-only event log per session with full-chain tracing
-- **SSO integration** — GitHub, Google, Microsoft, OIDC (Keycloak, Authentik, GitLab), JD SSO
-- **Egress control** — per-sandbox Envoy proxy with deny-all-by-default domain allowlist
+- **30 versioned capability packs** — penetration testing, document analysis, planning/meta
+- **Fail-closed security scanning** (skillspector) + a runtime `is_skill_usable` gate (approved + scanned + no content drift)
+- **AI skill authoring** — draft, edit, version, and diff skills with an LLM-assisted editor
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+### 💾 Sessions, memory & resume
+
+- **Sessions** are persistent conversations with an **append-only, seq-ordered event log**
+- **Memory stores** — versioned, agent-writable KV stores synced bi-directionally with the sandbox
+- **Resumable** — reattach a session's harness + work dir on reconnect
+
+</td>
+<td width="50%">
+
+### 🛡️ Scoped permissions & guardrails
+
+- **Per-tool authorization** — `always_ask` / `always_allow`, with human-in-the-loop confirmation for high-risk tools
+- **Encrypted credentials** — provider keys in Secrets, MCP creds in Vaults, AES-256-GCM, injected as sandbox env
+- **SSRF guard** — blocks cloud-metadata endpoints; opt-in private-range hardening
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+### 🔎 Full-chain observability
+
+- **Live SSE event stream** of every message, thinking step, tool call, tool result, and model request
+- **OpenTelemetry** traces + `observations` with token/cost aggregation, `trace_id` propagated end-to-end
+- Append-only session event log doubles as a full **audit trail**
+
+</td>
+<td width="50%">
+
+### 🏢 Multi-tenancy & access
+
+- **Orgs / projects / RBAC** — isolated workspaces with role-based access control
+- **SSO** — GitHub, Google, Microsoft, OIDC (Keycloak, Authentik, GitLab), JD SSO
+- **Quickstart** — describe your goal in natural language and get a running agent in minutes
 
 </td>
 </tr>
 </table>
+
+> How these blocks compare to the Claude Managed Agents feature set — and what's on the
+> roadmap — is tracked in [Managed-Agent Parity & Roadmap](#managed-agent-parity--roadmap).
 
 ---
 
@@ -186,11 +251,28 @@ cd deploy
 
 ## Architecture
 
-<p align="center">
-  <img src="docs/architecture-diagram.png" alt="JoySafeter System Architecture" width="900" />
-</p>
+```mermaid
+flowchart LR
+    FE["Browser"] -->|"REST · SSE"| API["API service"]
+    API -->|"rpush task"| RLIST[("Redis list<br/>global_queue")]
+    RLIST -.->|"wakeup"| SCHED["Orchestrator<br/>scheduler (DB-authoritative)"]
+    SCHED -->|"claim / provision"| SBX["Sandbox (NetworkMode=none)<br/>Rust runner + harness"]
+    SBX <-->|"gRPC AgentBridge"| ENVOY["Envoy<br/>sole network conduit"]
+    ENVOY <--> GRPC["Orchestrator gRPC :9090"]
+    ENVOY -->|"egress allowlist"| EXT["Model API · MCP · targets"]
+    GRPC -->|"harness events"| BUS["Two-phase event bus"]
+    BUS -->|"① persist XADD"| RSTREAM[("Redis stream")]
+    BUS -->|"② broadcast PUBLISH"| RPUB[("Redis pub/sub")]
+    RSTREAM -->|"XREADGROUP"| WK["Worker → persist"]
+    WK --> PG[("PostgreSQL")]
+    WK -.->|"republish"| RPUB
+    RPUB -->|"SessionBroadcaster"| API
+    API -->|"SSE stream"| FE
+```
 
-> Full architecture details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+> Full architecture (deployment topology, gRPC contract, engines, sandbox, event model,
+> domain FSMs): **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** · layered view:
+> [docs/architecture-unified-event-model.mmd](docs/architecture-unified-event-model.mmd)
 
 **Key design principles:**
 
@@ -218,7 +300,7 @@ cd deploy
 | Layer | Technology | Purpose |
 |-------|------------|---------|
 | **Frontend** | Next.js 16 (App Router), React 19, TypeScript | Server-side rendering, product surface under `/managed/**` |
-| **UI** | Radix UI, Tailwind CSS, Framer Motion | Accessible, animated components |
+| **UI** | Radix UI, Tailwind CSS | Accessible component primitives |
 | **State** | Zustand, TanStack Query | Client & server state |
 | **Backend** | FastAPI 0.122+, Python 3.12+ | Async API with OpenAPI docs, three services split by `JOYSAFETER_SERVICE_ROLE` |
 | **Agent runtime** | Rust `sandbox-runner` + Claude Code / Codex / `ccb` harness | Per-session sandboxed execution over gRPC `AgentBridge` |
@@ -247,6 +329,50 @@ cd deploy
 | **NEW** | **Skill Security Scanning** | Fail-closed skillspector gate scans every skill write before it can be used |
 | **NEW** | **Per-Sandbox Egress Control** | Envoy proxy enforces a deny-all-by-default domain allowlist per sandbox |
 | **NEW** | **Full-Chain trace_id Propagation** | End-to-end request tracing via OpenTelemetry for complete observability |
+
+---
+
+## Managed-Agent Parity & Roadmap
+
+JoySafeter implements the same **managed-agent operating model** that Anthropic describes for
+[Claude Managed Agents](https://claude.com/blog/claude-managed-agents) — you declare an agent's
+tools, skills, and guardrails, and the platform runs it on a managed harness with sandboxed
+execution, sessions, scoped permissions, and full observability. The difference: JoySafeter is
+**open-source, self-hostable, engine-agnostic** (Claude Code / Codex / native `ccb`), and
+**specialized for security work**. This table maps the model concept-for-concept against what
+JoySafeter ships today.
+
+**Legend:** ✅ shipped · 🟡 partial · ⬜ planned (see roadmap)
+
+| Managed-agent capability | JoySafeter | How we do it |
+|---|:---:|---|
+| Managed agent harness / orchestration | ✅ | Orchestrator + gRPC `AgentBridge` + in-sandbox Rust `sandbox-runner` harness |
+| Sandboxed execution | ✅ | Per-session hardened containers; Docker (default) / E2B / Daytona behind one SPI |
+| Tools, custom tools & MCP | ✅ | Per-agent builtin tools, custom tools, and `mcp_configs`, delivered to the sandbox over gRPC |
+| Scoped permissions / guardrails | ✅ | Per-tool policy (`always_ask` / `always_allow`) with human-in-the-loop confirmation |
+| Credential management | ✅ | Secrets (provider keys) + Vaults (MCP creds), AES-256-GCM encrypted, injected as sandbox env |
+| Sessions & resumable work | ✅ | `JoySafeterSession` + append-only event log; harness session/work-dir resume on reconnect |
+| Memory stores | ✅ | Versioned, agent-writable memory stores with bi-directional sandbox sync |
+| Observability / session tracing | ✅ | OTel traces + `observations`, plus a live SSE event stream of every tool call & decision |
+| Deployment CLI + console | ✅ | `joysafeterctl` (declarative REST CLI) + the web workspace |
+| Multi-agent orchestration (lead → specialists) | 🟡 | Harness-driven sub-agents today, surfaced via `TaskNotification` events; first-class lead/specialist orchestration is on the roadmap |
+| Durable checkpointing | 🟡 | Session-level resume today; step-level durable checkpoints are planned |
+| Outcomes (rubric + grader self-correct loop) | ⬜ | Planned |
+| Dreaming (scheduled memory consolidation / self-improvement) | ⬜ | Planned |
+| Webhooks (notify on task/outcome completion) | ⬜ | Planned |
+
+### Roadmap / TODO
+
+Combining our current capabilities with the managed-agent frontier, the next work items are:
+
+- [ ] **Outcomes** — let a user define a rubric; an independent grader evaluates each result in its own context and the agent self-corrects until the criteria are met (no per-attempt human review).
+- [ ] **First-class multi-agent orchestration** — a lead agent that delegates to specialist sub-agents, each with its own model / prompt / tools, running in parallel on a shared session workspace, with full per-sub-agent tracing (today sub-agents are spawned by the harness and only observed via `agent.bg_task_*` events).
+- [ ] **Dreaming** — a scheduled job that reviews past sessions + memory stores, extracts recurring patterns and mistakes, and curates memory (opt-in auto-update or review-first).
+- [ ] **Webhooks** — notify external systems (or trigger follow-on agents) when a task or outcome completes.
+- [ ] **Durable step-level checkpointing** — resume a long-running task mid-flight beyond the current session/work-dir reattach.
+- [ ] **Session-hour metering & cost analytics** — per-session runtime + token/cost accounting surfaced in the console.
+
+> Have a use case that needs one of these sooner? Open an issue — the roadmap is community-driven.
 
 ---
 
