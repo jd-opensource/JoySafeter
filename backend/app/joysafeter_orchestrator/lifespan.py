@@ -399,6 +399,7 @@ async def joysafeter_startup() -> None:
 
     _background_tasks.append(asyncio.create_task(_scheduler.run(), name="joysafeter-scheduler"))
     _background_tasks.append(asyncio.create_task(_task_controller.run(), name="joysafeter-task-ctrl"))
+    _background_tasks.append(asyncio.create_task(_task_controller.run_lease_manager(), name="joysafeter-task-lease"))
     _background_tasks.append(asyncio.create_task(_sandbox_controller.run_idle_sweep(), name="joysafeter-sandbox-sweep"))
     _background_tasks.append(
         asyncio.create_task(_sandbox_controller.run_provisioning_poll(), name="joysafeter-prov-poll")

@@ -28,6 +28,69 @@ class TaskController:
             except Exception as e:
                 logger.warning("Pending task scanner failed: %s", e)
 
+    async def run_lease_manager(self) -> None:
+        """Fast loop that keeps this instance's running-task leases fresh and
+        reclaims tasks whose owner instance has gone away.
+
+        Runs far more often than the lease TTL so a live owner never lets its
+        own lease lapse; the reclaim scan then only ever sees genuinely
+        abandoned tasks and requeues them in seconds instead of waiting for the
+        ~2h ``timeout_sec`` upper bound.
+        """
+        from app.joysafeter_shared.config.settings import joysafeter_config
+
+        interval = max(1, joysafeter_config.task_lease_renew_interval_sec)
+        logger.info("TaskController lease manager started (%ds interval)", interval)
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await self._renew_own_leases()
+            except Exception as e:
+                logger.warning("Lease renewal failed: %s", e)
+            try:
+                await self._reclaim_expired_leases()
+            except Exception as e:
+                logger.warning("Lease reclaim scan failed: %s", e)
+
+    async def _renew_own_leases(self) -> None:
+        from app.joysafeter_domain.services.joysafeter_task_state_machine import JoySafeterTaskStateMachine
+        from app.joysafeter_shared.config.settings import joysafeter_config
+        from app.joysafeter_shared.database import AsyncSessionLocal
+
+        async with AsyncSessionLocal() as db:
+            renewed = await JoySafeterTaskStateMachine(db).renew_leases(joysafeter_config.instance_id)
+            if renewed:
+                logger.debug("Renewed lease on %d running task(s)", renewed)
+
+    async def _reclaim_expired_leases(self) -> None:
+        from sqlalchemy import text
+
+        from app.joysafeter_domain.services.joysafeter_task_state_machine import JoySafeterTaskStateMachine
+        from app.joysafeter_shared.database import AsyncSessionLocal
+
+        async with AsyncSessionLocal() as db:
+            locked = False
+            try:
+                lock_result = await db.execute(text("SELECT pg_try_advisory_lock(hashtext('task_lease_reclaim'))"))
+                locked = bool(lock_result.scalar())
+                if not locked:
+                    return
+
+                expired = await JoySafeterTaskStateMachine(db).find_lease_expired_running()
+                for task_id in expired:
+                    logger.warning("Task %s lease expired — owner presumed dead, reclaiming", task_id)
+                    retry_count = await self.failover_or_fail_task(
+                        task_id, "Lease expired — owner instance presumed dead"
+                    )
+                    if retry_count is not None:
+                        await self._queue.push_to_global(task_id)
+                        logger.info("Reclaimed task %s re-enqueued (retry %d)", task_id, retry_count)
+                if expired:
+                    logger.info("Lease reclaim reclaimed %d abandoned running task(s)", len(expired))
+            finally:
+                if locked:
+                    await db.execute(text("SELECT pg_advisory_unlock(hashtext('task_lease_reclaim'))"))
+
     async def recover_on_startup(self) -> None:
         from sqlalchemy import text
 

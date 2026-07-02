@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 
 from sqlalchemy import CursorResult, and_, func, select
@@ -11,9 +11,15 @@ from app.joysafeter_domain.models.joysafeter_task import (
     JoySafeterTask,
     JoySafeterTaskStatus,
 )
+from app.joysafeter_shared.config.settings import joysafeter_config
 from app.joysafeter_shared.utils.datetime import utc_now
 
 TERMINAL_VALUES = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
+
+
+def _lease_expiry(now: datetime) -> datetime:
+    """The lease deadline for a task claimed at ``now``."""
+    return now + timedelta(seconds=joysafeter_config.task_lease_ttl_sec)
 
 
 class JoySafeterTaskStateMachine:
@@ -91,7 +97,12 @@ class JoySafeterTaskStateMachine:
                         ),
                     )
                 )
-                .values(status=new_status.value, started_at=now)
+                .values(
+                    status=new_status.value,
+                    started_at=now,
+                    owner_instance_id=joysafeter_config.instance_id,
+                    lease_expires_at=_lease_expiry(now),
+                )
             )
         elif new_status.is_terminal():
             duration_ms = await self._duration_ms_for_task(task_id, now)
@@ -141,7 +152,12 @@ class JoySafeterTaskStateMachine:
         result = await self.db.execute(
             sa_update(JoySafeterTask)
             .where(JoySafeterTask.id == next_task)
-            .values(status=JoySafeterTaskStatus.RUNNING.value, started_at=now)
+            .values(
+                status=JoySafeterTaskStatus.RUNNING.value,
+                started_at=now,
+                owner_instance_id=joysafeter_config.instance_id,
+                lease_expires_at=_lease_expiry(now),
+            )
             .returning(JoySafeterTask.id)
         )
         await self.db.commit()
@@ -188,6 +204,8 @@ class JoySafeterTaskStateMachine:
                 status=JoySafeterTaskStatus.PENDING.value,
                 started_at=None,
                 sandbox_id=None,
+                owner_instance_id=None,
+                lease_expires_at=None,
             )
         )
         await self.db.commit()
@@ -225,6 +243,46 @@ class JoySafeterTaskStateMachine:
         )
         await self.db.commit()
         return cast(CursorResult[Any], result).rowcount > 0
+
+    async def renew_leases(self, instance_id: str) -> int:
+        """Extend the lease on every running task owned by ``instance_id``.
+
+        Called on a fast cadence by the owning instance's watchdog so a live
+        owner never lets its own lease lapse. Only running tasks carry a live
+        lease, so non-running rows (even if still tagged with a stale
+        ``owner_instance_id``) are deliberately excluded.
+        """
+        now = utc_now()
+        result = await self.db.execute(
+            sa_update(JoySafeterTask)
+            .where(
+                and_(
+                    JoySafeterTask.owner_instance_id == instance_id,
+                    JoySafeterTask.status == JoySafeterTaskStatus.RUNNING.value,
+                )
+            )
+            .values(lease_expires_at=_lease_expiry(now))
+        )
+        await self.db.commit()
+        return cast(CursorResult[Any], result).rowcount
+
+    async def find_lease_expired_running(self) -> list[uuid.UUID]:
+        """Running tasks whose lease has lapsed — their owner is presumed dead.
+
+        These are reclaimed by the watchdog in seconds instead of waiting for
+        the ``timeout_sec`` upper bound.
+        """
+        now = utc_now()
+        result = await self.db.execute(
+            select(JoySafeterTask.id).where(
+                and_(
+                    JoySafeterTask.status == JoySafeterTaskStatus.RUNNING.value,
+                    JoySafeterTask.lease_expires_at.isnot(None),
+                    JoySafeterTask.lease_expires_at < now,
+                )
+            )
+        )
+        return list(result.scalars().all())
 
     async def _get_task(self, task_id: uuid.UUID) -> Optional[JoySafeterTask]:
         result = await self.db.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))

@@ -5,7 +5,17 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -59,6 +69,11 @@ class JoySafeterTask(JoySafeterBaseModel):
         Index("idx_ct_project_status_created", "project_id", "status", "created_at"),
         Index("idx_ct_sandbox_status", "sandbox_id", "status"),
         Index("idx_ct_sandbox_status_created", "sandbox_id", "status", "created_at"),
+        Index(
+            "idx_ct_running_lease",
+            "lease_expires_at",
+            postgresql_where=text("status = 'running'"),
+        ),
     )
 
     project_id: Mapped[Optional[str]] = mapped_column(
@@ -91,3 +106,5 @@ class JoySafeterTask(JoySafeterBaseModel):
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     duration_ms: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    owner_instance_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

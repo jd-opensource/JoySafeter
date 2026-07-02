@@ -683,6 +683,15 @@ class JoySafeterConfig(BaseSettings):
     heartbeat_interval: int = 15
     heartbeat_ttl: int = 30
 
+    # Running-task lease (fast reclaim of tasks orphaned by a crashed instance).
+    # The owning instance renews its running tasks' leases every
+    # task_lease_renew_interval_sec; a lease older than task_lease_ttl_sec is
+    # considered abandoned and reclaimed in seconds instead of waiting for the
+    # ~2h timeout_sec upper bound. TTL must be a comfortable multiple of the
+    # renew interval so a live owner never lets its own lease lapse.
+    task_lease_ttl_sec: int = 45
+    task_lease_renew_interval_sec: int = 10
+
     def image_for_provider(self, engine_kind: str) -> str:
         """Return the sandbox image for the given engine kind (matches Rust)."""
         if engine_kind == "codex" and self.image_codex:
