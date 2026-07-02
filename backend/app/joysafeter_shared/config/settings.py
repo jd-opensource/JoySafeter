@@ -399,7 +399,6 @@ class Settings(BaseSettings):
         description="Root directory for DeepAgents artifacts",
     )
 
-
     # UV Package Manager Configuration
     uv_index_url: str = Field(
         default="https://pypi.org/simple",
@@ -587,6 +586,10 @@ class JoySafeterConfig(BaseSettings):
     # message; it is moved to the dead-letter stream so it can't loop forever.
     event_stream_max_deliveries: int = 5
     event_stream_dead_letter_suffix: str = ":dead"
+    # When the stream length reaches this, an xadd would trim un-consumed
+    # entries; producers route events to the DB fallback instead of losing them.
+    # <= 0 auto-derives 90% of event_stream_max_len.
+    event_stream_high_water_mark: int = 0
 
     # Sandbox - Docker (default)
     sandbox_provider: str = "docker"
@@ -687,7 +690,11 @@ class JoySafeterConfig(BaseSettings):
         if engine_kind == "claude" and self.image_claude:
             return self.image_claude
         if engine_kind == "native":
-            return self.image_native if self.image_native else (self.image_claude if self.image_claude else self.sandbox_image)
+            return (
+                self.image_native
+                if self.image_native
+                else (self.image_claude if self.image_claude else self.sandbox_image)
+            )
         return self.sandbox_image
 
 
