@@ -8,17 +8,18 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from loguru import logger
-from sqlalchemy import and_, func, select, text, update as sa_update
+from sqlalchemy import and_, func, select, text
+from sqlalchemy import update as sa_update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError
+from app.joysafeter_domain.models.joysafeter_task import (
+    JOYSAFETER_TERMINAL_STATUSES as TERMINAL_STATUSES,
+)
 from app.joysafeter_domain.models.joysafeter_task import (
     JoySafeterTask,
     JoySafeterTaskStatus,
-    JOYSAFETER_TERMINAL_STATUSES as TERMINAL_STATUSES,
 )
-from app.joysafeter_shared.utils.datetime import utc_now
 from app.joysafeter_domain.services.joysafeter_task_state_machine import JoySafeterTaskStateMachine
 
 
@@ -37,8 +38,9 @@ class JoySafeterTaskService:
         timeout_sec: int = 7200,
         max_retries: int = 2,
         project_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> JoySafeterTask:
-        kwargs = dict(
+        values: dict[str, Any] = dict(
             agent_id=agent_id,
             prompt=prompt,
             system_prompt=system_prompt,
@@ -48,12 +50,56 @@ class JoySafeterTaskService:
             max_retries=max_retries,
         )
         if project_id is not None:
-            kwargs["project_id"] = project_id
-        task = JoySafeterTask(**kwargs)
-        self.db.add(task)
+            values["project_id"] = project_id
+
+        if idempotency_key is None:
+            task = JoySafeterTask(**values)
+            self.db.add(task)
+            await self.db.commit()
+            await self.db.refresh(task)
+            return task
+
+        # Idempotent submission: one key -> one task, even under concurrent
+        # retries from HA API replicas. INSERT ... ON CONFLICT DO NOTHING makes
+        # the unique constraint the arbiter; on conflict we return the existing task.
+        values["idempotency_key"] = idempotency_key
+        stmt = (
+            pg_insert(JoySafeterTask)
+            .values(**values)
+            .on_conflict_do_nothing(index_elements=["idempotency_key"])
+            .returning(JoySafeterTask.id)
+        )
+        result = await self.db.execute(stmt)
         await self.db.commit()
-        await self.db.refresh(task)
+        row = result.first()
+        if row is not None:
+            task_id = row[0]
+        else:
+            task_id = (
+                await self.db.execute(
+                    select(JoySafeterTask.id).where(
+                        JoySafeterTask.idempotency_key == idempotency_key
+                    )
+                )
+            ).scalar_one()
+        task = await self.get_task(task_id)
+        assert task is not None
         return task
+
+    async def get_by_idempotency_key(
+        self, idempotency_key: str, project_id: Optional[str] = None
+    ) -> Optional[JoySafeterTask]:
+        """Return the task previously created with this idempotency key, if any.
+
+        Lets the API short-circuit a retried submission before doing other work
+        (e.g. auto-creating a ChatSession), keeping the whole endpoint idempotent,
+        not just the task INSERT.
+        """
+        conditions = [JoySafeterTask.idempotency_key == idempotency_key]
+        if project_id is not None:
+            conditions.append(JoySafeterTask.project_id == project_id)
+        result = await self.db.execute(select(JoySafeterTask).where(and_(*conditions)))
+        return result.scalar_one_or_none()
 
     async def get_task(
         self, task_id: uuid.UUID, project_id: Optional[str] = None

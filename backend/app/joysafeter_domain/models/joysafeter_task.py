@@ -5,12 +5,11 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import JoySafeterBaseModel
-
 
 # ---------------------------------------------------------------------------
 # JoySafeter Task models
@@ -50,6 +49,7 @@ JOYSAFETER_TERMINAL_STATUSES = frozenset(s for s in JoySafeterTaskStatus if s.is
 class JoySafeterTask(JoySafeterBaseModel):
     __tablename__ = "joysafeter_tasks"
     __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_joysafeter_tasks_idempotency_key"),
         Index("idx_ct_status", "status"),
         Index("idx_ct_agent", "agent_id"),
         Index("idx_ct_created", "created_at"),
@@ -86,6 +86,7 @@ class JoySafeterTask(JoySafeterBaseModel):
     timeout_sec: Mapped[int] = mapped_column(Integer, nullable=False, default=7200)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+    idempotency_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

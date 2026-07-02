@@ -4,19 +4,21 @@ import logging
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_api.services import JoySafeterAgentService as AgentService
+from app.joysafeter_api.services import JoySafeterTaskService as TaskService
+from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
+from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskRequest as CreateTaskRequest
+from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskResponse as CreateTaskResponse
+from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterTaskResponse as TaskResponse
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
     get_joysafeter_auth_context,
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskRequest as CreateTaskRequest, JoySafeterCreateTaskResponse as CreateTaskResponse, JoySafeterTaskResponse as TaskResponse
-from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
-from app.joysafeter_api.services import JoySafeterAgentService as AgentService
-from app.joysafeter_api.services import JoySafeterTaskService as TaskService
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +30,18 @@ async def create_task(
     req: CreateTaskRequest,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ) -> CreateTaskResponse:
+    # Idempotent retry: if this key already produced a task, return it and skip
+    # all side effects (session creation, enqueue). Clients should send a unique
+    # key (e.g. a UUID) per logical submission.
+    if idempotency_key:
+        existing = await TaskService(db).get_by_idempotency_key(
+            idempotency_key, project_id=auth_ctx.project_id
+        )
+        if existing is not None:
+            return CreateTaskResponse(id=existing.id, status=existing.status)
+
     agent_svc = AgentService(db)
     agent = None
     if req.agent_id:
@@ -86,6 +99,7 @@ async def create_task(
         timeout_sec=req.timeout_sec,
         max_retries=req.max_retries,
         project_id=auth_ctx.project_id,
+        idempotency_key=idempotency_key,
     )
 
     try:
@@ -160,8 +174,8 @@ async def cancel_task(
     # already checked above.
     assert task is not None
 
-    from app.joysafeter_orchestrator.lifespan import get_bridge_registry, get_redis_coordinator, get_session_broadcaster
     from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
+    from app.joysafeter_orchestrator.lifespan import get_bridge_registry, get_redis_coordinator, get_session_broadcaster
 
     # Send gRPC CancelTask to the sandbox bridge if the task is running locally
     registry = get_bridge_registry()
@@ -234,13 +248,14 @@ async def cancel_task(
 @router.websocket("/{task_id}/stream")
 async def task_stream(websocket: WebSocket, task_id: uuid.UUID):
     """WebSocket endpoint for real-time task output streaming."""
-    from app.joysafeter_orchestrator.lifespan import get_bridge_registry
-    from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
-    from app.joysafeter_shared.security import decode_token
+    from sqlalchemy import select
+
     from app.joysafeter_domain.models.joysafeter_auth import AuthUser
     from app.joysafeter_domain.models.joysafeter_organization import Member
     from app.joysafeter_domain.models.joysafeter_project import Project
-    from sqlalchemy import select
+    from app.joysafeter_orchestrator.lifespan import get_bridge_registry
+    from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
+    from app.joysafeter_shared.security import decode_token
 
     token = None
     try:
