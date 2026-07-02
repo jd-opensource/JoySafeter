@@ -1,0 +1,265 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#1E293B",
+    "primaryTextColor": "#F8FAFC",
+    "primaryBorderColor": "#334155",
+    "secondaryColor": "#F0FDF4",
+    "secondaryTextColor": "#166534",
+    "secondaryBorderColor": "#86EFAC",
+    "tertiaryColor": "#FFF7ED",
+    "tertiaryTextColor": "#9A3412",
+    "tertiaryBorderColor": "#FDBA74",
+    "lineColor": "#6B7280",
+    "textColor": "#1F2937",
+    "fontSize": "13px",
+    "fontFamily": "Inter, system-ui, sans-serif"
+  }
+}}%%
+
+%% ═══════════════════════════════════════════════════════════════════════
+%% JoySafeter — 统一事件模型（AS-BUILT, joysafeter-v2, 核对于 2026-07-02）
+%% 本图描述真实运行的代码。旧的 DispatchService/ExecutionOrchestrator/
+%% EngineRegistry/ModelRouter/ModelFactory 等名称已不存在，见 docs/ARCHITECTURE.md。
+%% 六大支柱框架保留：接入 · 服务/调度 · 引擎 · 工具&技能 · 模型 · 沙箱 · 事件核心 · 观测 · 存储
+%% ═══════════════════════════════════════════════════════════════════════
+
+graph TB
+    %% ═══════════════════════════════════════════════════════════════
+    %% L0 — Access Layer (接入层)
+    %% ═══════════════════════════════════════════════════════════════
+    subgraph L0["L0 · Access Layer — 统一接入"]
+        direction LR
+        WEB_UI["Web UI\nNext.js 15 · React 19\nSSE 消费 + WS 通知"]
+        CTL["joysafeterctl\nRust CLI（声明式 REST）"]
+        SDK["API Key 客户端\n第三方集成"]
+    end
+
+    %% ═══════════════════════════════════════════════════════════════
+    %% L1 — Service / Dispatch Layer (三服务 + 调度)
+    %% ═══════════════════════════════════════════════════════════════
+    subgraph L1["L1 · Services — 三服务拆分（JOYSAFETER_SERVICE_ROLE）"]
+        direction TB
+        API_SVC["API 服务\nREST /api/v1/* · SSE · WS 通知\nApiV1 响应信封 · 鉴权"]
+        subgraph ORCH_SVC["Orchestrator 服务"]
+            direction TB
+            GRPC_SRV["gRPC AgentBridge Server :9090"]
+            SCHED["TaskScheduler\nDB 拉取 · FOR UPDATE SKIP LOCKED"]
+            SBX_CTRL["Sandbox Controller / Resolver\n预热池 · 空闲清扫 · 孤儿回收"]
+        end
+        WORKER_SVC["Worker 服务\nEventStreamWorker\nXREADGROUP → 批量持久化"]
+    end
+
+    %% ═══════════════════════════════════════════════════════════════
+    %% L2 — Engine Layer (引擎层) — 沙箱内 Rust runner
+    %% ═══════════════════════════════════════════════════════════════
+    subgraph L2["L2 · Engine Layer — 引擎在沙箱内执行（Rust sandbox-runner）"]
+        direction TB
+        ADAPTER_REG["AdapterRegistry (Rust)\nis_available 探测 · provider 选择"]
+
+        subgraph ENGINES["HarnessAdapter SPI（joysafeter-runtime）"]
+            direction LR
+            CC["Claude\nclaude CLI\nstream-json"]
+            CODEX["Codex\ncodex app-server\nJSON-RPC"]
+            NATIVE["Native / Harness-Core\nccb 二进制\nstream-json"]
+            MOCK["Mock\n测试替身"]
+        end
+        NOTE_PY["注：Python runtime/*Adapter\n为参考孪生，非实时路径"]
+    end
+
+    %% ═══════════════════════════════════════════════════════════════
+    %% L2.5 — Tool & Skill Layer (工具与技能层)
+    %% ═══════════════════════════════════════════════════════════════
+    subgraph L2_5["L2.5 · Tool & Skill Layer — 能力扩展"]
+        direction TB
+
+        subgraph TOOL_SYS["Tools（Agent JSONB 配置 → gRPC 下发）"]
+            direction LR
+            BUILTIN_TOOLS["Builtin Tools\n引擎内置 + 工具策略\nallowed/disallowed/ask"]
+            MCP_TOOLS["MCP Servers\nmcp_configs + Vault 凭据\n.claude/settings.json 注入"]
+            CUSTOM_TOOLS["Custom Tools\n用户自定义\ninput_schema_json"]
+        end
+
+        subgraph SKILL_SYS["Skill Pipeline（版本化插件包 · 30 packs）"]
+            direction TB
+            SKILL_PARSE["解析 & 校验\nSKILL.md + Agent-Skills 规范\n(joysafeter_shared/skill)"]
+            SKILL_PERM["权限闸门\n四级可见性 + org 隔离"]
+            SKILL_SCAN["skillspector 安全扫描\nfail-closed · 漂移检测"]
+            SKILL_PACK["SkillPacker → tar.gz\nis_skill_usable 闸门 → 注入沙箱"]
+            SKILL_PARSE --> SKILL_PERM --> SKILL_SCAN --> SKILL_PACK
+        end
+    end
+
+    %% ═══════════════════════════════════════════════════════════════
+    %% L3 — Model Layer (模型层)
+    %% ═══════════════════════════════════════════════════════════════
+    subgraph L3["L3 · Model Layer — 多模型（OpenAI 兼容 + 凭据注入）"]
+        direction TB
+        SECRETS["Secrets (AES-256-GCM)\nprovider API key → 容器 env 注入"]
+        OPENAI_HELPER["stream_openai_chat\nOpenAI 兼容 SSE 辅助\n（仅第一方：技能创作 / quickstart）"]
+        NOTE_MODEL["注：Agent 工作负载模型流量\n由沙箱内 CLI harness 直连\n（路由/重试在 runner+CLI）"]
+    end
+
+    %% ═══════════════════════════════════════════════════════════════
+    %% L4 — Sandbox Layer (沙箱层)
+    %% ═══════════════════════════════════════════════════════════════
+    subgraph L4["L4 · Sandbox Layer — 多类沙箱隔离"]
+        direction TB
+        SANDBOX_PROV["SandboxProvider SPI\nJOYSAFETER_SANDBOX_PROVIDER"]
+
+        subgraph SANDBOXES["Providers"]
+            direction LR
+            DOCKER["Docker（默认）\nCapDrop ALL · 非 root\nNetworkMode=none"]
+            E2B["E2B\nFirecracker 云 VM"]
+            DAYTONA["Daytona\nRemote Workspace"]
+        end
+        ENVOY["Envoy\n每沙箱 unix socket\n出口域名白名单（默认全拒）"]
+    end
+
+    %% ═══════════════════════════════════════════════════════════════
+    %% EVENT_CORE — 统一事件模型 (核心中枢)
+    %% ═══════════════════════════════════════════════════════════════
+    subgraph EVENT_CORE["⚡ Unified Event Model — 统一事件总线 (核心中枢)"]
+        direction TB
+
+        subgraph EVENT_SCHEMA["Event Schema"]
+            direction LR
+            ENVELOPE["JoySafeterEventEnvelope\nsession_id · seq · event_type\npayload · trace_id"]
+        end
+
+        subgraph EVENT_BUS["Two-Phase Event Bus（orchestrator 进程内）"]
+            direction TB
+            MAP["map_harness_event\ngRPC 事件 → 标准化 envelope"]
+            BUS_CORE["JoySafeterEventBus\nPhase1 Persist ∥ Phase2 Broadcast"]
+            MAP --> BUS_CORE
+        end
+
+        subgraph FANOUT["Redis 三通道"]
+            direction LR
+            R_STREAM["Streams\njoysafeter:orchestrator:events\n（可靠 → Worker）"]
+            R_PUBSUB["Pub/Sub\nsession_events:{id}\n（实时 → SSE）"]
+            R_LIST["List\nglobal_queue\n（任务入队唤醒）"]
+        end
+    end
+
+    %% ═══════════════════════════════════════════════════════════════
+    %% L5 — Observability Layer (可观测层)
+    %% ═══════════════════════════════════════════════════════════════
+    subgraph L5["L5 · Observability — 全链路可观测（OTel）"]
+        direction TB
+        subgraph TRACING["Tracing"]
+            direction LR
+            TRACE_MW["TracingMiddleware\nW3C traceparent · x-trace-id\nloguru trace_id 关联"]
+            OTEL_PROC["PersistenceProcessor\n+ BroadcastProcessor\n按 execution.id 分桶"]
+        end
+        subgraph METRICS["Metrics on spans"]
+            direction LR
+            TOKEN_METER["llm.usage.* / llm.cost.*\n→ Trace 聚合"]
+        end
+        OTLP["OTLP Export（可选）"]
+    end
+
+    %% ═══════════════════════════════════════════════════════════════
+    %% L6 — Storage Layer (存储层)
+    %% ═══════════════════════════════════════════════════════════════
+    subgraph L6["L6 · Storage Layer — 持久化"]
+        direction LR
+        PG["PostgreSQL\njoysafeter_session_events\nagents/tasks/sessions/skills\ntraces/observations"]
+        REDIS["Redis\nStreams · Pub/Sub · List\n协调 · 分布式锁"]
+        OBJ["Object Store\nlocal / S3 / OSS\n上传文件 · 产物"]
+    end
+
+    %% ═══════════════════════════════════════════════════════════════
+    %% 连接关系
+    %% ═══════════════════════════════════════════════════════════════
+
+    %% L0 → L1
+    WEB_UI -->|"REST / SSE / WS"| API_SVC
+    CTL --> API_SVC
+    SDK --> API_SVC
+
+    %% API → 调度（经 Redis List）
+    API_SVC -->|"rpush 任务"| R_LIST
+    R_LIST -->|"唤醒"| SCHED
+    SCHED -->|"认领 pending (DB 权威)"| PG
+    SCHED --> SBX_CTRL
+
+    %% 调度 → 沙箱 → runner → 引擎
+    SBX_CTRL --> SANDBOX_PROV
+    SANDBOX_PROV --> DOCKER
+    SANDBOX_PROV --> E2B
+    SANDBOX_PROV --> DAYTONA
+    DOCKER -.->|"网络隔离"| ENVOY
+    GRPC_SRV <-->|"AgentBridge 双向流\n（经 Envoy socket）"| ADAPTER_REG
+    ADAPTER_REG --> CC
+    ADAPTER_REG --> CODEX
+    ADAPTER_REG --> NATIVE
+    ADAPTER_REG --> MOCK
+
+    %% 引擎 ← 工具 & 技能（SetupSandbox / StartTask 下发）
+    GRPC_SRV -->|"SetupSandbox: tools"| BUILTIN_TOOLS
+    GRPC_SRV --> MCP_TOOLS
+    GRPC_SRV --> CUSTOM_TOOLS
+    SKILL_PACK -->|"SkillArchive tar.gz"| GRPC_SRV
+    API_SVC -->|"写入时扫描"| SKILL_SCAN
+
+    %% 引擎 ← 模型凭据
+    SECRETS -->|"env 注入"| GRPC_SRV
+    NATIVE -.->|"工作负载 LLM"| NOTE_MODEL
+    CC -.-> NOTE_MODEL
+    CODEX -.-> NOTE_MODEL
+    API_SVC --> OPENAI_HELPER
+
+    %% runner 事件 → 事件核心
+    CC -.->|"HarnessEvent"| MAP
+    CODEX -.-> MAP
+    NATIVE -.-> MAP
+    GRPC_SRV --> MAP
+
+    %% 事件总线 → Redis 三通道
+    BUS_CORE -->|"Phase1 XADD"| R_STREAM
+    BUS_CORE -->|"Phase2 PUBLISH"| R_PUBSUB
+
+    %% Worker 消费 Stream → 落库 + 再发布
+    R_STREAM -->|"XREADGROUP"| WORKER_SVC
+    WORKER_SVC -->|"批量插入 (seq/dedup)"| PG
+    WORKER_SVC -->|"publish_session_event_realtime"| R_PUBSUB
+
+    %% Pub/Sub → SSE → 浏览器
+    R_PUBSUB -->|"SessionBroadcaster"| API_SVC
+
+    %% 观测
+    GRPC_SRV -.->|"spans"| OTEL_PROC
+    API_SVC --> TRACE_MW
+    OTEL_PROC --> TOKEN_METER
+    OTEL_PROC --> PG
+    OTEL_PROC -.-> OTLP
+
+    %% 存储
+    API_SVC --> PG
+    SANDBOX_PROV -.->|"artifacts"| OBJ
+    API_SVC -.->|"文件上传"| OBJ
+    ORCH_SVC --> REDIS
+
+    %% ═══════════════════════════════════════════════════════════════
+    %% 样式
+    %% ═══════════════════════════════════════════════════════════════
+    classDef accessLayer fill:#EEF2FF,stroke:#6366F1,stroke-width:2px,color:#312E81
+    classDef dispatchLayer fill:#F0F9FF,stroke:#0EA5E9,stroke-width:2px,color:#0C4A6E
+    classDef engineLayer fill:#FFFBEB,stroke:#F59E0B,stroke-width:2px,color:#78350F
+    classDef toolSkillLayer fill:#FEF3C7,stroke:#D97706,stroke-width:2px,color:#92400E
+    classDef modelLayer fill:#F5F3FF,stroke:#8B5CF6,stroke-width:2px,color:#4C1D95
+    classDef sandboxLayer fill:#FDF4FF,stroke:#D946EF,stroke-width:2px,color:#701A75
+    classDef eventLayer fill:#ECFDF5,stroke:#10B981,stroke-width:3px,color:#064E3B
+    classDef obsLayer fill:#FFF1F2,stroke:#F43F5E,stroke-width:2px,color:#881337
+    classDef storageLayer fill:#F0FDF4,stroke:#22C55E,stroke-width:2px,color:#166534
+
+    class L0 accessLayer
+    class L1 dispatchLayer
+    class L2 engineLayer
+    class L2_5 toolSkillLayer
+    class L3 modelLayer
+    class L4 sandboxLayer
+    class EVENT_CORE eventLayer
+    class L5 obsLayer
+    class L6 storageLayer
