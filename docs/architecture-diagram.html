@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>JoySafeter — Managed-Agent Architecture</title>
+<style>
+  :root{
+    --bg:#faf7f0; --ink:#1f2937; --muted:#6b7280; --line:#e6e0d4;
+    --blue:#1e40af; --blue-bg:#eef4ff; --blue-bd:#c7d7fb;
+    --amber:#9a3412; --amber-bg:#fff7ed; --amber-bd:#fcd9b6;
+    --green:#166534; --green-bg:#f0fdf4; --green-bd:#bbe6c8;
+    --card:#ffffff;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Inter","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  .page{max-width:1180px;margin:0 auto;padding:40px 40px 56px;}
+  h1{font-family:Georgia,"Songti SC",serif;font-weight:800;font-size:52px;
+    text-align:center;letter-spacing:.5px;margin:8px 0 30px;}
+  /* pillars */
+  .pillars{display:grid;grid-template-columns:repeat(4,1fr);gap:26px;
+    padding:0 6px 26px;border-bottom:1px solid var(--line);margin-bottom:30px;}
+  .pillar{display:flex;gap:12px;align-items:flex-start;}
+  .pillar .ic{font-size:22px;line-height:1;margin-top:2px;}
+  .pillar b{display:block;font-size:15px;margin-bottom:3px;}
+  .pillar span{font-size:12.5px;color:var(--muted);line-height:1.5;}
+  /* columns */
+  .cols{display:grid;grid-template-columns:1fr 1fr 1fr;gap:22px;align-items:start;}
+  .col{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#fcfaf5;}
+  .col-hd{display:flex;align-items:center;gap:10px;padding:14px 18px;font-weight:700;font-size:17px;}
+  .col-hd .n{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
+    color:#fff;font-size:14px;font-weight:700;}
+  .c1 .col-hd{background:var(--blue-bg);color:var(--blue);} .c1 .col-hd .n{background:var(--blue);}
+  .c2 .col-hd{background:var(--amber-bg);color:var(--amber);} .c2 .col-hd .n{background:#c2620e;}
+  .c3 .col-hd{background:var(--green-bg);color:var(--green);} .c3 .col-hd .n{background:var(--green);}
+  .col-body{padding:16px;display:flex;flex-direction:column;gap:12px;}
+  .pill{border-radius:10px;padding:10px 14px;font-weight:700;color:#fff;text-align:center;font-size:15px;}
+  .c1 .pill{background:var(--blue);} .c3 .pill{background:var(--green);}
+  .amber-pill{background:#c2620e;color:#fff;border-radius:10px;padding:9px 14px;font-weight:700;text-align:center;font-size:14.5px;}
+  .code{background:#f3f4f6;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;
+    font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:11.5px;color:#374151;white-space:pre;overflow:auto;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;}
+  .card .t{font-weight:700;font-size:13.5px;margin-bottom:8px;display:flex;align-items:center;gap:7px;}
+  .row{display:flex;align-items:center;gap:9px;font-size:12.8px;color:#374151;padding:4px 0;}
+  .row .ic{width:16px;text-align:center;}
+  .sub{font-size:11px;color:var(--muted);}
+  .badge{font-size:10px;font-weight:700;padding:1px 7px;border-radius:999px;margin-left:6px;vertical-align:middle;}
+  .badge.plan{background:#fde8e8;color:#b42318;} .badge.part{background:#fef3c7;color:#92400e;}
+  .box{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:#fbfaf6;}
+  .box .bt{font-weight:700;font-size:12.5px;color:var(--green);margin-bottom:8px;}
+  .c2 .box .bt{color:var(--amber);}
+  .grid2{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;text-align:center;font-size:11px;color:#374151;}
+  .grid2 .g{display:flex;flex-direction:column;align-items:center;gap:4px;}
+  .grid2 .g .ic{font-size:16px;}
+  .steps{display:flex;flex-direction:column;gap:9px;}
+  .step{display:flex;gap:10px;align-items:flex-start;font-size:12.8px;}
+  .step .ic{font-size:15px;line-height:1.2;}
+  .step b{color:var(--amber);} .c1 .step b{color:var(--blue);}
+  .step .d{color:var(--muted);font-size:11px;}
+  /* footers */
+  .foot{margin-top:6px;}
+  .foot .ft{display:inline-block;font-size:11.5px;font-weight:700;padding:2px 10px;border-radius:6px;margin-bottom:8px;}
+  .c1 .foot .ft{background:var(--blue-bg);color:var(--blue);}
+  .c2 .foot .ft{background:var(--amber-bg);color:var(--amber);}
+  .c3 .foot .ft{background:var(--green-bg);color:var(--green);}
+  .foot ul{margin:0;padding-left:16px;} .foot li{font-size:11.8px;color:#4b5563;line-height:1.75;}
+  /* data flow */
+  .flow{display:flex;align-items:stretch;gap:14px;margin-top:26px;
+    border:1px solid var(--line);border-radius:16px;padding:18px;background:#fcfaf5;}
+  .flow .lbl{writing-mode:vertical-rl;text-orientation:mixed;background:#eef4ff;color:var(--blue);
+    font-weight:700;font-size:12px;border-radius:8px;padding:10px 6px;display:grid;place-items:center;}
+  .flow .track{flex:1;}
+  .flow .nodes{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;align-items:center;}
+  .fn{border-radius:10px;padding:10px 12px;text-align:center;}
+  .fn b{font-size:13.5px;display:block;} .fn span{font-size:11px;color:var(--muted);}
+  .fn.q{background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue-bd);}
+  .fn.a{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd);}
+  .fn.s{background:var(--green-bg);color:var(--green);border:1px solid var(--green-bd);}
+  .fn.o{background:#fdeee6;color:#9a3412;border:1px solid #f3c9ae;}
+  .stream{text-align:center;font-size:11px;color:var(--muted);margin-top:10px;border-top:1px dashed #cbd5e1;padding-top:8px;}
+  /* banner */
+  .banner{display:flex;align-items:center;gap:16px;margin-top:24px;border:1.5px solid #e2c9a0;
+    background:#fbf3e6;border-radius:16px;padding:18px 22px;}
+  .banner .bic{font-size:26px;}
+  .banner .bt{font-weight:800;font-size:17px;}
+  .banner .hl{color:#b45309;}
+  .banner .sub2{font-size:12px;color:#6b7280;margin-top:5px;display:flex;gap:18px;flex-wrap:wrap;}
+  .arrow{align-self:center;color:#9ca3af;font-size:26px;}
+  .note{max-width:1180px;margin:14px auto 0;font-size:11px;color:#9ca3af;text-align:center;}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>JoySafeter</h1>
+
+  <!-- 4 pillars -->
+  <div class="pillars">
+    <div class="pillar"><div class="ic">🛡️</div><div><b>托管运行</b><span>平台保障运行与恢复</span></div></div>
+    <div class="pillar"><div class="ic">⏱️</div><div><b>长生命周期</b><span>支持中断、恢复与续跑</span></div></div>
+    <div class="pillar"><div class="ic">📊</div><div><b>可观测评估</b><span>过程可观测、结果可评估</span></div></div>
+    <div class="pillar"><div class="ic">🔒</div><div><b>安全可控</b><span>权限、边界与数据隔离</span></div></div>
+  </div>
+
+  <div class="cols">
+    <!-- Column 1 -->
+    <section class="col c1">
+      <div class="col-hd"><span class="n">1</span> 控制面（REST · CLI）</div>
+      <div class="col-body">
+        <div class="pill">REST /api/v1/*　·　joysafeterctl</div>
+        <div class="code">POST /api/v1/sessions
+POST /api/v1/sessions/{id}/events
+  { "type": "user.message",
+    "content": "…" }
+GET  /sessions/{id}/events/stream  (SSE)</div>
+        <div class="card">
+          <div class="t">🔑 API 服务职责</div>
+          <div class="row"><span class="ic">🔐</span>认证与鉴权（JWT · API Key · SSO）</div>
+          <div class="row"><span class="ic">🧾</span>请求构建与校验 · 响应信封</div>
+          <div class="row"><span class="ic">🧭</span>多租户隔离（org / project / RBAC）</div>
+          <div class="row"><span class="ic">↩️</span>入队 task（Redis list）· 控制中继</div>
+          <div class="row"><span class="ic">📡</span>流式接收（SSE，可回放）</div>
+        </div>
+        <div class="card">
+          <div class="t">🧩 SDK / 调用入口 <span class="badge plan">规划中</span></div>
+          <div class="grid2" style="grid-template-columns:repeat(3,1fr);">
+            <div class="g"><span class="ic">🐍</span>Python</div>
+            <div class="g"><span class="ic">🟦</span>TypeScript</div>
+            <div class="g"><span class="ic">☕</span>Java</div>
+          </div>
+          <div class="sub" style="margin-top:8px;">今日经 REST / <code>joysafeterctl</code>；官方 <code>client.query()</code> SDK 为路线图项。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Column 2 -->
+    <section class="col c2">
+      <div class="col-hd"><span class="n">2</span> Agent Harness（沙箱内）</div>
+      <div class="col-body">
+        <div class="amber-pill">Rust sandbox-runner + harness</div>
+        <div class="card">
+          <div class="t">⚙️ 引擎运行时（HarnessAdapter）</div>
+          <div class="steps">
+            <div class="step"><span class="ic">🟠</span><div><b>Claude</b> —— claude CLI · stream-json</div></div>
+            <div class="step"><span class="ic">🔵</span><div><b>Codex</b> —— codex app-server · JSON-RPC</div></div>
+            <div class="step"><span class="ic">🟢</span><div><b>Native</b> —— 自研 <code>ccb</code> 引擎</div></div>
+          </div>
+          <div class="sub" style="margin-top:8px;">按 Agent 的 <code>engine_kind</code> 选择；harness 决定何时调用工具、管理上下文、错误恢复。</div>
+        </div>
+        <div class="card">
+          <div class="t">🔧 能力集成（经 gRPC 下发）</div>
+          <div class="row"><span class="ic">🛠️</span>内置工具 + 工具策略（allow / ask）</div>
+          <div class="row"><span class="ic">🔌</span>MCP 服务器（mcp_configs + Vault 凭据）</div>
+          <div class="row"><span class="ic">🧱</span>自定义工具（JSON Schema）</div>
+          <div class="row"><span class="ic">📚</span>技能包（skillspector 扫描 · tar.gz 注入）</div>
+        </div>
+        <div class="box">
+          <div class="bt">运行治理</div>
+          <div class="grid2">
+            <div class="g"><span class="ic">🚦</span>调度与限流</div>
+            <div class="g"><span class="ic">⏲️</span>超时控制</div>
+            <div class="g"><span class="ic">📦</span>沙箱执行</div>
+            <div class="g"><span class="ic">📝</span>审计日志</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Column 3 -->
+    <section class="col c3">
+      <div class="col-hd"><span class="n">3</span> Session 状态层（PostgreSQL）</div>
+      <div class="col-body">
+        <div class="pill">JoySafeterSession · 事件日志</div>
+        <div class="card">
+          <div class="t">🗂️ 会话对象（持久化）</div>
+          <div class="row"><span class="ic">🧾</span>会话元数据（agent 快照 · 配置 · 用量）</div>
+          <div class="row"><span class="ic">🧵</span>消息与事件日志（seq 有序 · 追加式）</div>
+          <div class="row"><span class="ic">🛠️</span>步骤与工具调用（输入 / 输出 / 状态）</div>
+          <div class="row"><span class="ic">📎</span>产物与附件（文件 · 仓库 · 记忆库）</div>
+          <div class="row"><span class="ic">💾</span>检查点 Checkpoints<span class="badge part">部分</span></div>
+          <div class="row"><span class="ic">✅</span>评估与 Outcome<span class="badge plan">规划中</span></div>
+        </div>
+        <div class="box">
+          <div class="bt">存储与索引</div>
+          <div class="grid2" style="grid-template-columns:repeat(3,1fr);">
+            <div class="g"><span class="ic">☁️</span>对象存储<br/>local / S3 / OSS</div>
+            <div class="g"><span class="ic">🔎</span>事件回放<br/>Redis</div>
+            <div class="g"><span class="ic">🔐</span>加密与隔离<br/>按租户 · AES-GCM</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- column footers -->
+  <div class="cols" style="margin-top:16px;">
+    <div class="col c1"><div class="col-body foot"><span class="ft">控制面职责</span>
+      <ul><li>统一 REST / CLI 入口</li><li>鉴权、多租户、限流</li><li>入队任务、中继控制、SSE 回流</li><li>屏蔽底层 orchestrator / 沙箱细节</li></ul></div></div>
+    <div class="col c2"><div class="col-body foot"><span class="ft">Harness 职责</span>
+      <ul><li>驱动 Agent 运行循环（在沙箱内）</li><li>调用工具 / MCP / 技能完成任务</li><li>管理上下文、允许中断与续跑</li><li>把事件经 gRPC AgentBridge 流回</li></ul></div></div>
+    <div class="col c3"><div class="col-body foot"><span class="ft">状态层职责</span>
+      <ul><li>持久化会话全量状态与历史</li><li>支持续跑与版本回溯</li><li>提供检索、用量与成本核算</li><li>保障数据按租户合规与隔离</li></ul></div></div>
+  </div>
+
+  <!-- data flow -->
+  <div class="flow">
+    <div class="lbl">关键对象<br/>与数据流</div>
+    <div class="track">
+      <div class="nodes">
+        <div class="fn q"><b>发送消息</b><span>输入：任务 / 上下文</span></div>
+        <div class="fn a"><b>Agent（运行中）</b><span>调度 → 工具 → 观察 → 事件</span></div>
+        <div class="fn s"><b>Session（持久化）</b><span>事件落库 · 检查点</span></div>
+        <div class="fn o"><b>Outcome　<span style="font-size:9px;">规划中</span></b><span>最终结果 / 评估 / 指标</span></div>
+      </div>
+      <div class="stream">← ← ←　事件流 Streaming（SSE 实时回流 · 断线可回放）　→ → →</div>
+    </div>
+  </div>
+
+  <!-- banner -->
+  <div class="banner">
+    <div class="bic">🧊</div>
+    <div>
+      <div class="bt">Agent 不只是一次 API 调用，而是 <span class="hl">可运行、可恢复、可评估</span> 的工作单元</div>
+      <div class="sub2"><span>◆ 更可靠的长任务执行</span><span>◆ 更灵活的人机协作</span><span>◆ 更可观测的过程与结果</span></div>
+    </div>
+  </div>
+</div>
+<p class="note">JoySafeter 托管智能体架构 · 面向 Claude Managed Agents 运行模型的开源自托管、引擎无关、安全专用实现。
+标注：<span style="color:#b42318;font-weight:700;">规划中</span> = 路线图；<span style="color:#92400e;font-weight:700;">部分</span> = 已部分实现。其余为 v2 as-built。</p>
+</body>
+</html>

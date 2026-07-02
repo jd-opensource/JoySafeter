@@ -246,6 +246,10 @@ cd deploy
 
 ## 架构概览
 
+![JoySafeter 托管智能体架构](docs/architecture-diagram.png)
+
+<sub>总览信息图 —— ① 控制面（REST · CLI）→ ② Agent Harness（沙箱内）→ ③ Session 状态层。交互版：[`docs/architecture-diagram.html`](docs/architecture-diagram.html)。</sub>
+
 ```mermaid
 flowchart LR
     FE["浏览器"] -->|"REST · SSE"| API["API 服务"]
@@ -265,6 +269,8 @@ flowchart LR
     API -->|"SSE 事件流"| FE
 ```
 
+> **托管智能体总览信息图：** [docs/architecture-diagram.html](docs/architecture-diagram.html) —— 在浏览器打开（① 控制面 REST·CLI → ② Agent Harness → ③ Session 状态层）。
+>
 > 完整架构（部署拓扑、gRPC 契约、引擎、沙箱、事件模型、领域 FSM）：
 > **[docs/ARCHITECTURE_CN.md](docs/ARCHITECTURE_CN.md)** · 分层视图：
 > [docs/architecture-unified-event-model.mmd](docs/architecture-unified-event-model.mmd)

@@ -251,6 +251,10 @@ cd deploy
 
 ## Architecture
 
+![JoySafeter managed-agent architecture](docs/architecture-diagram.png)
+
+<sub>Overview infographic — ① control plane (REST · CLI) → ② Agent Harness (in-sandbox) → ③ Session state-layer. Interactive version: [`docs/architecture-diagram.html`](docs/architecture-diagram.html).</sub>
+
 ```mermaid
 flowchart LR
     FE["Browser"] -->|"REST · SSE"| API["API service"]
