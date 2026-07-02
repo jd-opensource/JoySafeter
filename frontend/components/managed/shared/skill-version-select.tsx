@@ -5,7 +5,13 @@ import { useQuery } from '@tanstack/react-query'
 import { managedGet } from '@/lib/api-client'
 import { stripIdPrefix } from '@/lib/managed/id'
 import { useTranslation } from '@/lib/i18n'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import type { SkillVersionRecord } from '@/types/managed'
 
 interface SkillVersionSelectProps {
@@ -33,14 +39,21 @@ interface SkillVersionSelectProps {
  * version (renders the raw value as a one-off entry) — this also covers a
  * legacy agent that was previously pinned to "draft".
  */
-export function SkillVersionSelect({ skillId, value, onChange, enabled = true, className }: SkillVersionSelectProps) {
+export function SkillVersionSelect({
+  skillId,
+  value,
+  onChange,
+  enabled = true,
+  className,
+}: SkillVersionSelectProps) {
   const { t } = useTranslation()
 
   const { data } = useQuery({
     queryKey: ['skill-versions', skillId],
-    queryFn: () => managedGet<{ data: SkillVersionRecord[] }>(
-      `/skills/${stripIdPrefix(skillId)}/versions?limit=50`,
-    ),
+    queryFn: () =>
+      managedGet<{ data: SkillVersionRecord[] }>(
+        `/skills/${stripIdPrefix(skillId)}/versions?limit=50`,
+      ),
     enabled: enabled && !!skillId,
     staleTime: 30_000,
   })
@@ -58,7 +71,9 @@ export function SkillVersionSelect({ skillId, value, onChange, enabled = true, c
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="latest">{t('managed.skills.version.latest', 'Latest published')}</SelectItem>
+        <SelectItem value="latest">
+          {t('managed.skills.version.latest', 'Latest published')}
+        </SelectItem>
         {versions.map((v) => (
           <SelectItem key={v.id} value={v.version}>
             v{v.version}

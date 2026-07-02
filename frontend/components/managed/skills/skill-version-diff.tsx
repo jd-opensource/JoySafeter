@@ -39,11 +39,13 @@ function StatusBadge({ status }: { status: SkillFileDiffEntry['status'] }) {
     },
   } as const
   const { label, cls } = map[status]
-  return <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${cls}`}>{label}</span>
+  return (
+    <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${cls}`}>{label}</span>
+  )
 }
 
 const LineNo = ({ n }: { n: number | null }) => (
-  <span className="w-11 shrink-0 select-none border-r border-border/50 px-2 text-right text-muted-foreground/50">
+  <span className="border-border/50 w-11 shrink-0 select-none border-r px-2 text-right text-muted-foreground/50">
     {n ?? ''}
   </span>
 )
@@ -76,7 +78,9 @@ function UnifiedHunk({ hunk }: { hunk: DiffHunk }) {
           <div key={i} className={`flex ${rowBg(r.type)}`}>
             <LineNo n={r.oldNo} />
             <LineNo n={r.newNo} />
-            <span className={`w-4 shrink-0 select-none text-center ${rowText(r.type)}`}>{sign}</span>
+            <span className={`w-4 shrink-0 select-none text-center ${rowText(r.type)}`}>
+              {sign}
+            </span>
             <span className={`whitespace-pre-wrap break-all px-1 ${rowText(r.type)}`}>
               {r.value || ' '}
             </span>
@@ -134,7 +138,7 @@ function SplitHunk({ hunk }: { hunk: DiffHunk }) {
     <>
       <HunkHeader header={hunk.header} />
       {rows.map((r, i) => (
-        <div key={i} className="flex divide-x divide-border/50">
+        <div key={i} className="divide-border/50 flex divide-x">
           <SplitCell row={r.old} />
           <SplitCell row={r.new} />
         </div>
@@ -158,12 +162,18 @@ function FileDiffBlock({ entry, mode }: { entry: SkillFileDiffEntry; mode: DiffV
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         )}
         <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">{entry.path}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
+          {entry.path}
+        </span>
         <StatusBadge status={entry.status} />
         {(entry.added > 0 || entry.removed > 0) && (
           <span className="flex shrink-0 items-center gap-1.5 font-mono text-[11px]">
-            {entry.added > 0 && <span className="text-green-600 dark:text-green-400">+{entry.added}</span>}
-            {entry.removed > 0 && <span className="text-red-600 dark:text-red-400">−{entry.removed}</span>}
+            {entry.added > 0 && (
+              <span className="text-green-600 dark:text-green-400">+{entry.added}</span>
+            )}
+            {entry.removed > 0 && (
+              <span className="text-red-600 dark:text-red-400">−{entry.removed}</span>
+            )}
           </span>
         )}
       </button>

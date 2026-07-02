@@ -61,7 +61,7 @@ export function CreateMemoryStoreDialog({
 
         <div className="space-y-4 py-4">
           <div>
-            <label className="text-sm font-medium mb-1 block">
+            <label className="mb-1 block text-sm font-medium">
               {t('managed.memoryStores.nameLabel')}
             </label>
             <Input
@@ -72,7 +72,7 @@ export function CreateMemoryStoreDialog({
             />
           </div>
           <div>
-            <label className="text-sm font-medium mb-1 block">
+            <label className="mb-1 block text-sm font-medium">
               {t('managed.memoryStores.descriptionLabel')}
             </label>
             <Textarea

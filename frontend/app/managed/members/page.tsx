@@ -49,7 +49,9 @@ export default function MembersPage() {
   const [inviting, setInviting] = useState(false)
   const [error, setError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<{ id: string; email: string; name: string; image?: string; already_member: boolean }[]>([])
+  const [searchResults, setSearchResults] = useState<
+    { id: string; email: string; name: string; image?: string; already_member: boolean }[]
+  >([])
   const [showDropdown, setShowDropdown] = useState(false)
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -126,7 +128,9 @@ export default function MembersPage() {
     }
     searchTimeoutRef.current = setTimeout(async () => {
       try {
-        const results = await managedGet<{ id: string; email: string; name: string; image?: string; already_member: boolean }[]>(`/auth/search-users?q=${encodeURIComponent(value)}&limit=5`)
+        const results = await managedGet<
+          { id: string; email: string; name: string; image?: string; already_member: boolean }[]
+        >(`/auth/search-users?q=${encodeURIComponent(value)}&limit=5`)
         setSearchResults(results)
         setShowDropdown(true)
       } catch {
@@ -168,13 +172,15 @@ export default function MembersPage() {
       header: t('manage.members.name'),
       render: (member) => (
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium text-primary shrink-0">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
             {member.display_name?.charAt(0)?.toUpperCase() || '?'}
           </div>
           <span className="font-medium text-foreground">
             {member.display_name || '-'}
             {member.user_id === session?.data?.user?.id && (
-              <span className="ml-1.5 text-xs text-muted-foreground">({t('manage.members.you')})</span>
+              <span className="ml-1.5 text-xs text-muted-foreground">
+                ({t('manage.members.you')})
+              </span>
             )}
           </span>
         </div>
@@ -197,7 +203,12 @@ export default function MembersPage() {
     {
       key: 'joined',
       header: t('manage.members.joined'),
-      render: (member) => member.joined_at ? <RelativeTime date={member.joined_at} /> : <span className="text-muted-foreground">-</span>,
+      render: (member) =>
+        member.joined_at ? (
+          <RelativeTime date={member.joined_at} />
+        ) : (
+          <span className="text-muted-foreground">-</span>
+        ),
     },
   ]
 
@@ -206,12 +217,14 @@ export default function MembersPage() {
       <PageHeader
         title={t('manage.members.title')}
         subtitle={t('manage.members.subtitle')}
-        action={canAdmin ? (
-          <Button size="sm" onClick={() => resetInviteDialog(true)}>
-            <UserPlus className="w-4 h-4 mr-1" />
-            {t('manage.members.invite')}
-          </Button>
-        ) : null}
+        action={
+          canAdmin ? (
+            <Button size="sm" onClick={() => resetInviteDialog(true)}>
+              <UserPlus className="mr-1 h-4 w-4" />
+              {t('manage.members.invite')}
+            </Button>
+          ) : null
+        }
       />
 
       <DataTable
@@ -219,18 +232,25 @@ export default function MembersPage() {
         data={members}
         loading={isLoading}
         emptyMessage={t('manage.members.empty')}
-        actionMenu={canAdmin ? (member) => normalizeManagedRole(member.role) === 'owner' ? [] : [
-          {
-            label: t('manage.members.changeRole'),
-            onClick: () => openRoleDialog(member),
-          },
-          {
-            label: t('manage.members.remove'),
-            icon: <Trash2 className="w-3.5 h-3.5" />,
-            destructive: true,
-            onClick: () => setRemoveTarget(member),
-          },
-        ] : undefined}
+        actionMenu={
+          canAdmin
+            ? (member) =>
+                normalizeManagedRole(member.role) === 'owner'
+                  ? []
+                  : [
+                      {
+                        label: t('manage.members.changeRole'),
+                        onClick: () => openRoleDialog(member),
+                      },
+                      {
+                        label: t('manage.members.remove'),
+                        icon: <Trash2 className="h-3.5 w-3.5" />,
+                        destructive: true,
+                        onClick: () => setRemoveTarget(member),
+                      },
+                    ]
+            : undefined
+        }
       />
 
       {/* Invite Dialog */}
@@ -244,7 +264,7 @@ export default function MembersPage() {
             <div className="space-y-2">
               <label className="text-sm font-medium">{t('manage.members.email')}</label>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   placeholder="user@example.com"
                   value={searchQuery}
@@ -253,24 +273,30 @@ export default function MembersPage() {
                   autoFocus
                 />
                 {showDropdown && searchResults.length > 0 && (
-                  <div className="absolute z-50 mt-1 w-full bg-background border border-border rounded-lg shadow-lg overflow-hidden">
+                  <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-lg border border-border bg-background shadow-lg">
                     {searchResults.map((user) => (
                       <button
                         key={user.id}
                         type="button"
                         disabled={user.already_member}
                         onClick={() => selectUser(user)}
-                        className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-muted/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium text-primary shrink-0">
-                          {user.name?.charAt(0)?.toUpperCase() || user.email?.charAt(0)?.toUpperCase() || '?'}
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
+                          {user.name?.charAt(0)?.toUpperCase() ||
+                            user.email?.charAt(0)?.toUpperCase() ||
+                            '?'}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-foreground truncate">{user.name || user.email}</div>
-                          <div className="text-xs text-muted-foreground truncate">{user.email}</div>
+                          <div className="truncate text-sm font-medium text-foreground">
+                            {user.name || user.email}
+                          </div>
+                          <div className="truncate text-xs text-muted-foreground">{user.email}</div>
                         </div>
                         {user.already_member && (
-                          <span className="text-[10px] text-muted-foreground shrink-0">{t('manage.members.alreadyMember')}</span>
+                          <span className="shrink-0 text-[10px] text-muted-foreground">
+                            {t('manage.members.alreadyMember')}
+                          </span>
                         )}
                       </button>
                     ))}
@@ -286,7 +312,9 @@ export default function MembersPage() {
                 </SelectTrigger>
                 <SelectContent>
                   {roleOptions(t).map((option) => (
-                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -304,13 +332,16 @@ export default function MembersPage() {
       </Dialog>
 
       {/* Change Role Dialog */}
-      <Dialog open={!!roleTarget} onOpenChange={(v) => { if (!v) setRoleTarget(null) }}>
+      <Dialog
+        open={!!roleTarget}
+        onOpenChange={(v) => {
+          if (!v) setRoleTarget(null)
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('manage.members.changeRole')}</DialogTitle>
-            <DialogDescription>
-              {roleTarget?.display_name || roleTarget?.email}
-            </DialogDescription>
+            <DialogDescription>{roleTarget?.display_name || roleTarget?.email}</DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
             <Select value={newRole} onValueChange={setNewRole}>
@@ -319,7 +350,9 @@ export default function MembersPage() {
               </SelectTrigger>
               <SelectContent>
                 {roleOptions(t).map((option) => (
-                  <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -336,13 +369,16 @@ export default function MembersPage() {
       </Dialog>
 
       {/* Remove Confirm Dialog */}
-      <Dialog open={!!removeTarget} onOpenChange={(v) => { if (!v) setRemoveTarget(null) }}>
+      <Dialog
+        open={!!removeTarget}
+        onOpenChange={(v) => {
+          if (!v) setRemoveTarget(null)
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('manage.members.remove')}</DialogTitle>
-            <DialogDescription>
-              {t('manage.members.removeConfirm')}
-            </DialogDescription>
+            <DialogDescription>{t('manage.members.removeConfirm')}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRemoveTarget(null)}>

@@ -14,7 +14,12 @@ interface SecretModelInputProps {
   className?: string
 }
 
-export function SecretModelInput({ value, onChange, placeholder, className }: SecretModelInputProps) {
+export function SecretModelInput({
+  value,
+  onChange,
+  placeholder,
+  className,
+}: SecretModelInputProps) {
   const [open, setOpen] = useState(false)
 
   const filteredOptions = useMemo(() => {
@@ -95,7 +100,12 @@ export function SecretModelInput({ value, onChange, placeholder, className }: Se
                 onClick={() => selectModel(model)}
               >
                 <span className="truncate">{model}</span>
-                <Check className={cn('ml-auto h-4 w-4 shrink-0', value === model ? 'opacity-100' : 'opacity-0')} />
+                <Check
+                  className={cn(
+                    'ml-auto h-4 w-4 shrink-0',
+                    value === model ? 'opacity-100' : 'opacity-0',
+                  )}
+                />
               </button>
             ))
           ) : !showCustomValue ? (

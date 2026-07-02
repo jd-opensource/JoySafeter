@@ -23,11 +23,7 @@ import {
 } from '@/components/managed/shared'
 import { CreateCredentialDialog } from '../components/create-credential-dialog'
 
-export default function VaultDetailPage({
-  params,
-}: {
-  params: Promise<{ vaultId: string }>
-}) {
+export default function VaultDetailPage({ params }: { params: Promise<{ vaultId: string }> }) {
   const { vaultId: id } = React.use(params)
   const { t } = useTranslation()
   const router = useRouter()
@@ -72,13 +68,13 @@ export default function VaultDetailPage({
     queryKey: ['vault-credentials', id, showArchivedCredentials],
     queryFn: () =>
       managedGet<{ data: VaultCredential[]; has_more: boolean }>(
-        `/vaults/${vaultId}/credentials?limit=100&include_archived=${showArchivedCredentials}`
+        `/vaults/${vaultId}/credentials?limit=100&include_archived=${showArchivedCredentials}`,
       ),
     enabled: !!id,
   })
 
   const credentials = (credsRes?.data || []).filter(
-    (c) => showArchivedCredentials || !c.archived_at
+    (c) => showArchivedCredentials || !c.archived_at,
   )
 
   const archiveVaultMutation = useMutation({
@@ -106,9 +102,7 @@ export default function VaultDetailPage({
 
   const archiveCredMutation = useMutation({
     mutationFn: (credId: string) =>
-      managedPost(        `/vaults/${vaultId}/credentials/${stripIdPrefix(credId)}/archive`,
-        {}
-      ),
+      managedPost(`/vaults/${vaultId}/credentials/${stripIdPrefix(credId)}/archive`, {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['vault-credentials', id] })
       setConfirmDialog((prev) => ({ ...prev, open: false }))
@@ -163,9 +157,7 @@ export default function VaultDetailPage({
   }
 
   if (isLoading || !vault) {
-    return (
-      <div className="text-muted-foreground">{t('common.loading')}</div>
-    )
+    return <div className="text-muted-foreground">{t('common.loading')}</div>
   }
 
   const isArchived = !!vault.archived_at
@@ -190,24 +182,18 @@ export default function VaultDetailPage({
     {
       key: 'name',
       header: t('managed.table.name'),
-      render: (c) => (
-        <span className="font-medium text-foreground">{c.name}</span>
-      ),
+      render: (c) => <span className="font-medium text-foreground">{c.name}</span>,
     },
     {
       key: 'type',
       header: t('managed.vaults.cred.type'),
-      render: (c) => (
-        <span className="text-sm">
-          {formatCredentialType(c.credential_type)}
-        </span>
-      ),
+      render: (c) => <span className="text-sm">{formatCredentialType(c.credential_type)}</span>,
     },
     {
       key: 'mcp_server_url',
       header: t('managed.vaults.cred.mcpServerUrl'),
       render: (c) => (
-        <span className="text-sm text-muted-foreground font-mono truncate max-w-[300px] block">
+        <span className="block max-w-[300px] truncate font-mono text-sm text-muted-foreground">
           {c.mcp_server_url || '—'}
         </span>
       ),
@@ -215,9 +201,7 @@ export default function VaultDetailPage({
     {
       key: 'status',
       header: t('managed.table.status'),
-      render: (c) => (
-        <StatusBadge status={c.archived_at ? 'archived' : 'active'} />
-      ),
+      render: (c) => <StatusBadge status={c.archived_at ? 'archived' : 'active'} />,
     },
   ]
 
@@ -225,9 +209,7 @@ export default function VaultDetailPage({
     <div>
       <PageHeader
         title={vault.name}
-        titleExtra={
-          <StatusBadge status={isArchived ? 'archived' : 'active'} />
-        }
+        titleExtra={<StatusBadge status={isArchived ? 'archived' : 'active'} />}
         breadcrumb={[
           { label: t('managed.vaults.title'), to: '/managed/vaults' },
           { label: vault.name },
@@ -235,20 +217,12 @@ export default function VaultDetailPage({
         action={
           !isArchived ? (
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleArchiveVault}
-              >
-                <Archive className="w-3.5 h-3.5 mr-1.5" />
+              <Button variant="outline" size="sm" onClick={handleArchiveVault}>
+                <Archive className="mr-1.5 h-3.5 w-3.5" />
                 {t('common.archive')}
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleDeleteVault}
-              >
-                <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+              <Button variant="outline" size="sm" onClick={handleDeleteVault}>
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
                 {t('common.delete')}
               </Button>
             </div>
@@ -256,18 +230,18 @@ export default function VaultDetailPage({
         }
       />
 
-      <div className="flex items-center gap-1.5 text-sm text-muted-foreground mb-6">
+      <div className="mb-6 flex items-center gap-1.5 text-sm text-muted-foreground">
         <MonoId id={vault.id} truncate={false} />
         <span>·</span>
         <RelativeTime date={vault.created_at} />
       </div>
 
       {/* Credentials section */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold">{t('managed.vaults.credentials')}</h2>
         {!isArchived && (
           <Button size="sm" onClick={() => setCreateCredOpen(true)}>
-            <Plus className="w-4 h-4" />
+            <Plus className="h-4 w-4" />
             {t('managed.vaults.addCredential')}
           </Button>
         )}
@@ -310,9 +284,7 @@ export default function VaultDetailPage({
         confirmLabel={confirmDialog.confirmLabel}
         destructive={confirmDialog.destructive}
         onConfirm={confirmDialog.onConfirm}
-        onCancel={() =>
-          setConfirmDialog((prev) => ({ ...prev, open: false }))
-        }
+        onCancel={() => setConfirmDialog((prev) => ({ ...prev, open: false }))}
       />
     </div>
   )

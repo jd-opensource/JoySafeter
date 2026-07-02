@@ -12,11 +12,7 @@
  * still actually needs.
  */
 
-import type {
-  SkillFile,
-  SkillFrontmatter,
-  ParsedSkillMd,
-} from '@/types'
+import type { SkillFile, SkillFrontmatter, ParsedSkillMd } from '@/types'
 import { COMMON_EXTENSIONS, WARNED_EXTENSIONS } from '@/types'
 
 // ---------------------------------------------------------------------------

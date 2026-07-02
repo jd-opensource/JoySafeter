@@ -23,9 +23,19 @@ import {
   Square,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { useQuickstartChat, type QuickstartEngine, type StepId } from '@/hooks/managed/use-quickstart-chat'
+import {
+  useQuickstartChat,
+  type QuickstartEngine,
+  type StepId,
+} from '@/hooks/managed/use-quickstart-chat'
 import { managedGet, managedPost } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
 import { shortIdWithPrefix, stripIdPrefix } from '@/lib/managed/id'
@@ -102,9 +112,7 @@ function isSecretCompatible(secret: QuickstartSecret | undefined, engine: Quicks
 
 function secretDetail(secret: QuickstartSecret) {
   const provider = secret.provider && secret.provider !== 'custom' ? secret.provider : ''
-  const modelKey = secret.keys?.find((key) =>
-    ['ANTHROPIC_MODEL', 'OPENAI_MODEL'].includes(key),
-  )
+  const modelKey = secret.keys?.find((key) => ['ANTHROPIC_MODEL', 'OPENAI_MODEL'].includes(key))
   return [provider, modelKey, secret.is_default ? 'default' : ''].filter(Boolean).join(' · ')
 }
 
@@ -133,16 +141,14 @@ function Stepper({
   ]
 
   return (
-    <div className="flex items-center justify-center gap-2 py-3 mb-4">
+    <div className="mb-4 flex items-center justify-center gap-2 py-3">
       {steps.map((step, i) => {
         const isDone = completedSteps.has(step.num)
         const isActive = step.num === currentStep
 
         return (
           <div key={step.num} className="flex items-center gap-2">
-            {i > 0 && (
-              <span className="text-muted-foreground/60 mx-1">→</span>
-            )}
+            {i > 0 && <span className="mx-1 text-muted-foreground/60">→</span>}
             <div className="flex items-center gap-2 whitespace-nowrap">
               <span
                 className={cn(
@@ -157,7 +163,11 @@ function Stepper({
               <span
                 className={cn(
                   'text-sm font-medium',
-                  isActive ? 'text-foreground' : isDone ? 'text-foreground' : 'text-muted-foreground',
+                  isActive
+                    ? 'text-foreground'
+                    : isDone
+                      ? 'text-foreground'
+                      : 'text-muted-foreground',
                 )}
               >
                 {step.label}
@@ -773,7 +783,11 @@ export default function QuickstartPage() {
   }, [vaults])
 
   const selectedEnvironmentName = useMemo(() => {
-    return activeEnvironments.find((env) => env.id === selectedEnvId)?.name || activeSession?.environment_id || ''
+    return (
+      activeEnvironments.find((env) => env.id === selectedEnvId)?.name ||
+      activeSession?.environment_id ||
+      ''
+    )
   }, [activeEnvironments, activeSession?.environment_id, selectedEnvId])
 
   // Auto-send AI intro only when user chose "Something else" (AI mode)
@@ -889,8 +903,7 @@ export default function QuickstartPage() {
 
   const configText = useMemo(() => {
     if (!configObj) {
-      const label =
-        currentStep === 4 ? 'Environment' : currentStep === 5 ? 'Vault' : 'Agent'
+      const label = currentStep === 4 ? 'Environment' : currentStep === 5 ? 'Vault' : 'Agent'
       return editorTab === 'yaml'
         ? `# ${label} configuration will appear here\n# as the AI generates it...`
         : `{\n  // ${label} configuration will appear here\n  // as the AI generates it...\n}`
@@ -922,10 +935,9 @@ export default function QuickstartPage() {
   const handleQuickstartEngineSelect = (engine: QuickstartEngine) => {
     const engineSecrets = (secrets || []).filter((secret) => isSecretCompatible(secret, engine))
     const currentSecretIsCompatible = isSecretCompatible(selectedSecret, engine)
-    const nextSecret =
-      currentSecretIsCompatible
-        ? selectedSecret
-        : engineSecrets.find((secret) => secret.is_default) || engineSecrets[0]
+    const nextSecret = currentSecretIsCompatible
+      ? selectedSecret
+      : engineSecrets.find((secret) => secret.is_default) || engineSecrets[0]
 
     if (nextSecret && nextSecret.name !== secretRef) {
       setSecretRef(nextSecret.name)
@@ -947,7 +959,7 @@ export default function QuickstartPage() {
 
   return (
     <div className="w-full">
-      <h1 className="text-lg font-semibold text-foreground px-1 pt-1">
+      <h1 className="px-1 pt-1 text-lg font-semibold text-foreground">
         {t('managed.quickstart.title')}
       </h1>
 
@@ -995,17 +1007,15 @@ export default function QuickstartPage() {
             <div className="flex gap-3">
               <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
               <div>
-                <div className="text-sm font-semibold">{t('managed.quickstart.secretRequiredTitle')}</div>
+                <div className="text-sm font-semibold">
+                  {t('managed.quickstart.secretRequiredTitle')}
+                </div>
                 <p className="mt-1 text-sm leading-relaxed text-amber-900/80 dark:text-amber-100/80">
                   {t('managed.quickstart.secretRequiredDescription')}
                 </p>
               </div>
             </div>
-            <Button
-              size="sm"
-              className="shrink-0"
-              onClick={() => router.push('/managed/secrets')}
-            >
+            <Button size="sm" className="shrink-0" onClick={() => router.push('/managed/secrets')}>
               {t('managed.quickstart.configureSecret')}
             </Button>
           </div>
@@ -1042,13 +1052,13 @@ export default function QuickstartPage() {
                       ? t('managed.quickstart.noApiKey')
                       : currentStep === 2
                         ? t('managed.quickstart.chooseSecret')
-                      : currentStep >= 3 && !selectedSecretCompatible
-                        ? t('managed.quickstart.noCompatibleSecret')
-                        : isSessionRunning
-                          ? t('managed.quickstart.agentProcessing')
-                          : isStreaming
-                            ? t('managed.quickstart.waitingForResponse')
-                            : t('managed.quickstart.describeAgent')
+                        : currentStep >= 3 && !selectedSecretCompatible
+                          ? t('managed.quickstart.noCompatibleSecret')
+                          : isSessionRunning
+                            ? t('managed.quickstart.agentProcessing')
+                            : isStreaming
+                              ? t('managed.quickstart.waitingForResponse')
+                              : t('managed.quickstart.describeAgent')
                   }
                   className="h-8 flex-1 border-0 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-50"
                 />
@@ -1115,12 +1125,17 @@ export default function QuickstartPage() {
                       { num: 2, label: t('managed.quickstart.engineCodex') },
                       { num: 3, label: t('managed.quickstart.engineNative') },
                     ]}
-                    onSelect={(num) => handleQuickstartEngineSelect(num === 2 ? 'codex' : num === 3 ? 'native' : 'claude')}
+                    onSelect={(num) =>
+                      handleQuickstartEngineSelect(
+                        num === 2 ? 'codex' : num === 3 ? 'native' : 'claude',
+                      )
+                    }
                   />
                 )}
 
-                {currentStep === 2 && !completedSteps.has(2) && (
-                  compatibleSecrets.length > 0 ? (
+                {currentStep === 2 &&
+                  !completedSteps.has(2) &&
+                  (compatibleSecrets.length > 0 ? (
                     <NumberedChoiceList
                       question={t('managed.quickstart.secretQuestion')}
                       choices={compatibleSecrets.map((secret, index) => ({
@@ -1144,8 +1159,7 @@ export default function QuickstartPage() {
                         {t('managed.quickstart.configureSecret')}
                       </Button>
                     </div>
-                  )
-                )}
+                  ))}
 
                 {/* Step 2 secret: show completed badge before the next step actions */}
                 {currentStep > 2 && completedSteps.has(2) && selectedSecret && (
@@ -1394,7 +1408,9 @@ export default function QuickstartPage() {
                               setVaultAnswers({ choiceLabel: vault.name })
                               setVaultSubStep('selected')
                             } else {
-                              setVaultAnswers({ choiceLabel: t('managed.quickstart.vaultCreateNew') })
+                              setVaultAnswers({
+                                choiceLabel: t('managed.quickstart.vaultCreateNew'),
+                              })
                               setVaultSubStep('name')
                             }
                           }}
@@ -1481,9 +1497,7 @@ export default function QuickstartPage() {
                     <div className="space-y-1 rounded-lg border border-border bg-muted/50 p-3 font-mono text-xs">
                       <div>
                         <span className="text-muted-foreground">agent:</span>{' '}
-                        {resourceIds[3]
-                          ? shortIdWithPrefix(resourceIds[3], 'agent_')
-                          : '—'}
+                        {resourceIds[3] ? shortIdWithPrefix(resourceIds[3], 'agent_') : '—'}
                       </div>
                       {resourceIds[4] && (
                         <div>
@@ -1582,13 +1596,13 @@ export default function QuickstartPage() {
                         ? t('managed.quickstart.noApiKey')
                         : currentStep === 2
                           ? t('managed.quickstart.chooseSecret')
-                        : currentStep >= 3 && !selectedSecretCompatible
-                          ? t('managed.quickstart.noCompatibleSecret')
-                          : isSessionRunning
-                            ? t('managed.quickstart.agentProcessing')
-                            : isStreaming
-                              ? t('managed.quickstart.waitingForResponse')
-                              : t('managed.quickstart.reply')
+                          : currentStep >= 3 && !selectedSecretCompatible
+                            ? t('managed.quickstart.noCompatibleSecret')
+                            : isSessionRunning
+                              ? t('managed.quickstart.agentProcessing')
+                              : isStreaming
+                                ? t('managed.quickstart.waitingForResponse')
+                                : t('managed.quickstart.reply')
                     }
                     className="h-8 flex-1 border-0 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-50"
                   />
@@ -1672,7 +1686,10 @@ export default function QuickstartPage() {
                       <Search className="h-4 w-4" />
                     </button>
                   </div>
-                  <div ref={configScrollRef} className="h-[calc(100vh-285px)] overflow-auto px-3 py-3">
+                  <div
+                    ref={configScrollRef}
+                    className="h-[calc(100vh-285px)] overflow-auto px-3 py-3"
+                  >
                     <div className="font-mono text-[14px] leading-7">
                       {codeLines.map((line, i) => (
                         <div
@@ -1700,17 +1717,16 @@ export default function QuickstartPage() {
                         {selectedEnvironmentName ? (
                           <>
                             {t('managed.quickstart.environment')}
-                            <span className="ml-1 font-medium text-foreground">{selectedEnvironmentName}</span>
+                            <span className="ml-1 font-medium text-foreground">
+                              {selectedEnvironmentName}
+                            </span>
                           </>
                         ) : (
                           t('managed.quickstart.sessionLiveHint')
                         )}
                       </div>
                     ) : (
-                      <Select
-                        value={selectedEnvId || undefined}
-                        onValueChange={setSelectedEnvId}
-                      >
+                      <Select value={selectedEnvId || undefined} onValueChange={setSelectedEnvId}>
                         <SelectTrigger className="w-[220px] max-w-[40vw]">
                           <SelectValue placeholder={t('managed.quickstart.selectEnv')} />
                         </SelectTrigger>
@@ -1768,9 +1784,7 @@ export default function QuickstartPage() {
                         </button>
                         <EventFilter
                           selected={
-                            previewFilter.size > 0
-                              ? previewFilter
-                              : new Set(previewAvailableTypes)
+                            previewFilter.size > 0 ? previewFilter : new Set(previewAvailableTypes)
                           }
                           onChange={setPreviewFilter}
                           availableTypes={previewAvailableTypes}
@@ -1801,9 +1815,7 @@ export default function QuickstartPage() {
                             event={selectedPreviewEvent}
                             mode={previewTab}
                             sessionStart={
-                              mergedSessionEvents[0]?.created_at ||
-                              mergedSessionEvents[0]?.id ||
-                              ''
+                              mergedSessionEvents[0]?.created_at || mergedSessionEvents[0]?.id || ''
                             }
                             onClose={() => setSelectedPreviewEvent(null)}
                           />
@@ -1817,9 +1829,7 @@ export default function QuickstartPage() {
                           <EventList
                             events={mergedSessionEvents}
                             sessionStart={
-                              mergedSessionEvents[0]?.created_at ||
-                              mergedSessionEvents[0]?.id ||
-                              ''
+                              mergedSessionEvents[0]?.created_at || mergedSessionEvents[0]?.id || ''
                             }
                             selectedId={null}
                             onSelect={(evt) => {

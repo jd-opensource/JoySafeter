@@ -43,8 +43,26 @@ export default function AgentListPage() {
   const [deletePreview, setDeletePreview] = useState<DeletePreview | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
 
-  const { data, isLoading, isFetching, isError, error, hasNext, hasPrev, page, pageSize, pageSizeOptions, goNext, goPrev, goToPage, setPageSize } =
-    usePaginatedList<Agent>({ queryKey: 'agents', path: '/agents', includeArchived: showArchived })
+  const {
+    data,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    hasNext,
+    hasPrev,
+    page,
+    pageSize,
+    pageSizeOptions,
+    goNext,
+    goPrev,
+    goToPage,
+    setPageSize,
+  } = usePaginatedList<Agent>({
+    queryKey: 'agents',
+    path: '/agents',
+    includeArchived: showArchived,
+  })
 
   const getEngineKindLabel = (engineKind?: string | null) => {
     switch (engineKind) {
@@ -60,16 +78,17 @@ export default function AgentListPage() {
     }
   }
 
-  const agents = data.filter((a) =>
-    filterByCreatedTime(a.created_at, createdFilter) &&
-    matchesSearch(searchQuery, [
-      a.id,
-      a.name,
-      a.model?.id,
-      a.engine_kind,
-      getEngineKindLabel(a.engine_kind),
-      a.archived_at ? 'archived' : 'active',
-    ]),
+  const agents = data.filter(
+    (a) =>
+      filterByCreatedTime(a.created_at, createdFilter) &&
+      matchesSearch(searchQuery, [
+        a.id,
+        a.name,
+        a.model?.id,
+        a.engine_kind,
+        getEngineKindLabel(a.engine_kind),
+        a.archived_at ? 'archived' : 'active',
+      ]),
   )
 
   const filters: FilterDef[] = [
@@ -124,7 +143,11 @@ export default function AgentListPage() {
     {
       key: 'engine_kind',
       header: t('managed.table.engineKind'),
-      render: (a) => <span className="text-muted-foreground whitespace-nowrap">{getEngineKindLabel(a.engine_kind)}</span>,
+      render: (a) => (
+        <span className="whitespace-nowrap text-muted-foreground">
+          {getEngineKindLabel(a.engine_kind)}
+        </span>
+      ),
     },
     {
       key: 'status',
@@ -135,7 +158,7 @@ export default function AgentListPage() {
       key: 'created_at',
       header: t('managed.table.created'),
       render: (a) => (
-        <span className="text-muted-foreground text-xs">
+        <span className="text-xs text-muted-foreground">
           <RelativeTime date={a.created_at} />
         </span>
       ),
@@ -144,7 +167,7 @@ export default function AgentListPage() {
       key: 'updated_at',
       header: t('managed.table.lastUpdated'),
       render: (a) => (
-        <span className="text-muted-foreground text-xs">
+        <span className="text-xs text-muted-foreground">
           <RelativeTime date={a.updated_at} />
         </span>
       ),
@@ -170,7 +193,13 @@ export default function AgentListPage() {
   }
 
   if (isError) {
-    return <ResourceErrorState error={error} resource="agent" onRetry={() => queryClient.invalidateQueries({ queryKey: ['agents'] })} />
+    return (
+      <ResourceErrorState
+        error={error}
+        resource="agent"
+        onRetry={() => queryClient.invalidateQueries({ queryKey: ['agents'] })}
+      />
+    )
   }
 
   return (
@@ -180,7 +209,7 @@ export default function AgentListPage() {
         subtitle={t('managed.agents.subtitle')}
         action={
           <Button size="sm" onClick={() => setShowCreateDialog(true)}>
-            <Plus className="w-4 h-4" />
+            <Plus className="h-4 w-4" />
             {t('managed.agents.new')}
           </Button>
         }
@@ -201,19 +230,22 @@ export default function AgentListPage() {
         loading={isLoading}
         fetching={isFetching}
         onRowClick={(a) => router.push(`/managed/agents/${a.id}`)}
-        actionMenu={(a) => a.archived_at
-          ? []
-          : [{
-              label: t('managed.agents.archiveAgent'),
-              onClick: async () => {
-                try {
-                  await managedPost(`/agents/${stripIdPrefix(a.id)}/archive`, {})
-                  queryClient.invalidateQueries({ queryKey: ['agents'] })
-                } catch (e) {
-                  toastOperationError(t, e, 'common.operationFailed')
-                }
-              },
-            }]
+        actionMenu={(a) =>
+          a.archived_at
+            ? []
+            : [
+                {
+                  label: t('managed.agents.archiveAgent'),
+                  onClick: async () => {
+                    try {
+                      await managedPost(`/agents/${stripIdPrefix(a.id)}/archive`, {})
+                      queryClient.invalidateQueries({ queryKey: ['agents'] })
+                    } catch (e) {
+                      toastOperationError(t, e, 'common.operationFailed')
+                    }
+                  },
+                },
+              ]
         }
         pagination={{
           hasNext,
@@ -236,7 +268,10 @@ export default function AgentListPage() {
         confirmLabel={t('managed.agents.permanentlyDelete')}
         destructive
         onConfirm={handleDeleteConfirm}
-        onCancel={() => { setDeleteTarget(null); setDeletePreview(null) }}
+        onCancel={() => {
+          setDeleteTarget(null)
+          setDeletePreview(null)
+        }}
       />
 
       <CreateAgentDialog

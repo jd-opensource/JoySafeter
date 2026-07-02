@@ -57,11 +57,7 @@ export function PermissionsProvider({ children }: { children: React.ReactNode })
     }
   }, [session, isPending, organizations, currentOrgId])
 
-  return (
-    <PermissionsContext.Provider value={permissions}>
-      {children}
-    </PermissionsContext.Provider>
-  )
+  return <PermissionsContext.Provider value={permissions}>{children}</PermissionsContext.Provider>
 }
 
 export function useUserPermissionsContext(): UserPermissions {

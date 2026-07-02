@@ -31,7 +31,8 @@ const en = {
       copyAll: 'Copy All',
       retry: 'Retry',
       pageErrorTitle: 'Page failed to load',
-      pageErrorDescription: 'This page could not be loaded right now. Please retry later or contact an administrator if the issue continues.',
+      pageErrorDescription:
+        'This page could not be loaded right now. Please retry later or contact an administrator if the issue continues.',
       idle: 'Idle',
       terminated: 'Terminated',
       archived: 'Archived',
@@ -128,7 +129,8 @@ const en = {
         selectEnvironment: 'Do not set; choose when creating a session',
         noEnvironments: 'No environments yet; create one if this agent needs a fixed runtime',
         noSelection: 'Not set; choose when creating a session',
-        environmentRefHint: 'Optional. If unset, choose an environment when creating a session. If set, sessions use this by default unless overridden.',
+        environmentRefHint:
+          'Optional. If unset, choose an environment when creating a session. If set, sessions use this by default unless overridden.',
         permissionMode: 'Permission Mode',
         permBypass: 'Always allow (bypass permissions)',
         permAsk: 'Ask each time',
@@ -294,17 +296,20 @@ const en = {
           },
           notFound: {
             title: 'Agent not found',
-            description: 'This agent may have been deleted, archived, or the link is no longer valid.',
+            description:
+              'This agent may have been deleted, archived, or the link is no longer valid.',
           },
           unknown: {
             title: 'Could not load agent',
-            description: 'We could not load this agent right now. Please retry or check your connection.',
+            description:
+              'We could not load this agent right now. Please retry or check your connection.',
           },
         },
         apiKey: {
           forbidden: {
             title: 'No access to API keys',
-            description: 'You do not have permission to view or manage API keys in this project. Ask an organization admin or owner for access.',
+            description:
+              'You do not have permission to view or manage API keys in this project. Ask an organization admin or owner for access.',
           },
           notFound: {
             title: 'API key not found',
@@ -312,27 +317,32 @@ const en = {
           },
           unknown: {
             title: 'Could not load API keys',
-            description: 'We could not load API keys right now. Please retry or check your connection.',
+            description:
+              'We could not load API keys right now. Please retry or check your connection.',
           },
         },
         environment: {
           forbidden: {
             title: 'No access to this environment',
-            description: 'This environment belongs to a project or organization you cannot access, or your role does not allow viewing it.',
+            description:
+              'This environment belongs to a project or organization you cannot access, or your role does not allow viewing it.',
           },
           notFound: {
             title: 'Environment not found',
-            description: 'This environment may have been deleted, archived, or the link is no longer valid.',
+            description:
+              'This environment may have been deleted, archived, or the link is no longer valid.',
           },
           unknown: {
             title: 'Could not load environment',
-            description: 'We could not load this environment right now. Please retry or check your connection.',
+            description:
+              'We could not load this environment right now. Please retry or check your connection.',
           },
         },
         file: {
           forbidden: {
             title: 'No access to files',
-            description: 'You do not have permission to view or manage files in this project. Ask an organization admin or owner for access.',
+            description:
+              'You do not have permission to view or manage files in this project. Ask an organization admin or owner for access.',
           },
           notFound: {
             title: 'File not found',
@@ -340,49 +350,59 @@ const en = {
           },
           unknown: {
             title: 'Could not load files',
-            description: 'We could not load files right now. Please retry or check your connection.',
+            description:
+              'We could not load files right now. Please retry or check your connection.',
           },
         },
         memoryStore: {
           forbidden: {
             title: 'No access to this memory store',
-            description: 'You need project write access to edit memories, or read access to view this memory store.',
+            description:
+              'You need project write access to edit memories, or read access to view this memory store.',
           },
           notFound: {
             title: 'Memory store not found',
-            description: 'This memory store may have been deleted, archived, or the link is no longer valid.',
+            description:
+              'This memory store may have been deleted, archived, or the link is no longer valid.',
           },
           unknown: {
             title: 'Could not load memory store',
-            description: 'We could not load this memory store right now. Please retry or check your connection.',
+            description:
+              'We could not load this memory store right now. Please retry or check your connection.',
           },
         },
         project: {
           forbidden: {
             title: 'No access to projects',
-            description: 'You do not have permission to view or manage projects in this organization. Ask an organization admin or owner for access.',
+            description:
+              'You do not have permission to view or manage projects in this organization. Ask an organization admin or owner for access.',
           },
           notFound: {
             title: 'Project not found',
-            description: 'This project may have been deleted, archived, or the link is no longer valid.',
+            description:
+              'This project may have been deleted, archived, or the link is no longer valid.',
           },
           unknown: {
             title: 'Could not load projects',
-            description: 'We could not load projects right now. Please retry or check your connection.',
+            description:
+              'We could not load projects right now. Please retry or check your connection.',
           },
         },
         secret: {
           forbidden: {
             title: 'No access to this secret',
-            description: 'Secret values require write-level project access. Ask an organization admin or owner to grant access.',
+            description:
+              'Secret values require write-level project access. Ask an organization admin or owner to grant access.',
           },
           notFound: {
             title: 'Secret not found',
-            description: 'This secret may have been deleted, archived, or the link is no longer valid.',
+            description:
+              'This secret may have been deleted, archived, or the link is no longer valid.',
           },
           unknown: {
             title: 'Could not load secret',
-            description: 'We could not load this secret right now. Please retry or check your connection.',
+            description:
+              'We could not load this secret right now. Please retry or check your connection.',
           },
         },
         session: {
@@ -392,39 +412,47 @@ const en = {
           },
           notFound: {
             title: 'Session not found',
-            description: 'This session may have been deleted, archived, or the link is no longer valid.',
+            description:
+              'This session may have been deleted, archived, or the link is no longer valid.',
           },
           unknown: {
             title: 'Could not load session',
-            description: 'We could not load this session right now. Please retry or check your connection.',
+            description:
+              'We could not load this session right now. Please retry or check your connection.',
           },
         },
         skill: {
           forbidden: {
             title: 'No access to skills',
-            description: 'You do not have permission to view or manage skills in this project. Ask an organization admin or owner for access.',
+            description:
+              'You do not have permission to view or manage skills in this project. Ask an organization admin or owner for access.',
           },
           notFound: {
             title: 'Skill not found',
-            description: 'This skill may have been deleted, archived, or the link is no longer valid.',
+            description:
+              'This skill may have been deleted, archived, or the link is no longer valid.',
           },
           unknown: {
             title: 'Could not load skills',
-            description: 'We could not load skills right now. Please retry or check your connection.',
+            description:
+              'We could not load skills right now. Please retry or check your connection.',
           },
         },
         vault: {
           forbidden: {
             title: 'No access to this vault',
-            description: 'Vault credentials require write-level project access. Ask an organization admin or owner to grant access.',
+            description:
+              'Vault credentials require write-level project access. Ask an organization admin or owner to grant access.',
           },
           notFound: {
             title: 'Vault not found',
-            description: 'This vault may have been deleted, archived, or the link is no longer valid.',
+            description:
+              'This vault may have been deleted, archived, or the link is no longer valid.',
           },
           unknown: {
             title: 'Could not load vault',
-            description: 'We could not load this vault right now. Please retry or check your connection.',
+            description:
+              'We could not load this vault right now. Please retry or check your connection.',
           },
         },
       },
@@ -456,7 +484,8 @@ const en = {
         },
         model: 'Model',
         engineKind: 'Engine',
-        engineKindDesc: 'Select the AI engine for this agent. Claude Code uses Anthropic API, Codex uses OpenAI API.',
+        engineKindDesc:
+          'Select the AI engine for this agent. Claude Code uses Anthropic API, Codex uses OpenAI API.',
         engineClaude: 'Claude Code',
         engineCodex: 'Codex',
         engineNative: 'Native',
@@ -485,9 +514,11 @@ const en = {
           secretRef: 'API Key Reference',
           environmentRef: 'Default Runtime Environment',
           selectEnvironment: 'Do not set; choose when creating a session',
-          noEnvironments: 'No environments available; create one if this agent needs a fixed runtime',
+          noEnvironments:
+            'No environments available; create one if this agent needs a fixed runtime',
           noSelection: 'Not set; choose when creating a session',
-          environmentRefHint: 'Optional. If unset, choose an environment when creating a session. If set, sessions use this by default unless overridden.',
+          environmentRefHint:
+            'Optional. If unset, choose an environment when creating a session. If set, sessions use this by default unless overridden.',
           permissionMode: 'Permission Mode',
           permBypass: 'Always Allow (bypass permissions)',
           permAsk: 'Ask (require confirmation)',
@@ -597,9 +628,11 @@ const en = {
           noAgentMatch: 'No matching agents',
           environment: 'Environment',
           selectEnv: 'Override agent default environment (optional)',
-          environmentFallbackHint: 'Leave empty to use the selected agent default environment, if configured.',
+          environmentFallbackHint:
+            'Leave empty to use the selected agent default environment, if configured.',
           environmentUsesAgentDefault: 'Leave empty to use agent default environment: {{name}}.',
-          environmentOverrideHint: 'This session will use the selected environment instead of the agent default.',
+          environmentOverrideHint:
+            'This session will use the selected environment instead of the agent default.',
           manageEnvs: 'Manage Environments',
           vaults: 'Vaults',
           selectVaults: 'Select vaults (optional)',
@@ -616,7 +649,8 @@ const en = {
           repoUrlPlaceholder: 'https://github.com/org/repo',
           repoBranch: 'Branch (optional)',
           repoTokenPlaceholder: 'Access token (private repos only)',
-          repoTokenHint: 'Tokens are stored encrypted and never shown again. Used only to clone the repository.',
+          repoTokenHint:
+            'Tokens are stored encrypted and never shown again. Used only to clone the repository.',
           creating: 'Creating...',
           submit: 'Create Session',
         },
@@ -644,7 +678,8 @@ const en = {
           interruptRequested: 'Interrupt requested',
           modelRequest: 'Model request → {{model}}',
           tokenUsage: '{{input}} new input → {{output}} output',
-          tokenUsageWithCache: '{{input}} new input + {{cacheRead}} cached input → {{output}} output',
+          tokenUsageWithCache:
+            '{{input}} new input + {{cacheRead}} cached input → {{output}} output',
           cacheWrite: '{{count}} cache write',
           thinking: 'Thinking...',
           content: 'Content',
@@ -751,8 +786,7 @@ const en = {
       },
       vaults: {
         title: 'Vaults',
-        subtitle:
-          'Manage vaults to give agents access to MCP servers and other tools.',
+        subtitle: 'Manage vaults to give agents access to MCP servers and other tools.',
         new: 'New Vault',
         createTitle: 'Create vault',
         createDescription: 'Create a new credential vault',
@@ -873,7 +907,8 @@ const en = {
           error: 'Issues detected -- agent may need adjustments',
           goBack: 'Go Back to Fix',
           continue: 'Continue',
-          defaultPrompt: 'Hello {{agentName}}! Please introduce yourself and show me what you can do.',
+          defaultPrompt:
+            'Hello {{agentName}}! Please introduce yourself and show me what you can do.',
         },
         errors: {
           generic: 'An error occurred',
@@ -1004,7 +1039,8 @@ const en = {
           publishing: 'Publishing...',
           publishedToast: 'Published. The skill is now available to agents.',
           thinking: 'AI is thinking...',
-          inputPlaceholder: 'Describe the skill you want. e.g. "Scan Python code for SQL injection".',
+          inputPlaceholder:
+            'Describe the skill you want. e.g. "Scan Python code for SQL injection".',
           inputHint: 'Enter to send · Shift+Enter for newline',
           cancel: 'Cancel',
           send: 'Send',
@@ -1064,7 +1100,8 @@ const en = {
           },
         },
         securityScanInProgressTitle: 'Running security scan',
-        securityScanInProgressDescription: 'Keep this page open. Results will refresh when the scan finishes.',
+        securityScanInProgressDescription:
+          'Keep this page open. Results will refresh when the scan finishes.',
         viewSecurityHistory: 'History',
         securityHistory: 'Security scan history',
         securityHistoryDescription: 'Review the stored security scans for this skill.',
@@ -1077,7 +1114,8 @@ const en = {
           'Raw scanner result: score {{score}}, severity {{severity}}, recommendation {{recommendation}}.',
         securityIssueDetails: 'Issue details',
         securityIssueDetailsCount: 'Showing {{shown}} / {{total}}',
-        securityIssueDetailsUnavailable: 'The scan recorded issues, but no displayable issue details were returned.',
+        securityIssueDetailsUnavailable:
+          'The scan recorded issues, but no displayable issue details were returned.',
         securitySingleIssueSeverity: 'Item {{severity}}',
         securityIssueCategory: 'Category',
         securityIssueConfidence: 'Confidence',
@@ -1106,9 +1144,11 @@ const en = {
         importSkill: 'Import Skill',
         importingSkill: 'Importing / scanning',
         importScanInProgressTitle: 'Importing and running security scan',
-        importScanInProgressDescription: 'Keep this page open. You will be taken to the skill detail when it finishes.',
+        importScanInProgressDescription:
+          'Keep this page open. You will be taken to the skill detail when it finishes.',
         chooseImportMethod: 'Choose import method',
-        chooseImportMethodDescription: 'Choose ZIP or a local folder to import skill files. ZIP has the best compatibility.',
+        chooseImportMethodDescription:
+          'Choose ZIP or a local folder to import skill files. ZIP has the best compatibility.',
         importZipHint: 'Select a .zip file that contains SKILL.md.',
         importFolderBrowserHint: 'Browser will show a native upload confirmation',
         localImportSuccess: 'Folder imported successfully.',
@@ -1116,18 +1156,21 @@ const en = {
         importSkillMdRequired: 'The imported folder must contain SKILL.md.',
         importSkillMdRequiredWithRoot:
           'No SKILL.md was found under "{{folder}}". Select the skill folder that directly contains SKILL.md, or place SKILL.md at that folder root.',
-        importValidationFailed: 'Skill import validation failed. Please check SKILL.md and imported files.',
+        importValidationFailed:
+          'Skill import validation failed. Please check SKILL.md and imported files.',
         importValidationUnknownWithSkillMd:
           'The selected folder contains SKILL.md at "{{path}}", but validation failed. Please check the file content and try again.',
         importFailed: 'Import failed',
-        allFilesBinary: 'All files are binary files or system files and cannot be imported. Skill import only supports text files.',
+        allFilesBinary:
+          'All files are binary files or system files and cannot be imported. Skill import only supports text files.',
         skillMdBinary: 'SKILL.md is a binary file and cannot be read.',
         binaryFileReadError: 'Failed to read file.',
         zipErrors: {
           onlyZip: 'Only ZIP files are supported. Please select a .zip file.',
           zipTooLarge: 'The ZIP file is too large. Maximum size: {{maxSize}}.',
           invalidZip: 'The selected file is not a valid ZIP archive.',
-          emptyZip: 'The ZIP does not contain importable text files. Please make sure it includes SKILL.md and related text files.',
+          emptyZip:
+            'The ZIP does not contain importable text files. Please make sure it includes SKILL.md and related text files.',
           emptyZipWithDetails:
             'The ZIP does not contain importable text files. Detected {{total}} entries: {{directories}} directories, {{systemFiles}} system files, and {{emptyNames}} empty names. ZIP samples: {{samples}}. Skipped system file samples: {{skippedSamples}}. Please make sure it includes SKILL.md and related UTF-8 text files.',
           tooManyFiles: 'The ZIP contains too many files. Maximum files: {{maxFiles}}.',
@@ -1135,7 +1178,8 @@ const en = {
           fileTooLarge: 'A file in the ZIP is too large: {{path}}. Maximum size: {{maxSize}}.',
           totalTooLarge: 'The uncompressed ZIP content is too large. Maximum size: {{maxSize}}.',
           binaryFile: 'The ZIP contains a non-UTF-8 or binary file: {{path}}.',
-          invalidFiles: 'Some files cannot be imported because they are binary or system files: {{files}}.',
+          invalidFiles:
+            'Some files cannot be imported because they are binary or system files: {{files}}.',
           skillMdRequiredWithFiles:
             'No usable SKILL.md was found in the ZIP. Detected file samples: {{files}}. Put SKILL.md at the ZIP root or inside the single top-level skill folder.',
         },
@@ -1192,8 +1236,10 @@ const en = {
         delete: 'Delete',
         deleteVersion: 'Delete version',
         deleteVersionTitle: 'Delete version v{{v}}',
-        deleteVersionConfirm: 'This permanently removes the published snapshot. Agents pinned to this version will fail to load it.',
-        deleteVersionInUse: 'This version is referenced by {{n}} agent(s) or saved agent versions. Deleting will leave them pointing at a missing version.',
+        deleteVersionConfirm:
+          'This permanently removes the published snapshot. Agents pinned to this version will fail to load it.',
+        deleteVersionInUse:
+          'This version is referenced by {{n}} agent(s) or saved agent versions. Deleting will leave them pointing at a missing version.',
         deleteAnyway: 'Delete anyway',
         versionInputPlaceholder: 'Version (e.g. 1.2.0) — leave empty to auto-bump patch',
         versionInvalidSemver: 'Must be MAJOR.MINOR.PATCH (e.g. 1.2.0)',
@@ -1210,8 +1256,10 @@ const en = {
         diffBackToVersions: 'Back to versions',
         diffViewUnified: 'Unified',
         diffViewSplit: 'Split',
-        unpublishedChanges: 'Current content differs from the latest published version — you have unpublished changes.',
-        publishBlockedBySecurity: 'This skill is blocked by a high security risk and cannot be published. Fix the issues and re-scan.',
+        unpublishedChanges:
+          'Current content differs from the latest published version — you have unpublished changes.',
+        publishBlockedBySecurity:
+          'This skill is blocked by a high security risk and cannot be published. Fix the issues and re-scan.',
         version: {
           latest: 'Latest published',
           draft: 'Draft (working copy)',
@@ -1234,7 +1282,8 @@ const en = {
         visibility: {
           label: 'Visibility',
           private: 'Owner only',
-          privateHint: 'Only the owner and collaborators can read via the API. Other project members can still load via agent execution.',
+          privateHint:
+            'Only the owner and collaborators can read via the API. Other project members can still load via agent execution.',
           project: 'Project',
           projectHint: 'Every member of this project can read directly',
           organization: 'Organization',
@@ -1296,7 +1345,8 @@ const en = {
         showValues: 'Show values',
         hideValues: 'Hide values',
         deleteTitle: 'Delete Secret',
-        deleteDescription: 'Are you sure you want to permanently delete "{{name}}"? This cannot be undone.',
+        deleteDescription:
+          'Are you sure you want to permanently delete "{{name}}"? This cannot be undone.',
         backToList: 'Back to Secrets',
       },
       memoryStores: {
@@ -1325,7 +1375,8 @@ const en = {
         deleteMemoryDescription: 'Are you sure you want to delete "{{path}}"?',
         addMemory: 'Add Memory',
         memContentPlaceholder: 'Memory content...',
-        pathTip: 'Enter a path like notes/ideas.md. Directory structure is based on slashes in the path, e.g. projects/foo/notes.md will show projects and foo folders in the tree.',
+        pathTip:
+          'Enter a path like notes/ideas.md. Directory structure is based on slashes in the path, e.g. projects/foo/notes.md will show projects and foo folders in the tree.',
         saveFailed: 'Failed to save memory. Please try again.',
       },
       errors: {
@@ -1335,12 +1386,15 @@ const en = {
         unauthorized: 'Authentication failed, please login again',
         projectNotFound: 'Project not found or access denied',
         projectArchived: 'This project is archived and only supports read-only access',
-        resourceArchived: 'This resource is archived. It is read-only and cannot be saved or modified.',
-        resourceNotFound: 'The resource does not exist or has been deleted. Please refresh and try again.',
+        resourceArchived:
+          'This resource is archived. It is read-only and cannot be saved or modified.',
+        resourceNotFound:
+          'The resource does not exist or has been deleted. Please refresh and try again.',
         membershipExpired: 'Organization membership expired, please re-login',
         skillSecurityRejected:
           'Skill security scan blocked this change. Score: {{score}}, severity: {{severity}}, recommendation: {{recommendation}}, issues: {{issues}}.',
-        skillSecurityScanFailed: 'Skill security scan failed and this deployment is configured to fail closed. {{error}}',
+        skillSecurityScanFailed:
+          'Skill security scan failed and this deployment is configured to fail closed. {{error}}',
       },
     },
     manage: {
@@ -1373,11 +1427,12 @@ const en = {
         role: 'Role',
         lastUsed: 'Last Used',
         namePlaceholder: 'Enter key name',
-        newKeyWarning: 'Copy this key now. You won\'t be able to see it again.',
+        newKeyWarning: "Copy this key now. You won't be able to see it again.",
         dismiss: 'Done',
         empty: 'No API keys yet.',
         revokeTitle: 'Revoke API Key',
-        revokeDesc: 'This key will be immediately invalidated. All requests using it will be rejected. This cannot be undone.',
+        revokeDesc:
+          'This key will be immediately invalidated. All requests using it will be rejected. This cannot be undone.',
         revoke: 'Revoke',
       },
       projects: {
@@ -1391,14 +1446,16 @@ const en = {
         setDefault: 'Set Default',
         archive: 'Archive',
         archiveTitle: 'Archive Project',
-        archiveDesc: 'Resources in this project will become inaccessible after archiving. Continue?',
+        archiveDesc:
+          'Resources in this project will become inaccessible after archiving. Continue?',
         namePlaceholder: 'Enter project name',
         slugPlaceholder: 'Project slug (e.g. my-project)',
         empty: 'No projects yet.',
         edit: 'Edit Project',
         editDesc: 'Update the project name.',
         delete: 'Delete Permanently',
-        deleteConfirm: 'Are you sure you want to permanently delete "{{name}}"? This action cannot be undone.',
+        deleteConfirm:
+          'Are you sure you want to permanently delete "{{name}}"? This action cannot be undone.',
       },
       organization: {
         title: 'Organization',
@@ -1412,7 +1469,8 @@ const en = {
         switch: 'Switch',
         createFailed: 'Failed to create. Please try again.',
         delete: 'Delete Organization',
-        deleteConfirm: 'Are you sure you want to delete "{{name}}"? This will permanently remove all projects and member data. This action cannot be undone.',
+        deleteConfirm:
+          'Are you sure you want to delete "{{name}}"? This will permanently remove all projects and member data. This action cannot be undone.',
         edit: 'Edit Organization',
         editDesc: 'Update the organization name.',
         transferOwnership: 'Transfer Ownership',

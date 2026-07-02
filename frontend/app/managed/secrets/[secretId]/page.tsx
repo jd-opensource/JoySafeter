@@ -10,9 +10,30 @@ import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/mana
 import { stripIdPrefix } from '@/lib/managed/id'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { PageHeader, MonoId, RelativeTime, ResourceErrorState, SecretKeySelect, SecretModelInput } from '@/components/managed/shared'
-import { getDefaultProtocol, isModelKey, normalizeSecretProvider, SECRET_PROTOCOL_OPTIONS, SECRET_PROVIDER_GROUPS } from '@/lib/managed/secret-keys'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  PageHeader,
+  MonoId,
+  RelativeTime,
+  ResourceErrorState,
+  SecretKeySelect,
+  SecretModelInput,
+} from '@/components/managed/shared'
+import {
+  getDefaultProtocol,
+  isModelKey,
+  normalizeSecretProvider,
+  SECRET_PROTOCOL_OPTIONS,
+  SECRET_PROVIDER_GROUPS,
+} from '@/lib/managed/secret-keys'
 
 interface SecretDetail {
   id: string
@@ -41,7 +62,12 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
   const [showValues, setShowValues] = useState(false)
   const [dirty, setDirty] = useState(false)
 
-  const { data: secret, isLoading, isError, error } = useQuery({
+  const {
+    data: secret,
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
     queryKey: ['secret', secretId],
     queryFn: () => managedGet<SecretDetail>(`/secrets/${stripIdPrefix(secretId)}`),
     enabled: !!secretId,
@@ -92,7 +118,12 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
           data[p.key.trim()] = p.value
         }
       }
-      return managedPut(`/secrets/${stripIdPrefix(secretId)}`, { name: secret!.name, provider, protocol, data })
+      return managedPut(`/secrets/${stripIdPrefix(secretId)}`, {
+        name: secret!.name,
+        provider,
+        protocol,
+        data,
+      })
     },
     onSuccess: () => {
       setDirty(false)
@@ -129,7 +160,7 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
         action={
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => router.push('/managed/secrets')}>
-              <ArrowLeft className="w-4 h-4 mr-1" />
+              <ArrowLeft className="mr-1 h-4 w-4" />
               {t('common.back')}
             </Button>
             <Button
@@ -137,20 +168,20 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
               onClick={() => saveMutation.mutate()}
               disabled={!dirty || saveMutation.isPending}
             >
-              <Save className="w-4 h-4 mr-1" />
+              <Save className="mr-1 h-4 w-4" />
               {saveMutation.isPending ? t('common.saving') : t('common.save')}
             </Button>
           </div>
         }
       />
 
-      <div className="flex items-center gap-1.5 text-sm text-muted-foreground mb-6">
+      <div className="mb-6 flex items-center gap-1.5 text-sm text-muted-foreground">
         <MonoId id={secret.id || secretId} truncate={false} />
         <span>·</span>
         <RelativeTime date={secret.created_at} />
       </div>
 
-      <div className="border border-border rounded-lg p-6 space-y-4">
+      <div className="space-y-4 rounded-lg border border-border p-6">
         <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.5rem] gap-2">
           <div className="space-y-1">
             <label className="text-sm font-medium">{t('managed.secrets.provider')}</label>
@@ -163,7 +194,7 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
                   <SelectGroup key={group.label}>
                     <SelectLabel className="flex items-center gap-2 px-2 py-2">
                       <span
-                        className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold text-white"
                         style={{ backgroundColor: group.bgColor }}
                       >
                         {group.icon}
@@ -176,9 +207,9 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
                       const isLast = i === group.options.length - 1
                       const prefix = isLast ? '└' : '├'
                       return (
-                        <SelectItem key={item.value} value={item.value} className="text-sm pl-8">
+                        <SelectItem key={item.value} value={item.value} className="pl-8 text-sm">
                           <span className="flex items-center gap-1.5">
-                            <span className="text-muted-foreground/50 text-xs">{prefix}</span>
+                            <span className="text-xs text-muted-foreground/50">{prefix}</span>
                             {item.label}
                           </span>
                         </SelectItem>
@@ -197,7 +228,9 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
               </SelectTrigger>
               <SelectContent>
                 {SECRET_PROTOCOL_OPTIONS.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -206,19 +239,18 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
         </div>
         <div className="flex items-center justify-between">
           <label className="text-sm font-medium">{t('managed.secrets.dataLabel')}</label>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowValues(!showValues)}
-          >
-            {showValues ? <EyeOff className="w-4 h-4 mr-1" /> : <Eye className="w-4 h-4 mr-1" />}
+          <Button variant="ghost" size="sm" onClick={() => setShowValues(!showValues)}>
+            {showValues ? <EyeOff className="mr-1 h-4 w-4" /> : <Eye className="mr-1 h-4 w-4" />}
             {showValues ? t('managed.secrets.hideValues') : t('managed.secrets.showValues')}
           </Button>
         </div>
 
         <div className="space-y-2">
           {pairs.map((pair, i) => (
-            <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.5rem] items-center gap-2">
+            <div
+              key={i}
+              className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.5rem] items-center gap-2"
+            >
               <SecretKeySelect
                 value={pair.key}
                 onChange={(v) => updatePair(i, 'key', v)}
@@ -249,14 +281,14 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
                 onClick={() => removePair(i)}
                 className="h-10 w-10 text-muted-foreground hover:text-destructive"
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="h-4 w-4" />
               </Button>
             </div>
           ))}
         </div>
 
         <Button variant="outline" size="sm" onClick={addPair}>
-          <Plus className="w-3 h-3 mr-1" />
+          <Plus className="mr-1 h-3 w-3" />
           {t('managed.secrets.addPair')}
         </Button>
       </div>

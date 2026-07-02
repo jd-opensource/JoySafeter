@@ -1,8 +1,4 @@
-export const ENGINE_KINDS = [
-  'claude_code',
-  'codex',
-  'native',
-] as const
+export const ENGINE_KINDS = ['claude_code', 'codex', 'native'] as const
 
 export type EngineKind = (typeof ENGINE_KINDS)[number]
 

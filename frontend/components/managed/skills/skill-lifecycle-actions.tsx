@@ -104,9 +104,7 @@ export function SkillLifecycleActions({
     mutationFn: async (endpoint: string) => {
       setBusyEndpoint(endpoint)
       try {
-        const result = await managedPost<TransitionResponse>(
-          `/skills/${bareId}/${endpoint}`,
-        )
+        const result = await managedPost<TransitionResponse>(`/skills/${bareId}/${endpoint}`)
         return result
       } finally {
         setBusyEndpoint(null)
@@ -125,10 +123,7 @@ export function SkillLifecycleActions({
       }
     },
     onError: (error: unknown) => {
-      const msg =
-        error instanceof Error
-          ? error.message
-          : t('managed.skills.transition.failed')
+      const msg = error instanceof Error ? error.message : t('managed.skills.transition.failed')
       toastError(msg)
     },
   })

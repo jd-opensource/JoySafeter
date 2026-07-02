@@ -21,10 +21,7 @@ import {
 import { FieldHelp, PageHeader, SkillVersionSelect } from '@/components/managed/shared'
 import { Plus, Trash2 } from 'lucide-react'
 
-const BUILTIN_TOOLS = [
-  'Bash', 'Read', 'Write', 'Edit',
-  'Glob', 'Grep', 'WebFetch', 'WebSearch',
-]
+const BUILTIN_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch']
 
 const PERMISSION_MODES = [
   { value: 'bypassPermissions', labelKey: 'agents.edit.permBypass' },
@@ -122,10 +119,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
   // this agent already references (even if it's since become draft-only), so
   // the user can see and, if desired, remove that stale reference.
   const visibleSkills = useMemo(
-    () =>
-      (skills || []).filter(
-        (s) => !!s.latest_version || selectedSkillIds.has(s.id),
-      ),
+    () => (skills || []).filter((s) => !!s.latest_version || selectedSkillIds.has(s.id)),
     [skills, selectedSkillIds],
   )
 
@@ -243,7 +237,10 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
       toastOperationError(t, new Error(urlError), 'common.error')
       return
     }
-    setMcpServers((prev) => [...prev, { name: mcpName.trim(), url: mcpUrl.trim(), policy: 'always_ask' }])
+    setMcpServers((prev) => [
+      ...prev,
+      { name: mcpName.trim(), url: mcpUrl.trim(), policy: 'always_ask' },
+    ])
     setMcpName('')
     setMcpUrl('')
     setShowMcpForm(false)
@@ -379,17 +376,21 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
 
         {/* ───────── Basic Info ───────── */}
         <section className="space-y-4">
-          <h3 className="text-sm font-semibold text-foreground border-b border-border pb-2">
+          <h3 className="border-b border-border pb-2 text-sm font-semibold text-foreground">
             {t('agents.edit.basicInfo')}
           </h3>
 
           <div>
-            <label className="text-sm font-medium text-foreground block mb-1.5">{t('managed.agents.name')}</label>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">
+              {t('managed.agents.name')}
+            </label>
             <Input value={name} onChange={(e) => setName(e.target.value)} />
           </div>
 
           <div>
-            <label className="text-sm font-medium text-foreground block mb-1.5">{t('managed.agents.description')}</label>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">
+              {t('managed.agents.description')}
+            </label>
             <Input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -399,7 +400,9 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
 
           <div>
             <div className="mb-1.5 flex items-center gap-1.5">
-              <label className="text-sm font-medium text-foreground">{t('managed.agents.engineKind')}</label>
+              <label className="text-sm font-medium text-foreground">
+                {t('managed.agents.engineKind')}
+              </label>
               <FieldHelp text={t('managed.agents.engineKindDesc')} />
             </div>
             <Select value={engineKind} onValueChange={setEngineKind}>
@@ -415,9 +418,11 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
           </div>
 
           <div>
-            <label className="text-sm font-medium text-foreground block mb-1.5">{t('managed.agents.systemPrompt')}</label>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">
+              {t('managed.agents.systemPrompt')}
+            </label>
             <textarea
-              className="flex w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring min-h-[200px] resize-y"
+              className="flex min-h-[200px] w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-mono text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
               value={systemPrompt}
               onChange={(e) => setSystemPrompt(e.target.value)}
               placeholder={t('managed.agents.systemPromptPlaceholder')}
@@ -428,20 +433,18 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
         {/* ───────── MCP Servers ───────── */}
         <section className="space-y-3">
           <div className="flex items-center justify-between border-b border-border pb-2">
-            <h3 className="text-sm font-semibold text-foreground">
-              {t('agents.edit.mcpServers')}
-            </h3>
+            <h3 className="text-sm font-semibold text-foreground">{t('agents.edit.mcpServers')}</h3>
             <button
               type="button"
               onClick={() => setShowMcpForm(true)}
-              className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-accent transition-colors"
+              className="flex h-6 w-6 items-center justify-center rounded border border-border transition-colors hover:bg-accent"
             >
               <Plus className="h-3.5 w-3.5" />
             </button>
           </div>
 
           {mcpServers.length === 0 && !showMcpForm && (
-            <p className="text-sm text-muted-foreground text-center py-2">
+            <p className="py-2 text-center text-sm text-muted-foreground">
               {t('managed.agents.create.noMcpServers')}
             </p>
           )}
@@ -449,7 +452,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
           {mcpServers.map((m, i) => (
             <div key={i} className="flex items-center gap-2 text-sm">
               <span className="font-medium">{m.name}</span>
-              <span className="text-muted-foreground truncate flex-1">{m.url}</span>
+              <span className="flex-1 truncate text-muted-foreground">{m.url}</span>
               <select
                 value={m.policy || 'always_ask'}
                 onChange={(e) => setMcpPolicy(i, e.target.value as 'always_allow' | 'always_ask')}
@@ -507,22 +510,28 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
 
         {/* ───────── Tools ───────── */}
         <section className="space-y-3">
-          <h3 className="text-sm font-semibold text-foreground border-b border-border pb-2">
+          <h3 className="border-b border-border pb-2 text-sm font-semibold text-foreground">
             {t('agents.edit.tools')}
           </h3>
           <div className="grid grid-cols-4 gap-3">
             {BUILTIN_TOOLS.map((tool) => (
-              <label key={tool} className="flex items-center gap-2 cursor-pointer select-none">
+              <label key={tool} className="flex cursor-pointer select-none items-center gap-2">
                 <span
                   className={`flex h-5 w-5 items-center justify-center rounded border transition-colors ${
                     enabledTools.has(tool)
-                      ? 'bg-emerald-400 border-emerald-400 text-white'
+                      ? 'border-emerald-400 bg-emerald-400 text-white'
                       : 'border-border bg-background'
                   }`}
                   onClick={() => toggleTool(tool)}
                 >
                   {enabledTools.has(tool) && (
-                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                    <svg
+                      className="h-3 w-3"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={3}
+                    >
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
                   )}
@@ -536,7 +545,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
 
           {/* Permission mode — applies to the whole toolset */}
           <div>
-            <label className="text-sm font-medium text-foreground block mb-1.5">
+            <label className="mb-1.5 block text-sm font-medium text-foreground">
               {t('agents.edit.permissionMode')}
             </label>
             <select
@@ -554,11 +563,11 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
         </section>
 
         <section className="space-y-3">
-          <h3 className="text-sm font-semibold text-foreground border-b border-border pb-2">
+          <h3 className="border-b border-border pb-2 text-sm font-semibold text-foreground">
             {t('agents.edit.skills')}
           </h3>
-          {(!visibleSkills || visibleSkills.length === 0) ? (
-            <p className="text-sm text-muted-foreground text-center py-2">
+          {!visibleSkills || visibleSkills.length === 0 ? (
+            <p className="py-2 text-center text-sm text-muted-foreground">
               {t('managed.agents.create.noSkills')}{' '}
               <a href="/managed/skills" className="text-emerald-500 hover:underline">
                 {t('managed.agents.create.goCreateSkill')} &rarr;
@@ -570,22 +579,31 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
                 const isSelected = selectedSkillIds.has(skill.id)
                 return (
                   <div key={skill.id} className="flex items-center gap-2">
-                    <label className="flex flex-1 items-center gap-2 cursor-pointer select-none min-w-0">
+                    <label className="flex min-w-0 flex-1 cursor-pointer select-none items-center gap-2">
                       <span
-                        className={`flex h-5 w-5 items-center justify-center rounded border transition-colors shrink-0 ${
+                        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${
                           isSelected
-                            ? 'bg-emerald-400 border-emerald-400 text-white'
+                            ? 'border-emerald-400 bg-emerald-400 text-white'
                             : 'border-border bg-background'
                         }`}
                         onClick={() => toggleSkill(skill.id)}
                       >
                         {isSelected && (
-                          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <svg
+                            className="h-3 w-3"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={3}
+                          >
                             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                           </svg>
                         )}
                       </span>
-                      <span className="text-sm text-foreground truncate" onClick={() => toggleSkill(skill.id)}>
+                      <span
+                        className="truncate text-sm text-foreground"
+                        onClick={() => toggleSkill(skill.id)}
+                      >
                         {skill.display_title || skill.name || skill.id}
                       </span>
                     </label>
@@ -605,11 +623,14 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
 
         {/* ───────── Secret Reference ───────── */}
         <section className="space-y-3">
-          <h3 className="text-sm font-semibold text-foreground border-b border-border pb-2">
+          <h3 className="border-b border-border pb-2 text-sm font-semibold text-foreground">
             {t('agents.edit.secretRef')}
           </h3>
           {secrets && secrets.length > 0 ? (
-            <Select value={secretRef || '__none__'} onValueChange={(v) => setSecretRef(v === '__none__' ? '' : v)}>
+            <Select
+              value={secretRef || '__none__'}
+              onValueChange={(v) => setSecretRef(v === '__none__' ? '' : v)}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder={t('agents.edit.selectSecret')} />
               </SelectTrigger>
@@ -630,11 +651,16 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
         {/* ───────── Environment Reference ───────── */}
         <section className="space-y-3">
           <div className="flex items-center gap-1.5 border-b border-border pb-2">
-            <h3 className="text-sm font-semibold text-foreground">{t('agents.edit.environmentRef')}</h3>
+            <h3 className="text-sm font-semibold text-foreground">
+              {t('agents.edit.environmentRef')}
+            </h3>
             <FieldHelp text={t('agents.edit.environmentRefHint')} />
           </div>
           {environments && environments.length > 0 ? (
-            <Select value={environmentRef || '__none__'} onValueChange={(v) => setEnvironmentRef(v === '__none__' ? '' : v)}>
+            <Select
+              value={environmentRef || '__none__'}
+              onValueChange={(v) => setEnvironmentRef(v === '__none__' ? '' : v)}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder={t('agents.edit.selectEnvironment')} />
               </SelectTrigger>
@@ -655,20 +681,18 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
         {/* ───────── Environment Variables ───────── */}
         <section className="space-y-3">
           <div className="flex items-center justify-between border-b border-border pb-2">
-            <h3 className="text-sm font-semibold text-foreground">
-              {t('agents.edit.envVars')}
-            </h3>
+            <h3 className="text-sm font-semibold text-foreground">{t('agents.edit.envVars')}</h3>
             <button
               type="button"
               onClick={addEnvVar}
-              className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-accent transition-colors"
+              className="flex h-6 w-6 items-center justify-center rounded border border-border transition-colors hover:bg-accent"
             >
               <Plus className="h-3.5 w-3.5" />
             </button>
           </div>
 
           {envVars.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center py-2">
+            <p className="py-2 text-center text-sm text-muted-foreground">
               {t('agents.edit.noEnvVars')}
             </p>
           )}
@@ -699,7 +723,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
         </section>
 
         {/* ───────── Action buttons ───────── */}
-        <div className="flex items-center gap-3 pt-2 border-t border-border">
+        <div className="flex items-center gap-3 border-t border-border pt-2">
           <Button onClick={() => mutation.mutate()} disabled={isArchived || mutation.isPending}>
             {mutation.isPending ? t('managed.agents.saving') : t('managed.agents.saveChanges')}
           </Button>

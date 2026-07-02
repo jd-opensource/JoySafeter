@@ -37,16 +37,29 @@ export default function VaultListPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
 
-  const { data, isLoading, isFetching, isError, error, hasNext, hasPrev, page, pageSize, pageSizeOptions, goNext, goPrev, goToPage, setPageSize } =
-    usePaginatedList<Vault>({
-      queryKey: 'vaults',
-      path: '/vaults',
-      includeArchived: showArchived,
-    })
+  const {
+    data,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    hasNext,
+    hasPrev,
+    page,
+    pageSize,
+    pageSizeOptions,
+    goNext,
+    goPrev,
+    goToPage,
+    setPageSize,
+  } = usePaginatedList<Vault>({
+    queryKey: 'vaults',
+    path: '/vaults',
+    includeArchived: showArchived,
+  })
 
   const archiveMutation = useMutation({
-    mutationFn: (vault: Vault) =>
-      managedPost(`/vaults/${stripIdPrefix(vault.id)}/archive`, {}),
+    mutationFn: (vault: Vault) => managedPost(`/vaults/${stripIdPrefix(vault.id)}/archive`, {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['vaults'] })
       setArchiveTarget(null)
@@ -57,8 +70,7 @@ export default function VaultListPage() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (vault: Vault) =>
-      managedDelete(`/vaults/${stripIdPrefix(vault.id)}`),
+    mutationFn: (vault: Vault) => managedDelete(`/vaults/${stripIdPrefix(vault.id)}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['vaults'] })
       setDeleteTarget(null)
@@ -68,10 +80,11 @@ export default function VaultListPage() {
     },
   })
 
-  const vaults = data.filter((v) =>
-    (showArchived || !v.archived_at) &&
-    filterByCreatedTime(v.created_at, createdFilter) &&
-    matchesSearch(searchQuery, [v.id, v.name, v.archived_at ? 'archived' : 'active']),
+  const vaults = data.filter(
+    (v) =>
+      (showArchived || !v.archived_at) &&
+      filterByCreatedTime(v.created_at, createdFilter) &&
+      matchesSearch(searchQuery, [v.id, v.name, v.archived_at ? 'archived' : 'active']),
   )
 
   const filters: FilterDef[] = [
@@ -87,22 +100,18 @@ export default function VaultListPage() {
     {
       key: 'name',
       header: t('managed.table.name'),
-      render: (v) => (
-        <span className="font-medium text-foreground">{v.name}</span>
-      ),
+      render: (v) => <span className="font-medium text-foreground">{v.name}</span>,
     },
     {
       key: 'status',
       header: t('managed.table.status'),
-      render: (v) => (
-        <StatusBadge status={v.archived_at ? 'archived' : 'active'} />
-      ),
+      render: (v) => <StatusBadge status={v.archived_at ? 'archived' : 'active'} />,
     },
     {
       key: 'created_at',
       header: t('managed.table.created'),
       render: (v) => (
-        <span className="text-muted-foreground text-xs">
+        <span className="text-xs text-muted-foreground">
           <RelativeTime date={v.created_at} />
         </span>
       ),
@@ -110,7 +119,13 @@ export default function VaultListPage() {
   ]
 
   if (isError) {
-    return <ResourceErrorState error={error} resource="vault" onRetry={() => queryClient.invalidateQueries({ queryKey: ['vaults'] })} />
+    return (
+      <ResourceErrorState
+        error={error}
+        resource="vault"
+        onRetry={() => queryClient.invalidateQueries({ queryKey: ['vaults'] })}
+      />
+    )
   }
 
   return (
@@ -120,7 +135,7 @@ export default function VaultListPage() {
         subtitle={t('managed.vaults.subtitle')}
         action={
           <Button size="sm" onClick={() => setCreateOpen(true)}>
-            <Plus className="w-4 h-4" />
+            <Plus className="h-4 w-4" />
             {t('managed.vaults.new')}
           </Button>
         }

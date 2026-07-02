@@ -61,12 +61,7 @@ function getAuthHeaders(): Record<string, string> {
 }
 
 function unwrapManagedResponse<T = Record<string, unknown>>(payload: unknown): T {
-  if (
-    payload &&
-    typeof payload === 'object' &&
-    'success' in payload &&
-    'data' in payload
-  ) {
+  if (payload && typeof payload === 'object' && 'success' in payload && 'data' in payload) {
     return (payload as { data: T }).data
   }
   return payload as T
@@ -79,7 +74,11 @@ function getCreatedResourceId(payload: unknown): string | null {
 
   for (const key of ['agent', 'environment', 'vault', 'session']) {
     const nested = data?.[key]
-    if (nested && typeof nested === 'object' && typeof (nested as { id?: unknown }).id === 'string') {
+    if (
+      nested &&
+      typeof nested === 'object' &&
+      typeof (nested as { id?: unknown }).id === 'string'
+    ) {
       return (nested as { id: string }).id
     }
   }
@@ -136,7 +135,8 @@ export function useQuickstartChat(
       const step = options?.stepOverride ?? currentStep
       const hidden = options?.hidden ?? false
       const provider = options?.providerOverride ?? generationSecret?.provider ?? 'claude'
-      const requestSecretRef = options?.secretRefOverride ?? generationSecret?.secretRef ?? agentSecretRef
+      const requestSecretRef =
+        options?.secretRefOverride ?? generationSecret?.secretRef ?? agentSecretRef
 
       const userMsg: ChatMessage = {
         id: generateUUID(),
@@ -159,7 +159,9 @@ export function useQuickstartChat(
       }
 
       setMessages((prev) => (hidden ? [...prev, assistantMsg] : [...prev, userMsg, assistantMsg]))
-      messagesRef.current = hidden ? [...messagesRef.current, assistantMsg] : [...newMessages, assistantMsg]
+      messagesRef.current = hidden
+        ? [...messagesRef.current, assistantMsg]
+        : [...newMessages, assistantMsg]
       setIsStreaming(true)
 
       const controller = new AbortController()
@@ -282,7 +284,9 @@ export function useQuickstartChat(
             if (last && last.role === 'assistant') {
               updated[updated.length - 1] = {
                 ...last,
-                content: last.content || getOperationErrorMessage(t, e, 'managed.quickstart.errors.chatFailed'),
+                content:
+                  last.content ||
+                  getOperationErrorMessage(t, e, 'managed.quickstart.errors.chatFailed'),
               }
             }
             return updated
@@ -361,7 +365,11 @@ export function useQuickstartChat(
         {
           id: generateUUID(),
           role: 'assistant',
-          content: getOperationErrorMessage(t, err, 'managed.quickstart.errors.createSessionFailed'),
+          content: getOperationErrorMessage(
+            t,
+            err,
+            'managed.quickstart.errors.createSessionFailed',
+          ),
         },
       ])
     } finally {
@@ -421,7 +429,11 @@ export function useQuickstartChat(
           {
             id: generateUUID(),
             role: 'assistant' as const,
-            content: getOperationErrorMessage(t, err, 'managed.quickstart.errors.createEnvironmentFailed'),
+            content: getOperationErrorMessage(
+              t,
+              err,
+              'managed.quickstart.errors.createEnvironmentFailed',
+            ),
           },
         ])
       } finally {
@@ -431,52 +443,59 @@ export function useQuickstartChat(
     [t],
   )
 
-  const createVault = useCallback(async (name: string) => {
-    setIsCreating(true)
-    try {
-      const vaultBody = { name }
-      const resp = await fetch(`${MANAGED_API_BASE}/vaults`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify(vaultBody),
-      })
-
-      if (!resp.ok) {
-        const text = await resp.text()
-        throw new Error(`API ${resp.status}: ${text}`)
-      }
-
-      const result = await resp.json()
-      const vaultId = getCreatedResourceId(result)
-      if (vaultId) {
-        setResourceIds((prev) => {
-          const next = { ...prev, [5]: vaultId }
-          resourceIdsRef.current = next
-          return next
+  const createVault = useCallback(
+    async (name: string) => {
+      setIsCreating(true)
+      try {
+        const vaultBody = { name }
+        const resp = await fetch(`${MANAGED_API_BASE}/vaults`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify(vaultBody),
         })
-      }
 
-      const vaultCurl = `curl -X POST ${MANAGED_API_BASE}/vaults \\
+        if (!resp.ok) {
+          const text = await resp.text()
+          throw new Error(`API ${resp.status}: ${text}`)
+        }
+
+        const result = await resp.json()
+        const vaultId = getCreatedResourceId(result)
+        if (vaultId) {
+          setResourceIds((prev) => {
+            const next = { ...prev, [5]: vaultId }
+            resourceIdsRef.current = next
+            return next
+          })
+        }
+
+        const vaultCurl = `curl -X POST ${MANAGED_API_BASE}/vaults \\
   -H "Content-Type: application/json" \\
   -H "x-api-key: $API_KEY" \\
   -d '${JSON.stringify(vaultBody, null, 2)}'`
 
-      setCompletedSteps((prev) => new Set([...prev, 5]))
-      setCurls((prev) => ({ ...prev, [5]: vaultCurl }))
-    } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: generateUUID(),
-          role: 'assistant' as const,
-          content: getOperationErrorMessage(t, err, 'managed.quickstart.errors.createVaultFailed'),
-        },
-      ])
-    } finally {
-      setIsCreating(false)
-    }
-  }, [t])
+        setCompletedSteps((prev) => new Set([...prev, 5]))
+        setCurls((prev) => ({ ...prev, [5]: vaultCurl }))
+      } catch (err) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: generateUUID(),
+            role: 'assistant' as const,
+            content: getOperationErrorMessage(
+              t,
+              err,
+              'managed.quickstart.errors.createVaultFailed',
+            ),
+          },
+        ])
+      } finally {
+        setIsCreating(false)
+      }
+    },
+    [t],
+  )
 
   const selectEngine = useCallback((engine: QuickstartEngine) => {
     setSelectedEngine(engine)
@@ -487,7 +506,9 @@ export function useQuickstartChat(
   const selectAgentSecret = useCallback(() => {
     setCompletedSteps((prev) => new Set([...prev, 2]))
     setCurrentStep(3)
-    const lastUserMessage = [...messagesRef.current].reverse().find((message) => message.role === 'user')
+    const lastUserMessage = [...messagesRef.current]
+      .reverse()
+      .find((message) => message.role === 'user')
     if (lastUserMessage?.content && !configRef.current.agent && !isStreaming) {
       void sendMessage(lastUserMessage.content, {
         stepOverride: 3,
@@ -575,12 +596,9 @@ export function useQuickstartChat(
       const createdResource = unwrapManagedResponse<Record<string, unknown>>(result)
       const createdAgent =
         step === 3
-          ? (
-              createdResource?.agent &&
-              typeof createdResource.agent === 'object'
-                ? createdResource.agent
-                : createdResource
-            ) as Record<string, unknown>
+          ? ((createdResource?.agent && typeof createdResource.agent === 'object'
+              ? createdResource.agent
+              : createdResource) as Record<string, unknown>)
           : null
       if (createdAgent?.model) {
         setConfig((prev) => ({
@@ -610,7 +628,11 @@ export function useQuickstartChat(
         {
           id: generateUUID(),
           role: 'assistant',
-          content: getOperationErrorMessage(t, err, 'managed.quickstart.errors.createResourceFailed'),
+          content: getOperationErrorMessage(
+            t,
+            err,
+            'managed.quickstart.errors.createResourceFailed',
+          ),
         },
       ])
       setPendingConfirmation(null)
@@ -722,10 +744,7 @@ ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
           }
         }
       }
-      return (
-        text.trim() ||
-        t('managed.quickstart.trialRun.defaultPrompt', { agentName })
-      )
+      return text.trim() || t('managed.quickstart.trialRun.defaultPrompt', { agentName })
     } catch {
       return t('managed.quickstart.trialRun.defaultPrompt', { agentName })
     }

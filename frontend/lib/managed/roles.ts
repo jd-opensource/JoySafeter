@@ -41,7 +41,10 @@ export function roleLabel(t: Translator, role?: string | null): string {
   return role || '-'
 }
 
-export function roleOptions(t: Translator, options?: { includeOwner?: boolean; includeMemberAlias?: boolean }) {
+export function roleOptions(
+  t: Translator,
+  options?: { includeOwner?: boolean; includeMemberAlias?: boolean },
+) {
   const roles = [
     ...(options?.includeOwner ? ['owner'] : []),
     'admin',

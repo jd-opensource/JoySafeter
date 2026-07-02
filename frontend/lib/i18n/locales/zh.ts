@@ -183,7 +183,8 @@ const zh = {
         switch: '切换',
         createFailed: '创建失败，请重试。',
         delete: '删除组织',
-        deleteConfirm: '确定要删除组织「{{name}}」吗？此操作将删除该组织下的所有项目和成员数据，且不可恢复。',
+        deleteConfirm:
+          '确定要删除组织「{{name}}」吗？此操作将删除该组织下的所有项目和成员数据，且不可恢复。',
         edit: '编辑组织',
         editDesc: '修改组织名称。',
         transferOwnership: '转让所有权',
@@ -212,7 +213,8 @@ const zh = {
         selectEnvironment: '不设置，创建会话时再选择',
         noEnvironments: '暂无环境；如果该智能体需要固定运行环境，请先创建环境',
         noSelection: '不设置，创建会话时再选择',
-        environmentRefHint: '可选。不设置时，创建会话可单独选择环境；设置后会作为该智能体的默认运行环境，创建会话时仍可覆盖。',
+        environmentRefHint:
+          '可选。不设置时，创建会话可单独选择环境；设置后会作为该智能体的默认运行环境，创建会话时仍可覆盖。',
         permissionMode: '权限模式',
         permBypass: '始终允许（跳过权限确认）',
         permAsk: '每次询问',
@@ -535,7 +537,8 @@ const zh = {
         },
         model: '模型',
         engineKind: '执行引擎',
-        engineKindDesc: '选择智能体使用的 AI 引擎。Claude Code 使用 Anthropic API，Codex 使用 OpenAI API。',
+        engineKindDesc:
+          '选择智能体使用的 AI 引擎。Claude Code 使用 Anthropic API，Codex 使用 OpenAI API。',
         engineClaude: 'Claude Code',
         engineCodex: 'Codex',
         engineNative: 'Native',
@@ -566,7 +569,8 @@ const zh = {
           selectEnvironment: '不设置，创建会话时再选择',
           noEnvironments: '暂无可用环境；如果该智能体需要固定运行环境，请先创建环境',
           noSelection: '不设置，创建会话时再选择',
-          environmentRefHint: '可选。不设置时，创建会话可单独选择环境；设置后会作为该智能体的默认运行环境，创建会话时仍可覆盖。',
+          environmentRefHint:
+            '可选。不设置时，创建会话可单独选择环境；设置后会作为该智能体的默认运行环境，创建会话时仍可覆盖。',
           permissionMode: '权限模式',
           permBypass: '始终允许（跳过权限确认）',
           permAsk: '询问（需要确认）',
@@ -834,7 +838,8 @@ const zh = {
         new: '新建凭证库',
         createTitle: '创建凭证库',
         createDescription: '创建新的凭证库',
-        sharedWarning: '凭证库在当前组织内共享。添加到此凭证库的凭证，任何拥有 API 密钥访问权限的成员都可以使用。',
+        sharedWarning:
+          '凭证库在当前组织内共享。添加到此凭证库的凭证，任何拥有 API 密钥访问权限的成员都可以使用。',
         learnMore: '了解更多',
         learnMoreSuffix: '。',
         namePlaceholder: '生产 MCP 凭证库',
@@ -1185,11 +1190,13 @@ const zh = {
           totalTooLarge: 'ZIP 解压后内容过大，最大支持 {{maxSize}}。',
           binaryFile: 'ZIP 中包含非 UTF-8 或二进制文件：{{path}}。',
           invalidFiles: '部分文件是二进制文件或系统文件，无法导入：{{files}}。',
-          skillMdRequiredWithFiles: 'ZIP 中没有找到可用的 SKILL.md。已识别文件示例：{{files}}。请把 SKILL.md 放在压缩包根目录，或放在唯一的顶层技能目录下。',
+          skillMdRequiredWithFiles:
+            'ZIP 中没有找到可用的 SKILL.md。已识别文件示例：{{files}}。请把 SKILL.md 放在压缩包根目录，或放在唯一的顶层技能目录下。',
         },
         validationErrors: {
           nameRequired: '技能名称不能为空。',
-          nameFormat: '技能名称只能包含小写字母、数字和单个连字符（例如 web-research）。当前值：{{name}}',
+          nameFormat:
+            '技能名称只能包含小写字母、数字和单个连字符（例如 web-research）。当前值：{{name}}',
           nameExists: '已存在同名技能。',
           descriptionRequired: '描述不能为空。',
           generic: '校验失败。',
@@ -1240,7 +1247,8 @@ const zh = {
         deleteVersion: '删除该版本',
         deleteVersionTitle: '删除版本 v{{v}}',
         deleteVersionConfirm: '此操作将永久删除已发布的快照。任何固定到该版本的智能体将无法加载。',
-        deleteVersionInUse: '该版本被 {{n}} 个智能体或已保存的智能体版本引用。删除后它们将指向一个不存在的版本。',
+        deleteVersionInUse:
+          '该版本被 {{n}} 个智能体或已保存的智能体版本引用。删除后它们将指向一个不存在的版本。',
         deleteAnyway: '仍然删除',
         versionInputPlaceholder: '版本号 (例如 1.2.0)，留空将自动递增 patch',
         versionInvalidSemver: '必须为 MAJOR.MINOR.PATCH 格式 (例如 1.2.0)',
@@ -1370,7 +1378,8 @@ const zh = {
         deleteMemoryDescription: '确定要删除 "{{path}}" 吗？',
         addMemory: '添加记忆',
         memContentPlaceholder: '记忆内容...',
-        pathTip: '输入类似 notes/ideas.md 的路径来创建。目录结构基于路径中的斜杠，例如保存 projects/foo/notes.md 会在树中显示 projects 和 foo 文件夹。',
+        pathTip:
+          '输入类似 notes/ideas.md 的路径来创建。目录结构基于路径中的斜杠，例如保存 projects/foo/notes.md 会在树中显示 projects 和 foo 文件夹。',
         saveFailed: '保存记忆失败，请稍后重试。',
       },
       errors: {

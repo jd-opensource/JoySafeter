@@ -31,8 +31,26 @@ export default function SessionListPage() {
   const [agentFilter, setAgentFilter] = useState('all')
   const [createdFilter, setCreatedFilter] = useState('all')
 
-  const { data, isLoading, isFetching, isError, error, hasNext, hasPrev, page, pageSize, pageSizeOptions, goNext, goPrev, goToPage, setPageSize } =
-    usePaginatedList<Session>({ queryKey: 'sessions', path: '/sessions', includeArchived: showArchived })
+  const {
+    data,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    hasNext,
+    hasPrev,
+    page,
+    pageSize,
+    pageSizeOptions,
+    goNext,
+    goPrev,
+    goToPage,
+    setPageSize,
+  } = usePaginatedList<Session>({
+    queryKey: 'sessions',
+    path: '/sessions',
+    includeArchived: showArchived,
+  })
 
   const getEngineKindLabel = (engineKind?: string | null) => {
     switch (engineKind) {
@@ -48,17 +66,18 @@ export default function SessionListPage() {
     }
   }
 
-  const sessions = data.filter((s) =>
-    filterByCreatedTime(s.created_at, createdFilter) &&
-    matchesSearch(searchQuery, [
-      s.id,
-      s.title,
-      s.status,
-      s.agent?.name,
-      s.agent?.id,
-      s.agent?.engine_kind,
-      getEngineKindLabel(s.agent?.engine_kind),
-    ]),
+  const sessions = data.filter(
+    (s) =>
+      filterByCreatedTime(s.created_at, createdFilter) &&
+      matchesSearch(searchQuery, [
+        s.id,
+        s.title,
+        s.status,
+        s.agent?.name,
+        s.agent?.id,
+        s.agent?.engine_kind,
+        getEngineKindLabel(s.agent?.engine_kind),
+      ]),
   )
 
   const filters: FilterDef[] = [
@@ -85,9 +104,7 @@ export default function SessionListPage() {
     {
       key: 'name',
       header: t('managed.table.name'),
-      render: (s) => (
-        <span className="text-foreground">{s.title || '-'}</span>
-      ),
+      render: (s) => <span className="text-foreground">{s.title || '-'}</span>,
     },
     {
       key: 'status',
@@ -98,7 +115,7 @@ export default function SessionListPage() {
       key: 'engine_kind',
       header: t('managed.table.engineKind'),
       render: (s) => (
-        <span className="text-muted-foreground whitespace-nowrap">
+        <span className="whitespace-nowrap text-muted-foreground">
           {getEngineKindLabel(s.agent?.engine_kind)}
         </span>
       ),
@@ -106,17 +123,13 @@ export default function SessionListPage() {
     {
       key: 'agent',
       header: t('managed.table.agent'),
-      render: (s) => (
-        <span className="text-muted-foreground text-xs">
-          {s.agent?.name || '-'}
-        </span>
-      ),
+      render: (s) => <span className="text-xs text-muted-foreground">{s.agent?.name || '-'}</span>,
     },
     {
       key: 'created_at',
       header: t('managed.table.created'),
       render: (s) => (
-        <span className="text-muted-foreground text-xs">
+        <span className="text-xs text-muted-foreground">
           <RelativeTime date={s.created_at} />
         </span>
       ),
@@ -124,7 +137,13 @@ export default function SessionListPage() {
   ]
 
   if (isError) {
-    return <ResourceErrorState error={error} resource="session" onRetry={() => queryClient.invalidateQueries({ queryKey: ['sessions'] })} />
+    return (
+      <ResourceErrorState
+        error={error}
+        resource="session"
+        onRetry={() => queryClient.invalidateQueries({ queryKey: ['sessions'] })}
+      />
+    )
   }
 
   return (
@@ -134,7 +153,7 @@ export default function SessionListPage() {
         subtitle={t('managed.sessions.subtitle')}
         action={
           <Button size="sm" onClick={() => setShowCreateDialog(true)}>
-            <Plus className="w-4 h-4" />
+            <Plus className="h-4 w-4" />
             {t('managed.sessions.new')}
           </Button>
         }
@@ -156,19 +175,23 @@ export default function SessionListPage() {
         loading={isLoading}
         fetching={isFetching}
         onRowClick={(s) => router.push(`/managed/sessions/${s.id}`)}
-        actionMenu={(s) => s.archived_at ? [] : [
-          {
-            label: t('managed.sessions.archiveSession'),
-            onClick: async () => {
-              try {
-                await managedPost(`/sessions/${stripIdPrefix(s.id)}/archive`, {})
-                queryClient.invalidateQueries({ queryKey: ['sessions'] })
-              } catch (e) {
-                toastOperationError(t, e, 'common.operationFailed')
-              }
-            },
-          },
-        ]}
+        actionMenu={(s) =>
+          s.archived_at
+            ? []
+            : [
+                {
+                  label: t('managed.sessions.archiveSession'),
+                  onClick: async () => {
+                    try {
+                      await managedPost(`/sessions/${stripIdPrefix(s.id)}/archive`, {})
+                      queryClient.invalidateQueries({ queryKey: ['sessions'] })
+                    } catch (e) {
+                      toastOperationError(t, e, 'common.operationFailed')
+                    }
+                  },
+                },
+              ]
+        }
         pagination={{
           hasNext,
           hasPrev,

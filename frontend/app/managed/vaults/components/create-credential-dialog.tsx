@@ -90,16 +90,14 @@ export function CreateCredentialDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('managed.vaults.cred.createTitle')}</DialogTitle>
-          <DialogDescription>
-            {t('managed.vaults.cred.createDescription')}
-          </DialogDescription>
+          <DialogDescription>{t('managed.vaults.cred.createDescription')}</DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4 mt-2">
+        <form onSubmit={handleSubmit} className="mt-2 space-y-4">
           <div className="space-y-1.5">
             <label htmlFor="cred-name" className="text-sm font-medium">
               {t('managed.vaults.cred.name')}{' '}
-              <span className="text-muted-foreground font-normal">
+              <span className="font-normal text-muted-foreground">
                 {t('managed.vaults.cred.nameOptional')}
               </span>
             </label>
@@ -113,10 +111,8 @@ export function CreateCredentialDialog({
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">
-              {t('managed.vaults.cred.type')}
-            </label>
-            <div className="flex rounded-md border border-border overflow-hidden w-fit">
+            <label className="text-sm font-medium">{t('managed.vaults.cred.type')}</label>
+            <div className="flex w-fit overflow-hidden rounded-md border border-border">
               <button
                 type="button"
                 onClick={() => setCredentialType('mcp_oauth')}
@@ -131,7 +127,7 @@ export function CreateCredentialDialog({
               <button
                 type="button"
                 onClick={() => setCredentialType('static_bearer')}
-                className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-border ${
+                className={`border-l border-border px-3 py-1.5 text-sm font-medium transition-colors ${
                   !isOAuth
                     ? 'bg-foreground text-background'
                     : 'bg-background text-foreground hover:bg-accent'
@@ -173,9 +169,7 @@ export function CreateCredentialDialog({
             <Button
               type="submit"
               disabled={
-                !mcpServerUrl.trim() ||
-                (!isOAuth && !tokenValue.trim()) ||
-                mutation.isPending
+                !mcpServerUrl.trim() || (!isOAuth && !tokenValue.trim()) || mutation.isPending
               }
             >
               {mutation.isPending

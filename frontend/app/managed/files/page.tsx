@@ -35,12 +35,27 @@ export default function FileListPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [createdFilter, setCreatedFilter] = useState('all')
 
-  const { data, isLoading, isFetching, isError, error, hasNext, hasPrev, page, pageSize, pageSizeOptions, goNext, goPrev, goToPage, setPageSize } =
-    usePaginatedList<FileRecord>({ queryKey: 'files', path: '/files' })
+  const {
+    data,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    hasNext,
+    hasPrev,
+    page,
+    pageSize,
+    pageSizeOptions,
+    goNext,
+    goPrev,
+    goToPage,
+    setPageSize,
+  } = usePaginatedList<FileRecord>({ queryKey: 'files', path: '/files' })
 
-  const files = data.filter((f) =>
-    filterByCreatedTime(f.created_at, createdFilter) &&
-    matchesSearch(searchQuery, [f.id, f.filename, f.content_type]),
+  const files = data.filter(
+    (f) =>
+      filterByCreatedTime(f.created_at, createdFilter) &&
+      matchesSearch(searchQuery, [f.id, f.filename, f.content_type]),
   )
 
   const filters: FilterDef[] = [
@@ -80,31 +95,23 @@ export default function FileListPage() {
     {
       key: 'filename',
       header: t('managed.table.name'),
-      render: (f) => (
-        <span className="font-medium text-foreground">{f.filename}</span>
-      ),
+      render: (f) => <span className="font-medium text-foreground">{f.filename}</span>,
     },
     {
       key: 'content_type',
       header: t('managed.table.type'),
-      render: (f) => (
-        <span className="text-muted-foreground">{f.content_type}</span>
-      ),
+      render: (f) => <span className="text-muted-foreground">{f.content_type}</span>,
     },
     {
       key: 'size',
       header: t('managed.files.size'),
-      render: (f) => (
-        <span className="text-muted-foreground">
-          {formatSize(f.size_bytes)}
-        </span>
-      ),
+      render: (f) => <span className="text-muted-foreground">{formatSize(f.size_bytes)}</span>,
     },
     {
       key: 'created_at',
       header: t('managed.table.created'),
       render: (f) => (
-        <span className="text-muted-foreground text-xs">
+        <span className="text-xs text-muted-foreground">
           <RelativeTime date={f.created_at} />
         </span>
       ),
@@ -112,7 +119,13 @@ export default function FileListPage() {
   ]
 
   if (isError) {
-    return <ResourceErrorState error={error} resource="file" onRetry={() => queryClient.invalidateQueries({ queryKey: ['files'] })} />
+    return (
+      <ResourceErrorState
+        error={error}
+        resource="file"
+        onRetry={() => queryClient.invalidateQueries({ queryKey: ['files'] })}
+      />
+    )
   }
 
   return (
@@ -129,12 +142,8 @@ export default function FileListPage() {
               className="hidden"
               onChange={handleUpload}
             />
-            <Button
-              size="sm"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-            >
-              <Upload className="w-4 h-4 mr-1" />
+            <Button size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+              <Upload className="mr-1 h-4 w-4" />
               {uploading ? t('common.loading') : t('managed.files.upload')}
             </Button>
           </>
@@ -165,7 +174,17 @@ export default function FileListPage() {
             },
           },
         ]}
-        pagination={{ hasNext, hasPrev, page, pageSize, pageSizeOptions, onNext: goNext, onPrev: goPrev, onPageChange: goToPage, onPageSizeChange: setPageSize }}
+        pagination={{
+          hasNext,
+          hasPrev,
+          page,
+          pageSize,
+          pageSizeOptions,
+          onNext: goNext,
+          onPrev: goPrev,
+          onPageChange: goToPage,
+          onPageSizeChange: setPageSize,
+        }}
         emptyMessage={t('managed.files.empty')}
       />
     </div>

@@ -183,11 +183,7 @@ export function FileTreeNode({
         }`}
         style={{ paddingLeft }}
       >
-        {open ? (
-          <ChevronDown className="h-3.5 w-3.5" />
-        ) : (
-          <ChevronRight className="h-3.5 w-3.5" />
-        )}
+        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
         <FolderOpen className="h-4 w-4" />
         <span className="ml-1 flex-1">{node.name}/</span>
         <button

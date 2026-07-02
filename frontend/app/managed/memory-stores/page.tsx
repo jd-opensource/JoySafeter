@@ -33,17 +33,37 @@ export default function MemoryStoreListPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [createdFilter, setCreatedFilter] = useState('all')
 
-  const { data, isLoading, isFetching, isError, error, hasNext, hasPrev, page, pageSize, pageSizeOptions, goNext, goPrev, goToPage, setPageSize } =
-    usePaginatedList<MemoryStore>({
-      queryKey: 'memory-stores',
-      path: '/memory_stores',
-      includeArchived: showArchived,
-    })
+  const {
+    data,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    hasNext,
+    hasPrev,
+    page,
+    pageSize,
+    pageSizeOptions,
+    goNext,
+    goPrev,
+    goToPage,
+    setPageSize,
+  } = usePaginatedList<MemoryStore>({
+    queryKey: 'memory-stores',
+    path: '/memory_stores',
+    includeArchived: showArchived,
+  })
 
-  const stores = data.filter((s) =>
-    (showArchived || !s.archived_at) &&
-    filterByCreatedTime(s.created_at, createdFilter) &&
-    matchesSearch(searchQuery, [s.id, s.name, s.description, s.archived_at ? 'archived' : 'active']),
+  const stores = data.filter(
+    (s) =>
+      (showArchived || !s.archived_at) &&
+      filterByCreatedTime(s.created_at, createdFilter) &&
+      matchesSearch(searchQuery, [
+        s.id,
+        s.name,
+        s.description,
+        s.archived_at ? 'archived' : 'active',
+      ]),
   )
 
   const filters: FilterDef[] = [
@@ -74,29 +94,23 @@ export default function MemoryStoreListPage() {
     {
       key: 'name',
       header: t('managed.table.name'),
-      render: (s) => (
-        <span className="font-medium text-foreground">{s.name}</span>
-      ),
+      render: (s) => <span className="font-medium text-foreground">{s.name}</span>,
     },
     {
       key: 'description',
       header: t('managed.memoryStores.descriptionLabel'),
-      render: (s) => (
-        <span className="text-muted-foreground text-sm">{s.description || '-'}</span>
-      ),
+      render: (s) => <span className="text-sm text-muted-foreground">{s.description || '-'}</span>,
     },
     {
       key: 'status',
       header: t('managed.table.status'),
-      render: (s) => (
-        <StatusBadge status={s.archived_at ? 'archived' : 'active'} />
-      ),
+      render: (s) => <StatusBadge status={s.archived_at ? 'archived' : 'active'} />,
     },
     {
       key: 'created_at',
       header: t('managed.table.created'),
       render: (s) => (
-        <span className="text-muted-foreground text-xs">
+        <span className="text-xs text-muted-foreground">
           <RelativeTime date={s.created_at} />
         </span>
       ),
@@ -114,7 +128,7 @@ export default function MemoryStoreListPage() {
         subtitle={t('managed.memoryStores.subtitle')}
         action={
           <Button size="sm" onClick={() => setCreateOpen(true)}>
-            <Plus className="w-4 h-4" />
+            <Plus className="h-4 w-4" />
             {t('managed.memoryStores.new')}
           </Button>
         }
@@ -135,9 +149,11 @@ export default function MemoryStoreListPage() {
         loading={isLoading}
         fetching={isFetching}
         onRowClick={(s) => router.push(`/managed/memory-stores/${s.id}`)}
-        actionMenu={(s) => s.archived_at ? [] : [
-          { label: t('managed.memoryStores.archiveStore'), onClick: () => handleArchive(s) },
-        ]}
+        actionMenu={(s) =>
+          s.archived_at
+            ? []
+            : [{ label: t('managed.memoryStores.archiveStore'), onClick: () => handleArchive(s) }]
+        }
         pagination={{
           hasNext,
           hasPrev,

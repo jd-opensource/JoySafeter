@@ -14,11 +14,7 @@
 import { Loader2, ShieldCheck } from 'lucide-react'
 
 import { useTranslation } from '@/lib/i18n'
-import type {
-  SkillLifecycleStatus,
-  SkillRecord,
-  SkillVisibility,
-} from '@/types/managed'
+import type { SkillLifecycleStatus, SkillRecord, SkillVisibility } from '@/types/managed'
 
 // Tailwind-friendly tone tuples — each maps to (bg, text, border).
 // Kept inline so a single review covers every status's colour at once.
@@ -77,9 +73,7 @@ export function SkillLifecycleBadge({
   // lifecycle_status field on the response) render normally rather
   // than as an empty pill.
   const value: SkillLifecycleStatus =
-    status && status in LIFECYCLE_TONE
-      ? (status as SkillLifecycleStatus)
-      : 'approved'
+    status && status in LIFECYCLE_TONE ? (status as SkillLifecycleStatus) : 'approved'
   const labelKey = `managed.skills.lifecycle.${
     value === 'pending_review' ? 'pendingReview' : value
   }` as const
@@ -105,20 +99,11 @@ export function SkillVisibilityBadge({
   return <Pill tone={VISIBILITY_TONE[value]}>{t(labelKey)}</Pill>
 }
 
-export function SkillSecurityBadge({
-  status,
-}: {
-  status: string | undefined
-}) {
+export function SkillSecurityBadge({ status }: { status: string | undefined }) {
   const { t } = useTranslation()
   const value = status && status in SECURITY_TONE ? status : 'not_scanned'
   // Convert snake_case to the i18n key shape used in the locales file
-  const key =
-    value === 'not_scanned'
-      ? 'notScanned'
-      : value === 'scanning'
-        ? 'scanning'
-        : value
+  const key = value === 'not_scanned' ? 'notScanned' : value === 'scanning' ? 'scanning' : value
   // Show a tooltip on ``scanning`` so users understand the constraint
   // — agents won't load the skill until the BG scan lands.
   const title = value === 'scanning' ? t('managed.skills.security.scanningHint') : undefined
@@ -149,9 +134,7 @@ export function SkillRiskScoreBadge({ score }: { score: number }) {
   return (
     <Pill tone={tone} title={t('managed.skills.riskScoreHint')}>
       <ShieldCheck className="h-3 w-3" />
-      <span className="tabular-nums">
-        {t('managed.skills.riskScore', { score })}
-      </span>
+      <span className="tabular-nums">{t('managed.skills.riskScore', { score })}</span>
     </Pill>
   )
 }
@@ -178,10 +161,7 @@ export function SkillStatusBadges({
     <div className="inline-flex flex-wrap items-center gap-1.5">
       <SkillLifecycleBadge status={skill.lifecycle_status} />
       {showVisibility && (
-        <SkillVisibilityBadge
-          visibility={skill.visibility}
-          isPublic={skill.is_public}
-        />
+        <SkillVisibilityBadge visibility={skill.visibility} isPublic={skill.is_public} />
       )}
       <SkillSecurityBadge status={skill.security_scan?.status} />
     </div>

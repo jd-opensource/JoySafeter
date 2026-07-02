@@ -139,7 +139,12 @@ async function extractErrorFromResponse(response: Response): Promise<ApiError> {
   try {
     const text = await response.text()
     const errorData = JSON.parse(text)
-    if (errorData && typeof errorData === 'object' && 'code' in errorData && 'message' in errorData) {
+    if (
+      errorData &&
+      typeof errorData === 'object' &&
+      'code' in errorData &&
+      'message' in errorData
+    ) {
       payload = errorData as ApiErrorPayload
     } else if (errorData && typeof errorData === 'object' && 'detail' in errorData) {
       const detail = typeof errorData.detail === 'string' ? errorData.detail : response.statusText
@@ -200,7 +205,12 @@ async function parseResponse<T>(response: Response): Promise<T> {
     if (json && typeof json === 'object' && 'data' in json && 'success' in json) {
       // Paginated response: keep has_more/first_id/last_id alongside data
       if ('has_more' in json) {
-        return { data: json.data, has_more: json.has_more, first_id: json.first_id, last_id: json.last_id } as T
+        return {
+          data: json.data,
+          has_more: json.has_more,
+          first_id: json.first_id,
+          last_id: json.last_id,
+        } as T
       }
       return json.data
     }
@@ -291,10 +301,7 @@ function publishRefreshCompleted(): void {
   try {
     const timestamp = Date.now()
     localStorage.setItem(AUTH_REFRESHED_AT_KEY, String(timestamp))
-    localStorage.setItem(
-      AUTH_SESSION_CHANGE_KEY,
-      JSON.stringify({ type: 'refresh', timestamp }),
-    )
+    localStorage.setItem(AUTH_SESSION_CHANGE_KEY, JSON.stringify({ type: 'refresh', timestamp }))
     setTimeout(() => localStorage.removeItem(AUTH_SESSION_CHANGE_KEY), 100)
   } catch {
     /* ignore */
@@ -661,7 +668,10 @@ export function managedGet<T>(
   url: string,
   options?: Omit<ApiRequestOptions, 'method' | 'body'>,
 ): Promise<T> {
-  const headers = getManagedHeaders(options?.headers as Record<string, string>, options?.skipManagedContext)
+  const headers = getManagedHeaders(
+    options?.headers as Record<string, string>,
+    options?.skipManagedContext,
+  )
   return apiFetch<T>(buildManagedUrl(url), { ...options, headers, method: 'GET' })
 }
 
@@ -670,7 +680,10 @@ export function managedPost<T>(
   body?: unknown,
   options?: Omit<ApiRequestOptions, 'method' | 'body'>,
 ): Promise<T> {
-  const headers = getManagedHeaders(options?.headers as Record<string, string>, options?.skipManagedContext)
+  const headers = getManagedHeaders(
+    options?.headers as Record<string, string>,
+    options?.skipManagedContext,
+  )
   return apiFetch<T>(buildManagedUrl(url), { ...options, headers, method: 'POST', body })
 }
 
@@ -679,7 +692,10 @@ export function managedPut<T>(
   body?: unknown,
   options?: Omit<ApiRequestOptions, 'method' | 'body'>,
 ): Promise<T> {
-  const headers = getManagedHeaders(options?.headers as Record<string, string>, options?.skipManagedContext)
+  const headers = getManagedHeaders(
+    options?.headers as Record<string, string>,
+    options?.skipManagedContext,
+  )
   return apiFetch<T>(buildManagedUrl(url), { ...options, headers, method: 'PUT', body })
 }
 
@@ -687,7 +703,10 @@ export function managedDelete<T>(
   url: string,
   options?: Omit<ApiRequestOptions, 'method' | 'body'>,
 ): Promise<T> {
-  const headers = getManagedHeaders(options?.headers as Record<string, string>, options?.skipManagedContext)
+  const headers = getManagedHeaders(
+    options?.headers as Record<string, string>,
+    options?.skipManagedContext,
+  )
   return apiFetch<T>(buildManagedUrl(url), { ...options, headers, method: 'DELETE' })
 }
 
@@ -696,7 +715,10 @@ export function managedPatch<T>(
   body?: unknown,
   options?: Omit<ApiRequestOptions, 'method' | 'body'>,
 ): Promise<T> {
-  const headers = getManagedHeaders(options?.headers as Record<string, string>, options?.skipManagedContext)
+  const headers = getManagedHeaders(
+    options?.headers as Record<string, string>,
+    options?.skipManagedContext,
+  )
   return apiFetch<T>(buildManagedUrl(url), { ...options, headers, method: 'PATCH', body })
 }
 
@@ -705,7 +727,10 @@ export function managedUpload<T>(
   file: File | FormData,
   options?: Omit<ApiRequestOptions, 'method' | 'body' | 'json'>,
 ): Promise<T> {
-  const headers = getManagedHeaders(options?.headers as Record<string, string>, options?.skipManagedContext)
+  const headers = getManagedHeaders(
+    options?.headers as Record<string, string>,
+    options?.skipManagedContext,
+  )
   return apiUpload<T>(buildManagedUrl(url), file, { ...options, headers })
 }
 

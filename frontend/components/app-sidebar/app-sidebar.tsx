@@ -122,16 +122,16 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
     const result: Record<string, ProjectInfo[]> = {}
     for (const org of organizations) {
       if (org.id === activeOrgId) {
-        result[org.id] = projects.map((project) => ({ ...project, org_id: project.org_id || org.id }))
+        result[org.id] = projects.map((project) => ({
+          ...project,
+          org_id: project.org_id || org.id,
+        }))
       } else {
         try {
-          const data = await managedGet<ProjectInfo[]>(
-            '/auth/projects?include_archived=false',
-            {
-              skipManagedContext: true,
-              headers: { 'X-Org-Id': org.id },
-            },
-          )
+          const data = await managedGet<ProjectInfo[]>('/auth/projects?include_archived=false', {
+            skipManagedContext: true,
+            headers: { 'X-Org-Id': org.id },
+          })
           result[org.id] = (data || [])
             .filter((project) => !project.org_id || project.org_id === org.id)
             .map((project) => ({ ...project, org_id: project.org_id || org.id }))
@@ -160,62 +160,83 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
         <DropdownMenu open={open} onOpenChange={handleOpen}>
           <DropdownMenuTrigger asChild>
             <button
-              className="flex items-center justify-center w-9 h-9 rounded-md border border-border text-xs font-bold hover:bg-accent/50 transition-colors"
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-border text-xs font-bold transition-colors hover:bg-accent/50"
               title={`${currentOrg?.name || ''} / ${currentProject?.name || ''}`}
             >
-              <div className={`w-6 h-6 rounded-md ${orgColors[organizations.indexOf(currentOrg!) % orgColors.length] || 'bg-primary'} flex items-center justify-center text-white text-[10px] font-bold`}>
+              <div
+                className={`h-6 w-6 rounded-md ${orgColors[organizations.indexOf(currentOrg!) % orgColors.length] || 'bg-primary'} flex items-center justify-center text-[10px] font-bold text-white`}
+              >
                 {currentOrg?.name?.charAt(0)?.toUpperCase() || 'O'}
               </div>
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent side="right" align="start" className="w-[240px] p-0">
-            <div className="p-2 border-b border-border">
+            <div className="border-b border-border p-2">
               <div className="relative">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder={t('sidebar.searchOrgProject')}
-                  className="w-full pl-7 pr-2 py-1.5 text-xs rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                  className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                   autoFocus
                 />
               </div>
             </div>
             <div className="max-h-[360px] overflow-y-auto py-1">
-              {organizations.filter((o) => filterMatch(o.name) || getProjectsForOrg(o.id).some((p) => filterMatch(p.name))).map((org, idx) => {
-                const orgPrjs = getProjectsForOrg(org.id)
-                  .filter((p) => filterMatch(p.name) || filterMatch(org.name))
-                return (
-                  <div key={org.id} className={idx > 0 ? 'border-t border-border/50 mt-1 pt-1' : ''}>
-                    <div className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-muted-foreground">
-                      <div className={`w-4 h-4 rounded ${orgColors[idx % orgColors.length]} flex items-center justify-center text-white text-[8px] font-bold shrink-0`}>
-                        {org.name.charAt(0).toUpperCase()}
-                      </div>
-                      {org.name}
-                      <span className="text-[10px] font-normal text-muted-foreground/60">{t('sidebar.organizationBadge')}</span>
-                    </div>
-                    {orgPrjs.map((project, pIdx) => {
-                      const isSelected = project.id === currentProjectId && org.id === (currentOrgId || orgId)
-                      const isLast = pIdx === orgPrjs.length - 1
-                      return (
-                        <div
-                          key={project.id || pIdx}
-                          className={cn(
-                            'flex items-center gap-1.5 pl-6 pr-3 py-1 cursor-pointer hover:bg-accent/50 transition-colors text-xs rounded-sm mx-1',
-                            isSelected && 'bg-accent font-medium'
-                          )}
-                          onClick={() => project.id && handleSwitchToProject(project.org_id || org.id, project.id)}
-                        >
-                          <span className="text-muted-foreground/40 text-[11px] w-3 shrink-0">{isLast ? '└' : '├'}</span>
-                          <span className="flex-1 truncate">{project.name}</span>
-                          {isSelected && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
-                        </div>
-                      )
-                    })}
-                  </div>
+              {organizations
+                .filter(
+                  (o) =>
+                    filterMatch(o.name) || getProjectsForOrg(o.id).some((p) => filterMatch(p.name)),
                 )
-              })}
+                .map((org, idx) => {
+                  const orgPrjs = getProjectsForOrg(org.id).filter(
+                    (p) => filterMatch(p.name) || filterMatch(org.name),
+                  )
+                  return (
+                    <div
+                      key={org.id}
+                      className={idx > 0 ? 'border-border/50 mt-1 border-t pt-1' : ''}
+                    >
+                      <div className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-muted-foreground">
+                        <div
+                          className={`h-4 w-4 rounded ${orgColors[idx % orgColors.length]} flex shrink-0 items-center justify-center text-[8px] font-bold text-white`}
+                        >
+                          {org.name.charAt(0).toUpperCase()}
+                        </div>
+                        {org.name}
+                        <span className="text-[10px] font-normal text-muted-foreground/60">
+                          {t('sidebar.organizationBadge')}
+                        </span>
+                      </div>
+                      {orgPrjs.map((project, pIdx) => {
+                        const isSelected =
+                          project.id === currentProjectId && org.id === (currentOrgId || orgId)
+                        const isLast = pIdx === orgPrjs.length - 1
+                        return (
+                          <div
+                            key={project.id || pIdx}
+                            className={cn(
+                              'mx-1 flex cursor-pointer items-center gap-1.5 rounded-sm py-1 pl-6 pr-3 text-xs transition-colors hover:bg-accent/50',
+                              isSelected && 'bg-accent font-medium',
+                            )}
+                            onClick={() =>
+                              project.id &&
+                              handleSwitchToProject(project.org_id || org.id, project.id)
+                            }
+                          >
+                            <span className="w-3 shrink-0 text-[11px] text-muted-foreground/40">
+                              {isLast ? '└' : '├'}
+                            </span>
+                            <span className="flex-1 truncate">{project.name}</span>
+                            {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })}
             </div>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -230,16 +251,22 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-2 w-full rounded-md border border-border px-2.5 py-2 text-sm hover:bg-accent/50 transition-colors">
-                  <div className={`w-7 h-7 rounded-md ${orgColors[organizations.indexOf(currentOrg!) % orgColors.length] || 'bg-primary'} flex items-center justify-center text-white text-[10px] font-bold shrink-0`}>
+                <button className="flex w-full items-center gap-2 rounded-md border border-border px-2.5 py-2 text-sm transition-colors hover:bg-accent/50">
+                  <div
+                    className={`h-7 w-7 rounded-md ${orgColors[organizations.indexOf(currentOrg!) % orgColors.length] || 'bg-primary'} flex shrink-0 items-center justify-center text-[10px] font-bold text-white`}
+                  >
                     {currentOrg?.name?.charAt(0)?.toUpperCase() || 'O'}
                   </div>
-                  <span className="flex-1 min-w-0 text-left text-[13px] font-medium text-foreground truncate">
-                    <span className="text-muted-foreground">{(currentOrg?.name || '').length > 4 ? (currentOrg?.name || '').slice(0, 4) + '…' : (currentOrg?.name || '')}</span>
-                    <span className="text-muted-foreground/50 mx-0.5">/</span>
+                  <span className="min-w-0 flex-1 truncate text-left text-[13px] font-medium text-foreground">
+                    <span className="text-muted-foreground">
+                      {(currentOrg?.name || '').length > 4
+                        ? (currentOrg?.name || '').slice(0, 4) + '…'
+                        : currentOrg?.name || ''}
+                    </span>
+                    <span className="mx-0.5 text-muted-foreground/50">/</span>
                     {currentProject?.name || 'Project'}
                   </span>
-                  <ChevronsUpDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 </button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
@@ -251,53 +278,72 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
           </Tooltip>
         </TooltipProvider>
         <DropdownMenuContent align="start" className="w-[240px] p-0">
-          <div className="p-2 border-b border-border">
+          <div className="border-b border-border p-2">
             <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+              <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={t('sidebar.searchOrgProject')}
-                className="w-full pl-7 pr-2 py-1.5 text-xs rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                 autoFocus
               />
             </div>
           </div>
           <div className="max-h-[360px] overflow-y-auto py-1">
-            {organizations.filter((o) => filterMatch(o.name) || getProjectsForOrg(o.id).some((p) => filterMatch(p.name))).map((org, idx) => {
-              const orgPrjs = getProjectsForOrg(org.id)
-                .filter((p) => filterMatch(p.name) || filterMatch(org.name))
-              return (
-                <div key={org.id} className={idx > 0 ? 'border-t border-border/50 mt-1 pt-1' : ''}>
-                  <div className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-muted-foreground">
-                    <div className={`w-4 h-4 rounded ${orgColors[idx % orgColors.length]} flex items-center justify-center text-white text-[8px] font-bold shrink-0`}>
-                      {org.name.charAt(0).toUpperCase()}
-                    </div>
-                    {org.name}
-                    <span className="text-[10px] font-normal text-muted-foreground/60">{t('sidebar.organizationBadge')}</span>
-                  </div>
-                  {orgPrjs.map((project, pIdx) => {
-                    const isSelected = project.id === currentProjectId && org.id === (currentOrgId || orgId)
-                    const isLast = pIdx === orgPrjs.length - 1
-                    return (
-                      <div
-                        key={project.id || pIdx}
-                        className={cn(
-                          'flex items-center gap-1.5 pl-6 pr-3 py-1.5 cursor-pointer hover:bg-accent/50 transition-colors text-xs rounded-sm mx-1',
-                          isSelected && 'bg-accent font-medium'
-                        )}
-                        onClick={() => project.id && handleSwitchToProject(project.org_id || org.id, project.id)}
-                      >
-                        <span className="text-muted-foreground/40 text-[11px] w-3 shrink-0">{isLast ? '└' : '├'}</span>
-                        <span className="flex-1 truncate">{project.name}</span>
-                        {isSelected && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
-                      </div>
-                    )
-                  })}
-                </div>
+            {organizations
+              .filter(
+                (o) =>
+                  filterMatch(o.name) || getProjectsForOrg(o.id).some((p) => filterMatch(p.name)),
               )
-            })}
+              .map((org, idx) => {
+                const orgPrjs = getProjectsForOrg(org.id).filter(
+                  (p) => filterMatch(p.name) || filterMatch(org.name),
+                )
+                return (
+                  <div
+                    key={org.id}
+                    className={idx > 0 ? 'border-border/50 mt-1 border-t pt-1' : ''}
+                  >
+                    <div className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-muted-foreground">
+                      <div
+                        className={`h-4 w-4 rounded ${orgColors[idx % orgColors.length]} flex shrink-0 items-center justify-center text-[8px] font-bold text-white`}
+                      >
+                        {org.name.charAt(0).toUpperCase()}
+                      </div>
+                      {org.name}
+                      <span className="text-[10px] font-normal text-muted-foreground/60">
+                        {t('sidebar.organizationBadge')}
+                      </span>
+                    </div>
+                    {orgPrjs.map((project, pIdx) => {
+                      const isSelected =
+                        project.id === currentProjectId && org.id === (currentOrgId || orgId)
+                      const isLast = pIdx === orgPrjs.length - 1
+                      return (
+                        <div
+                          key={project.id || pIdx}
+                          className={cn(
+                            'mx-1 flex cursor-pointer items-center gap-1.5 rounded-sm py-1.5 pl-6 pr-3 text-xs transition-colors hover:bg-accent/50',
+                            isSelected && 'bg-accent font-medium',
+                          )}
+                          onClick={() =>
+                            project.id &&
+                            handleSwitchToProject(project.org_id || org.id, project.id)
+                          }
+                        >
+                          <span className="w-3 shrink-0 text-[11px] text-muted-foreground/40">
+                            {isLast ? '└' : '├'}
+                          </span>
+                          <span className="flex-1 truncate">{project.name}</span>
+                          {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })}
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -331,13 +377,13 @@ function NavSection({
             href={item.to}
             title={t(item.labelKey)}
             className={cn(
-              'flex items-center justify-center w-9 h-9 rounded-md transition-colors',
+              'flex h-9 w-9 items-center justify-center rounded-md transition-colors',
               pathname?.startsWith(item.to)
                 ? 'bg-accent text-accent-foreground'
-                : 'text-muted-foreground hover:text-foreground hover:bg-accent/50',
+                : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
             )}
           >
-            <item.icon className="w-4 h-4" />
+            <item.icon className="h-4 w-4" />
           </Link>
         ))}
       </>
@@ -349,15 +395,15 @@ function NavSection({
       <div className="px-3 py-2">
         <button
           onClick={() => setOpen(!open)}
-          className="flex items-center justify-between w-full group"
+          className="group flex w-full items-center justify-between"
         >
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-            <Icon className="w-3.5 h-3.5" />
+          <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <Icon className="h-3.5 w-3.5" />
             {t(labelKey)}
           </span>
           <ChevronDown
             className={cn(
-              'w-3.5 h-3.5 text-muted-foreground transition-transform',
+              'h-3.5 w-3.5 text-muted-foreground transition-transform',
               !open && '-rotate-90',
             )}
           />
@@ -372,13 +418,13 @@ function NavSection({
                 key={item.to}
                 href={item.to}
                 className={cn(
-                  'flex items-center gap-2.5 px-4 py-1.5 mx-1 rounded-md text-sm transition-colors',
+                  'mx-1 flex items-center gap-2.5 rounded-md px-4 py-1.5 text-sm transition-colors',
                   isActive
-                    ? 'bg-accent text-accent-foreground font-medium'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/50',
+                    ? 'bg-accent font-medium text-accent-foreground'
+                    : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
                 )}
               >
-                <item.icon className="w-4 h-4 shrink-0" />
+                <item.icon className="h-4 w-4 shrink-0" />
                 {t(item.labelKey)}
               </Link>
             )
@@ -415,31 +461,28 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
     <>
       <DropdownMenuSub>
         <DropdownMenuSubTrigger>
-          <Globe className="w-4 h-4 mr-2" />
+          <Globe className="mr-2 h-4 w-4" />
           <span className="flex-1">{t('nav.language')}</span>
-          <ChevronRight className="w-3.5 h-3.5 ml-auto text-muted-foreground" />
+          <ChevronRight className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
         </DropdownMenuSubTrigger>
         <DropdownMenuSubContent>
           <DropdownMenuItem onSelect={() => i18n.changeLanguage('zh')}>
             <span className="flex-1">中文</span>
-            {isZh && <Check className="w-4 h-4 ml-2" />}
+            {isZh && <Check className="ml-2 h-4 w-4" />}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => i18n.changeLanguage('en')}>
             <span className="flex-1">English</span>
-            {!isZh && <Check className="w-4 h-4 ml-2" />}
+            {!isZh && <Check className="ml-2 h-4 w-4" />}
           </DropdownMenuItem>
         </DropdownMenuSubContent>
       </DropdownMenuSub>
       <DropdownMenuItem onSelect={toggleTheme}>
-        {theme === 'light' ? <Moon className="w-4 h-4 mr-2" /> : <Sun className="w-4 h-4 mr-2" />}
+        {theme === 'light' ? <Moon className="mr-2 h-4 w-4" /> : <Sun className="mr-2 h-4 w-4" />}
         {theme === 'light' ? t('nav.darkMode') : t('nav.lightMode')}
       </DropdownMenuItem>
       <DropdownMenuSeparator />
-      <DropdownMenuItem
-        className="text-red-600 focus:text-red-600"
-        onSelect={handleLogout}
-      >
-        <LogOut className="w-4 h-4 mr-2" />
+      <DropdownMenuItem className="text-red-600 focus:text-red-600" onSelect={handleLogout}>
+        <LogOut className="mr-2 h-4 w-4" />
         {t('nav.logout')}
       </DropdownMenuItem>
     </>
@@ -450,7 +493,7 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
       <div className="border-t border-border p-2">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-xs font-medium text-primary hover:bg-primary/20 transition-colors">
+            <button className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary transition-colors hover:bg-primary/20">
               {user?.name?.charAt(0)?.toUpperCase() || '?'}
             </button>
           </DropdownMenuTrigger>
@@ -469,13 +512,13 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
     <div className="border-t border-border p-3">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="flex items-center gap-2 w-full rounded-md px-2 py-1.5 text-sm hover:bg-accent/50 transition-colors">
-            <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium text-primary shrink-0">
+          <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent/50">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
               {user?.name?.charAt(0)?.toUpperCase() || '?'}
             </div>
-            <div className="flex-1 text-left min-w-0">
-              <div className="font-medium truncate text-foreground">{user?.name}</div>
-              <div className="text-xs text-muted-foreground truncate">{user?.email}</div>
+            <div className="min-w-0 flex-1 text-left">
+              <div className="truncate font-medium text-foreground">{user?.name}</div>
+              <div className="truncate text-xs text-muted-foreground">{user?.email}</div>
             </div>
           </button>
         </DropdownMenuTrigger>
@@ -494,18 +537,18 @@ export function AppSidebar() {
 
   if (isCollapsed) {
     return (
-      <aside className="joysafeter-sidebar fixed left-0 top-0 bottom-0 w-[52px] border-r border-border bg-card flex flex-col items-center z-50">
-        <div className="p-3 border-b border-border w-full flex justify-center">
+      <aside className="joysafeter-sidebar fixed bottom-0 left-0 top-0 z-50 flex w-[52px] flex-col items-center border-r border-border bg-card">
+        <div className="flex w-full justify-center border-b border-border p-3">
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleSidebar}>
-            <PanelLeftOpen className="w-4 h-4" />
+            <PanelLeftOpen className="h-4 w-4" />
           </Button>
         </div>
         <ProjectSwitcher collapsed />
-        <nav className="flex-1 py-2 flex flex-col items-center gap-1 overflow-y-auto">
+        <nav className="flex flex-1 flex-col items-center gap-1 overflow-y-auto py-2">
           <NavSection labelKey="nav.build" icon={FolderCode} items={buildItems} collapsed />
-          <div className="w-6 h-px bg-border my-1" />
+          <div className="my-1 h-px w-6 bg-border" />
           <NavSection labelKey="nav.resources" icon={FolderCode} items={resourceItems} collapsed />
-          <div className="w-6 h-px bg-border my-1" />
+          <div className="my-1 h-px w-6 bg-border" />
           <NavSection labelKey="nav.manage" icon={Shield} items={manageItems} collapsed />
         </nav>
         <UserMenu collapsed />
@@ -514,24 +557,22 @@ export function AppSidebar() {
   }
 
   return (
-    <aside className="joysafeter-sidebar fixed left-0 top-0 bottom-0 w-[220px] border-r border-border bg-card flex flex-col z-50">
-      <div className="p-4 border-b border-border flex items-center justify-between">
+    <aside className="joysafeter-sidebar fixed bottom-0 left-0 top-0 z-50 flex w-[220px] flex-col border-r border-border bg-card">
+      <div className="flex items-center justify-between border-b border-border p-4">
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-md bg-primary flex items-center justify-center">
-            <Shield className="w-3.5 h-3.5 text-primary-foreground" />
+          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary">
+            <Shield className="h-3.5 w-3.5 text-primary-foreground" />
           </div>
-          <h1 className="text-[15px] font-bold text-foreground">
-            {t('sidebar.appTitle')}
-          </h1>
+          <h1 className="text-[15px] font-bold text-foreground">{t('sidebar.appTitle')}</h1>
         </div>
         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleSidebar}>
-          <PanelLeftClose className="w-4 h-4" />
+          <PanelLeftClose className="h-4 w-4" />
         </Button>
       </div>
 
       <ProjectSwitcher />
 
-      <nav className="flex-1 py-1 overflow-y-auto">
+      <nav className="flex-1 overflow-y-auto py-1">
         <NavSection labelKey="nav.build" icon={FolderCode} items={buildItems} />
         <NavSection labelKey="nav.resources" icon={FolderCode} items={resourceItems} />
         <NavSection labelKey="nav.manage" icon={Shield} items={manageItems} />

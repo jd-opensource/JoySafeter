@@ -82,9 +82,7 @@ function notifySessionChange(type: SessionChangeType): void {
   }
 }
 
-export function onSessionChange(
-  callback: (type: SessionChangeType) => void,
-): () => void {
+export function onSessionChange(callback: (type: SessionChangeType) => void): () => void {
   if (typeof window === 'undefined') return () => {}
   sessionChangeListeners.add(callback)
 

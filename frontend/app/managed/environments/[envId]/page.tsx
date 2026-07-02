@@ -18,13 +18,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { PageHeader, StatusBadge, MonoId, RelativeTime, ResourceErrorState } from '@/components/managed/shared'
+import {
+  PageHeader,
+  StatusBadge,
+  MonoId,
+  RelativeTime,
+  ResourceErrorState,
+} from '@/components/managed/shared'
 
-export default function EnvironmentDetailPage({
-  params,
-}: {
-  params: Promise<{ envId: string }>
-}) {
+export default function EnvironmentDetailPage({ params }: { params: Promise<{ envId: string }> }) {
   const { envId: rawId } = React.use(params)
   const { t } = useTranslation()
   const router = useRouter()
@@ -138,18 +140,14 @@ export default function EnvironmentDetailPage({
   }
 
   if (isLoading || !env) {
-    return (
-      <div className="text-muted-foreground">{t('common.loading')}</div>
-    )
+    return <div className="text-muted-foreground">{t('common.loading')}</div>
   }
 
   return (
     <div>
       <PageHeader
         title={env.name}
-        titleExtra={
-          <StatusBadge status={env.archived_at ? 'archived' : 'active'} />
-        }
+        titleExtra={<StatusBadge status={env.archived_at ? 'archived' : 'active'} />}
         breadcrumb={[
           {
             label: t('managed.environments.title'),
@@ -158,44 +156,32 @@ export default function EnvironmentDetailPage({
           { label: env.name },
         ]}
         action={
-          <Button
-            size="sm"
-            onClick={() => router.push('/managed/environments')}
-          >
-            <ArrowLeft className="w-4 h-4" />
+          <Button size="sm" onClick={() => router.push('/managed/environments')}>
+            <ArrowLeft className="h-4 w-4" />
             {t('common.back')}
           </Button>
         }
       />
 
-      <div className="flex items-center gap-1.5 text-sm text-muted-foreground mb-6">
+      <div className="mb-6 flex items-center gap-1.5 text-sm text-muted-foreground">
         <MonoId id={env.id} truncate={false} />
         <span>·</span>
         <RelativeTime date={env.created_at} />
       </div>
 
-      <fieldset disabled={!!env.archived_at} className="max-w-2xl space-y-6 mt-6">
+      <fieldset disabled={!!env.archived_at} className="mt-6 max-w-2xl space-y-6">
         <div className="space-y-2">
-          <label className="text-sm font-medium">
-            {t('managed.environments.name')}
-          </label>
+          <label className="text-sm font-medium">{t('managed.environments.name')}</label>
           <Input value={name} onChange={(e) => setName(e.target.value)} />
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium">
-            {t('managed.environments.description')}
-          </label>
-          <Input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
+          <label className="text-sm font-medium">{t('managed.environments.description')}</label>
+          <Input value={description} onChange={(e) => setDescription(e.target.value)} />
         </div>
 
         <div className="border-t pt-4">
-          <h4 className="text-sm font-medium mb-3">
-            {t('managed.environments.networking')}
-          </h4>
+          <h4 className="mb-3 text-sm font-medium">{t('managed.environments.networking')}</h4>
           <div className="space-y-3">
             <Select value={networkType} onValueChange={setNetworkType}>
               <SelectTrigger>
@@ -205,9 +191,7 @@ export default function EnvironmentDetailPage({
                 <SelectItem value="unrestricted">
                   {t('managed.environments.netUnrestricted')}
                 </SelectItem>
-                <SelectItem value="limited">
-                  {t('managed.environments.netLimited')}
-                </SelectItem>
+                <SelectItem value="limited">{t('managed.environments.netLimited')}</SelectItem>
               </SelectContent>
             </Select>
             {networkType === 'limited' && (
@@ -226,9 +210,7 @@ export default function EnvironmentDetailPage({
         </div>
 
         <div className="border-t pt-4">
-          <h4 className="text-sm font-medium mb-3">
-            {t('managed.environments.packages')}
-          </h4>
+          <h4 className="mb-3 text-sm font-medium">{t('managed.environments.packages')}</h4>
           <div className="space-y-3">
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">apt</label>
@@ -258,9 +240,7 @@ export default function EnvironmentDetailPage({
         </div>
 
         <div className="border-t pt-4">
-          <h4 className="text-sm font-medium mb-3">
-            {t('managed.environments.envVarsLabel')}
-          </h4>
+          <h4 className="mb-3 text-sm font-medium">{t('managed.environments.envVarsLabel')}</h4>
           <Input
             value={envVars}
             onChange={(e) => setEnvVars(e.target.value)}
@@ -269,9 +249,7 @@ export default function EnvironmentDetailPage({
         </div>
 
         <div className="border-t pt-4">
-          <h4 className="text-sm font-medium mb-3">
-            {t('managed.environments.secretRefsLabel')}
-          </h4>
+          <h4 className="mb-3 text-sm font-medium">{t('managed.environments.secretRefsLabel')}</h4>
           <Input
             value={secretRefs}
             onChange={(e) => setSecretRefs(e.target.value)}
@@ -287,10 +265,8 @@ export default function EnvironmentDetailPage({
               onClick={() => saveMutation.mutate()}
               disabled={!name.trim() || saveMutation.isPending}
             >
-              <Save className="w-4 h-4" />
-              {saveMutation.isPending
-                ? t('common.loading')
-                : t('managed.environments.save')}
+              <Save className="h-4 w-4" />
+              {saveMutation.isPending ? t('common.loading') : t('managed.environments.save')}
             </Button>
           )}
         </div>

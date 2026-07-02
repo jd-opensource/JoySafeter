@@ -58,7 +58,10 @@ const STATUS_ORDER: Record<FileDiffStatus, number> = {
 }
 
 /** Build GitHub-style hunks (context-collapsed) for one file's before/after. */
-function buildHunks(before: string, after: string): {
+function buildHunks(
+  before: string,
+  after: string,
+): {
   hunks: DiffHunk[]
   added: number
   removed: number

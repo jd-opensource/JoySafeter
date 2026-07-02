@@ -125,7 +125,8 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
                 lastSeqRef.current = event.seq
               }
               if (process.env.NODE_ENV !== 'production') {
-                const source = (event as SessionEvent & { _sse_source?: string })._sse_source || 'unknown'
+                const source =
+                  (event as SessionEvent & { _sse_source?: string })._sse_source || 'unknown'
                 // eslint-disable-next-line no-console
                 console.debug('[session-sse]', source, event.type, event.seq)
               }

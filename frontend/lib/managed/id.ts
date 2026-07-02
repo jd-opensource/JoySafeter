@@ -1,9 +1,15 @@
 export function stripIdPrefix(id: string): string {
   let value = id
-  let next = value.replace(/^(agent_|sess_|env_|vault_|vlt_|cred_|mst_|evt_|thread_|memstore_|mem_|file_|skill_|secret_)/, '')
+  let next = value.replace(
+    /^(agent_|sess_|env_|vault_|vlt_|cred_|mst_|evt_|thread_|memstore_|mem_|file_|skill_|secret_)/,
+    '',
+  )
   while (next !== value) {
     value = next
-    next = value.replace(/^(agent_|sess_|env_|vault_|vlt_|cred_|mst_|evt_|thread_|memstore_|mem_|file_|skill_|secret_)/, '')
+    next = value.replace(
+      /^(agent_|sess_|env_|vault_|vlt_|cred_|mst_|evt_|thread_|memstore_|mem_|file_|skill_|secret_)/,
+      '',
+    )
   }
   return value
 }

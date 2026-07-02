@@ -283,11 +283,12 @@ export async function proxy(request: NextRequest) {
     requestHeaders.set('x-nonce', nonce)
   }
 
-  const createNextResponse = () => NextResponse.next({
-    request: {
-      headers: requestHeaders,
-    },
-  })
+  const createNextResponse = () =>
+    NextResponse.next({
+      request: {
+        headers: requestHeaders,
+      },
+    })
 
   const secureResponse = (response: NextResponse) => {
     if (enableCSP && nonce && cspHeader) {

@@ -65,18 +65,34 @@ export default function MemoryStoreDetailPage({
     confirmLabel: string
     destructive: boolean
     onConfirm: () => void
-  }>({ open: false, title: '', description: '', confirmLabel: '', destructive: false, onConfirm: () => {} })
+  }>({
+    open: false,
+    title: '',
+    description: '',
+    confirmLabel: '',
+    destructive: false,
+    onConfirm: () => {},
+  })
 
   const storeId = stripIdPrefix(rawId || '')
 
-  const { data: store, isLoading, isError, error } = useQuery({
+  const {
+    data: store,
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
     queryKey: ['memory-store', rawId],
     queryFn: () => managedGet<MemoryStore>(`/memory_stores/${storeId}`),
     enabled: !!rawId,
     retry: shouldRetryManagedResourceError,
   })
 
-  const { data: memoriesRes, isLoading: memLoading, isFetching: memFetching } = useQuery({
+  const {
+    data: memoriesRes,
+    isLoading: memLoading,
+    isFetching: memFetching,
+  } = useQuery({
     queryKey: ['memory-store-memories', rawId],
     queryFn: () => managedGet<Memory[]>(`/memory_stores/${storeId}/memories?limit=100&view=full`),
     enabled: !!rawId,
@@ -108,7 +124,8 @@ export default function MemoryStoreDetailPage({
   })
 
   const deleteMemoryMutation = useMutation({
-    mutationFn: (memId: string) => managedDelete(`/memory_stores/${storeId}/memories/${stripIdPrefix(memId)}`),
+    mutationFn: (memId: string) =>
+      managedDelete(`/memory_stores/${storeId}/memories/${stripIdPrefix(memId)}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['memory-store-memories', rawId] })
       setConfirmDialog((prev) => ({ ...prev, open: false }))
@@ -225,7 +242,7 @@ export default function MemoryStoreDetailPage({
       key: 'version',
       header: t('managed.memoryStores.memVersion'),
       render: (m) => (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-muted text-foreground">
+        <span className="inline-flex items-center rounded bg-muted px-2 py-0.5 text-xs font-medium text-foreground">
           v{m.version || 1}
         </span>
       ),
@@ -233,7 +250,9 @@ export default function MemoryStoreDetailPage({
     {
       key: 'size',
       header: t('managed.memoryStores.memSize'),
-      render: (m) => <span className="text-sm text-muted-foreground">{formatSize(m.content_size_bytes)}</span>,
+      render: (m) => (
+        <span className="text-sm text-muted-foreground">{formatSize(m.content_size_bytes)}</span>
+      ),
     },
     {
       key: 'updated_at',
@@ -259,11 +278,11 @@ export default function MemoryStoreDetailPage({
           !isArchived ? (
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={handleArchive}>
-                <Archive className="w-3.5 h-3.5 mr-1.5" />
+                <Archive className="mr-1.5 h-3.5 w-3.5" />
                 {t('common.archive')}
               </Button>
               <Button variant="outline" size="sm" onClick={handleDelete}>
-                <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
                 {t('common.delete')}
               </Button>
             </div>
@@ -271,7 +290,7 @@ export default function MemoryStoreDetailPage({
         }
       />
 
-      <div className="flex items-center gap-1.5 text-sm text-muted-foreground mb-6">
+      <div className="mb-6 flex items-center gap-1.5 text-sm text-muted-foreground">
         <MonoId id={store.id} truncate={false} />
         {store.description && (
           <>
@@ -283,11 +302,11 @@ export default function MemoryStoreDetailPage({
         <RelativeTime date={store.created_at} />
       </div>
 
-      <div className="flex items-center justify-between mb-4">
+      <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold">{t('managed.memoryStores.memories')}</h2>
         {!isArchived && (
           <Button size="sm" onClick={() => setCreateMemOpen(true)}>
-            <Plus className="w-4 h-4" />
+            <Plus className="h-4 w-4" />
             {t('managed.memoryStores.addMemory')}
           </Button>
         )}
@@ -299,10 +318,18 @@ export default function MemoryStoreDetailPage({
         loading={memLoading}
         fetching={memFetching}
         onRowClick={(m) => handleEditMemory(m)}
-        actionMenu={(m) => isArchived ? [] : [
-          { label: t('common.edit'), onClick: () => handleEditMemory(m) },
-          { label: t('common.delete'), onClick: () => handleDeleteMemory(m), destructive: true },
-        ]}
+        actionMenu={(m) =>
+          isArchived
+            ? []
+            : [
+                { label: t('common.edit'), onClick: () => handleEditMemory(m) },
+                {
+                  label: t('common.delete'),
+                  onClick: () => handleDeleteMemory(m),
+                  destructive: true,
+                },
+              ]
+        }
         emptyMessage={t('managed.memoryStores.noMemories')}
       />
 
@@ -323,16 +350,22 @@ export default function MemoryStoreDetailPage({
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div>
-              <label className="text-sm font-medium mb-1 block">{t('managed.memoryStores.memPath')}</label>
+              <label className="mb-1 block text-sm font-medium">
+                {t('managed.memoryStores.memPath')}
+              </label>
               <Input
                 placeholder="notes/ideas.md"
                 value={newMemPath}
                 onChange={(e) => setNewMemPath(e.target.value)}
               />
-              <p className="text-xs text-muted-foreground mt-1">{t('managed.memoryStores.pathTip')}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t('managed.memoryStores.pathTip')}
+              </p>
             </div>
             <div>
-              <label className="text-sm font-medium mb-1 block">{t('managed.memoryStores.memContent')}</label>
+              <label className="mb-1 block text-sm font-medium">
+                {t('managed.memoryStores.memContent')}
+              </label>
               <Textarea
                 placeholder={t('managed.memoryStores.memContentPlaceholder')}
                 value={newMemContent}
@@ -345,7 +378,10 @@ export default function MemoryStoreDetailPage({
             <Button variant="ghost" onClick={() => setCreateMemOpen(false)}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleCreateMemory} disabled={createMemLoading || !newMemPath.trim() || !newMemContent.trim()}>
+            <Button
+              onClick={handleCreateMemory}
+              disabled={createMemLoading || !newMemPath.trim() || !newMemContent.trim()}
+            >
               {createMemLoading ? '...' : t('common.create')}
             </Button>
           </DialogFooter>
@@ -353,7 +389,12 @@ export default function MemoryStoreDetailPage({
       </Dialog>
 
       {/* Edit Memory Dialog */}
-      <Dialog open={!!editMem} onOpenChange={(open) => { if (!open) setEditMem(null) }}>
+      <Dialog
+        open={!!editMem}
+        onOpenChange={(open) => {
+          if (!open) setEditMem(null)
+        }}
+      >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="font-mono text-sm">{editMem?.path}</DialogTitle>

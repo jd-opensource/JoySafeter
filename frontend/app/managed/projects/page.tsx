@@ -6,9 +6,27 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { managedGet, managedPost, managedPatch, managedDelete } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import { Plus, Star, Pencil, Archive, Trash2, RotateCcw } from 'lucide-react'
-import { DataTable, FilterBar, MonoId, RelativeTime, StatusBadge, type Column, type FilterDef, type MenuItem, PageHeader, ResourceErrorState } from '@/components/managed/shared'
+import {
+  DataTable,
+  FilterBar,
+  MonoId,
+  RelativeTime,
+  StatusBadge,
+  type Column,
+  type FilterDef,
+  type MenuItem,
+  PageHeader,
+  ResourceErrorState,
+} from '@/components/managed/shared'
 import { Badge } from '@/components/ui/badge'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
@@ -36,14 +54,18 @@ export default function ProjectsPage() {
   const [newSlug, setNewSlug] = useState('')
   const [archiveTarget, setArchiveTarget] = useState<Project | null>(null)
 
-  const { data: projects = [], isLoading, isError, error } = useQuery({
+  const {
+    data: projects = [],
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
     queryKey: ['projects-list', showArchived],
     queryFn: async () => managedGet<Project[]>(`/auth/projects?include_archived=${showArchived}`),
   })
 
   const createProject = useMutation({
-    mutationFn: (data: { name: string; slug: string }) =>
-      managedPost('/auth/projects', data),
+    mutationFn: (data: { name: string; slug: string }) => managedPost('/auth/projects', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects-list'] })
       setShowCreate(false)
@@ -56,8 +78,7 @@ export default function ProjectsPage() {
   })
 
   const setDefault = useMutation({
-    mutationFn: (projectId: string) =>
-      managedPost(`/auth/projects/${projectId}/set-default`, {}),
+    mutationFn: (projectId: string) => managedPost(`/auth/projects/${projectId}/set-default`, {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects-list'] })
     },
@@ -67,8 +88,7 @@ export default function ProjectsPage() {
   })
 
   const archiveProject = useMutation({
-    mutationFn: (projectId: string) =>
-      managedDelete(`/auth/projects/${projectId}`),
+    mutationFn: (projectId: string) => managedDelete(`/auth/projects/${projectId}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects-list'] })
     },
@@ -96,8 +116,7 @@ export default function ProjectsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
 
   const restoreProject = useMutation({
-    mutationFn: (projectId: string) =>
-      managedPost(`/auth/projects/${projectId}/restore`, {}),
+    mutationFn: (projectId: string) => managedPost(`/auth/projects/${projectId}/restore`, {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects-list'] })
       queryClient.invalidateQueries({ queryKey: ['auth-me'] })
@@ -108,8 +127,7 @@ export default function ProjectsPage() {
   })
 
   const deleteProject = useMutation({
-    mutationFn: (projectId: string) =>
-      managedDelete(`/auth/projects/${projectId}`),
+    mutationFn: (projectId: string) => managedDelete(`/auth/projects/${projectId}`),
     onSuccess: () => {
       setDeleteTarget(null)
       queryClient.invalidateQueries({ queryKey: ['projects-list'] })
@@ -120,10 +138,17 @@ export default function ProjectsPage() {
     },
   })
 
-  const filteredProjects = projects.filter((p) =>
-    (showArchived || !p.archived_at) &&
-    filterByCreatedTime(p.created_at || '', createdFilter) &&
-    matchesSearch(searchQuery, [p.id, p.name, p.slug, p.is_default ? 'default' : '', p.archived_at ? 'archived' : 'active']),
+  const filteredProjects = projects.filter(
+    (p) =>
+      (showArchived || !p.archived_at) &&
+      filterByCreatedTime(p.created_at || '', createdFilter) &&
+      matchesSearch(searchQuery, [
+        p.id,
+        p.name,
+        p.slug,
+        p.is_default ? 'default' : '',
+        p.archived_at ? 'archived' : 'active',
+      ]),
   )
   const filters: FilterDef[] = [
     {
@@ -160,12 +185,23 @@ export default function ProjectsPage() {
     {
       key: 'created',
       header: t('managed.table.created'),
-      render: (project) => project.created_at ? <RelativeTime date={project.created_at} /> : <span className="text-muted-foreground">-</span>,
+      render: (project) =>
+        project.created_at ? (
+          <RelativeTime date={project.created_at} />
+        ) : (
+          <span className="text-muted-foreground">-</span>
+        ),
     },
   ]
 
   if (isError) {
-    return <ResourceErrorState error={error} resource="project" onRetry={() => queryClient.invalidateQueries({ queryKey: ['projects-list'] })} />
+    return (
+      <ResourceErrorState
+        error={error}
+        resource="project"
+        onRetry={() => queryClient.invalidateQueries({ queryKey: ['projects-list'] })}
+      />
+    )
   }
 
   return (
@@ -173,12 +209,14 @@ export default function ProjectsPage() {
       <PageHeader
         title={t('manage.projects.title')}
         subtitle={t('manage.projects.subtitle')}
-        action={canAdmin ? (
-          <Button size="sm" onClick={() => setShowCreate(true)}>
-            <Plus className="w-4 h-4 mr-1" />
-            {t('manage.projects.create')}
-          </Button>
-        ) : null}
+        action={
+          canAdmin ? (
+            <Button size="sm" onClick={() => setShowCreate(true)}>
+              <Plus className="mr-1 h-4 w-4" />
+              {t('manage.projects.create')}
+            </Button>
+          ) : null
+        }
       />
 
       {showCreate && (
@@ -208,7 +246,10 @@ export default function ProjectsPage() {
               <Button variant="outline" onClick={() => setShowCreate(false)}>
                 {t('common.cancel')}
               </Button>
-              <Button onClick={() => createProject.mutate({ name: newName, slug: newSlug })} disabled={!newName.trim() || !newSlug.trim()}>
+              <Button
+                onClick={() => createProject.mutate({ name: newName, slug: newSlug })}
+                disabled={!newName.trim() || !newSlug.trim()}
+              >
                 {t('manage.projects.create')}
               </Button>
             </DialogFooter>
@@ -230,48 +271,55 @@ export default function ProjectsPage() {
         data={filteredProjects}
         loading={isLoading}
         emptyMessage={t('manage.projects.empty')}
-        actionMenu={canAdmin ? (project) => {
-          if (project.archived_at) {
-            return [
-              {
-                label: t('common.restore'),
-                icon: <RotateCcw className="w-3.5 h-3.5" />,
-                onClick: () => restoreProject.mutate(project.id),
-              },
-            ]
-          }
+        actionMenu={
+          canAdmin
+            ? (project) => {
+                if (project.archived_at) {
+                  return [
+                    {
+                      label: t('common.restore'),
+                      icon: <RotateCcw className="h-3.5 w-3.5" />,
+                      onClick: () => restoreProject.mutate(project.id),
+                    },
+                  ]
+                }
 
-          const items: MenuItem[] = [
-            {
-              label: t('common.edit'),
-              icon: <Pencil className="w-3.5 h-3.5" />,
-              onClick: () => { setEditTarget(project); setEditName(project.name) },
-            },
-          ]
+                const items: MenuItem[] = [
+                  {
+                    label: t('common.edit'),
+                    icon: <Pencil className="h-3.5 w-3.5" />,
+                    onClick: () => {
+                      setEditTarget(project)
+                      setEditName(project.name)
+                    },
+                  },
+                ]
 
-          if (!project.is_default) {
-            items.push(
-              {
-                label: t('manage.projects.setDefault'),
-                icon: <Star className="w-3.5 h-3.5" />,
-                onClick: () => setDefault.mutate(project.id),
-              },
-              {
-                label: t('common.archive'),
-                icon: <Archive className="w-3.5 h-3.5" />,
-                onClick: () => setArchiveTarget(project),
-              },
-              {
-                label: t('common.delete'),
-                icon: <Trash2 className="w-3.5 h-3.5" />,
-                destructive: true,
-                onClick: () => setDeleteTarget(project),
-              },
-            )
-          }
+                if (!project.is_default) {
+                  items.push(
+                    {
+                      label: t('manage.projects.setDefault'),
+                      icon: <Star className="h-3.5 w-3.5" />,
+                      onClick: () => setDefault.mutate(project.id),
+                    },
+                    {
+                      label: t('common.archive'),
+                      icon: <Archive className="h-3.5 w-3.5" />,
+                      onClick: () => setArchiveTarget(project),
+                    },
+                    {
+                      label: t('common.delete'),
+                      icon: <Trash2 className="h-3.5 w-3.5" />,
+                      destructive: true,
+                      onClick: () => setDeleteTarget(project),
+                    },
+                  )
+                }
 
-          return items
-        } : undefined}
+                return items
+              }
+            : undefined
+        }
       />
 
       <Dialog open={!!archiveTarget} onOpenChange={(open) => !open && setArchiveTarget(null)}>
@@ -282,8 +330,16 @@ export default function ProjectsPage() {
           </DialogHeader>
           <p className="text-sm font-medium">{archiveTarget?.name}</p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setArchiveTarget(null)}>{t('common.cancel')}</Button>
-            <Button variant="destructive" onClick={() => { archiveProject.mutate(archiveTarget!.id); setArchiveTarget(null) }}>
+            <Button variant="outline" onClick={() => setArchiveTarget(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                archiveProject.mutate(archiveTarget!.id)
+                setArchiveTarget(null)
+              }}
+            >
               {t('manage.projects.archive')}
             </Button>
           </DialogFooter>
@@ -306,9 +362,13 @@ export default function ProjectsPage() {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditTarget(null)}>{t('common.cancel')}</Button>
+            <Button variant="outline" onClick={() => setEditTarget(null)}>
+              {t('common.cancel')}
+            </Button>
             <Button
-              onClick={() => editTarget && editProject.mutate({ id: editTarget.id, name: editName.trim() })}
+              onClick={() =>
+                editTarget && editProject.mutate({ id: editTarget.id, name: editName.trim() })
+              }
               disabled={!editName.trim() || editProject.isPending}
             >
               {editProject.isPending ? t('common.loading') : t('common.save')}
@@ -327,7 +387,9 @@ export default function ProjectsPage() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>{t('common.cancel')}</Button>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              {t('common.cancel')}
+            </Button>
             <Button
               variant="destructive"
               onClick={() => deleteTarget && deleteProject.mutate(deleteTarget.id)}

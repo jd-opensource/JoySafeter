@@ -147,11 +147,7 @@ export default function LoginPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const {
-    data: sessionData,
-    isPending: isSessionPending,
-    refetch: refetchSession,
-  } = useSession()
+  const { data: sessionData, isPending: isSessionPending, refetch: refetchSession } = useSession()
   const [isLoading, setIsLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -603,10 +599,7 @@ export default function LoginPage() {
       )}
 
       {/* OAuth/SSO login buttons */}
-      <OAuthButtons
-        callbackUrl={callbackUrl}
-        showDivider={showEmailPasswordForm}
-      />
+      <OAuthButtons callbackUrl={callbackUrl} showDivider={showEmailPasswordForm} />
 
       {showEmailPasswordForm && (
         <div

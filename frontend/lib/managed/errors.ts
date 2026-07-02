@@ -9,7 +9,11 @@ export function shouldRetryManagedResourceError(failureCount: number, error: unk
   return failureCount < 2
 }
 
-export function getOperationErrorMessage(t: Translator, error: unknown, fallbackKey: string): string {
+export function getOperationErrorMessage(
+  t: Translator,
+  error: unknown,
+  fallbackKey: string,
+): string {
   const apiError = error as {
     status?: number
     code?: string
@@ -39,7 +43,12 @@ export function getOperationErrorMessage(t: Translator, error: unknown, fallback
     })
   }
 
-  if (apiError?.status === 403 || code === 'JOYSAFETER_WRITE_REQUIRED' || code === 'WRITE_ACCESS_DENIED' || message.includes('write access required')) {
+  if (
+    apiError?.status === 403 ||
+    code === 'JOYSAFETER_WRITE_REQUIRED' ||
+    code === 'WRITE_ACCESS_DENIED' ||
+    message.includes('write access required')
+  ) {
     return t('managed.errors.writeRequired')
   }
   if (code === 'JOYSAFETER_ADMIN_REQUIRED') {
@@ -66,6 +75,11 @@ export function getOperationErrorMessage(t: Translator, error: unknown, fallback
   return t(fallbackKey)
 }
 
-export function toastOperationError(t: Translator, error: unknown, fallbackKey = 'common.operationFailed', titleKey = 'common.operationFailed'): void {
+export function toastOperationError(
+  t: Translator,
+  error: unknown,
+  fallbackKey = 'common.operationFailed',
+  titleKey = 'common.operationFailed',
+): void {
   toastError(getOperationErrorMessage(t, error, fallbackKey), t(titleKey))
 }

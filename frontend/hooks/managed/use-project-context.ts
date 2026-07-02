@@ -48,12 +48,7 @@ export function useProjectContext() {
         const data = await loadAuthContext()
         if (cancelled) return
 
-        setContext(
-          data.organization.id,
-          data.project.id,
-          data.organizations,
-          data.projects,
-        )
+        setContext(data.organization.id, data.project.id, data.organizations, data.projects)
       } catch (err) {
         console.error('Failed to load project context:', err)
       } finally {
@@ -71,14 +66,23 @@ export function useProjectContext() {
   const switchProject = useCallback(
     async (projectId: string, orgId?: string) => {
       try {
-        const data = await managedPost<SwitchContextResponse>('/auth/switch-context', {
-          org_id: orgId,
-          project_id: projectId,
-        }, {
-          skipManagedContext: true,
-          headers: orgId ? { 'X-Org-Id': orgId } : undefined,
-        })
-        setContext(data.org_id || orgId || currentOrgId || '', data.project.id, organizations, data.projects)
+        const data = await managedPost<SwitchContextResponse>(
+          '/auth/switch-context',
+          {
+            org_id: orgId,
+            project_id: projectId,
+          },
+          {
+            skipManagedContext: true,
+            headers: orgId ? { 'X-Org-Id': orgId } : undefined,
+          },
+        )
+        setContext(
+          data.org_id || orgId || currentOrgId || '',
+          data.project.id,
+          organizations,
+          data.projects,
+        )
         queryClient.invalidateQueries()
       } catch (err) {
         console.error('Failed to switch project:', err)

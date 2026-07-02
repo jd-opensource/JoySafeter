@@ -10,8 +10,23 @@ import { toastOperationError } from '@/lib/managed/errors'
 import type { Secret } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { getDefaultProtocol, getDefaultSecretPairs, getSecretProviderLabel, isModelKey, SECRET_PROTOCOL_OPTIONS, SECRET_PROVIDER_GROUPS } from '@/lib/managed/secret-keys'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  getDefaultProtocol,
+  getDefaultSecretPairs,
+  getSecretProviderLabel,
+  isModelKey,
+  SECRET_PROTOCOL_OPTIONS,
+  SECRET_PROVIDER_GROUPS,
+} from '@/lib/managed/secret-keys'
 import { SecretKeySelect, SecretModelInput } from '@/components/managed/shared'
 import {
   PageHeader,
@@ -71,9 +86,7 @@ export default function SecretListPage() {
   const [deleteTarget, setDeleteTarget] = useState<Secret | null>(null)
 
   const updatePair = (index: number, field: 'key' | 'value', val: string) => {
-    setPairs((prev) =>
-      prev.map((p, i) => (i === index ? { ...p, [field]: val } : p)),
-    )
+    setPairs((prev) => prev.map((p, i) => (i === index ? { ...p, [field]: val } : p)))
   }
 
   const removePair = (index: number) => {
@@ -97,9 +110,10 @@ export default function SecretListPage() {
   }
 
   const validPairs = pairs.filter((p) => p.key.trim())
-  const filteredSecrets = secrets.filter((s) =>
-    filterByCreatedTime(s.created_at, createdFilter) &&
-    matchesSearch(searchQuery, [s.id, s.name]),
+  const filteredSecrets = secrets.filter(
+    (s) =>
+      filterByCreatedTime(s.created_at, createdFilter) &&
+      matchesSearch(searchQuery, [s.id, s.name]),
   )
   const filters: FilterDef[] = [
     {
@@ -182,18 +196,22 @@ export default function SecretListPage() {
     {
       key: 'provider',
       header: t('managed.secrets.provider'),
-      render: (s) => <span className="text-xs text-muted-foreground">{getSecretProviderLabel(s.provider)}</span>,
+      render: (s) => (
+        <span className="text-xs text-muted-foreground">{getSecretProviderLabel(s.provider)}</span>
+      ),
     },
     {
       key: 'protocol',
       header: t('managed.secrets.protocol'),
-      render: (s) => <span className="text-xs text-muted-foreground">{s.protocol || 'custom'}</span>,
+      render: (s) => (
+        <span className="text-xs text-muted-foreground">{s.protocol || 'custom'}</span>
+      ),
     },
     {
       key: 'created_at',
       header: t('managed.table.created'),
       render: (s) => (
-        <span className="text-muted-foreground text-xs">
+        <span className="text-xs text-muted-foreground">
           <RelativeTime date={s.created_at} />
         </span>
       ),
@@ -201,7 +219,13 @@ export default function SecretListPage() {
   ]
 
   if (secretsIsError) {
-    return <ResourceErrorState error={secretsError} resource="secret" onRetry={() => queryClient.invalidateQueries({ queryKey: ['secrets'] })} />
+    return (
+      <ResourceErrorState
+        error={secretsError}
+        resource="secret"
+        onRetry={() => queryClient.invalidateQueries({ queryKey: ['secrets'] })}
+      />
+    )
   }
 
   return (
@@ -219,7 +243,7 @@ export default function SecretListPage() {
               setShowCreate(true)
             }}
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="h-4 w-4" />
             {t('managed.secrets.new')}
           </Button>
         }
@@ -237,11 +261,15 @@ export default function SecretListPage() {
         fetching={secretsFetching}
         onRowClick={(s) => router.push(`/managed/secrets/${s.id}`)}
         actionMenu={(s) => [
-          ...(s.is_default ? [] : [{
-            label: t('managed.secrets.setDefault'),
-            icon: <Star className="w-4 h-4" />,
-            onClick: () => handleSetDefault(s),
-          }]),
+          ...(s.is_default
+            ? []
+            : [
+                {
+                  label: t('managed.secrets.setDefault'),
+                  icon: <Star className="h-4 w-4" />,
+                  onClick: () => handleSetDefault(s),
+                },
+              ]),
           {
             label: t('common.delete'),
             onClick: () => setDeleteTarget(s),
@@ -270,9 +298,7 @@ export default function SecretListPage() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1">
-              <label className="text-sm font-medium">
-                {t('managed.secrets.name')}
-              </label>
+              <label className="text-sm font-medium">{t('managed.secrets.name')}</label>
               <Input
                 placeholder={t('managed.secrets.namePlaceholder')}
                 value={newName}
@@ -292,7 +318,7 @@ export default function SecretListPage() {
                       <SelectGroup key={group.label}>
                         <SelectLabel className="flex items-center gap-2 px-2 py-2">
                           <span
-                            className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold text-white"
                             style={{ backgroundColor: group.bgColor }}
                           >
                             {group.icon}
@@ -305,9 +331,13 @@ export default function SecretListPage() {
                           const isLast = i === group.options.length - 1
                           const prefix = isLast ? '└' : '├'
                           return (
-                            <SelectItem key={provider.value} value={provider.value} className="text-sm pl-8">
+                            <SelectItem
+                              key={provider.value}
+                              value={provider.value}
+                              className="pl-8 text-sm"
+                            >
                               <span className="flex items-center gap-1.5">
-                                <span className="text-muted-foreground/50 text-xs">{prefix}</span>
+                                <span className="text-xs text-muted-foreground/50">{prefix}</span>
                                 {provider.label}
                               </span>
                             </SelectItem>
@@ -326,7 +356,9 @@ export default function SecretListPage() {
                   </SelectTrigger>
                   <SelectContent>
                     {SECRET_PROTOCOL_OPTIONS.map((protocol) => (
-                      <SelectItem key={protocol.value} value={protocol.value}>{protocol.label}</SelectItem>
+                      <SelectItem key={protocol.value} value={protocol.value}>
+                        {protocol.label}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -334,11 +366,12 @@ export default function SecretListPage() {
               <div className="h-10 w-10" />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">
-                {t('managed.secrets.dataLabel')}
-              </label>
+              <label className="text-sm font-medium">{t('managed.secrets.dataLabel')}</label>
               {pairs.map((pair, i) => (
-                <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.5rem] items-center gap-2">
+                <div
+                  key={i}
+                  className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.5rem] items-center gap-2"
+                >
                   <SecretKeySelect
                     value={pair.key}
                     onChange={(v) => updatePair(i, 'key', v)}
@@ -370,7 +403,7 @@ export default function SecretListPage() {
                       onClick={() => removePair(i)}
                       className="h-10 w-10"
                     >
-                      <Trash2 className="w-4 h-4 text-muted-foreground" />
+                      <Trash2 className="h-4 w-4 text-muted-foreground" />
                     </Button>
                   ) : (
                     <div className="h-10 w-10" />
@@ -378,7 +411,7 @@ export default function SecretListPage() {
                 </div>
               ))}
               <Button variant="outline" size="sm" onClick={addPair}>
-                <Plus className="w-3 h-3 mr-1" />
+                <Plus className="mr-1 h-3 w-3" />
                 {t('managed.secrets.addPair')}
               </Button>
             </div>
@@ -386,9 +419,7 @@ export default function SecretListPage() {
           <DialogFooter>
             <Button
               onClick={handleCreate}
-              disabled={
-                !newName.trim() || validPairs.length === 0 || creating
-              }
+              disabled={!newName.trim() || validPairs.length === 0 || creating}
             >
               {creating ? t('common.loading') : t('common.create')}
             </Button>

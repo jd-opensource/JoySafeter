@@ -30,7 +30,10 @@ export function buildDraftZip(draft: SkillDraft): Uint8Array {
 
 /** Safe, filesystem-friendly base name for the downloaded file. */
 function zipFileName(name: string): string {
-  const base = (name || 'skill').trim().replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '')
+  const base = (name || 'skill')
+    .trim()
+    .replace(/[^\w.-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
   return `${base || 'skill'}.zip`
 }
 

@@ -12,7 +12,15 @@ import { FieldHelp } from '@/components/managed/shared'
 import type { Agent, Environment, Vault, FileRecord, PaginatedResponse } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Dialog,
   DialogContent,
@@ -125,11 +133,17 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   }, [activeAgents, agentSearch])
   const activeEnvs = useMemo(() => environments.filter((e) => !e.archived_at), [environments])
   const activeVaults = useMemo(() => vaults.filter((v) => !v.archived_at), [vaults])
-  const selectedAgent = useMemo(() => activeAgents.find((agent) => agent.id === agentId), [activeAgents, agentId])
+  const selectedAgent = useMemo(
+    () => activeAgents.find((agent) => agent.id === agentId),
+    [activeAgents, agentId],
+  )
   const selectedAgentDefaultEnv = useMemo(() => {
     const ref = selectedAgent?.environment_ref
     if (!ref) return null
-    return activeEnvs.find((env) => env.id === ref || stripIdPrefix(env.id) === stripIdPrefix(ref)) || null
+    return (
+      activeEnvs.find((env) => env.id === ref || stripIdPrefix(env.id) === stripIdPrefix(ref)) ||
+      null
+    )
   }, [activeEnvs, selectedAgent])
 
   const availableFiles = useMemo(
@@ -161,7 +175,9 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
           url: r.url.trim(),
           ...(r.branch.trim() ? { branch: r.branch.trim() } : {}),
           ...(r.mount_path.trim() ? { mount_path: r.mount_path.trim() } : {}),
-          ...(r.authorization_token.trim() ? { authorization_token: r.authorization_token.trim() } : {}),
+          ...(r.authorization_token.trim()
+            ? { authorization_token: r.authorization_token.trim() }
+            : {}),
         }))
       }
       return managedPost<{ id: string }>('/sessions', body)
@@ -216,7 +232,13 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const addRepo = () => {
     setSelectedRepos((prev) => [
       ...prev,
-      { key: `repo-${prev.length}-${Date.now()}`, url: '', branch: '', mount_path: '', authorization_token: '' },
+      {
+        key: `repo-${prev.length}-${Date.now()}`,
+        url: '',
+        branch: '',
+        mount_path: '',
+        authorization_token: '',
+      },
     ])
   }
 
@@ -240,16 +262,20 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
         if (!v) resetForm()
       }}
     >
-      <DialogContent className="sm:max-w-[560px] max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[560px]">
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold">{t('managed.sessions.create.title')}</DialogTitle>
+          <DialogTitle className="text-xl font-bold">
+            {t('managed.sessions.create.title')}
+          </DialogTitle>
           <DialogDescription>{t('managed.sessions.create.subtitle')}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-5 py-4">
           {/* Title */}
           <div>
-            <label className="mb-1.5 block text-sm font-medium">{t('managed.sessions.create.sessionTitle')}</label>
+            <label className="mb-1.5 block text-sm font-medium">
+              {t('managed.sessions.create.sessionTitle')}
+            </label>
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -278,7 +304,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                     swallowing letters as its "type to focus" shortcut. */}
                 <div className="sticky top-0 z-10 border-b border-border bg-popover p-2">
                   <div className="relative">
-                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                    <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                     <input
                       type="text"
                       value={agentSearch}
@@ -308,12 +334,19 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                   agentGroups.map(([engineLabel, groupAgents], gIdx) => {
                     // engine-specific accent color, mirrors the org switcher
                     // tree-grouped look. Order: claude → codex → native → other.
-                    const palette = ['bg-purple-500', 'bg-blue-500', 'bg-emerald-500', 'bg-slate-500']
+                    const palette = [
+                      'bg-purple-500',
+                      'bg-blue-500',
+                      'bg-emerald-500',
+                      'bg-slate-500',
+                    ]
                     const dot = palette[gIdx % palette.length]
                     return (
                       <SelectGroup key={engineLabel}>
                         <SelectLabel className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-muted-foreground">
-                          <span className={`inline-flex h-4 w-4 items-center justify-center rounded text-[8px] font-bold text-white ${dot} shrink-0`}>
+                          <span
+                            className={`inline-flex h-4 w-4 items-center justify-center rounded text-[8px] font-bold text-white ${dot} shrink-0`}
+                          >
                             {engineLabel.charAt(0).toUpperCase()}
                           </span>
                           {engineLabel}
@@ -326,7 +359,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                           return (
                             <SelectItem key={a.id} value={a.id}>
                               <span className="flex items-center gap-1.5">
-                                <span className="text-muted-foreground/40 text-[11px] w-3 shrink-0">
+                                <span className="w-3 shrink-0 text-[11px] text-muted-foreground/40">
                                   {isLast ? '└' : '├'}
                                 </span>
                                 <span className="truncate">{a.name}</span>
@@ -346,13 +379,19 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
           <div>
             <div className="mb-1.5 flex items-center justify-between">
               <div className="flex items-center gap-1.5">
-                <label className="text-sm font-medium">{t('managed.sessions.create.environment')}</label>
+                <label className="text-sm font-medium">
+                  {t('managed.sessions.create.environment')}
+                </label>
                 <FieldHelp
-                  text={envId
-                    ? t('managed.sessions.create.environmentOverrideHint')
-                    : selectedAgentDefaultEnv
-                      ? t('managed.sessions.create.environmentUsesAgentDefault', { name: selectedAgentDefaultEnv.name })
-                      : t('managed.sessions.create.environmentFallbackHint')}
+                  text={
+                    envId
+                      ? t('managed.sessions.create.environmentOverrideHint')
+                      : selectedAgentDefaultEnv
+                        ? t('managed.sessions.create.environmentUsesAgentDefault', {
+                            name: selectedAgentDefaultEnv.name,
+                          })
+                        : t('managed.sessions.create.environmentFallbackHint')
+                  }
                 />
               </div>
               <button
@@ -393,13 +432,27 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                 onClick={() => setShowVaultDropdown(!showVaultDropdown)}
                 className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
               >
-                <span className={selectedVaultIds.length === 0 ? 'text-muted-foreground' : 'text-foreground'}>
+                <span
+                  className={
+                    selectedVaultIds.length === 0 ? 'text-muted-foreground' : 'text-foreground'
+                  }
+                >
                   {selectedVaultIds.length === 0
                     ? t('managed.sessions.create.selectVaults')
                     : selectedVaultNames.join(', ')}
                 </span>
-                <svg className="h-4 w-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                <svg
+                  className="h-4 w-4 opacity-50"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 9l-7 7-7-7"
+                  />
                 </svg>
               </button>
               {showVaultDropdown && (
@@ -442,7 +495,10 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                       className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs"
                     >
                       {v.name}
-                      <button onClick={() => toggleVault(v.id)} className="text-muted-foreground hover:text-foreground">
+                      <button
+                        onClick={() => toggleVault(v.id)}
+                        className="text-muted-foreground hover:text-foreground"
+                      >
                         <X className="h-3 w-3" />
                       </button>
                     </span>
@@ -453,28 +509,35 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
 
           {/* File Resources */}
           <div>
-            <label className="mb-0.5 block text-sm font-medium">{t('managed.sessions.create.resources')}</label>
-            <p className="mb-2 text-xs text-muted-foreground">{t('managed.sessions.create.resourcesDesc')}</p>
+            <label className="mb-0.5 block text-sm font-medium">
+              {t('managed.sessions.create.resources')}
+            </label>
+            <p className="mb-2 text-xs text-muted-foreground">
+              {t('managed.sessions.create.resourcesDesc')}
+            </p>
 
             {/* Selected files */}
             {selectedFiles.length > 0 && (
               <div className="mb-3 space-y-2">
                 {selectedFiles.map((sf) => (
-                  <div key={sf.file_id} className="flex items-center gap-2 rounded-md border border-border p-2">
-                    <FileIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium truncate">{sf.filename}</div>
+                  <div
+                    key={sf.file_id}
+                    className="flex items-center gap-2 rounded-md border border-border p-2"
+                  >
+                    <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">{sf.filename}</div>
                       <Input
                         value={sf.mount_path}
                         onChange={(e) => updateMountPath(sf.file_id, e.target.value)}
-                        className="mt-1 h-7 text-xs font-mono"
+                        className="mt-1 h-7 font-mono text-xs"
                         placeholder={t('managed.sessions.create.mountPath')}
                       />
                     </div>
                     <button
                       type="button"
                       onClick={() => removeFile(sf.file_id)}
-                      className="text-muted-foreground hover:text-destructive shrink-0"
+                      className="shrink-0 text-muted-foreground hover:text-destructive"
                     >
                       <X className="h-4 w-4" />
                     </button>
@@ -495,7 +558,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                 {t('managed.sessions.create.addResource')}
               </Button>
               {showFileDropdown && (
-                <div className="absolute z-50 mt-1 w-64 rounded-md border border-border bg-background py-1 shadow-lg max-h-48 overflow-y-auto">
+                <div className="absolute z-50 mt-1 max-h-48 w-64 overflow-y-auto rounded-md border border-border bg-background py-1 shadow-lg">
                   {availableFiles.length === 0 ? (
                     <div className="px-3 py-2 text-sm text-muted-foreground">
                       {t('managed.sessions.create.noFiles')}
@@ -508,10 +571,12 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                         onClick={() => addFile(f)}
                         className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50"
                       >
-                        <FileIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        <FileIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                         <span className="truncate">{f.filename}</span>
-                        <span className="text-xs text-muted-foreground ml-auto shrink-0">
-                          {f.size_bytes < 1024 ? `${f.size_bytes} B` : `${(f.size_bytes / 1024).toFixed(1)} KB`}
+                        <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                          {f.size_bytes < 1024
+                            ? `${f.size_bytes} B`
+                            : `${(f.size_bytes / 1024).toFixed(1)} KB`}
                         </span>
                       </button>
                     ))
@@ -523,33 +588,37 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
 
           {/* Git Repositories */}
           <div>
-            <label className="mb-0.5 block text-sm font-medium">{t('managed.sessions.create.repositories')}</label>
-            <p className="mb-2 text-xs text-muted-foreground">{t('managed.sessions.create.repositoriesDesc')}</p>
+            <label className="mb-0.5 block text-sm font-medium">
+              {t('managed.sessions.create.repositories')}
+            </label>
+            <p className="mb-2 text-xs text-muted-foreground">
+              {t('managed.sessions.create.repositoriesDesc')}
+            </p>
 
             {selectedRepos.length > 0 && (
               <div className="mb-3 space-y-2">
                 {selectedRepos.map((r) => (
                   <div key={r.key} className="rounded-md border border-border p-2.5">
                     <div className="flex items-start gap-2">
-                      <GitBranch className="mt-0.5 h-4 w-4 text-muted-foreground shrink-0" />
-                      <div className="flex-1 min-w-0 space-y-1.5">
+                      <GitBranch className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1 space-y-1.5">
                         <Input
                           value={r.url}
                           onChange={(e) => updateRepo(r.key, { url: e.target.value })}
-                          className="h-7 text-xs font-mono"
+                          className="h-7 font-mono text-xs"
                           placeholder={t('managed.sessions.create.repoUrlPlaceholder')}
                         />
                         <div className="flex gap-1.5">
                           <Input
                             value={r.branch}
                             onChange={(e) => updateRepo(r.key, { branch: e.target.value })}
-                            className="h-7 text-xs font-mono"
+                            className="h-7 font-mono text-xs"
                             placeholder={t('managed.sessions.create.repoBranch')}
                           />
                           <Input
                             value={r.mount_path}
                             onChange={(e) => updateRepo(r.key, { mount_path: e.target.value })}
-                            className="h-7 text-xs font-mono"
+                            className="h-7 font-mono text-xs"
                             placeholder={t('managed.sessions.create.mountPath')}
                           />
                         </div>
@@ -557,22 +626,26 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                           type="password"
                           autoComplete="new-password"
                           value={r.authorization_token}
-                          onChange={(e) => updateRepo(r.key, { authorization_token: e.target.value })}
-                          className="h-7 text-xs font-mono"
+                          onChange={(e) =>
+                            updateRepo(r.key, { authorization_token: e.target.value })
+                          }
+                          className="h-7 font-mono text-xs"
                           placeholder={t('managed.sessions.create.repoTokenPlaceholder')}
                         />
                       </div>
                       <button
                         type="button"
                         onClick={() => removeRepo(r.key)}
-                        className="text-muted-foreground hover:text-destructive shrink-0"
+                        className="shrink-0 text-muted-foreground hover:text-destructive"
                       >
                         <X className="h-4 w-4" />
                       </button>
                     </div>
                   </div>
                 ))}
-                <p className="text-xs text-muted-foreground">{t('managed.sessions.create.repoTokenHint')}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t('managed.sessions.create.repoTokenHint')}
+                </p>
               </div>
             )}
 
@@ -591,7 +664,9 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
             onClick={() => createMutation.mutate()}
             disabled={!agentId || createMutation.isPending}
           >
-            {createMutation.isPending ? t('managed.sessions.create.creating') : t('managed.sessions.create.submit')}
+            {createMutation.isPending
+              ? t('managed.sessions.create.creating')
+              : t('managed.sessions.create.submit')}
           </Button>
         </DialogFooter>
       </DialogContent>

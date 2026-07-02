@@ -115,7 +115,9 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
   // even when React hasn't flushed the most recent setDraft yet (the SSE
   // loop applies many patches per second).
   const draftRef = useRef<SkillDraft>(EMPTY_DRAFT)
-  draftRef.current = draft
+  useEffect(() => {
+    draftRef.current = draft
+  }, [draft])
 
   // Restore from localStorage on first mount, UNLESS the caller asked for
   // a fresh session (?new=1 in the URL — set when the user clicks the
@@ -181,8 +183,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
           { role: 'user', content: trimmed },
           {
             role: 'assistant',
-            content:
-              '⚠️ 请先在右上角选择一个包含 OPENAI_API_KEY 的密钥(Secret),才能让我开始创作。',
+            content: '⚠️ 请先在右上角选择一个包含 OPENAI_API_KEY 的密钥(Secret),才能让我开始创作。',
           },
         ])
         return
@@ -397,13 +398,10 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
   const fetchLatestScan = useCallback(async (skillId: string): Promise<ScanRecord | null> => {
     const sid = stripSkillIdPrefix(skillId)
     try {
-      const resp = await fetch(
-        `${MANAGED_API_BASE}/skills/${sid}/security-scans/latest`,
-        {
-          credentials: 'include',
-          headers: getAuthHeaders(),
-        },
-      )
+      const resp = await fetch(`${MANAGED_API_BASE}/skills/${sid}/security-scans/latest`, {
+        credentials: 'include',
+        headers: getAuthHeaders(),
+      })
       if (!resp.ok) return null
       return (await resp.json()) as ScanRecord
     } catch {
@@ -423,15 +421,12 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
     setScanResult(null)
     const justId = stripSkillIdPrefix(sid)
     try {
-      const resp = await fetch(
-        `${MANAGED_API_BASE}/skills/${justId}/security-scans/rescan`,
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({}),
-        },
-      )
+      const resp = await fetch(`${MANAGED_API_BASE}/skills/${justId}/security-scans/rescan`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({}),
+      })
       if (!resp.ok) {
         setScanResult({ status: 'failed' })
         return
@@ -501,7 +496,10 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
       })
       if (!verResp.ok) {
         const data = await verResp.json().catch(() => ({}))
-        return { skillId: sid, error: data?.detail || data?.error || `发布版本失败 (HTTP ${verResp.status})` }
+        return {
+          skillId: sid,
+          error: data?.detail || data?.error || `发布版本失败 (HTTP ${verResp.status})`,
+        }
       }
       return { skillId: sid }
     } finally {

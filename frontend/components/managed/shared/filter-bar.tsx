@@ -44,10 +44,10 @@ export function FilterBar({
 }: FilterBarProps) {
   const { t } = useTranslation()
   return (
-    <div className="flex items-center gap-3 mb-4 flex-wrap">
+    <div className="mb-4 flex flex-wrap items-center gap-3">
       {(onSearch || onSearchChange) && (
         <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder={searchPlaceholder}
             value={searchValue}
@@ -55,7 +55,7 @@ export function FilterBar({
             onKeyDown={(e) => {
               if (e.key === 'Enter') onSearch?.(e.currentTarget.value)
             }}
-            className="pl-8 w-[240px]"
+            className="w-[240px] pl-8"
           />
         </div>
       )}
@@ -76,7 +76,7 @@ export function FilterBar({
       ))}
 
       {onArchivedChange !== undefined && (
-        <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+        <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
           {t('managed.filters.showArchived')}
           <Switch checked={showArchived} onCheckedChange={onArchivedChange} />
         </label>

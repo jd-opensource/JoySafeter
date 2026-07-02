@@ -24,17 +24,13 @@ interface CreateVaultDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
-export function CreateVaultDialog({
-  open,
-  onOpenChange,
-}: CreateVaultDialogProps) {
+export function CreateVaultDialog({ open, onOpenChange }: CreateVaultDialogProps) {
   const { t } = useTranslation()
   const [name, setName] = useState('')
   const queryClient = useQueryClient()
 
   const mutation = useMutation({
-    mutationFn: (vaultName: string) =>
-      managedPost<Vault>('/vaults', { name: vaultName }),
+    mutationFn: (vaultName: string) => managedPost<Vault>('/vaults', { name: vaultName }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['vaults'] })
       setName('')
@@ -74,14 +70,14 @@ export function CreateVaultDialog({
           <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
             {t('managed.vaults.sharedWarning')}{' '}
-            <a href="#" className="underline font-medium">
+            <a href="#" className="font-medium underline">
               {t('managed.vaults.learnMore')}
             </a>
             {t('managed.vaults.learnMoreSuffix')}
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4 mt-2">
+        <form onSubmit={handleSubmit} className="mt-2 space-y-4">
           <div className="space-y-1.5">
             <label htmlFor="vault-name" className="text-sm font-medium">
               {t('managed.table.name')}
@@ -90,9 +86,7 @@ export function CreateVaultDialog({
               id="vault-name"
               placeholder={t('managed.vaults.namePlaceholder')}
               value={name}
-              onChange={(e) =>
-                setName(e.target.value.slice(0, MAX_NAME_LENGTH))
-              }
+              onChange={(e) => setName(e.target.value.slice(0, MAX_NAME_LENGTH))}
               maxLength={MAX_NAME_LENGTH}
               autoFocus
             />
@@ -104,13 +98,8 @@ export function CreateVaultDialog({
           </div>
 
           <div className="flex justify-end">
-            <Button
-              type="submit"
-              disabled={!name.trim() || mutation.isPending}
-            >
-              {mutation.isPending
-                ? t('managed.vaults.creating')
-                : t('common.create')}
+            <Button type="submit" disabled={!name.trim() || mutation.isPending}>
+              {mutation.isPending ? t('managed.vaults.creating') : t('common.create')}
             </Button>
           </div>
         </form>

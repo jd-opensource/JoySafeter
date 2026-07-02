@@ -70,10 +70,8 @@ export function DataTable<T>({
 
   if (loading) {
     return (
-      <div className="border border-border rounded-lg">
-        <div className="p-8 text-center text-muted-foreground">
-          {t('common.loading')}
-        </div>
+      <div className="rounded-lg border border-border">
+        <div className="p-8 text-center text-muted-foreground">{t('common.loading')}</div>
       </div>
     )
   }
@@ -81,11 +79,11 @@ export function DataTable<T>({
   return (
     <div>
       <div
-        className={`border border-border rounded-lg overflow-hidden relative transition-opacity ${fetching && !loading ? 'opacity-70' : ''}`}
+        className={`relative overflow-hidden rounded-lg border border-border transition-opacity ${fetching && !loading ? 'opacity-70' : ''}`}
       >
         {fetching && !loading && (
-          <div className="absolute top-0 left-0 right-0 h-0.5 bg-primary/30 overflow-hidden z-10">
-            <div className="h-full w-1/3 bg-primary animate-[slide_1s_ease-in-out_infinite]" />
+          <div className="absolute left-0 right-0 top-0 z-10 h-0.5 overflow-hidden bg-primary/30">
+            <div className="h-full w-1/3 animate-[slide_1s_ease-in-out_infinite] bg-primary" />
           </div>
         )}
         <table className={`w-full ${hasColumnWidths ? 'table-fixed' : ''}`}>
@@ -113,7 +111,7 @@ export function DataTable<T>({
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  className={`px-4 py-2.5 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider ${col.className || ''}`}
+                  className={`px-4 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground ${col.className || ''}`}
                 >
                   {col.header}
                 </th>
@@ -125,12 +123,8 @@ export function DataTable<T>({
             {data.length === 0 ? (
               <tr>
                 <td
-                  colSpan={
-                    columns.length +
-                    (actionMenu ? 1 : 0) +
-                    (selectable ? 1 : 0)
-                  }
-                  className="px-4 py-8 text-center text-muted-foreground text-sm"
+                  colSpan={columns.length + (actionMenu ? 1 : 0) + (selectable ? 1 : 0)}
+                  className="px-4 py-8 text-center text-sm text-muted-foreground"
                 >
                   {emptyMessage || t('common.noData')}
                 </td>
@@ -140,7 +134,7 @@ export function DataTable<T>({
                 <tr
                   key={i}
                   onClick={() => onRowClick?.(row)}
-                  className={`border-b border-border last:border-b-0 transition-colors ${
+                  className={`border-b border-border transition-colors last:border-b-0 ${
                     onRowClick ? 'cursor-pointer hover:bg-accent/50' : ''
                   }`}
                 >
@@ -159,18 +153,12 @@ export function DataTable<T>({
                     </td>
                   )}
                   {columns.map((col) => (
-                    <td
-                      key={col.key}
-                      className={`px-4 py-3 text-sm ${col.className || ''}`}
-                    >
+                    <td key={col.key} className={`px-4 py-3 text-sm ${col.className || ''}`}>
                       {col.render(row)}
                     </td>
                   ))}
                   {actionMenu && (
-                    <td
-                      className="px-2 py-3"
-                      onClick={(event) => event.stopPropagation()}
-                    >
+                    <td className="px-2 py-3" onClick={(event) => event.stopPropagation()}>
                       <ActionMenu items={actionMenu(row)} />
                     </td>
                   )}

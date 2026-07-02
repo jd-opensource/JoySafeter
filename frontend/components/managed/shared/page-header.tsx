@@ -11,33 +11,24 @@ interface PageHeaderProps {
   breadcrumb?: { label: string; to?: string; onClick?: () => void }[]
 }
 
-export function PageHeader({
-  title,
-  titleExtra,
-  subtitle,
-  action,
-  breadcrumb,
-}: PageHeaderProps) {
+export function PageHeader({ title, titleExtra, subtitle, action, breadcrumb }: PageHeaderProps) {
   return (
-    <div className="flex items-start justify-between mb-6">
+    <div className="mb-6 flex items-start justify-between">
       <div>
         {breadcrumb && (
-          <nav className="text-sm text-muted-foreground mb-1">
+          <nav className="mb-1 text-sm text-muted-foreground">
             {breadcrumb.map((crumb, i) => (
               <span key={i}>
                 {i > 0 && <span className="mx-1.5">/</span>}
                 {crumb.to ? (
-                  <Link
-                    href={crumb.to}
-                    className="hover:text-foreground transition-colors"
-                  >
+                  <Link href={crumb.to} className="transition-colors hover:text-foreground">
                     {crumb.label}
                   </Link>
                 ) : crumb.onClick ? (
                   <button
                     type="button"
                     onClick={crumb.onClick}
-                    className="hover:text-foreground transition-colors"
+                    className="transition-colors hover:text-foreground"
                   >
                     {crumb.label}
                   </button>
@@ -52,9 +43,7 @@ export function PageHeader({
           <h1 className="text-2xl font-semibold text-foreground">{title}</h1>
           {titleExtra}
         </div>
-        {subtitle && (
-          <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>
-        )}
+        {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
       </div>
       {action && <div>{action}</div>}
     </div>

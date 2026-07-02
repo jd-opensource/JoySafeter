@@ -5,7 +5,14 @@ import { useTranslation } from '@/lib/i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { managedGet, managedPost, managedDelete, managedPut } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
-import { DataTable, MonoId, RelativeTime, type Column, type MenuItem, PageHeader } from '@/components/managed/shared'
+import {
+  DataTable,
+  MonoId,
+  RelativeTime,
+  type Column,
+  type MenuItem,
+  PageHeader,
+} from '@/components/managed/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -57,7 +64,8 @@ export default function OrganizationPage() {
   const organizations = me?.organizations || []
 
   const createOrgMutation = useMutation({
-    mutationFn: (name: string) => managedPost<{ id: string; name: string; slug: string }>('auth/organizations', { name }),
+    mutationFn: (name: string) =>
+      managedPost<{ id: string; name: string; slug: string }>('auth/organizations', { name }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['auth-me'] })
       setShowCreateOrg(false)
@@ -69,7 +77,8 @@ export default function OrganizationPage() {
   })
 
   const switchOrgMutation = useMutation({
-    mutationFn: (orgId: string) => managedPost<{ org_id: string; project_id: string }>('auth/switch-context', { org_id: orgId }),
+    mutationFn: (orgId: string) =>
+      managedPost<{ org_id: string; project_id: string }>('auth/switch-context', { org_id: orgId }),
     onSuccess: (data, orgId) => {
       const { setCurrentOrg, setCurrentProject } = useProjectStore.getState()
       setCurrentOrg(orgId)
@@ -117,7 +126,9 @@ export default function OrganizationPage() {
   const { data: transferMembers = [], isLoading: isLoadingTransferMembers } = useQuery({
     queryKey: ['organization-members', transferTarget?.id],
     queryFn: async () => {
-      const response = await managedGet<{ data: OrganizationMember[] }>(`/organizations/${transferTarget!.id}/members`)
+      const response = await managedGet<{ data: OrganizationMember[] }>(
+        `/organizations/${transferTarget!.id}/members`,
+      )
       return response.data
     },
     enabled: !!transferTarget,
@@ -151,8 +162,8 @@ export default function OrganizationPage() {
           <div className="flex items-center gap-2">
             <span className="font-medium text-foreground">{org.name}</span>
             {isCurrent && (
-              <span className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">
-                <Check className="w-3 h-3" />
+              <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                <Check className="h-3 w-3" />
                 {t('manage.organization.current')}
               </span>
             )}
@@ -173,7 +184,12 @@ export default function OrganizationPage() {
     {
       key: 'created',
       header: t('managed.table.created'),
-      render: (org) => org.created_at ? <RelativeTime date={org.created_at} /> : <span className="text-muted-foreground">-</span>,
+      render: (org) =>
+        org.created_at ? (
+          <RelativeTime date={org.created_at} />
+        ) : (
+          <span className="text-muted-foreground">-</span>
+        ),
     },
   ]
 
@@ -182,56 +198,68 @@ export default function OrganizationPage() {
       <PageHeader
         title={t('manage.organization.title')}
         subtitle={t('manage.organization.subtitle')}
-        action={canManageOrganizations ? (
-          <Button size="sm" onClick={() => setShowCreateOrg(true)}>
-            <Plus className="w-4 h-4 mr-1" />
-            {t('manage.organization.create')}
-          </Button>
-        ) : null}
+        action={
+          canManageOrganizations ? (
+            <Button size="sm" onClick={() => setShowCreateOrg(true)}>
+              <Plus className="mr-1 h-4 w-4" />
+              {t('manage.organization.create')}
+            </Button>
+          ) : null
+        }
       />
 
       <DataTable
         columns={columns}
         data={organizations}
         emptyMessage={t('manage.organization.empty')}
-        actionMenu={canManageOrganizations ? (org) => {
-          const isCurrent = org.id === currentOrg?.id
-          const items: MenuItem[] = []
+        actionMenu={
+          canManageOrganizations
+            ? (org) => {
+                const isCurrent = org.id === currentOrg?.id
+                const items: MenuItem[] = []
 
-          if (canAdmin(org.role)) {
-            items.push({
-              label: t('common.edit'),
-              icon: <Pencil className="w-3.5 h-3.5" />,
-              onClick: () => { setEditTarget({ id: org.id, name: org.name }); setEditName(org.name) },
-            })
-          }
+                if (canAdmin(org.role)) {
+                  items.push({
+                    label: t('common.edit'),
+                    icon: <Pencil className="h-3.5 w-3.5" />,
+                    onClick: () => {
+                      setEditTarget({ id: org.id, name: org.name })
+                      setEditName(org.name)
+                    },
+                  })
+                }
 
-          if (!isCurrent) {
-            items.push({
-              label: t('manage.organization.switch'),
-              onClick: () => switchOrgMutation.mutate(org.id),
-            })
-          }
+                if (!isCurrent) {
+                  items.push({
+                    label: t('manage.organization.switch'),
+                    onClick: () => switchOrgMutation.mutate(org.id),
+                  })
+                }
 
-          if (canOwn(org.role)) {
-            items.push({
-              label: t('manage.organization.transferOwnership'),
-              icon: <Crown className="w-3.5 h-3.5" />,
-              onClick: () => { setTransferTarget({ id: org.id, name: org.name }); setSelectedNewOwnerId('') },
-            })
-          }
+                if (canOwn(org.role)) {
+                  items.push({
+                    label: t('manage.organization.transferOwnership'),
+                    icon: <Crown className="h-3.5 w-3.5" />,
+                    onClick: () => {
+                      setTransferTarget({ id: org.id, name: org.name })
+                      setSelectedNewOwnerId('')
+                    },
+                  })
+                }
 
-          if (canOwn(org.role) && !isCurrent) {
-            items.push({
-              label: t('common.delete'),
-              icon: <Trash2 className="w-3.5 h-3.5" />,
-              destructive: true,
-              onClick: () => setDeleteTarget({ id: org.id, name: org.name }),
-            })
-          }
+                if (canOwn(org.role) && !isCurrent) {
+                  items.push({
+                    label: t('common.delete'),
+                    icon: <Trash2 className="h-3.5 w-3.5" />,
+                    destructive: true,
+                    onClick: () => setDeleteTarget({ id: org.id, name: org.name }),
+                  })
+                }
 
-          return items
-        } : undefined}
+                return items
+              }
+            : undefined
+        }
       />
 
       {/* Create Organization Dialog */}
@@ -248,7 +276,10 @@ export default function OrganizationPage() {
                 placeholder={t('manage.organization.namePlaceholder')}
                 value={newOrgName}
                 onChange={(e) => setNewOrgName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && newOrgName.trim()) createOrgMutation.mutate(newOrgName.trim()) }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newOrgName.trim())
+                    createOrgMutation.mutate(newOrgName.trim())
+                }}
                 autoFocus
               />
             </div>
@@ -313,7 +344,10 @@ export default function OrganizationPage() {
               {t('common.cancel')}
             </Button>
             <Button
-              onClick={() => editTarget && editOrgMutation.mutate({ orgId: editTarget.id, name: editName.trim() })}
+              onClick={() =>
+                editTarget &&
+                editOrgMutation.mutate({ orgId: editTarget.id, name: editName.trim() })
+              }
               disabled={!editName.trim() || editOrgMutation.isPending}
             >
               {editOrgMutation.isPending ? t('common.loading') : t('common.save')}
@@ -323,13 +357,19 @@ export default function OrganizationPage() {
       </Dialog>
 
       {/* Transfer Ownership Dialog */}
-      <Dialog open={transferTarget !== null} onOpenChange={(open) => { if (!open) { setTransferTarget(null); setSelectedNewOwnerId('') } }}>
+      <Dialog
+        open={transferTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setTransferTarget(null)
+            setSelectedNewOwnerId('')
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('manage.organization.transferOwnership')}</DialogTitle>
-            <DialogDescription>
-              {t('manage.organization.transferOwnershipDesc')}
-            </DialogDescription>
+            <DialogDescription>{t('manage.organization.transferOwnershipDesc')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
             {isLoadingTransferMembers ? (
@@ -339,7 +379,7 @@ export default function OrganizationPage() {
                 {t('manage.organization.noTransferCandidates')}
               </p>
             ) : (
-              <div className="max-h-64 overflow-y-auto rounded-md border border-border divide-y divide-border">
+              <div className="max-h-64 divide-y divide-border overflow-y-auto rounded-md border border-border">
                 {transferCandidates.map((member) => {
                   const label = member.user_name || member.user_email || member.user_id
                   return (
@@ -351,12 +391,18 @@ export default function OrganizationPage() {
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="text-sm font-medium text-foreground truncate">{label}</div>
+                          <div className="truncate text-sm font-medium text-foreground">
+                            {label}
+                          </div>
                           {member.user_email && member.user_name && (
-                            <div className="text-xs text-muted-foreground truncate">{member.user_email}</div>
+                            <div className="truncate text-xs text-muted-foreground">
+                              {member.user_email}
+                            </div>
                           )}
                         </div>
-                        <span className="text-xs text-muted-foreground">{roleLabel(t, member.role)}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {roleLabel(t, member.role)}
+                        </span>
                       </div>
                     </button>
                   )
@@ -365,12 +411,24 @@ export default function OrganizationPage() {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setTransferTarget(null); setSelectedNewOwnerId('') }}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setTransferTarget(null)
+                setSelectedNewOwnerId('')
+              }}
+            >
               {t('common.cancel')}
             </Button>
             <Button
               variant="destructive"
-              onClick={() => transferTarget && transferOwnershipMutation.mutate({ orgId: transferTarget.id, userId: selectedNewOwnerId })}
+              onClick={() =>
+                transferTarget &&
+                transferOwnershipMutation.mutate({
+                  orgId: transferTarget.id,
+                  userId: selectedNewOwnerId,
+                })
+              }
               disabled={!selectedNewOwnerId || transferOwnershipMutation.isPending}
             >
               {transferOwnershipMutation.isPending
