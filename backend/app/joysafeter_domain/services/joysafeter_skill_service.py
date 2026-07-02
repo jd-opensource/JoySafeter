@@ -268,6 +268,24 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             active_org_id=self._active_org_id,
         )
 
+        # Security gate — refuse to publish a high-risk skill. ``blocked`` is
+        # the verdict SkillSpector assigns when a scan finds HIGH/CRITICAL
+        # issues; the runtime already refuses to load such skills
+        # (``is_skill_usable``), so publishing a snapshot that no agent could
+        # ever run is meaningless and dangerous. Only ``blocked`` is gated
+        # here — ``warning``/``passed`` publish normally, and un-scanned /
+        # in-flight states are intentionally not blocked.
+        if skill.security_status == "blocked":
+            raise InvalidRequestError(
+                "技能存在高安全风险，已被安全扫描拦截，无法发布版本。请修复后重新扫描。",
+                code="SKILL_SECURITY_BLOCKED",
+                data={
+                    "security_status": skill.security_status,
+                    "security_severity": skill.security_severity,
+                    "security_score": skill.security_score,
+                },
+            )
+
         # Validate semver format
         try:
             new_ver = semver.Version.parse(version_str)
@@ -801,8 +819,14 @@ class SkillService(BaseService[JoySafeterSkill]):
         limit: int = 20,
         after_id: Optional[uuid.UUID] = None,
     ) -> tuple[List[JoySafeterSkill], bool]:
-        """Get Skills list with cursor pagination."""
-        return await self.repo.list_by_user(
+        """Get Skills list with cursor pagination.
+
+        Each returned skill is annotated with ``latest_version`` — the most
+        recently published version string, or ``None`` when the skill has
+        never been published. Callers (e.g. the agent-builder skill picker)
+        use this to hide draft-only skills that can't yet be referenced.
+        """
+        skills, has_more = await self.repo.list_by_user(
             user_id=current_user_id,
             include_public=include_public,
             tags=tags,
@@ -811,6 +835,12 @@ class SkillService(BaseService[JoySafeterSkill]):
             limit=limit,
             after_id=after_id,
         )
+        # Batch-annotate latest published version (single query, no N+1).
+        ver_repo = SkillVersionRepository(self.db)
+        latest_map = await ver_repo.latest_version_map([s.id for s in skills])
+        for skill in skills:
+            skill.latest_version = latest_map.get(skill.id)
+        return skills, has_more
 
     async def get_skill(
         self,
@@ -1338,19 +1368,33 @@ class SkillService(BaseService[JoySafeterSkill]):
             if invalid_files:
                 raise self._invalid_import_files_error(invalid_files)
 
-        security_scan = await self._dispatch_security_scan(
-            trigger="update",
-            created_by_id=current_user_id,
-            owner_id=proposed_owner_id,
-            project_id=skill.project_id,
-            skill_id=skill.id,
-            name=proposed_name,
-            description=proposed_description,
-            content=proposed_content,
-            tags=proposed_tags or [],
-            license=proposed_license,
-            files=proposed_files,
-        )
+        # Only the skill's *content* is security-relevant: the SKILL.md body
+        # and the attached files carry the code/instructions the scanner
+        # inspects. Pure metadata edits (name / description / tags / license /
+        # visibility) don't change what the skill *does*, so re-running the
+        # (potentially slow, inline-LLM) scanner on every such save is wasted
+        # work — and it blocked the "Save" button for seconds on skills small
+        # enough to fall under the async threshold. Skip the scan entirely
+        # when neither the SKILL.md content nor the file set changed; the
+        # skill keeps its existing security verdict untouched.
+        content_changed = content is not None and proposed_content != skill.content
+        files_changed = files is not None
+        if content_changed or files_changed:
+            security_scan = await self._dispatch_security_scan(
+                trigger="update",
+                created_by_id=current_user_id,
+                owner_id=proposed_owner_id,
+                project_id=skill.project_id,
+                skill_id=skill.id,
+                name=proposed_name,
+                description=proposed_description,
+                content=proposed_content,
+                tags=proposed_tags or [],
+                license=proposed_license,
+                files=proposed_files,
+            )
+        else:
+            security_scan = None
 
         skill.name = proposed_name
         skill.description = proposed_description
@@ -1507,42 +1551,54 @@ class SkillService(BaseService[JoySafeterSkill]):
             if warning:
                 logger.warning(f"Skill file warning: {warning}")
 
-        proposed_files = self.security_service.files_from_skill(skill)
-        proposed_files.append(
-            {
-                "path": path,
-                "file_name": file_name,
-                "file_type": file_type,
-                "content": content or "",
-                "storage_type": storage_type,
-                "storage_key": storage_key,
-                "size": size,
-            }
-        )
-        scan_fields = (
-            self._skill_md_candidate_fields(skill, content)
-            if self._is_skill_md_file(path, file_name)
-            else {
-                "name": skill.name,
-                "description": skill.description,
-                "content": skill.content,
-                "tags": list(skill.tags or []),
-                "license": skill.license,
-            }
-        )
-        security_scan = await self._dispatch_security_scan(
-            trigger="file_add",
-            created_by_id=current_user_id,
-            owner_id=skill.owner_id,
-            project_id=skill.project_id,
-            skill_id=skill.id,
-            name=scan_fields["name"],
-            description=scan_fields["description"],
-            content=scan_fields["content"],
-            tags=scan_fields["tags"],
-            license=scan_fields["license"],
-            files=proposed_files,
-        )
+        # Newly-created files start empty — both the ``.gitkeep`` a folder
+        # create adds, and any regular file the user creates before typing
+        # into it. Empty content has nothing to scan, so a full security scan
+        # (which can take a minute of LLM analysis and flips the skill to
+        # ``scanning``) is pure waste. Skip the scan when the added file is
+        # empty; the scan runs later on ``update_file`` once the user saves
+        # real content.
+        is_empty_new_file = not (content or "").strip()
+
+        if is_empty_new_file:
+            security_scan = None
+        else:
+            proposed_files = self.security_service.files_from_skill(skill)
+            proposed_files.append(
+                {
+                    "path": path,
+                    "file_name": file_name,
+                    "file_type": file_type,
+                    "content": content or "",
+                    "storage_type": storage_type,
+                    "storage_key": storage_key,
+                    "size": size,
+                }
+            )
+            scan_fields = (
+                self._skill_md_candidate_fields(skill, content)
+                if self._is_skill_md_file(path, file_name)
+                else {
+                    "name": skill.name,
+                    "description": skill.description,
+                    "content": skill.content,
+                    "tags": list(skill.tags or []),
+                    "license": skill.license,
+                }
+            )
+            security_scan = await self._dispatch_security_scan(
+                trigger="file_add",
+                created_by_id=current_user_id,
+                owner_id=skill.owner_id,
+                project_id=skill.project_id,
+                skill_id=skill.id,
+                name=scan_fields["name"],
+                description=scan_fields["description"],
+                content=scan_fields["content"],
+                tags=scan_fields["tags"],
+                license=scan_fields["license"],
+                files=proposed_files,
+            )
 
         file_obj = JoySafeterSkillFile(
             skill_id=skill_id,
@@ -1597,33 +1653,43 @@ class SkillService(BaseService[JoySafeterSkill]):
             active_org_id=self._active_org_id,
         )
 
-        proposed_files = [
-            {
-                "path": existing_file.path,
-                "file_name": existing_file.file_name,
-                "file_type": existing_file.file_type,
-                "content": existing_file.content or "",
-                "storage_type": existing_file.storage_type,
-                "storage_key": existing_file.storage_key,
-                "size": existing_file.size,
-            }
-            for existing_file in (skill.files or [])
-            if existing_file.id != file_obj.id
-        ]
-        security_scan = await self._dispatch_security_scan(
-            enforce_write_policy=False,
-            trigger="file_delete",
-            created_by_id=current_user_id,
-            owner_id=skill.owner_id,
-            project_id=skill.project_id,
-            skill_id=skill.id,
-            name=skill.name,
-            description=skill.description,
-            content=skill.content,
-            tags=list(skill.tags or []),
-            license=skill.license,
-            files=proposed_files,
-        )
+        # Deleting an empty file (a ``.gitkeep`` placeholder, or a file the
+        # user created but never wrote into) removes nothing scannable — the
+        # remaining content is unchanged — so a re-scan is pure waste. Deleting
+        # a file that HAD content does change the scannable surface, so it
+        # still scans.
+        deleted_was_empty = not (file_obj.content or "").strip()
+
+        if deleted_was_empty:
+            security_scan = None
+        else:
+            proposed_files = [
+                {
+                    "path": existing_file.path,
+                    "file_name": existing_file.file_name,
+                    "file_type": existing_file.file_type,
+                    "content": existing_file.content or "",
+                    "storage_type": existing_file.storage_type,
+                    "storage_key": existing_file.storage_key,
+                    "size": existing_file.size,
+                }
+                for existing_file in (skill.files or [])
+                if existing_file.id != file_obj.id
+            ]
+            security_scan = await self._dispatch_security_scan(
+                enforce_write_policy=False,
+                trigger="file_delete",
+                created_by_id=current_user_id,
+                owner_id=skill.owner_id,
+                project_id=skill.project_id,
+                skill_id=skill.id,
+                name=skill.name,
+                description=skill.description,
+                content=skill.content,
+                tags=list(skill.tags or []),
+                license=skill.license,
+                files=proposed_files,
+            )
 
         await self.file_repo.delete(file_id)
         if security_scan is not None:

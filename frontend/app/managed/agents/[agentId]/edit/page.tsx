@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from '@/lib/i18n'
@@ -51,6 +51,8 @@ interface SkillListItem {
   id: string
   name?: string
   display_title?: string
+  // Latest published version string, or null/undefined if never published.
+  latest_version?: string | null
 }
 
 interface EnvironmentListItem {
@@ -115,6 +117,17 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
   const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(new Set())
   /** skill_id → chosen version keyword ("latest", "draft") or semver string. */
   const [skillVersions, setSkillVersions] = useState<Record<string, string>>({})
+
+  // Only *published* skills can be newly referenced. We still show any skill
+  // this agent already references (even if it's since become draft-only), so
+  // the user can see and, if desired, remove that stale reference.
+  const visibleSkills = useMemo(
+    () =>
+      (skills || []).filter(
+        (s) => !!s.latest_version || selectedSkillIds.has(s.id),
+      ),
+    [skills, selectedSkillIds],
+  )
 
   // ── Secret ref ──
   const [secretRef, setSecretRef] = useState('')
@@ -544,7 +557,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
           <h3 className="text-sm font-semibold text-foreground border-b border-border pb-2">
             {t('agents.edit.skills')}
           </h3>
-          {(!skills || skills.length === 0) ? (
+          {(!visibleSkills || visibleSkills.length === 0) ? (
             <p className="text-sm text-muted-foreground text-center py-2">
               {t('managed.agents.create.noSkills')}{' '}
               <a href="/managed/skills" className="text-emerald-500 hover:underline">
@@ -553,7 +566,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
             </p>
           ) : (
             <div className="space-y-2">
-              {skills.map((skill) => {
+              {visibleSkills.map((skill) => {
                 const isSelected = selectedSkillIds.has(skill.id)
                 return (
                   <div key={skill.id} className="flex items-center gap-2">

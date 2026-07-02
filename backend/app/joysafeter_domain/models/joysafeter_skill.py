@@ -16,7 +16,7 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, ClassVar, List, Optional
 
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -143,6 +143,13 @@ class JoySafeterSkill(BaseModel):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
+
+    # Non-mapped, request-scoped annotation. The service layer sets this to
+    # the latest published version string (or leaves it None) before the row
+    # is serialized by ``SkillResponse``. Declaring it as a ClassVar keeps it
+    # off the ORM mapper while making ``getattr(skill, "latest_version")``
+    # safe even on rows that were never passed through the attach step.
+    latest_version: ClassVar[Optional[str]] = None
 
     __table_args__ = (
         UniqueConstraint("owner_id", "name", name="skills_owner_name_unique"),

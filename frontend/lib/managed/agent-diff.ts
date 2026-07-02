@@ -100,7 +100,7 @@ const diffObject = (
 
 // ---------- Long-text diff (system prompt) ----------
 
-const diffText = (a: string | null | undefined, b: string | null | undefined): TextFieldDiff => {
+export const diffText = (a: string | null | undefined, b: string | null | undefined): TextFieldDiff => {
   const before = a || ''
   const after = b || ''
   if (before === after) return { changed: false, lines: [] }

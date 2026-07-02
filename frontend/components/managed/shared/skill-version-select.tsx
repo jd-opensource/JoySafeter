@@ -24,10 +24,14 @@ interface SkillVersionSelectProps {
  * Per-skill version selector. Options:
  * - "latest" → latest published version (resolved by backend)
  * - each published "x.y.z"
- * - "draft" → current mutable working copy
+ *
+ * Agents may only reference *published* skill versions — the mutable
+ * "draft (working copy)" is intentionally NOT offered here, so an agent
+ * can never be pinned to an unpublished, still-changing revision.
  *
  * Keeps the displayed value valid even if `value` doesn't match a published
- * version (renders the raw value as a one-off entry).
+ * version (renders the raw value as a one-off entry) — this also covers a
+ * legacy agent that was previously pinned to "draft".
  */
 export function SkillVersionSelect({ skillId, value, onChange, enabled = true, className }: SkillVersionSelectProps) {
   const { t } = useTranslation()
@@ -44,7 +48,7 @@ export function SkillVersionSelect({ skillId, value, onChange, enabled = true, c
   const versions = useMemo(() => data?.data || [], [data])
 
   const knownValues = useMemo(
-    () => new Set(['latest', 'draft', ...versions.map((v) => v.version)]),
+    () => new Set(['latest', ...versions.map((v) => v.version)]),
     [versions],
   )
 
@@ -60,10 +64,15 @@ export function SkillVersionSelect({ skillId, value, onChange, enabled = true, c
             v{v.version}
           </SelectItem>
         ))}
-        <SelectItem value="draft">{t('managed.skills.version.draft', 'Draft (working copy)')}</SelectItem>
-        {/* If the agent already references a version no longer in the published list, keep it selectable */}
+        {/* If the agent already references a version no longer in the
+            published list (including a legacy "draft" pin), keep it
+            selectable so the current value stays visible. */}
         {value && !knownValues.has(value) && (
-          <SelectItem value={value}>v{value} (missing)</SelectItem>
+          <SelectItem value={value}>
+            {value === 'draft'
+              ? t('managed.skills.version.draft', 'Draft (working copy)')
+              : `v${value} (missing)`}
+          </SelectItem>
         )}
       </SelectContent>
     </Select>

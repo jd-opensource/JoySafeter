@@ -162,6 +162,10 @@ class SkillResponse(BaseModel):
     is_public: bool = False
     visibility: str = "private"
     lifecycle_status: str = "draft"
+    # Most recently published version string, or ``None`` if the skill has
+    # never been published. The agent-builder skill picker hides rows where
+    # this is null (can't reference an unpublished skill).
+    latest_version: Optional[str] = None
     license: Optional[str] = None
     compatibility: Optional[str] = None
     metadata: dict = Field(default_factory=dict, alias="meta_data")

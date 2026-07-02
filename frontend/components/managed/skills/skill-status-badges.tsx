@@ -11,6 +11,8 @@
 
 'use client'
 
+import { Loader2, ShieldCheck } from 'lucide-react'
+
 import { useTranslation } from '@/lib/i18n'
 import type {
   SkillLifecycleStatus,
@@ -57,7 +59,7 @@ function Pill({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs font-medium ${tone}`}
+      className={`inline-flex items-center gap-1 whitespace-nowrap rounded border px-2 py-0.5 text-xs font-medium ${tone}`}
       title={title}
     >
       {children}
@@ -122,7 +124,34 @@ export function SkillSecurityBadge({
   const title = value === 'scanning' ? t('managed.skills.security.scanningHint') : undefined
   return (
     <Pill tone={SECURITY_TONE[value]} title={title}>
+      {value === 'scanning' && <Loader2 className="h-3 w-3 animate-spin" />}
       {t(`managed.skills.security.${key}`)}
+    </Pill>
+  )
+}
+
+/**
+ * Risk score pill.
+ *
+ * The score is a *risk* score: higher = more dangerous (0 = clean/SAFE,
+ * ≥70 = HIGH/CRITICAL → blocked). Colour therefore runs the opposite way
+ * from a "grade" — red for high risk, green for zero risk. Thresholds mirror
+ * the backend write-admission policy in ``joysafeter_skill_security.py``.
+ */
+export function SkillRiskScoreBadge({ score }: { score: number }) {
+  const { t } = useTranslation()
+  const tone =
+    score >= 70
+      ? 'bg-rose-50 text-rose-700 border-rose-200'
+      : score > 0
+        ? 'bg-amber-50 text-amber-700 border-amber-200'
+        : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+  return (
+    <Pill tone={tone} title={t('managed.skills.riskScoreHint')}>
+      <ShieldCheck className="h-3 w-3" />
+      <span className="tabular-nums">
+        {t('managed.skills.riskScore', { score })}
+      </span>
     </Pill>
   )
 }
@@ -133,15 +162,27 @@ export function SkillSecurityBadge({
  * Useful in the list view and the detail header — anywhere the operator
  * wants a quick "is this skill usable / where is it shared / what's its
  * review state" snapshot.
+ *
+ * ``showVisibility`` lets callers suppress the visibility pill when a
+ * dedicated visibility control (e.g. the detail-header dropdown) already
+ * shows and edits the same value — avoids showing "组织内" twice.
  */
-export function SkillStatusBadges({ skill }: { skill: SkillRecord }) {
+export function SkillStatusBadges({
+  skill,
+  showVisibility = true,
+}: {
+  skill: SkillRecord
+  showVisibility?: boolean
+}) {
   return (
     <div className="inline-flex flex-wrap items-center gap-1.5">
       <SkillLifecycleBadge status={skill.lifecycle_status} />
-      <SkillVisibilityBadge
-        visibility={skill.visibility}
-        isPublic={skill.is_public}
-      />
+      {showVisibility && (
+        <SkillVisibilityBadge
+          visibility={skill.visibility}
+          isPublic={skill.is_public}
+        />
+      )}
       <SkillSecurityBadge status={skill.security_scan?.status} />
     </div>
   )

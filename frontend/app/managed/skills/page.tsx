@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from '@/lib/i18n'
 import CodeMirror from '@uiw/react-codemirror'
@@ -13,6 +14,7 @@ import remarkGfm from 'remark-gfm'
 import {
   Plus,
   Trash2,
+  ArrowLeft,
   FileText,
   FolderOpen,
   FolderPlus,
@@ -22,13 +24,16 @@ import {
   Check,
   Eye,
   Pencil,
-  Clock,
   Camera,
   History,
   Upload,
   RefreshCw,
+  Sparkles,
+  GitCompare,
 } from 'lucide-react'
 import { managedGet, managedPost, managedPut, managedDelete, managedUpload } from '@/lib/api-client'
+import { diffSkillVersionFiles } from '@/lib/managed/skill-version-diff'
+import { SkillVersionDiffView, type DiffViewMode } from '@/components/managed/skills/skill-version-diff'
 import type {
   SkillRecord,
   SkillFileRecord,
@@ -61,6 +66,7 @@ import {
 } from '@/components/managed/shared'
 import {
   SkillLifecycleBadge,
+  SkillRiskScoreBadge,
   SkillSecurityBadge,
   SkillStatusBadges,
   SkillVisibilityBadge,
@@ -188,15 +194,14 @@ function formatVersion(version: string): string {
   return `v${version}`
 }
 
-function timeAgo(dateStr: string, lang?: string): string {
+/** Split a timestamp into date + time-of-day parts for the timeline axis. */
+function timelineDateParts(dateStr: string, lang?: string): { date: string; time: string } {
   const locale = lang?.startsWith('zh') ? 'zh-CN' : 'en-US'
-  return new Date(dateStr).toLocaleString(locale, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  const d = new Date(dateStr)
+  return {
+    date: d.toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric' }),
+    time: d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }),
+  }
 }
 
 function skillSecurityStatus(skill: SkillRecord): string {
@@ -369,6 +374,12 @@ function getSecurityIssues(scan: SkillSecurityScanRecord): SecurityIssueView[] {
 
 // -- Center Panel: File tree --
 
+/** Drag payload for a move. A file carries its real id; a folder carries its
+ * ``fullPath`` (trailing ``/``). ``path`` on a file is its directory. */
+type MoveSource =
+  | { kind: 'file'; id: string; path: string }
+  | { kind: 'folder'; path: string }
+
 interface TreeNode {
   name: string
   fullPath: string
@@ -420,6 +431,7 @@ function FileTreeNode({
   onDeleteFile,
   onDeleteFolder,
   onAddToFolder,
+  onMove,
 }: {
   node: TreeNode
   depth: number
@@ -428,15 +440,33 @@ function FileTreeNode({
   onDeleteFile: (id: string) => void
   onDeleteFolder: (folderPath: string) => void
   onAddToFolder: (folderPath: string) => void
+  /** When provided, nodes become draggable and folders accept drops.
+   * ``source`` carries a file id or a folder fullPath; ``destFolder`` is the
+   * target folder's fullPath (trailing ``/``) or ``''`` for root. */
+  onMove?: (source: MoveSource, destFolder: string) => void
 }) {
   const [open, setOpen] = useState(true)
+  const [dragOver, setDragOver] = useState(false)
   const paddingLeft = 12 + depth * 16
+  const dndEnabled = !!onMove
 
   if (node.file) {
     if (node.name === '.gitkeep') return null
     return (
       <div
         onClick={() => onSelectFile(node.file!.id)}
+        draggable={dndEnabled}
+        onDragStart={
+          dndEnabled
+            ? (e) => {
+                e.dataTransfer.setData(
+                  'text/plain',
+                  JSON.stringify({ kind: 'file', id: node.file!.id, path: node.file!.path } as MoveSource),
+                )
+                e.dataTransfer.effectAllowed = 'move'
+              }
+            : undefined
+        }
         className={`group flex cursor-pointer items-center gap-2 py-1.5 pr-3 transition-colors hover:bg-muted/50 ${
           selectedFileId === node.file!.id ? 'bg-muted font-medium' : ''
         }`}
@@ -464,7 +494,47 @@ function FileTreeNode({
     <>
       <div
         onClick={() => setOpen(!open)}
-        className="group flex cursor-pointer items-center gap-1 py-1.5 pr-3 text-muted-foreground hover:text-foreground"
+        draggable={dndEnabled}
+        onDragStart={
+          dndEnabled
+            ? (e) => {
+                e.stopPropagation()
+                e.dataTransfer.setData(
+                  'text/plain',
+                  JSON.stringify({ kind: 'folder', path: node.fullPath } as MoveSource),
+                )
+                e.dataTransfer.effectAllowed = 'move'
+              }
+            : undefined
+        }
+        onDragOver={
+          dndEnabled
+            ? (e) => {
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
+                if (!dragOver) setDragOver(true)
+              }
+            : undefined
+        }
+        onDragLeave={dndEnabled ? () => setDragOver(false) : undefined}
+        onDrop={
+          dndEnabled
+            ? (e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                setDragOver(false)
+                try {
+                  const source = JSON.parse(e.dataTransfer.getData('text/plain')) as MoveSource
+                  if (source) onMove!(source, node.fullPath)
+                } catch {
+                  /* ignore malformed payloads */
+                }
+              }
+            : undefined
+        }
+        className={`group flex cursor-pointer items-center gap-1 py-1.5 pr-3 text-muted-foreground hover:text-foreground ${
+          dragOver ? 'bg-primary/10 ring-1 ring-inset ring-primary/40' : ''
+        }`}
         style={{ paddingLeft }}
       >
         {open ? (
@@ -504,6 +574,7 @@ function FileTreeNode({
             onDeleteFile={onDeleteFile}
             onDeleteFolder={onDeleteFolder}
             onAddToFolder={onAddToFolder}
+            onMove={onMove}
           />
         ))}
     </>
@@ -511,6 +582,7 @@ function FileTreeNode({
 }
 
 function SkillWorkspace({
+  skillName,
   files,
   selectedFileId,
   onSelectFile,
@@ -519,8 +591,10 @@ function SkillWorkspace({
   onAddToFolder,
   onDeleteFile,
   onDeleteFolder,
+  onMove,
   isMainSelected,
 }: {
+  skillName: string
   files: SkillFileRecord[]
   selectedFileId: string | null
   onSelectFile: (id: string) => void
@@ -529,9 +603,11 @@ function SkillWorkspace({
   onAddToFolder: (folderPath: string) => void
   onDeleteFile: (id: string) => void
   onDeleteFolder: (folderPath: string) => void
+  onMove?: (source: MoveSource, destFolder: string) => void
   isMainSelected: boolean
 }) {
   const { t } = useTranslation()
+  const [rootOpen, setRootOpen] = useState(true)
   const filteredFiles = files.filter(
     (f) => !(f.path === '' && f.file_name.toLowerCase() === 'skill.md'),
   )
@@ -552,36 +628,61 @@ function SkillWorkspace({
         </Button>
       </div>
 
-      <div className="flex-1 overflow-y-auto text-sm">
-        {/* SKILL.md -- always first */}
+      <div
+        className="flex-1 overflow-y-auto py-1 text-sm"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          try {
+            const source = JSON.parse(e.dataTransfer.getData('text/plain')) as MoveSource
+            if (source) onMove?.(source, '')
+          } catch {
+            /* ignore */
+          }
+        }}
+      >
+        {/* Root node — the skill itself. SKILL.md and folders nest under it. */}
         <div
-          onClick={onSelectMain}
-          className={`flex cursor-pointer items-center gap-2 px-3 py-1.5 transition-colors hover:bg-muted/50 ${
-            isMainSelected ? 'bg-muted font-medium' : ''
-          }`}
+          onClick={() => setRootOpen((v) => !v)}
+          className="flex cursor-pointer items-center gap-1.5 px-2 py-1.5 font-medium text-foreground transition-colors hover:bg-muted/50"
         >
-          <FileText className="h-4 w-4 text-blue-500" />
-          <span>SKILL.md</span>
+          {rootOpen ? (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          )}
+          <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="truncate">{skillName}</span>
         </div>
 
-        {/* File tree */}
-        {tree.children.length > 0 ? (
-          tree.children.map((child, i) => (
-            <FileTreeNode
-              key={child.file?.id ?? child.fullPath + i}
-              node={child}
-              depth={0}
-              selectedFileId={selectedFileId}
-              onSelectFile={onSelectFile}
-              onDeleteFile={onDeleteFile}
-              onDeleteFolder={onDeleteFolder}
-              onAddToFolder={onAddToFolder}
-            />
-          ))
-        ) : (
-          <div className="px-3 py-4 text-center text-xs text-muted-foreground/60">
-            {t('managed.skills.emptyWorkspace')}
-          </div>
+        {rootOpen && (
+          <>
+            {/* SKILL.md -- always first, nested under the root */}
+            <div
+              onClick={onSelectMain}
+              className={`flex cursor-pointer items-center gap-2 py-1.5 pr-3 transition-colors hover:bg-muted/50 ${
+                isMainSelected ? 'bg-muted font-medium' : ''
+              }`}
+              style={{ paddingLeft: 28 }}
+            >
+              <FileText className="h-4 w-4 shrink-0 text-blue-500" />
+              <span>SKILL.md</span>
+            </div>
+
+            {/* File tree — depth starts at 1 so it sits under the root */}
+            {tree.children.map((child, i) => (
+              <FileTreeNode
+                key={child.file?.id ?? child.fullPath + i}
+                node={child}
+                depth={1}
+                selectedFileId={selectedFileId}
+                onSelectFile={onSelectFile}
+                onDeleteFile={onDeleteFile}
+                onDeleteFolder={onDeleteFolder}
+                onAddToFolder={onAddToFolder}
+                onMove={onMove}
+              />
+            ))}
+          </>
         )}
       </div>
     </div>
@@ -603,6 +704,7 @@ interface SkillFormState {
 }
 
 function SkillEditor({
+  skill,
   files,
   selectedFileId,
   form,
@@ -613,6 +715,10 @@ function SkillEditor({
   onCreateVersion,
   onDeleteVersion,
   isCreatingVersion,
+  editorTab,
+  setEditorTab,
+  showVersionForm,
+  setShowVersionForm,
 }: {
   skill: SkillRecord
   files: SkillFileRecord[]
@@ -628,11 +734,13 @@ function SkillEditor({
     force?: boolean,
   ) => Promise<{ ok: true } | { ok: false; referrers: Array<Record<string, unknown>>; hint?: string }>
   isCreatingVersion: boolean
+  editorTab: 'editor' | 'metadata' | 'versions'
+  setEditorTab: (tab: 'editor' | 'metadata' | 'versions') => void
+  showVersionForm: boolean
+  setShowVersionForm: (v: boolean) => void
 }) {
   const { t, i18n } = useTranslation()
-  const [editorTab, setEditorTab] = useState<'editor' | 'versions'>('editor')
   const [contentMode, setContentMode] = useState<'edit' | 'preview'>('edit')
-  const [showVersionForm, setShowVersionForm] = useState(false)
   const [newReleaseNotes, setNewReleaseNotes] = useState('')
   const [newVersionStr, setNewVersionStr] = useState('')
   /** Per-row delete state: keyed by version string. */
@@ -642,6 +750,43 @@ function SkillEditor({
     hint?: string
     pending?: boolean
   } | null>(null)
+  /** Version-diff state — compares a version against its predecessor.
+   * Rendered inline within the versions tab (not a dialog). */
+  const [diffTarget, setDiffTarget] = useState<{
+    fromVersion: string
+    toVersion: string
+  } | null>(null)
+  const [diffMode, setDiffMode] = useState<DiffViewMode>('unified')
+
+  // Fetch the FULL file snapshot of both compared versions on demand. The
+  // version list only carries SKILL.md's main content, so we hit the
+  // per-version files endpoint to diff the whole skill package.
+  const skillIdForDiff = stripId(skill.id)
+  const { data: fromFiles = [] } = useQuery({
+    queryKey: ['skill-version-files', skillIdForDiff, diffTarget?.fromVersion],
+    queryFn: async () => {
+      const res = await managedGet<{ data: SkillFileRecord[] } | SkillFileRecord[]>(
+        `/skills/${skillIdForDiff}/versions/${encodeURIComponent(diffTarget!.fromVersion)}/files`,
+      )
+      return Array.isArray(res) ? res : res.data || []
+    },
+    enabled: !!diffTarget,
+  })
+  const { data: toFiles = [], isFetching: toFilesFetching } = useQuery({
+    queryKey: ['skill-version-files', skillIdForDiff, diffTarget?.toVersion],
+    queryFn: async () => {
+      const res = await managedGet<{ data: SkillFileRecord[] } | SkillFileRecord[]>(
+        `/skills/${skillIdForDiff}/versions/${encodeURIComponent(diffTarget!.toVersion)}/files`,
+      )
+      return Array.isArray(res) ? res : res.data || []
+    },
+    enabled: !!diffTarget,
+  })
+  const versionDiff = useMemo(
+    () => (diffTarget ? diffSkillVersionFiles(fromFiles, toFiles) : null),
+    [diffTarget, fromFiles, toFiles],
+  )
+  const diffLoading = !!diffTarget && toFilesFetching
 
   const selectedFile = files.find((f) => f.id === selectedFileId)
   const isEditingFile = selectedFileId !== null && selectedFile !== undefined
@@ -651,11 +796,12 @@ function SkillEditor({
       {/* Tab bar */}
       <Tabs
         value={editorTab}
-        onValueChange={(v) => setEditorTab(v as 'editor' | 'versions')}
+        onValueChange={(v) => setEditorTab(v as 'editor' | 'metadata' | 'versions')}
       >
         <div className="flex items-center justify-between border-b border-border pr-3">
           <TabsList>
             <TabsTrigger value="editor">{t('managed.skills.editor')}</TabsTrigger>
+            <TabsTrigger value="metadata">{t('managed.skills.metadata')}</TabsTrigger>
             <TabsTrigger value="versions">
               {t('managed.skills.versionHistory')}
             </TabsTrigger>
@@ -665,13 +811,14 @@ function SkillEditor({
 
       {/* Tab content */}
       {editorTab === 'editor' && (
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {isEditingFile ? (
-            <div className="flex h-full flex-col">
-              <div className="mb-2 text-sm font-medium text-muted-foreground">
-                {selectedFile.file_name}
+            <div className="flex h-full min-h-0 flex-col overflow-hidden">
+              <div className="shrink-0 border-b border-border bg-muted/10 px-4 py-2 text-xs text-muted-foreground">
+                <FileText className="mr-1 inline h-3 w-3" />
+                {selectedFile.path}{selectedFile.file_name}
               </div>
-              <div className="min-h-0 flex-1 overflow-hidden rounded-md border border-border">
+              <div className="min-h-0 flex-1 overflow-hidden">
                 <SkillCodeEditor
                   value={fileContent}
                   onChange={setFileContent}
@@ -683,146 +830,52 @@ function SkillEditor({
               </div>
             </div>
           ) : (
-            <div className="mx-auto max-w-3xl space-y-5">
-              {/* Name + License + Visibility row */}
-              <div className="grid grid-cols-[1fr,160px,160px] gap-3">
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <label className="text-xs font-medium text-muted-foreground">
-                      {t('managed.skills.name')}
-                    </label>
-                    <span className="text-[10px] tabular-nums text-muted-foreground/50">
-                      {form.name.length}/64
-                    </span>
-                  </div>
-                  <Input
-                    value={form.name}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        name: e.target.value.slice(0, 64),
-                      })
-                    }
-                    placeholder={t('managed.skills.namePlaceholder')}
-                    className="h-8 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                    {t('managed.skills.license')}
-                  </label>
-                  <Input
-                    value={form.license}
-                    onChange={(e) =>
-                      setForm({ ...form, license: e.target.value })
-                    }
-                    placeholder="MIT"
-                    className="h-8 text-sm"
-                  />
-                </div>
-                {/* Visibility selector (P2.8) — drives the four-tier
-                    sharing surface; legacy ``is_public`` derives from
-                    this on submit. */}
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                    {t('managed.skills.visibility.label')}
-                  </label>
-                  <Select
-                    value={form.visibility || 'private'}
-                    onValueChange={(v) =>
-                      setForm({
-                        ...form,
-                        visibility: v,
-                        // Keep legacy is_public in sync so any cached
-                        // read still landing on the old column matches
-                        // the new column.
-                        is_public: v === 'public',
-                      })
-                    }
+            /* SKILL.md — full-width, flush with the pane (no centered card),
+               matching the sub-file editor. Metadata lives in its own tab. */
+            <div className="flex h-full min-h-0 flex-col overflow-hidden">
+              <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/10 px-4 py-2">
+                <span className="flex items-center text-xs text-muted-foreground">
+                  <FileText className="mr-1 inline h-3 w-3" />
+                  SKILL.md
+                </span>
+                <div className="flex items-center gap-px rounded-md bg-muted p-0.5">
+                  <button
+                    onClick={() => setContentMode('edit')}
+                    className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] transition-colors ${
+                      contentMode === 'edit'
+                        ? 'bg-background font-medium text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
                   >
-                    <SelectTrigger className="h-8 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="private" title={t('managed.skills.visibility.privateHint')}>{t('managed.skills.visibility.private')}</SelectItem>
-                      <SelectItem value="project" title={t('managed.skills.visibility.projectHint')}>{t('managed.skills.visibility.project')}</SelectItem>
-                      <SelectItem value="organization" title={t('managed.skills.visibility.organizationHint')}>{t('managed.skills.visibility.organization')}</SelectItem>
-                      <SelectItem value="public" title={t('managed.skills.visibility.publicHint')}>{t('managed.skills.visibility.public')}</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    <Pencil className="h-3 w-3" />
+                    {t('managed.skills.edit')}
+                  </button>
+                  <button
+                    onClick={() => setContentMode('preview')}
+                    className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] transition-colors ${
+                      contentMode === 'preview'
+                        ? 'bg-background font-medium text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Eye className="h-3 w-3" />
+                    {t('managed.skills.preview')}
+                  </button>
                 </div>
               </div>
 
-              {/* Description */}
-              <div>
-                <div className="mb-1.5 flex items-center justify-between">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    {t('managed.skills.description')}
-                  </label>
-                  <span className="text-[10px] tabular-nums text-muted-foreground/50">
-                    {form.description.length}/1024
-                  </span>
-                </div>
-                <textarea
-                  value={form.description}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      description: e.target.value.slice(0, 1024),
-                    })
-                  }
-                  placeholder={t('managed.skills.descriptionPlaceholder')}
-                  rows={2}
-                  className="w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-              </div>
-
-              {/* Divider */}
-              <div className="border-t border-border" />
-
-              {/* Content editor */}
-              <div className="overflow-hidden rounded-lg border border-border">
-                <div className="flex items-center justify-between border-b border-border bg-muted/40 px-3 py-1.5">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    {t('managed.skills.contentMarkdown')}
-                  </span>
-                  <div className="flex items-center gap-px rounded-md bg-muted p-0.5">
-                    <button
-                      onClick={() => setContentMode('edit')}
-                      className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] transition-colors ${
-                        contentMode === 'edit'
-                          ? 'bg-background font-medium text-foreground shadow-sm'
-                          : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      <Pencil className="h-3 w-3" />
-                      {t('managed.skills.edit')}
-                    </button>
-                    <button
-                      onClick={() => setContentMode('preview')}
-                      className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] transition-colors ${
-                        contentMode === 'preview'
-                          ? 'bg-background font-medium text-foreground shadow-sm'
-                          : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      <Eye className="h-3 w-3" />
-                      {t('managed.skills.preview')}
-                    </button>
-                  </div>
-                </div>
-
+              <div className="min-h-0 flex-1 overflow-hidden">
                 {contentMode === 'edit' ? (
                   <SkillCodeEditor
                     value={form.content}
                     onChange={(value) => setForm({ ...form, content: value })}
                     fileType="markdown"
                     fileName="SKILL.md"
-                    minHeight="420px"
-                    height="420px"
+                    minHeight="100%"
+                    height="100%"
                   />
                 ) : (
-                  <div className="min-h-[300px] bg-background p-4">
+                  <div className="h-full overflow-y-auto bg-background p-6">
                     {form.content ? (
                       <div className="prose prose-sm max-w-none dark:prose-invert">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -842,117 +895,192 @@ function SkillEditor({
         </div>
       )}
 
+      {editorTab === 'metadata' && (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="w-full space-y-5 overflow-y-auto p-6">
+            {/* Name + License + Visibility row */}
+            <div className="grid grid-cols-[1fr,200px,200px] gap-4">
+              <div>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    {t('managed.skills.name')}
+                  </label>
+                  <span className="text-[10px] tabular-nums text-muted-foreground/50">
+                    {form.name.length}/64
+                  </span>
+                </div>
+                <Input
+                  value={form.name}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      name: e.target.value.slice(0, 64),
+                    })
+                  }
+                  placeholder={t('managed.skills.namePlaceholder')}
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                  {t('managed.skills.license')}
+                </label>
+                <Input
+                  value={form.license}
+                  onChange={(e) =>
+                    setForm({ ...form, license: e.target.value })
+                  }
+                  placeholder="MIT"
+                  className="h-8 text-sm"
+                />
+              </div>
+              {/* Visibility selector (P2.8) — drives the four-tier
+                  sharing surface; legacy ``is_public`` derives from
+                  this on submit. */}
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                  {t('managed.skills.visibility.label')}
+                </label>
+                <Select
+                  value={form.visibility || 'private'}
+                  onValueChange={(v) =>
+                    setForm({
+                      ...form,
+                      visibility: v,
+                      // Keep legacy is_public in sync so any cached
+                      // read still landing on the old column matches
+                      // the new column.
+                      is_public: v === 'public',
+                    })
+                  }
+                >
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="private" title={t('managed.skills.visibility.privateHint')}>{t('managed.skills.visibility.private')}</SelectItem>
+                    <SelectItem value="project" title={t('managed.skills.visibility.projectHint')}>{t('managed.skills.visibility.project')}</SelectItem>
+                    <SelectItem value="organization" title={t('managed.skills.visibility.organizationHint')}>{t('managed.skills.visibility.organization')}</SelectItem>
+                    <SelectItem value="public" title={t('managed.skills.visibility.publicHint')}>{t('managed.skills.visibility.public')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Description */}
+            <div>
+              <div className="mb-1.5 flex items-center justify-between">
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t('managed.skills.description')}
+                </label>
+                <span className="text-[10px] tabular-nums text-muted-foreground/50">
+                  {form.description.length}/1024
+                </span>
+              </div>
+              <textarea
+                value={form.description}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    description: e.target.value.slice(0, 1024),
+                  })
+                }
+                placeholder={t('managed.skills.descriptionPlaceholder')}
+                rows={8}
+                className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+
+            {/* Tags */}
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                {t('managed.skills.tags')}
+              </label>
+              <Input
+                value={form.tags}
+                onChange={(e) => setForm({ ...form, tags: e.target.value })}
+                placeholder={t('managed.skills.tagsPlaceholder')}
+                className="h-8 text-sm"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {editorTab === 'versions' && (
         <div className="flex-1 overflow-y-auto p-4">
-          <div className="mx-auto max-w-2xl">
-            {/* Create snapshot */}
-            <div className="mb-6">
-              {showVersionForm ? (
-                <div className="rounded-lg border border-dashed border-primary/30 bg-primary/[0.03] p-4">
-                  <div className="mb-3 flex items-center gap-2 text-sm font-medium">
-                    <Camera className="h-4 w-4 text-primary" />
-                    {t('managed.skills.createVersionBtn')}
-                  </div>
-                  {(() => {
-                    const trimmed = newVersionStr.trim()
-                    const semverOk = trimmed === '' || /^\d+\.\d+\.\d+$/.test(trimmed)
-                    const highest = (() => {
-                      const candidates = versions
-                        .map((v) => v.version)
-                        .filter((v) => /^\d+\.\d+\.\d+$/.test(v))
-                      if (candidates.length === 0) return null
-                      candidates.sort((a, b) => {
-                        const pa = a.split('.').map(Number)
-                        const pb = b.split('.').map(Number)
-                        for (let i = 0; i < 3; i++) {
-                          if (pa[i] !== pb[i]) return pb[i] - pa[i]
-                        }
-                        return 0
-                      })
-                      return candidates[0]
-                    })()
-                    return (
-                      <>
-                        <div className="mb-3">
-                          <input
-                            type="text"
-                            value={newVersionStr}
-                            onChange={(e) => setNewVersionStr(e.target.value)}
-                            placeholder={t(
-                              'managed.skills.versionInputPlaceholder',
-                              'Version (e.g. 1.2.0) — leave empty to auto-bump patch',
-                            )}
-                            className={`w-full rounded-md border bg-background px-3 py-2 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-ring ${
-                              semverOk ? 'border-border' : 'border-red-500'
-                            }`}
-                          />
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            {!semverOk
-                              ? t(
-                                  'managed.skills.versionInvalidSemver',
-                                  'Must be MAJOR.MINOR.PATCH (e.g. 1.2.0)',
-                                )
-                              : highest
-                                ? t(
-                                    'managed.skills.versionCurrentHighest',
-                                    'Current highest: v{{v}}. New version must be greater.',
-                                    { v: highest },
-                                  )
-                                : t(
-                                    'managed.skills.versionFirstHint',
-                                    'Leave empty to start at v0.1.0.',
-                                  )}
-                          </div>
-                        </div>
-                        <textarea
-                          value={newReleaseNotes}
-                          onChange={(e) => setNewReleaseNotes(e.target.value)}
-                          placeholder={t('managed.skills.releaseNotesPlaceholder')}
-                          rows={2}
-                          className="w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                        />
-                        <div className="mt-3 flex justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 text-xs"
-                            onClick={() => {
-                              setShowVersionForm(false)
-                              setNewReleaseNotes('')
-                              setNewVersionStr('')
-                            }}
-                          >
-                            {t('managed.skills.cancel')}
-                          </Button>
-                          <Button
-                            size="sm"
-                            className="h-7 text-xs"
-                            disabled={isCreatingVersion || !semverOk}
-                            onClick={() => {
-                              onCreateVersion(newReleaseNotes.trim(), trimmed || undefined)
-                              setShowVersionForm(false)
-                              setNewReleaseNotes('')
-                              setNewVersionStr('')
-                            }}
-                          >
-                            <Camera className="mr-1 h-3 w-3" />
-                            {t('managed.skills.createVersionBtn')}
-                          </Button>
-                        </div>
-                      </>
-                    )
-                  })()}
-                </div>
-              ) : (
+          {diffTarget ? (
+            <div className="w-full">
+              {/* Diff header: back + title + view toggle */}
+              <div className="mb-3 flex items-center gap-2">
                 <button
-                  onClick={() => setShowVersionForm(true)}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-3 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/[0.02] hover:text-foreground"
+                  type="button"
+                  onClick={() => setDiffTarget(null)}
+                  className="flex items-center gap-1 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 >
-                  <Plus className="h-4 w-4" />
-                  {t('managed.skills.createVersionBtn')}
+                  <ArrowLeft className="h-4 w-4" />
+                  {t('managed.skills.diffBackToVersions')}
                 </button>
-              )}
+                <div className="flex items-center gap-2 font-mono text-sm">
+                  <span className="rounded bg-muted px-1.5 py-0.5">{formatVersion(diffTarget.fromVersion)}</span>
+                  <span className="text-muted-foreground">→</span>
+                  <span className="rounded bg-muted px-1.5 py-0.5">{formatVersion(diffTarget.toVersion)}</span>
+                </div>
+                {/* Unified / Split toggle */}
+                <div className="ml-auto flex items-center gap-px rounded-md bg-muted p-0.5">
+                  {(['unified', 'split'] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setDiffMode(m)}
+                      className={`rounded px-2.5 py-1 text-xs transition-colors ${
+                        diffMode === m
+                          ? 'bg-background font-medium text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {m === 'unified'
+                        ? t('managed.skills.diffViewUnified')
+                        : t('managed.skills.diffViewSplit')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {diffLoading ? (
+                <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  {t('common.loading')}
+                </div>
+              ) : versionDiff ? (
+                <>
+                  {/* Summary bar */}
+                  <div className="mb-2.5 flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-1.5 font-mono text-xs">
+                    <span className="text-muted-foreground">
+                      {t('managed.skills.versionDiffFilesChanged', { count: versionDiff.changedCount })}
+                    </span>
+                    <span className="ml-auto flex items-center gap-2">
+                      <span className="text-green-600 dark:text-green-400">+{versionDiff.totalAdded}</span>
+                      <span className="text-red-600 dark:text-red-400">−{versionDiff.totalRemoved}</span>
+                    </span>
+                  </div>
+                  <SkillVersionDiffView diff={versionDiff} mode={diffMode} />
+                </>
+              ) : null}
             </div>
+          ) : (
+          <div className="max-w-4xl">
+            {versions.length > 0 && (
+              <div className="mb-3 flex items-center gap-2">
+                <History className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium text-foreground">
+                  {t('managed.skills.versionHistory')}
+                </span>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  {versions.length}
+                </span>
+              </div>
+            )}
 
             {versions.length === 0 ? (
               <div className="flex flex-col items-center gap-2 py-16 text-center">
@@ -962,70 +1090,202 @@ function SkillEditor({
                 </p>
               </div>
             ) : (
-              <div className="relative">
-                {/* Timeline line */}
-                <div className="absolute left-[11px] top-2 bottom-2 w-px bg-border" />
-
-                <div className="space-y-0">
-                  {versions.map((v, idx) => (
-                    <div
-                      key={v.id}
-                      className="group relative flex gap-4 py-3"
-                    >
-                      {/* Timeline dot */}
-                      <div className="relative z-10 mt-1 flex h-[23px] w-[23px] shrink-0 items-center justify-center">
-                        <div
-                          className={`h-2.5 w-2.5 rounded-full ${
-                            idx === 0
-                              ? 'bg-primary ring-2 ring-primary/20'
-                              : 'bg-muted-foreground/30'
-                          }`}
-                        />
+              <div className="space-y-3">
+                {versions.map((v, idx) => (
+                  <div key={v.id} className="flex gap-3">
+                    {/* Time column — the timeline axis */}
+                    <div className="w-24 shrink-0 pt-[13px] text-right leading-tight">
+                      <div className="text-xs font-medium text-foreground/80">
+                        {timelineDateParts(v.created_at, i18n.language).date}
                       </div>
-
-                      {/* Content */}
-                      <div className="min-w-0 flex-1 rounded-lg border border-transparent px-3 py-2 transition-colors group-hover:border-border group-hover:bg-muted/30">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 font-mono text-xs font-medium">
-                                {formatVersion(v.version)}
-                              </span>
-                              {idx === 0 && (
-                                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-                                  latest
-                                </span>
-                              )}
-                            </div>
-                            {v.release_notes && (
-                              <p className="mt-1.5 text-sm text-muted-foreground">
-                                {v.release_notes}
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex shrink-0 items-center gap-1 pt-0.5 text-[11px] text-muted-foreground/60">
-                            <Clock className="h-3 w-3" />
-                            {timeAgo(v.created_at, i18n.language)}
-                            <button
-                              type="button"
-                              aria-label={t('managed.skills.deleteVersion', 'Delete version')}
-                              title={t('managed.skills.deleteVersion', 'Delete version')}
-                              onClick={() => setDeleteState({ version: v.version })}
-                              className="ml-1 rounded p-1 text-muted-foreground/60 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        </div>
+                      <div className="text-[11px] tabular-nums text-muted-foreground/60">
+                        {timelineDateParts(v.created_at, i18n.language).time}
                       </div>
                     </div>
-                  ))}
-                </div>
+                    {/* Rail + node */}
+                    <div className="relative flex w-3 shrink-0 justify-center">
+                      {idx < versions.length - 1 && (
+                        <span className="absolute top-6 bottom-[-12px] w-px bg-border" />
+                      )}
+                      <span
+                        className={`absolute top-[15px] flex h-3.5 w-3.5 items-center justify-center rounded-full ring-4 ring-background ${
+                          idx === 0 ? 'bg-primary' : 'bg-muted-foreground/30'
+                        }`}
+                      >
+                        {idx === 0 && <span className="h-1.5 w-1.5 rounded-full bg-background" />}
+                      </span>
+                    </div>
+                    {/* Content card */}
+                    <div
+                      className={`group relative min-w-0 flex-1 overflow-hidden rounded-xl border bg-card p-4 transition-all hover:shadow-md ${
+                        idx === 0
+                          ? 'border-primary/40 bg-gradient-to-br from-primary/[0.04] to-transparent'
+                          : 'border-border/60 hover:border-border'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 font-mono text-sm font-semibold text-foreground">
+                            {formatVersion(v.version)}
+                          </span>
+                          {idx === 0 && (
+                            <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                              latest
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          {idx < versions.length - 1 && (
+                            <button
+                              type="button"
+                              aria-label={t('managed.skills.compareWithPrevious')}
+                              title={t('managed.skills.compareWithPrevious')}
+                              onClick={() =>
+                                setDiffTarget({
+                                  fromVersion: versions[idx + 1].version,
+                                  toVersion: v.version,
+                                })
+                              }
+                              className="flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                            >
+                              <GitCompare className="h-3.5 w-3.5" />
+                              {t('managed.skills.compareWithPrevious')}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            aria-label={t('managed.skills.deleteVersion', 'Delete version')}
+                            title={t('managed.skills.deleteVersion', 'Delete version')}
+                            onClick={() => setDeleteState({ version: v.version })}
+                            className="rounded-md p-1.5 text-muted-foreground/50 opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                      {v.release_notes && (
+                        <p className="mt-2.5 whitespace-pre-wrap border-l-2 border-border/50 pl-3 text-sm text-muted-foreground">
+                          {v.release_notes}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
+          )}
         </div>
       )}
+
+      {/* Publish version dialog — mounted at SkillEditor top level so it works
+          from any tab (the entry button lives in the global action bar). */}
+      <Dialog
+        open={showVersionForm}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowVersionForm(false)
+            setNewReleaseNotes('')
+            setNewVersionStr('')
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Camera className="h-4 w-4 text-primary" />
+              {t('managed.skills.createVersionBtn')}
+            </DialogTitle>
+          </DialogHeader>
+          {(() => {
+            const trimmed = newVersionStr.trim()
+            const semverOk = trimmed === '' || /^\d+\.\d+\.\d+$/.test(trimmed)
+            const highest = (() => {
+              const candidates = versions
+                .map((v) => v.version)
+                .filter((v) => /^\d+\.\d+\.\d+$/.test(v))
+              if (candidates.length === 0) return null
+              candidates.sort((a, b) => {
+                const pa = a.split('.').map(Number)
+                const pb = b.split('.').map(Number)
+                for (let i = 0; i < 3; i++) {
+                  if (pa[i] !== pb[i]) return pb[i] - pa[i]
+                }
+                return 0
+              })
+              return candidates[0]
+            })()
+            return (
+              <>
+                <div className="space-y-3 py-2">
+                  <div>
+                    <input
+                      type="text"
+                      value={newVersionStr}
+                      onChange={(e) => setNewVersionStr(e.target.value)}
+                      placeholder={t(
+                        'managed.skills.versionInputPlaceholder',
+                        'Version (e.g. 1.2.0) — leave empty to auto-bump patch',
+                      )}
+                      className={`w-full rounded-md border bg-background px-3 py-2 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-ring ${
+                        semverOk ? 'border-border' : 'border-red-500'
+                      }`}
+                    />
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {!semverOk
+                        ? t(
+                            'managed.skills.versionInvalidSemver',
+                            'Must be MAJOR.MINOR.PATCH (e.g. 1.2.0)',
+                          )
+                        : highest
+                          ? t(
+                              'managed.skills.versionCurrentHighest',
+                              'Current highest: v{{v}}. New version must be greater.',
+                              { v: highest },
+                            )
+                          : t(
+                              'managed.skills.versionFirstHint',
+                              'Leave empty to start at v0.1.0.',
+                            )}
+                    </div>
+                  </div>
+                  <textarea
+                    value={newReleaseNotes}
+                    onChange={(e) => setNewReleaseNotes(e.target.value)}
+                    placeholder={t('managed.skills.releaseNotesPlaceholder')}
+                    rows={3}
+                    className="w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowVersionForm(false)
+                      setNewReleaseNotes('')
+                      setNewVersionStr('')
+                    }}
+                  >
+                    {t('managed.skills.cancel')}
+                  </Button>
+                  <Button
+                    disabled={isCreatingVersion || !semverOk}
+                    onClick={() => {
+                      onCreateVersion(newReleaseNotes.trim(), trimmed || undefined)
+                      setShowVersionForm(false)
+                      setNewReleaseNotes('')
+                      setNewVersionStr('')
+                    }}
+                  >
+                    <Camera className="mr-1 h-4 w-4" />
+                    {t('managed.skills.createVersionBtn')}
+                  </Button>
+                </DialogFooter>
+              </>
+            )
+          })()}
+        </DialogContent>
+      </Dialog>
 
       {/* Delete version dialog (handles 409 SKILL_VERSION_IN_USE with force-confirm) */}
       <Dialog
@@ -1105,6 +1365,7 @@ function SkillEditor({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
     </div>
   )
 }
@@ -1115,16 +1376,23 @@ export default function SkillManagerPage() {
   const { t } = useTranslation()
   const { toast } = useToast()
   const queryClient = useQueryClient()
+  const router = useRouter()
 
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null)
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
-  const [showCreateDialog, setShowCreateDialog] = useState(false)
+  // Which workspace tab is active. Lifted here (out of SkillEditor) so the
+  // header's Save button can decide what to persist: on the Metadata tab
+  // we always save the skill-level form, regardless of which file happens
+  // to be selected in the tree.
+  const [editorTab, setEditorTab] = useState<'editor' | 'metadata' | 'versions'>('editor')
+  // Lifted so the "publish version" button can live in the top-right action
+  // group while the form itself renders inside SkillEditor's versions tab.
+  const [showVersionForm, setShowVersionForm] = useState(false)
   const [showAddFileDialog, setShowAddFileDialog] = useState(false)
   const [newFileMode, setNewFileMode] = useState<'file' | 'folder'>('file')
   const [newFileDir, setNewFileDir] = useState('')
   const [newFileName, setNewFileName] = useState('')
   const [newFileType, setNewFileType] = useState('text')
-  const [newSkillName, setNewSkillName] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [deleteFileTarget, setDeleteFileTarget] = useState<string | null>(null)
   const [deleteFolderTarget, setDeleteFolderTarget] = useState<string | null>(
@@ -1214,6 +1482,23 @@ export default function SkillManagerPage() {
     enabled: !!selectedSkillId,
   })
 
+  // Files of the latest published version — used to detect "unpublished
+  // changes" across the WHOLE package (SKILL.md + sub-files), not just the
+  // main content. Only fetched when at least one version exists.
+  const latestPublishedVersion = versions.length > 0 ? versions[0].version : null
+  const { data: latestVersionFiles = [] } = useQuery({
+    queryKey: ['skill-version-files', selectedSkillId, latestPublishedVersion],
+    queryFn: async () => {
+      const res = await managedGet<{ data: SkillFileRecord[] } | SkillFileRecord[]>(
+        `/skills/${stripId(selectedSkillId!)}/versions/${encodeURIComponent(
+          latestPublishedVersion!,
+        )}/files`,
+      )
+      return Array.isArray(res) ? res : res.data || []
+    },
+    enabled: !!selectedSkillId && !!latestPublishedVersion,
+  })
+
   const {
     data: securityScans = [],
     isFetching: securityScansFetching,
@@ -1277,6 +1562,27 @@ export default function SkillManagerPage() {
   const isDirty = JSON.stringify(form) !== JSON.stringify(formSnapshot)
   const isFileDirty = fileContent !== fileContentSnapshot
 
+  // "Unpublished changes" — the current skill package (all files, not just
+  // SKILL.md) differs from the latest published version snapshot. We diff the
+  // live saved files against the version's files, and additionally compare the
+  // live form content so unsaved SKILL.md edits count too.
+  const latestVersion = versions.length > 0 ? versions[0] : null
+  const hasUnpublishedChanges = useMemo(() => {
+    if (!latestVersion) return false
+    // Unsaved edit to the main doc vs the published snapshot.
+    if ((form.content || '') !== (latestVersion.content || '')) return true
+    // Any file added / removed / modified across the whole package.
+    if (latestVersionFiles.length > 0 || skillFiles.length > 0) {
+      const d = diffSkillVersionFiles(latestVersionFiles, skillFiles)
+      if (d.changedCount > 0) return true
+    }
+    return false
+  }, [latestVersion, form.content, latestVersionFiles, skillFiles])
+
+  // High-risk gate — a skill blocked by the security scan cannot be published
+  // (the backend rejects it too; this disables the entry points client-side).
+  const securityBlocked = selectedSkill?.security_scan?.status === 'blocked'
+
   // -- Saved flash helper --
 
   const triggerFlash = useCallback(() => {
@@ -1286,25 +1592,6 @@ export default function SkillManagerPage() {
   }, [])
 
   // -- Mutations --
-
-  const createMutation = useMutation({
-    mutationFn: (name: string) =>
-      managedPost<SkillRecord>('/skills', {
-        name,
-        description: '',
-        content: '',
-      }),
-    onSuccess: (skill) => {
-      queryClient.invalidateQueries({ queryKey: ['skills'] })
-      setSelectedSkillId(skill.id)
-      setSelectedFileId(null)
-      setShowCreateDialog(false)
-      setNewSkillName('')
-    },
-    onError: (error) => {
-      toastOperationError(t, error, 'common.operationFailed')
-    },
-  })
 
   const importFolderMutation = useMutation({
     mutationFn: async (fileList: File[]) => {
@@ -1596,6 +1883,74 @@ export default function SkillManagerPage() {
     },
   })
 
+  // Drag-and-drop move. A file move is a single PUT changing its ``path``
+  // (directory); a folder move batch-PUTs every file under the folder prefix.
+  const moveMutation = useMutation({
+    mutationFn: async ({ source, destFolder }: { source: MoveSource; destFolder: string }) => {
+      const dest = destFolder ? destFolder.replace(/\/*$/, '/') : ''
+      const sid = stripId(selectedSkillId!)
+
+      if (source.kind === 'file') {
+        if (source.path === dest) return // no-op: already there
+        if (skillFiles.some((f) => f.path === dest && f.id === source.id)) return
+        // Conflict: a different file with the same name already sits in dest.
+        const movingFile = skillFiles.find((f) => f.id === source.id)
+        if (
+          movingFile &&
+          skillFiles.some(
+            (f) => f.id !== source.id && f.path === dest && f.file_name === movingFile.file_name,
+          )
+        ) {
+          throw new Error('MOVE_CONFLICT')
+        }
+        await managedPut<SkillFileRecord>(
+          `/skills/${sid}/files/${stripId(source.id)}`,
+          { path: dest },
+          { timeout: SKILL_SCAN_TIMEOUT_MS },
+        )
+        return
+      }
+
+      // Folder move.
+      const srcFolder = source.path.replace(/\/*$/, '/')
+      const folderName = srcFolder.replace(/\/$/, '').split('/').pop() || ''
+      const currentParent = srcFolder.slice(0, srcFolder.length - (folderName.length + 1))
+      if (dest === currentParent) return // no-op
+      if (dest === srcFolder || dest.startsWith(srcFolder)) {
+        throw new Error('MOVE_INTO_SELF')
+      }
+      const affected = skillFiles.filter((f) => f.path.startsWith(srcFolder))
+      const existing = new Set(skillFiles.map((f) => f.path + f.file_name))
+      await Promise.all(
+        affected.map((f) => {
+          const rest = f.path.slice(srcFolder.length) // sub-dir tail
+          const newDir = `${dest}${folderName}/${rest}`
+          if (newDir !== f.path && existing.has(newDir + f.file_name)) {
+            throw new Error('MOVE_CONFLICT')
+          }
+          return managedPut<SkillFileRecord>(
+            `/skills/${sid}/files/${stripId(f.id)}`,
+            { path: newDir },
+            { timeout: SKILL_SCAN_TIMEOUT_MS },
+          )
+        }),
+      )
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['skill-files', selectedSkillId] })
+      queryClient.invalidateQueries({ queryKey: ['skills'] })
+      queryClient.invalidateQueries({ queryKey: ['skill', selectedSkillId] })
+      queryClient.invalidateQueries({ queryKey: ['skill-security-scans', selectedSkillId] })
+    },
+    onError: (error) => {
+      if (error instanceof Error && (error.message === 'MOVE_CONFLICT' || error.message === 'MOVE_INTO_SELF')) {
+        toast({ title: t('managed.skills.moveConflict'), variant: 'destructive' })
+        return
+      }
+      toastOperationError(t, error, 'common.operationFailed')
+    },
+  })
+
   const createVersionMutation = useMutation({
     mutationFn: ({ releaseNotes, version }: { releaseNotes: string; version?: string }) =>
       managedPost<SkillVersionRecord>(
@@ -1714,9 +2069,12 @@ export default function SkillManagerPage() {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault()
-        if (selectedFileId && isFileDirty) {
+        // Mirror the Save button: only save a file on the Editor tab;
+        // otherwise save the skill-level metadata form.
+        const savingFile = editorTab === 'editor' && !!selectedFileId
+        if (savingFile && isFileDirty) {
           saveFileMutation.mutate()
-        } else if (selectedSkillId && isDirty) {
+        } else if (!savingFile && selectedSkillId && isDirty) {
           saveMutation.mutate()
         }
       }
@@ -1726,6 +2084,7 @@ export default function SkillManagerPage() {
   }, [
     selectedSkillId,
     selectedFileId,
+    editorTab,
     isDirty,
     isFileDirty,
     saveMutation,
@@ -1794,7 +2153,7 @@ export default function SkillManagerPage() {
       {
         key: 'description',
         header: t('managed.skills.description'),
-        width: '30%',
+        width: '18%',
         render: (s) => (
           <span className="block truncate text-muted-foreground">
             {s.description || '-'}
@@ -1826,17 +2185,13 @@ export default function SkillManagerPage() {
       {
         key: 'security',
         header: t('managed.table.security'),
-        width: '12%',
+        width: '20%',
         render: (s) => {
           const score = skillSecurityScore(s)
           return (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-nowrap items-center gap-2 whitespace-nowrap">
               <SkillSecurityBadge status={s.security_scan?.status} />
-              {score !== null && (
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  {t('managed.skills.securityScore', { score })}
-                </span>
-              )}
+              {score !== null && <SkillRiskScoreBadge score={score} />}
             </div>
           )
         },
@@ -1876,10 +2231,10 @@ export default function SkillManagerPage() {
               </Button>
               <Button
                 className="h-10 gap-2 px-4 text-sm font-medium leading-none"
-                onClick={() => setShowCreateDialog(true)}
+                onClick={() => router.push('/managed/skills/new-ai?new=1')}
               >
-                <Plus className="h-4 w-4" strokeWidth={2.25} />
-                {t('managed.skills.new')}
+                <Sparkles className="h-4 w-4" strokeWidth={2.25} />
+                {t('managed.skills.aiAuthor.entry')}
               </Button>
             </div>
           }
@@ -2006,45 +2361,6 @@ export default function SkillManagerPage() {
           </DialogContent>
         </Dialog>
 
-        <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{t('managed.skills.createTitle')}</DialogTitle>
-              <DialogDescription>
-                {t('managed.skills.createDescription')}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="py-4">
-              <Input
-                value={newSkillName}
-                onChange={(e) => setNewSkillName(e.target.value)}
-                placeholder={t('managed.skills.namePlaceholder')}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newSkillName.trim()) {
-                    createMutation.mutate(newSkillName.trim())
-                  }
-                }}
-              />
-            </div>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => setShowCreateDialog(false)}
-              >
-                {t('managed.skills.cancel')}
-              </Button>
-              <Button
-                onClick={() => createMutation.mutate(newSkillName.trim())}
-                disabled={!newSkillName.trim() || createMutation.isPending}
-              >
-                {createMutation.isPending
-                  ? t('managed.skills.creating')
-                  : t('managed.skills.create')}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
         <ConfirmDialog
           open={deleteTarget !== null}
           title={t('managed.skills.deleteSkill')}
@@ -2062,7 +2378,11 @@ export default function SkillManagerPage() {
 
   // -- Editor View (skill selected) --
   const selectedFile = skillFiles.find((file) => file.id === selectedFileId)
-  const isEditingFile = selectedFileId !== null && selectedFile !== undefined
+  // The Save button saves a FILE only when the Editor tab is showing an
+  // actual file. On the Metadata / Versions tabs it always saves the
+  // skill-level metadata form, no matter which file the tree has selected.
+  const isEditingFile =
+    editorTab === 'editor' && selectedFileId !== null && selectedFile !== undefined
   const canSave = isEditingFile ? isFileDirty : isDirty
   const selectedSecurityScore = skillSecurityScore(selectedSkill)
   const securityTriggerLabels: Record<string, string> = {
@@ -2075,80 +2395,21 @@ export default function SkillManagerPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col px-6 py-5">
+    <div className="flex h-screen flex-col px-6 py-5 -m-5">
       <div className="shrink-0">
         <PageHeader
           title={selectedSkill.name}
           titleExtra={(
             <div className="flex items-center gap-2 flex-wrap">
+              {/* Visibility is shown here as a read-only badge. Editing it
+                  lives in the Metadata form (SkillEditor), so the header
+                  stays a status snapshot rather than a control surface. */}
               <SkillStatusBadges skill={selectedSkill} />
-              {/* Visibility selector lives in the header so it's always
-                  reachable, regardless of whether the user is editing a
-                  file or the metadata form. Bound to the same ``form``
-                  state the save mutation reads, so picking a value here
-                  is persisted by the next save. */}
-              <div className="ml-1 flex items-center gap-1.5">
-                <span className="text-[11px] text-muted-foreground">
-                  {t('managed.skills.visibility.label')}
-                </span>
-                <Select
-                  value={form.visibility || (form.is_public ? 'public' : 'private')}
-                  onValueChange={async (v) => {
-                    // Optimistically update local form so the UI
-                    // doesn't flicker.
-                    setForm({
-                      ...form,
-                      visibility: v,
-                      is_public: v === 'public',
-                    })
-                    // Fire a focused PUT carrying ONLY visibility +
-                    // the legacy ``is_public`` mirror. We don't piggy-
-                    // back on ``saveMutation`` because that one bundles
-                    // every editable field (name / description /
-                    // content / tags / ...), and a stray empty value
-                    // there would overwrite real data. The minimal
-                    // payload keeps the change scoped to the dropdown
-                    // the user actually moved.
-                    try {
-                      await managedPut<SkillRecord>(
-                        `/skills/${stripId(selectedSkillId!)}`,
-                        {
-                          visibility: v,
-                          is_public: v === 'public',
-                        },
-                        { timeout: SKILL_SCAN_TIMEOUT_MS },
-                      )
-                      queryClient.invalidateQueries({ queryKey: ['skills'] })
-                      queryClient.invalidateQueries({
-                        queryKey: ['skill', selectedSkillId],
-                      })
-                      toast({
-                        title: t('managed.skills.savedSuccess'),
-                      })
-                    } catch (error) {
-                      toastOperationError(t, error, 'managed.skills.save.failed')
-                    }
-                  }}
-                >
-                  <SelectTrigger className="h-7 w-[110px] text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="private" title={t('managed.skills.visibility.privateHint')}>{t('managed.skills.visibility.private')}</SelectItem>
-                    <SelectItem value="project" title={t('managed.skills.visibility.projectHint')}>{t('managed.skills.visibility.project')}</SelectItem>
-                    <SelectItem value="organization" title={t('managed.skills.visibility.organizationHint')}>{t('managed.skills.visibility.organization')}</SelectItem>
-                    <SelectItem value="public" title={t('managed.skills.visibility.publicHint')}>{t('managed.skills.visibility.public')}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
               {selectedSecurityScore !== null && (
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  {t('managed.skills.securityScore', { score: selectedSecurityScore })}
-                </span>
+                <SkillRiskScoreBadge score={selectedSecurityScore} />
               )}
             </div>
           )}
-          subtitle={selectedFile ? selectedFile.file_name : t('managed.skills.detailSubtitle')}
           breadcrumb={[
             {
               label: t('managed.skills.title'),
@@ -2193,6 +2454,29 @@ export default function SkillManagerPage() {
                   ? t('managed.skills.rescanningSecurity')
                   : t('managed.skills.rescanSecurity')}
               </Button>
+              {!showVersionForm && (
+                <Button
+                  className="relative h-9 gap-2"
+                  onClick={() => setShowVersionForm(true)}
+                  disabled={securityBlocked}
+                  title={
+                    securityBlocked
+                      ? t('managed.skills.publishBlockedBySecurity')
+                      : hasUnpublishedChanges
+                        ? t('managed.skills.unpublishedChanges')
+                        : undefined
+                  }
+                >
+                  <Plus className="h-4 w-4" />
+                  {t('managed.skills.createVersionBtn')}
+                  {hasUnpublishedChanges && !securityBlocked && (
+                    <span className="absolute -right-1 -top-1 flex h-2.5 w-2.5">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" />
+                    </span>
+                  )}
+                </Button>
+              )}
               <Button
                 className="h-9 gap-2"
                 onClick={isEditingFile ? () => saveFileMutation.mutate() : () => saveMutation.mutate()}
@@ -2213,9 +2497,26 @@ export default function SkillManagerPage() {
         />
       )}
 
+      {securityBlocked ? (
+        <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
+          <span className="flex h-2 w-2 shrink-0 rounded-full bg-destructive" />
+          <span className="flex-1 text-destructive">
+            {t('managed.skills.publishBlockedBySecurity')}
+          </span>
+        </div>
+      ) : hasUnpublishedChanges ? (
+        <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm dark:border-amber-800/50 dark:bg-amber-950/30">
+          <span className="flex h-2 w-2 shrink-0 rounded-full bg-amber-500" />
+          <span className="flex-1 text-amber-800 dark:text-amber-200">
+            {t('managed.skills.unpublishedChanges')}
+          </span>
+        </div>
+      ) : null}
+
       <div className="flex min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-background">
         {/* Center panel -- file tree */}
         <SkillWorkspace
+          skillName={selectedSkill.name}
           files={skillFiles}
           selectedFileId={selectedFileId}
           onSelectFile={handleSelectFile}
@@ -2232,6 +2533,7 @@ export default function SkillManagerPage() {
           }}
           onDeleteFile={(id) => setDeleteFileTarget(id)}
           onDeleteFolder={(path) => setDeleteFolderTarget(path)}
+          onMove={(source, destFolder) => moveMutation.mutate({ source, destFolder })}
           isMainSelected={selectedFileId === null}
         />
 
@@ -2253,6 +2555,10 @@ export default function SkillManagerPage() {
           }
           onDeleteVersion={deleteVersion}
           isCreatingVersion={createVersionMutation.isPending}
+          editorTab={editorTab}
+          setEditorTab={setEditorTab}
+          showVersionForm={showVersionForm}
+          setShowVersionForm={setShowVersionForm}
         />
       </div>
 

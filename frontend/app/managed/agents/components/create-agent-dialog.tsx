@@ -55,6 +55,10 @@ interface ManagedListResponse<T> {
 interface SkillListItem {
   id: string
   name: string
+  // Latest published version string, or null/undefined if never published.
+  // Agents can only reference published skills, so the picker hides rows
+  // without a published version.
+  latest_version?: string | null
 }
 
 interface EnvironmentListItem {
@@ -100,7 +104,9 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
     queryKey: ['skills'],
     queryFn: async () => {
       const res = await managedGet<ManagedListResponse<SkillListItem>>('/skills')
-      return res.data || []
+      // Agents can only reference *published* skills — hide draft-only
+      // skills (no published version yet) from the picker entirely.
+      return (res.data || []).filter((s) => !!s.latest_version)
     },
     enabled: open,
   })
