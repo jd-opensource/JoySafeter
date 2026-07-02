@@ -8,7 +8,7 @@
 - Python 3.12+ 与 Node.js 20+（仅本地开发需要）
 - PostgreSQL/Redis 在 Docker 部署场景下会自动包含
 
-## 推荐：Docker 三服务启动
+## 推荐：Docker Compose 部署
 
 ```bash
 cd deploy
@@ -16,7 +16,11 @@ cp .env.example .env
 cd ../backend && cp env.example .env
 cd ../frontend && cp env.example .env
 cd ../deploy
-docker compose up -d --build
+
+# 通过 profile 选择 orchestrator 实现：
+docker compose --profile python-orchestrator up -d --build
+# 或使用 Rust 版 orchestrator：
+# docker compose --profile rust-orchestrator up -d --build
 ```
 
 访问地址：
@@ -25,15 +29,19 @@ docker compose up -d --build
 - 后端 API：`http://localhost:8000`
 - API 文档：`http://localhost:8000/docs`
 
-后端容器拆分为 `api`、`orchestrator`、`worker`。生产、云数据库/云 Redis、镜像构建等场景请以 [deploy/README.md](deploy/README.md) 为准。
+后端是同一份代码，通过 `JOYSAFETER_SERVICE_ROLE` 拆成三个服务并作为独立容器部署：`api`、
+`orchestrator`、`worker`，同时配套 PostgreSQL、Redis、Envoy（每沙箱出站代理）与
+skillspector（Skill 安全扫描服务）。必须且只能选择一个 orchestrator profile —— Python 与
+Rust 两个版本共用同一容器名和 gRPC 端口 `9090`，不能同时启动。生产、云数据库/云 Redis、镜像
+构建等场景请以 [deploy/README.md](deploy/README.md) 为准。
 
 ## 使用预构建的 Docker 镜像
 
 ```bash
 cd deploy
 cp .env.example .env
-export DOCKER_REGISTRY=docker.io/jdopensource
-docker compose up -d
+# 将镜像相关变量指向已发布的镜像仓库，再带 profile 启动。
+docker compose --profile python-orchestrator up -d
 ```
 
 所有镜像均支持多架构（amd64, arm64）。
@@ -81,9 +89,14 @@ cp env.example .env
 createdb joysafeter
 alembic upgrade head
 
-# 启动服务
+# 启动服务（单进程，JOYSAFETER_SERVICE_ROLE=all 在一个进程内运行三种角色）
 uv run uvicorn app.main:app --reload --port 8000
 ```
+
+> 若需按服务拆分运行（与 compose 部署一致），请分别用各自的入口启动 ——
+> `app.joysafeter_api.main:app`、`app.joysafeter_orchestrator.main:app`、
+> `app.joysafeter_worker.main:app`，并相应设置 `JOYSAFETER_SERVICE_ROLE`。
+> 详见 [DEVELOPMENT.md](DEVELOPMENT.md)。
 
 </details>
 

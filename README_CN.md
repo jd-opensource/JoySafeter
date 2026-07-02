@@ -12,10 +12,9 @@
   <a href="https://www.apache.org/licenses/LICENSE-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache 2.0"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white" alt="Python 3.12+"></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-20+-339933?logo=nodedotjs&logoColor=white" alt="Node.js 20+"></a>
-  <a href="https://github.com/langchain-ai/langgraph"><img src="https://img.shields.io/badge/LangGraph-1.0+-FF6F00?logo=chainlink&logoColor=white" alt="LangGraph"></a>
   <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.122+-009688?logo=fastapi&logoColor=white" alt="FastAPI"></a>
+  <a href="https://nextjs.org/"><img src="https://img.shields.io/badge/Next.js-16-black?logo=nextdotjs&logoColor=white" alt="Next.js 16"></a>
   <a href="#"><img src="https://img.shields.io/badge/MCP-Protocol-purple" alt="MCP Protocol"></a>
-  <a href="#"><img src="https://img.shields.io/badge/DeepAgents-v0.4-red" alt="DeepAgents v0.4"></a>
 </p>
 
 <p align="center">
@@ -31,8 +30,8 @@
 | 挑战 | 传统方式 | JoySafeter |
 |------|---------|------------|
 | APK 漏洞分析 | 手动 MobSF + 工程师人工审查 | 自主 Agent：上传 → 分析 → 出报告 |
-| 渗透测试 | 固定脚本、静态 Playbook | DeepAgents 根据发现实时动态决策 |
-| 工具集成 | 每个工具单独写胶水代码 | 200+ 工具通过 MCP 协议零胶水接入 |
+| 渗透测试 | 固定脚本、静态 Playbook | 自主 Agent 根据发现实时动态决策 |
+| 工具集成 | 每个工具单独写胶水代码 | 通过 MCP 协议零胶水接入任意工具 |
 | 规模扩展 | 人力线性增长 | Agent 团队倍增安全产能 |
 
 > JoySafeter 定义了全新范式：**AI 驱动安全运营（AISecOps）** —— 用多智能体协作、认知记忆进化、场景化战力速配，取代人工协调，实现安全能力的规模化运营。
@@ -72,10 +71,10 @@
 **操作流程：**
 
 1. 进入工作台，创建新 Agent
-2. 开启 **DeepAgents 模式** → 选择渗透测试相关 Skills
+2. 选择执行引擎（Claude Code / Codex / native）→ 选择渗透测试相关 Skills
 3. 输入经过授权的目标地址和测试要求
-4. Agent 自主运行 —— 若发现登录页面，自动触发认证绕过测试
-5. 运行结束后下载完整报告
+4. Agent 在隔离沙箱中自主运行 —— 若发现登录页面，自动触发认证绕过测试
+5. 会话结束后下载完整报告
 
 > **备注：** 需在沙箱设置中配置镜像 `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/jd-opensource/joysafeter-sandbox:latest`。
 
@@ -89,32 +88,31 @@
 <tr>
 <td width="50%">
 
-### 可视化 Agent 构建器
+### Agent 构建器
 
-- **无代码工作流编辑器** —— 拖拽节点，支持循环、条件、并行执行
-- **快速模式** —— 用自然语言描述需求，分钟级生成可运行的 Agent 团队
-- **深度模式** —— 可视化调试 + 逐步可观测，适用于复杂安全研究的持续迭代
+- **一次配置，随处运行** —— 一个 Agent 打包了执行引擎、模型、系统提示词、工具、Skills 与 MCP 服务
+- **Quickstart 快速上手** —— 用自然语言描述目标，分钟级生成可运行的 Agent
+- **AI Skill 创作** —— LLM 辅助的 Skill 起草、代码编辑与版本 diff
 
 </td>
 <td width="50%">
 
-### 200+ 安全工具开箱即用
+### 安全工具开箱即用
 
-- 预集成 **Nmap、Nuclei、Trivy** 等主流工具
+- 预集成 **Nmap、Nuclei、Trivy** 等主流安全工具
 - **MCP 协议** —— 通过模型上下文协议扩展任意工具
-- **30+ 预置技能** —— 渗透测试、文档分析、云安全等
+- **30+ 预置技能** —— 渗透测试、文档分析、规划/元技能等
 
 </td>
 </tr>
 <tr>
 <td width="50%">
 
-### DeepAgents 编排引擎
+### 多引擎执行
 
-- **Manager-Worker 多层级**智能体协作
-- **记忆进化** —— 长短期记忆机制，跨会话持续学习
-- **技能体系** —— 版本化、可复用的能力单元，渐进式披露
-- **LangGraph 引擎** —— 基于图的工作流与完整状态管理
+- **可插拔引擎** —— Claude Code CLI、Codex app-server 以及自研 `native`（`ccb`）引擎，按 Agent 选择
+- **隔离沙箱** —— 每个会话运行在独立加固容器中；沙箱 Provider 包括 Docker（默认）、E2B、Daytona
+- **技能体系** —— 版本化、可复用的能力包，带安全扫描与渐进式披露
 
 </td>
 <td width="50%">
@@ -122,9 +120,9 @@
 ### 企业级就绪
 
 - **多租户** —— 基于角色的工作区隔离与访问控制
-- **全链路审计** —— 执行追踪与合规治理
+- **全链路审计** —— 每个会话的追加式事件日志 + 全链路追踪
 - **SSO 集成** —— GitHub、Google、Microsoft、OIDC（Keycloak、Authentik、GitLab）、JD SSO
-- **多租户沙箱** —— 用户级代码执行隔离，会话间零状态泄露
+- **出站管控** —— 每个沙箱由 Envoy 代理执行默认拒绝的域名白名单
 
 </td>
 </tr>
@@ -134,7 +132,7 @@
 
 ## 快速开始
 
-### Docker 三服务启动（推荐）
+### Docker Compose 部署（推荐）
 
 ```bash
 cd deploy
@@ -142,7 +140,11 @@ cp .env.example .env
 cd ../backend && cp env.example .env
 cd ../frontend && cp env.example .env
 cd ../deploy
-docker compose up -d --build
+
+# 通过 profile 选择 orchestrator 实现：
+docker compose --profile python-orchestrator up -d --build
+# 或使用 Rust 版 orchestrator：
+# docker compose --profile rust-orchestrator up -d --build
 ```
 
 访问地址：
@@ -153,11 +155,13 @@ docker compose up -d --build
 | 后端 API | http://localhost:8000 |
 | API 文档 | http://localhost:8000/docs |
 
-后端默认拆成三个服务：
+后端是同一份代码，通过 `JOYSAFETER_SERVICE_ROLE` 环境变量拆成三个服务，作为独立容器部署：
 
-- `api`：HTTP / WebSocket / 管理接口。
-- `orchestrator`：调度、gRPC、sandbox 生命周期。
-- `worker`：后台任务、reaper、事件落库。
+- `api`：REST `/api/v1/*`、SSE 事件流、通知 WebSocket、鉴权。
+- `orchestrator`：任务调度、gRPC `AgentBridge`、sandbox 生命周期。
+- `worker`：消费 Redis 事件流并将事件落库到 Postgres。
+
+配套基础设施：PostgreSQL、Redis、Envoy（每沙箱出站代理）、skillspector（Skill 安全扫描服务）。
 
 ### 本地测试一键启动
 
@@ -169,7 +173,7 @@ cd deploy
 ### 常用部署命令
 
 ```bash
-./deploy/local-test.sh                    # 本地测试一键启动
+./deploy/local-test.sh                     # 本地测试一键启动
 ./deploy/deploy.sh build                   # 构建前后端镜像
 ./deploy/deploy.sh build --all             # 构建全部镜像
 ```
@@ -188,26 +192,22 @@ cd deploy
 
 **核心设计原则：**
 
-- **值域唯一来源** —— `core/contracts/` 以 Literal 类型 + set 常量定义所有规范化值（状态、错误码、触发来源），杜绝魔术字符串
-- **引擎协议 + 注册表** —— 所有执行引擎实现 `ExecutionEngine` Protocol；`EngineRegistry` 将 `runtime_kind` 映射到引擎实例；添加新引擎只需改 3 个文件
-- **两阶段事件总线** —— 第 1 阶段（持久化 + 状态变迁）共享 DB 事务，原子提交；第 2 阶段（WebSocket + 任务同步）并行扇出
-- **集中化状态机** —— 6 个实体状态机（`Agent`、`Version`、`Release`、`Run`、`Execution`、`Task`），`transition_*()` 是唯一的状态修改入口
-- **规范化错误系统** —— `AppError.to_payload()` 输出规范的 `ErrorDescriptor`（`{code, message, data, source, retryable, user_action}`），HTTP/WS/SSE/DB 各传输路径一致消费
-- **端口/适配器边界** —— `core/ports/` 定义 Protocol 接口；`services/` 提供实现；`core/` 不导入具体服务
-- **OTel 观测追踪** —— `ObservationCollector` 注入 `ExecutionContext`；span 导出到 DB 和 WebSocket，支持实时追踪展示
-- **图式执行** —— 每个 Agent 工作流都是有状态的 LangGraph，支持暂停、恢复与分支
-- **统一 WebSocket 层** —— BaseWsClient 抽象基类；Execution / Notification 客户端共享生命周期、认证与重连逻辑
-- **RAII 沙箱隔离** —— 用户级 Docker 容器，句柄自动释放，会话间零状态泄露
-- **规范化模型标识** —— 全栈统一 (provider_name, model_name) 解析路径：ModelService → ModelFactory
-- **分层技能体系** —— 技能是版本化单元，可自由组合成工作流，互不耦合
+- **三服务、一份代码** —— `api`、`orchestrator`、`worker` 共享同一份代码，在启动时由 `JOYSAFETER_SERVICE_ROLE` 决定行为（`all` 表示单进程本地开发）
+- **调度以 DB 为准** —— API 将任务推入 Redis list 作为唤醒信号；orchestrator 用 `FOR UPDATE SKIP LOCKED` 从 Postgres 认领待处理行
+- **持久化与实时投递解耦** —— 两阶段事件总线分别扇出到 Redis Streams（持久，Worker 消费 → `joysafeter_session_events`）和 Redis Pub/Sub（临时，驱动 SSE 扇出到浏览器）
+- **实时事件走 SSE** —— 浏览器订阅 `GET /api/v1/sessions/{id}/events/stream`（先按 `?after_seq` 从 DB 回放，再接实时）；WebSocket 仅用于 `/ws/notifications`
+- **沙箱内 gRPC 执行** —— Agent 从不在 orchestrator 进程中运行；每会话容器内的 Rust `sandbox-runner` 通过 gRPC `AgentBridge` 协议回连 orchestrator
+- **可插拔引擎** —— `claude`（Claude Code CLI）、`codex`（Codex app-server）、`native`（自研 `ccb` 二进制），按 Agent 的 `engine_kind` 选择
+- **可插拔沙箱** —— Docker（默认，加固）、E2B、Daytona，统一的 `SandboxProvider` SPI
+- **集中化状态机** —— Task、Session、Sandbox、Skill 生命周期均由受保护的 FSM 管理
+- **规范化错误系统** —— `AppError` 输出规范的 `ErrorDescriptor`（`{code, message, data, source, retryable, user_action}`），HTTP 与流式路径一致消费
+- **OTel 观测追踪** —— 全链路 `trace_id` 传播，span 落库
+- **凭据加密** —— Provider API Key 存于 Secrets、MCP 凭据存于 Vaults，均 AES-256-GCM 加密，运行时注入沙箱
+- **分层技能体系** —— Skills 是版本化能力包，使用前经安全扫描（fail-closed）
 
-### 用户操作路径 —— 9 步快速入门
+### 用户操作路径 —— 快速入门
 
-<p align="center">
-  <img src="docs/user-journey-quickstart.png" alt="JoySafeter 快速入门用户路径" width="900" />
-</p>
-
-> **登录** → **配置模型** → **MCP 工具** → **Skill 管理** → **构建 Agent** → **自测 (Langfuse Trace)** → **发布** → **Chat 运行** → **Run Center**
+> **登录** → **添加 Provider Key（Secrets）** → **配置 MCP 凭据（Vaults）** → **Skill 管理** → **构建 Agent** → **开启 Session** → **对话并实时观看事件** → **下载报告**
 
 ---
 
@@ -215,16 +215,16 @@ cd deploy
 
 | 层级 | 技术 | 用途 |
 |------|------|------|
-| **前端** | Next.js 16, React 19, TypeScript | 服务端渲染，App Router |
+| **前端** | Next.js 16（App Router）, React 19, TypeScript | 服务端渲染，产品界面位于 `/managed/**` |
 | **UI** | Radix UI, Tailwind CSS, Framer Motion | 无障碍、动画组件 |
 | **状态管理** | Zustand, TanStack Query | 客户端与服务端状态 |
-| **工作流编辑器** | React Flow | 交互式节点编辑器 |
-| **后端** | FastAPI, Python 3.12+ | 异步 API，OpenAPI 文档 |
-| **AI 框架** | LangChain, LangGraph, DeepAgents | Agent 编排与工作流 |
+| **后端** | FastAPI 0.122+, Python 3.12+ | 异步 API + OpenAPI 文档，按 `JOYSAFETER_SERVICE_ROLE` 拆分为三服务 |
+| **Agent 运行时** | Rust `sandbox-runner` + Claude Code / Codex / `ccb` harness | 每会话沙箱执行，经 gRPC `AgentBridge` |
 | **MCP** | mcp 1.20+, fastmcp 2.14+ | 工具协议支持 |
-| **数据库** | PostgreSQL, SQLAlchemy 2.0 | 异步 ORM，数据库迁移 |
-| **缓存** | Redis | 会话缓存与限流 |
-| **可观测性** | Langfuse, Loguru | 追踪与结构化日志 |
+| **数据库** | PostgreSQL, SQLAlchemy 2.0 | 异步 ORM，Alembic 迁移 |
+| **事件总线/缓存** | Redis（Streams · Pub/Sub · list） | 持久事件流、实时 SSE 扇出、任务队列 |
+| **出站管控** | Envoy | 每沙箱默认拒绝的域名白名单 |
+| **可观测性** | OpenTelemetry, Loguru | 全链路追踪与结构化日志 |
 
 ---
 
@@ -234,21 +234,17 @@ cd deploy
 
 | 标签 | 功能 | 一句话说明 |
 |------|------|-----------|
-| **NEW** | **架构硬化** | 5 层执行架构：引擎协议 + EngineRegistry + 两阶段事件总线 + 集中化状态机 + 端口/适配器边界 |
-| **NEW** | **统一错误契约** | `AppError.to_payload()` 输出规范 `ErrorDescriptor`，HTTP/WS/SSE/DB 一致消费；前端 `ApiError` 镜像类型化 `source`/`retryable`/`userAction` |
-| **NEW** | **状态机集中化** | 6 个实体状态机（Agent、Version、Release、Run、Execution、Task），`transition_*()` 为唯一状态修改入口 |
-| **NEW** | **观测追踪** | 基于 OTel 的 `ObservationCollector` 注入 ExecutionContext；span 导出到 DB 和 WebSocket，支持实时追踪 |
-| **NEW** | **Run Center 架构** | Chat 与 Copilot 全面迁入 Run Center——支持运行详情查看、会话恢复、页面刷新后实时事件回放 |
-| **NEW** | **深色模式与偏好设置** | 系统/浅色/深色三种主题切换；重新设计个人资料页面，新增语言与主题偏好 |
-| **NEW** | **统一 WebSocket 层** | 引入 BaseWsClient 抽象基类——Chat、Run、Notification 三端客户端共享生命周期、认证（ws-token）与重连逻辑 |
-| **NEW** | **trace_id 全链路追踪** | 基于 contextvars 的端到端请求追踪，实现完整可观测性 |
-| **NEW** | **Ollama 一键集成** | 开箱即用的本地 Ollama 模型供应商 |
-| **NEW** | **版本信息展示** | 应用内版本信息展示，接入 bump-version.sh 发布管线 |
-| **NEW** | **统一模型标识符** | 全栈统一为 (provider_name, model_name) 规范形式，含数据迁移——彻底消除遗留字段歧义 |
-| **UPGRADE** | **设计令牌全面重构** | 硬编码颜色、字号、圆角替换为 CSS 变量与 Tailwind token；z-index 与排版体系统一 |
-| **UPGRADE** | **沙箱架构重构** | RAII 句柄管理、适配器 API 上传、安全加固 |
-| **UPGRADE** | **前端组件提取** | ConfirmDialog、UnifiedDialog、InlineRenameInput、SidebarContextMenu、AgentListContext——减少属性穿透，提升复用 |
-| **UPGRADE** | **i18n 与代码质量** | 后端错误消息国际化；邮件模板迁移至 Jinja2；LLM 提示词外置为 Markdown；移除 129 个未使用 SVG 图标 |
+| **NEW** | **三服务架构** | 单进程单体拆分为 `api` / `orchestrator` / `worker`，同一份代码由 `JOYSAFETER_SERVICE_ROLE` 选择，作为独立容器部署 |
+| **NEW** | **Redis 事件总线** | 两阶段总线扇出到 Redis Streams（持久，Worker 消费）与 Redis Pub/Sub（实时 SSE），取代旧的进程内 WebSocket 总线 |
+| **NEW** | **SSE 实时事件流** | 浏览器订阅 `GET /api/v1/sessions/{id}/events/stream`，支持 `?after_seq` 回放；WebSocket 仅用于通知 |
+| **NEW** | **沙箱 gRPC 执行** | Rust `sandbox-runner` 在每会话容器内运行 harness，经 gRPC `AgentBridge` 协议回连 orchestrator |
+| **NEW** | **可插拔引擎** | `claude`（Claude Code CLI）、`codex`（Codex app-server）、`native`（自研 `ccb`），按 Agent 选择 |
+| **NEW** | **可插拔沙箱** | Docker（默认，加固）、E2B、Daytona，统一 SPI |
+| **NEW** | **AI Skill 创作** | 工作区内 LLM 辅助的 Skill 起草、代码编辑与版本 diff |
+| **NEW** | **Secrets 与 Vaults** | AES-256-GCM 加密的 Provider API Key（Secrets）与 MCP 凭据（Vaults），运行时注入沙箱 |
+| **NEW** | **Skill 安全扫描** | fail-closed 的 skillspector 网关在每次 Skill 写入前扫描 |
+| **NEW** | **每沙箱出站管控** | Envoy 代理对每个沙箱执行默认拒绝的域名白名单 |
+| **NEW** | **trace_id 全链路追踪** | 基于 OpenTelemetry 的端到端请求追踪，实现完整可观测性 |
 
 ---
 
@@ -311,11 +307,11 @@ Apache License 2.0 —— 详见 [LICENSE](LICENSE) 文件。
 
 <table>
 <tr>
-<td align="center"><a href="https://github.com/langchain-ai/langchain"><img src="https://avatars.githubusercontent.com/u/126733545?s=64" width="48"/><br/><sub>LangChain</sub></a></td>
-<td align="center"><a href="https://github.com/langchain-ai/langgraph"><img src="https://avatars.githubusercontent.com/u/126733545?s=64" width="48"/><br/><sub>LangGraph</sub></a></td>
 <td align="center"><a href="https://fastapi.tiangolo.com/"><img src="https://fastapi.tiangolo.com/img/icon-white.svg" width="48"/><br/><sub>FastAPI</sub></a></td>
 <td align="center"><a href="https://nextjs.org/"><img src="https://assets.vercel.com/image/upload/v1662130559/nextjs/Icon_dark_background.png" width="48"/><br/><sub>Next.js</sub></a></td>
 <td align="center"><a href="https://www.radix-ui.com/"><img src="https://avatars.githubusercontent.com/u/75042455?s=64" width="48"/><br/><sub>Radix UI</sub></a></td>
+<td align="center"><a href="https://www.envoyproxy.io/"><img src="https://avatars.githubusercontent.com/u/13843634?s=64" width="48"/><br/><sub>Envoy</sub></a></td>
+<td align="center"><a href="https://opentelemetry.io/"><img src="https://avatars.githubusercontent.com/u/49998002?s=64" width="48"/><br/><sub>OpenTelemetry</sub></a></td>
 </tr>
 </table>
 

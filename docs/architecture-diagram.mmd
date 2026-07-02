@@ -17,206 +17,147 @@
   }
 }}%%
 
+%% ═══════════════════════════════════════════════════════════════════════
+%% JoySafeter — AS-BUILT 运行时组件与数据流（joysafeter-v2, 核对于 2026-07-02）
+%% 这是“组件 + 一条消息如何流动”的运行时视图；分层支柱视图见 architecture-unified-event-model.mmd。
+%% 详见 docs/ARCHITECTURE.md / ARCHITECTURE_CN.md。
+%% ═══════════════════════════════════════════════════════════════════════
+
 graph TB
     subgraph USER["🖥️ User Layer"]
         direction LR
-        BROWSER["Browser / Chat UI"]
-        RUNCENTER_UI["Run Center UI"]
-        PROFILE_UI["Profile & Preferences"]
+        BROWSER["Browser<br/>会话 / Agent 编辑器 / 技能"]
+        CTL["joysafeterctl<br/>Rust CLI"]
     end
 
-    subgraph FRONTEND["⚛️ Frontend — Next.js 16 · React 19 · TypeScript"]
+    subgraph FRONTEND["⚛️ Frontend — Next.js 15 · React 19"]
         direction TB
-
-        subgraph DESIGN["Design System"]
-            TOKENS["CSS Variables\n& Tailwind Tokens"]
-            RADIX["Radix UI\nComponents"]
-            DARKMODE["Theme Engine\nSystem / Light / Dark"]
-        end
-
-        subgraph STATE["State & Data"]
-            ZUSTAND["Zustand Stores"]
-            TANSTACK["TanStack Query"]
-            REACTFLOW["React Flow\nWorkflow Editor"]
-        end
-
-        subgraph WS_LAYER["Unified WebSocket Layer"]
-            BASE_WS["BaseWsClient\n(lifecycle · auth · reconnect)"]
-            EXEC_WS["ExecutionWsClient\n/ws/executions"]
-            NOTIF_WS["NotificationWsClient\n/ws/notifications"]
-        end
-
-        subgraph FE_ERROR["Error Consumption"]
-            API_ERROR["ApiError\nErrorDescriptor mirror\nsource · retryable · userAction"]
-        end
+        STORES["Zustand + TanStack Query<br/>project store 注入 X-Org/Project"]
+        SSE_HOOK["useSessionStream<br/>fetch-streaming SSE 消费"]
+        NOTIF_WS["NotificationWsClient<br/>/ws/notifications"]
+        API_CLIENT["lib/api-client<br/>REST + CSRF + 401 refresh"]
     end
 
-    subgraph BACKEND["🐍 Backend — FastAPI · Python 3.12+"]
+    subgraph API_SVC["🐍 API 服务 (JOYSAFETER_SERVICE_ROLE=api)"]
         direction TB
+        REST["REST /api/v1/*<br/>agents · sessions · tasks · skills<br/>secrets · vaults · files · orgs"]
+        SSE_EP["SSE /sessions/{id}/events/stream<br/>?after_seq 回放 + 实时"]
+        NOTIF_EP["/ws/notifications<br/>NotificationManager (进程内)"]
+        ENVELOPE["ApiV1 响应信封<br/>{success,code,message,data}"]
+    end
 
-        subgraph API["REST + WebSocket API"]
-            REST["/v1 REST Endpoints\nAgents · Versions · Releases\nTasks · Threads · Runs · Executions"]
-            EXEC_WS_HANDLER["ExecutionSubscriptionHandler\n/ws/executions\nSnapshot · Events · Replay"]
-            NOTIF_HANDLER["NotificationManager\n/ws/notifications"]
-        end
+    subgraph ORCH_SVC["⚙️ Orchestrator 服务 (role=orchestrator)"]
+        direction TB
+        SCHED["TaskScheduler<br/>DB 拉取 · FOR UPDATE SKIP LOCKED"]
+        GRPC["gRPC AgentBridge :9090<br/>SetupSandbox / StartTask / Cancel"]
+        SBX_MGR["Sandbox Resolver / Controller<br/>预热池 · 空闲清扫"]
+        BUS["JoySafeterEventBus<br/>两相：持久化 ∥ 广播"]
+        BROADCASTER["SessionBroadcaster<br/>本地队列 + Redis pub/sub"]
+    end
 
-        subgraph CONTRACTS["Contracts — Single Source of Truth"]
-            AGENT_CONTRACT["agent.py\nDefinitionKind · RuntimeKind\nDEFINITION_RUNTIME_KIND"]
-            EXEC_CONTRACT["execution.py\nRunStatus · ExecutionStatus\nTriggerSource · terminal sets"]
-            ERROR_CONTRACT["error.py\nErrorCode StrEnum (~180)\nErrorSource · UserAction"]
-        end
+    subgraph WORKER_SVC["🔁 Worker 服务 (role=worker)"]
+        STREAMW["EventStreamWorker<br/>XREADGROUP / XAUTOCLAIM"]
+        BATCH["EventBatchSender<br/>advisory lock · seq · dedup"]
+    end
 
-        subgraph SERVICES["Service Layer"]
-            DISPATCH_SVC["DispatchService\nAPI-facing facade (L1.5)"]
-            ORCH_SVC["ExecutionOrchestrator\nRun + Execution lifecycle (L2)"]
-            ENGINE_REG["EngineRegistry\nruntime_kind → engine (L2.5)"]
-            MODEL_SVC["ModelService\nUnified Resolution\n(provider_name, model_name)"]
-            SANDBOX_SVC["SandboxService\nRAII Handle\nPer-User Isolation"]
-            SKILL_SVC["SkillService\nVersioning\n& Collaboration"]
-        end
+    subgraph REDIS_L["🟥 Redis"]
+        direction LR
+        R_LIST["List<br/>global_queue"]
+        R_STREAM["Streams<br/>orchestrator:events"]
+        R_PUBSUB["Pub/Sub<br/>session_events:{id} · cmd:{inst}"]
+    end
 
-        subgraph ENGINES["Execution Engines (L3)"]
-            CLI_ENG["CLIEngine\nruntime_kind=sandbox\nDocker + CLI agent"]
-            GRAPH_ENG["GraphEngine\nruntime_kind=graph\nLangGraph compiler"]
-            CODE_ENG["CodeEngine\nruntime_kind=code\nIn-process agent"]
-            COPILOT_ENG["CopilotEngine\nruntime_kind=copilot\nGraph analysis"]
-        end
+    subgraph SANDBOX["📦 Sandbox 容器（每会话）"]
+        direction TB
+        RUNNER["Rust sandbox-runner<br/>gRPC 客户端"]
+        HARNESS["Harness<br/>claude CLI · codex · ccb"]
+        SKILLS_FS["技能解包 + MCP settings<br/>工作目录"]
+    end
 
-        subgraph EVENT_BUS["Two-Phase Event Bus (L3.5–L4)"]
-            CTX["ExecutionContext.emit()"]
-            BUS["ExecutionEventBus"]
-            subgraph PH1["Phase 1 (shared tx, sequential)"]
-                PERSIST_SUB["PersistenceSubscriber\nExecutionEvent rows + seq"]
-                STATE_SUB["StateTransitionSubscriber\nState machine validation"]
-            end
-            subgraph PH2["Phase 2 (parallel fan-out)"]
-                WS_SUB["WebSocketSubscriber\n→ SubscriptionManager"]
-                TASK_SUB["TaskSyncSubscriber\nRun→Task status sync"]
-            end
-        end
-
-        subgraph STATE_MACHINES["State Machines"]
-            SM["StateMachine engine\n6 entities:\nAgent · Version · Release\nRun · Execution · Task"]
-        end
-
-        subgraph OBSERVATION["Observation Layer"]
-            COLLECTOR["ObservationCollector\nOTel-backed tracing\ninjected into ExecutionContext"]
-        end
-
-        subgraph PORTS["Ports & Adapters"]
-            EVENT_PORT["ExecutionEventPort\n→ execution_event_adapter"]
-            READER_PORT["ExecutionReaderPort\n→ execution_reader_adapter"]
-        end
-
-        subgraph APP_ERRORS["Error System"]
-            APPEXC["AppError hierarchy\nto_payload() → ErrorDescriptor\n{code,message,data,source,retryable}"]
-        end
-
-        subgraph CORE["Core Engine"]
-            DEEP_AGENTS["DeepAgents\nManager-Worker\nOrchestration"]
-            LANGGRAPH["LangGraph Engine\nStateful Graphs\nPause · Resume · Branch"]
-            MODEL_FACTORY["ModelFactory\nProvider Registry\n& Credential Validation"]
-            TOOL_RESOLVER["Tool Resolver\nMCP Protocol\n200+ Tools"]
-            SKILL_LOADER["Skill Loader\nBatch Preload\n& Deduplication"]
-        end
+    subgraph INFRA["🧱 支撑设施"]
+        direction LR
+        ENVOY["Envoy<br/>每沙箱出口白名单"]
+        SKILLSPECTOR["skillspector<br/>技能安全扫描 (fail-closed)"]
     end
 
     subgraph DATA["🗄️ Data Layer"]
         direction LR
-        PG["PostgreSQL\nAgent Definitions · Versions · Releases\nRuns · Executions · Execution Events\nSnapshots · Skills · Credentials · Memory"]
-        REDIS["Redis\nSession Cache\nRate Limiting"]
-    end
-
-    subgraph SANDBOX["📦 Sandbox Layer"]
-        direction LR
-        DOCKER["Docker Containers\nPer-User Isolated\nCode Execution"]
-        MCP_TOOLS["MCP Tool Server\nNmap · Nuclei · Trivy\n200+ Security Tools"]
+        PG["PostgreSQL<br/>agents · sessions · session_events<br/>tasks · skills · secrets · vaults · traces"]
+        OBJ["Object Store<br/>local / S3 / OSS"]
     end
 
     subgraph AUTH["🔐 Auth"]
-        SSO["Enterprise SSO\nGitHub · Google · Microsoft\nOIDC · JD SSO"]
+        SSO["JWT + HttpOnly Cookie<br/>SSO: OAuth2 / OIDC · JD SSO"]
     end
 
     %% User → Frontend
-    USER --> FRONTEND
+    BROWSER --> FRONTEND
+    CTL --> REST
 
-    %% WebSocket hierarchy
-    BASE_WS --> EXEC_WS
-    BASE_WS --> NOTIF_WS
-
-    %% Frontend → Backend
-    EXEC_WS -->|"execution subscribe"| EXEC_WS_HANDLER
-    NOTIF_WS -->|"notifications"| NOTIF_HANDLER
-    TANSTACK -->|"REST"| REST
-    API_ERROR -.->|"mirrors"| APPEXC
-
-    %% API → Services
-    REST --> DISPATCH_SVC
-    REST --> SKILL_SVC
-    REST --> MODEL_SVC
-    REST --> SANDBOX_SVC
-
-    %% Services → Engines
-    DISPATCH_SVC --> ORCH_SVC
-    ORCH_SVC --> ENGINE_REG
-    ENGINE_REG --> CLI_ENG
-    ENGINE_REG --> GRAPH_ENG
-    ENGINE_REG --> CODE_ENG
-    ENGINE_REG --> COPILOT_ENG
-
-    %% Engines → Event Bus
-    CLI_ENG --> CTX
-    GRAPH_ENG --> CTX
-    CODE_ENG --> CTX
-    COPILOT_ENG --> CTX
-    CTX --> BUS
-    BUS --> PERSIST_SUB
-    BUS --> STATE_SUB
-    BUS --> WS_SUB
-    BUS --> TASK_SUB
-
-    %% State machines
-    STATE_SUB --> SM
-
-    %% Observation
-    COLLECTOR -.->|"injected into"| CTX
-
-    %% Ports
-    EVENT_PORT -.-> BUS
-    CLI_ENG -.-> EVENT_PORT
-
-    %% Core internals
-    GRAPH_ENG --> DEEP_AGENTS
-    DEEP_AGENTS --> LANGGRAPH
-    DEEP_AGENTS --> TOOL_RESOLVER
-    DEEP_AGENTS --> SKILL_LOADER
-    COPILOT_ENG --> LANGGRAPH
-    TOOL_RESOLVER --> MCP_TOOLS
-    MODEL_SVC --> MODEL_FACTORY
-
-    %% Data
-    SERVICES --> PG
-    SERVICES --> REDIS
-    PERSIST_SUB --> PG
-
-    %% Sandbox
-    SANDBOX_SVC -->|"RAII handle"| DOCKER
-    DEEP_AGENTS --> DOCKER
-
-    %% Auth
+    %% Frontend → API
+    API_CLIENT -->|"REST"| REST
+    SSE_HOOK -->|"SSE"| SSE_EP
+    NOTIF_WS -->|"WS"| NOTIF_EP
     SSO --> REST
+    REST --> ENVELOPE
+
+    %% API → 调度（Redis List）
+    REST -->|"user.message → 建 Task, rpush"| R_LIST
+    REST --> PG
+    R_LIST -->|"唤醒"| SCHED
+    SCHED -->|"认领 pending (DB 权威)"| PG
+    SCHED --> SBX_MGR
+
+    %% 供给沙箱 + gRPC
+    SBX_MGR -->|"provision"| RUNNER
+    SBX_MGR -.-> ENVOY
+    GRPC <-->|"AgentBridge 双向流<br/>(经 Envoy socket)"| RUNNER
+    RUNNER --> HARNESS
+    RUNNER --> SKILLS_FS
+    HARNESS -.->|"出口白名单"| ENVOY
+
+    %% 技能安全扫描
+    REST -->|"写入时扫描"| SKILLSPECTOR
+
+    %% runner 事件 → 事件总线 → Redis 三通道
+    RUNNER -->|"HarnessEvent"| GRPC
+    GRPC --> BUS
+    BUS -->|"Phase1 XADD"| R_STREAM
+    BUS -->|"Phase2 PUBLISH"| R_PUBSUB
+    BUS --> BROADCASTER
+    BROADCASTER --> R_PUBSUB
+
+    %% Worker 消费 → 落库 + 再发布
+    R_STREAM -->|"XREADGROUP"| STREAMW
+    STREAMW --> BATCH
+    BATCH -->|"insert session_events"| PG
+    BATCH -->|"realtime publish"| R_PUBSUB
+
+    %% Pub/Sub → SSE → 浏览器
+    R_PUBSUB -->|"SessionBroadcaster"| SSE_EP
+
+    %% 存储
+    SBX_MGR -.->|"artifacts"| OBJ
 
     %% Styling
     classDef userLayer fill:#EEF2FF,stroke:#6366F1,stroke-width:2px,color:#312E81
     classDef frontendLayer fill:#F0F9FF,stroke:#0EA5E9,stroke-width:2px,color:#0C4A6E
-    classDef backendLayer fill:#FFF7ED,stroke:#F97316,stroke-width:2px,color:#7C2D12
-    classDef dataLayer fill:#F0FDF4,stroke:#22C55E,stroke-width:2px,color:#166534
-    classDef sandboxLayer fill:#FDF4FF,stroke:#A855F7,stroke-width:2px,color:#581C87
+    classDef apiLayer fill:#E0F2FE,stroke:#0EA5E9,stroke-width:2px,color:#0C4A6E
+    classDef orchLayer fill:#FFF7ED,stroke:#F97316,stroke-width:2px,color:#7C2D12
+    classDef workerLayer fill:#FCE7F3,stroke:#DB2777,stroke-width:2px,color:#831843
+    classDef redisLayer fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
+    classDef sandboxLayer fill:#F0FDF4,stroke:#22C55E,stroke-width:2px,color:#166534
+    classDef infraLayer fill:#FDF4FF,stroke:#A855F7,stroke-width:2px,color:#581C87
+    classDef dataLayer fill:#F0FDF4,stroke:#16A34A,stroke-width:2px,color:#166534
     classDef authLayer fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
 
     class USER userLayer
     class FRONTEND frontendLayer
-    class BACKEND backendLayer
-    class DATA dataLayer
+    class API_SVC apiLayer
+    class ORCH_SVC orchLayer
+    class WORKER_SVC workerLayer
+    class REDIS_L redisLayer
     class SANDBOX sandboxLayer
+    class INFRA infraLayer
+    class DATA dataLayer
     class AUTH authLayer

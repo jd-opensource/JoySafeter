@@ -30,9 +30,14 @@ cd deploy
 ./local-test.sh
 ```
 
-This starts PostgreSQL, Redis, API, orchestrator, worker, and frontend for local testing.
+This starts PostgreSQL, Redis, and the backend (`api`, `orchestrator`, `worker`) plus the frontend for local testing.
 
 ### 2. Start Backend Manually
+
+The backend is one codebase split into three services by the `JOYSAFETER_SERVICE_ROLE`
+environment variable. For local development you can run everything in a single process with
+`JOYSAFETER_SERVICE_ROLE=all` (the default in `env.example`) via the compatibility entrypoint
+`app.main:app`:
 
 ```bash
 cd backend
@@ -47,18 +52,27 @@ uv sync --dev
 
 # Configure environment
 cp env.example .env
-# Edit .env with your settings
+# Edit .env with your settings (JOYSAFETER_SERVICE_ROLE=all runs all three roles in one process)
 # Note: UV uses Tsinghua mirror by default (configured in uv.toml)
 # You can customize via UV_INDEX_URL environment variable
 
 # Run database migrations
 alembic upgrade head
 
-# Start development server
+# Start development server (single-process, all roles)
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Backend will be available at http://localhost:8000
+
+To run the three services separately (as in the compose deployment), start each with its own
+role and entrypoint:
+
+```bash
+JOYSAFETER_SERVICE_ROLE=api          uv run uvicorn app.joysafeter_api.main:app --port 8000
+JOYSAFETER_SERVICE_ROLE=orchestrator uv run uvicorn app.joysafeter_orchestrator.main:app --port 8001
+JOYSAFETER_SERVICE_ROLE=worker       uv run uvicorn app.joysafeter_worker.main:app --port 8002
+```
 
 #### PyPI 镜像源配置 (PyPI Mirror Configuration)
 
@@ -254,27 +268,29 @@ alembic downgrade -1
 
 ## Architecture Overview
 
+The backend is a single codebase split into three FastAPI services (`api` / `orchestrator` /
+`worker`) selected at boot by `JOYSAFETER_SERVICE_ROLE`. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+for the full design.
+
 ```
-agent-platform/
-├── backend/           # FastAPI backend
-│   ├── app/
-│   │   ├── api/       # REST API routes
-│   │   ├── core/      # Core business logic (agents, graphs)
-│   │   ├── models/    # SQLAlchemy database models
-│   │   ├── schemas/   # Pydantic schemas
-│   │   ├── services/  # Business services
-│   │   └── utils/     # Utilities
-│   ├── alembic/       # Database migrations
-│   └── tests/         # Test suite
+JoySafeter/
+├── backend/app/
+│   ├── joysafeter_api/            # API service: REST routers, SSE, WS notifications, auth
+│   ├── joysafeter_orchestrator/   # Orchestrator: gRPC AgentBridge, scheduler, sandbox lifecycle, event bus
+│   ├── joysafeter_worker/         # Worker: Redis Stream consumer → event persistence
+│   ├── joysafeter_domain/         # SQLAlchemy models, schemas, services, state machines
+│   └── joysafeter_shared/         # Cross-service foundation (config, llm, security, storage, cache)
 │
-├── frontend/          # Next.js frontend
+├── frontend/          # Next.js App Router UI (product surface under /managed/**)
 │   ├── app/           # App Router pages
 │   ├── components/    # React components
 │   ├── lib/           # Utilities, API clients
-│   ├── stores/        # Zustand state stores
-│   └── services/      # API service layer
+│   └── stores/        # Zustand state stores
 │
-└── deploy/            # Deployment configurations
+├── proto/             # AgentBridge gRPC contract (joysafeter.proto)
+├── sandbox-runner/    # Rust workspace: types / runtime / runner / ctl
+├── skills/            # Pre-built skill packs
+└── deploy/            # Docker Compose + deployment configs
 ```
 
 ## Environment Variables
@@ -285,12 +301,15 @@ See `backend/env.example` and `frontend/env.example` for all available configura
 
 | Variable | Description |
 |----------|-------------|
+| `JOYSAFETER_SERVICE_ROLE` | Service role: `api` / `orchestrator` / `worker`, or `all` for single-process dev |
 | `POSTGRES_HOST` | PostgreSQL host address |
 | `POSTGRES_PORT` | PostgreSQL port |
 | `POSTGRES_USER` | PostgreSQL username |
 | `POSTGRES_PASSWORD` | PostgreSQL password |
 | `POSTGRES_DB` | PostgreSQL database name |
+| `REDIS_URL` | Redis connection URL (event streams, pub/sub, task queue) |
 | `SECRET_KEY` | JWT signing key |
+| `CREDENTIAL_ENCRYPTION_KEY` | AES-256-GCM key for encrypting Secrets and Vault credentials |
 | `DEBUG` | Enable debug mode |
 | `CORS_ORIGINS` | Allowed CORS origins |
 
@@ -299,7 +318,7 @@ See `backend/env.example` and `frontend/env.example` for all available configura
 | Variable | Description |
 |----------|-------------|
 | `NEXT_PUBLIC_API_URL` | Backend API URL |
-| `BETTER_AUTH_SECRET` | Auth secret key |
+| `FRONTEND_PORT` | Internal port the Next.js server listens on |
 
 ## Troubleshooting
 

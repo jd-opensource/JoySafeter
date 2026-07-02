@@ -1,260 +1,93 @@
-# 教程 02：添加 MCP 服务
+# 教程 02：为 Agent 接入 MCP 工具
 
-> **适合人群**：希望将外部工具（如 Nmap、Nuclei、Burp Suite 扩展等安全工具）通过 MCP 协议集成到 Agent 中的用户。
-
----
-
-## 场景说明
-
-MCP（Model Context Protocol）是一种让 Agent 调用外部工具的标准协议。本教程通过两个案例实践：
-
-| 案例 | 目标 |
-|------|------|
-| **案例 A** | 将已有的 MCP 工具目录加载为 Skills，供 Agent 直接调用 |
-| **案例 B** | 编写新的 MCP 工具配置，注册为平台工具节点 |
+> **状态：** 已按 v2 真实代码核对（2026-07-02）。
+> **适合人群**：希望把外部工具（如安全扫描器、内部服务）通过 MCP 协议提供给 Agent 的用户。
 
 ---
 
-## 机制先行：JoySafeter 的 MCP 与 Skills 不是一回事（否则你会越配越乱）
+## 机制先行：v2 没有独立的 MCP 服务注册中心
 
-当前教程最大的问题是把两条不同链路混在一起讲：
+v1 的 `mcp_servers` 表、`/api/v1/mcp/*` 系列端点、内存 `ToolRegistry`、`server::tool` 键、
+以及“把 MCP 挂到 Graph 节点”的整套东西**都已移除**。v2 里 MCP 是 **Agent 配置的一部分**：
 
-- **链路 1：本地 skills/ 目录 → convert → converted_skills.json → 前端 Skills 列表**
-  这是“把工具能力包装成 Skills 内容/元数据”的导入链路，重点在**内容分发与索引**。
-- **链路 2：MCP Server（DB 配置）→ 连接 → 拉取 tools → ToolRegistry 注册 → Graph 节点引用**
-  这是“运行时工具系统”，重点在**连接、权限、注册与调用**。
+- **MCP 服务器定义** 存在 Agent 行的 `mcp_configs`（JSONB 数组），在 **Agent 编辑器**里编辑
+  （前端表现为 `mcp_toolset` 工具项，带 `permission_policy`）。每条包含 `name`、连接方式
+  （命令 / URL）、`server_type`、`headers` 等。
+- **MCP 凭据** 存在 **Vaults**（`joysafeter_vaults` / `joysafeter_vault_credentials`，
+  API `/api/v1/vaults`，UI `/managed/vaults`）：加密的 token / OAuth 配置，按 MCP server URL 匹配。
 
-两条链路都能让 Agent“看起来能用工具”，但它们的运行时语义和排障路径完全不同。
+**运行时如何生效**：任务调度时，orchestrator：
+1. 从 Agent 的 `mcp_configs` 取 MCP 服务器列表；
+2. 调 `VaultService.resolve_mcp_credentials(...)` 按 URL 匹配 Vault 凭据，注入 `Authorization: Bearer`
+   头（OAuth 临期会自动刷新）；
+3. 把结果作为 `McpConfig` 消息经 gRPC `SetupSandbox` / `StartTask` 下发给沙箱内的 runner；
+4. runner 把 MCP 配置写入沙箱内的 `.claude/settings.json`（Claude 引擎），CLI harness 据此连接 MCP
+   服务器并调用工具。
 
----
-
-## MCP 在后端的真实对象模型（你需要知道的 3 个东西）
-
-### 1）MCP Server（数据库对象）
-
-- 存储在表：`mcp_servers`
-- 每个用户的 server name 唯一（见索引 `mcp_servers_user_name_unique_idx`）
-- API 入口：`backend/app/api/v1/mcp.py`（`/api/v1/mcp/servers`）
-
-> 你在 UI 里“添加 MCP 服务/启用禁用”本质是在增删改这个表的记录。
-
-### 2）ToolRegistry（内存注册表）
-
-MCP tools 不会直接“写死在代码里”，而是在启动或你启用 server 后动态注册到 registry：
-
-- 注册逻辑：`backend/app/core/tools/tool_registry.py`
-- MCP tool 的标识格式：`server_name::tool_name`
-  代码里有专门的 separator 与 parse（`make_mcp_tool_key` / `parse_mcp_tool_key`）
-
-**关键理解点**：
-- `tool.name` 仍然是 MCP 原始工具名（LLM 会看到）
-- `tool.label_name` 才是 `server::tool`（用于管理/显示/选择）
-
-### 3）Graph 节点如何引用 MCP 工具
-
-Graph 节点的 tools 配置结构（后端注释写得很直白）：
-
-- `node.data.config.tools = { builtin: string[], mcp: string[] }`
-- 其中 `mcp` 数组元素必须是 `${server_name}::${toolName}`
-
-解析与校验入口：
-- `backend/app/core/agent/node_tools.py`（解析 `::`、校验 server 是否存在/启用、按 user_id 取工具）
+> 所以“工具能不能用”不再取决于某个中心注册表，而取决于：**该 Agent 的 `mcp_configs` 里有没有这条
+> server + Vault 里有没有对应凭据 + 沙箱能否网络到达该 MCP 端点（Envoy 出口白名单）**。
 
 ---
 
-## 运行时数据流：为什么“列表里看得到”不代表“运行时能调用”？
+## 案例 A：给 Agent 加一个 HTTP（streamable）MCP 服务器
 
-当 Agent 执行到某个节点需要工具时，会发生：
+1. 进入 **Build → Agents**，打开目标 Agent 的 **编辑器**。
+2. 在 **MCP 服务器**区域新增一条：
+   - `name`：`recon-mcp`
+   - 类型：HTTP / streamable（URL 型）
+   - `url`：`http://recon-mcp.internal:9000/mcp`
+3. 保存 Agent。（这条会写进该 Agent 的 `mcp_configs` JSONB。）
 
-1. 从节点配置里拿到 `tools.mcp=[ "server::tool" ]`
-2. 解析 server/tool（格式不对会在日志里提示 missing '::'）
-3. 若有 `user_id`：会查 DB 里的 server instance，并验证：
-   - server 存在
-   - server 属于该用户
-   - server enabled
-4. 从 ToolRegistry 取对应工具对象
-5. 工具 entrypoint 才会真正去连接 MCP server 并调用 tool
+> URL 必须能从**沙箱容器**访问到，且其域名要在 Envoy 出口白名单内（沙箱默认全拒出口）。
 
-所以常见误区是：
-- “Skills 页面能搜到 nmap” ≠ “MCP server 已连接且 tools 已注册”
-- “converted_skills.json 更新了” ≠ “ToolRegistry 里有 MCP tool”
+## 案例 B：给需要鉴权的 MCP 服务器配置 Vault 凭据
 
----
+1. 进入 **Build → Vaults**，新建一个 Vault，再在其下新建一条 **Credential**：
+   - `mcp_server_url`：与上面 Agent 里的 MCP `url` 一致（用于运行时匹配）
+   - `credential_type`：`static_bearer`（或 OAuth 配置）
+   - `token_value`：你的 Bearer token（**加密存储**）
+2. 在会话 / Agent 上关联该 Vault（会话的 `vault_ids`）。
 
-## 调试与排障（按层定位，不要靠猜）
-
-### A. 节点配置层（Graph / Agent）
-- 确认 node tools 的 mcp 项是否是 `server::tool` 格式
-- 任何缺少 `::` 的值都会被当成非 MCP tool，导致解析失败
-
-### B. Server 层（DB 记录是否存在/启用）
-- `GET /api/v1/mcp/servers` 查看该用户下 server 是否 enabled
-
-### C. 注册层（Registry 是否已注册工具）
-- 启动时会尝试初始化：`initialize_mcp_tools_on_startup`（`backend/app/services/tool_service.py`）
-- 若你新增 server 但没触发注册，通常是连接失败或 server disabled
-
-### D. 连接层（MCP 端点是否可用）
-- 用 `/api/v1/mcp/test-connection`（若 UI 有按钮，对应后端会走 `McpClientService.test_connection`）
-- 连接参数由 `McpClientService.config_from_server(server)` 生成
+运行时 orchestrator 会按 `mcp_server_url` 把这条凭据的 Bearer 注入到对该 MCP 服务器的请求头，
+你无需把明文 token 写进 Agent 配置。
 
 ---
 
-## 安全边界（必读）：MCP 工具不是“技能文档”，而是“可执行能力”
+## 三类工具能力的边界
 
-1. MCP tool 本质是“可执行外部命令/网络请求”的能力。把它暴露给 Agent 之前，至少要明确：
-   - 目标是否授权（尤其是扫描/爆破/利用类工具）
-   - 是否需要人工确认（Human-in-the-loop）
-   - 是否需要沙箱/网络隔离（避免越权访问内网资源）
+v2 里 Agent 的“工具”来自三处（都在 Agent 编辑器配置，运行时经 gRPC 下发给沙箱 runner）：
 
-2. “仅在 manifest.md 写 Safety Notes”是不够的
-   安全策略必须落到：
-   - 工具注册时的 `requires_confirmation`（如果你有这类机制）
-   - 或 Graph 节点中断（教程 05 里会讲）
-   - 或服务端对高危工具做 allowlist + 审计日志
-
+| 来源 | 配置位置 | 载荷（gRPC） |
+|------|---------|-------------|
+| 内置工具 + 工具策略 | Agent 编辑器：内置工具勾选 + 每工具 `permission_policy`（`always_ask` / `always_allow`） | `allowed_tools` / `disallowed_tools` / `ask_tools` |
+| MCP 服务器 | Agent `mcp_configs` + Vault 凭据 | `McpConfig`（name/command/args/url/headers…） |
+| 自定义工具 | Agent 编辑器：自定义工具（名称 + 描述 + JSON Schema） | `CustomTool` |
 
 ---
 
-## 真实可跑：用 JoySafeter 自己的 MCP API 接入一个 MCP Server（端到端示例）
+## 安全边界（必读）
 
-> 目的：给出”能跑”的最小闭环：**创建 server → 测试连接 → 刷新/列出 tools → 节点引用格式 → 执行**。
-> 你可以先不改任何前端代码，直接用 curl 验证 MCP 链路打通。
+MCP 工具是**可执行的外部能力**（尤其安全扫描 / 利用类）。v2 提供的控制点：
 
-> **认证提示**：以下 curl 示例省略了 `Authorization` 头以保持简洁。在生产环境中，请携带 Platform API Token：`-H “Authorization: Bearer <token>”`。Token 获取方式详见 [教程 01 — API 认证](./01-model-provider-setup.md#api-认证使用-platform-api-token)。
-
-### 前置：你需要一个可访问的 MCP Server URL（streamable-http）
-
-JoySafeter 后端默认支持 `streamable-http` transport（见 `backend/app/api/v1/mcp.py` 的请求 schema），因此你需要一个 MCP Server 提供 HTTP 端点，例如：
-
-- `http://127.0.0.1:9000/mcp`（本机服务）
-- `http://<intranet-host>:<port>/mcp`（内网服务）
-
-> 重要：该 URL 必须能从 **JoySafeter 后端容器/进程**访问到（不是从浏览器访问到即可）。
-
-### 步骤 0：创建前先测试连接（不落库）
-
-对应后端：`POST /api/v1/mcp/test`（见 `backend/app/api/v1/mcp.py:test_connection`）
-
-```bash
-curl -X POST http://localhost:8000/api/v1/mcp/test \
-  -H "Content-Type: application/json" \
-  -d '{
-    "transport": "streamable-http",
-    "url": "http://127.0.0.1:9000/mcp",
-    "timeout": 30000,
-    "headers": {}
-  }'
-```
-
-若返回 `data.success=true` 且 `data.tools` 非空，说明“网络可达 + 协议/端点正确”。
-
-### 步骤 1：创建 MCP Server（写入 mcp_servers 表）
-
-对应后端：`POST /api/v1/mcp/servers`（见 `backend/app/api/v1/mcp.py:create_mcp_server`）
-
-```bash
-curl -X POST http://localhost:8000/api/v1/mcp/servers \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "local-mcp",
-    "description": "Local MCP server for testing",
-    "transport": "streamable-http",
-    "url": "http://127.0.0.1:9000/mcp",
-    "headers": {},
-    "timeout": 30000,
-    "retries": 3,
-    "enabled": true
-  }'
-```
-
-返回 `data.serverId`。
-
-### 步骤 2：测试已创建服务器连接（落库对象）
-
-对应后端：`POST /api/v1/mcp/servers/{server_id}/test`
-
-```bash
-curl -X POST http://localhost:8000/api/v1/mcp/servers/<serverId>/test
-```
-
-关注：`toolCount`、`tools`、`latencyMs`、失败时的 message。
-
-### 步骤 3：刷新并列出工具（注册到 ToolRegistry）
-
-对应后端：
-- `POST /api/v1/mcp/servers/{server_id}/refresh`
-- `GET /api/v1/mcp/servers/{server_id}/tools`
-
-```bash
-curl -X POST http://localhost:8000/api/v1/mcp/servers/<serverId>/refresh
-curl http://localhost:8000/api/v1/mcp/servers/<serverId>/tools
-```
-
-### 步骤 4：确认 Graph/节点引用格式（必须是 server::tool）
-
-JoySafeter 解析 MCP tool id 的规则是：
-
-```
-<server_name>::<tool_name>
-```
-
-这是后端硬性要求（见 `backend/app/core/agent/node_tools.py` 与 `backend/app/core/tools/tool_registry.py`）。
-
-示例：
-
-```
-local-mcp::nmap_scan
-```
-
-### 步骤 5：直接执行 MCP 工具（不经过 Graph，用于最小闭环验证）
-
-对应后端：`POST /api/v1/mcp/tools/execute`（见 `backend/app/api/v1/mcp.py:execute_tool`）
-
-```bash
-curl -X POST http://localhost:8000/api/v1/mcp/tools/execute \
-  -H "Content-Type: application/json" \
-  -d '{
-    "serverName": "local-mcp",
-    "toolName": "nmap_scan",
-    "arguments": {
-      "target": "127.0.0.1",
-      "ports": "22,80,443"
-    }
-  }'
-```
-
-如果这一步成功，说明：
-- server instance 能正确解析（存在、属于你、enabled）
-- tool 已在 ToolRegistry 中注册
-- tool entrypoint 能连通 MCP server 并完成调用
+- **工具授权策略**：把高危工具设为 `always_ask`（`ask_tools`），触发时会作为 `is_control_request`
+  的 tool_use 事件回到前端，需人工确认后 orchestrator 才用 `SendInput` 放行。
+- **沙箱隔离**：每个会话独享一个加固沙箱（丢弃能力、非 root、Envoy 出口白名单），即便工具高危，
+  影响也被限制在该沙箱内。
+- **凭据隔离**：MCP token 放 Vault 加密存储，运行时才注入请求头，不落 Agent 明文、不进事件流。
 
 ---
 
 ## 常见问题
 
-### Q：工具加载后在 Skills 列表找不到？
+**Q：以前的 `/api/v1/mcp/test` / `refresh` / `tools/execute` 还在吗？**
+不在。v2 没有独立 MCP 端点；MCP 随 Agent 配置在会话启动时下发给沙箱，工具的连通性在实际会话里体现。
 
-1. 确认 MCP Server 已启用且工具已通过 `refresh` 注册到 ToolRegistry
-2. 清除浏览器缓存：DevTools → Application → Local Storage → 删除 `joysafeter_skills`
-3. 刷新页面
-
-> **注意**：早期版本使用 `frontend/public/converted_skills.json` 静态文件作为 Skills 索引。当前版本中，Skills 元数据由数据库管理（支持版本化和协作者），该静态文件仅作兼容保留，不应作为排障依据。
-
-### Q：如何给工具添加安全检查？
-
-建议通过以下方式实现工具级安全控制：
-1. **Graph 节点中断**：在高危工具节点前插入 Human-in-the-Loop 确认步骤（参考教程 05）
-2. **服务端 allowlist**：在 MCP Server 实现中对高危操作做白名单 + 审计日志
-3. **Platform API Token**：通过 Token 认证确保只有授权用户可调用 API
-
-### Q：MCP 工具和普通 Skill 有什么区别？
-
-MCP 工具通过标准化 manifest 格式定义参数和能力，可以被 Agent 自动解析并调用；普通 Skill 更灵活，支持自由定义内容和文件结构。
+**Q：`server::tool` 这种引用格式呢？**
+已废弃——v2 不再有 Graph 节点按 `server::tool` 引用工具的机制。工具集由 Agent 配置整体下发。
 
 ---
 
 ## 下一步
 
-- 参考教程 03：导入 Skills，了解如何批量导入社区 Skills
-- 参考教程 04：构建 Graph，将 MCP 工具集成到工作流节点中
+- [教程 03](./03-skills-usage.md)：导入 Skills（技能包），与 MCP 工具互补
+- [教程 04](./04-agent-build-and-run.md)：构建并运行一个带工具 / MCP / 技能的 Agent

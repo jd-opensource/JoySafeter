@@ -8,7 +8,7 @@ Below you will find comprehensive setup instructions depending on your deploymen
 - Python 3.12+ and Node.js 20+ (only for local development)
 - PostgreSQL/Redis are included in Docker deployment
 
-## Recommended: Docker Three-Service Run
+## Recommended: Docker Compose
 
 ```bash
 cd deploy
@@ -16,7 +16,11 @@ cp .env.example .env
 cd ../backend && cp env.example .env
 cd ../frontend && cp env.example .env
 cd ../deploy
-docker compose up -d --build
+
+# Choose the orchestrator implementation by profile:
+docker compose --profile python-orchestrator up -d --build
+# or the Rust orchestrator:
+# docker compose --profile rust-orchestrator up -d --build
 ```
 
 Access points:
@@ -25,15 +29,20 @@ Access points:
 - Backend API: `http://localhost:8000`
 - API Docs: `http://localhost:8000/docs`
 
-The backend runs as `api`, `orchestrator`, and `worker`. For cloud PostgreSQL/Redis, image building, and troubleshooting, see [deploy/README.md](deploy/README.md).
+The backend is one codebase split into three services by `JOYSAFETER_SERVICE_ROLE` and
+deployed as separate containers: `api`, `orchestrator`, and `worker`, alongside PostgreSQL,
+Redis, Envoy (per-sandbox egress proxy), and skillspector (skill security scanner). You must
+pick exactly one orchestrator profile — the Python and Rust orchestrators share the same
+container name and gRPC port `9090`, so they cannot run at the same time. For cloud
+PostgreSQL/Redis, image building, and troubleshooting, see [deploy/README.md](deploy/README.md).
 
 ## Using Pre-built Docker Images
 
 ```bash
 cd deploy
 cp .env.example .env
-export DOCKER_REGISTRY=docker.io/jdopensource
-docker compose up -d
+# Point the image variables at the published registry, then start with a profile.
+docker compose --profile python-orchestrator up -d
 ```
 
 ## Local Test One-Command Startup
@@ -74,9 +83,14 @@ cp env.example .env
 createdb joysafeter
 alembic upgrade head
 
-# Start server
+# Start server (single-process, all three roles via JOYSAFETER_SERVICE_ROLE=all)
 uv run uvicorn app.main:app --reload --port 8000
 ```
+
+> For a split, multi-service run (matching the compose deployment) start each role with its
+> own entrypoint — `app.joysafeter_api.main:app`, `app.joysafeter_orchestrator.main:app`,
+> `app.joysafeter_worker.main:app` — and set `JOYSAFETER_SERVICE_ROLE` accordingly.
+> See [DEVELOPMENT.md](DEVELOPMENT.md).
 
 </details>
 
