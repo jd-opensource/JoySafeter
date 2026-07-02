@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from app.joysafeter_orchestrator.runtime_config import RuntimeConfig
@@ -333,11 +333,12 @@ class EventBatchSender:
         self, session_id, events: list[BufferedEvent]
     ) -> list[BufferedEvent]:
         """Insert events for a single session within its own transaction."""
-        from sqlalchemy import text, func, select
-        from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_domain.models.joysafeter_session import JoySafeterSessionEvent
+        from sqlalchemy import func, select, text
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-        inserted_objs = []
+        from app.joysafeter_domain.models.joysafeter_session import JoySafeterSessionEvent
+        from app.joysafeter_shared.database import AsyncSessionLocal
+
         async with AsyncSessionLocal() as db:
             lock_key = int.from_bytes(session_id.bytes[8:], "big", signed=True)
             await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
@@ -369,51 +370,54 @@ class EventBatchSender:
             )
             next_seq = base_seq
 
+            inserted: list[BufferedEvent] = []
             for e in events:
                 if _is_duplicate_event(previous_event, e):
                     continue
 
-                if e.id is not None:
-                    from sqlalchemy import exists
-                    already = await db.execute(
-                        select(exists().where(JoySafeterSessionEvent.id == e.id))
-                    )
-                    if already.scalar():
-                        continue
-
                 next_seq += 1
-                kwargs: dict[str, Any] = dict(
+                values: dict[str, Any] = dict(
                     session_id=e.session_id,
                     event_type=e.event_type,
                     payload=e.payload,
                     seq=next_seq,
                 )
                 if e.id is not None:
-                    kwargs["id"] = e.id
-                obj = JoySafeterSessionEvent(**kwargs)
-                db.add(obj)
-                inserted_objs.append(obj)
+                    values["id"] = e.id
+                stmt = pg_insert(JoySafeterSessionEvent).values(**values)
+                if e.id is not None:
+                    # The event id is the PK, so a redelivered id becomes a no-op
+                    # instead of a PK violation that would abort the whole batch.
+                    stmt = stmt.on_conflict_do_nothing(index_elements=["id"])
+                stmt = stmt.returning(
+                    JoySafeterSessionEvent.id, JoySafeterSessionEvent.seq
+                )
+                row = (await db.execute(stmt)).first()
+                if row is None:
+                    # Duplicate id: nothing inserted, so don't consume the seq.
+                    next_seq -= 1
+                    continue
+
+                inserted.append(
+                    BufferedEvent(
+                        session_id=e.session_id,
+                        event_type=e.event_type,
+                        payload=e.payload or {},
+                        seq=row.seq,
+                        id=row.id,
+                    )
+                )
                 previous_event = e
 
             await db.commit()
-            inserted: list[BufferedEvent] = []
-            for obj in inserted_objs:
-                await db.refresh(obj)
-                inserted.append(
-                    BufferedEvent(
-                      session_id=obj.session_id,
-                        event_type=obj.event_type,
-                        payload=obj.payload or {},
-                        seq=obj.seq,
-                        id=obj.id,
-                    )
-                )
             return inserted
 
     async def _write_single(self, event: BufferedEvent) -> BufferedEvent | None:
-        from sqlalchemy import text, func, select
-        from app.joysafeter_shared.database import AsyncSessionLocal
+        from sqlalchemy import func, select, text
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
         from app.joysafeter_domain.models.joysafeter_session import JoySafeterSessionEvent
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db:
             async with db.begin():
@@ -448,33 +452,32 @@ class EventBatchSender:
                 if _is_duplicate_event(latest_event, event):
                     return None
 
-                # Skip if event_id already exists (written by SessionStateSubscriber)
-                if event.id is not None:
-                    from sqlalchemy import exists
-                    already = await db.execute(
-                        select(exists().where(JoySafeterSessionEvent.id == event.id))
-                    )
-                    if already.scalar():
-                        return None
-
                 seq = base_seq + 1
-                kwargs: dict[str, Any] = dict(
+                values: dict[str, Any] = dict(
                     session_id=event.session_id,
                     event_type=event.event_type,
                     payload=event.payload,
                     seq=seq,
                 )
                 if event.id is not None:
-                    kwargs["id"] = event.id
-                obj = JoySafeterSessionEvent(**kwargs)
-                db.add(obj)
-            await db.refresh(obj)
+                    values["id"] = event.id
+                stmt = pg_insert(JoySafeterSessionEvent).values(**values)
+                if event.id is not None:
+                    # Idempotent on the event-id PK: a redelivery (or a row the
+                    # SessionStateSubscriber already wrote) is a no-op, not a crash.
+                    stmt = stmt.on_conflict_do_nothing(index_elements=["id"])
+                stmt = stmt.returning(
+                    JoySafeterSessionEvent.id, JoySafeterSessionEvent.seq
+                )
+                row = (await db.execute(stmt)).first()
+                if row is None:
+                    return None
             return BufferedEvent(
-                session_id=obj.session_id,
-                event_type=obj.event_type,
-                payload=obj.payload or {},
-                seq=obj.seq,
-                id=obj.id,
+                session_id=event.session_id,
+                event_type=event.event_type,
+                payload=event.payload or {},
+                seq=row.seq,
+                id=row.id,
             )
 
     async def _publish_inserted(self, events: list[BufferedEvent]) -> None:
