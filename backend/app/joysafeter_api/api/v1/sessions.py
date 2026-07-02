@@ -19,7 +19,6 @@ from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as Pagina
 from app.joysafeter_domain.schemas.joysafeter_session import (
     MAX_MEMORY_STORE_RESOURCES,
     CreateSessionRequest,
-    EventListParams,
     SendEventRequest,
     SessionAgent,
     SessionEventResponse,
@@ -217,9 +216,8 @@ async def create_session(
         raise HTTPException(400, f"Too many file resources (max {MAX_FILE_RESOURCES})")
     if req.file_resources:
         from app.joysafeter_api.services import FileService
-        from app.joysafeter_shared.storage import get_storage
         from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
-        from app.joysafeter_domain.models.joysafeter_file import JoySafeterFile
+        from app.joysafeter_shared.storage import get_storage
 
         file_svc = FileService(get_storage())
         for fr in req.file_resources:
@@ -404,10 +402,10 @@ async def delete_session(
 
     # Emit session.deleted event via broadcaster before deleting
     from app.joysafeter_orchestrator.lifespan import (
-        get_session_broadcaster,
         get_bridge_registry,
-        get_sandbox_provider,
         get_envoy_manager,
+        get_sandbox_provider,
+        get_session_broadcaster,
     )
     broadcaster = get_session_broadcaster()
     if broadcaster:
@@ -505,15 +503,15 @@ async def stop_session(
     if session.status == "terminated":
         raise HTTPException(409, "Session is terminated")
 
+    from app.joysafeter_api.services import JoySafeterSessionLifecycleService
+    from app.joysafeter_api.services import JoySafeterTaskService as TaskService
+    from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
+    from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
     from app.joysafeter_orchestrator.lifespan import (
         get_bridge_registry,
         get_redis_coordinator,
         get_session_broadcaster,
     )
-    from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
-    from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
-    from app.joysafeter_api.services import JoySafeterSessionLifecycleService
-    from app.joysafeter_api.services import JoySafeterTaskService as TaskService
 
     stop_reason = {"type": "cancelled"}
     lifecycle = JoySafeterSessionLifecycleService(db)
@@ -875,7 +873,7 @@ async def send_event(
     if not single_events:
         raise HTTPException(400, "No events provided")
 
-    from app.joysafeter_orchestrator.lifespan import get_session_broadcaster, get_bridge_registry
+    from app.joysafeter_orchestrator.lifespan import get_bridge_registry, get_session_broadcaster
 
     broadcaster = get_session_broadcaster()
     bridge_registry = get_bridge_registry()
@@ -1347,6 +1345,7 @@ async def session_event_stream(
 # ══════════════════════════════════════════════════════════════════════
 
 from datetime import datetime
+
 from pydantic import BaseModel as PydanticBaseModel
 
 
@@ -1390,8 +1389,9 @@ async def list_session_resources(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
     from sqlalchemy import select as sa_select
+
+    from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
     svc = SessionService(db)
     session = await svc.get_session(session_id)
     if not session or session.project_id != auth_ctx.project_id:
@@ -1474,8 +1474,8 @@ async def _add_file_resource(
     req: AddSessionFileRequest,
     auth_ctx: JoySafeterAuthContext,
 ) -> SessionFileResourceResponse:
-    from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
     from app.joysafeter_api.services import FileService
+    from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
     from app.joysafeter_shared.storage import get_storage
 
     file_id_str = req.file_id.removeprefix("file_")
@@ -1566,9 +1566,10 @@ async def delete_session_resource(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
     db: AsyncSession = Depends(get_db),
 ):
+    from sqlalchemy import select as sa_select
+
     from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
     from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
-    from sqlalchemy import select as sa_select
     svc = SessionService(db)
     session = await svc.get_session(session_id)
     if not session or session.project_id != auth_ctx.project_id:
@@ -1616,9 +1617,10 @@ async def update_repo_resource_token(
 
     The new token is re-encrypted at rest; the response never echoes it.
     """
-    from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
-    from app.joysafeter_api.services import SecretService
     from sqlalchemy import select as sa_select
+
+    from app.joysafeter_api.services import SecretService
+    from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
 
     svc = SessionService(db)
     session = await svc.get_session(session_id)

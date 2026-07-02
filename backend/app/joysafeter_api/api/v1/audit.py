@@ -8,8 +8,8 @@ from fastapi import Request
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext
 from app.joysafeter_domain.services.joysafeter_security_audit_service import SecurityAuditService
+from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext
 
 
 async def audit_joysafeter_event(

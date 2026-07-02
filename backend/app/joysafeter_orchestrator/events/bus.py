@@ -6,9 +6,8 @@ import asyncio
 
 from loguru import logger
 
-from app.joysafeter_orchestrator.events.subscriber import SubscriberPhase
 from app.joysafeter_orchestrator.events.envelope import JoySafeterEventEnvelope
-from app.joysafeter_orchestrator.events.subscriber import JoySafeterEventSubscriber
+from app.joysafeter_orchestrator.events.subscriber import JoySafeterEventSubscriber, SubscriberPhase
 
 
 class JoySafeterEventBus:

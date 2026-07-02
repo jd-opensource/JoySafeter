@@ -11,12 +11,13 @@ import random
 import uuid
 from typing import Any, Optional
 
-from uuid_utils import uuid7
-
 import grpc
 from grpc import aio as grpc_aio
+from uuid_utils import uuid7
 
+from app.joysafeter_orchestrator.events.envelope import JoySafeterEventEnvelope
 from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2, joysafeter_pb2_grpc
+from app.joysafeter_orchestrator.kernel.queue import QueueBackend
 from app.joysafeter_orchestrator.kernel.sandbox_bridge import (
     SandboxBridge,
     SandboxBridgeRegistry,
@@ -24,8 +25,6 @@ from app.joysafeter_orchestrator.kernel.sandbox_bridge import (
     WsOutMessage,
 )
 from app.joysafeter_worker.events.batch_writer import BufferedEvent, EventBatchSender
-from app.joysafeter_orchestrator.kernel.queue import QueueBackend
-from app.joysafeter_orchestrator.events.envelope import JoySafeterEventEnvelope
 
 logger = logging.getLogger(__name__)
 
@@ -155,9 +154,10 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             )
 
             # Authenticate runner token
-            from app.joysafeter_shared.database import AsyncSessionLocal as _ASL_auth
-            from app.joysafeter_orchestrator.services import SandboxRecordService as _SbxSvc_auth
             import hmac
+
+            from app.joysafeter_orchestrator.services import SandboxRecordService as _SbxSvc_auth
+            from app.joysafeter_shared.database import AsyncSessionLocal as _ASL_auth
 
             runner_token = ready.runner_token if ready.HasField("runner_token") else ""
             async with _ASL_auth() as _db_auth:
@@ -208,8 +208,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 await _best_effort_redis("register_sandbox_owner", _coord_init.register_sandbox_owner(sandbox_id))
 
             # DB status CAS: reject terminal sandboxes, skip CAS for pooled, otherwise CAS to idle
-            from app.joysafeter_shared.database import AsyncSessionLocal as _ASL_init
             from app.joysafeter_orchestrator.services import SandboxRecordService as _SbxSvc_init
+            from app.joysafeter_shared.database import AsyncSessionLocal as _ASL_init
 
             async with _ASL_init() as _db_init:
                 _svc_init = _SbxSvc_init(_db_init)
@@ -280,8 +280,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
             # Register memory subscribers for this session
             if linked_session_id:
-                from app.joysafeter_orchestrator.lifespan import get_memory_subscribers
                 from app.joysafeter_orchestrator.kernel.memory_sync import MemorySessionEntry
+                from app.joysafeter_orchestrator.lifespan import get_memory_subscribers
                 mem_subs = get_memory_subscribers()
                 if mem_subs:
                     from app.joysafeter_orchestrator.services import SessionService as _SessSvc
@@ -367,16 +367,15 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         to the caller (which then enters the multi-task loop).  Sets
         bridge.setup_done = True so that _send_setup is skipped on reconnect.
         """
-        from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
         from app.joysafeter_domain.models.joysafeter_session import SessionStatus
-        from app.joysafeter_orchestrator.services import TaskService
-        from app.joysafeter_orchestrator.services import SessionService
-        from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
-        from app.joysafeter_orchestrator.events.event_mapping import map_harness_event, is_control_request
-        from app.joysafeter_orchestrator.kernel.task_controller import TaskController
-        from app.joysafeter_orchestrator.lifespan import get_session_broadcaster, get_redis_coordinator
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_orchestrator.events.event_mapping import is_control_request, map_harness_event
         from app.joysafeter_orchestrator.kernel.harness_input_builder import extract_tool_name_sets
+        from app.joysafeter_orchestrator.kernel.task_controller import TaskController
+        from app.joysafeter_orchestrator.lifespan import get_redis_coordinator, get_session_broadcaster
+        from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
+        from app.joysafeter_orchestrator.services import SessionService, TaskService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         bridge.setup_done = True  # skip SetupSandbox on reconnect
 
@@ -930,10 +929,12 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
     async def _rescue_orphaned_tasks(self, sandbox_id: uuid.UUID) -> None:
         """Re-queue running tasks orphaned by a runner that reconnected without active_task_id."""
-        from app.joysafeter_shared.database import AsyncSessionLocal
+        from sqlalchemy import and_, select
+
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
         from app.joysafeter_orchestrator.services import TaskService
-        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus, JoySafeterTask
-        from sqlalchemy import select, and_
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         try:
             async with AsyncSessionLocal() as db:
@@ -985,6 +986,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         is passed into _run_single_task so it can consume the first message.
         """
         import time as _time
+
         from app.joysafeter_shared.config.settings import joysafeter_config
 
         heartbeat_deadline = _time.monotonic() + _get_heartbeat_timeout()
@@ -1142,8 +1144,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
     async def _claim_next_sandbox_task_from_db(
         self, sandbox_id: uuid.UUID
     ) -> Optional[uuid.UUID]:
-        from app.joysafeter_shared.database import AsyncSessionLocal
         from app.joysafeter_orchestrator.services import TaskService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         try:
             async with AsyncSessionLocal() as db:
@@ -1175,21 +1177,19 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
           - task_error_status: True if the task ended in a failed/aborted/timeout state.
           - task_completed: True if the task ended with Completed status.
         """
-        from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
         from app.joysafeter_domain.models.joysafeter_session import SessionStatus
-        from app.joysafeter_orchestrator.services import TaskService
-        from app.joysafeter_orchestrator.services import AgentService
-        from app.joysafeter_orchestrator.services import SessionService
-        from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_orchestrator.events.event_mapping import is_control_request, map_harness_event
         from app.joysafeter_orchestrator.kernel.harness_input_builder import (
             build_harness_input,
             extract_tool_name_sets,
         )
-        from app.joysafeter_orchestrator.events.event_mapping import map_harness_event, is_control_request
-        from app.joysafeter_shared.config.settings import joysafeter_config
-        from app.joysafeter_orchestrator.lifespan import get_session_broadcaster, get_redis_coordinator
         from app.joysafeter_orchestrator.kernel.task_controller import TaskController
+        from app.joysafeter_orchestrator.lifespan import get_redis_coordinator, get_session_broadcaster
+        from app.joysafeter_orchestrator.services import AgentService, SessionService, TaskService
+        from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
+        from app.joysafeter_shared.config.settings import joysafeter_config
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         logger.info("Dispatching task %s to sandbox %s", task_id, sandbox_id)
 
@@ -1965,12 +1965,11 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         session_id: Optional[uuid.UUID],
         result: joysafeter_pb2.RunnerHarnessResult,
     ) -> None:
-        from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
         from app.joysafeter_domain.models.joysafeter_session import SessionStatus
-        from app.joysafeter_orchestrator.services import TaskService
-        from app.joysafeter_orchestrator.services import SessionService
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
+        from app.joysafeter_orchestrator.services import SessionService, TaskService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         usage = None
         if result.usage:
@@ -2138,12 +2137,11 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         coordinator,
     ) -> None:
         """Reconnect result handler — with CAS check and event buffer flush."""
-        from app.joysafeter_shared.database import AsyncSessionLocal
         from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
-        from app.joysafeter_orchestrator.services import TaskService
-        from app.joysafeter_orchestrator.services import SessionService
-        from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
         from app.joysafeter_orchestrator.lifespan import get_session_broadcaster
+        from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
+        from app.joysafeter_orchestrator.services import SessionService, TaskService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         usage = None
         if result.usage:
@@ -2259,10 +2257,9 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         if bridge.setup_done:
             return
 
-        from app.joysafeter_shared.database import AsyncSessionLocal
+        from app.joysafeter_orchestrator.services import AgentService, SessionService
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
-        from app.joysafeter_orchestrator.services import SessionService
-        from app.joysafeter_orchestrator.services import AgentService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         try:
             async with AsyncSessionLocal() as db:
@@ -2381,16 +2378,15 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         container_dead: bool = False,
     ) -> None:
         """Full sandbox cleanup matching Rust execute_sandbox_cleanup (lines 46-127)."""
-        from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
-        from app.joysafeter_orchestrator.services import TaskService
-        from app.joysafeter_orchestrator.services import SessionService
         from app.joysafeter_orchestrator.kernel.task_controller import TaskController
         from app.joysafeter_orchestrator.lifespan import (
+            get_memory_subscribers,
             get_redis_coordinator,
             get_session_broadcaster,
-            get_memory_subscribers,
         )
+        from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
+        from app.joysafeter_orchestrator.services import SessionService, TaskService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         sandbox_status = "error" if is_error else "stopped"
 
@@ -2541,8 +2537,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
     async def _probe_container(self, provider, sandbox_id: uuid.UUID, external_id: Optional[str] = None) -> bool:
         if not external_id:
-            from app.joysafeter_shared.database import AsyncSessionLocal
             from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
+            from app.joysafeter_shared.database import AsyncSessionLocal
             try:
                 async with AsyncSessionLocal() as db:
                     svc = SandboxService(db)
@@ -2568,7 +2564,6 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         original_bridge: Optional[SandboxBridge],
     ) -> None:
         """120s grace period for reconnection, matching Rust probe schedule (3s/5s/10s/15s/120s)."""
-        from app.joysafeter_orchestrator.kernel.task_controller import TaskController
 
         # Probe at absolute 3s, 5s, 10s, 15s — matches Rust (cumulative sleeps: 3, 2, 5, 5)
         for sleep_sec in (3, 2, 5, 5):
@@ -2621,9 +2616,8 @@ async def _handle_memory_sync_standalone(
         rel_path = "/" + rel_path
 
     try:
+        from app.joysafeter_orchestrator.services import MemoryService, SessionService
         from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_orchestrator.services import SessionService
-        from app.joysafeter_orchestrator.services import MemoryService
 
         store_id_for_broadcast: Optional[uuid.UUID] = None
 

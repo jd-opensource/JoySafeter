@@ -1,12 +1,11 @@
 import asyncio
 import logging
 import uuid
-from typing import Optional
 
-from app.joysafeter_shared.config.settings import joysafeter_config
 from app.joysafeter_orchestrator.kernel.queue import QueueBackend
 from app.joysafeter_orchestrator.kernel.sandbox_bridge import SandboxBridgeRegistry
 from app.joysafeter_orchestrator.sandbox.provider import SandboxProvider, SandboxStatus
+from app.joysafeter_shared.config.settings import joysafeter_config
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +43,8 @@ class SandboxController:
         if not active:
             return 0
 
-        from app.joysafeter_shared.database import AsyncSessionLocal
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         cleaned = 0
         for item in active:
@@ -84,8 +83,8 @@ class SandboxController:
         This is the reverse direction of cleanup_orphaned_provider_sandboxes:
         DB→provider sweep. Matches Rust cleanup_orphaned (lines 655-678).
         """
-        from app.joysafeter_shared.database import AsyncSessionLocal
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         cleaned = 0
         async with AsyncSessionLocal() as db:
@@ -173,8 +172,8 @@ class SandboxController:
         if not bridges:
             return
 
-        from app.joysafeter_shared.database import AsyncSessionLocal
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         for bridge in bridges:
             try:
@@ -235,10 +234,10 @@ class SandboxController:
     # -- Phase 1: Expire idle sandboxes with actual provider.stop() --
 
     async def _expire_idle_sandboxes(self) -> None:
-        from app.joysafeter_shared.database import AsyncSessionLocal
+        from sqlalchemy import and_, or_, select, text
+
         from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
-        from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
-        from sqlalchemy import select, and_, or_, text
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db:
             from app.joysafeter_orchestrator.lifespan import get_runtime_config
@@ -314,8 +313,8 @@ class SandboxController:
                     if owner and owner != _cfg.instance_id:
                         return
 
-                from app.joysafeter_shared.database import AsyncSessionLocal
                 from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
+                from app.joysafeter_shared.database import AsyncSessionLocal
 
                 # For the idle-timeout path we go idle→stopping→stopped so the
                 # provider gets a chance to flush the container cleanly. For
@@ -413,10 +412,11 @@ class SandboxController:
     # -- Phase 2: Force-stop sandboxes stuck in "stopping" --
 
     async def _force_stop_stuck(self) -> None:
-        from app.joysafeter_shared.database import AsyncSessionLocal
+        from sqlalchemy import and_, select, text
+
         from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
-        from sqlalchemy import select, and_, text
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db:
             result = await db.execute(
@@ -473,12 +473,12 @@ class SandboxController:
     # -- Phase 3: Destroy stopped sandboxes past TTL --
 
     async def _destroy_stopped_sandboxes(self) -> None:
-        from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
-        from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
-        from sqlalchemy import select, and_, text
+        from sqlalchemy import and_, select, text
 
+        from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
         from app.joysafeter_orchestrator.lifespan import get_runtime_config
+        from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
+        from app.joysafeter_shared.database import AsyncSessionLocal
         rc = get_runtime_config()
         stopped_ttl = rc.stopped_max_age_sec if rc else joysafeter_config.sandbox_stopped_ttl
         async with AsyncSessionLocal() as db:
@@ -535,12 +535,13 @@ class SandboxController:
     # -- Provisioning poll (unchanged logic) --
 
     async def _check_provisioning_timeout(self) -> None:
-        from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
+        from sqlalchemy import and_, select
+
         from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
         from app.joysafeter_orchestrator.services import TaskService
-        from sqlalchemy import and_, select
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         async def _requeue_scheduling_tasks(sandbox_id) -> int:
             try:
@@ -696,12 +697,12 @@ class SandboxController:
                 await self._coordinator.release_lock("joysafeter:lock:pool_manager")
 
     async def _manage_pool_inner(self) -> None:
-        from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
-        from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
-        from sqlalchemy import select, func, and_, text
+        from sqlalchemy import and_, select, text
 
+        from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
         from app.joysafeter_orchestrator.lifespan import get_runtime_config, get_sandbox_resolver
+        from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
+        from app.joysafeter_shared.database import AsyncSessionLocal
         rc = get_runtime_config()
         min_size = rc.pool_min_size if rc else joysafeter_config.sandbox_pool_min_size
         max_age = rc.pool_max_age_sec if rc else joysafeter_config.sandbox_pool_max_age

@@ -15,7 +15,6 @@ from app.joysafeter_orchestrator.runtime.adapter import (
     HarnessResult,
     HarnessResultStatus,
     RunningHarness,
-    SkillArchive,
 )
 from app.joysafeter_orchestrator.runtime.claude_settings import (
     write_claude_settings,

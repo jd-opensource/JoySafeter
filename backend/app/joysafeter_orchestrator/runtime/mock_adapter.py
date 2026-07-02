@@ -1,7 +1,5 @@
 import asyncio
 import logging
-import uuid
-from typing import Optional
 
 from uuid_utils import uuid7
 

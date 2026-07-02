@@ -13,7 +13,6 @@ from typing import Any, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-
 SCANNER_VERSION = os.getenv("SKILLSPECTOR_VERSION", "2.1.4")
 MAX_FILES = int(os.getenv("SKILLSPECTOR_SERVICE_MAX_FILES", "100"))
 MAX_FILE_BYTES = int(os.getenv("SKILLSPECTOR_SERVICE_MAX_FILE_BYTES", str(1024 * 1024)))

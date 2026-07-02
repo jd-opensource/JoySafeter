@@ -11,7 +11,6 @@ Security/packing/runtime-policy live in joysafeter_skill_security.py.
 """
 from __future__ import annotations
 
-
 # ============================================================================
 # skill_lifecycle_service.py
 # ============================================================================
@@ -214,23 +213,23 @@ class SkillLifecycleService:
 """Skill Version Service — publish, list, get, delete, restore."""
 
 
-import uuid
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List
 
 import semver
 
 from app.joysafeter_domain.models.joysafeter_skill import (
-    JoySafeterCollaboratorRole,
     JoySafeterSkill,
     JoySafeterSkillFile,
     JoySafeterSkillVersion,
     JoySafeterSkillVersionFile,
 )
-from app.joysafeter_domain.repositories.joysafeter_skill import SkillFileRepository, SkillRepository
-from app.joysafeter_domain.repositories.joysafeter_skill_version import SkillVersionFileRepository, SkillVersionRepository
-from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError, ResourceConflictError
-from app.joysafeter_shared.common.skill_permissions import check_skill_access
+from app.joysafeter_domain.repositories.joysafeter_skill import SkillFileRepository
+from app.joysafeter_domain.repositories.joysafeter_skill_version import (
+    SkillVersionFileRepository,
+    SkillVersionRepository,
+)
+from app.joysafeter_shared.common.app_errors import ResourceConflictError
 
 from .base import BaseService
 
@@ -587,21 +586,12 @@ Skill Service: Permission Check + CRUD
 """
 
 
-import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Union
 
 from loguru import logger
 
-from app.joysafeter_domain.models.joysafeter_skill import (
-    JoySafeterCollaboratorRole,
-    JoySafeterSkill,
-    JoySafeterSkillFile,
-)
-from app.joysafeter_domain.repositories.joysafeter_skill import SkillFileRepository, SkillRepository
-from app.joysafeter_domain.repositories.joysafeter_skill_version import SkillVersionRepository
-from app.joysafeter_shared.common.app_errors import AccessDeniedError, InvalidRequestError, NotFoundError
-from app.joysafeter_shared.common.skill_permissions import check_skill_access
+from app.joysafeter_shared.common.app_errors import AccessDeniedError
 from app.joysafeter_shared.skill.validators import (
     truncate_compatibility,
     truncate_description,
@@ -1985,11 +1975,11 @@ class SkillService(BaseService[JoySafeterSkill]):
         Mirrors ``_dispatch_security_scan``'s async branch + the permission
         + fallback bookkeeping from ``rescan_existing_skill``.
         """
-        from app.joysafeter_domain.services.joysafeter_skill_security import (
-            JoySafeterCollaboratorRole,
-        )
         from app.joysafeter_domain.models.joysafeter_skill import (
             JoySafeterSkillSecurityScan,
+        )
+        from app.joysafeter_domain.services.joysafeter_skill_security import (
+            JoySafeterCollaboratorRole,
         )
         from app.joysafeter_shared.common.skill_permissions import check_skill_access
         from app.joysafeter_shared.config.settings import settings as _settings

@@ -22,9 +22,15 @@ from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Requ
 from fastapi.security import OAuth2PasswordRequestForm
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from sqlalchemy import delete as sa_delete, select
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
+from app.joysafeter_api.services import ApiKeyService, AuthService, AuthSessionService, ProjectService
+from app.joysafeter_domain.models.joysafeter_auth import AuthUser
+from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
+from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_shared.common.app_errors import AppError, AuthenticationError
 from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
 from app.joysafeter_shared.common.joysafeter_auth import (
@@ -39,14 +45,6 @@ from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.database import get_db
 from app.joysafeter_shared.rate_limit import auth_rate_limit, strict_rate_limit
 from app.joysafeter_shared.security import Token, create_access_token, decode_token
-from app.joysafeter_domain.models.joysafeter_auth import AuthUser
-from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
-from app.joysafeter_domain.models.joysafeter_project import Project
-from app.joysafeter_api.services import ApiKeyService
-from app.joysafeter_api.services import AuthService
-from app.joysafeter_api.services import AuthSessionService
-from app.joysafeter_api.services import ProjectService
-from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
 
 router = APIRouter(tags=["joysafeter-auth"])
 

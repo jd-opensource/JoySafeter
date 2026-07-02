@@ -305,6 +305,7 @@ class VaultService:
 
         try:
             import httpx
+
             from app.joysafeter_shared.security.ssrf_guard import validate_url
 
             validate_url(token_url, context="vault OAuth token_url")

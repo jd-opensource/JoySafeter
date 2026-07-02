@@ -7,12 +7,12 @@ import asyncio
 from loguru import logger
 from sqlalchemy import text
 
-from app.joysafeter_shared.observation.otel.global_provider import init_global_provider
-from app.joysafeter_shared.observation.otel.provider import init_global_processors
 from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.config.service_role import current_role
 from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.database import close_db, engine
+from app.joysafeter_shared.observation.otel.global_provider import init_global_provider
+from app.joysafeter_shared.observation.otel.provider import init_global_processors
 
 
 async def _check_db_connection() -> None:

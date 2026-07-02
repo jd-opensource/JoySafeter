@@ -7,10 +7,10 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_domain.models import User
 from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
 from app.joysafeter_shared.database import AsyncSessionLocal
 from app.joysafeter_shared.security import decode_token
-from app.joysafeter_domain.models import User
 
 
 class WebSocketCloseCode:

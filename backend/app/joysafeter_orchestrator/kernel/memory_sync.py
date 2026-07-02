@@ -2,7 +2,6 @@ import asyncio
 import logging
 import uuid
 from dataclasses import dataclass
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -89,8 +88,8 @@ class MemoryStoreSubscribers:
         sender_sandbox_id: uuid.UUID,
     ) -> int:
         """Notify peer sandboxes — matches Rust (excludes by sandbox_id, caller provides content)."""
-        from app.joysafeter_orchestrator.lifespan import get_bridge_registry
         from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
+        from app.joysafeter_orchestrator.lifespan import get_bridge_registry
 
         registry = get_bridge_registry()
         if not registry:
@@ -163,8 +162,8 @@ class MemoryStoreSubscribers:
         if change_type == "delete":
             operation = "delete"
         else:
-            from app.joysafeter_shared.database import AsyncSessionLocal
             from app.joysafeter_orchestrator.services import MemoryService
+            from app.joysafeter_shared.database import AsyncSessionLocal
             async with AsyncSessionLocal() as db:
                 mem_svc = MemoryService(db)
                 mem = await mem_svc.get_memory_by_path(store_id, path)

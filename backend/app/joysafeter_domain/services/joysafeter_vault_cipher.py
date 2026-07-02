@@ -1,6 +1,5 @@
 import base64
 import logging
-import os
 import secrets
 from typing import Optional
 

@@ -7,16 +7,16 @@ aligned with the unified Organization + Project model.
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, EmailStr, Field
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
+from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_shared.common.dependencies import CurrentUser
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterRole
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
-from app.joysafeter_domain.models.joysafeter_project import Project
 
 router = APIRouter(tags=["joysafeter-organizations"])
 

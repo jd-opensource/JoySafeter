@@ -13,12 +13,12 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_shared.common.app_errors import AccessDeniedError, AuthenticationError
-from app.joysafeter_shared.common.dependencies import get_current_user
-from app.joysafeter_shared.database import get_db
 from app.joysafeter_domain.models.joysafeter_api_key import JoySafeterApiKey
 from app.joysafeter_domain.models.joysafeter_organization import Member
 from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_shared.common.app_errors import AccessDeniedError, AuthenticationError
+from app.joysafeter_shared.common.dependencies import get_current_user
+from app.joysafeter_shared.database import get_db
 
 from .context import JoySafeterAuthContext, JoySafeterRole
 
@@ -325,6 +325,7 @@ async def _auth_via_user_session(
     if membership is None:
         # Auto-create a default organization and project for the user
         import uuid as _uuid
+
         from app.joysafeter_domain.models.joysafeter_organization import Organization
 
         org_id = str(_uuid.uuid4())

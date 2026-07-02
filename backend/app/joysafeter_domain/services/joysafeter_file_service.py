@@ -6,9 +6,8 @@ import os
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
 
-from sqlalchemy import select, desc
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid_utils import uuid7
 

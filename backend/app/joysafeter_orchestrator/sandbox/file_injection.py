@@ -70,10 +70,11 @@ class FileInjectionStrategy(Protocol):
 
 
 async def load_session_files(session_id: uuid.UUID) -> list[SessionFileRecord]:
-    from app.joysafeter_shared.database import AsyncSessionLocal
-    from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
-    from app.joysafeter_domain.models.joysafeter_file import JoySafeterFile
     from sqlalchemy import select
+
+    from app.joysafeter_domain.models.joysafeter_file import JoySafeterFile
+    from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
+    from app.joysafeter_shared.database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(

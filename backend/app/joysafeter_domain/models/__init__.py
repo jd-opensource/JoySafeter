@@ -2,11 +2,11 @@
 Data models
 """
 
-from .joysafeter_auth import AuthSession, AuthUser
-from .joysafeter_auth import AuthUser as User
 from .base import BaseModel, SoftDeleteMixin, TimestampMixin
 from .joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
 from .joysafeter_api_key import JoySafeterApiKey
+from .joysafeter_auth import AuthSession, AuthUser
+from .joysafeter_auth import AuthUser as User
 from .joysafeter_environment import JoySafeterEnvironment  # noqa: F401 — alembic discovery
 from .joysafeter_file import JoySafeterFile  # noqa: F401 — alembic discovery
 from .joysafeter_memory import (  # noqa: F401 — alembic discovery

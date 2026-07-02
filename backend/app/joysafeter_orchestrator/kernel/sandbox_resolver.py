@@ -7,8 +7,8 @@ from typing import Optional
 
 from uuid_utils import uuid7 as _uuid7
 
-from app.joysafeter_shared.config.settings import joysafeter_config
 from app.joysafeter_orchestrator.sandbox.provider import SandboxProvider
+from app.joysafeter_shared.config.settings import joysafeter_config
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +153,7 @@ class SandboxResolver:
         async with lock:
             try:
                 from sqlalchemy import text
+
                 from app.joysafeter_shared.database import AsyncSessionLocal
 
                 lock_key = f"sandbox_resolve:{session_id}"
@@ -191,9 +192,9 @@ class SandboxResolver:
         engine_kind: Optional[str] = None,
         project_id: Optional[str] = None,
     ) -> dict:
-        from app.joysafeter_shared.database import AsyncSessionLocal
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
         from app.joysafeter_orchestrator.services import SessionService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         if project_id is None:
             async with AsyncSessionLocal() as db:
@@ -334,7 +335,8 @@ class SandboxResolver:
                             pooled.id, session_id,
                         )
                         from app.joysafeter_orchestrator.sandbox.file_injection import (
-                            inject_session_files, FileInjectionContext,
+                            FileInjectionContext,
+                            inject_session_files,
                         )
                         from app.joysafeter_shared.storage import get_storage
                         ctx = FileInjectionContext(
@@ -362,7 +364,8 @@ class SandboxResolver:
         # Preload uploaded files into the workspace
         if workspace_path:
             from app.joysafeter_orchestrator.sandbox.file_injection import (
-                inject_session_files, FileInjectionContext,
+                FileInjectionContext,
+                inject_session_files,
             )
             from app.joysafeter_shared.storage import get_storage
             ctx = FileInjectionContext(
@@ -456,8 +459,8 @@ class SandboxResolver:
         Returns a list of MemoryMount dicts suitable for passing to
         ``_provision_sandbox()`` so the provider can bind-mount them.
         """
-        from app.joysafeter_shared.database import AsyncSessionLocal
         from app.joysafeter_orchestrator.services import SessionService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         memory_mounts: list[dict] = []
 
@@ -641,8 +644,8 @@ class SandboxResolver:
 
         Matches Rust create_pooled: container first, then DB record as "pooled".
         """
-        from app.joysafeter_shared.database import AsyncSessionLocal
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         if image:
             resolved_image = image
@@ -728,6 +731,7 @@ class SandboxResolver:
 
     async def _find_stopped_for_session(self, svc, session_id: uuid.UUID):
         from sqlalchemy import and_, select
+
         from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
 
         result = await svc.db.execute(

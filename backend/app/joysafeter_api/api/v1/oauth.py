@@ -23,13 +23,13 @@ from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_api.services import AuthService, OAuthService
+from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
 from app.joysafeter_shared.common.dependencies import get_db
 from app.joysafeter_shared.common.response import success_response
-from app.joysafeter_shared.oauth import get_oauth_config, get_protocol_handler
-from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.config.settings import settings
-from app.joysafeter_api.services import AuthService, OAuthService
+from app.joysafeter_shared.oauth import get_oauth_config, get_protocol_handler
 
 LOG_PREFIX = "[OAuthAPI]"
 router = APIRouter(tags=["joysafeter-oauth"])

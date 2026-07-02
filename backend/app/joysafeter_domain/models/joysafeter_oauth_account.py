@@ -12,8 +12,8 @@ from sqlalchemy import DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.joysafeter_shared.database import Base
 from app.joysafeter_domain.models.base import TimestampMixin
+from app.joysafeter_shared.database import Base
 
 if TYPE_CHECKING:
     from app.joysafeter_domain.models.joysafeter_auth import AuthUser  # pragma: no cover

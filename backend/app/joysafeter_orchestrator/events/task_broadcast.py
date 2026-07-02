@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Optional
 
 from app.joysafeter_orchestrator.events.envelope import JoySafeterEventEnvelope
 from app.joysafeter_orchestrator.events.subscriber import SubscriberPhase
-from app.joysafeter_orchestrator.kernel.sandbox_bridge import SandboxBridge, SandboxBridgeRegistry, WsOutMessage
+from app.joysafeter_orchestrator.kernel.sandbox_bridge import SandboxBridgeRegistry, WsOutMessage
 
 logger = logging.getLogger(__name__)
 

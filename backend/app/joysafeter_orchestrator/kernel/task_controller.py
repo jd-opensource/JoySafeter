@@ -29,13 +29,13 @@ class TaskController:
                 logger.warning("Pending task scanner failed: %s", e)
 
     async def recover_on_startup(self) -> None:
-        from app.joysafeter_shared.database import AsyncSessionLocal
         from sqlalchemy import text
-        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
-        from app.joysafeter_orchestrator.services import TaskService
-        from app.joysafeter_orchestrator.services import JoySafeterSessionLifecycleService
+
         from app.joysafeter_domain.models.joysafeter_session import SessionStatus
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_orchestrator.services import JoySafeterSessionLifecycleService, TaskService
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db:
             result = await db.execute(text("SELECT pg_try_advisory_lock(hashtext('task_recovery'))"))
@@ -157,12 +157,12 @@ class TaskController:
                 await db.execute(text("SELECT pg_advisory_unlock(hashtext('task_recovery'))"))
 
     async def _check_overdue_tasks(self) -> None:
-        from app.joysafeter_shared.database import AsyncSessionLocal
         from sqlalchemy import text
-        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+
         from app.joysafeter_domain.models.joysafeter_session import SessionStatus
-        from app.joysafeter_orchestrator.services import JoySafeterSessionLifecycleService
-        from app.joysafeter_orchestrator.services import TaskService
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_orchestrator.services import JoySafeterSessionLifecycleService, TaskService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db:
             locked = False
@@ -214,10 +214,11 @@ class TaskController:
                     await db.execute(text("SELECT pg_advisory_unlock(hashtext('task_watchdog'))"))
 
     async def _check_stuck_scheduling(self) -> None:
-        from app.joysafeter_shared.database import AsyncSessionLocal
         from sqlalchemy import text
-        from app.joysafeter_orchestrator.services import TaskService
+
         from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_orchestrator.services import TaskService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db:
             locked = False
@@ -261,8 +262,9 @@ class TaskController:
                     await db.execute(text("SELECT pg_advisory_unlock(hashtext('task_scheduling_watchdog'))"))
 
     async def _scan_pending_tasks(self) -> None:
-        from app.joysafeter_shared.database import AsyncSessionLocal
         from sqlalchemy import text
+
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db:
             locked = False
@@ -289,11 +291,9 @@ class TaskController:
     @staticmethod
     async def failover_or_fail_task(task_id: uuid.UUID, reason: str) -> "int | None":
         """Attempt to retry the task. Returns the retry_count (pre-increment) if retried, None if terminal/failed."""
-        from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_orchestrator.services import TaskService
-        from app.joysafeter_orchestrator.services import JoySafeterSessionLifecycleService
-        from app.joysafeter_orchestrator.services import SessionService
         from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_orchestrator.services import JoySafeterSessionLifecycleService, SessionService, TaskService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db:
             svc = TaskService(db)

@@ -2,7 +2,8 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import and_, func, select, update as sa_update
+from sqlalchemy import and_, func, select
+from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_task import (
@@ -11,7 +12,6 @@ from app.joysafeter_domain.models.joysafeter_task import (
     JoySafeterTaskStatus,
 )
 from app.joysafeter_shared.utils.datetime import utc_now
-
 
 TERMINAL_VALUES = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
 

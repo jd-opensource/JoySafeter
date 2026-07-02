@@ -13,7 +13,6 @@ from app.joysafeter_shared.database import Base
 
 from .base import JoySafeterBaseModel, TimestampMixin
 
-
 # ---------------------------------------------------------------------------
 # JoySafeter Agent models
 #

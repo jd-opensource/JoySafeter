@@ -210,31 +210,30 @@ class AuthSessionService(BaseService):
 """Auth service — registration, login, password reset, and related business logic."""
 
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_domain.models.enums import SecurityAuditEventType
+from app.joysafeter_domain.models.joysafeter_auth import AuthSession, AuthUser
+from app.joysafeter_domain.services.base import BaseService
+from app.joysafeter_domain.services.joysafeter_email_service import email_service
+from app.joysafeter_domain.services.joysafeter_security_audit_service import SecurityAuditService
 from app.joysafeter_shared.common.app_errors import (
     AccessDeniedError,
     AuthenticationError,
     InternalServiceError,
     InvalidRequestError,
 )
+from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.security import (
     generate_email_verify_token,
     generate_password_reset_token,
     get_password_hash,
     verify_password,
 )
-from app.joysafeter_shared.config.settings import settings
-from app.joysafeter_domain.models.joysafeter_auth import AuthSession, AuthUser
-from app.joysafeter_domain.models.enums import SecurityAuditEventType
-from app.joysafeter_domain.repositories.joysafeter_auth_user import AuthUserRepository
-from app.joysafeter_domain.services.base import BaseService
-from app.joysafeter_domain.services.joysafeter_email_service import email_service
-from app.joysafeter_domain.services.joysafeter_security_audit_service import SecurityAuditService
 
 
 class AuthService(BaseService):
@@ -274,10 +273,12 @@ class AuthService(BaseService):
         project_id = None
         role = None
         try:
+            import uuid as _uuid
+
             from sqlalchemy import select
+
             from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
             from app.joysafeter_domain.models.joysafeter_project import Project
-            import uuid as _uuid
 
             result = await self.db.execute(
                 select(Member).where(Member.user_id == user_id).limit(1)
@@ -936,23 +937,18 @@ Responsibilities:
 - Bind OAuth accounts
 """
 
-import secrets
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional, Tuple, cast
+from datetime import datetime
+from typing import Optional, Tuple, cast
 from urllib.parse import urlencode
 
 import httpx
-from loguru import logger
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_shared.common.app_errors import AuthenticationError, InvalidRequestError
-from app.joysafeter_shared.oauth import get_oauth_config
-from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_oauth_account import OAuthAccount
-from app.joysafeter_domain.repositories.joysafeter_auth_user import AuthUserRepository
 from app.joysafeter_domain.services.base import BaseService
+from app.joysafeter_shared.cache.redis import RedisClient
+from app.joysafeter_shared.oauth import get_oauth_config
 
 LOG_PREFIX = "[OAuthService]"
 
@@ -1577,16 +1573,14 @@ Update last-login time and IP, and record a login-success audit event.
 Called by auth_service.login and oauth_callback to keep the logic centralized.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import TYPE_CHECKING
 
-from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 
-from app.joysafeter_domain.models.enums import SecurityAuditEventType
 
 
 async def run_post_login_init(db: AsyncSession, user: "AuthUser", ip_address: str) -> None:

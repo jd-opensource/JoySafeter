@@ -334,14 +334,16 @@ class DockerSandboxProvider(SandboxProvider):
         """Inject session files into a running Docker container via docker cp."""
         import os
         import tempfile
-        from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
+
+        from sqlalchemy import select
+
         from app.joysafeter_domain.models.joysafeter_file import JoySafeterFile
+        from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
         from app.joysafeter_orchestrator.sandbox.archive_utils import (
             auto_extract_archive_into_container,
         )
+        from app.joysafeter_shared.database import AsyncSessionLocal
         from app.joysafeter_shared.storage import get_storage
-        from sqlalchemy import select
 
         async with AsyncSessionLocal() as db:
             result = await db.execute(

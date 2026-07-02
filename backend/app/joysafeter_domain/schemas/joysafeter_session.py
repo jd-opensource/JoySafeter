@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, Literal, Optional, Union
 
 from pydantic import (
     BaseModel,
@@ -21,7 +21,6 @@ from pydantic import (
     model_serializer,
     model_validator,
 )
-
 
 # ---------------------------------------------------------------------------
 # JoySafeter Session Schemas

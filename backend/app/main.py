@@ -14,10 +14,10 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from loguru import logger
 
+from app.joysafeter_api.app import create_api_app
 from app.joysafeter_shared.common.logging import setup_logging
 from app.joysafeter_shared.config.service_role import is_orchestrator_role, is_worker_role
 from app.joysafeter_shared.config.settings import ENV_FILE, settings
-from app.joysafeter_api.app import create_api_app
 from app.joysafeter_shared.runtime.lifecycle import _run_common_shutdown, _run_common_startup
 
 load_dotenv(ENV_FILE, override=False)

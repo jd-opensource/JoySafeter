@@ -62,8 +62,8 @@ class TaskScheduler:
 
     async def _claim_pending_batch(self, limit: int) -> list[uuid.UUID]:
         try:
-            from app.joysafeter_shared.database import AsyncSessionLocal
             from app.joysafeter_orchestrator.services import TaskService
+            from app.joysafeter_shared.database import AsyncSessionLocal
 
             async with AsyncSessionLocal() as db:
                 return await TaskService(db).claim_pending_tasks_for_scheduling(limit)
@@ -73,14 +73,12 @@ class TaskScheduler:
 
     async def _schedule_task(self, task_id: uuid.UUID, already_claimed: bool = False) -> None:
         try:
-            from app.joysafeter_shared.database import AsyncSessionLocal
-            from app.joysafeter_orchestrator.services import TaskService
-            from app.joysafeter_orchestrator.services import AgentService
-            from app.joysafeter_orchestrator.services import SessionService
             from app.joysafeter_orchestrator.lifespan import (
                 get_bridge_registry,
                 get_sandbox_resolver,
             )
+            from app.joysafeter_orchestrator.services import AgentService, SessionService, TaskService
+            from app.joysafeter_shared.database import AsyncSessionLocal
 
             async with AsyncSessionLocal() as db:
                 task_svc = TaskService(db)

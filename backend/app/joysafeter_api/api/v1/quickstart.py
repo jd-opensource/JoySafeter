@@ -13,9 +13,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_api.services import SecretService
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, require_joysafeter_write
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_api.services import SecretService
 
 router = APIRouter(tags=["joysafeter-quickstart"])
 
@@ -598,7 +598,7 @@ async def quickstart_chat(
     provider = "codex" if req.provider == "codex" else "claude"
 
     # SSRF protection: block cloud metadata endpoints, allow internal network
-    from app.joysafeter_shared.security.ssrf_guard import validate_url, SSRFError
+    from app.joysafeter_shared.security.ssrf_guard import SSRFError, validate_url
 
     system_prompt = _build_system_prompt(req.current_step, req.agent_context)
     tools = _build_tools(req.current_step)

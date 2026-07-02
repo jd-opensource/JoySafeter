@@ -6,19 +6,19 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_env_id
+from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
+from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
+from app.joysafeter_domain.schemas.joysafeter_environment import (
+    CreateEnvironmentRequest,
+    EnvironmentResponse,
+    UpdateEnvironmentRequest,
+)
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
     get_joysafeter_auth_context,
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_domain.schemas.joysafeter_environment import (
-    CreateEnvironmentRequest,
-    EnvironmentResponse,
-    UpdateEnvironmentRequest,
-)
-from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
-from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +46,8 @@ async def _validate_and_build_image(env) -> None:
     version = getattr(env, "image_version", 0) or 0
     tag = await builder.build_environment_image(env.id, version + 1, packages)
     if tag:
-        from app.joysafeter_shared.database import AsyncSessionLocal
         from app.joysafeter_api.services import JoySafeterEnvironmentService as ES
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db:
             svc = ES(db)

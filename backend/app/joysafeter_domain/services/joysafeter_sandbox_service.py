@@ -9,20 +9,18 @@ sandbox_service.py shim (v1 cleanup consolidation):
 """
 from __future__ import annotations
 
-
 # ============================================================================
 # joysafeter_sandbox_state_machine.py
 # ============================================================================
-
 import uuid
 from typing import Optional
 
-from sqlalchemy import and_, select, update as sa_update
+from sqlalchemy import and_, select
+from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
 from app.joysafeter_shared.utils.datetime import utc_now
-
 
 SANDBOX_STATUSES = frozenset(
     {
@@ -198,15 +196,9 @@ the old DispatchService / ExecutionOrchestrator chain.
 """
 
 
-import uuid
 from datetime import timedelta
-from typing import Optional
 
-from sqlalchemy import and_, func, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
-from app.joysafeter_shared.utils.datetime import utc_now
+from sqlalchemy import func, update
 
 
 class JoySafeterSandboxService:

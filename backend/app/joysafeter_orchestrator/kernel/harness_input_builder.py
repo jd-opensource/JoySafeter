@@ -257,11 +257,8 @@ async def build_harness_input(
     sandbox_db_id: uuid.UUID,
     provider_name: Optional[str] = None,
 ) -> HarnessInput:
+    from app.joysafeter_orchestrator.services import MemoryService, SecretService, SessionService, VaultService
     from app.joysafeter_shared.database import AsyncSessionLocal
-    from app.joysafeter_orchestrator.services import SecretService
-    from app.joysafeter_orchestrator.services import VaultService
-    from app.joysafeter_orchestrator.services import SessionService
-    from app.joysafeter_orchestrator.services import MemoryService
 
     env: dict[str, str] = {}
     model = None
@@ -420,8 +417,8 @@ async def build_harness_input(
     env.update({str(k): str(v) for k, v in (agent.env or {}).items()})
 
     if memory_mounts and session_id:
-        from app.joysafeter_orchestrator.lifespan import get_memory_subscribers
         from app.joysafeter_orchestrator.kernel.memory_sync import MemorySessionEntry
+        from app.joysafeter_orchestrator.lifespan import get_memory_subscribers
 
         subs = get_memory_subscribers()
         if subs:
@@ -532,10 +529,11 @@ async def build_harness_input(
     # Tokens are decrypted here and never logged.
     repos: list[dict[str, Any]] = []
     if session_id:
+        from sqlalchemy import select as _sa_select
+
         from app.joysafeter_domain.models.joysafeter_session_repo import (
             JoySafeterSessionRepo,
         )
-        from sqlalchemy import select as _sa_select
 
         async with AsyncSessionLocal() as repo_db:
             secret_svc = SecretService(repo_db)

@@ -8,10 +8,10 @@ import uuid
 from typing import Optional
 
 from app.joysafeter_orchestrator.events.envelope import JoySafeterEventEnvelope
-from app.joysafeter_worker.events.batch_writer import BufferedEvent, EventBatchSender
 from app.joysafeter_orchestrator.events.subscriber import SubscriberPhase
 from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.config.settings import joysafeter_config
+from app.joysafeter_worker.events.batch_writer import BufferedEvent, EventBatchSender
 
 logger = logging.getLogger(__name__)
 

@@ -10,9 +10,6 @@ import logging
 import os
 import signal
 import threading
-from typing import Optional
-
-from uuid_utils import uuid7
 
 from app.joysafeter_shared.config.settings import JoySafeterConfig, joysafeter_config
 
@@ -199,16 +196,16 @@ async def joysafeter_startup() -> None:
 
     logger.info("Starting JoySafeter kernel...")
 
+    from app.joysafeter_orchestrator.kernel.memory_sync import MemoryStoreSubscribers
     from app.joysafeter_orchestrator.kernel.queue import InMemoryRedisQueueBackend
+    from app.joysafeter_orchestrator.kernel.sandbox_bridge import SandboxBridgeRegistry
+    from app.joysafeter_orchestrator.kernel.sandbox_controller import SandboxController
+    from app.joysafeter_orchestrator.kernel.sandbox_resolver import SandboxResolver
     from app.joysafeter_orchestrator.kernel.scheduler import TaskScheduler
     from app.joysafeter_orchestrator.kernel.task_controller import TaskController
-    from app.joysafeter_orchestrator.kernel.sandbox_controller import SandboxController
-    from app.joysafeter_orchestrator.session_broadcaster import SessionBroadcaster
-    from app.joysafeter_orchestrator.kernel.sandbox_bridge import SandboxBridgeRegistry
-    from app.joysafeter_worker.events.batch_writer import EventBatchSender, EventBatchConfig
-    from app.joysafeter_orchestrator.kernel.sandbox_resolver import SandboxResolver
-    from app.joysafeter_orchestrator.kernel.memory_sync import MemoryStoreSubscribers
     from app.joysafeter_orchestrator.runtime.registry import AdapterRegistry
+    from app.joysafeter_orchestrator.session_broadcaster import SessionBroadcaster
+    from app.joysafeter_worker.events.batch_writer import EventBatchConfig, EventBatchSender
 
     redis_client = None
     try:
@@ -275,7 +272,7 @@ async def joysafeter_startup() -> None:
     # Envoy network isolation
     if joysafeter_config.envoy_enabled:
         try:
-            from app.joysafeter_orchestrator.sandbox.envoy_manager import EnvoyManager, EnvoyConfig
+            from app.joysafeter_orchestrator.sandbox.envoy_manager import EnvoyConfig, EnvoyManager
 
             _envoy_manager = EnvoyManager(EnvoyConfig(
                 envoy_image=joysafeter_config.envoy_image,
@@ -344,8 +341,8 @@ async def joysafeter_startup() -> None:
 
     # Event Bus: decouple gRPC server from downstream consumers
     from app.joysafeter_orchestrator.events.bus import JoySafeterEventBus
-    from app.joysafeter_orchestrator.events.session_state import SessionStateSubscriber
     from app.joysafeter_orchestrator.events.session_broadcast import SessionBroadcastSubscriber
+    from app.joysafeter_orchestrator.events.session_state import SessionStateSubscriber
     from app.joysafeter_orchestrator.events.task_broadcast import TaskBroadcastSubscriber
 
     _event_bus = JoySafeterEventBus()

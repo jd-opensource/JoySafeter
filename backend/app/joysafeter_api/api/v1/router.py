@@ -2,20 +2,20 @@ from fastapi import APIRouter
 
 from app.joysafeter_api.api.v1.agents import router as agents_router
 from app.joysafeter_api.api.v1.auth import router as auth_router
-from app.joysafeter_api.api.v1.tasks import router as tasks_router
-from app.joysafeter_api.api.v1.sessions import router as sessions_router
 from app.joysafeter_api.api.v1.environments import router as environments_router
-from app.joysafeter_api.api.v1.secrets import router as secrets_router
-from app.joysafeter_api.api.v1.skills import router as skills_router
-from app.joysafeter_api.api.v1.skills_ai_authoring import router as skills_ai_authoring_router
-from app.joysafeter_api.api.v1.sandboxes import router as sandboxes_router
-from app.joysafeter_api.api.v1.memory_stores import router as memory_stores_router
-from app.joysafeter_api.api.v1.vaults import router as vaults_router
 from app.joysafeter_api.api.v1.files import router as files_router
 from app.joysafeter_api.api.v1.health import router as health_router
-from app.joysafeter_api.api.v1.organizations import router as organizations_router
+from app.joysafeter_api.api.v1.memory_stores import router as memory_stores_router
 from app.joysafeter_api.api.v1.oauth import router as oauth_router
+from app.joysafeter_api.api.v1.organizations import router as organizations_router
 from app.joysafeter_api.api.v1.quickstart import router as quickstart_router
+from app.joysafeter_api.api.v1.sandboxes import router as sandboxes_router
+from app.joysafeter_api.api.v1.secrets import router as secrets_router
+from app.joysafeter_api.api.v1.sessions import router as sessions_router
+from app.joysafeter_api.api.v1.skills import router as skills_router
+from app.joysafeter_api.api.v1.skills_ai_authoring import router as skills_ai_authoring_router
+from app.joysafeter_api.api.v1.tasks import router as tasks_router
+from app.joysafeter_api.api.v1.vaults import router as vaults_router
 
 joysafeter_router = APIRouter()
 

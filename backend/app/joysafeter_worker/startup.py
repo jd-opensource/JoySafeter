@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from loguru import logger
-
 
 async def run_worker_startup() -> None:
     await _check_docker_availability()

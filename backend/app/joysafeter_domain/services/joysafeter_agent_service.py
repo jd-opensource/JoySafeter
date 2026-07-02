@@ -4,26 +4,19 @@ AgentService — manages Agent lifecycle (v2 JoySafeterAgent).
 
 from __future__ import annotations
 
-import re
 import uuid
-from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 
-from loguru import logger
-from sqlalchemy import and_, delete, exists, func, select, update, delete as sa_delete
+from sqlalchemy import and_, func, select, update
+from sqlalchemy import delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.joysafeter_shared.common.app_errors import NotFoundError, ResourceConflictError
 
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
 from app.joysafeter_domain.models.joysafeter_memory import JoySafeterSessionMemoryStore
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession, JoySafeterSessionEvent
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
 from app.joysafeter_domain.schemas.joysafeter_agent import (
-    JoySafeterAgentResponse,
-    AgentVersionResponse as JoySafeterAgentVersionResponse,
     JoySafeterCreateAgentRequest,
-    JoySafeterModelConfig,
     JoySafeterUpdateAgentRequest,
 )
 from app.joysafeter_shared.utils.datetime import utc_now  # noqa: E402
@@ -233,7 +226,7 @@ class JoySafeterAgentService:
             return False
 
         if not force:
-            from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, TERMINAL_STATUSES
+            from app.joysafeter_domain.models.joysafeter_task import TERMINAL_STATUSES, JoySafeterTask
             active_q = select(func.count()).select_from(JoySafeterTask).where(
                 and_(
                     JoySafeterTask.agent_id == agent_id,

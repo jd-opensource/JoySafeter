@@ -16,8 +16,9 @@ async def health_ready():
 
     # Probe PostgreSQL — equivalent to Rust PgStore.health_check()
     try:
-        from app.joysafeter_shared.database import AsyncSessionLocal
         from sqlalchemy import text
+
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db:
             await db.execute(text("SELECT 1"))

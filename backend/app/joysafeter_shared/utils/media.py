@@ -56,6 +56,7 @@ class Image(BaseModel):
             return self.content
         elif self.url:
             import httpx
+
             from app.joysafeter_shared.security.ssrf_guard import validate_url
             validate_url(self.url, context="media URL fetch")
             return httpx.get(self.url, timeout=30, follow_redirects=False).content
@@ -159,6 +160,7 @@ class Audio(BaseModel):
             return self.content
         elif self.url:
             import httpx
+
             from app.joysafeter_shared.security.ssrf_guard import validate_url
             validate_url(self.url, context="media URL fetch")
             return httpx.get(self.url, timeout=30, follow_redirects=False).content
@@ -278,6 +280,7 @@ class Video(BaseModel):
             return self.content
         elif self.url:
             import httpx
+
             from app.joysafeter_shared.security.ssrf_guard import validate_url
             validate_url(self.url, context="media URL fetch")
             return httpx.get(self.url, timeout=30, follow_redirects=False).content

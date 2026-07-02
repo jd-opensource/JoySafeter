@@ -10,7 +10,6 @@ skill_packer.py, and skill_async_scan.py (v1 cleanup consolidation):
 """
 from __future__ import annotations
 
-
 # ============================================================================
 # skill_security_service.py
 # ============================================================================
@@ -929,9 +928,7 @@ treated as "no scan completed" until SkillSpector returns.
 """
 
 
-from typing import Optional
 
-from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
 
 # Severities that are allowed at runtime. ``passed`` is the normal good
 # verdict; ``warning`` lets a skill with non-critical findings still run
@@ -1038,17 +1035,13 @@ import io
 import logging
 import os
 import tarfile
-import uuid
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 from loguru import logger
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
 from app.joysafeter_orchestrator.runtime.adapter import SkillArchive
 
 
@@ -1365,8 +1358,6 @@ scan is in flight.
 
 
 import logging
-import uuid
-from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 

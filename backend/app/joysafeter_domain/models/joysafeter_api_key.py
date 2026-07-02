@@ -2,15 +2,11 @@
 JoySafeter API key model — project-scoped API keys for programmatic access.
 """
 
-import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
-
-from uuid_utils import uuid7
 
 from app.joysafeter_domain.models.base import JoySafeterBaseModel
 

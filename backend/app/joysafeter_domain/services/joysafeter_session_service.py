@@ -13,12 +13,9 @@ is the one that wins.
 """
 from __future__ import annotations
 
-
 # ============================================================================
 # session_event_realtime.py
 # ============================================================================
-
-
 import json
 import logging
 import os
@@ -87,20 +84,18 @@ async def publish_session_event_realtime(
 # ============================================================================
 
 import asyncio
-import uuid
 from typing import Optional
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_shared.common.app_errors import ConflictError
 from app.joysafeter_domain.models.joysafeter_session import (
     JoySafeterSession,
     JoySafeterSessionEvent,
     SessionStatus,
 )
+from app.joysafeter_shared.common.app_errors import ConflictError
 from app.joysafeter_shared.utils.datetime import utc_now
-
 
 _VALID_TRANSITIONS: dict[str, set[str]] = {
     SessionStatus.RUNNING.value: {
@@ -240,22 +235,13 @@ def _is_retryable_db_error(exc: Exception) -> bool:
 # session_service.py
 # ============================================================================
 
-import uuid
-import asyncio
 from collections import defaultdict
-from datetime import datetime
-from typing import Optional
 
-from sqlalchemy import and_, select, func, update, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, update
 
-from app.joysafeter_shared.common.app_errors import ConflictError
 from app.joysafeter_domain.models.joysafeter_session import (
-    JoySafeterSession,
-    JoySafeterSessionEvent,
     SessionStatus,
 )
-from app.joysafeter_shared.utils.datetime import utc_now
 
 # State machine: maps target status -> set of allowed source statuses
 _VALID_TRANSITIONS: dict[str, set[str]] = {
@@ -390,8 +376,8 @@ class SessionService:
         session = await self.get_session(session_id)
         if not session:
             return False
-        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
         from app.joysafeter_domain.models.joysafeter_memory import JoySafeterSessionMemoryStore
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
         await self.db.execute(
             update(JoySafeterTask)
             .where(JoySafeterTask.chat_session_id == session_id)

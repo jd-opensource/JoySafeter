@@ -1,5 +1,4 @@
 import uuid
-from datetime import timedelta
 
 
 def compute_retry_delay(retry_count: int, task_id: uuid.UUID, base_ms: int = 2000, max_ms: int = 30000) -> float:

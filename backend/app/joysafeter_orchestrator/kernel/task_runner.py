@@ -4,7 +4,6 @@ import random
 import uuid
 from typing import Any, Optional
 
-from app.joysafeter_worker.events.batch_writer import BufferedEvent, EventBatchSender
 from app.joysafeter_orchestrator.kernel.queue import QueueBackend
 from app.joysafeter_orchestrator.kernel.sandbox_bridge import (
     SandboxBridge,
@@ -13,6 +12,7 @@ from app.joysafeter_orchestrator.kernel.sandbox_bridge import (
     WsOutMessage,
 )
 from app.joysafeter_orchestrator.runtime.adapter import HarnessAdapter, HarnessInput
+from app.joysafeter_worker.events.batch_writer import BufferedEvent, EventBatchSender
 
 logger = logging.getLogger(__name__)
 
@@ -85,8 +85,8 @@ class TaskRunner:
     async def _claim_next_sandbox_task_from_db(
         self, sandbox_id: uuid.UUID
     ) -> Optional[uuid.UUID]:
-        from app.joysafeter_shared.database import AsyncSessionLocal
         from app.joysafeter_orchestrator.services import TaskService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         try:
             async with AsyncSessionLocal() as db:
@@ -100,14 +100,12 @@ class TaskRunner:
             return None
 
     async def _execute_task(self, task_id: uuid.UUID) -> None:
-        from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_shared.config.settings import joysafeter_config
-        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
         from app.joysafeter_domain.models.joysafeter_session import SessionStatus
-        from app.joysafeter_orchestrator.services import TaskService
-        from app.joysafeter_orchestrator.services import SessionService
-        from app.joysafeter_orchestrator.services import AgentService
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_orchestrator.services import AgentService, SessionService, TaskService
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
+        from app.joysafeter_shared.config.settings import joysafeter_config
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         sandbox_id = self._bridge.sandbox_db_id
         self._bridge.status = SandboxBridgeStatus.BUSY
@@ -330,14 +328,14 @@ class TaskRunner:
             self._bridge.remove_task_subscribers(task_id)
 
     async def _cleanup_sandbox(self, sandbox_id: uuid.UUID) -> None:
-        from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
         from app.joysafeter_orchestrator.kernel.task_controller import TaskController
-        from app.joysafeter_shared.retry import compute_retry_delay
         from app.joysafeter_orchestrator.lifespan import (
             get_memory_subscribers,
             get_redis_coordinator,
         )
+        from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
+        from app.joysafeter_shared.database import AsyncSessionLocal
+        from app.joysafeter_shared.retry import compute_retry_delay
 
         mem_subs = get_memory_subscribers()
         if mem_subs and self._bridge.current_task_id:
@@ -478,9 +476,8 @@ class TaskRunner:
         operation = payload.get("operation", "upsert")
 
         try:
+            from app.joysafeter_orchestrator.services import MemoryService, SessionService
             from app.joysafeter_shared.database import AsyncSessionLocal
-            from app.joysafeter_orchestrator.services import SessionService
-            from app.joysafeter_orchestrator.services import MemoryService
 
             async with AsyncSessionLocal() as db:
                 session_svc = SessionService(db)
@@ -636,8 +633,8 @@ class TaskRunner:
         mcp_server_names: set[str],
     ) -> dict[str, Any]:
         from app.joysafeter_orchestrator.events.event_mapping import (
-            map_harness_event,
             is_control_request,
+            map_harness_event,
         )
 
         seq = 0
@@ -703,9 +700,9 @@ class TaskRunner:
             self._bridge._requires_action_pending = True
 
             if session_id:
-                from app.joysafeter_shared.database import AsyncSessionLocal
-                from app.joysafeter_orchestrator.services import SessionService
                 from app.joysafeter_domain.models.joysafeter_session import SessionStatus
+                from app.joysafeter_orchestrator.services import SessionService
+                from app.joysafeter_shared.database import AsyncSessionLocal
 
                 stop_reason = {
                     "type": "requires_action",
@@ -739,9 +736,9 @@ class TaskRunner:
             self._bridge.confirmation_event.clear()
 
             if session_id:
-                from app.joysafeter_shared.database import AsyncSessionLocal
-                from app.joysafeter_orchestrator.services import SessionService
                 from app.joysafeter_domain.models.joysafeter_session import SessionStatus
+                from app.joysafeter_orchestrator.services import SessionService
+                from app.joysafeter_shared.database import AsyncSessionLocal
 
                 async with AsyncSessionLocal() as db:
                     svc = SessionService(db)
@@ -857,7 +854,7 @@ class TaskRunner:
                 "status": result.status.value if result.status else "completed",
                 "duration_ms": result.duration_ms,
             }
-        except Exception as e:
+        except Exception:
             for t in (stream_task, control_task, cancel_task):
                 t.cancel()
             raise

@@ -22,9 +22,8 @@ class SessionStateSubscriber:
         if envelope.session_id is None:
             return
 
-        from app.joysafeter_shared.database import AsyncSessionLocal
         from app.joysafeter_orchestrator.services import SessionService
-        from app.joysafeter_domain.models.joysafeter_session import SessionStatus
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         status_str = self._event_type_to_status(envelope.event_type)
         if status_str is None:

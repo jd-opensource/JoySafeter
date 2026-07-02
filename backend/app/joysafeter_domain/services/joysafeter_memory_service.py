@@ -2,14 +2,13 @@ import hashlib
 import uuid
 from typing import Optional
 
-from sqlalchemy import and_, select, func
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_memory import (
     JoySafeterMemory,
     JoySafeterMemoryStore,
     JoySafeterMemoryVersion,
-    JoySafeterSessionMemoryStore,
 )
 from app.joysafeter_shared.utils.datetime import utc_now
 
