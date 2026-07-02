@@ -583,6 +583,10 @@ class JoySafeterConfig(BaseSettings):
     event_stream_block_ms: int = 1000
     event_stream_fallback_to_db: bool = True
     event_stream_pending_idle_ms: int = 60000
+    # A message reclaimed this many times without being acked is a poison
+    # message; it is moved to the dead-letter stream so it can't loop forever.
+    event_stream_max_deliveries: int = 5
+    event_stream_dead_letter_suffix: str = ":dead"
 
     # Sandbox - Docker (default)
     sandbox_provider: str = "docker"

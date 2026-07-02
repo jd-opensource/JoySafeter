@@ -9,12 +9,23 @@ import socket
 import uuid
 from typing import Any, Optional
 
-from app.joysafeter_worker.events.batch_writer import BufferedEvent, EventBatchConfig, EventBatchSender
 from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.config.service_role import current_role
 from app.joysafeter_shared.config.settings import joysafeter_config
+from app.joysafeter_worker.events.batch_writer import BufferedEvent, EventBatchConfig, EventBatchSender
 
 logger = logging.getLogger(__name__)
+
+
+def _ids_over_delivery_limit(pending: list[dict[str, Any]], max_deliveries: int) -> list[str]:
+    """From ``XPENDING``-range output, return the message ids delivered more
+    than ``max_deliveries`` times — poison messages stuck in the reclaim loop
+    because they can never be persisted and therefore never acked."""
+    return [
+        entry["message_id"]
+        for entry in pending
+        if entry.get("times_delivered", 0) > max_deliveries
+    ]
 
 
 class EventStreamWorker:
@@ -30,6 +41,7 @@ class EventStreamWorker:
         block_ms: int = 1000,
     ) -> None:
         self._stream_key = stream_key
+        self._dead_letter_key = f"{stream_key}{joysafeter_config.event_stream_dead_letter_suffix}"
         self._group = group
         self._consumer = consumer or f"{socket.gethostname()}:{current_role().value}:{uuid.uuid4().hex[:8]}"
         self._batch_size = batch_size
@@ -122,7 +134,44 @@ class EventStreamWorker:
             if "BUSYGROUP" not in str(e):
                 raise
 
+    async def _dead_letter_exhausted(self, redis: Any) -> int:
+        """Move poison messages out of the way so they stop looping forever.
+
+        A message that decodes but can never be persisted is never acked, so
+        ``xautoclaim`` keeps re-delivering it and starves the head of the queue.
+        Once its delivery count crosses ``event_stream_max_deliveries`` we copy it
+        to the dead-letter stream and ack it, removing it from the pending list.
+        """
+        max_deliveries = joysafeter_config.event_stream_max_deliveries
+        if max_deliveries <= 0:
+            return 0
+        try:
+            pending = await redis.xpending_range(
+                self._stream_key, self._group, min="-", max="+", count=self._batch_size
+            )
+        except Exception as e:
+            logger.debug("Redis XPENDING unavailable or failed: %s", e)
+            return 0
+
+        dead_ids = _ids_over_delivery_limit(pending, max_deliveries)
+        for message_id in dead_ids:
+            try:
+                entries = await redis.xrange(self._stream_key, min=message_id, max=message_id)
+                fields = dict(entries[0][1]) if entries else {}
+                fields["_dead_letter_reason"] = "max_deliveries_exceeded"
+                fields["_original_message_id"] = str(message_id)
+                await redis.xadd(self._dead_letter_key, fields)
+                await redis.xack(self._stream_key, self._group, message_id)
+                logger.error(
+                    "Dead-lettered poison event %s to %s after exceeding %d deliveries",
+                    message_id, self._dead_letter_key, max_deliveries,
+                )
+            except Exception as e:
+                logger.warning("Failed to dead-letter poison event %s: %s", message_id, e)
+        return len(dead_ids)
+
     async def _process_pending(self, redis: Any) -> bool:
+        await self._dead_letter_exhausted(redis)
         try:
             claimed = await redis.xautoclaim(
                 self._stream_key,
