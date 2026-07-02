@@ -30,7 +30,9 @@ class MemoryService:
 
     # --- Memory Store ---
 
-    async def create_store(self, name: str, description: str = "", metadata: Optional[dict] = None, project_id: Optional[str] = None) -> JoySafeterMemoryStore:
+    async def create_store(
+        self, name: str, description: str = "", metadata: Optional[dict] = None, project_id: Optional[str] = None
+    ) -> JoySafeterMemoryStore:
         kwargs = dict(name=name, description=description, metadata_=metadata or {})
         if project_id is not None:
             kwargs["project_id"] = project_id
@@ -50,12 +52,16 @@ class MemoryService:
             conditions.append(JoySafeterMemoryStore.archived_at.is_(None))
         if project_id is not None:
             conditions.append(JoySafeterMemoryStore.project_id == project_id)
-        result = await self.db.execute(
-            select(JoySafeterMemoryStore).where(and_(*conditions))
-        )
+        result = await self.db.execute(select(JoySafeterMemoryStore).where(and_(*conditions)))
         return result.scalar_one_or_none()
 
-    async def list_stores(self, limit: int = 20, after_id: Optional[uuid.UUID] = None, project_id: Optional[str] = None, include_archived: bool = False) -> tuple[list[JoySafeterMemoryStore], bool]:
+    async def list_stores(
+        self,
+        limit: int = 20,
+        after_id: Optional[uuid.UUID] = None,
+        project_id: Optional[str] = None,
+        include_archived: bool = False,
+    ) -> tuple[list[JoySafeterMemoryStore], bool]:
         q = select(JoySafeterMemoryStore)
         if not include_archived:
             q = q.where(JoySafeterMemoryStore.archived_at.is_(None))
@@ -91,9 +97,7 @@ class MemoryService:
         await self.db.refresh(store)
         return store
 
-    async def delete_store(
-        self, store_id: uuid.UUID, project_id: Optional[str] = None
-    ) -> bool:
+    async def delete_store(self, store_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
         store = await self.get_store(store_id, project_id=project_id, include_archived=True)
         if not store:
             return False
@@ -101,9 +105,7 @@ class MemoryService:
         await self.db.commit()
         return True
 
-    async def archive_store(
-        self, store_id: uuid.UUID, project_id: Optional[str] = None
-    ) -> bool:
+    async def archive_store(self, store_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
         store = await self.get_store(store_id, project_id=project_id)
         if not store:
             return False
@@ -115,22 +117,18 @@ class MemoryService:
 
     # --- Memory ---
 
-    async def create_memory(self, store_id: uuid.UUID, path: str, content: str = "", session_id: uuid.UUID = None) -> JoySafeterMemory:
+    async def create_memory(
+        self, store_id: uuid.UUID, path: str, content: str = "", session_id: Optional[uuid.UUID] = None
+    ) -> JoySafeterMemory:
         await self.db.execute(
-            select(JoySafeterMemoryStore.id).where(
-                JoySafeterMemoryStore.id == store_id
-            ).with_for_update()
+            select(JoySafeterMemoryStore.id).where(JoySafeterMemoryStore.id == store_id).with_for_update()
         )
         count_result = await self.db.execute(
-            select(func.count()).select_from(JoySafeterMemory).where(
-                JoySafeterMemory.store_id == store_id
-            )
+            select(func.count()).select_from(JoySafeterMemory).where(JoySafeterMemory.store_id == store_id)
         )
         memory_count = count_result.scalar_one() or 0
         if memory_count >= MAX_MEMORIES_PER_STORE:
-            raise MemoryStoreLimitExceeded(
-                f"Memory store has reached the maximum of {MAX_MEMORIES_PER_STORE} memories"
-            )
+            raise MemoryStoreLimitExceeded(f"Memory store has reached the maximum of {MAX_MEMORIES_PER_STORE} memories")
 
         sha = hashlib.sha256(content.encode()).hexdigest()
         mem = JoySafeterMemory(
@@ -143,7 +141,9 @@ class MemoryService:
         self.db.add(mem)
         await self.db.flush()
 
-        version = await self._create_version(store_id, mem.id, "created", path=path, content=content, sha=sha, size=len(content.encode()))
+        version = await self._create_version(
+            store_id, mem.id, "created", path=path, content=content, sha=sha, size=len(content.encode())
+        )
         mem.current_version_id = version.id
         await self.db.commit()
         await self.db.refresh(mem)
@@ -161,9 +161,7 @@ class MemoryService:
 
     async def get_memory_by_path(self, store_id: uuid.UUID, path: str) -> Optional[JoySafeterMemory]:
         result = await self.db.execute(
-            select(JoySafeterMemory).where(
-                and_(JoySafeterMemory.store_id == store_id, JoySafeterMemory.path == path)
-            )
+            select(JoySafeterMemory).where(and_(JoySafeterMemory.store_id == store_id, JoySafeterMemory.path == path))
         )
         return result.scalar_one_or_none()
 
@@ -180,7 +178,11 @@ class MemoryService:
             new_sha = hashlib.sha256(content.encode()).hexdigest()
             if existing.content_sha256 == new_sha:
                 return existing
-            return await self.update_memory(store_id, existing.id, content, session_id)
+            updated = await self.update_memory(store_id, existing.id, content, session_id)
+            if updated is not None:
+                return updated
+            # Row vanished between fetch and update (e.g. concurrent delete);
+            # fall through and (re)create to honor upsert semantics.
         return await self.create_memory(store_id, path, content, session_id)
 
     async def list_memories(
@@ -212,16 +214,18 @@ class MemoryService:
         return memories[:limit], has_more
 
     async def update_memory(
-        self, store_id: uuid.UUID, memory_id: uuid.UUID, content: str,
-        session_id: uuid.UUID = None, if_sha256: Optional[str] = None,
+        self,
+        store_id: uuid.UUID,
+        memory_id: uuid.UUID,
+        content: str,
+        session_id: Optional[uuid.UUID] = None,
+        if_sha256: Optional[str] = None,
     ) -> Optional[JoySafeterMemory]:
         mem = await self.get_memory(store_id, memory_id)
         if not mem:
             return None
         if if_sha256 is not None and mem.content_sha256 != if_sha256:
-            raise PreconditionFailed(
-                f"SHA256 mismatch: expected {if_sha256}, got {mem.content_sha256}"
-            )
+            raise PreconditionFailed(f"SHA256 mismatch: expected {if_sha256}, got {mem.content_sha256}")
         sha = hashlib.sha256(content.encode()).hexdigest()
         mem.content = content
         mem.content_sha256 = sha
@@ -229,7 +233,9 @@ class MemoryService:
         mem.version = (mem.version or 1) + 1
         mem.updated_at = utc_now()
 
-        version = await self._create_version(store_id, mem.id, "modified", path=mem.path, content=content, sha=sha, size=len(content.encode()))
+        version = await self._create_version(
+            store_id, mem.id, "modified", path=mem.path, content=content, sha=sha, size=len(content.encode())
+        )
         mem.current_version_id = version.id
         await self.db.commit()
         await self.db.refresh(mem)
@@ -237,7 +243,9 @@ class MemoryService:
         await self._notify_memory_peers(store_id, session_id, "modified", mem.path)
         return mem
 
-    async def delete_memory(self, store_id: uuid.UUID, memory_id: uuid.UUID, session_id: uuid.UUID = None) -> bool:
+    async def delete_memory(
+        self, store_id: uuid.UUID, memory_id: uuid.UUID, session_id: Optional[uuid.UUID] = None
+    ) -> bool:
         mem = await self.get_memory(store_id, memory_id)
         if not mem:
             return False
@@ -309,7 +317,9 @@ class MemoryService:
         )
         return result.scalar_one_or_none()
 
-    async def redact_version(self, store_id: uuid.UUID, version_id: uuid.UUID, redacted_by: Optional[dict] = None) -> bool:
+    async def redact_version(
+        self, store_id: uuid.UUID, version_id: uuid.UUID, redacted_by: Optional[dict] = None
+    ) -> bool:
         ver = await self.get_version(store_id, version_id)
         if not ver:
             return False

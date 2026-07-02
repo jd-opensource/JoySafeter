@@ -1,7 +1,7 @@
 import json
 import logging
 import uuid
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,6 +51,7 @@ def _validate_mcp_configs(mcp_configs: list[dict] | None) -> None:
             # Allow http:// for clearly-local development addresses so users can
             # point MCP at a host-side dev server. Everything else must be HTTPS.
             from urllib.parse import urlparse
+
             host = (urlparse(url).hostname or "").lower()
             if host not in _LOCAL_MCP_HOSTS:
                 raise HTTPException(400, f"MCP server URL must use HTTPS: {url}")
@@ -61,9 +62,7 @@ def _validate_mcp_configs(mcp_configs: list[dict] | None) -> None:
             seen_names.add(name)
 
 
-def _validate_tool_mcp_references(
-    tools: list | None, mcp_configs: list[dict] | None
-) -> None:
+def _validate_tool_mcp_references(tools: list | None, mcp_configs: list[dict] | None) -> None:
     """Ensure each tool's mcp_server_name references a declared mcp_server in mcp_configs."""
     if not tools:
         return
@@ -89,11 +88,7 @@ def _secret_matches_engine(secret, engine_kind: str) -> bool:
     protocol = (getattr(secret, "protocol", "") or "").lower()
     keys = set((getattr(secret, "data", None) or {}).keys())
     if engine_kind == "codex":
-        return (
-            provider == "codex"
-            or protocol in {"openai_responses", "chat_completions"}
-            or "OPENAI_API_KEY" in keys
-        )
+        return provider == "codex" or protocol in {"openai_responses", "chat_completions"} or "OPENAI_API_KEY" in keys
     if engine_kind in ("claude", "native"):
         return (
             provider in {"anthropic", "claude"}
@@ -145,7 +140,7 @@ async def _resolve_agent_model(
     secret_cache: Optional[dict[str, Optional[dict[str, Any]]]] = None,
 ) -> Optional[dict[str, Any]]:
     if agent.model:
-        return agent.model
+        return cast(Optional[dict[str, Any]], agent.model)
     if not agent.secret_ref:
         return None
 
@@ -167,15 +162,15 @@ def _agent_to_response(agent, *, model: Optional[dict[str, Any]] = None) -> Agen
         id=agent.id,
         name=agent.name,
         engine_kind=agent.engine_kind,
-        model=model if model is not None else agent.model,
+        model=cast(Any, model if model is not None else agent.model),
         system=agent.system_prompt,
         description=agent.description,
         metadata=agent.metadata_,
         env=agent.env,
         mcp_servers=agent.mcp_configs,
-        skills=skills,
-        agents=agents,
-        commands=commands,
+        skills=cast(Any, skills),
+        agents=cast(Any, agents),
+        commands=cast(Any, commands),
         tools=agent.tools,
         multiagent=agent.multiagent,
         version=agent.version,
@@ -218,7 +213,9 @@ async def list_agents(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> PaginatedResponse[AgentResponse]:
     svc = AgentService(db)
-    agents, has_more = await svc.list_agents(limit, after_id, include_archived=include_archived, project_id=auth_ctx.project_id)
+    agents, has_more = await svc.list_agents(
+        limit, after_id, include_archived=include_archived, project_id=auth_ctx.project_id
+    )
 
     secret_svc = SecretService(db)
     secret_cache: dict[str, Optional[dict]] = {}
@@ -274,9 +271,7 @@ async def update_agent(
 
     # Archived guard: reject updates on archived agents
     if current_agent.archived_at is not None:
-        raise HTTPException(
-            409, "Agent is archived and read-only. Updates are not allowed."
-        )
+        raise HTTPException(409, "Agent is archived and read-only. Updates are not allowed.")
 
     # Optimistic concurrency check -- only if version is provided
     if req.version is not None and current_agent.version != req.version:
@@ -375,9 +370,7 @@ async def delete_agent(
     await svc.hard_delete_agent(agent_id)
 
 
-async def _cancel_active_tasks_for_agent(
-    agent_id: uuid.UUID, db: AsyncSession
-) -> None:
+async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) -> None:
     """Cancel all active tasks, send gRPC Shutdown to sandboxes, archive sessions,
     stop containers. Mirrors the Rust cancel_active_tasks_for_agent."""
     from app.joysafeter_api.services import JoySafeterTaskService as TaskService
@@ -404,6 +397,7 @@ async def _cancel_active_tasks_for_agent(
             bridge = await bridge_registry.get(sandbox_id)
             if bridge:
                 from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
+
                 cancel_msg = joysafeter_pb2.OrchestratorMessage(
                     cancel=joysafeter_pb2.CancelTask(reason="Agent archived")
                 )
@@ -425,7 +419,6 @@ async def _cancel_active_tasks_for_agent(
     try:
         archived_session_ids = await svc.archive_sessions_for_agent(agent_id)
         if archived_session_ids and session_broadcaster:
-            session_svc = SessionService(db)
             for sid in archived_session_ids:
                 stop_reason_event = {
                     "type": "session.status_terminated",
@@ -442,6 +435,7 @@ async def _cancel_active_tasks_for_agent(
             bridge = await bridge_registry.get(sandbox_id)
             if bridge:
                 from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
+
                 shutdown_msg = joysafeter_pb2.OrchestratorMessage(
                     shutdown=joysafeter_pb2.Shutdown(reason="Agent archived")
                 )
@@ -469,7 +463,9 @@ async def _cancel_active_tasks_for_agent(
     if cancelled > 0:
         logger.info(
             "Cancelled %d active tasks and stopped %d sandboxes for agent %s",
-            cancelled, len(sandbox_ids_to_stop), agent_id,
+            cancelled,
+            len(sandbox_ids_to_stop),
+            agent_id,
         )
 
 
@@ -484,6 +480,7 @@ async def archive_agent(
     if not agent:
         raise HTTPException(404, "Agent not found")
     from datetime import datetime, timezone
+
     agent.archived_at = datetime.now(timezone.utc)
     await db.commit()
     archived_session_ids = await svc.archive_sessions_for_agent(agent_id)
@@ -531,6 +528,7 @@ async def list_agent_sessions(
 
     def _session_to_response(session) -> SessionResponse:
         from app.joysafeter_api.api.v1.sessions import _session_to_response as _s2r
+
         return _s2r(session, agent)
 
     data = [_session_to_response(s) for s in sessions]

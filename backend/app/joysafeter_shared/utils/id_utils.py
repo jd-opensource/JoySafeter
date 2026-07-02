@@ -10,7 +10,7 @@ import uuid
 def parse_prefixed_id(value: str, prefix: str) -> uuid.UUID:
     """Strip an optional prefix and parse the remaining string as a UUID."""
     if value.startswith(prefix):
-        value = value[len(prefix):]
+        value = value[len(prefix) :]
     return uuid.UUID(value)
 
 

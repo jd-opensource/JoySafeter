@@ -46,14 +46,10 @@ class Project(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(255), nullable=False)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    archived_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # relationships
-    organization: Mapped["Organization"] = relationship(
-        "Organization", back_populates="projects"
-    )
+    organization: Mapped["Organization"] = relationship("Organization", back_populates="projects")
 
     __table_args__ = (
         UniqueConstraint("org_id", "slug", name="uq_joysafeter_organization_projects_org_slug"),
@@ -110,7 +106,8 @@ class ProjectMember(Base, TimestampMixin):
 
     __table_args__ = (
         UniqueConstraint(
-            "project_id", "user_id",
+            "project_id",
+            "user_id",
             name="uq_joysafeter_project_members_project_user",
         ),
         Index("ix_joysafeter_project_members_project_id", "project_id"),

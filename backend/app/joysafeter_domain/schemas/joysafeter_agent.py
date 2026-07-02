@@ -88,7 +88,10 @@ class McpServerConfig(BaseModel):
     @classmethod
     def _validate_url(cls, v: str) -> str:
         from app.joysafeter_shared.security.ssrf_guard import validate_url_scheme
-        return validate_url_scheme(v)
+
+        validated = validate_url_scheme(v)
+        assert validated is not None  # v is a non-None str, so result is non-None
+        return validated
 
 
 class PackedItem(BaseModel):

@@ -6,8 +6,8 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 _AES_KEY_SIZE = 32  # 256 bits
-_NONCE_SIZE = 12    # 96 bits for GCM
-_TAG_SIZE = 16      # 128 bits
+_NONCE_SIZE = 12  # 96 bits for GCM
+_TAG_SIZE = 16  # 128 bits
 
 
 class VaultCipher:
@@ -30,7 +30,8 @@ class VaultCipher:
                 if len(self._key) != _AES_KEY_SIZE:
                     logger.error(
                         "Vault encryption key must be %d bytes, got %d",
-                        _AES_KEY_SIZE, len(self._key),
+                        _AES_KEY_SIZE,
+                        len(self._key),
                     )
                     self._key = None
             except Exception as e:

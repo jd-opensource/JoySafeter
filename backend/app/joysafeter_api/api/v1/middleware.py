@@ -24,15 +24,11 @@ def _carry_over_headers(new_response: Response, original: Response) -> Response:
     causing spurious logouts. ``raw_headers`` keeps the multi-valued header
     list intact.
     """
-    preserved: list[tuple[bytes, bytes]] = [
-        (k, v) for (k, v) in original.raw_headers if k.lower() != b"content-length"
-    ]
+    preserved: list[tuple[bytes, bytes]] = [(k, v) for (k, v) in original.raw_headers if k.lower() != b"content-length"]
     # Drop any content-type the rebuilt response already set to avoid dupes.
     has_content_type = any(k.lower() == b"content-type" for k, _ in preserved)
     new_response.raw_headers = [
-        (k, v)
-        for (k, v) in new_response.raw_headers
-        if not (has_content_type and k.lower() == b"content-type")
+        (k, v) for (k, v) in new_response.raw_headers if not (has_content_type and k.lower() == b"content-type")
     ] + preserved
     return new_response
 
@@ -68,14 +64,10 @@ class ApiV1ResponseWrapperMiddleware(BaseHTTPMiddleware):
         try:
             original = json.loads(body)
         except (json.JSONDecodeError, UnicodeDecodeError):
-            return _carry_over_headers(
-                Response(content=body, status_code=response.status_code), response
-            )
+            return _carry_over_headers(Response(content=body, status_code=response.status_code), response)
 
         if isinstance(original, dict) and "success" in original:
-            return _carry_over_headers(
-                Response(content=body, status_code=response.status_code), response
-            )
+            return _carry_over_headers(Response(content=body, status_code=response.status_code), response)
 
         wrapped = {
             "success": True,

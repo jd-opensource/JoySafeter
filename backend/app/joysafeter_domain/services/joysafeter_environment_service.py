@@ -17,7 +17,9 @@ class EnvironmentService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create_environment(self, req: CreateEnvironmentRequest, project_id: Optional[str] = None) -> JoySafeterEnvironment:
+    async def create_environment(
+        self, req: CreateEnvironmentRequest, project_id: Optional[str] = None
+    ) -> JoySafeterEnvironment:
         # Purge any soft-deleted rows with the same name before inserting
         await self.db.execute(
             delete(JoySafeterEnvironment).where(
@@ -41,24 +43,26 @@ class EnvironmentService:
         await self.db.refresh(env)
         return env
 
-    async def get_environment(self, env_id: uuid.UUID, project_id: Optional[str] = None) -> Optional[JoySafeterEnvironment]:
+    async def get_environment(
+        self, env_id: uuid.UUID, project_id: Optional[str] = None
+    ) -> Optional[JoySafeterEnvironment]:
         conditions = [
             JoySafeterEnvironment.id == env_id,
             JoySafeterEnvironment.deleted_at.is_(None),
         ]
         if project_id is not None:
             conditions.append(JoySafeterEnvironment.project_id == project_id)
-        result = await self.db.execute(
-            select(JoySafeterEnvironment).where(and_(*conditions))
-        )
+        result = await self.db.execute(select(JoySafeterEnvironment).where(and_(*conditions)))
         return result.scalar_one_or_none()
 
-    async def get_environment_by_ref(self, ref: str, project_id: Optional[str] = None) -> Optional[JoySafeterEnvironment]:
+    async def get_environment_by_ref(
+        self, ref: str, project_id: Optional[str] = None
+    ) -> Optional[JoySafeterEnvironment]:
         """If ref starts with 'env_', try to parse as UUID and query by ID.
         Otherwise query by name. Filter deleted_at IS NULL."""
         if ref.startswith("env_"):
             try:
-                env_id = uuid.UUID(ref[len("env_"):])
+                env_id = uuid.UUID(ref[len("env_") :])
                 return await self.get_environment(env_id, project_id=project_id)
             except ValueError:
                 pass
@@ -69,9 +73,7 @@ class EnvironmentService:
         ]
         if project_id is not None:
             conditions.append(JoySafeterEnvironment.project_id == project_id)
-        result = await self.db.execute(
-            select(JoySafeterEnvironment).where(and_(*conditions))
-        )
+        result = await self.db.execute(select(JoySafeterEnvironment).where(and_(*conditions)))
         return result.scalar_one_or_none()
 
     async def list_environments(
@@ -116,9 +118,7 @@ class EnvironmentService:
         await self.db.refresh(env)
         return env
 
-    async def delete_environment(
-        self, env_id: uuid.UUID, project_id: Optional[str] = None
-    ) -> bool:
+    async def delete_environment(self, env_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
         env = await self.get_environment(env_id, project_id=project_id)
         if not env:
             return False
@@ -126,9 +126,7 @@ class EnvironmentService:
         await self.db.commit()
         return True
 
-    async def archive_environment(
-        self, env_id: uuid.UUID, project_id: Optional[str] = None
-    ) -> bool:
+    async def archive_environment(self, env_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
         env = await self.get_environment(env_id, project_id=project_id)
         if not env:
             return False
@@ -156,7 +154,5 @@ class EnvironmentService:
         ]
         if project_id is not None:
             conditions.append(JoySafeterSession.project_id == project_id)
-        result = await self.db.execute(
-            select(JoySafeterSession.id).where(and_(*conditions)).limit(1)
-        )
+        result = await self.db.execute(select(JoySafeterSession.id).where(and_(*conditions)).limit(1))
         return result.scalar_one_or_none() is not None

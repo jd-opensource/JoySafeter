@@ -91,9 +91,7 @@ class SessionBroadcaster:
     def unsubscribe(self, session_id: uuid.UUID, q: asyncio.Queue) -> None:
         """Remove a single subscriber queue. (Extra Python convenience method.)"""
         if session_id in self._channels:
-            self._channels[session_id] = [
-                x for x in self._channels[session_id] if x is not q
-            ]
+            self._channels[session_id] = [x for x in self._channels[session_id] if x is not q]
             if not self._channels[session_id]:
                 del self._channels[session_id]
 
@@ -141,7 +139,9 @@ class SessionBroadcaster:
             except Exception as e:
                 logger.warning(
                     "Redis subscriber for session %s failed: %s, reconnecting in %ds",
-                    session_id, e, backoff,
+                    session_id,
+                    e,
+                    backoff,
                 )
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, max_backoff)

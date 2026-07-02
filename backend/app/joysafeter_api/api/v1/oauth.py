@@ -245,9 +245,7 @@ async def oauth_callback(
         # (seamless if the user already has a JD session), instead of failing immediately.
         if provider_config.protocol == "jd_sso" and retry < 1:
             logger.info(f"{LOG_PREFIX} JD SSO retry: redirecting back to authorize URL")
-            return await _redirect_to_jd_authorize(
-                request, provider, callback_url, retry + 1, db
-            )
+            return await _redirect_to_jd_authorize(request, provider, callback_url, retry + 1, db)
         return _redirect_with_error(frontend_url, "OAUTH_CALLBACK_INVALID", str(e))
     except Exception as e:
         logger.error(f"{LOG_PREFIX} OAuth callback error: {e}", exc_info=True)
@@ -411,10 +409,7 @@ def _resolve_frontend_callback_url(frontend_url: str, callback_url: str) -> str:
 
     parsed_callback = urlparse(callback_url)
     parsed_frontend = urlparse(frontend_url)
-    if (
-        parsed_callback.scheme in ("http", "https")
-        and parsed_callback.netloc == parsed_frontend.netloc
-    ):
+    if parsed_callback.scheme in ("http", "https") and parsed_callback.netloc == parsed_frontend.netloc:
         return callback_url
 
     if not parsed_callback.scheme and not parsed_callback.netloc:

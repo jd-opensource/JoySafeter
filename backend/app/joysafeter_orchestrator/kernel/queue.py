@@ -2,9 +2,12 @@ import asyncio
 import logging
 import uuid
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from redis.exceptions import ConnectionError as RedisConnectionError
+
+if TYPE_CHECKING:
+    from app.joysafeter_orchestrator.kernel.redis_coordinator import RedisCoordinator
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +27,7 @@ class QueueBackend(ABC):
     async def push_to_sandbox(self, sandbox_id: uuid.UUID, task_id: uuid.UUID) -> None: ...
 
     @abstractmethod
-    async def pop_for_sandbox(
-        self, sandbox_id: uuid.UUID, cancel: asyncio.Event
-    ) -> Optional[uuid.UUID]: ...
+    async def pop_for_sandbox(self, sandbox_id: uuid.UUID, cancel: asyncio.Event) -> Optional[uuid.UUID]: ...
 
     async def wait_for_sandbox_wakeup(
         self,
@@ -56,6 +57,7 @@ class _TaskQueue:
 
     def __init__(self):
         from collections import deque
+
         self._inner: deque[uuid.UUID] = deque()
         self._event = asyncio.Event()
 
@@ -109,7 +111,7 @@ class InMemoryRedisQueueBackend(QueueBackend):
     - On Redis pop failure: check local queue, then sleep and retry
     """
 
-    def __init__(self, redis_coord=None):
+    def __init__(self, redis_coord: "Optional[RedisCoordinator]" = None):
         self._global_queue = _TaskQueue()
         self._sandbox_queues: dict[uuid.UUID, _TaskQueue] = {}
         self._redis_coord = redis_coord
@@ -126,15 +128,19 @@ class InMemoryRedisQueueBackend(QueueBackend):
                     await self._redis_coord.push_to_global_queue(task_id)
                     return
                 except Exception as e:
-                    delay = 0.5 * (2 ** attempt)
+                    delay = 0.5 * (2**attempt)
                     logger.error(
                         "Redis push_to_global failed (task=%s, attempt=%d, error=%s), retrying in %.1fs",
-                        task_id, attempt + 1, e, delay,
+                        task_id,
+                        attempt + 1,
+                        e,
+                        delay,
                     )
                     await asyncio.sleep(delay)
             logger.error(
                 "Redis push_to_global failed after %d retries, falling back to local queue (task=%s)",
-                REDIS_PUSH_RETRIES, task_id,
+                REDIS_PUSH_RETRIES,
+                task_id,
             )
         self._global_queue.push(task_id)
 
@@ -163,28 +169,30 @@ class InMemoryRedisQueueBackend(QueueBackend):
                     await self._redis_coord.push_to_sandbox_queue(sandbox_id, task_id)
                     return
                 except Exception as e:
-                    delay = 0.5 * (2 ** attempt)
+                    delay = 0.5 * (2**attempt)
                     logger.error(
                         "Redis push_to_sandbox failed (sandbox=%s, task=%s, attempt=%d, error=%s), retrying in %.1fs",
-                        sandbox_id, task_id, attempt + 1, e, delay,
+                        sandbox_id,
+                        task_id,
+                        attempt + 1,
+                        e,
+                        delay,
                     )
                     await asyncio.sleep(delay)
             logger.error(
                 "Redis push_to_sandbox failed after %d retries, falling back to local queue (sandbox=%s, task=%s)",
-                REDIS_PUSH_RETRIES, sandbox_id, task_id,
+                REDIS_PUSH_RETRIES,
+                sandbox_id,
+                task_id,
             )
 
-    async def pop_for_sandbox(
-        self, sandbox_id: uuid.UUID, cancel: asyncio.Event
-    ) -> Optional[uuid.UUID]:
+    async def pop_for_sandbox(self, sandbox_id: uuid.UUID, cancel: asyncio.Event) -> Optional[uuid.UUID]:
         if self._redis_coord is not None:
             while True:
                 pop_coro = self._redis_coord.pop_from_sandbox_queue(sandbox_id, 30.0)
                 pop_task = asyncio.create_task(pop_coro)
                 cancel_task = asyncio.create_task(cancel.wait())
-                done, pending = await asyncio.wait(
-                    {pop_task, cancel_task}, return_when=asyncio.FIRST_COMPLETED
-                )
+                done, pending = await asyncio.wait({pop_task, cancel_task}, return_when=asyncio.FIRST_COMPLETED)
                 for p in pending:
                     p.cancel()
                     try:
@@ -212,9 +220,7 @@ class InMemoryRedisQueueBackend(QueueBackend):
         queue = self._get_or_create_sandbox_queue(sandbox_id)
         pop_task = asyncio.create_task(queue.pop())
         cancel_task = asyncio.create_task(cancel.wait())
-        done, pending = await asyncio.wait(
-            {pop_task, cancel_task}, return_when=asyncio.FIRST_COMPLETED
-        )
+        done, pending = await asyncio.wait({pop_task, cancel_task}, return_when=asyncio.FIRST_COMPLETED)
         for p in pending:
             p.cancel()
             try:
@@ -232,17 +238,13 @@ class InMemoryRedisQueueBackend(QueueBackend):
         timeout_secs: float = 1.0,
     ) -> None:
         queue = self._get_or_create_sandbox_queue(sandbox_id)
-        wait_tasks = {
+        wait_tasks: set[asyncio.Task[Any]] = {
             asyncio.create_task(queue.wait(timeout_secs)),
             asyncio.create_task(cancel.wait()),
         }
         if self._redis_coord is not None:
             wait_timeout = max(1, int(timeout_secs))
-            wait_tasks.add(
-                asyncio.create_task(
-                    self._redis_coord.pop_from_sandbox_queue(sandbox_id, wait_timeout)
-                )
-            )
+            wait_tasks.add(asyncio.create_task(self._redis_coord.pop_from_sandbox_queue(sandbox_id, wait_timeout)))
 
         done, pending = await asyncio.wait(wait_tasks, return_when=asyncio.FIRST_COMPLETED)
         for p in pending:
@@ -285,7 +287,8 @@ class InMemoryRedisQueueBackend(QueueBackend):
             except Exception as e:
                 logger.warning(
                     "Failed to drain Redis sandbox queue for %s: %s",
-                    sandbox_id, e,
+                    sandbox_id,
+                    e,
                 )
 
         return []

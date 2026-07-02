@@ -44,7 +44,7 @@ def _parse_session_scope(scope_id: str | None) -> uuid.UUID | None:
     s = scope_id
     for prefix in ("sesn_", "sess_"):
         if s.startswith(prefix):
-            s = s[len(prefix):]
+            s = s[len(prefix) :]
             break
     try:
         return uuid.UUID(s)

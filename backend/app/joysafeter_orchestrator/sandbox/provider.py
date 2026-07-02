@@ -7,6 +7,7 @@ from typing import Optional
 
 class SandboxStatus(str, Enum):
     """Provider-level sandbox status — mirrors Rust SandboxStatus."""
+
     RUNNING = "running"
     STOPPED = "stopped"
     NOT_FOUND = "not_found"
@@ -16,6 +17,7 @@ class SandboxStatus(str, Enum):
 @dataclass
 class SandboxCreateConfig:
     """Configuration for creating a sandbox — mirrors Rust SandboxCreateConfig."""
+
     sandbox_id: uuid.UUID
     image: str
     env: dict[str, str] = field(default_factory=dict)
@@ -30,6 +32,7 @@ class SandboxCreateConfig:
 @dataclass
 class ProviderSandboxInfo:
     """Sandbox information returned from provider.list_active()."""
+
     id: str
     name: str
     status: SandboxStatus
@@ -39,7 +42,15 @@ class ProviderSandboxInfo:
 
 class SandboxProvider(ABC):
     @abstractmethod
-    async def create(self, name: str, image: str, env: dict[str, str], work_dir: str, labels: Optional[dict[str, str]] = None, **kwargs) -> str:
+    async def create(
+        self,
+        name: str,
+        image: str,
+        env: dict[str, str],
+        work_dir: str,
+        labels: Optional[dict[str, str]] = None,
+        **kwargs,
+    ) -> str:
         """Create a container, return external_id."""
         ...
 
@@ -56,7 +67,9 @@ class SandboxProvider(ABC):
     async def status(self, external_id: str) -> str: ...
 
     @abstractmethod
-    async def exec(self, external_id: str, cmd: list[str], env: Optional[dict[str, str]] = None) -> tuple[int, str, str]:
+    async def exec(
+        self, external_id: str, cmd: list[str], env: Optional[dict[str, str]] = None
+    ) -> tuple[int, str, str]:
         """Run a command inside the container, return (exit_code, stdout, stderr)."""
         ...
 
@@ -77,23 +90,17 @@ class SandboxProvider(ABC):
         """
         return []
 
-    async def setup_networking(
-        self, sandbox_id: uuid.UUID, networking: dict
-    ) -> None:
+    async def setup_networking(self, sandbox_id: uuid.UUID, networking: dict) -> None:
         """Set up network isolation for a sandbox before container creation."""
         net_type = networking.get("type") or networking.get("net_type")
         if net_type == "limited":
-            raise RuntimeError(
-                f"Provider '{self.provider_name()}' does not support limited networking"
-            )
+            raise RuntimeError(f"Provider '{self.provider_name()}' does not support limited networking")
 
     async def teardown_networking(self, sandbox_id: uuid.UUID) -> None:
         """Tear down network isolation for a sandbox. Default is a no-op."""
         pass
 
-    async def inject_files(
-        self, external_id: str, session_id: uuid.UUID
-    ) -> None:
+    async def inject_files(self, external_id: str, session_id: uuid.UUID) -> None:
         """Inject session file resources into a running sandbox.
 
         Default implementation loads files from storage and writes them

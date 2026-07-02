@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from app.joysafeter_orchestrator.events.envelope import JoySafeterEventEnvelope
 from app.joysafeter_orchestrator.events.subscriber import SubscriberPhase
@@ -22,7 +23,7 @@ class SessionBroadcastSubscriber:
         if envelope.session_id is None:
             return
 
-        event_dict = {"type": envelope.event_type}
+        event_dict: dict[str, Any] = {"type": envelope.event_type}
         if envelope.event_id:
             event_dict["id"] = f"evt_{envelope.event_id}"
 

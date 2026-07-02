@@ -32,24 +32,23 @@ class ProjectService:
         conditions = [Project.org_id == org_id]
         if not include_archived:
             conditions.append(Project.archived_at.is_(None))
-        result = await self.db.execute(
-            select(Project)
-            .where(and_(*conditions))
-            .order_by(Project.created_at)
-        )
+        result = await self.db.execute(select(Project).where(and_(*conditions)).order_by(Project.created_at))
         return list(result.scalars().all())
 
     async def set_default_project(self, project_id: str, org_id: str) -> Project:
-        result = await self.db.execute(select(Project).where(and_(Project.org_id == org_id, Project.is_default.is_(True))))
+        result = await self.db.execute(
+            select(Project).where(and_(Project.org_id == org_id, Project.is_default.is_(True)))
+        )
         for project in result.scalars().all():
             project.is_default = False
 
         result = await self.db.execute(select(Project).where(and_(Project.id == project_id, Project.org_id == org_id)))
-        project = result.scalar_one_or_none()
-        if project:
-            project.is_default = True
+        target = result.scalar_one_or_none()
+        if target is None:
+            raise ValueError(f"Project {project_id} not found for org {org_id}")
+        target.is_default = True
         await self.db.commit()
-        return project
+        return target
 
     async def ensure_default_project(self, org_id: str, org_name: str = "Default") -> Project:
         existing = await self.get_default_project(org_id)

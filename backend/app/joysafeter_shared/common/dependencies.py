@@ -176,9 +176,8 @@ def require_project_access():
             raise NotFoundError("project_id required", code="PROJECT_ID_REQUIRED")
 
         from app.joysafeter_domain.models.joysafeter_project import Project
-        result = await db.execute(
-            select(Project).where(Project.id == pid)
-        )
+
+        result = await db.execute(select(Project).where(Project.id == pid))
         project = result.scalar_one_or_none()
         if not project:
             raise NotFoundError("Project not found", code="PROJECT_NOT_FOUND")

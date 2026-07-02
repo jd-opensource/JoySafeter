@@ -36,9 +36,7 @@ async def create_task(
     # all side effects (session creation, enqueue). Clients should send a unique
     # key (e.g. a UUID) per logical submission.
     if idempotency_key:
-        existing = await TaskService(db).get_by_idempotency_key(
-            idempotency_key, project_id=auth_ctx.project_id
-        )
+        existing = await TaskService(db).get_by_idempotency_key(idempotency_key, project_id=auth_ctx.project_id)
         if existing is not None:
             return CreateTaskResponse(id=existing.id, status=existing.status)
 
@@ -57,12 +55,14 @@ async def create_task(
     # Validate environment_ref if provided
     if environment_ref:
         from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
+
         env_svc = EnvironmentService(db)
         env = await env_svc.get_environment_by_ref(environment_ref, project_id=auth_ctx.project_id)
         if not env:
             raise HTTPException(422, f"Environment not found: {environment_ref}")
 
     from app.joysafeter_orchestrator.lifespan import get_scheduler
+
     scheduler = get_scheduler()
     if not scheduler:
         raise HTTPException(503, "JoySafeter scheduler is not running")
@@ -71,6 +71,7 @@ async def create_task(
     chat_session_id = req.chat_session_id
     if not chat_session_id:
         from app.joysafeter_api.services import SessionService
+
         session_svc = SessionService(db)
         session = await session_svc.create_session(
             agent_id=agent.id,
@@ -83,11 +84,12 @@ async def create_task(
         chat_session_id = session.id
     else:
         from app.joysafeter_api.services import SessionService
+
         session_svc = SessionService(db)
-        session = await session_svc.get_session(chat_session_id)
-        if not session or session.project_id != auth_ctx.project_id:
+        existing_session = await session_svc.get_session(chat_session_id)
+        if not existing_session or existing_session.project_id != auth_ctx.project_id:
             raise HTTPException(404, "Session not found")
-        if session.agent_id != agent.id:
+        if existing_session.agent_id != agent.id:
             raise HTTPException(400, "Session does not belong to the selected agent")
 
     svc = TaskService(db)
@@ -106,6 +108,7 @@ async def create_task(
         await scheduler.push_to_global(task.id)
     except Exception as exc:
         from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
+
         await svc.update_task_error(
             task.id,
             f"Failed to enqueue task: {exc}",
@@ -128,8 +131,12 @@ async def list_tasks(
 ) -> PaginatedResponse[TaskResponse]:
     svc = TaskService(db)
     tasks, has_more = await svc.list_tasks(
-        limit=limit, after_id=after_id, agent_id=agent_id,
-        session_id=session_id, status=status, project_id=auth_ctx.project_id,
+        limit=limit,
+        after_id=after_id,
+        agent_id=agent_id,
+        session_id=session_id,
+        status=status,
+        project_id=auth_ctx.project_id,
     )
     data = [TaskResponse.model_validate(t) for t in tasks]
     return PaginatedResponse(
@@ -216,11 +223,14 @@ async def cancel_task(
     if session_id:
         from app.joysafeter_api.services import SessionService
         from app.joysafeter_domain.models.joysafeter_session import SessionStatus
+
         session_svc = SessionService(db)
         stop_reason = {"type": "cancelled"}
         try:
             await session_svc.update_session_status(
-                session_id, SessionStatus.IDLE.value, stop_reason=stop_reason,
+                session_id,
+                SessionStatus.IDLE.value,
+                stop_reason=stop_reason,
             )
         except Exception:
             # Session may already be idle or terminated -- ignore transition errors
@@ -269,6 +279,7 @@ async def task_stream(websocket: WebSocket, task_id: uuid.UUID):
         return
 
     from app.joysafeter_shared.database import AsyncSessionLocal
+
     async with AsyncSessionLocal() as auth_db:
         user_result = await auth_db.execute(select(AuthUser).where(AuthUser.id == str(payload.sub)))
         user = user_result.scalar_one_or_none()
@@ -277,20 +288,24 @@ async def task_stream(websocket: WebSocket, task_id: uuid.UUID):
             return
 
         member_result = await auth_db.execute(
-            select(Member).where(
+            select(Member)
+            .where(
                 Member.user_id == str(payload.sub),
                 Member.organization_id == str(payload.org_id),
-            ).limit(1)
+            )
+            .limit(1)
         )
         if not member_result.scalar_one_or_none():
             await websocket.close(code=4003, reason="Project access denied")
             return
 
         project_result = await auth_db.execute(
-            select(Project).where(
+            select(Project)
+            .where(
                 Project.id == str(payload.project_id),
                 Project.org_id == str(payload.org_id),
-            ).limit(1)
+            )
+            .limit(1)
         )
         project = project_result.scalar_one_or_none()
         if not project:
@@ -321,12 +336,15 @@ async def task_stream(websocket: WebSocket, task_id: uuid.UUID):
                 return
             await websocket.send_json({"type": "status", "status": task.status})
             from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+
             if TaskStatus(task.status).is_terminal():
-                await websocket.send_json({
-                    "type": "complete",
-                    "output": task.output,
-                    "error": task.error,
-                })
+                await websocket.send_json(
+                    {
+                        "type": "complete",
+                        "output": task.output,
+                        "error": task.error,
+                    }
+                )
                 await websocket.close()
                 return
 
@@ -340,6 +358,7 @@ async def task_stream(websocket: WebSocket, task_id: uuid.UUID):
         if not bridge:
             # Cross-instance: try Redis pub/sub for task events
             from app.joysafeter_orchestrator.lifespan import get_redis_coordinator
+
             coordinator = get_redis_coordinator()
             if coordinator:
                 await _stream_via_redis(websocket, task_id, coordinator)
@@ -387,25 +406,27 @@ async def _stream_via_redis(websocket: WebSocket, task_id: uuid.UUID, coordinato
         # Any completion event published concurrently will be caught by the
         # subscription, so there is no missed-message window.
         from app.joysafeter_shared.database import AsyncSessionLocal
+
         async with AsyncSessionLocal() as db:
             svc = TaskService(db)
             task = await svc.get_task(task_id)
             if task:
                 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+
                 if TaskStatus(task.status).is_terminal():
-                    await websocket.send_json({
-                        "type": "complete",
-                        "output": task.output,
-                        "error": task.error,
-                        "status": task.status,
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "complete",
+                            "output": task.output,
+                            "error": task.error,
+                            "status": task.status,
+                        }
+                    )
                     return
 
         while True:
             try:
-                msg = await pubsub.get_message(
-                    ignore_subscribe_messages=True, timeout=30
-                )
+                msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=30)
             except asyncio.CancelledError:
                 break
 

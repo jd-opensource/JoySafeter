@@ -87,9 +87,16 @@ class SandboxController:
         from app.joysafeter_shared.database import AsyncSessionLocal
 
         cleaned = 0
+        active_sandboxes = []
         async with AsyncSessionLocal() as db:
             svc = SandboxService(db)
-            active_sandboxes = await svc.list_non_destroyed_sandboxes()
+            after_id = None
+            while True:
+                page, has_more = await svc.list_sandboxes(limit=100, after_id=after_id)
+                active_sandboxes.extend(page)
+                if not has_more or not page:
+                    break
+                after_id = page[-1].id
 
         for sandbox in active_sandboxes:
             if sandbox.status in ("destroyed", "stopped"):
@@ -100,7 +107,8 @@ class SandboxController:
                 if status_str in ("not_found", SandboxStatus.NOT_FOUND):
                     logger.warning(
                         "DB orphan: sandbox %s (ext=%s) not found in provider, marking destroyed",
-                        sandbox.id, sandbox.external_id,
+                        sandbox.id,
+                        sandbox.external_id,
                     )
                     async with AsyncSessionLocal() as db:
                         svc = SandboxService(db)
@@ -208,7 +216,8 @@ class SandboxController:
                     except Exception as e:
                         logger.warning(
                             "provider.destroy(%s) failed during health check: %s",
-                            bridge.external_id, e,
+                            bridge.external_id,
+                            e,
                         )
 
                     async with AsyncSessionLocal() as db:
@@ -220,7 +229,8 @@ class SandboxController:
                     except Exception as e:
                         logger.warning(
                             "Phase 0 teardown_networking for %s failed: %s",
-                            bridge.sandbox_db_id, e,
+                            bridge.sandbox_db_id,
+                            e,
                         )
 
                     await self._queue.drain_and_requeue_sandbox(bridge.sandbox_db_id)
@@ -241,6 +251,7 @@ class SandboxController:
 
         async with AsyncSessionLocal() as db:
             from app.joysafeter_orchestrator.lifespan import get_runtime_config
+
             rc = get_runtime_config()
             idle_timeout = rc.idle_timeout_sec if rc else joysafeter_config.sandbox_idle_timeout
             disconnect_grace = joysafeter_config.sandbox_bridge_disconnect_grace
@@ -267,24 +278,16 @@ class SandboxController:
                     text("idle_since < NOW() - make_interval(secs => :idle_timeout)"),
                 ),
                 and_(
-                    JoySafeterSandbox.status.in_(
-                        ["idle", "running", "creating", "provisioning"]
-                    ),
+                    JoySafeterSandbox.status.in_(["idle", "running", "creating", "provisioning"]),
                     JoySafeterSandbox.disconnected_at.isnot(None),
-                    text(
-                        "disconnected_at < NOW() - make_interval(secs => :disconnect_grace)"
-                    ),
+                    text("disconnected_at < NOW() - make_interval(secs => :disconnect_grace)"),
                 ),
             ]
             if hard_timeout > 0:
                 conditions.append(
                     and_(
-                        JoySafeterSandbox.status.in_(
-                            ["idle", "running", "creating", "provisioning"]
-                        ),
-                        text(
-                            "created_at < NOW() - make_interval(secs => :hard_timeout)"
-                        ),
+                        JoySafeterSandbox.status.in_(["idle", "running", "creating", "provisioning"]),
+                        text("created_at < NOW() - make_interval(secs => :hard_timeout)"),
                     )
                 )
             result = await db.execute(
@@ -296,9 +299,7 @@ class SandboxController:
                     hard_timeout=hard_timeout,
                 )
             )
-            sandboxes = [
-                (sb.id, sb.external_id, sb.status) for sb in result.scalars().all()
-            ]
+            sandboxes = [(sb.id, sb.external_id, sb.status) for sb in result.scalars().all()]
 
         if not sandboxes:
             return
@@ -334,9 +335,7 @@ class SandboxController:
                         # Status may have changed since we read the snapshot;
                         # skip if it's already on its way out.
                         rec = await svc.get_sandbox(sb_id)
-                        if rec is None or rec.status in (
-                            "stopping", "stopped", "destroyed", "error", "pooled"
-                        ):
+                        if rec is None or rec.status in ("stopping", "stopped", "destroyed", "error", "pooled"):
                             return
 
                 # Drain and requeue any tasks assigned to this sandbox before
@@ -346,12 +345,14 @@ class SandboxController:
                 except Exception as e:
                     logger.warning(
                         "Failed to drain/requeue tasks for sandbox %s during idle stop: %s",
-                        sb_id, e,
+                        sb_id,
+                        e,
                     )
 
                 bridge = await self._bridge_registry.get(sb_id)
                 if bridge:
                     from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
+
                     shutdown_msg = joysafeter_pb2.OrchestratorMessage(
                         shutdown=joysafeter_pb2.Shutdown(
                             reason="idle timeout" if graceful else "reaped",
@@ -389,9 +390,7 @@ class SandboxController:
                         if graceful:
                             async with AsyncSessionLocal() as db:
                                 svc = SandboxService(db)
-                                await svc.update_status_cas(
-                                    sb_id, "stopping", "idle"
-                                )
+                                await svc.update_status_cas(sb_id, "stopping", "idle")
                     return
 
                 async with AsyncSessionLocal() as db:
@@ -400,13 +399,12 @@ class SandboxController:
 
                 logger.info(
                     "Sandbox %s stopped (was %s, graceful=%s)",
-                    sb_id, current_status, graceful,
+                    sb_id,
+                    current_status,
+                    graceful,
                 )
 
-        tasks = [
-            asyncio.create_task(_stop_one(sb_id, ext_id, sb_status))
-            for sb_id, ext_id, sb_status in sandboxes
-        ]
+        tasks = [asyncio.create_task(_stop_one(sb_id, ext_id, sb_status)) for sb_id, ext_id, sb_status in sandboxes]
         await asyncio.gather(*tasks, return_exceptions=True)
 
     # -- Phase 2: Force-stop sandboxes stuck in "stopping" --
@@ -420,22 +418,20 @@ class SandboxController:
 
         async with AsyncSessionLocal() as db:
             result = await db.execute(
-                select(JoySafeterSandbox).where(
+                select(JoySafeterSandbox)
+                .where(
                     and_(
                         JoySafeterSandbox.status == "stopping",
                         text("updated_at < NOW() - make_interval(secs => :timeout)"),
                     )
-                ).params(timeout=60)
+                )
+                .params(timeout=60)
             )
-            stuck = [
-                (sb.id, sb.external_id) for sb in result.scalars().all()
-            ]
+            stuck = [(sb.id, sb.external_id) for sb in result.scalars().all()]
 
         async def _force_stop_one(sb_id: uuid.UUID, external_id: str) -> None:
             async with self._stop_semaphore:
-                logger.warning(
-                    "Sandbox %s stuck stopping >60s, force stopping", sb_id
-                )
+                logger.warning("Sandbox %s stuck stopping >60s, force stopping", sb_id)
                 await self._bridge_registry.remove(sb_id)
 
                 stop_succeeded = False
@@ -447,9 +443,7 @@ class SandboxController:
                     if "No such container" in err:
                         stop_succeeded = True  # container already gone
                     else:
-                        logger.warning(
-                            "Force stop failed for %s: %s", sb_id, e
-                        )
+                        logger.warning("Force stop failed for %s: %s", sb_id, e)
 
                 if stop_succeeded:
                     async with AsyncSessionLocal() as db:
@@ -459,14 +453,9 @@ class SandboxController:
                     try:
                         await self._provider.teardown_networking(sb_id)
                     except Exception as e:
-                        logger.warning(
-                            "Phase 2 teardown_networking for %s failed: %s", sb_id, e
-                        )
+                        logger.warning("Phase 2 teardown_networking for %s failed: %s", sb_id, e)
 
-        tasks = [
-            asyncio.create_task(_force_stop_one(sb_id, ext_id))
-            for sb_id, ext_id in stuck
-        ]
+        tasks = [asyncio.create_task(_force_stop_one(sb_id, ext_id)) for sb_id, ext_id in stuck]
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -479,22 +468,21 @@ class SandboxController:
         from app.joysafeter_orchestrator.lifespan import get_runtime_config
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
         from app.joysafeter_shared.database import AsyncSessionLocal
+
         rc = get_runtime_config()
         stopped_ttl = rc.stopped_max_age_sec if rc else joysafeter_config.sandbox_stopped_ttl
         async with AsyncSessionLocal() as db:
             result = await db.execute(
-                select(JoySafeterSandbox).where(
+                select(JoySafeterSandbox)
+                .where(
                     and_(
                         JoySafeterSandbox.status == "stopped",
-                        text(
-                            "last_used_at < NOW() - make_interval(secs => :ttl)"
-                        ),
+                        text("last_used_at < NOW() - make_interval(secs => :ttl)"),
                     )
-                ).params(ttl=stopped_ttl)
+                )
+                .params(ttl=stopped_ttl)
             )
-            sandboxes = [
-                (sb.id, sb.external_id) for sb in result.scalars().all()
-            ]
+            sandboxes = [(sb.id, sb.external_id) for sb in result.scalars().all()]
 
         async def _destroy_one(sb_id: uuid.UUID, external_id: str) -> None:
             async with self._stop_semaphore:
@@ -507,9 +495,7 @@ class SandboxController:
                     if "No such container" in err or "404" in err:
                         destroy_ok = True
                     else:
-                        logger.warning(
-                            "provider.destroy(%s) failed: %s", external_id, e
-                        )
+                        logger.warning("provider.destroy(%s) failed: %s", external_id, e)
 
                 if destroy_ok:
                     async with AsyncSessionLocal() as db:
@@ -519,16 +505,11 @@ class SandboxController:
                     try:
                         await self._provider.teardown_networking(sb_id)
                     except Exception as e:
-                        logger.warning(
-                            "Phase 3 teardown_networking for %s failed: %s", sb_id, e
-                        )
+                        logger.warning("Phase 3 teardown_networking for %s failed: %s", sb_id, e)
 
                     logger.info("Sandbox %s destroyed", sb_id)
 
-        tasks = [
-            asyncio.create_task(_destroy_one(sb_id, ext_id))
-            for sb_id, ext_id in sandboxes
-        ]
+        tasks = [asyncio.create_task(_destroy_one(sb_id, ext_id)) for sb_id, ext_id in sandboxes]
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -564,7 +545,9 @@ class SandboxController:
                                 )
                             )
                         )
-                    ).scalars().all()
+                    )
+                    .scalars()
+                    .all()
                 )
                 task_svc = TaskService(db)
                 count = await task_svc.reset_sandbox_tasks_to_pending(sandbox_id)
@@ -603,6 +586,7 @@ class SandboxController:
 
             # Check timeouts: 180s relative (last_used_at) OR 300s absolute (created_at)
             from datetime import datetime, timezone
+
             now = datetime.now(timezone.utc)
             age_from_last_used = (now - sandbox.last_used_at).total_seconds() if sandbox.last_used_at else 999
             absolute_age = (now - sandbox.created_at).total_seconds() if sandbox.created_at else 999
@@ -611,9 +595,7 @@ class SandboxController:
                 # Not timed out yet; check provisioning_status from provider
                 if sandbox.external_id:
                     try:
-                        pstatus = await self._provider.provisioning_status(
-                            sandbox.external_id
-                        )
+                        pstatus = await self._provider.provisioning_status(sandbox.external_id)
                     except Exception:
                         pstatus = None
 
@@ -629,7 +611,8 @@ class SandboxController:
                             except Exception as e:
                                 logger.warning(
                                     "Failed to stop errored sandbox %s: %s",
-                                    sandbox.id, e,
+                                    sandbox.id,
+                                    e,
                                 )
                             async with AsyncSessionLocal() as db:
                                 svc = SandboxService(db)
@@ -653,9 +636,7 @@ class SandboxController:
                             }
                             async with AsyncSessionLocal() as db:
                                 svc = SandboxService(db)
-                                await svc.update_status_and_config(
-                                    sandbox.id, "provisioning", config
-                                )
+                                await svc.update_status_and_config(sandbox.id, "provisioning", config)
                 continue
 
             logger.error(
@@ -666,9 +647,7 @@ class SandboxController:
                 try:
                     await self._provider.stop(sandbox.external_id)
                 except Exception as e:
-                    logger.warning(
-                        "Failed to stop timed-out sandbox %s: %s", sandbox.id, e
-                    )
+                    logger.warning("Failed to stop timed-out sandbox %s: %s", sandbox.id, e)
             async with AsyncSessionLocal() as db:
                 svc = SandboxService(db)
                 await svc.update_status(sandbox.id, "stopped")
@@ -685,9 +664,7 @@ class SandboxController:
     async def _manage_pool(self) -> None:
         # HA: only one instance manages the pool at a time
         if self._coordinator:
-            acquired = await self._coordinator.try_acquire_lock(
-                "joysafeter:lock:pool_manager", 60
-            )
+            acquired = await self._coordinator.try_acquire_lock("joysafeter:lock:pool_manager", 60)
             if not acquired:
                 return
         try:
@@ -703,6 +680,7 @@ class SandboxController:
         from app.joysafeter_orchestrator.lifespan import get_runtime_config, get_sandbox_resolver
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
         from app.joysafeter_shared.database import AsyncSessionLocal
+
         rc = get_runtime_config()
         min_size = rc.pool_min_size if rc else joysafeter_config.sandbox_pool_min_size
         max_age = rc.pool_max_age_sec if rc else joysafeter_config.sandbox_pool_max_age
@@ -719,9 +697,7 @@ class SandboxController:
         for image in pool_images:
             async with AsyncSessionLocal() as db:
                 svc = SandboxService(db)
-                pool_count = await svc.count_pool_by_provider_image(
-                    joysafeter_config.sandbox_provider, image
-                )
+                pool_count = await svc.count_pool_by_provider_image(joysafeter_config.sandbox_provider, image)
 
             deficit = min_size - pool_count
             if deficit > 0:
@@ -737,18 +713,16 @@ class SandboxController:
         # Destroy stale pooled sandboxes
         async with AsyncSessionLocal() as db:
             stale_result = await db.execute(
-                select(JoySafeterSandbox).where(
+                select(JoySafeterSandbox)
+                .where(
                     and_(
                         JoySafeterSandbox.status == "pooled",
-                        text(
-                            "created_at < NOW() - make_interval(secs => :max_age)"
-                        ),
+                        text("created_at < NOW() - make_interval(secs => :max_age)"),
                     )
-                ).params(max_age=max_age)
+                )
+                .params(max_age=max_age)
             )
-            stale_pooled = [
-                (sb.id, sb.external_id) for sb in stale_result.scalars().all()
-            ]
+            stale_pooled = [(sb.id, sb.external_id) for sb in stale_result.scalars().all()]
 
         for sb_id, external_id in stale_pooled:
             logger.info("Destroying stale pooled sandbox %s", sb_id)

@@ -103,6 +103,7 @@ class ApiKeyResponse(BaseModel):
 
 class ApiKeyCreateResponse(BaseModel):
     """Response for API key creation — includes the raw key (shown only once)."""
+
     id: str
     project_id: str
     name: str
@@ -168,7 +169,9 @@ def _ensure_can_modify_member(actor_role: JoySafeterRole, current_role: str, new
     if current == JoySafeterRole.OWNER:
         raise HTTPException(403, "无法修改所有者的角色 / Cannot change the owner's role")
     if not actor_role.can_grant(current) or not actor_role.can_grant(new_role):
-        raise HTTPException(403, "不能修改或授予高于自身权限的角色 / Cannot modify or grant a role higher than your own")
+        raise HTTPException(
+            403, "不能修改或授予高于自身权限的角色 / Cannot modify or grant a role higher than your own"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -475,9 +478,7 @@ async def forgot_password(
     """Request a password reset email (silent even if email is unknown)."""
     service = AuthService(db)
     await service.request_password_reset(body.email)
-    return success_response(
-        message="If your email is registered, you will receive a password reset link shortly."
-    )
+    return success_response(message="If your email is registered, you will receive a password reset link shortly.")
 
 
 @router.post("/reset-password")
@@ -623,9 +624,7 @@ async def refresh_token(
                         "refresh_token": new_refresh_token,
                         "csrf_token": csrf_token,
                         "token_type": "bearer",
-                        "expires_in": int(
-                            (access_expires - datetime.now(timezone.utc)).total_seconds()
-                        ),
+                        "expires_in": int((access_expires - datetime.now(timezone.utc)).total_seconds()),
                     }
                     _set_auth_cookies(response, result)
                     return success_response(
@@ -670,21 +669,15 @@ async def get_me(
 ):
     """Return current user + org + project info in the format expected by the frontend."""
     # Look up user
-    user_result = await db.execute(
-        select(AuthUser).where(AuthUser.id == auth_ctx.user_id).limit(1)
-    )
+    user_result = await db.execute(select(AuthUser).where(AuthUser.id == auth_ctx.user_id).limit(1))
     user = user_result.scalar_one_or_none()
 
     # Look up current org
-    org_result = await db.execute(
-        select(Organization).where(Organization.id == auth_ctx.org_id).limit(1)
-    )
+    org_result = await db.execute(select(Organization).where(Organization.id == auth_ctx.org_id).limit(1))
     org = org_result.scalar_one_or_none()
 
     # Look up current project
-    proj_result = await db.execute(
-        select(Project).where(Project.id == auth_ctx.project_id).limit(1)
-    )
+    proj_result = await db.execute(select(Project).where(Project.id == auth_ctx.project_id).limit(1))
     proj = proj_result.scalar_one_or_none()
 
     # List all orgs user belongs to
@@ -695,7 +688,13 @@ async def get_me(
     )
     all_memberships = all_members_result.all()
     organizations = [
-        {"id": o.id, "name": o.name, "slug": o.slug, "role": m.role, "created_at": o.created_at.isoformat() if o.created_at else None}
+        {
+            "id": o.id,
+            "name": o.name,
+            "slug": o.slug,
+            "role": m.role,
+            "created_at": o.created_at.isoformat() if o.created_at else None,
+        }
         for m, o in all_memberships
     ]
 
@@ -744,10 +743,12 @@ async def switch_context(
 
     # Validate user is a member of the target org
     member_result = await db.execute(
-        select(Member).where(
+        select(Member)
+        .where(
             Member.user_id == auth_ctx.user_id,
             Member.organization_id == target_org_id,
-        ).limit(1)
+        )
+        .limit(1)
     )
     member = member_result.scalar_one_or_none()
     if not member:
@@ -763,19 +764,19 @@ async def switch_context(
         target_project_id = default_proj.id
     else:
         proj_result = await db.execute(
-            select(Project).where(
+            select(Project)
+            .where(
                 Project.id == target_project_id,
                 Project.org_id == target_org_id,
-            ).limit(1)
+            )
+            .limit(1)
         )
         proj = proj_result.scalar_one_or_none()
         if not proj:
             raise HTTPException(404, "Project not found in the target organization")
 
     # Fetch resolved project details
-    proj_result = await db.execute(
-        select(Project).where(Project.id == target_project_id).limit(1)
-    )
+    proj_result = await db.execute(select(Project).where(Project.id == target_project_id).limit(1))
     resolved_project = proj_result.scalar_one_or_none()
 
     # List all projects in target org
@@ -786,6 +787,7 @@ async def switch_context(
 
     # Issue new JWT with updated org/project context
     from app.joysafeter_shared.security import create_access_token
+
     new_access_token = create_access_token(
         subject=auth_ctx.user_id,
         org_id=target_org_id,
@@ -920,9 +922,7 @@ async def get_project(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> ProjectResponse:
-    result = await db.execute(
-        select(Project).where(Project.id == project_id, Project.org_id == auth_ctx.org_id)
-    )
+    result = await db.execute(select(Project).where(Project.id == project_id, Project.org_id == auth_ctx.org_id))
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(404, "Project not found")
@@ -941,9 +941,7 @@ async def update_project(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
 ) -> ProjectResponse:
-    result = await db.execute(
-        select(Project).where(Project.id == project_id, Project.org_id == auth_ctx.org_id)
-    )
+    result = await db.execute(select(Project).where(Project.id == project_id, Project.org_id == auth_ctx.org_id))
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(404, "Project not found")
@@ -963,9 +961,8 @@ async def archive_project(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
 ) -> dict:
     from datetime import datetime, timezone
-    result = await db.execute(
-        select(Project).where(Project.id == project_id, Project.org_id == auth_ctx.org_id)
-    )
+
+    result = await db.execute(select(Project).where(Project.id == project_id, Project.org_id == auth_ctx.org_id))
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(404, "Project not found")
@@ -982,9 +979,7 @@ async def set_default_project(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
 ) -> ProjectResponse:
-    result = await db.execute(
-        select(Project).where(Project.id == project_id, Project.org_id == auth_ctx.org_id)
-    )
+    result = await db.execute(select(Project).where(Project.id == project_id, Project.org_id == auth_ctx.org_id))
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(404, "Project not found")
@@ -1028,9 +1023,7 @@ async def search_users(
     )
     users = result.scalars().all()
 
-    existing_result = await db.execute(
-        select(Member.user_id).where(Member.organization_id == auth_ctx.org_id)
-    )
+    existing_result = await db.execute(select(Member.user_id).where(Member.organization_id == auth_ctx.org_id))
     existing_ids = {row[0] for row in existing_result.all()}
 
     return [
@@ -1169,19 +1162,19 @@ async def invite_member(
 ) -> MemberResponse:
     """Invite a user to the current organization by email. Requires admin role."""
     # Look up user by email
-    user_result = await db.execute(
-        select(AuthUser).where(AuthUser.email == req.email.strip()).limit(1)
-    )
+    user_result = await db.execute(select(AuthUser).where(AuthUser.email == req.email.strip()).limit(1))
     user = user_result.scalar_one_or_none()
     if not user:
         raise HTTPException(404, "未找到该邮箱对应的用户 / User not found with the given email")
 
     # Check if already a member
     existing = await db.execute(
-        select(Member).where(
+        select(Member)
+        .where(
             Member.user_id == user.id,
             Member.organization_id == auth_ctx.org_id,
-        ).limit(1)
+        )
+        .limit(1)
     )
     if existing.scalar_one_or_none():
         raise HTTPException(409, "该用户已是组织成员 / User is already a member of this organization")
@@ -1226,10 +1219,12 @@ async def remove_member(
     """Remove a member from the current organization. Cannot remove the owner."""
     # Find the member
     result = await db.execute(
-        select(Member).where(
+        select(Member)
+        .where(
             Member.user_id == user_id,
             Member.organization_id == auth_ctx.org_id,
-        ).limit(1)
+        )
+        .limit(1)
     )
     member = result.scalar_one_or_none()
     if not member:
@@ -1267,10 +1262,12 @@ async def update_member_role(
     """Update a member's role. Cannot change the owner's role."""
     # Find the member
     result = await db.execute(
-        select(Member).where(
+        select(Member)
+        .where(
             Member.user_id == user_id,
             Member.organization_id == auth_ctx.org_id,
-        ).limit(1)
+        )
+        .limit(1)
     )
     member = result.scalar_one_or_none()
     if not member:
@@ -1294,9 +1291,7 @@ async def update_member_role(
     )
 
     # Fetch user info
-    user_result = await db.execute(
-        select(AuthUser).where(AuthUser.id == user_id).limit(1)
-    )
+    user_result = await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))
     user = user_result.scalar_one_or_none()
 
     return MemberResponse(

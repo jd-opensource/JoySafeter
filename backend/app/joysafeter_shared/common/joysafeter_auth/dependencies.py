@@ -26,6 +26,7 @@ from .context import JoySafeterAuthContext, JoySafeterRole
 # Mapping helpers
 # ---------------------------------------------------------------------------
 
+
 # Map OrgRole string values (from the member table) to JoySafeterRole.
 # OrgRole has: owner, admin, member.  "member" maps to "developer" in joysafeter.
 def _map_org_role(role_value: str) -> JoySafeterRole:
@@ -148,21 +149,25 @@ async def _auth_via_jwt_claims(request: Request, db: AsyncSession) -> JoySafeter
 async def _resolve_default_project_id(db: AsyncSession, org_id: str) -> str:
     """Resolve a usable project when the request switches org via header."""
     result = await db.execute(
-        select(Project).where(
+        select(Project)
+        .where(
             Project.org_id == org_id,
             Project.is_default.is_(True),
             Project.archived_at.is_(None),
-        ).limit(1)
+        )
+        .limit(1)
     )
     project = result.scalar_one_or_none()
     if project:
         return project.id
 
     result = await db.execute(
-        select(Project).where(
+        select(Project)
+        .where(
             Project.org_id == org_id,
             Project.archived_at.is_(None),
-        ).limit(1)
+        )
+        .limit(1)
     )
     project = result.scalar_one_or_none()
     if project:
@@ -184,10 +189,12 @@ async def _verify_joysafeter_context(
 ) -> JoySafeterAuthContext:
     """Verify current org membership and project ownership against the DB."""
     result = await db.execute(
-        select(Member).where(
+        select(Member)
+        .where(
             Member.user_id == user_id,
             Member.organization_id == org_id,
-        ).limit(1)
+        )
+        .limit(1)
     )
     member = result.scalar_one_or_none()
     if not member:
@@ -196,13 +203,15 @@ async def _verify_joysafeter_context(
             code="MEMBERSHIP_EXPIRED",
         )
 
-    result = await db.execute(
-        select(Project).where(
+    project_result = await db.execute(
+        select(Project)
+        .where(
             Project.id == project_id,
             Project.org_id == org_id,
-        ).limit(1)
+        )
+        .limit(1)
     )
-    project = result.scalar_one_or_none()
+    project = project_result.scalar_one_or_none()
     if not project:
         raise AuthenticationError(
             "Project not found or access denied",
@@ -235,9 +244,7 @@ async def _auth_via_api_key(
 
     key_hash = _hash_api_key(raw_key)
 
-    result = await db.execute(
-        select(JoySafeterApiKey).where(JoySafeterApiKey.key_hash == key_hash)
-    )
+    result = await db.execute(select(JoySafeterApiKey).where(JoySafeterApiKey.key_hash == key_hash))
     api_key = result.scalar_one_or_none()
     if api_key is None:
         return None
@@ -306,15 +313,15 @@ async def _auth_via_user_session(
     preferred_org_id = request.headers.get("X-Org-Id")
     if preferred_org_id:
         result = await db.execute(
-            select(Member).where(
+            select(Member)
+            .where(
                 Member.user_id == user.id,
                 Member.organization_id == preferred_org_id,
-            ).limit(1)
+            )
+            .limit(1)
         )
     else:
-        result = await db.execute(
-            select(Member).where(Member.user_id == user.id).limit(1)
-        )
+        result = await db.execute(select(Member).where(Member.user_id == user.id).limit(1))
     membership = result.scalar_one_or_none()
     if membership is None and preferred_org_id:
         # User explicitly requested an org they don't belong to
@@ -338,14 +345,14 @@ async def _auth_via_user_session(
             role="owner",
         )
         db.add(membership)
-        default_project = Project(
+        new_default_project = Project(
             id=str(_uuid.uuid4()),
             org_id=org_id,
             name="Default",
             slug="default",
             is_default=True,
         )
-        db.add(default_project)
+        db.add(new_default_project)
         await db.commit()
         await db.refresh(membership)
 
@@ -357,10 +364,12 @@ async def _auth_via_user_session(
     if project_id:
         # SECURITY: Verify the project belongs to the user's organization
         proj_result = await db.execute(
-            select(Project).where(
+            select(Project)
+            .where(
                 Project.id == project_id,
                 Project.org_id == org_id,
-            ).limit(1)
+            )
+            .limit(1)
         )
         verified_project = proj_result.scalar_one_or_none()
         if not verified_project:
@@ -370,17 +379,17 @@ async def _auth_via_user_session(
 
     if not project_id:
         proj_result = await db.execute(
-            select(Project).where(
+            select(Project)
+            .where(
                 Project.org_id == org_id,
                 Project.is_default.is_(True),
-            ).limit(1)
+            )
+            .limit(1)
         )
         default_project = proj_result.scalar_one_or_none()
         if default_project is None:
             # Fall back to *any* project in the org
-            proj_result = await db.execute(
-                select(Project).where(Project.org_id == org_id).limit(1)
-            )
+            proj_result = await db.execute(select(Project).where(Project.org_id == org_id).limit(1))
             default_project = proj_result.scalar_one_or_none()
         if default_project is None:
             raise AuthenticationError(

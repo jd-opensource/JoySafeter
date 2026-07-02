@@ -12,6 +12,8 @@ Each former module's full body is kept verbatim below under a section banner;
 redundant imports across sections are harmless.
 """
 
+# ruff: noqa: E402 — sections merged verbatim; imports intentionally follow their banners
+
 
 # ============================================================================
 # auth_session_service.py
@@ -280,9 +282,7 @@ class AuthService(BaseService):
             from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
             from app.joysafeter_domain.models.joysafeter_project import Project
 
-            result = await self.db.execute(
-                select(Member).where(Member.user_id == user_id).limit(1)
-            )
+            result = await self.db.execute(select(Member).where(Member.user_id == user_id).limit(1))
             membership = result.scalar_one_or_none()
 
             # Auto-create org + project for users who don't have one yet
@@ -311,16 +311,16 @@ class AuthService(BaseService):
             role = membership.role
 
             proj_result = await self.db.execute(
-                select(Project).where(
+                select(Project)
+                .where(
                     Project.org_id == org_id,
                     Project.is_default.is_(True),
-                ).limit(1)
+                )
+                .limit(1)
             )
             project = proj_result.scalar_one_or_none()
             if not project:
-                proj_result = await self.db.execute(
-                    select(Project).where(Project.org_id == org_id).limit(1)
-                )
+                proj_result = await self.db.execute(select(Project).where(Project.org_id == org_id).limit(1))
                 project = proj_result.scalar_one_or_none()
             if project:
                 project_id = project.id
@@ -472,9 +472,7 @@ class AuthService(BaseService):
 
     async def issue_login_tokens(self, user: AuthUser) -> dict:
         """Issue access/refresh/csrf tokens for an already authenticated user."""
-        access_token, refresh_token, csrf_token, access_expires, refresh_expires = await self._issue_jwt_tokens(
-            user.id
-        )
+        access_token, refresh_token, csrf_token, access_expires, refresh_expires = await self._issue_jwt_tokens(user.id)
         return self._build_jwt_login_response(
             user, access_token, refresh_token, csrf_token, access_expires, refresh_expires
         )
@@ -1580,7 +1578,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from app.joysafeter_domain.models.joysafeter_auth import AuthUser
-
 
 
 async def run_post_login_init(db: AsyncSession, user: "AuthUser", ip_address: str) -> None:

@@ -11,8 +11,10 @@ Note: ``_RETRYABLE_DB_ERROR_MARKERS`` / ``_is_retryable_db_error`` were defined
 identically in two of the source modules; the SessionService copy (last section)
 is the one that wins.
 """
+
 from __future__ import annotations
 
+# ruff: noqa: E402 — sections merged verbatim; imports intentionally follow their banners
 # ============================================================================
 # session_event_realtime.py
 # ============================================================================
@@ -20,7 +22,7 @@ import json
 import logging
 import os
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.config.service_role import current_role
@@ -78,6 +80,7 @@ async def publish_session_event_realtime(
         await redis.publish(channel, wrapper)
     except Exception as exc:
         logger.debug("Failed to publish session event realtime", exc_info=exc)
+
 
 # ============================================================================
 # joysafeter_session_lifecycle.py
@@ -158,9 +161,7 @@ class JoySafeterSessionLifecycleService:
         await self._lock_event_sequence(session_id)
 
         result = await self.db.execute(
-            select(JoySafeterSession)
-            .where(JoySafeterSession.id == session_id)
-            .with_for_update()
+            select(JoySafeterSession).where(JoySafeterSession.id == session_id).with_for_update()
         )
         session = result.scalar_one_or_none()
         if not session:
@@ -231,6 +232,7 @@ def _is_retryable_db_error(exc: Exception) -> bool:
     message = str(exc)
     return any(marker in message for marker in _RETRYABLE_DB_ERROR_MARKERS)
 
+
 # ============================================================================
 # session_service.py
 # ============================================================================
@@ -243,17 +245,9 @@ from app.joysafeter_domain.models.joysafeter_session import (
     SessionStatus,
 )
 
-# State machine: maps target status -> set of allowed source statuses
-_VALID_TRANSITIONS: dict[str, set[str]] = {
-    SessionStatus.RUNNING.value: {SessionStatus.IDLE.value, SessionStatus.RESCHEDULING.value, SessionStatus.RUNNING.value},
-    SessionStatus.IDLE.value: {SessionStatus.RUNNING.value},
-    SessionStatus.TERMINATED.value: {
-        SessionStatus.IDLE.value,
-        SessionStatus.RUNNING.value,
-        SessionStatus.RESCHEDULING.value,
-    },
-    SessionStatus.RESCHEDULING.value: {SessionStatus.RUNNING.value, SessionStatus.IDLE.value},
-}
+# State machine ``_VALID_TRANSITIONS`` and ``_RETRYABLE_DB_ERROR_MARKERS`` /
+# ``_is_retryable_db_error`` were defined identically in an earlier merged
+# section; the module-level definitions above are reused here verbatim.
 
 _STATUS_EVENT_TYPES = {
     "session.status_idle",
@@ -265,13 +259,6 @@ _STATUS_EVENT_TYPES = {
     "session.thread_status_terminated",
 }
 
-_RETRYABLE_DB_ERROR_MARKERS = (
-    "DeadlockDetectedError",
-    "deadlock detected",
-    "SerializationError",
-    "could not serialize access",
-)
-
 
 def _normalized_stop_reason(stop_reason: Optional[dict]) -> dict:
     return stop_reason or {}
@@ -279,11 +266,6 @@ def _normalized_stop_reason(stop_reason: Optional[dict]) -> dict:
 
 def _status_event_key(payload: dict) -> tuple[object, object]:
     return payload.get("task_id"), payload.get("stop_reason") or {}
-
-
-def _is_retryable_db_error(exc: Exception) -> bool:
-    message = str(exc)
-    return any(marker in message for marker in _RETRYABLE_DB_ERROR_MARKERS)
 
 
 class SessionService:
@@ -320,9 +302,7 @@ class SessionService:
         return session
 
     async def get_session(self, session_id: uuid.UUID) -> Optional[JoySafeterSession]:
-        result = await self.db.execute(
-            select(JoySafeterSession).where(JoySafeterSession.id == session_id)
-        )
+        result = await self.db.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
         return result.scalar_one_or_none()
 
     async def list_sessions(
@@ -338,9 +318,9 @@ class SessionService:
         if project_id is not None:
             q = q.where(JoySafeterSession.project_id == project_id)
         if after_id:
-            cursor_created_at = select(JoySafeterSession.created_at).where(
-                JoySafeterSession.id == after_id
-            ).scalar_subquery()
+            cursor_created_at = (
+                select(JoySafeterSession.created_at).where(JoySafeterSession.id == after_id).scalar_subquery()
+            )
             q = q.where(JoySafeterSession.created_at < cursor_created_at)
         q = q.order_by(JoySafeterSession.created_at.desc()).limit(limit + 1)
         result = await self.db.execute(q)
@@ -362,9 +342,9 @@ class SessionService:
         if project_id is not None:
             q = q.where(JoySafeterSession.project_id == project_id)
         if after_id:
-            cursor_created_at = select(JoySafeterSession.created_at).where(
-                JoySafeterSession.id == after_id
-            ).scalar_subquery()
+            cursor_created_at = (
+                select(JoySafeterSession.created_at).where(JoySafeterSession.id == after_id).scalar_subquery()
+            )
             q = q.where(JoySafeterSession.created_at < cursor_created_at)
         q = q.order_by(JoySafeterSession.created_at.desc()).limit(limit + 1)
         result = await self.db.execute(q)
@@ -378,15 +358,14 @@ class SessionService:
             return False
         from app.joysafeter_domain.models.joysafeter_memory import JoySafeterSessionMemoryStore
         from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
+
         await self.db.execute(
-            update(JoySafeterTask)
-            .where(JoySafeterTask.chat_session_id == session_id)
-            .values(chat_session_id=None)
+            update(JoySafeterTask).where(JoySafeterTask.chat_session_id == session_id).values(chat_session_id=None)
         )
         from sqlalchemy import delete as sa_delete
+
         await self.db.execute(
-            sa_delete(JoySafeterSessionMemoryStore)
-            .where(JoySafeterSessionMemoryStore.session_id == session_id)
+            sa_delete(JoySafeterSessionMemoryStore).where(JoySafeterSessionMemoryStore.session_id == session_id)
         )
         await self.db.delete(session)
         await self.db.commit()
@@ -420,17 +399,14 @@ class SessionService:
         await self.db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
 
         result = await self.db.execute(
-            select(JoySafeterSession)
-            .where(JoySafeterSession.id == session_id)
-            .with_for_update()
+            select(JoySafeterSession).where(JoySafeterSession.id == session_id).with_for_update()
         )
         session = result.scalar_one_or_none()
         if not session:
             return False
 
-        if (
-            session.status == status
-            and _normalized_stop_reason(session.stop_reason) == _normalized_stop_reason(stop_reason)
+        if session.status == status and _normalized_stop_reason(session.stop_reason) == _normalized_stop_reason(
+            stop_reason
         ):
             return False
 
@@ -471,13 +447,9 @@ class SessionService:
         await self.db.commit()
         return True
 
-    async def accumulate_usage(
-        self, session_id: uuid.UUID, task_usage: dict
-    ) -> bool:
+    async def accumulate_usage(self, session_id: uuid.UUID, task_usage: dict) -> bool:
         result = await self.db.execute(
-            select(JoySafeterSession)
-            .where(JoySafeterSession.id == session_id)
-            .with_for_update()
+            select(JoySafeterSession).where(JoySafeterSession.id == session_id).with_for_update()
         )
         session = result.scalar_one_or_none()
         if not session:
@@ -579,9 +551,7 @@ class SessionService:
         limit: int = 50,
         after_seq: Optional[int] = None,
     ) -> tuple[list[JoySafeterSessionEvent], bool]:
-        q = select(JoySafeterSessionEvent).where(
-            JoySafeterSessionEvent.session_id == session_id
-        )
+        q = select(JoySafeterSessionEvent).where(JoySafeterSessionEvent.session_id == session_id)
         if after_seq is not None:
             q = q.where(JoySafeterSessionEvent.seq > after_seq)
         q = q.order_by(JoySafeterSessionEvent.seq.asc(), JoySafeterSessionEvent.id.asc()).limit(limit + 1)
@@ -590,11 +560,10 @@ class SessionService:
         has_more = len(events) > limit
         return events[:limit], has_more
 
-    async def task_has_agent_output(
-        self, task_id: uuid.UUID, session_id: uuid.UUID
-    ) -> bool:
+    async def task_has_agent_output(self, task_id: uuid.UUID, session_id: uuid.UUID) -> bool:
         """Check if a task has emitted agent.message events (produced output)."""
         from sqlalchemy import text as sa_text
+
         result = await self.db.execute(
             sa_text(
                 "SELECT EXISTS("
@@ -627,7 +596,7 @@ class SessionService:
                 JoySafeterSessionEvent.session_id == session_id
             )
         )
-        return result.scalar() + 1
+        return cast(int, result.scalar()) + 1
 
     async def attach_memory_stores(
         self,
@@ -657,9 +626,7 @@ class SessionService:
         from app.joysafeter_domain.models.joysafeter_memory import JoySafeterSessionMemoryStore
 
         result = await self.db.execute(
-            select(JoySafeterSessionMemoryStore).where(
-                JoySafeterSessionMemoryStore.session_id == session_id
-            )
+            select(JoySafeterSessionMemoryStore).where(JoySafeterSessionMemoryStore.session_id == session_id)
         )
         return list(result.scalars().all())
 
@@ -674,13 +641,18 @@ class SessionService:
     async def list_unprocessed_events(
         self, session_id: uuid.UUID, event_types: list[str], limit: int = 100
     ) -> list[JoySafeterSessionEvent]:
-        q = select(JoySafeterSessionEvent).where(
-            and_(
-                JoySafeterSessionEvent.session_id == session_id,
-                JoySafeterSessionEvent.processed_at.is_(None),
-                JoySafeterSessionEvent.event_type.in_(event_types),
+        q = (
+            select(JoySafeterSessionEvent)
+            .where(
+                and_(
+                    JoySafeterSessionEvent.session_id == session_id,
+                    JoySafeterSessionEvent.processed_at.is_(None),
+                    JoySafeterSessionEvent.event_type.in_(event_types),
+                )
             )
-        ).order_by(JoySafeterSessionEvent.id.asc()).limit(limit)
+            .order_by(JoySafeterSessionEvent.id.asc())
+            .limit(limit)
+        )
         result = await self.db.execute(q)
         return list(result.scalars().all())
 
@@ -740,9 +712,7 @@ class SessionService:
         limit: int,
         event_types: list[str],
     ) -> list[JoySafeterSessionEvent]:
-        q = select(JoySafeterSessionEvent).where(
-            JoySafeterSessionEvent.session_id == session_id
-        )
+        q = select(JoySafeterSessionEvent).where(JoySafeterSessionEvent.session_id == session_id)
         if after_seq is not None:
             q = q.where(JoySafeterSessionEvent.seq > after_seq)
         if event_types:
@@ -759,9 +729,7 @@ class SessionService:
 
         # Get all mounted stores for this session
         result = await self.db.execute(
-            select(JoySafeterSessionMemoryStore).where(
-                JoySafeterSessionMemoryStore.session_id == session_id
-            )
+            select(JoySafeterSessionMemoryStore).where(JoySafeterSessionMemoryStore.session_id == session_id)
         )
         mounts = list(result.scalars().all())
 
@@ -769,9 +737,7 @@ class SessionService:
         for mount in mounts:
             # Load all memories for this store
             mem_result = await self.db.execute(
-                select(JoySafeterMemory).where(
-                    JoySafeterMemory.store_id == mount.store_id
-                )
+                select(JoySafeterMemory).where(JoySafeterMemory.store_id == mount.store_id)
             )
             memories = list(mem_result.scalars().all())
             output.append(
@@ -779,9 +745,7 @@ class SessionService:
                     "store_id": mount.store_id,
                     "mount_name": mount.mount_name,
                     "access": mount.access,
-                    "memories": [
-                        {"path": m.path, "content": m.content} for m in memories
-                    ],
+                    "memories": [{"path": m.path, "content": m.content} for m in memories],
                 }
             )
         return output

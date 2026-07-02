@@ -133,6 +133,8 @@ async def update_secret(
         secret = await svc.update_secret(secret_id, req)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    if secret is None:
+        raise HTTPException(404, "Secret not found")
     await audit_joysafeter_event(
         db,
         request,
@@ -211,8 +213,7 @@ async def delete_secret(
         if agent_name:
             raise HTTPException(
                 409,
-                f"Secret is referenced by agent '{agent_name}'. "
-                "Use ?force=true to force delete.",
+                f"Secret is referenced by agent '{agent_name}'. Use ?force=true to force delete.",
             )
 
     if force:

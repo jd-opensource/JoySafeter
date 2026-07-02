@@ -69,6 +69,7 @@ class TaskRunner:
             await self._execute_task(task_id)
 
             from app.joysafeter_orchestrator.lifespan import get_runtime_config
+
             rc = get_runtime_config()
             threshold = rc.sandbox_failure_threshold if rc else joysafeter_config.sandbox_failure_threshold
             if self._consecutive_failures >= threshold:
@@ -82,9 +83,7 @@ class TaskRunner:
 
         logger.info("TaskRunner stopped for sandbox %s", sandbox_id)
 
-    async def _claim_next_sandbox_task_from_db(
-        self, sandbox_id: uuid.UUID
-    ) -> Optional[uuid.UUID]:
+    async def _claim_next_sandbox_task_from_db(self, sandbox_id: uuid.UUID) -> Optional[uuid.UUID]:
         from app.joysafeter_orchestrator.services import TaskService
         from app.joysafeter_shared.database import AsyncSessionLocal
 
@@ -112,9 +111,7 @@ class TaskRunner:
         self._bridge.current_task_id = task_id
         harness = None
 
-        await self._bridge.broadcast_to_task(
-            task_id, WsOutMessage(type="status", payload={"status": "running"})
-        )
+        await self._bridge.broadcast_to_task(task_id, WsOutMessage(type="status", payload={"status": "running"}))
 
         try:
             async with AsyncSessionLocal() as db:
@@ -128,13 +125,9 @@ class TaskRunner:
                     logger.error("Task %s not found", task_id)
                     return
 
-                agent = await agent_svc.get_agent(
-                    task.agent_id, project_id=getattr(task, "project_id", None)
-                )
+                agent = await agent_svc.get_agent(task.agent_id, project_id=getattr(task, "project_id", None))
                 if not agent:
-                    await task_svc.update_task_error(
-                        task_id, "Agent not found", TaskStatus.FAILED
-                    )
+                    await task_svc.update_task_error(task_id, "Agent not found", TaskStatus.FAILED)
                     return
 
                 if task.status != TaskStatus.RUNNING.value:
@@ -146,9 +139,7 @@ class TaskRunner:
                     return
 
                 if task.chat_session_id:
-                    await session_svc.update_session_status(
-                        task.chat_session_id, SessionStatus.RUNNING.value
-                    )
+                    await session_svc.update_session_status(task.chat_session_id, SessionStatus.RUNNING.value)
 
                 await sandbox_svc.touch(sandbox_id, task_id)
 
@@ -158,8 +149,11 @@ class TaskRunner:
             )
 
             harness_input = await build_harness_input(
-                task, agent, task.chat_session_id,
-                self._bridge.external_id, self._bridge.sandbox_db_id,
+                task,
+                agent,
+                task.chat_session_id,
+                self._bridge.external_id,
+                self._bridge.sandbox_db_id,
             )
             harness = await self._adapter.start(harness_input)
 
@@ -175,9 +169,7 @@ class TaskRunner:
                 task_timeout,
             )
 
-            final_status = (
-                TaskStatus.COMPLETED if not result.get("error") else TaskStatus.FAILED
-            )
+            final_status = TaskStatus.COMPLETED if not result.get("error") else TaskStatus.FAILED
             async with AsyncSessionLocal() as db:
                 task_svc = TaskService(db)
                 session_svc = SessionService(db)
@@ -186,11 +178,14 @@ class TaskRunner:
                 error_msg = result.get("error")
                 if error_msg:
                     await task_svc.update_task_error(
-                        task_id, error_msg, final_status,
+                        task_id,
+                        error_msg,
+                        final_status,
                     )
                 else:
                     await task_svc.update_task_status(
-                        task_id, final_status,
+                        task_id,
+                        final_status,
                     )
                 await task_svc.update_task_output(task_id, result.get("output", ""))
                 task_usage = result.get("usage")
@@ -210,18 +205,12 @@ class TaskRunner:
                     task_usage = result.get("usage")
                     if task_usage:
                         if "model" not in task_usage and agent.model:
-                            model_id = (
-                                agent.model.get("id")
-                                if isinstance(agent.model, dict)
-                                else str(agent.model)
-                            )
+                            model_id = agent.model.get("id") if isinstance(agent.model, dict) else str(agent.model)
                             if model_id:
                                 task_usage["model"] = model_id
-                        await session_svc.accumulate_usage(
-                            task.chat_session_id, task_usage
-                        )
+                        await session_svc.accumulate_usage(task.chat_session_id, task_usage)
 
-                    stop_reason = (
+                    stop_reason: dict[str, Any] = (
                         {"type": "end_turn"}
                         if not result.get("error")
                         else {
@@ -255,6 +244,7 @@ class TaskRunner:
             await self._bridge.broadcast_to_task(task_id, complete_msg)
             if coordinator:
                 import json as _json
+
                 await coordinator.publish_event(
                     task_id,
                     _json.dumps({"type": "complete", **result}),
@@ -265,13 +255,9 @@ class TaskRunner:
             self._consecutive_failures += 1
             async with AsyncSessionLocal() as db:
                 task_svc = TaskService(db)
-                await task_svc.update_task_error(
-                    task_id, "Cancelled", TaskStatus.ABORTED
-                )
+                await task_svc.update_task_error(task_id, "Cancelled", TaskStatus.ABORTED)
         except TimeoutError:
-            logger.warning(
-                "Task %s exceeded server-side deadline, cancelling", task_id
-            )
+            logger.warning("Task %s exceeded server-side deadline, cancelling", task_id)
             self._consecutive_failures += 1
             if harness:
                 try:
@@ -299,9 +285,7 @@ class TaskRunner:
             from app.joysafeter_orchestrator.kernel.task_controller import TaskController
             from app.joysafeter_shared.retry import compute_retry_delay
 
-            retryable = await TaskController.failover_or_fail_task(
-                task_id, str(e)
-            )
+            retryable = await TaskController.failover_or_fail_task(task_id, str(e))
             if retryable:
                 async with AsyncSessionLocal() as db:
                     task_svc = TaskService(db)
@@ -363,12 +347,11 @@ class TaskRunner:
             recoverable_ids = await task_svc.list_recoverable_tasks_by_sandbox(sandbox_id)
 
         for tid in recoverable_ids:
-            retryable = await TaskController.failover_or_fail_task(
-                tid, f"Sandbox {sandbox_id} ejected"
-            )
+            retryable = await TaskController.failover_or_fail_task(tid, f"Sandbox {sandbox_id} ejected")
             if retryable:
                 async with AsyncSessionLocal() as db:
                     from app.joysafeter_orchestrator.services import TaskService
+
                     task_svc = TaskService(db)
                     task = await task_svc.get_task(tid)
                     retry_count = task.retry_count if task else 1
@@ -383,7 +366,7 @@ class TaskRunner:
             await coordinator.remove_sandbox_owner(sandbox_id)
             await coordinator.remove_sandbox_queue(sandbox_id)
 
-        logger.info("Sandbox %s cleaned up, %d tasks failovered", sandbox_id, len(drained_ids))
+        logger.info("Sandbox %s cleaned up, %d tasks failovered", sandbox_id, len(recoverable_ids))
 
     async def _delayed_requeue(self, task_id: uuid.UUID, delay: float) -> None:
         await asyncio.sleep(delay)
@@ -432,9 +415,7 @@ class TaskRunner:
             name=f"grace-cleanup-{sandbox_id}",
         )
 
-    async def _grace_period_cleanup(
-        self, sandbox_id: uuid.UUID, external_id: str
-    ) -> None:
+    async def _grace_period_cleanup(self, sandbox_id: uuid.UUID, external_id: str) -> None:
         grace_seconds = 120
         check_interval = 15
 
@@ -444,9 +425,7 @@ class TaskRunner:
             elapsed += check_interval
 
             if self._bridge.status == SandboxBridgeStatus.BUSY:
-                logger.info(
-                    "Sandbox %s reconnected during grace period", sandbox_id
-                )
+                logger.info("Sandbox %s reconnected during grace period", sandbox_id)
                 return
 
             try:
@@ -458,15 +437,11 @@ class TaskRunner:
                 break
 
         if self._bridge.status != SandboxBridgeStatus.BUSY:
-            logger.warning(
-                "Sandbox %s grace period expired, cleaning up", sandbox_id
-            )
+            logger.warning("Sandbox %s grace period expired, cleaning up", sandbox_id)
             await self._cleanup_sandbox(sandbox_id)
             self._running = False
 
-    async def _handle_memory_sync(
-        self, session_id: Optional[uuid.UUID], payload: dict
-    ) -> None:
+    async def _handle_memory_sync(self, session_id: Optional[uuid.UUID], payload: dict) -> None:
         if not session_id:
             return
 
@@ -495,24 +470,16 @@ class TaskRunner:
 
                     mem_svc = MemoryService(db)
                     if operation == "delete":
-                        existing = await mem_svc.get_memory_by_path(
-                            sms.store_id, rel_path
-                        )
+                        existing = await mem_svc.get_memory_by_path(sms.store_id, rel_path)
                         if existing:
-                            await mem_svc.delete_memory(
-                                sms.store_id, existing.id, session_id
-                            )
+                            await mem_svc.delete_memory(sms.store_id, existing.id, session_id)
                     else:
-                        await mem_svc.upsert_memory_from_agent(
-                            sms.store_id, rel_path, content, session_id
-                        )
+                        await mem_svc.upsert_memory_from_agent(sms.store_id, rel_path, content, session_id)
                     return
         except Exception as e:
             logger.warning("Memory sync failed: %s", e)
 
-    async def _build_harness_input(
-        self, task, agent, session_id: Optional[uuid.UUID]
-    ) -> HarnessInput:
+    async def _build_harness_input(self, task, agent, session_id: Optional[uuid.UUID]) -> HarnessInput:
         from app.joysafeter_orchestrator.kernel.harness_input_builder import build_harness_input
 
         return await build_harness_input(
@@ -557,21 +524,19 @@ class TaskRunner:
         """Run harness loop with a deadline that pauses during HITL waits."""
         import time
 
-        deadline_remaining = timeout
-        deadline_paused = False
         loop_result: dict[str, Any] = {}
         loop_done = asyncio.Event()
         loop_error: Optional[BaseException] = None
-
-        original_enter = None
-        original_exit = None
 
         async def _run_inner():
             nonlocal loop_result, loop_error
             try:
                 loop_result = await self._run_harness_loop(
-                    task_id, session_id, harness,
-                    custom_tool_names, mcp_server_names,
+                    task_id,
+                    session_id,
+                    harness,
+                    custom_tool_names,
+                    mcp_server_names,
                 )
             except BaseException as e:
                 loop_error = e
@@ -587,9 +552,7 @@ class TaskRunner:
         # Poll loop: check deadline accounting for HITL pauses
         while not loop_done.is_set():
             try:
-                await asyncio.wait_for(
-                    asyncio.shield(loop_done.wait()), timeout=1.0
-                )
+                await asyncio.wait_for(asyncio.shield(loop_done.wait()), timeout=1.0)
             except asyncio.TimeoutError:
                 pass
 
@@ -607,7 +570,7 @@ class TaskRunner:
             elapsed = time.monotonic() - wall_start
             active_elapsed = elapsed - total_hitl_seconds
             if hitl_pause_start is not None:
-                active_elapsed -= (time.monotonic() - hitl_pause_start)
+                active_elapsed -= time.monotonic() - hitl_pause_start
 
             if active_elapsed >= timeout:
                 inner_task.cancel()
@@ -616,8 +579,7 @@ class TaskRunner:
                 except (asyncio.CancelledError, Exception):
                     pass
                 raise TimeoutError(
-                    f"Task timed out after {timeout}s active time "
-                    f"({total_hitl_seconds:.0f}s HITL paused)"
+                    f"Task timed out after {timeout}s active time ({total_hitl_seconds:.0f}s HITL paused)"
                 )
 
         if loop_error is not None:
@@ -642,9 +604,7 @@ class TaskRunner:
         last_tool_use_event_id: Optional[str] = None
         buffered_events: list[dict] = []
 
-        async def _process_mapped_event(
-            mapped_type: str, mapped_payload: dict
-        ) -> Optional[str]:
+        async def _process_mapped_event(mapped_type: str, mapped_payload: dict) -> Optional[str]:
             nonlocal seq, last_tool_use_event_id
             seq += 1
 
@@ -656,9 +616,11 @@ class TaskRunner:
 
             # Cross-instance: publish task event to Redis
             from app.joysafeter_orchestrator.lifespan import get_redis_coordinator
+
             coordinator = get_redis_coordinator()
             if coordinator:
                 import json as _json
+
                 await coordinator.publish_event(
                     task_id,
                     _json.dumps({"type": ws_msg.type, **ws_msg.payload}),
@@ -742,9 +704,7 @@ class TaskRunner:
 
                 async with AsyncSessionLocal() as db:
                     svc = SessionService(db)
-                    await svc.update_session_status(
-                        session_id, SessionStatus.RUNNING.value
-                    )
+                    await svc.update_session_status(session_id, SessionStatus.RUNNING.value)
 
                 from app.joysafeter_orchestrator.lifespan import get_session_broadcaster
 
@@ -759,9 +719,7 @@ class TaskRunner:
                     )
 
             for raw_event in buffered_events:
-                mapped_list = map_harness_event(
-                    raw_event, custom_tool_names, mcp_server_names
-                )
+                mapped_list = map_harness_event(raw_event, custom_tool_names, mcp_server_names)
                 for mtype, mpayload in mapped_list:
                     await _process_mapped_event(mtype, mpayload)
             buffered_events.clear()
@@ -775,16 +733,10 @@ class TaskRunner:
                     buffered_events.append(raw)
                     continue
 
-                mapped_list = map_harness_event(
-                    raw, custom_tool_names, mcp_server_names
-                )
+                mapped_list = map_harness_event(raw, custom_tool_names, mcp_server_names)
                 for mapped_type, mapped_payload in mapped_list:
                     if mapped_type == "memory_sync":
-                        asyncio.create_task(
-                            self._handle_memory_sync(
-                                session_id, mapped_payload
-                            )
-                        )
+                        asyncio.create_task(self._handle_memory_sync(session_id, mapped_payload))
                         continue
 
                     if mapped_type in (
@@ -793,15 +745,11 @@ class TaskRunner:
                     ) and is_control_request(mapped_payload):
                         call_id = mapped_payload.get("_call_id") or mapped_payload.get("id", "")
                         ref_id = last_tool_use_event_id or str(seq + 1)
-                        self._bridge.pending_control_request_ids[ref_id] = (
-                            call_id
-                        )
+                        self._bridge.pending_control_request_ids[ref_id] = call_id
                         await _enter_requires_action([ref_id])
                         continue
 
-                    event_id = await _process_mapped_event(
-                        mapped_type, mapped_payload
-                    )
+                    event_id = await _process_mapped_event(mapped_type, mapped_payload)
 
                     if mapped_type == "agent.custom_tool_use" and event_id:
                         await _enter_requires_action([event_id])
@@ -809,17 +757,12 @@ class TaskRunner:
         async def _handle_control_inputs():
             while not harness._done.is_set():
                 try:
-                    content = await asyncio.wait_for(
-                        self._bridge._control_queue.get(), timeout=1.0
-                    )
+                    content = await asyncio.wait_for(self._bridge._control_queue.get(), timeout=1.0)
                     if requires_action_pending:
                         await _exit_requires_action()
                     await self._adapter.send_input(harness, content)
                 except asyncio.TimeoutError:
-                    if (
-                        requires_action_pending
-                        and self._bridge.confirmation_event.is_set()
-                    ):
+                    if requires_action_pending and self._bridge.confirmation_event.is_set():
                         await _exit_requires_action()
                 except Exception as e:
                     logger.warning("Control input error: %s", e)

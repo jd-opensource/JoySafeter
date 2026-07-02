@@ -3,7 +3,10 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +21,7 @@ class SandboxBridgeStatus(str, Enum):
 @dataclass
 class WsOutMessage:
     """Message sent to task subscribers (WebSocket clients)."""
+
     type: str  # "event", "status", "complete"
     payload: dict[str, Any] = field(default_factory=dict)
 
@@ -35,7 +39,7 @@ class SandboxBridge:
         self.external_id = external_id
         self.status = SandboxBridgeStatus.CONNECTED
         self.current_task_id: Optional[uuid.UUID] = None
-        self.last_result_status: str | None = None
+        self.last_result_status: "JoySafeterTaskStatus | None" = None
         self.last_result_error: str | None = None
         self.task_available: asyncio.Event = asyncio.Event()
         self._task_subscribers: dict[uuid.UUID, list[asyncio.Queue[WsOutMessage]]] = {}
@@ -73,9 +77,7 @@ class SandboxBridge:
 
     def unsubscribe(self, task_id: uuid.UUID, q: asyncio.Queue) -> None:
         if task_id in self._task_subscribers:
-            self._task_subscribers[task_id] = [
-                x for x in self._task_subscribers[task_id] if x is not q
-            ]
+            self._task_subscribers[task_id] = [x for x in self._task_subscribers[task_id] if x is not q]
             if not self._task_subscribers[task_id]:
                 del self._task_subscribers[task_id]
 
@@ -103,9 +105,7 @@ class SandboxBridgeRegistry:
         self._bridges: dict[uuid.UUID, SandboxBridge] = {}
         self._lock = asyncio.Lock()
 
-    async def register(
-        self, sandbox_db_id: uuid.UUID, external_id: str
-    ) -> SandboxBridge:
+    async def register(self, sandbox_db_id: uuid.UUID, external_id: str) -> SandboxBridge:
         async with self._lock:
             # Fix 3.1: if an old bridge exists, disconnect it cleanly before replacing
             old = self._bridges.get(sandbox_db_id)
@@ -120,9 +120,7 @@ class SandboxBridgeRegistry:
             self._bridges[sandbox_db_id] = bridge
             return bridge
 
-    async def get_or_register(
-        self, sandbox_db_id: uuid.UUID, external_id: str
-    ) -> SandboxBridge:
+    async def get_or_register(self, sandbox_db_id: uuid.UUID, external_id: str) -> SandboxBridge:
         async with self._lock:
             existing = self._bridges.get(sandbox_db_id)
             if existing is not None:

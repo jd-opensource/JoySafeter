@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 try:
     from uuid_extensions import uuid7 as _uuid7
@@ -15,7 +15,7 @@ except ImportError:
 def _new_event_id() -> uuid.UUID:
     """Generate a UUIDv7 (time-sortable) or fall back to uuid4."""
     if _uuid7 is not None:
-        return _uuid7()
+        return cast(uuid.UUID, _uuid7())
     return uuid.uuid4()
 
 

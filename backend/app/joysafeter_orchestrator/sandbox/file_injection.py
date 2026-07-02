@@ -12,16 +12,20 @@ import os
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional, Protocol
+from typing import TYPE_CHECKING, Optional, Protocol
 
 from app.joysafeter_orchestrator.sandbox.archive_utils import auto_extract_archive
 from app.joysafeter_shared.storage.base import StorageBackend
+
+if TYPE_CHECKING:
+    from app.joysafeter_orchestrator.sandbox.provider import SandboxProvider
 
 logger = logging.getLogger(__name__)
 
 
 class InjectionStrategy(str, Enum):
     """File injection strategy — mirrors Rust InjectionStrategy."""
+
     PRESIGNED_URL = "presigned_url"
     GRPC_STREAM = "grpc_stream"
     HOST_MOUNT = "host_mount"
@@ -31,6 +35,7 @@ class InjectionStrategy(str, Enum):
 @dataclass
 class FileToInject:
     """A file ready for injection — mirrors Rust FileToInject."""
+
     filename: str
     mount_path: str
     content: bytes | None = None
@@ -52,7 +57,7 @@ class FileInjectionContext:
     session_id: uuid.UUID
     external_id: str
     workspace_path: Optional[str]
-    provider: "SandboxProvider"  # noqa: F821
+    provider: "SandboxProvider"
     storage: StorageBackend
     runner_capabilities: set[str] = field(default_factory=set)
     is_pool_sandbox: bool = False
@@ -153,7 +158,7 @@ class HostMountStrategy:
             try:
                 relative = f.mount_path.lstrip("/")
                 if relative.startswith("workspace/"):
-                    relative = relative[len("workspace/"):]
+                    relative = relative[len("workspace/") :]
                 host_file_path = os.path.realpath(os.path.join(ctx.workspace_path, relative))
                 if not host_file_path.startswith(os.path.realpath(ctx.workspace_path)):
                     logger.warning("HostMount: path traversal blocked: %s", f.mount_path)
@@ -225,13 +230,17 @@ async def inject_session_files(ctx: FileInjectionContext) -> None:
             if count > 0:
                 logger.info(
                     "Injected %d files via %s for session %s",
-                    count, strategy.name, ctx.session_id,
+                    count,
+                    strategy.name,
+                    ctx.session_id,
                 )
                 return
         except Exception as e:
             logger.warning(
                 "Strategy %s failed for session %s: %s, trying next",
-                strategy.name, ctx.session_id, e,
+                strategy.name,
+                ctx.session_id,
+                e,
             )
 
     logger.warning("All file injection strategies failed for session %s", ctx.session_id)

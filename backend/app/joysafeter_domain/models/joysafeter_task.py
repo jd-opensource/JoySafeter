@@ -62,7 +62,10 @@ class JoySafeterTask(JoySafeterBaseModel):
     )
 
     project_id: Mapped[Optional[str]] = mapped_column(
-        String(255), ForeignKey("joysafeter_organization_projects.id"), nullable=True, index=True,
+        String(255),
+        ForeignKey("joysafeter_organization_projects.id"),
+        nullable=True,
+        index=True,
     )
     agent_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -77,9 +80,7 @@ class JoySafeterTask(JoySafeterBaseModel):
     status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    sandbox_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
+    sandbox_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
     output: Mapped[str] = mapped_column(Text, nullable=False, default="")
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     usage: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
@@ -87,10 +88,6 @@ class JoySafeterTask(JoySafeterBaseModel):
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
     idempotency_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    started_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    completed_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     duration_ms: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)

@@ -59,7 +59,8 @@ def _environment_config_dict(environment) -> dict[str, Any]:
     if isinstance(config, dict):
         return config
     if hasattr(config, "model_dump"):
-        return config.model_dump()
+        dumped = config.model_dump()
+        return dumped if isinstance(dumped, dict) else {}
     return {}
 
 
@@ -172,9 +173,7 @@ def _build_permission_rules(agent) -> tuple[list[str], list[str]]:
     return allow, ask
 
 
-def build_permissions_dict(
-    allow: list[str], ask: list[str]
-) -> dict[str, list[str]]:
+def build_permissions_dict(allow: list[str], ask: list[str]) -> dict[str, list[str]]:
     """Build a Claude Code settings.json ``permissions`` object.
 
     Omits empty buckets so the written settings stay minimal.
@@ -211,15 +210,19 @@ async def _maybe_refresh_oauth(credential: dict, db_session) -> dict:
 
     try:
         from app.joysafeter_shared.security.ssrf_guard import validate_url
+
         validate_url(token_url, context="OAuth token_url refresh")
 
         async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
-            resp = await client.post(token_url, data={
-                "grant_type": "refresh_token",
-                "refresh_token": oauth_config.get("refresh_token", ""),
-                "client_id": oauth_config.get("client_id", ""),
-                "client_secret": oauth_config.get("client_secret", ""),
-            })
+            resp = await client.post(
+                token_url,
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": oauth_config.get("refresh_token", ""),
+                    "client_id": oauth_config.get("client_id", ""),
+                    "client_secret": oauth_config.get("client_secret", ""),
+                },
+            )
             resp.raise_for_status()
             token_data = resp.json()
 
@@ -263,11 +266,7 @@ async def build_harness_input(
     env: dict[str, str] = {}
     model = None
     if agent.model:
-        model = (
-            agent.model.get("id")
-            if isinstance(agent.model, dict)
-            else str(agent.model)
-        )
+        model = agent.model.get("id") if isinstance(agent.model, dict) else str(agent.model)
 
     secrets: dict[str, str] = {}
     custom_tools: list[dict[str, Any]] = []
@@ -278,18 +277,13 @@ async def build_harness_input(
     work_dir = "/workspace" if session_id else sandbox_external_id
 
     from app.joysafeter_shared.config.settings import joysafeter_config
+
     workspace_path: Optional[str] = None
     if joysafeter_config.sandbox_workspace_root and session_id:
-        workspace_path = os.path.join(
-            joysafeter_config.sandbox_workspace_root, str(session_id)
-        )
+        workspace_path = os.path.join(joysafeter_config.sandbox_workspace_root, str(session_id))
 
     engine_kind = getattr(agent, "engine_kind", None) or "claude"
-    project_id = (
-        str(agent.project_id)
-        if getattr(agent, "project_id", None) is not None
-        else None
-    )
+    project_id = str(agent.project_id) if getattr(agent, "project_id", None) is not None else None
 
     # Resolve environment for setup commands
     environment = None
@@ -297,6 +291,7 @@ async def build_harness_input(
     environment_ref = getattr(agent, "environment_ref", None)
     if environment_ref:
         from app.joysafeter_orchestrator.services import EnvironmentService
+
         async with AsyncSessionLocal() as db:
             env_svc = EnvironmentService(db)
             environment = await env_svc.get_environment_by_ref(environment_ref, project_id=project_id)
@@ -321,9 +316,7 @@ async def build_harness_input(
         secret_svc = SecretService(db)
         secret_refs = environment_config.get("secret_refs")
         if isinstance(secret_refs, list):
-            secrets = await secret_svc.merge_secret_refs_into_env(
-                secrets, secret_refs, project_id=project_id
-            )
+            secrets = await secret_svc.merge_secret_refs_into_env(secrets, secret_refs, project_id=project_id)
 
         if getattr(agent, "secret_ref", None):
             secrets = await secret_svc.merge_secret_refs_into_env(
@@ -336,11 +329,7 @@ async def build_harness_input(
                 # claude / native: prefer Anthropic model, but fall back to
                 # OPENAI_MODEL so a native agent configured with an OpenAI-
                 # compatible secret (OPENAI_API_KEY/BASE_URL) still resolves a model.
-                model = (
-                    secrets.get("ANTHROPIC_MODEL")
-                    or secrets.get("OPENAI_MODEL")
-                    or secrets.get("MODEL")
-                )
+                model = secrets.get("ANTHROPIC_MODEL") or secrets.get("OPENAI_MODEL") or secrets.get("MODEL")
         # Don't merge secrets into env for gRPC. Docker sandboxes receive them
         # via container env; local runtime adapters merge HarnessInput.secrets.
 
@@ -349,17 +338,11 @@ async def build_harness_input(
             session = await session_svc.get_session(session_id)
             if session:
                 harness_session_id = getattr(session, "last_harness_session_id", None)
-                work_dir = _session_container_work_dir(
-                    getattr(session, "last_work_dir", None)
-                )
-            vault_ids = (
-                session.vault_ids if session and hasattr(session, "vault_ids") else []
-            )
+                work_dir = _session_container_work_dir(getattr(session, "last_work_dir", None))
+            vault_ids = session.vault_ids if session and hasattr(session, "vault_ids") else []
             if vault_ids and mcp_configs:
                 vault_svc = VaultService(db)
-                mcp_configs = await vault_svc.resolve_mcp_credentials(
-                    vault_ids, mcp_configs
-                )
+                mcp_configs = await vault_svc.resolve_mcp_credentials(vault_ids, mcp_configs)
 
         for tool in agent.tools or []:
             if isinstance(tool, dict) and tool.get("type") == "custom":
@@ -384,22 +367,14 @@ async def build_harness_input(
                 ]
                 for ms in mem_stores:
                     mount_path = f"/mnt/memory/{ms.mount_name}"
-                    prompt_lines.append(
-                        f"- `{mount_path}` (access: {ms.access})"
-                    )
+                    prompt_lines.append(f"- `{mount_path}` (access: {ms.access})")
                     if ms.instructions:
-                        prompt_lines.append(
-                            f"  Instructions: {ms.instructions}"
-                        )
+                        prompt_lines.append(f"  Instructions: {ms.instructions}")
 
                     files = []
-                    memories, _ = await mem_svc.list_memories(
-                        ms.store_id, limit=10000
-                    )
+                    memories, _ = await mem_svc.list_memories(ms.store_id, limit=10000)
                     for mem in memories:
-                        files.append(
-                            {"path": mem.path, "content": mem.content}
-                        )
+                        files.append({"path": mem.path, "content": mem.content})
 
                     memory_mounts.append(
                         {
@@ -442,15 +417,18 @@ async def build_harness_input(
             if isinstance(item, dict) and item.get("tar_gz_b64"):
                 try:
                     data = base64.b64decode(item["tar_gz_b64"])
-                    skill_archives.append(SkillArchive(
-                        name=item.get("name", "unknown"),
-                        data=data,
-                        target=target,
-                    ))
+                    skill_archives.append(
+                        SkillArchive(
+                            name=item.get("name", "unknown"),
+                            data=data,
+                            target=target,
+                        )
+                    )
                 except Exception as e:
                     logger.warning("Failed to decode skill archive %s: %s", item.get("name"), e)
             elif isinstance(item, dict) and item.get("skill_id"):
                 from app.joysafeter_orchestrator.services import SkillPacker
+
                 async with AsyncSessionLocal() as packer_db:
                     packer = SkillPacker(
                         packer_db,
@@ -464,9 +442,7 @@ async def build_harness_input(
                         agent_id=str(agent.id) if getattr(agent, "id", None) else None,
                         user_id=None,
                     )
-                    archive = await packer._pack_custom(
-                        item["skill_id"], item.get("version", "latest"), target
-                    )
+                    archive = await packer._pack_custom(item["skill_id"], item.get("version", "latest"), target)
                     if archive:
                         skill_archives.append(archive)
                     # Commit the usage_log row (and any audit-only writes
@@ -475,12 +451,9 @@ async def build_harness_input(
                     await packer_db.commit()
 
     base_system = task.system_prompt or agent.system_prompt or ""
+    combined_system: str | None
     if memory_system_prompt:
-        combined_system = (
-            f"{base_system}\n\n{memory_system_prompt}"
-            if base_system
-            else memory_system_prompt
-        )
+        combined_system = f"{base_system}\n\n{memory_system_prompt}" if base_system else memory_system_prompt
     else:
         combined_system = base_system or None
 
@@ -495,33 +468,39 @@ async def build_harness_input(
     # Load session file resources for gRPC transfer
     from app.joysafeter_orchestrator.runtime.adapter import FileMount, FileRef
     from app.joysafeter_orchestrator.sandbox.file_injection import load_session_files
+
     file_mounts: list[FileMount] = []
     file_refs: list[FileRef] = []
     if session_id:
         session_files = await load_session_files(session_id)
         if session_files:
             from app.joysafeter_shared.storage import get_storage
+
             storage = get_storage()
             for sf in session_files:
                 try:
                     data = await storage.get(sf.storage_key)
-                    file_mounts.append(FileMount(
-                        path=sf.mount_path,
-                        content=data,
-                        filename=sf.filename,
-                    ))
+                    file_mounts.append(
+                        FileMount(
+                            path=sf.mount_path,
+                            content=data,
+                            filename=sf.filename,
+                        )
+                    )
                 except Exception as e:
                     logger.warning("Failed to load file %s: %s", sf.filename, e)
                 # Generate presigned URL if storage supports it
                 try:
                     url = await storage.presign_url(sf.storage_key, expires=3600)
                     if url:
-                        file_refs.append(FileRef(
-                            path=sf.mount_path,
-                            url=url,
-                            filename=sf.filename,
-                            size_bytes=sf.size_bytes,
-                        ))
+                        file_refs.append(
+                            FileRef(
+                                path=sf.mount_path,
+                                url=url,
+                                filename=sf.filename,
+                                size_bytes=sf.size_bytes,
+                            )
+                        )
                 except Exception:
                     pass
 
@@ -550,13 +529,15 @@ async def build_harness_input(
                     except Exception:
                         logger.warning("Failed to decrypt clone token for repo resource %s", rr.id)
                         continue
-                repos.append({
-                    "url": rr.url,
-                    "branch": rr.branch or "",
-                    "path": rr.mount_path or "",
-                    "authorization_token": token,
-                    "mount_name": rr.mount_name or "",
-                })
+                repos.append(
+                    {
+                        "url": rr.url,
+                        "branch": rr.branch or "",
+                        "path": rr.mount_path or "",
+                        "authorization_token": token,
+                        "mount_name": rr.mount_name or "",
+                    }
+                )
 
     return HarnessInput(
         prompt=prompt,
@@ -628,9 +609,7 @@ def extract_tool_name_sets(agent) -> tuple[set[str], set[str]]:
     return custom_names, mcp_names
 
 
-def _should_inject_conversation_history(
-    engine_kind: str, has_harness_resume: bool
-) -> bool:
+def _should_inject_conversation_history(engine_kind: str, has_harness_resume: bool) -> bool:
     return engine_kind in {"claude", "codex", "native"} and not has_harness_resume
 
 
@@ -654,9 +633,7 @@ def _extract_content_text(payload: Any) -> str:
     return ""
 
 
-async def _build_conversation_history(
-    session_id: uuid.UUID, current_task_id: uuid.UUID
-) -> Optional[str]:
+async def _build_conversation_history(session_id: uuid.UUID, current_task_id: uuid.UUID) -> Optional[str]:
     """Build conversation history for CLI agents from session events.
 
     Uses persisted session events (user.message + agent.message) rather than
@@ -735,13 +712,13 @@ async def _build_conversation_history(
                     lines.append(f"Assistant: {''.join(current_agent_parts)}")
                 current_agent_parts = []
 
-            text = _extract_content_text(payload)
-            current_user_msg = text or None
+            text_content = _extract_content_text(payload)
+            current_user_msg = text_content or None
 
         elif event_type == "agent.message" and current_user_msg is not None:
-            text = _extract_content_text(payload)
-            if text:
-                current_agent_parts.append(text)
+            text_content = _extract_content_text(payload)
+            if text_content:
+                current_agent_parts.append(text_content)
 
     # Flush last exchange
     if current_user_msg is not None:
@@ -791,4 +768,4 @@ def _truncate_start(value: str, max_chars: int) -> str:
     prefix = "..."
     if max_chars <= len(prefix):
         return value[-max_chars:]
-    return f"{prefix}{value[-(max_chars - len(prefix)):]}"
+    return f"{prefix}{value[-(max_chars - len(prefix)) :]}"

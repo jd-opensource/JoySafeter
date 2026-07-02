@@ -54,7 +54,9 @@ class ApiKeyService:
 
     async def revoke_key(self, key_id, project_id: str) -> None:
         result = await self.db.execute(
-            select(JoySafeterApiKey).where(and_(JoySafeterApiKey.id == key_id, JoySafeterApiKey.project_id == project_id))
+            select(JoySafeterApiKey).where(
+                and_(JoySafeterApiKey.id == key_id, JoySafeterApiKey.project_id == project_id)
+            )
         )
         key = result.scalar_one_or_none()
         if key:

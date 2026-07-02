@@ -42,8 +42,7 @@ class MemoryStoreSubscribers:
         async with self._lock:
             for entries in self._inner.values():
                 entries[:] = [
-                    e for e in entries
-                    if not (e.session_id == session_id and e.sandbox_db_id == sandbox_db_id)
+                    e for e in entries if not (e.session_id == session_id and e.sandbox_db_id == sandbox_db_id)
                 ]
             self._inner = {k: v for k, v in self._inner.items() if v}
 
@@ -53,9 +52,7 @@ class MemoryStoreSubscribers:
                 entries[:] = [e for e in entries if e.session_id != session_id]
             self._inner = {k: v for k, v in self._inner.items() if v}
 
-    async def get_peers(
-        self, store_id: uuid.UUID, exclude_session: uuid.UUID
-    ) -> list[MemorySessionEntry]:
+    async def get_peers(self, store_id: uuid.UUID, exclude_session: uuid.UUID) -> list[MemorySessionEntry]:
         async with self._lock:
             entries = self._inner.get(store_id, [])
             return [e for e in entries if e.session_id != exclude_session]
@@ -120,13 +117,17 @@ class MemoryStoreSubscribers:
                     except Exception as e:
                         logger.warning(
                             "Failed to push MemoryFileUpdate to sandbox %s: %s",
-                            entry.sandbox_db_id, e,
+                            entry.sandbox_db_id,
+                            e,
                         )
 
         if notified:
             logger.info(
                 "Pushed memory %s to %d peers (mount=%s, path=%s)",
-                operation, notified, store_mount_name, relative_path,
+                operation,
+                notified,
+                store_mount_name,
+                relative_path,
             )
         return notified
 
@@ -164,6 +165,7 @@ class MemoryStoreSubscribers:
         else:
             from app.joysafeter_orchestrator.services import MemoryService
             from app.joysafeter_shared.database import AsyncSessionLocal
+
             async with AsyncSessionLocal() as db:
                 mem_svc = MemoryService(db)
                 mem = await mem_svc.get_memory_by_path(store_id, path)
@@ -193,6 +195,9 @@ class MemoryStoreSubscribers:
         if notified:
             logger.info(
                 "Pushed memory %s to %d peers for store %s (path=%s)",
-                operation, notified, store_id, path,
+                operation,
+                notified,
+                store_id,
+                path,
             )
         return notified

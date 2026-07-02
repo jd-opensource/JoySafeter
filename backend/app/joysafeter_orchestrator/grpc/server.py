@@ -4,12 +4,13 @@ Ported 1:1 from joysafeter-kernel/src/grpc.rs Session handler.
 Architecture: DB-driven pull. The Session handler claims work from
 joysafeter_tasks; Redis/local sandbox queues are wakeup signals only.
 """
+
 import asyncio
 import json
 import logging
 import random
 import uuid
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import grpc
 from grpc import aio as grpc_aio
@@ -26,10 +27,14 @@ from app.joysafeter_orchestrator.kernel.sandbox_bridge import (
 )
 from app.joysafeter_worker.events.batch_writer import BufferedEvent, EventBatchSender
 
+if TYPE_CHECKING:
+    from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+
 logger = logging.getLogger(__name__)
 
 _HEARTBEAT_TIMEOUT_DEFAULT = 120
 TASK_DEFAULT_TIMEOUT_SEC = 7200
+
 
 async def _best_effort_redis(label: str, operation) -> None:
     try:
@@ -46,20 +51,17 @@ async def _best_effort_publish_event(coordinator, task_id: uuid.UUID, payload: s
 async def _send_shutdown(context, reason: str) -> None:
     """Ask a runner to exit without reconnecting."""
     try:
-        await context.write(
-            joysafeter_pb2.OrchestratorMessage(
-                shutdown=joysafeter_pb2.Shutdown(reason=reason)
-            )
-        )
+        await context.write(joysafeter_pb2.OrchestratorMessage(shutdown=joysafeter_pb2.Shutdown(reason=reason)))
     except Exception as exc:
         logger.debug("Failed to send runner shutdown (%s): %s", reason, exc)
 
 
 def _get_heartbeat_timeout() -> int:
     from app.joysafeter_orchestrator.lifespan import get_runtime_config
+
     rc = get_runtime_config()
     if rc:
-        return rc.heartbeat_timeout_sec
+        return int(rc.heartbeat_timeout_sec)
     return _HEARTBEAT_TIMEOUT_DEFAULT
 
 
@@ -150,7 +152,9 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
             logger.info(
                 "Runner connected: sandbox=%s version=%s reconnect=%s",
-                sandbox_id, ready.runner_version, ready.is_reconnect,
+                sandbox_id,
+                ready.runner_version,
+                ready.is_reconnect,
             )
 
             # Authenticate runner token
@@ -198,11 +202,13 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             if ready.available_providers:
                 logger.info(
                     "Runner %s connected with providers: %s",
-                    sandbox_id, list(ready.available_providers),
+                    sandbox_id,
+                    list(ready.available_providers),
                 )
 
             # Register Redis owner (Rust: redis.register_sandbox_owner)
             from app.joysafeter_orchestrator.lifespan import get_redis_coordinator as _get_rc_init
+
             _coord_init = _get_rc_init()
             if _coord_init:
                 await _best_effort_redis("register_sandbox_owner", _coord_init.register_sandbox_owner(sandbox_id))
@@ -219,7 +225,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     if _current_status in ("destroyed", "error"):
                         logger.warning(
                             "Runner connected to terminal sandbox %s (status=%s), rejecting",
-                            sandbox_id, _current_status,
+                            sandbox_id,
+                            _current_status,
                         )
                         await _send_shutdown(context, f"sandbox terminal: {_current_status}")
                         await self._bridge_registry.remove(sandbox_id)
@@ -227,7 +234,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     if _current_status in ("stopping", "stopped"):
                         logger.warning(
                             "Runner connected to sandbox being stopped %s (status=%s), rejecting",
-                            sandbox_id, _current_status,
+                            sandbox_id,
+                            _current_status,
                         )
                         await _send_shutdown(context, f"sandbox stopped: {_current_status}")
                         await self._bridge_registry.remove(sandbox_id)
@@ -282,9 +290,11 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             if linked_session_id:
                 from app.joysafeter_orchestrator.kernel.memory_sync import MemorySessionEntry
                 from app.joysafeter_orchestrator.lifespan import get_memory_subscribers
+
                 mem_subs = get_memory_subscribers()
                 if mem_subs:
                     from app.joysafeter_orchestrator.services import SessionService as _SessSvc
+
                     async with _ASL_init() as _db_mem:
                         _sess_svc = _SessSvc(_db_mem)
                         _mounts = await _sess_svc.list_session_memory_stores(linked_session_id)
@@ -302,7 +312,11 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             # --- Handle reconnection with active_task_id (AFTER session resolution, matching Rust line 479) ---
             if ready.HasField("active_task_id") and ready.active_task_id:
                 await self._handle_reconnect_active_task(
-                    bridge, sandbox_id, ready.active_task_id, context, stream_cancel,
+                    bridge,
+                    sandbox_id,
+                    ready.active_task_id,
+                    context,
+                    stream_cancel,
                     failover_pending_tasks,
                 )
             elif ready.is_reconnect:
@@ -312,10 +326,16 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             # --- Outer task-dispatch loop (matches agentd) ---
             # Blocks on pop_for_sandbox until a task arrives or stream disconnects.
             # Shield from gRPC cancellation — we handle stream EOF internally.
-            failure_ejected = await asyncio.shield(self._multi_task_loop(
-                bridge, sandbox_id, context, stream_cancel,
-                failover_pending_tasks, linked_session_id,
-            ))
+            failure_ejected = await asyncio.shield(
+                self._multi_task_loop(
+                    bridge,
+                    sandbox_id,
+                    context,
+                    stream_cancel,
+                    failover_pending_tasks,
+                    linked_session_id,
+                )
+            )
 
         except grpc_aio.AioRpcError as e:
             logger.warning("gRPC AioRpcError for sandbox %s: code=%s details=%s", sandbox_id, e.code(), e.details())
@@ -336,12 +356,15 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 # effort — a failure here just means the sweeper waits for
                 # idle_timeout / hard_timeout instead.
                 try:
+                    from app.joysafeter_orchestrator.services import (
+                        SandboxRecordService as SandboxService,
+                    )
+                    from app.joysafeter_shared.database import AsyncSessionLocal
+
                     async with AsyncSessionLocal() as _dc_db:
                         await SandboxService(_dc_db).mark_bridge_disconnected(sandbox_id)
                 except Exception as _dc_err:
-                    logger.debug(
-                        "mark_bridge_disconnected(%s) failed: %s", sandbox_id, _dc_err
-                    )
+                    logger.debug("mark_bridge_disconnected(%s) failed: %s", sandbox_id, _dc_err)
                 await self._cleanup_sandbox(
                     sandbox_id,
                     session_id=linked_session_id,
@@ -383,7 +406,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             active_task_id = uuid.UUID(active_task_id_str)
         except ValueError:
             logger.warning(
-                "Invalid active_task_id on reconnect: %s", active_task_id_str,
+                "Invalid active_task_id on reconnect: %s",
+                active_task_id_str,
             )
             return
 
@@ -393,20 +417,24 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             task = await task_svc.get_task(active_task_id)
             if not task:
                 logger.warning(
-                    "Reconnect: active task %s not found, ignoring", active_task_id,
+                    "Reconnect: active task %s not found, ignoring",
+                    active_task_id,
                 )
                 return
             # Verify task belongs to this sandbox
             if task.sandbox_id and task.sandbox_id != sandbox_id:
                 logger.warning(
                     "Reconnect: task %s belongs to sandbox %s, not %s — rejecting",
-                    active_task_id, task.sandbox_id, sandbox_id,
+                    active_task_id,
+                    task.sandbox_id,
+                    sandbox_id,
                 )
                 return
             if TaskStatus.from_str_lossy(task.status).is_terminal():
                 logger.info(
                     "Reconnect: active task %s already terminal (%s), ignoring",
-                    active_task_id, task.status,
+                    active_task_id,
+                    task.status,
                 )
                 return
 
@@ -415,7 +443,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         try:
             logger.info(
                 "Resuming active task %s from reconnecting runner on sandbox %s",
-                active_task_id, sandbox_id,
+                active_task_id,
+                sandbox_id,
             )
 
             # Set Redis task->sandbox mapping
@@ -438,10 +467,9 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     task_session_id = task.chat_session_id
                     task_timeout_sec = task.timeout_sec or TASK_DEFAULT_TIMEOUT_SEC
                     from app.joysafeter_orchestrator.services import AgentService
+
                     agent_svc = AgentService(db)
-                    agent = await agent_svc.get_agent(
-                        task.agent_id, project_id=getattr(task, "project_id", None)
-                    )
+                    agent = await agent_svc.get_agent(task.agent_id, project_id=getattr(task, "project_id", None))
                     if agent:
                         custom_names, mcp_names = extract_tool_name_sets(agent)
 
@@ -454,16 +482,12 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                         "user.custom_tool_result",
                         "user.interrupt",
                     ]
-                    pending_events = await session_svc.list_unprocessed_events(
-                        task_session_id, control_types
-                    )
+                    pending_events = await session_svc.list_unprocessed_events(task_session_id, control_types)
                     for evt in pending_events:
                         content = ""
                         if isinstance(evt.payload, dict):
                             content = evt.payload.get("content", "")
-                        input_msg = joysafeter_pb2.OrchestratorMessage(
-                            input=joysafeter_pb2.SendInput(content=content)
-                        )
+                        input_msg = joysafeter_pb2.OrchestratorMessage(input=joysafeter_pb2.SendInput(content=content))
                         await context.write(input_msg)
                         await session_svc.mark_event_processed(evt.id)
 
@@ -477,16 +501,19 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
             # I4 fix: emit session.status_running on reconnect (Rust parity: server.rs lines 1247-1257)
             if task_session_id and self._event_bus:
-                await self._event_bus.publish(JoySafeterEventEnvelope(
-                    session_id=task_session_id,
-                    event_type="session.status_running",
-                    payload={},
-                    task_id=active_task_id,
-                    sandbox_id=sandbox_id,
-                    is_status_change=True,
-                ))
+                await self._event_bus.publish(
+                    JoySafeterEventEnvelope(
+                        session_id=task_session_id,
+                        event_type="session.status_running",
+                        payload={},
+                        task_id=active_task_id,
+                        sandbox_id=sandbox_id,
+                        is_status_change=True,
+                    )
+                )
 
             import time as _time_reconnect
+
             heartbeat_deadline_rc = _time_reconnect.monotonic() + _get_heartbeat_timeout()
             task_deadline_rc = _time_reconnect.monotonic() + task_timeout_sec
 
@@ -546,14 +573,16 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
                     if task_session_id:
                         if self._event_bus:
-                            await self._event_bus.publish(JoySafeterEventEnvelope(
-                                session_id=task_session_id,
-                                event_type="session.status_running",
-                                payload={},
-                                is_status_change=True,
-                                task_id=active_task_id,
-                                sandbox_id=sandbox_id,
-                            ))
+                            await self._event_bus.publish(
+                                JoySafeterEventEnvelope(
+                                    session_id=task_session_id,
+                                    event_type="session.status_running",
+                                    payload={},
+                                    is_status_change=True,
+                                    task_id=active_task_id,
+                                    sandbox_id=sandbox_id,
+                                )
+                            )
                         else:
                             async with AsyncSessionLocal() as db:
                                 svc = SessionService(db)
@@ -566,14 +595,16 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     if buffered_events and task_session_id:
                         for buf_type, buf_payload in buffered_events:
                             if self._event_bus:
-                                await self._event_bus.publish(JoySafeterEventEnvelope(
-                                    session_id=task_session_id,
-                                    event_type=buf_type,
-                                    payload=buf_payload,
-                                    task_id=active_task_id,
-                                    sandbox_id=sandbox_id,
-                                    task_broadcast_payload={"type": buf_type, **buf_payload},
-                                ))
+                                await self._event_bus.publish(
+                                    JoySafeterEventEnvelope(
+                                        session_id=task_session_id,
+                                        event_type=buf_type,
+                                        payload=buf_payload,
+                                        task_id=active_task_id,
+                                        sandbox_id=sandbox_id,
+                                        task_broadcast_payload={"type": buf_type, **buf_payload},
+                                    )
+                                )
                             else:
                                 ws_msg = WsOutMessage(type="event", payload={"type": buf_type, **buf_payload})
                                 await bridge.broadcast_to_task(active_task_id, ws_msg)
@@ -589,7 +620,10 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                                 if broadcaster:
                                     await broadcaster.send(
                                         task_session_id,
-                                        {**{"type": buf_type}, **(buf_payload if isinstance(buf_payload, dict) else {})},
+                                        {
+                                            **{"type": buf_type},
+                                            **(buf_payload if isinstance(buf_payload, dict) else {}),
+                                        },
                                     )
                     buffered_events.clear()
                     continue
@@ -598,7 +632,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 if heartbeat_fut in done:
                     logger.warning(
                         "Heartbeat timeout during resumed task %s: sandbox=%s",
-                        active_task_id, sandbox_id,
+                        active_task_id,
+                        sandbox_id,
                     )
                     heartbeat_timed_out = True
                     break
@@ -607,12 +642,11 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 if deadline_fut in done and not requires_action_pending:
                     logger.warning(
                         "Task deadline exceeded for resumed task %s: timeout=%ds",
-                        active_task_id, task_timeout_sec,
+                        active_task_id,
+                        task_timeout_sec,
                     )
                     cancel_msg = joysafeter_pb2.OrchestratorMessage(
-                        cancel=joysafeter_pb2.CancelTask(
-                            reason=f"Server-side deadline exceeded ({task_timeout_sec}s)"
-                        )
+                        cancel=joysafeter_pb2.CancelTask(reason=f"Server-side deadline exceeded ({task_timeout_sec}s)")
                     )
                     await context.write(cancel_msg)
                     task_done = True
@@ -641,9 +675,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
                     for mapped_type, mapped_payload in mapped_list:
                         if mapped_type == "memory_sync":
-                            asyncio.create_task(
-                                _handle_memory_sync_standalone(task_session_id, mapped_payload)
-                            )
+                            asyncio.create_task(_handle_memory_sync_standalone(task_session_id, mapped_payload))
                             continue
 
                         if mapped_type == "error":
@@ -654,23 +686,33 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                                 buffered_events.append((mapped_type, mapped_payload))
                             continue
 
-                        if mapped_type in ("agent.tool_use", "agent.mcp_tool_use") and is_control_request(mapped_payload):
-                            call_id = mapped_payload.get("_call_id") or mapped_payload.get("request_id") or mapped_payload.get("id") or mapped_payload.get("call_id") or ""
+                        if mapped_type in ("agent.tool_use", "agent.mcp_tool_use") and is_control_request(
+                            mapped_payload
+                        ):
+                            call_id = (
+                                mapped_payload.get("_call_id")
+                                or mapped_payload.get("request_id")
+                                or mapped_payload.get("id")
+                                or mapped_payload.get("call_id")
+                                or ""
+                            )
 
                             event_id = f"evt_{uuid7()}"
-                            persisted_id = uuid7() if task_session_id else None
+                            persisted_id = uuid.UUID(str(uuid7())) if task_session_id else None
                             if self._event_bus and task_session_id:
-                                await self._event_bus.publish(JoySafeterEventEnvelope(
-                                    session_id=task_session_id,
-                                    event_type=mapped_type,
-                                    payload=mapped_payload,
-                                    task_id=active_task_id,
-                                    sandbox_id=sandbox_id,
-                                    event_id=persisted_id,
-                                    seq=event.seq,
-                                    flush_immediately=True,
-                                    task_broadcast_payload={"type": mapped_type, **mapped_payload},
-                                ))
+                                await self._event_bus.publish(
+                                    JoySafeterEventEnvelope(
+                                        session_id=task_session_id,
+                                        event_type=mapped_type,
+                                        payload=mapped_payload,
+                                        task_id=active_task_id,
+                                        sandbox_id=sandbox_id,
+                                        event_id=persisted_id,
+                                        seq=event.seq,
+                                        flush_immediately=True,
+                                        task_broadcast_payload={"type": mapped_type, **mapped_payload},
+                                    )
+                                )
                                 event_id = f"evt_{persisted_id}"
                                 last_tool_use_event_id = event_id
                             else:
@@ -698,7 +740,10 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                                     if broadcaster:
                                         await broadcaster.send(
                                             task_session_id,
-                                            {**{"type": mapped_type, "seq": event.seq}, **(mapped_payload if isinstance(mapped_payload, dict) else {})},
+                                            {
+                                                **{"type": mapped_type, "seq": event.seq},
+                                                **(mapped_payload if isinstance(mapped_payload, dict) else {}),
+                                            },
                                         )
 
                             if call_id:
@@ -711,21 +756,23 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                                 async with AsyncSessionLocal() as db:
                                     svc = SessionService(db)
                                     await svc.update_session_status(
-                                         task_session_id, SessionStatus.IDLE.value, stop_reason=stop_reason
+                                        task_session_id, SessionStatus.IDLE.value, stop_reason=stop_reason
                                     )
                                     await svc.send_event(
                                         task_session_id, "session.status_idle", {"stop_reason": stop_reason}
                                     )
                                 if self._event_bus:
-                                    await self._event_bus.publish(JoySafeterEventEnvelope(
-                                        session_id=task_session_id,
-                                        event_type="session.status_idle",
-                                        payload={"stop_reason": stop_reason},
-                                        is_status_change=True,
-                                        stop_reason=stop_reason,
-                                        task_id=active_task_id,
-                                        sandbox_id=sandbox_id,
-                                    ))
+                                    await self._event_bus.publish(
+                                        JoySafeterEventEnvelope(
+                                            session_id=task_session_id,
+                                            event_type="session.status_idle",
+                                            payload={"stop_reason": stop_reason},
+                                            is_status_change=True,
+                                            stop_reason=stop_reason,
+                                            task_id=active_task_id,
+                                            sandbox_id=sandbox_id,
+                                        )
+                                    )
                                 broadcaster = get_session_broadcaster()
                                 if broadcaster:
                                     await broadcaster.send(
@@ -735,15 +782,17 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                             continue
 
                         if self._event_bus and task_session_id:
-                            await self._event_bus.publish(JoySafeterEventEnvelope(
-                                session_id=task_session_id,
-                                event_type=mapped_type,
-                                payload=mapped_payload,
-                                task_id=active_task_id,
-                                sandbox_id=sandbox_id,
-                                seq=event.seq,
-                                task_broadcast_payload={"type": mapped_type, **mapped_payload},
-                            ))
+                            await self._event_bus.publish(
+                                JoySafeterEventEnvelope(
+                                    session_id=task_session_id,
+                                    event_type=mapped_type,
+                                    payload=mapped_payload,
+                                    task_id=active_task_id,
+                                    sandbox_id=sandbox_id,
+                                    seq=event.seq,
+                                    task_broadcast_payload={"type": mapped_type, **mapped_payload},
+                                )
+                            )
                         else:
                             ws_msg = WsOutMessage(
                                 type="event",
@@ -770,11 +819,20 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                                 if broadcaster:
                                     await broadcaster.send(
                                         task_session_id,
-                                        {**{"type": mapped_type, "seq": event.seq}, **(mapped_payload if isinstance(mapped_payload, dict) else {})},
+                                        {
+                                            **{"type": mapped_type, "seq": event.seq},
+                                            **(mapped_payload if isinstance(mapped_payload, dict) else {}),
+                                        },
                                     )
 
                         if mapped_type == "agent.custom_tool_use" and not requires_action_pending:
-                            call_id = mapped_payload.get("_call_id") or mapped_payload.get("request_id") or mapped_payload.get("id") or mapped_payload.get("call_id") or ""
+                            call_id = (
+                                mapped_payload.get("_call_id")
+                                or mapped_payload.get("request_id")
+                                or mapped_payload.get("id")
+                                or mapped_payload.get("call_id")
+                                or ""
+                            )
                             event_id = last_tool_use_event_id or f"evt_{uuid7()}"
                             if call_id:
                                 bridge.pending_control_request_ids[event_id] = call_id
@@ -784,15 +842,17 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                                 await self._event_buffer.flush()
                                 stop_reason = {"type": "requires_action", "event_ids": [event_id]}
                                 if self._event_bus:
-                                    await self._event_bus.publish(JoySafeterEventEnvelope(
-                                        session_id=task_session_id,
-                                        event_type="session.status_idle",
-                                        payload={"stop_reason": stop_reason},
-                                        is_status_change=True,
-                                        stop_reason=stop_reason,
-                                        task_id=active_task_id,
-                                        sandbox_id=sandbox_id,
-                                    ))
+                                    await self._event_bus.publish(
+                                        JoySafeterEventEnvelope(
+                                            session_id=task_session_id,
+                                            event_type="session.status_idle",
+                                            payload={"stop_reason": stop_reason},
+                                            is_status_change=True,
+                                            stop_reason=stop_reason,
+                                            task_id=active_task_id,
+                                            sandbox_id=sandbox_id,
+                                        )
+                                    )
                                 else:
                                     async with AsyncSessionLocal() as db:
                                         svc = SessionService(db)
@@ -812,7 +872,12 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 elif payload_type == "result":
                     result = msg.result
                     await self._handle_reconnect_result(
-                        bridge, sandbox_id, active_task_id, task_session_id, result, coordinator,
+                        bridge,
+                        sandbox_id,
+                        active_task_id,
+                        task_session_id,
+                        result,
+                        coordinator,
                     )
                     task_done = True
 
@@ -838,7 +903,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                             work_dir = idle_msg.work_dir if idle_msg.HasField("work_dir") else None
                             svc = SessionService(db)
                             await svc.update_session_sandbox(
-                                sandbox_record.chat_session_id, sandbox_id,
+                                sandbox_record.chat_session_id,
+                                sandbox_id,
                                 harness_session_id=harness_session_id,
                                 work_dir=work_dir,
                             )
@@ -847,12 +913,17 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
                 elif payload_type == "memory_sync":
                     ms = msg.memory_sync
-                    asyncio.create_task(_handle_memory_sync_standalone(task_session_id, {
-                        "store_mount_name": ms.store_mount_name,
-                        "relative_path": ms.relative_path,
-                        "content": ms.content,
-                        "operation": ms.operation,
-                    }))
+                    asyncio.create_task(
+                        _handle_memory_sync_standalone(
+                            task_session_id,
+                            {
+                                "store_mount_name": ms.store_mount_name,
+                                "relative_path": ms.relative_path,
+                                "content": ms.content,
+                                "operation": ms.operation,
+                            },
+                        )
+                    )
 
                 if task_done:
                     break
@@ -871,11 +942,11 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     reason = "Sandbox disconnected after reconnect"
                 logger.warning(
                     "Resumed task %s incomplete on sandbox %s: %s",
-                    active_task_id, sandbox_id, reason,
+                    active_task_id,
+                    sandbox_id,
+                    reason,
                 )
-                retry_count = await TaskController.failover_or_fail_task(
-                    active_task_id, reason
-                )
+                retry_count = await TaskController.failover_or_fail_task(active_task_id, reason)
                 if retry_count is not None:
                     failover_pending_tasks.append((active_task_id, retry_count))
                 bridge.remove_task_subscribers(active_task_id)
@@ -904,9 +975,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 if task_session_id:
                     async with AsyncSessionLocal() as idle_db:
                         session_svc = SessionService(idle_db)
-                        await session_svc.update_session_status(
-                            task_session_id, SessionStatus.IDLE.value, stop_reason
-                        )
+                        await session_svc.update_session_status(task_session_id, SessionStatus.IDLE.value, stop_reason)
                         await session_svc.send_event(
                             task_session_id, "session.status_idle", {"stop_reason": stop_reason}
                         )
@@ -940,8 +1009,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             async with AsyncSessionLocal() as db:
                 task_svc = TaskService(db)
                 result = await db.execute(
-                    select(JoySafeterTask.id)
-                    .where(
+                    select(JoySafeterTask.id).where(
                         and_(
                             JoySafeterTask.sandbox_id == sandbox_id,
                             JoySafeterTask.status == TaskStatus.RUNNING.value,
@@ -955,7 +1023,9 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
                 logger.info(
                     "Rescuing %d orphaned running task(s) for sandbox %s: %s",
-                    len(orphaned_ids), sandbox_id, orphaned_ids,
+                    len(orphaned_ids),
+                    sandbox_id,
+                    orphaned_ids,
                 )
 
                 for tid in orphaned_ids:
@@ -1028,7 +1098,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 waitables.add(hb_timer)
 
                 done, pending = await asyncio.wait(
-                    waitables, return_when=asyncio.FIRST_COMPLETED,
+                    waitables,
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
                 for p in pending:
                     if p is not pending_read and p is not pop_task:
@@ -1103,8 +1174,13 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             await self._execution_semaphore.acquire()
             try:
                 success, task_deadline_exceeded, task_error_status, task_completed = await self._run_single_task(
-                    bridge, sandbox_id, context, task_id, stream_cancel,
-                    failover_pending_tasks, linked_session_id,
+                    bridge,
+                    sandbox_id,
+                    context,
+                    task_id,
+                    stream_cancel,
+                    failover_pending_tasks,
+                    linked_session_id,
                     pending_read=pending_read,
                 )
                 pending_read = None  # _run_single_task consumed or cancelled it
@@ -1124,7 +1200,9 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             if consecutive_failures >= joysafeter_config.sandbox_failure_threshold:
                 logger.warning(
                     "Sandbox %s exceeded failure threshold (%d >= %d), ejecting",
-                    sandbox_id, consecutive_failures, joysafeter_config.sandbox_failure_threshold,
+                    sandbox_id,
+                    consecutive_failures,
+                    joysafeter_config.sandbox_failure_threshold,
                 )
                 failure_ejected = True
                 break
@@ -1141,9 +1219,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 pass
         return failure_ejected
 
-    async def _claim_next_sandbox_task_from_db(
-        self, sandbox_id: uuid.UUID
-    ) -> Optional[uuid.UUID]:
+    async def _claim_next_sandbox_task_from_db(self, sandbox_id: uuid.UUID) -> Optional[uuid.UUID]:
         from app.joysafeter_orchestrator.services import TaskService
         from app.joysafeter_shared.database import AsyncSessionLocal
 
@@ -1228,9 +1304,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     bridge.status = SandboxBridgeStatus.IDLE
                     return (True, False, False, False)
 
-                agent = await agent_svc.get_agent(
-                    task.agent_id, project_id=getattr(task, "project_id", None)
-                )
+                agent = await agent_svc.get_agent(task.agent_id, project_id=getattr(task, "project_id", None))
                 if not agent:
                     await task_svc.update_task_error(task_id, "Agent not found", TaskStatus.FAILED)
                     bridge.current_task_id = None
@@ -1266,34 +1340,46 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 env_ref = getattr(agent, "environment_ref", None)
                 if env_ref:
                     from app.joysafeter_orchestrator.services import EnvironmentService
+
                     env_svc = EnvironmentService(db)
                     environment = await env_svc.get_environment_by_ref(
                         env_ref, project_id=getattr(agent, "project_id", None)
                     )
 
             harness_input = await build_harness_input(
-                task, agent, session_id, bridge.external_id, sandbox_id,
+                task,
+                agent,
+                session_id,
+                bridge.external_id,
+                sandbox_id,
             )
 
             custom_names, mcp_names = extract_tool_name_sets(agent)
 
             start_msg = _build_start_task(
-                task_id, harness_input, task, joysafeter_config,
-                agent=agent, session=session, environment=environment,
+                task_id,
+                harness_input,
+                task,
+                joysafeter_config,
+                agent=agent,
+                session=session,
+                environment=environment,
             )
             orch_msg = joysafeter_pb2.OrchestratorMessage(start=start_msg)
             await context.write(orch_msg)
             logger.info("StartTask sent: task=%s sandbox=%s", task_id, sandbox_id)
 
             if session_id and self._event_bus:
-                await self._event_bus.publish(JoySafeterEventEnvelope(
-                    session_id=session_id,
-                    event_type="session.status_running",
-                    payload={},
-                    is_status_change=True,
-                    task_id=task_id,
-                    sandbox_id=sandbox_id,
-                ))
+                await self._event_bus.publish(
+                    JoySafeterEventEnvelope(
+                        session_id=session_id,
+                        event_type="session.status_running",
+                        payload={},
+                        is_status_change=True,
+                        task_id=task_id,
+                        sandbox_id=sandbox_id,
+                    )
+                )
         except Exception as e:
             logger.error("Failed to dispatch task %s: %s", task_id, e, exc_info=True)
             bridge.current_task_id = None
@@ -1303,6 +1389,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
         # --- Inner per-task event loop ---
         import time as _time
+
         task_done = False
         got_idle = False
         requires_action_pending = False
@@ -1340,7 +1427,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 waitables.append(deadline_fut)
 
             done, pending = await asyncio.wait(
-                waitables, return_when=asyncio.FIRST_COMPLETED,
+                waitables,
+                return_when=asyncio.FIRST_COMPLETED,
             )
             for p in pending:
                 p.cancel()
@@ -1362,20 +1450,20 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 try:
                     async with AsyncSessionLocal() as db:
                         task_svc = TaskService(db)
-                        await task_svc.update_task_status_cas(
-                            task_id, TaskStatus.RUNNING, TaskStatus.CANCELLED
-                        )
+                        await task_svc.update_task_status(task_id, TaskStatus.CANCELLED)
                     if session_id and self._event_bus:
-                        stop_reason = {"type": "cancelled"}
-                        await self._event_bus.publish(JoySafeterEventEnvelope(
-                            session_id=session_id,
-                            event_type="session.status_idle",
-                            payload={"stop_reason": stop_reason},
-                            task_id=task_id,
-                            sandbox_id=sandbox_id,
-                            is_status_change=True,
-                            stop_reason=stop_reason,
-                        ))
+                        stop_reason: dict[str, Any] = {"type": "cancelled"}
+                        await self._event_bus.publish(
+                            JoySafeterEventEnvelope(
+                                session_id=session_id,
+                                event_type="session.status_idle",
+                                payload={"stop_reason": stop_reason},
+                                task_id=task_id,
+                                sandbox_id=sandbox_id,
+                                is_status_change=True,
+                                stop_reason=stop_reason,
+                            )
+                        )
                 except Exception as e:
                     logger.warning("Failed to update cancelled task %s: %s", task_id, e)
 
@@ -1392,9 +1480,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 while not bridge._control_queue.empty():
                     try:
                         content = bridge._control_queue.get_nowait()
-                        input_msg = joysafeter_pb2.OrchestratorMessage(
-                            input=joysafeter_pb2.SendInput(content=content)
-                        )
+                        input_msg = joysafeter_pb2.OrchestratorMessage(input=joysafeter_pb2.SendInput(content=content))
                         await context.write(input_msg)
                     except asyncio.QueueEmpty:
                         break
@@ -1402,19 +1488,21 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 # Rust confirmation handler: update status + emit running event
                 if session_id:
                     if self._event_bus:
-                        await self._event_bus.publish(JoySafeterEventEnvelope(
-                            session_id=session_id,
-                            event_type="session.status_running",
-                            payload={},
-                            is_status_change=True,
-                            task_id=task_id,
-                            sandbox_id=sandbox_id,
-                        ))
+                        await self._event_bus.publish(
+                            JoySafeterEventEnvelope(
+                                session_id=session_id,
+                                event_type="session.status_running",
+                                payload={},
+                                is_status_change=True,
+                                task_id=task_id,
+                                sandbox_id=sandbox_id,
+                            )
+                        )
                     else:
                         async with AsyncSessionLocal() as db:
-                            svc = SessionService(db)
-                            await svc.update_session_status(session_id, SessionStatus.RUNNING.value)
-                            await svc.send_event(session_id, "session.status_running", {})
+                            session_svc = SessionService(db)
+                            await session_svc.update_session_status(session_id, SessionStatus.RUNNING.value)
+                            await session_svc.send_event(session_id, "session.status_running", {})
                         broadcaster = get_session_broadcaster()
                         if broadcaster:
                             await broadcaster.send(
@@ -1424,23 +1512,27 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
                 # Flush buffered events (Rust loop-top flush, lines 898-929)
                 if buffered_events:
-                    logger.info("Flushing %d buffered events after confirmation for task %s", len(buffered_events), task_id)
+                    logger.info(
+                        "Flushing %d buffered events after confirmation for task %s", len(buffered_events), task_id
+                    )
                     if session_id:
                         # Rust loop-top flush also emits session.status_running again
                         if self._event_bus:
-                            await self._event_bus.publish(JoySafeterEventEnvelope(
-                                session_id=session_id,
-                                event_type="session.status_running",
-                                payload={},
-                                is_status_change=True,
-                                task_id=task_id,
-                                sandbox_id=sandbox_id,
-                            ))
+                            await self._event_bus.publish(
+                                JoySafeterEventEnvelope(
+                                    session_id=session_id,
+                                    event_type="session.status_running",
+                                    payload={},
+                                    is_status_change=True,
+                                    task_id=task_id,
+                                    sandbox_id=sandbox_id,
+                                )
+                            )
                         else:
                             async with AsyncSessionLocal() as db:
-                                svc = SessionService(db)
-                                await svc.update_session_status(session_id, SessionStatus.RUNNING.value)
-                                await svc.send_event(session_id, "session.status_running", {})
+                                session_svc = SessionService(db)
+                                await session_svc.update_session_status(session_id, SessionStatus.RUNNING.value)
+                                await session_svc.send_event(session_id, "session.status_running", {})
                             broadcaster = get_session_broadcaster()
                             if broadcaster:
                                 await broadcaster.send(
@@ -1450,14 +1542,16 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
                         for buf_type, buf_payload in buffered_events:
                             if self._event_bus:
-                                await self._event_bus.publish(JoySafeterEventEnvelope(
-                                    session_id=session_id,
-                                    event_type=buf_type,
-                                    payload=buf_payload,
-                                    task_id=task_id,
-                                    sandbox_id=sandbox_id,
-                                    task_broadcast_payload={"type": buf_type, **buf_payload},
-                                ))
+                                await self._event_bus.publish(
+                                    JoySafeterEventEnvelope(
+                                        session_id=session_id,
+                                        event_type=buf_type,
+                                        payload=buf_payload,
+                                        task_id=task_id,
+                                        sandbox_id=sandbox_id,
+                                        task_broadcast_payload={"type": buf_type, **buf_payload},
+                                    )
+                                )
                             else:
                                 ws_msg = WsOutMessage(
                                     type="event",
@@ -1484,7 +1578,10 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                                 if broadcaster:
                                     await broadcaster.send(
                                         session_id,
-                                        {**{"type": buf_type}, **(buf_payload if isinstance(buf_payload, dict) else {})},
+                                        {
+                                            **{"type": buf_type},
+                                            **(buf_payload if isinstance(buf_payload, dict) else {}),
+                                        },
                                     )
                     # When session_id is None, just discard buffered events (Rust line 928)
                     buffered_events.clear()
@@ -1505,6 +1602,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     failover_pending_tasks.append((task_id, retry_count))
                 bridge.remove_task_subscribers(task_id)
                 from app.joysafeter_orchestrator.lifespan import get_redis_coordinator as _get_rc
+
                 _coord = _get_rc()
                 if _coord:
                     await _best_effort_redis("remove_task_sandbox", _coord.remove_task_sandbox(task_id))
@@ -1512,9 +1610,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             if deadline_fut in done and not requires_action_pending:
                 logger.warning("Task deadline exceeded: task=%s timeout=%ds", task_id, timeout)
                 cancel_msg = joysafeter_pb2.OrchestratorMessage(
-                    cancel=joysafeter_pb2.CancelTask(
-                        reason=f"Server-side deadline exceeded ({timeout}s)"
-                    )
+                    cancel=joysafeter_pb2.CancelTask(reason=f"Server-side deadline exceeded ({timeout}s)")
                 )
                 await context.write(cancel_msg)
                 async with AsyncSessionLocal() as db:
@@ -1526,23 +1622,26 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     )
                 if session_id:
                     if self._event_bus:
-                        await self._event_bus.publish(JoySafeterEventEnvelope(
-                            session_id=session_id,
-                            event_type="session.status_idle",
-                            payload={"stop_reason": {"type": "timeout"}},
-                            is_status_change=True,
-                            stop_reason={"type": "timeout"},
-                            task_id=task_id,
-                            sandbox_id=sandbox_id,
-                        ))
+                        await self._event_bus.publish(
+                            JoySafeterEventEnvelope(
+                                session_id=session_id,
+                                event_type="session.status_idle",
+                                payload={"stop_reason": {"type": "timeout"}},
+                                is_status_change=True,
+                                stop_reason={"type": "timeout"},
+                                task_id=task_id,
+                                sandbox_id=sandbox_id,
+                            )
+                        )
                     else:
                         async with AsyncSessionLocal() as db:
-                            svc = SessionService(db)
-                            await svc.update_session_status(
-                                session_id, SessionStatus.IDLE.value,
+                            session_svc = SessionService(db)
+                            await session_svc.update_session_status(
+                                session_id,
+                                SessionStatus.IDLE.value,
                                 stop_reason={"type": "timeout"},
                             )
-                            await svc.send_event(
+                            await session_svc.send_event(
                                 session_id,
                                 "session.status_idle",
                                 {"stop_reason": {"type": "timeout"}},
@@ -1562,7 +1661,9 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 continue
             msg = read_fut.result()
             if msg == grpc_aio.EOF:
-                logger.warning("EOF received in task event loop: task=%s task_done=%s got_idle=%s", task_id, task_done, got_idle)
+                logger.warning(
+                    "EOF received in task event loop: task=%s task_done=%s got_idle=%s", task_id, task_done, got_idle
+                )
                 break
 
             # Reset heartbeat deadline on ANY received message (Rust line 983)
@@ -1581,15 +1682,15 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
                 for mapped_type, mapped_payload in mapped_list:
                     if mapped_type == "memory_sync":
-                        asyncio.create_task(
-                            _handle_memory_sync_standalone(session_id, mapped_payload)
-                        )
+                        asyncio.create_task(_handle_memory_sync_standalone(session_id, mapped_payload))
                         continue
 
                     # I5 fix: map_harness_event returns "session.error", not "error"
                     if mapped_type == "session.error":
                         err_detail = mapped_payload.get("error", {})
-                        bridge.last_error = err_detail.get("message") if isinstance(err_detail, dict) else str(err_detail)
+                        bridge.last_error = (
+                            err_detail.get("message") if isinstance(err_detail, dict) else str(err_detail)
+                        )
 
                     if requires_action_pending:
                         if len(buffered_events) < 1000:
@@ -1597,23 +1698,31 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                         continue
 
                     if mapped_type in ("agent.tool_use", "agent.mcp_tool_use") and is_control_request(mapped_payload):
-                        call_id = mapped_payload.get("_call_id") or mapped_payload.get("request_id") or mapped_payload.get("id") or mapped_payload.get("call_id") or ""
+                        call_id = (
+                            mapped_payload.get("_call_id")
+                            or mapped_payload.get("request_id")
+                            or mapped_payload.get("id")
+                            or mapped_payload.get("call_id")
+                            or ""
+                        )
 
                         # Persist the tool_use event to DB first so event_id is stable
-                        persisted_event_id = uuid7() if session_id else None
+                        persisted_event_id = uuid.UUID(str(uuid7())) if session_id else None
 
                         if self._event_bus and session_id:
-                            await self._event_bus.publish(JoySafeterEventEnvelope(
-                                session_id=session_id,
-                                event_type=mapped_type,
-                                payload=mapped_payload,
-                                task_id=task_id,
-                                sandbox_id=sandbox_id,
-                                event_id=persisted_event_id,
-                                seq=event.seq,
-                                flush_immediately=True,
-                                task_broadcast_payload={"type": mapped_type, **mapped_payload},
-                            ))
+                            await self._event_bus.publish(
+                                JoySafeterEventEnvelope(
+                                    session_id=session_id,
+                                    event_type=mapped_type,
+                                    payload=mapped_payload,
+                                    task_id=task_id,
+                                    sandbox_id=sandbox_id,
+                                    event_id=persisted_event_id,
+                                    seq=event.seq,
+                                    flush_immediately=True,
+                                    task_broadcast_payload={"type": mapped_type, **mapped_payload},
+                                )
+                            )
                         else:
                             ws_msg = WsOutMessage(
                                 type="event",
@@ -1643,7 +1752,10 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                                 if broadcaster:
                                     await broadcaster.send(
                                         session_id,
-                                        {**{"type": mapped_type, "seq": event.seq}, **(mapped_payload if isinstance(mapped_payload, dict) else {})},
+                                        {
+                                            **{"type": mapped_type, "seq": event.seq},
+                                            **(mapped_payload if isinstance(mapped_payload, dict) else {}),
+                                        },
                                     )
 
                         if session_id and persisted_event_id:
@@ -1661,22 +1773,24 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                         if session_id:
                             stop_reason = {"type": "requires_action", "event_ids": [event_id]}
                             if self._event_bus:
-                                await self._event_bus.publish(JoySafeterEventEnvelope(
-                                    session_id=session_id,
-                                    event_type="session.status_idle",
-                                    payload={"stop_reason": stop_reason},
-                                    is_status_change=True,
-                                    stop_reason=stop_reason,
-                                    task_id=task_id,
-                                    sandbox_id=sandbox_id,
-                                ))
+                                await self._event_bus.publish(
+                                    JoySafeterEventEnvelope(
+                                        session_id=session_id,
+                                        event_type="session.status_idle",
+                                        payload={"stop_reason": stop_reason},
+                                        is_status_change=True,
+                                        stop_reason=stop_reason,
+                                        task_id=task_id,
+                                        sandbox_id=sandbox_id,
+                                    )
+                                )
                             else:
                                 async with AsyncSessionLocal() as db:
-                                    svc = SessionService(db)
-                                    await svc.update_session_status(
+                                    session_svc = SessionService(db)
+                                    await session_svc.update_session_status(
                                         session_id, SessionStatus.IDLE.value, stop_reason=stop_reason
                                     )
-                                    await svc.send_event(
+                                    await session_svc.send_event(
                                         session_id,
                                         "session.status_idle",
                                         {"stop_reason": stop_reason},
@@ -1689,7 +1803,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                                     )
                         continue
 
-                    persisted_event_id = uuid7() if session_id else None
+                    persisted_event_id = uuid.UUID(str(uuid7())) if session_id else None
 
                     # Background sub-agent activity no longer touches
                     # last_used_at — idle_since (set by RunnerIdle) is the
@@ -1699,16 +1813,18 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     # threads), so a sandbox can't be reaped mid-activity.
 
                     if self._event_bus and session_id:
-                        await self._event_bus.publish(JoySafeterEventEnvelope(
-                            session_id=session_id,
-                            event_type=mapped_type,
-                            payload=mapped_payload,
-                            task_id=task_id,
-                            sandbox_id=sandbox_id,
-                            event_id=persisted_event_id,
-                            seq=event.seq,
-                            task_broadcast_payload={"type": mapped_type, **mapped_payload},
-                        ))
+                        await self._event_bus.publish(
+                            JoySafeterEventEnvelope(
+                                session_id=session_id,
+                                event_type=mapped_type,
+                                payload=mapped_payload,
+                                task_id=task_id,
+                                sandbox_id=sandbox_id,
+                                event_id=persisted_event_id,
+                                seq=event.seq,
+                                task_broadcast_payload={"type": mapped_type, **mapped_payload},
+                            )
+                        )
                     else:
                         ws_msg = WsOutMessage(
                             type="event",
@@ -1737,7 +1853,10 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                             if broadcaster:
                                 await broadcaster.send(
                                     session_id,
-                                    {**{"type": mapped_type, "seq": event.seq}, **(mapped_payload if isinstance(mapped_payload, dict) else {})},
+                                    {
+                                        **{"type": mapped_type, "seq": event.seq},
+                                        **(mapped_payload if isinstance(mapped_payload, dict) else {}),
+                                    },
                                 )
 
                     if session_id and persisted_event_id:
@@ -1746,7 +1865,13 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
                     is_custom_tool = mapped_type == "agent.custom_tool_use"
                     if is_custom_tool and not requires_action_pending:
-                        call_id = mapped_payload.get("_call_id") or mapped_payload.get("request_id") or mapped_payload.get("id") or mapped_payload.get("call_id") or ""
+                        call_id = (
+                            mapped_payload.get("_call_id")
+                            or mapped_payload.get("request_id")
+                            or mapped_payload.get("id")
+                            or mapped_payload.get("call_id")
+                            or ""
+                        )
                         event_id = last_tool_use_event_id or f"evt_{uuid7()}"
                         if call_id:
                             bridge.pending_control_request_ids[event_id] = call_id
@@ -1756,22 +1881,24 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                             await self._event_buffer.flush()
                             stop_reason = {"type": "requires_action", "event_ids": [event_id]}
                             if self._event_bus:
-                                await self._event_bus.publish(JoySafeterEventEnvelope(
-                                    session_id=session_id,
-                                    event_type="session.status_idle",
-                                    payload={"stop_reason": stop_reason},
-                                    is_status_change=True,
-                                    stop_reason=stop_reason,
-                                    task_id=task_id,
-                                    sandbox_id=sandbox_id,
-                                ))
+                                await self._event_bus.publish(
+                                    JoySafeterEventEnvelope(
+                                        session_id=session_id,
+                                        event_type="session.status_idle",
+                                        payload={"stop_reason": stop_reason},
+                                        is_status_change=True,
+                                        stop_reason=stop_reason,
+                                        task_id=task_id,
+                                        sandbox_id=sandbox_id,
+                                    )
+                                )
                             else:
                                 async with AsyncSessionLocal() as db:
-                                    svc = SessionService(db)
-                                    await svc.update_session_status(
+                                    session_svc = SessionService(db)
+                                    await session_svc.update_session_status(
                                         session_id, SessionStatus.IDLE.value, stop_reason=stop_reason
                                     )
-                                    await svc.send_event(
+                                    await session_svc.send_event(
                                         session_id,
                                         "session.status_idle",
                                         {"stop_reason": stop_reason},
@@ -1798,6 +1925,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 # I2 fix: publish Redis "complete" event (Rust parity: server.rs lines 551-557)
                 if coordinator:
                     import json as _json
+
                     await _best_effort_redis(
                         "publish_task_complete",
                         coordinator.publish_event(
@@ -1821,14 +1949,16 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     if linked_session_id:
                         harness_session_id = idle.session_id if idle.HasField("session_id") else None
                         work_dir = idle.work_dir if idle.HasField("work_dir") else None
-                        svc = SessionService(db)
-                        await svc.update_session_sandbox(
-                            linked_session_id, sandbox_id,
+                        session_svc = SessionService(db)
+                        await session_svc.update_session_sandbox(
+                            linked_session_id,
+                            sandbox_id,
                             harness_session_id=harness_session_id,
                             work_dir=work_dir,
                         )
 
                 from app.joysafeter_orchestrator.lifespan import get_redis_coordinator as _get_rc
+
                 coord = _get_rc()
                 if coord:
                     await _best_effort_redis("refresh_sandbox_owner", coord.refresh_sandbox_owner(sandbox_id))
@@ -1838,26 +1968,32 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 await self._event_buffer.flush()
 
                 if session_id and not bridge._requires_action_pending:
-                    final_status = getattr(bridge, "_last_result_status", None)
-                    last_error = getattr(bridge, "_last_result_error", None)
-                    stop_reason = self._stop_reason_from_result(final_status, last_error) if final_status else {"type": "end_turn"}
+                    final_status = bridge.last_result_status
+                    last_error = bridge.last_result_error
+                    stop_reason = (
+                        self._stop_reason_from_result(final_status, last_error)
+                        if final_status
+                        else {"type": "end_turn"}
+                    )
                     if self._event_bus:
-                        await self._event_bus.publish(JoySafeterEventEnvelope(
-                            session_id=session_id,
-                            event_type="session.status_idle",
-                            payload={"stop_reason": stop_reason},
-                            is_status_change=True,
-                            stop_reason=stop_reason,
-                            task_id=task_id,
-                            sandbox_id=sandbox_id,
-                        ))
+                        await self._event_bus.publish(
+                            JoySafeterEventEnvelope(
+                                session_id=session_id,
+                                event_type="session.status_idle",
+                                payload={"stop_reason": stop_reason},
+                                is_status_change=True,
+                                stop_reason=stop_reason,
+                                task_id=task_id,
+                                sandbox_id=sandbox_id,
+                            )
+                        )
                     else:
                         async with AsyncSessionLocal() as db:
-                            svc = SessionService(db)
-                            await svc.update_session_status(
+                            session_svc = SessionService(db)
+                            await session_svc.update_session_status(
                                 session_id, SessionStatus.IDLE.value, stop_reason=stop_reason
                             )
-                            await svc.send_event(
+                            await session_svc.send_event(
                                 session_id,
                                 "session.status_idle",
                                 {"stop_reason": stop_reason},
@@ -1873,12 +2009,17 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
             elif payload_type == "memory_sync":
                 ms = msg.memory_sync
-                asyncio.create_task(_handle_memory_sync_standalone(session_id, {
-                    "store_mount_name": ms.store_mount_name,
-                    "relative_path": ms.relative_path,
-                    "content": ms.content,
-                    "operation": ms.operation,
-                }))
+                asyncio.create_task(
+                    _handle_memory_sync_standalone(
+                        session_id,
+                        {
+                            "store_mount_name": ms.store_mount_name,
+                            "relative_path": ms.relative_path,
+                            "content": ms.content,
+                            "operation": ms.operation,
+                        },
+                    )
+                )
 
             if task_done:
                 break
@@ -1888,7 +2029,15 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         bridge._requires_action_pending = False
         bridge.confirmation_event.clear()
 
-        logger.info("Post-task: task=%s task_done=%s got_idle=%s deadline=%s error=%s completed=%s", task_id, task_done, got_idle, deadline_exceeded, task_error_status, task_completed)
+        logger.info(
+            "Post-task: task=%s task_done=%s got_idle=%s deadline=%s error=%s completed=%s",
+            task_id,
+            task_done,
+            got_idle,
+            deadline_exceeded,
+            task_error_status,
+            task_completed,
+        )
         if not task_done:
             await self._event_buffer.flush()
             last_err = bridge.last_error
@@ -1896,13 +2045,12 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 reason = f"Sandbox disconnected unexpectedly (last error: {last_err})"
             else:
                 reason = "Sandbox disconnected unexpectedly"
-            retry_count = await TaskController.failover_or_fail_task(
-                task_id, reason
-            )
+            retry_count = await TaskController.failover_or_fail_task(task_id, reason)
             if retry_count is not None:
                 failover_pending_tasks.append((task_id, retry_count))
             bridge.remove_task_subscribers(task_id)
             from app.joysafeter_orchestrator.lifespan import get_redis_coordinator as _get_rc2
+
             _coord2 = _get_rc2()
             if _coord2:
                 await _best_effort_redis("remove_task_sandbox", _coord2.remove_task_sandbox(task_id))
@@ -1916,6 +2064,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             if self._event_bus:
                 await self._event_bus.flush()
             from app.joysafeter_orchestrator.lifespan import get_redis_coordinator
+
             coordinator = get_redis_coordinator()
             if coordinator:
                 await _best_effort_redis("remove_task_sandbox", coordinator.remove_task_sandbox(task_id))
@@ -1926,23 +2075,25 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 elif task_error_status:
                     stop_reason = {"type": "error", "message": "Task failed"}
                 if self._event_bus:
-                    await self._event_bus.publish(JoySafeterEventEnvelope(
-                        session_id=linked_session_id,
-                        event_type="session.status_idle",
-                        payload={"stop_reason": stop_reason},
-                        is_status_change=True,
-                        stop_reason=stop_reason,
-                        task_id=task_id,
-                        sandbox_id=sandbox_id,
-                    ))
+                    await self._event_bus.publish(
+                        JoySafeterEventEnvelope(
+                            session_id=linked_session_id,
+                            event_type="session.status_idle",
+                            payload={"stop_reason": stop_reason},
+                            is_status_change=True,
+                            stop_reason=stop_reason,
+                            task_id=task_id,
+                            sandbox_id=sandbox_id,
+                        )
+                    )
                 else:
                     async with AsyncSessionLocal() as db:
-                        svc = SessionService(db)
-                        cas_ok = await svc.update_session_status(
+                        session_svc = SessionService(db)
+                        cas_ok = await session_svc.update_session_status(
                             linked_session_id, SessionStatus.IDLE.value, stop_reason=stop_reason
                         )
                         if cas_ok:
-                            await svc.send_event(
+                            await session_svc.send_event(
                                 linked_session_id,
                                 "session.status_idle",
                                 {"stop_reason": stop_reason},
@@ -1989,11 +2140,14 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             if final_status.is_terminal():
                 if error:
                     cas_ok = await task_svc.update_task_error(
-                        task_id, error, final_status,
+                        task_id,
+                        error,
+                        final_status,
                     )
                 else:
                     cas_ok = await task_svc.update_task_status(
-                        task_id, final_status,
+                        task_id,
+                        final_status,
                     )
                 if not cas_ok:
                     logger.warning("CAS conflict: task %s already terminal, ignoring runner result", task_id)
@@ -2018,12 +2172,15 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
             if session_id and usage:
                 session_svc = SessionService(db)
-                await session_svc.accumulate_usage(session_id, {
-                    "input_tokens": usage.get("input_tokens", 0),
-                    "output_tokens": usage.get("output_tokens", 0),
-                    "cache_creation_input_tokens": usage.get("cache_write_tokens", 0),
-                    "cache_read_input_tokens": usage.get("cache_read_tokens", 0),
-                })
+                await session_svc.accumulate_usage(
+                    session_id,
+                    {
+                        "input_tokens": usage.get("input_tokens", 0),
+                        "output_tokens": usage.get("output_tokens", 0),
+                        "cache_creation_input_tokens": usage.get("cache_write_tokens", 0),
+                        "cache_read_input_tokens": usage.get("cache_read_tokens", 0),
+                    },
+                )
 
         from app.joysafeter_orchestrator.lifespan import get_redis_coordinator, get_session_broadcaster
 
@@ -2033,9 +2190,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             "error": error,
             "duration_ms": result.duration_ms,
         }
-        await bridge.broadcast_to_task(
-            task_id, WsOutMessage(type="complete", payload=result_payload)
-        )
+        await bridge.broadcast_to_task(task_id, WsOutMessage(type="complete", payload=result_payload))
 
         # Issue 4 fix: publish complete event to Redis (matching Rust lines 1197-1199)
         coordinator = get_redis_coordinator()
@@ -2056,12 +2211,9 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             stop_reason = {"type": "error", "message": str(error)} if error else {"type": "end_turn"}
             async with AsyncSessionLocal() as idle_db:
                 session_svc = SessionService(idle_db)
-                await session_svc.update_session_status(
-                    session_id, SessionStatus.IDLE.value, stop_reason
-                )
+                await session_svc.update_session_status(session_id, SessionStatus.IDLE.value, stop_reason)
                 await session_svc.send_event(
-                    session_id, "session.status_idle",
-                    {"task_id": str(task_id), "stop_reason":stop_reason}
+                    session_id, "session.status_idle", {"task_id": str(task_id), "stop_reason": stop_reason}
                 )
             # Also broadcast for SSE delivery
             if self._event_bus:
@@ -2078,15 +2230,18 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 )
             broadcaster = get_session_broadcaster()
             if broadcaster:
-                await broadcaster.send(session_id, {
-                    "type": "session.status_idle",
-                    "session_id": str(session_id),
-                    "stop_reason": stop_reason,
-                })
+                await broadcaster.send(
+                    session_id,
+                    {
+                        "type": "session.status_idle",
+                        "session_id": str(session_id),
+                        "stop_reason": stop_reason,
+                    },
+                )
 
         # Store result info so the idle handler can compute stop_reason
-        bridge._last_result_status = final_status
-        bridge._last_result_error = error
+        bridge.last_result_status = final_status
+        bridge.last_result_error = error
 
         logger.info("Task %s completed: status=%s", task_id, result.status)
 
@@ -2117,6 +2272,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
     @staticmethod
     def _stop_reason_from_result(status: "TaskStatus", error: Optional[str]) -> dict:
         from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+
         if status == TaskStatus.COMPLETED:
             return {"type": "end_turn"}
         elif status == TaskStatus.TIMEOUT:
@@ -2137,6 +2293,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         coordinator,
     ) -> None:
         """Reconnect result handler — with CAS check and event buffer flush."""
+        from app.joysafeter_domain.models.joysafeter_session import SessionStatus
         from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
         from app.joysafeter_orchestrator.lifespan import get_session_broadcaster
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
@@ -2186,9 +2343,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             "error": error,
             "duration_ms": result.duration_ms,
         }
-        await bridge.broadcast_to_task(
-            task_id, WsOutMessage(type="complete", payload=result_payload)
-        )
+        await bridge.broadcast_to_task(task_id, WsOutMessage(type="complete", payload=result_payload))
 
         await _best_effort_publish_event(
             coordinator,
@@ -2211,15 +2366,17 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             if not bridge._requires_action_pending:
                 stop_reason = self._stop_reason_from_result(final_status, error)
                 if self._event_bus:
-                    await self._event_bus.publish(JoySafeterEventEnvelope(
-                        session_id=session_id,
-                        event_type="session.status_idle",
-                        payload={"stop_reason": stop_reason},
-                        is_status_change=True,
-                        stop_reason=stop_reason,
-                        task_id=task_id,
-                        sandbox_id=sandbox_id,
-                    ))
+                    await self._event_bus.publish(
+                        JoySafeterEventEnvelope(
+                            session_id=session_id,
+                            event_type="session.status_idle",
+                            payload={"stop_reason": stop_reason},
+                            is_status_change=True,
+                            stop_reason=stop_reason,
+                            task_id=task_id,
+                            sandbox_id=sandbox_id,
+                        )
+                    )
                 else:
                     async with AsyncSessionLocal() as db:
                         session_svc = SessionService(db)
@@ -2244,12 +2401,15 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             if usage:
                 async with AsyncSessionLocal() as db:
                     session_svc = SessionService(db)
-                    await session_svc.accumulate_usage(session_id, {
-                        "input_tokens": usage.get("input_tokens", 0),
-                        "output_tokens": usage.get("output_tokens", 0),
-                        "cache_creation_input_tokens": usage.get("cache_write_tokens", 0),
-                        "cache_read_input_tokens": usage.get("cache_read_tokens", 0),
-                    })
+                    await session_svc.accumulate_usage(
+                        session_id,
+                        {
+                            "input_tokens": usage.get("input_tokens", 0),
+                            "output_tokens": usage.get("output_tokens", 0),
+                            "cache_creation_input_tokens": usage.get("cache_write_tokens", 0),
+                            "cache_read_input_tokens": usage.get("cache_read_tokens", 0),
+                        },
+                    )
 
         logger.info("Reconnect task %s completed: status=%s", task_id, result.status)
 
@@ -2276,42 +2436,45 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     return
 
                 agent_svc = AgentService(db)
-                agent = await agent_svc.get_agent(
-                    session.agent_id, project_id=getattr(session, "project_id", None)
-                )
+                agent = await agent_svc.get_agent(session.agent_id, project_id=getattr(session, "project_id", None))
                 if not agent:
                     bridge.setup_done = True
                     return
 
                 from app.joysafeter_orchestrator.kernel.harness_input_builder import build_harness_input
 
+                agent_system_prompt = agent.system_prompt
+
                 class _FakeTask:
                     prompt = ""
-                    system_prompt = agent.system_prompt
+                    system_prompt = agent_system_prompt
 
                 harness_input = await build_harness_input(
-                    _FakeTask(), agent, sandbox.chat_session_id,
-                    bridge.external_id, sandbox_id,
+                    _FakeTask(),
+                    agent,
+                    sandbox.chat_session_id,
+                    bridge.external_id,
+                    sandbox_id,
                 )
 
                 environment = None
                 env_ref = getattr(agent, "environment_ref", None)
                 if env_ref:
                     from app.joysafeter_orchestrator.services import EnvironmentService
+
                     env_svc = EnvironmentService(db)
                     environment = await env_svc.get_environment_by_ref(
                         env_ref, project_id=getattr(agent, "project_id", None)
                     )
 
                 # workspace_path on the record is the HOST path; inside the container it's always /workspace
-                work_dir = session.last_work_dir or (
-                    "/workspace" if getattr(sandbox, "workspace_path", None) else None
-                )
+                work_dir = session.last_work_dir or ("/workspace" if getattr(sandbox, "workspace_path", None) else None)
 
-            setup_msg = _build_setup_sandbox(
-                harness_input, agent, environment, work_dir=work_dir
-            )
+            setup_msg = _build_setup_sandbox(harness_input, agent, environment, work_dir=work_dir)
             orch_msg = joysafeter_pb2.OrchestratorMessage(setup=setup_msg)
+            if bridge.runner_stream is None:
+                logger.warning("Cannot send SetupSandbox for sandbox %s: runner stream not connected", sandbox_id)
+                return
             await bridge.runner_stream.write(orch_msg)
             bridge.setup_done = True
             logger.info("SetupSandbox sent for sandbox %s", sandbox_id)
@@ -2346,7 +2509,9 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         container_dead = await self._probe_container(provider, sandbox_id, external_id=external_id)
         if container_dead:
             logger.info("Container confirmed dead for sandbox %s, fast recovery", sandbox_id)
-            await self._execute_sandbox_cleanup(sandbox_id, session_id, failover_pending_tasks, is_error, container_dead=True)
+            await self._execute_sandbox_cleanup(
+                sandbox_id, session_id, failover_pending_tasks, is_error, container_dead=True
+            )
             return
 
         # Second probe after 2s
@@ -2354,7 +2519,9 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         container_dead = await self._probe_container(provider, sandbox_id, external_id=external_id)
         if container_dead:
             logger.info("Container dead on retry for sandbox %s", sandbox_id)
-            await self._execute_sandbox_cleanup(sandbox_id, session_id, failover_pending_tasks, is_error, container_dead=True)
+            await self._execute_sandbox_cleanup(
+                sandbox_id, session_id, failover_pending_tasks, is_error, container_dead=True
+            )
             return
 
         # Container is alive -- start 120s reconnection grace period
@@ -2363,9 +2530,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         current_bridge = await self._bridge_registry.get(sandbox_id)
 
         asyncio.create_task(
-            self._grace_period_cleanup(
-                sandbox_id, session_id, failover_pending_tasks, is_error, current_bridge
-            ),
+            self._grace_period_cleanup(sandbox_id, session_id, failover_pending_tasks, is_error, current_bridge),
             name=f"grace-{sandbox_id}",
         )
 
@@ -2409,9 +2574,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             task_svc = TaskService(db)
             n = await task_svc.reset_sandbox_tasks_to_pending(sandbox_id)
             if n > 0:
-                logger.info(
-                    "Reset %d scheduling tasks to pending for dead sandbox %s", n, sandbox_id
-                )
+                logger.info("Reset %d scheduling tasks to pending for dead sandbox %s", n, sandbox_id)
 
         # 4. Drain and requeue sandbox queue
         await self._queue.drain_and_requeue_sandbox(sandbox_id)
@@ -2422,7 +2585,9 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             delay = TaskController.compute_retry_delay(retry_count, tid)
             logger.info(
                 "Scheduling delayed retry for task %s: retry_count=%d delay=%.1fs",
-                tid, retry_count, delay,
+                tid,
+                retry_count,
+                delay,
             )
 
             async def _delayed_retry(_task_id, _delay_sec):
@@ -2445,6 +2610,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         if session_id:
             async with AsyncSessionLocal() as db:
                 from sqlalchemy import text
+
                 result = await db.execute(
                     text("SELECT COUNT(*) FROM joysafeter_tasks WHERE chat_session_id = :sid AND status = 'pending'"),
                     {"sid": session_id},
@@ -2453,14 +2619,16 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             has_retries = pending_count > 0 or has_retries_inmemory
             if has_retries:
                 if self._event_bus:
-                    await self._event_bus.publish(JoySafeterEventEnvelope(
-                        session_id=session_id,
-                        event_type="session.status_rescheduling",
-                        payload={"stop_reason": {"type": "sandbox_failed"}},
-                        is_status_change=True,
-                        stop_reason={"type": "sandbox_failed"},
-                        sandbox_id=sandbox_id,
-                    ))
+                    await self._event_bus.publish(
+                        JoySafeterEventEnvelope(
+                            session_id=session_id,
+                            event_type="session.status_rescheduling",
+                            payload={"stop_reason": {"type": "sandbox_failed"}},
+                            is_status_change=True,
+                            stop_reason={"type": "sandbox_failed"},
+                            sandbox_id=sandbox_id,
+                        )
+                    )
                 else:
                     broadcaster = get_session_broadcaster()
                     async with AsyncSessionLocal() as db:
@@ -2480,10 +2648,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 async with AsyncSessionLocal() as db:
                     session_svc = SessionService(db)
                     session_rec = await session_svc.get_session(session_id)
-                    session_is_idle = (
-                        session_rec is not None
-                        and session_rec.status == "idle"
-                    )
+                    session_is_idle = session_rec is not None and session_rec.status == "idle"
                 if session_rec is None:
                     logger.debug(
                         "Session %s already deleted, skipping disconnect event",
@@ -2495,14 +2660,16 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     # not make the chat session terminal: a later user.message can
                     # create a fresh sandbox for the same session.
                     if self._event_bus:
-                        await self._event_bus.publish(JoySafeterEventEnvelope(
-                            session_id=session_id,
-                            event_type="session.status_idle",
-                            payload={"stop_reason": {"type": "sandbox_disconnected"}},
-                            is_status_change=True,
-                            stop_reason={"type": "sandbox_disconnected"},
-                            sandbox_id=sandbox_id,
-                        ))
+                        await self._event_bus.publish(
+                            JoySafeterEventEnvelope(
+                                session_id=session_id,
+                                event_type="session.status_idle",
+                                payload={"stop_reason": {"type": "sandbox_disconnected"}},
+                                is_status_change=True,
+                                stop_reason={"type": "sandbox_disconnected"},
+                                sandbox_id=sandbox_id,
+                            )
+                        )
                     else:
                         async with AsyncSessionLocal() as db:
                             session_svc = SessionService(db)
@@ -2531,14 +2698,13 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
         # 9. Remove session broadcaster (no-op in Python -- broadcaster is shared)
 
-        logger.info(
-            "SandboxBridge cleanup completed: sandbox=%s status=%s", sandbox_id, sandbox_status
-        )
+        logger.info("SandboxBridge cleanup completed: sandbox=%s status=%s", sandbox_id, sandbox_status)
 
     async def _probe_container(self, provider, sandbox_id: uuid.UUID, external_id: Optional[str] = None) -> bool:
         if not external_id:
             from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
             from app.joysafeter_shared.database import AsyncSessionLocal
+
             try:
                 async with AsyncSessionLocal() as db:
                     svc = SandboxService(db)
@@ -2551,7 +2717,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
         try:
             status = await provider.status(external_id)
-            return status != "running"
+            return bool(status != "running")
         except Exception:
             return True
 
@@ -2570,7 +2736,11 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             await asyncio.sleep(sleep_sec)
             current_bridge = await self._bridge_registry.get(sandbox_id)
             if current_bridge is not None and current_bridge is not original_bridge:
-                logger.info("Bridge replaced by early reconnection for sandbox %s, re-queuing %d task(s)", sandbox_id, len(failover_pending_tasks))
+                logger.info(
+                    "Bridge replaced by early reconnection for sandbox %s, re-queuing %d task(s)",
+                    sandbox_id,
+                    len(failover_pending_tasks),
+                )
                 for tid, _retry_count in failover_pending_tasks:
                     await self._queue.push_to_global(tid)
                     logger.info("Re-queued orphaned task %s immediately after reconnect", tid)
@@ -2594,9 +2764,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
 # --- Fix 3: Memory sync with cross-session peer broadcast ---
 
-async def _handle_memory_sync_standalone(
-    session_id: Optional[uuid.UUID], payload: dict
-) -> None:
+
+async def _handle_memory_sync_standalone(session_id: Optional[uuid.UUID], payload: dict) -> None:
     if not session_id:
         return
 
@@ -2619,8 +2788,6 @@ async def _handle_memory_sync_standalone(
         from app.joysafeter_orchestrator.services import MemoryService, SessionService
         from app.joysafeter_shared.database import AsyncSessionLocal
 
-        store_id_for_broadcast: Optional[uuid.UUID] = None
-
         async with AsyncSessionLocal() as db:
             session_svc = SessionService(db)
             mounts = await session_svc.list_session_memory_stores(session_id)
@@ -2629,9 +2796,7 @@ async def _handle_memory_sync_standalone(
                 if sms.mount_name != mount_name:
                     continue
                 if sms.access == "read_only":
-                    logger.warning(
-                        "Ignoring write to read_only memory store mount=%s", mount_name
-                    )
+                    logger.warning("Ignoring write to read_only memory store mount=%s", mount_name)
                     return
 
                 mem_svc = MemoryService(db)
@@ -2640,11 +2805,8 @@ async def _handle_memory_sync_standalone(
                     if existing:
                         await mem_svc.delete_memory(sms.store_id, existing.id, session_id)
                 else:
-                    await mem_svc.upsert_memory_from_agent(
-                        sms.store_id, rel_path, content, session_id
-                    )
+                    await mem_svc.upsert_memory_from_agent(sms.store_id, rel_path, content, session_id)
 
-                store_id_for_broadcast = sms.store_id
                 break
 
     except Exception as e:
@@ -2662,6 +2824,7 @@ def _extract_setup_commands(agent=None, environment=None) -> list[str]:
             packages = env_config.get("packages", {})
             if isinstance(packages, dict):
                 from app.joysafeter_domain.schemas.joysafeter_environment import Packages
+
                 try:
                     pkg = Packages(**packages)
                     commands.extend(pkg.install_commands())
@@ -2688,51 +2851,62 @@ def _build_repo_configs(harness_input) -> list:
     for rc in getattr(harness_input, "repos", None) or []:
         if not isinstance(rc, dict) or not rc.get("url"):
             continue
-        repos.append(joysafeter_pb2.RepoConfig(
-            url=rc.get("url", ""),
-            branch=rc.get("branch", ""),
-            path=rc.get("path", ""),
-            authorization_token=rc.get("authorization_token", ""),
-            mount_name=rc.get("mount_name", ""),
-        ))
+        repos.append(
+            joysafeter_pb2.RepoConfig(
+                url=rc.get("url", ""),
+                branch=rc.get("branch", ""),
+                path=rc.get("path", ""),
+                authorization_token=rc.get("authorization_token", ""),
+                mount_name=rc.get("mount_name", ""),
+            )
+        )
     return repos
 
 
 def _build_setup_sandbox(
-    harness_input, agent, environment=None, work_dir=None,
+    harness_input,
+    agent,
+    environment=None,
+    work_dir=None,
 ) -> joysafeter_pb2.SetupSandbox:
     skills = []
     for sa in harness_input.skill_archives:
-        skills.append(joysafeter_pb2.SkillArchive(
-            name=sa.name,
-            tar_gz=sa.data,
-            target=sa.target,
-        ))
+        skills.append(
+            joysafeter_pb2.SkillArchive(
+                name=sa.name,
+                tar_gz=sa.data,
+                target=sa.target,
+            )
+        )
 
     mcp_servers = []
     for cfg in harness_input.mcp_servers:
-        mcp_servers.append(joysafeter_pb2.McpConfig(
-            name=cfg.get("name", ""),
-            command=cfg.get("command", ""),
-            args=cfg.get("args", []),
-            env=cfg.get("env", {}),
-            # mcp_configs store the transport under "type" (schema McpServerConfig),
-            # but older payloads used "server_type"/"transport". Accept all three so
-            # the sandbox runner can tell remote (http/sse) from stdio servers.
-            server_type=cfg.get("type") or cfg.get("server_type") or cfg.get("transport") or "",
-            url=cfg.get("url", ""),
-            headers=cfg.get("headers", {}),
-        ))
+        mcp_servers.append(
+            joysafeter_pb2.McpConfig(
+                name=cfg.get("name", ""),
+                command=cfg.get("command", ""),
+                args=cfg.get("args", []),
+                env=cfg.get("env", {}),
+                # mcp_configs store the transport under "type" (schema McpServerConfig),
+                # but older payloads used "server_type"/"transport". Accept all three so
+                # the sandbox runner can tell remote (http/sse) from stdio servers.
+                server_type=cfg.get("type") or cfg.get("server_type") or cfg.get("transport") or "",
+                url=cfg.get("url", ""),
+                headers=cfg.get("headers", {}),
+            )
+        )
 
     custom_tools = []
     for ct in harness_input.custom_tools:
         input_schema = ct.get("input_schema", {})
         schema_json = json.dumps(input_schema) if isinstance(input_schema, dict) else str(input_schema)
-        custom_tools.append(joysafeter_pb2.CustomTool(
-            name=ct["name"],
-            description=ct.get("description", ""),
-            input_schema_json=schema_json,
-        ))
+        custom_tools.append(
+            joysafeter_pb2.CustomTool(
+                name=ct["name"],
+                description=ct.get("description", ""),
+                input_schema_json=schema_json,
+            )
+        )
 
     memory_mounts = []
     for mm in harness_input.memory_mounts:
@@ -2741,35 +2915,48 @@ def _build_setup_sandbox(
             content = f.get("content", "")
             if isinstance(content, str):
                 content = content.encode("utf-8")
-            files.append(joysafeter_pb2.MemoryFile(
-                relative_path=f.get("path", ""),
-                content=content,
-            ))
-        logger.info("Memory mount %s: %d files, mount_path=/mnt/memory/%s", mm.get("mount_name"), len(files), mm.get("mount_name"))
-        memory_mounts.append(joysafeter_pb2.MemoryStoreMount(
-            store_id=mm.get("store_id", ""),
-            mount_name=mm.get("mount_name", ""),
-            mount_path=f"/mnt/memory/{mm.get('mount_name', '')}",
-            access=mm.get("access", "read_write"),
-            files=files,
-        ))
+            files.append(
+                joysafeter_pb2.MemoryFile(
+                    relative_path=f.get("path", ""),
+                    content=content,
+                )
+            )
+        logger.info(
+            "Memory mount %s: %d files, mount_path=/mnt/memory/%s",
+            mm.get("mount_name"),
+            len(files),
+            mm.get("mount_name"),
+        )
+        memory_mounts.append(
+            joysafeter_pb2.MemoryStoreMount(
+                store_id=mm.get("store_id", ""),
+                mount_name=mm.get("mount_name", ""),
+                mount_path=f"/mnt/memory/{mm.get('mount_name', '')}",
+                access=mm.get("access", "read_write"),
+                files=files,
+            )
+        )
 
     file_mounts = []
-    for fm in getattr(harness_input, 'file_mounts', []):
-        file_mounts.append(joysafeter_pb2.FileMount(
-            path=fm.path,
-            content=fm.content,
-            filename=fm.filename,
-        ))
+    for fm in getattr(harness_input, "file_mounts", []):
+        file_mounts.append(
+            joysafeter_pb2.FileMount(
+                path=fm.path,
+                content=fm.content,
+                filename=fm.filename,
+            )
+        )
 
     file_refs = []
-    for fr in getattr(harness_input, 'file_refs', []):
-        file_refs.append(joysafeter_pb2.FileRef(
-            path=fr.path,
-            url=fr.url,
-            filename=fr.filename,
-            size_bytes=fr.size_bytes,
-        ))
+    for fr in getattr(harness_input, "file_refs", []):
+        file_refs.append(
+            joysafeter_pb2.FileRef(
+                path=fr.path,
+                url=fr.url,
+                filename=fr.filename,
+                size_bytes=fr.size_bytes,
+            )
+        )
 
     kwargs = dict(
         skills=skills,
@@ -2807,36 +2994,42 @@ def _build_start_task(
 ) -> joysafeter_pb2.StartTask:
     skills = []
     for sa in harness_input.skill_archives:
-        skills.append(joysafeter_pb2.SkillArchive(
-            name=sa.name,
-            tar_gz=sa.data,
-            target=sa.target,
-        ))
+        skills.append(
+            joysafeter_pb2.SkillArchive(
+                name=sa.name,
+                tar_gz=sa.data,
+                target=sa.target,
+            )
+        )
 
     mcp_servers = []
     for cfg in harness_input.mcp_servers:
-        mcp_servers.append(joysafeter_pb2.McpConfig(
-            name=cfg.get("name", ""),
-            command=cfg.get("command", ""),
-            args=cfg.get("args", []),
-            env=cfg.get("env", {}),
-            # mcp_configs store the transport under "type" (schema McpServerConfig),
-            # but older payloads used "server_type"/"transport". Accept all three so
-            # the sandbox runner can tell remote (http/sse) from stdio servers.
-            server_type=cfg.get("type") or cfg.get("server_type") or cfg.get("transport") or "",
-            url=cfg.get("url", ""),
-            headers=cfg.get("headers", {}),
-        ))
+        mcp_servers.append(
+            joysafeter_pb2.McpConfig(
+                name=cfg.get("name", ""),
+                command=cfg.get("command", ""),
+                args=cfg.get("args", []),
+                env=cfg.get("env", {}),
+                # mcp_configs store the transport under "type" (schema McpServerConfig),
+                # but older payloads used "server_type"/"transport". Accept all three so
+                # the sandbox runner can tell remote (http/sse) from stdio servers.
+                server_type=cfg.get("type") or cfg.get("server_type") or cfg.get("transport") or "",
+                url=cfg.get("url", ""),
+                headers=cfg.get("headers", {}),
+            )
+        )
 
     custom_tools = []
     for ct in harness_input.custom_tools:
         input_schema = ct.get("input_schema", {})
         schema_json = json.dumps(input_schema) if isinstance(input_schema, dict) else str(input_schema)
-        custom_tools.append(joysafeter_pb2.CustomTool(
-            name=ct["name"],
-            description=ct.get("description", ""),
-            input_schema_json=schema_json,
-        ))
+        custom_tools.append(
+            joysafeter_pb2.CustomTool(
+                name=ct["name"],
+                description=ct.get("description", ""),
+                input_schema_json=schema_json,
+            )
+        )
 
     # Use the permission rules resolved by harness_input_builder
     # Use the permission rules resolved by harness_input_builder
@@ -2931,12 +3124,14 @@ def _proto_event_to_dict(event: joysafeter_pb2.RunnerHarnessEvent) -> dict[str, 
         return {
             "type": "assistant",
             "message": {
-                "content": [{
-                    "type": "tool_use",
-                    "name": tu.tool,
-                    "id": tu.call_id,
-                    "input": input_data,
-                }],
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "name": tu.tool,
+                        "id": tu.call_id,
+                        "input": input_data,
+                    }
+                ],
             },
         }
     elif event_field == "tool_result":
@@ -2944,12 +3139,14 @@ def _proto_event_to_dict(event: joysafeter_pb2.RunnerHarnessEvent) -> dict[str, 
         return {
             "type": "assistant",
             "message": {
-                "content": [{
-                    "type": "tool_result",
-                    "tool_use_id": tr.call_id,
-                    "name": tr.tool,
-                    "content": tr.output,
-                }],
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tr.call_id,
+                        "name": tr.tool,
+                        "content": tr.output,
+                    }
+                ],
             },
         }
     elif event_field == "error":
@@ -3015,18 +3212,22 @@ async def start_grpc_server(
     execution_semaphore: Optional[asyncio.Semaphore] = None,
     event_bus: Optional[Any] = None,
 ) -> tuple[grpc_aio.Server, "AgentBridgeServicer"]:
-    server = grpc_aio.server(options=[
-        ("grpc.max_receive_message_length", 8 * 1024 * 1024),
-        ("grpc.max_send_message_length", 32 * 1024 * 1024),
-        ("grpc.max_concurrent_streams", 200),
-        # Transport-level keepalive: detect dead connections through NAT/LB
-        ("grpc.keepalive_time_ms", 30000),           # ping every 30s
-        ("grpc.keepalive_timeout_ms", 10000),         # 10s to respond
-        ("grpc.keepalive_permit_without_calls", 1),   # ping even when idle
-        ("grpc.http2.min_recv_ping_interval_without_data_ms", 10000),
-    ])
+    server = grpc_aio.server(
+        options=[
+            ("grpc.max_receive_message_length", 8 * 1024 * 1024),
+            ("grpc.max_send_message_length", 32 * 1024 * 1024),
+            ("grpc.max_concurrent_streams", 200),
+            # Transport-level keepalive: detect dead connections through NAT/LB
+            ("grpc.keepalive_time_ms", 30000),  # ping every 30s
+            ("grpc.keepalive_timeout_ms", 10000),  # 10s to respond
+            ("grpc.keepalive_permit_without_calls", 1),  # ping even when idle
+            ("grpc.http2.min_recv_ping_interval_without_data_ms", 10000),
+        ]
+    )
     servicer = AgentBridgeServicer(
-        bridge_registry, event_buffer, queue,
+        bridge_registry,
+        event_buffer,
+        queue,
         vault_provider=vault_provider,
         execution_semaphore=execution_semaphore,
         event_bus=event_bus,
@@ -3043,9 +3244,9 @@ async def start_grpc_server(
             response_serializer=joysafeter_pb2.OrchestratorMessage.SerializeToString,
         ),
     }
-    server.add_generic_rpc_handlers((
-        grpc.method_handlers_generic_handler("joysafeter.AgentBridge", rpc_method_handlers),
-    ))
+    server.add_generic_rpc_handlers(
+        (grpc.method_handlers_generic_handler("joysafeter.AgentBridge", rpc_method_handlers),)
+    )
     server.add_registered_method_handlers("joysafeter.AgentBridge", rpc_method_handlers)
     server.add_insecure_port(f"{host}:{port}")
     await server.start()

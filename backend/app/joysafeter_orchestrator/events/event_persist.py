@@ -29,7 +29,7 @@ class EventPersistSubscriber:
             session_id=envelope.session_id,
             event_type=envelope.event_type,
             payload=envelope.payload,
-            seq=envelope.seq,
+            seq=envelope.seq or 0,
             id=envelope.event_id,
         )
         await self._event_buffer.send(buffered)

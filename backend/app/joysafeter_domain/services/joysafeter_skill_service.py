@@ -9,7 +9,10 @@ skill_lifecycle_service.py (v1 cleanup consolidation):
 
 Security/packing/runtime-policy live in joysafeter_skill_security.py.
 """
+
 from __future__ import annotations
+
+# ruff: noqa: E402 — sections merged verbatim; imports intentionally follow their banners
 
 # ============================================================================
 # skill_lifecycle_service.py
@@ -205,6 +208,7 @@ class SkillLifecycleService:
             from_status=from_status,
             to_status=to_status,
         )
+
 
 # ============================================================================
 # skill_version_service.py
@@ -466,7 +470,6 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
 
         from sqlalchemy import text as sa_text
 
-
         # JSONB array containment: skills @> [{"skill_id": "...", "version": "..."}]
         sid_str = str(skill_id)
         # Match both prefixed and unprefixed skill_id forms — the codebase uses
@@ -577,6 +580,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
         return skill  # type: ignore[return-value,no-any-return]
 
+
 # ============================================================================
 # skill_service.py
 # ============================================================================
@@ -587,7 +591,7 @@ Skill Service: Permission Check + CRUD
 
 
 from pathlib import Path
-from typing import Any, Dict, Union
+from typing import Any, Dict, Literal, Union
 
 from loguru import logger
 
@@ -661,7 +665,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         tags: Optional[List[str]],
         license: Optional[str],
         files: Optional[List[Dict[str, Any]]],
-        failure_mode: str = "fail_open",
+        failure_mode: Literal["default", "fail_open", "fail_closed"] = "fail_open",
         enforce_write_policy: bool = True,
     ):
         """Run a scan either inline or as a background dispatch.
@@ -711,6 +715,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         )
 
         if async_eligible:
+            assert skill_id is not None  # implied by async_eligible
             await self.security_service.mark_scanning(skill_id)
             self._pending_async_scans.append(
                 dict(
@@ -829,7 +834,10 @@ class SkillService(BaseService[JoySafeterSkill]):
         ver_repo = SkillVersionRepository(self.db)
         latest_map = await ver_repo.latest_version_map([s.id for s in skills])
         for skill in skills:
-            skill.latest_version = latest_map.get(skill.id)
+            # ``latest_version`` is a request-scoped annotation declared as a
+            # ClassVar on the model; set it per-instance via setattr so mypy
+            # doesn't reject assigning to a class variable through an instance.
+            setattr(skill, "latest_version", latest_map.get(skill.id))
         return skills, has_more
 
     async def get_skill(
@@ -886,7 +894,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         # respects the caller's active org context — a user who's a
         # member of two orgs and shares a skill name between them
         # shouldn't get the wrong org's skill back here.
-        all_skills = await self.list_skills(
+        all_skills, _ = await self.list_skills(
             current_user_id=current_user_id,
             include_public=True,
             org_id=self._active_org_id,
@@ -1096,7 +1104,7 @@ class SkillService(BaseService[JoySafeterSkill]):
                 file_path = file_data.get("path", "")
                 file_name = file_data.get("file_name", "")
                 file_content_raw = file_data.get("content")
-                file_content_val: Optional[str] = (
+                file_content_val = (
                     file_content_raw
                     if isinstance(file_content_raw, (str, type(None)))
                     else str(file_content_raw)
@@ -1987,11 +1995,12 @@ class SkillService(BaseService[JoySafeterSkill]):
         sec = self.security_service
         skill = await sec.skill_repo.get_with_files(skill_id)
         if not skill:
-            raise NotFoundError(
-                "Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)}
-            )
+            raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
         await check_skill_access(
-            self.db, skill, current_user_id, JoySafeterCollaboratorRole.editor,
+            self.db,
+            skill,
+            current_user_id,
+            JoySafeterCollaboratorRole.editor,
             active_org_id=self._active_org_id,
         )
 

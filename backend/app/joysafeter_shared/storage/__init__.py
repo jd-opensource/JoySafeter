@@ -33,6 +33,7 @@ def create_storage() -> StorageBackend:
 
     if backend_type in {"s3", "oss"}:
         from app.joysafeter_shared.storage.s3 import S3Backend
+
         bucket = os.getenv("STORAGE_S3_BUCKET") or os.getenv("STORAGE_OSS_BUCKET")
         endpoint_url = os.getenv("STORAGE_S3_ENDPOINT") or os.getenv("STORAGE_OSS_ENDPOINT")
         access_key = os.getenv("STORAGE_S3_ACCESS_KEY") or os.getenv("STORAGE_OSS_ACCESS_KEY")
@@ -51,9 +52,7 @@ def create_storage() -> StorageBackend:
         )
 
     if backend_type != "local":
-        raise RuntimeError(
-            "Unsupported STORAGE_BACKEND=%r. Expected local, s3, or oss." % backend_type
-        )
+        raise RuntimeError("Unsupported STORAGE_BACKEND=%r. Expected local, s3, or oss." % backend_type)
 
     return LocalBackend(
         base_path=os.getenv("STORAGE_LOCAL_PATH", "data/files"),

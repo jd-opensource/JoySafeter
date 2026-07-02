@@ -95,12 +95,10 @@ class DaytonaSandboxProvider(SandboxProvider):
                 json=body,
             )
             if resp.status_code >= 400:
-                raise RuntimeError(
-                    f"Daytona API returned {resp.status_code}: {resp.text}"
-                )
+                raise RuntimeError(f"Daytona API returned {resp.status_code}: {resp.text}")
             data = resp.json()
 
-        external_id = data["id"]
+        external_id = str(data["id"])
         logger.info("Daytona sandbox created: %s", external_id)
         return external_id
 

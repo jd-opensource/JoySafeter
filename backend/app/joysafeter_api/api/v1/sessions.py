@@ -18,6 +18,7 @@ from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_session import (
     MAX_MEMORY_STORE_RESOURCES,
+    AgentRef,
     CreateSessionRequest,
     SendEventRequest,
     SessionAgent,
@@ -43,6 +44,7 @@ router = APIRouter(tags=["joysafeter-sessions"])
 def _validate_mount_path(path: str) -> str:
     """Validate mount_path: must be under /workspace/, no '..' traversal."""
     import posixpath
+
     normalized = posixpath.normpath(path)
     if not normalized.startswith("/workspace/"):
         raise HTTPException(400, "mount_path must be under /workspace/")
@@ -62,6 +64,7 @@ def _slugify_mount_name(name: str) -> str:
 async def _load_session_repos(db: AsyncSession, session_id: uuid.UUID) -> list:
     """Load a session's repo resources (without decrypting tokens)."""
     from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
+
     result = await db.execute(
         select(JoySafeterSessionRepo)
         .where(JoySafeterSessionRepo.session_id == session_id)
@@ -86,22 +89,26 @@ def _session_to_response(session, agent=None, resources=None, repo_resources=Non
     )
     usage_data = session.usage or {}
     resource_responses = []
-    for r in (resources or []):
-        resource_responses.append(SessionResourceResponse(
-            memory_store_id=r.store_id,
-            access=r.access,
-            instructions=r.instructions,
-            mount_name=r.mount_name,
-        ))
+    for r in resources or []:
+        resource_responses.append(
+            SessionResourceResponse(
+                memory_store_id=r.store_id,
+                access=r.access,
+                instructions=r.instructions,
+                mount_name=r.mount_name,
+            )
+        )
     repo_responses = []
-    for rr in (repo_resources or []):
-        repo_responses.append(SessionRepoResourceResponse(
-            id=rr.id,
-            url=rr.url,
-            branch=rr.branch or "",
-            mount_path=rr.mount_path or "",
-            mount_name=rr.mount_name or "",
-        ))
+    for rr in repo_resources or []:
+        repo_responses.append(
+            SessionRepoResourceResponse(
+                id=rr.id,
+                url=rr.url,
+                branch=rr.branch or "",
+                mount_path=rr.mount_path or "",
+                mount_name=rr.mount_name or "",
+            )
+        )
     return SessionResponse(
         id=session.id,
         agent=agent_data,
@@ -137,15 +144,22 @@ async def create_session(
     env_id_raw = req.environment_id or ""
     environment_ref = env_id_raw
     if env_id_raw.startswith("env_"):
-        environment_ref = env_id_raw[len("env_"):]
+        environment_ref = env_id_raw[len("env_") :]
 
     # --- Resolve agent ---
     agent_svc = AgentService(db)
     agent = None
     pinned_version: Optional[int] = None
     if req.agent:
-        agent = await agent_svc.get_agent(req.agent.id, project_id=auth_ctx.project_id)
-        pinned_version = req.agent.version
+        if isinstance(req.agent, AgentRef):
+            agent = await agent_svc.get_agent(req.agent.id, project_id=auth_ctx.project_id)
+            pinned_version = req.agent.version
+        else:
+            try:
+                agent_uuid = uuid.UUID(req.agent.removeprefix("agent_"))
+            except ValueError:
+                raise HTTPException(400, f"Invalid agent id: {req.agent}")
+            agent = await agent_svc.get_agent(agent_uuid, project_id=auth_ctx.project_id)
     elif req.agent_id:
         agent = await agent_svc.get_agent(req.agent_id, project_id=auth_ctx.project_id)
     elif req.agent_name:
@@ -169,6 +183,7 @@ async def create_session(
 
     # --- Compute mount_name for each resource ---
     from app.joysafeter_api.services import JoySafeterMemoryService as MemoryService
+
     mem_svc = MemoryService(db)
     resource_dicts = []
     for r in req.resources:
@@ -183,6 +198,7 @@ async def create_session(
     # --- Validate vault_ids belong to this project ---
     if req.vault_ids:
         from app.joysafeter_api.services import VaultService
+
         vault_svc = VaultService(db)
         for vid_raw in req.vault_ids:
             vid_str = vid_raw.removeprefix("vlt_").removeprefix("vault_")
@@ -212,6 +228,7 @@ async def create_session(
 
     # --- Attach file resources ---
     from app.joysafeter_domain.schemas.joysafeter_session import MAX_FILE_RESOURCES
+
     if len(req.file_resources) > MAX_FILE_RESOURCES:
         raise HTTPException(400, f"Too many file resources (max {MAX_FILE_RESOURCES})")
     if req.file_resources:
@@ -241,6 +258,7 @@ async def create_session(
 
     # --- Attach repo resources (github_repository) ---
     from app.joysafeter_domain.schemas.joysafeter_session import MAX_REPO_RESOURCES
+
     if len(req.repo_resources) > MAX_REPO_RESOURCES:
         raise HTTPException(400, f"Too many repo resources (max {MAX_REPO_RESOURCES})")
     if req.repo_resources:
@@ -258,22 +276,23 @@ async def create_session(
             # Encrypt the clone token at rest; never store or echo it in plaintext.
             encrypted_token = ""
             if rr.authorization_token:
-                encrypted_token = repo_secret_svc.encrypt_data_for_storage(
-                    {"token": rr.authorization_token}
-                )["token"]
-            db.add(JoySafeterSessionRepo(
-                session_id=session.id,
-                url=rr.url.strip(),
-                branch=rr.branch or "",
-                mount_path=mount_path,
-                mount_name=mount_name,
-                encrypted_token=encrypted_token,
-            ))
+                encrypted_token = repo_secret_svc.encrypt_data_for_storage({"token": rr.authorization_token})["token"]
+            db.add(
+                JoySafeterSessionRepo(
+                    session_id=session.id,
+                    url=rr.url.strip(),
+                    branch=rr.branch or "",
+                    mount_path=mount_path,
+                    mount_name=mount_name,
+                    encrypted_token=encrypted_token,
+                )
+            )
         await db.commit()
 
     # Provision sandbox at session creation time (per API spec)
     try:
         from app.joysafeter_orchestrator.lifespan import get_sandbox_resolver
+
         resolver = get_sandbox_resolver()
         if resolver:
             env_ref = environment_ref or agent.environment_ref
@@ -283,6 +302,7 @@ async def create_session(
             environment_config = {}
             if env_ref:
                 from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
+
                 env_svc = EnvironmentService(db)
                 environment = await env_svc.get_environment_by_ref(env_ref, project_id=auth_ctx.project_id)
                 if environment:
@@ -293,6 +313,7 @@ async def create_session(
                     if net_cfg and isinstance(net_cfg, dict):
                         networking = net_cfg
             from app.joysafeter_api.services import SecretService
+
             secret_svc = SecretService(db)
             env_vars = environment_config.get("env_vars")
             if isinstance(env_vars, dict):
@@ -300,16 +321,21 @@ async def create_session(
             secret_refs = environment_config.get("secret_refs")
             if isinstance(secret_refs, list):
                 agent_env = await secret_svc.merge_secret_refs_into_env(
-                    agent_env, secret_refs, project_id=auth_ctx.project_id
+                    agent_env,
+                    [str(ref) for ref in secret_refs if ref is not None],
+                    project_id=auth_ctx.project_id,
                 )
             if getattr(agent, "secret_ref", None):
                 agent_env = await secret_svc.merge_secret_refs_into_env(
-                    agent_env, [agent.secret_ref], project_id=auth_ctx.project_id, override=True
+                    agent_env, [str(agent.secret_ref)], project_id=auth_ctx.project_id, override=True
                 )
             agent_env.update({str(k): str(v) for k, v in (agent.env or {}).items()})
             secret_svc.apply_provider_aliases(agent_env)
             resolved = await resolver.resolve(
-                session.id, agent_env, image=resolved_image, networking=networking,
+                session.id,
+                agent_env,
+                image=resolved_image,
+                networking=networking,
                 engine_kind=getattr(agent, "engine_kind", None),
             )
             if resolved.get("sandbox_id"):
@@ -343,7 +369,9 @@ async def list_sessions(
             agent_id, limit, after_id, project_id=auth_ctx.project_id, include_archived=include_archived
         )
     else:
-        sessions, has_more = await svc.list_sessions(limit, after_id, include_archived=include_archived, project_id=auth_ctx.project_id)
+        sessions, has_more = await svc.list_sessions(
+            limit, after_id, include_archived=include_archived, project_id=auth_ctx.project_id
+        )
     agent_ids = {s.agent_id for s in sessions if s.agent_id}
     agents_by_id = {}
     if agent_ids:
@@ -407,15 +435,20 @@ async def delete_session(
         get_sandbox_provider,
         get_session_broadcaster,
     )
+
     broadcaster = get_session_broadcaster()
     if broadcaster:
-        await broadcaster.send(session_id, {
-            "type": "session.deleted",
-            "session_id": str(session_id),
-        })
+        await broadcaster.send(
+            session_id,
+            {
+                "type": "session.deleted",
+                "session_id": str(session_id),
+            },
+        )
 
     # Clean up sandbox container linked to this session
     from app.joysafeter_api.services import SandboxService
+
     sandbox_svc = SandboxService(db)
     sandbox = await sandbox_svc.find_by_session(session_id)
     if sandbox:
@@ -425,6 +458,7 @@ async def delete_session(
             bridge = await bridge_registry.get(sandbox.id)
             if bridge:
                 from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
+
                 shutdown_msg = joysafeter_pb2.OrchestratorMessage(
                     shutdown=joysafeter_pb2.Shutdown(reason="session deleted")
                 )
@@ -531,9 +565,7 @@ async def stop_session(
         )
 
     task_svc = TaskService(db)
-    active_tasks = await task_svc.list_active_tasks_by_session(
-        session_id, project_id=auth_ctx.project_id
-    )
+    active_tasks = await task_svc.list_active_tasks_by_session(session_id, project_id=auth_ctx.project_id)
     for task in active_tasks:
         try:
             await task_svc.update_task_error(
@@ -555,9 +587,7 @@ async def stop_session(
                     try:
                         await bridge.runner_stream.write(
                             joysafeter_pb2.OrchestratorMessage(
-                                cancel=joysafeter_pb2.CancelTask(
-                                    reason="Cancelled via session stop"
-                                )
+                                cancel=joysafeter_pb2.CancelTask(reason="Cancelled via session stop")
                             )
                         )
                         locally_cancelled.add(task.id)
@@ -580,12 +610,14 @@ async def stop_session(
                         )
             await coordinator.publish_event(
                 task.id,
-                json.dumps({
-                    "type": "complete",
-                    "output": "",
-                    "error": "Cancelled via session stop",
-                    "status": "cancelled",
-                }),
+                json.dumps(
+                    {
+                        "type": "complete",
+                        "output": "",
+                        "error": "Cancelled via session stop",
+                        "status": "cancelled",
+                    }
+                ),
             )
 
     broadcaster = get_session_broadcaster()
@@ -606,9 +638,7 @@ CONTROL_EVENT_TYPES = {"user.tool_confirmation", "user.custom_tool_result", "use
 LIVE_INPUT_PREFIX = "__joysafeter_input_v1__:"
 
 
-def _encode_live_input(
-    event: SingleEventRequest, source_event_id: Optional[str] = None
-) -> Optional[str]:
+def _encode_live_input(event: SingleEventRequest, source_event_id: Optional[str] = None) -> Optional[str]:
     event_type = event.type
     if event_type == "user.tool_confirmation":
         call_id = event.resolved_tool_use_id()
@@ -768,9 +798,7 @@ def _build_resume_prompt(event: SingleEventRequest, event_id: str) -> Optional[s
     elif event_type == "user.message":
         c = event.content
         if isinstance(c, list):
-            return " ".join(
-                b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text"
-            )
+            return " ".join(b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text")
         return c
     return None
 
@@ -841,7 +869,8 @@ async def _replay_pending_control_inputs(
                 except Exception:
                     logger.debug(
                         "Failed to replay control event %s for session %s",
-                        evt.id, session_id,
+                        evt.id,
+                        session_id,
                     )
     except Exception:
         logger.debug("Error replaying pending controls for session %s", session_id, exc_info=True)
@@ -934,9 +963,11 @@ async def send_event(
             # Create task, mark session running, push to scheduler
             try:
                 from app.joysafeter_orchestrator.lifespan import get_scheduler
+
                 scheduler = get_scheduler()
                 from app.joysafeter_api.services import JoySafeterTaskService as TaskService
                 from app.joysafeter_shared.database import AsyncSessionLocal
+
                 async with AsyncSessionLocal() as task_db:
                     task_svc = TaskService(task_db)
                     task = await task_svc.create_task(
@@ -975,7 +1006,10 @@ async def send_event(
                     await scheduler.push_to_global(task.id)
                 else:
                     from app.joysafeter_shared.cache.redis import RedisClient
-                    redis = await RedisClient.get_client()
+
+                    redis = RedisClient.get_client()
+                    if redis is None:
+                        raise RuntimeError("Redis unavailable; cannot enqueue task to global queue")
                     await redis.rpush("joysafeter:global_queue", str(task.id))
             except HTTPException:
                 raise
@@ -1005,9 +1039,7 @@ async def send_event(
                                 "Bridge injection failed for custom_tool_result, falling back to task",
                             )
             # Cross-process relay: route via Redis to the sandbox owner instance.
-            if not injected and await _relay_control_via_redis(
-                single, session=session, event_id=str(event.id)
-            ):
+            if not injected and await _relay_control_via_redis(single, session=session, event_id=str(event.id)):
                 injected = True
                 await svc.mark_event_processed(event.id)
                 await svc.update_session_status(session_id, "running")
@@ -1017,10 +1049,12 @@ async def send_event(
                 if resume_prompt and session.status != "running":
                     try:
                         from app.joysafeter_orchestrator.lifespan import get_scheduler
+
                         scheduler = get_scheduler()
                         if scheduler:
                             from app.joysafeter_api.services import JoySafeterTaskService as TaskService
                             from app.joysafeter_shared.database import AsyncSessionLocal
+
                             async with AsyncSessionLocal() as task_db:
                                 task_svc = TaskService(task_db)
                                 task = await task_svc.create_task(
@@ -1061,9 +1095,7 @@ async def send_event(
                             )
             # Cross-process relay: route via Redis to the sandbox owner instance
             # (Rust orchestrator or another API worker) when no local bridge.
-            if not injected and await _relay_control_via_redis(
-                single, session=session, event_id=str(event.id)
-            ):
+            if not injected and await _relay_control_via_redis(single, session=session, event_id=str(event.id)):
                 injected = True
                 await svc.mark_event_processed(event.id)
                 await svc.update_session_status(session_id, "running")
@@ -1073,10 +1105,12 @@ async def send_event(
                 if resume_prompt and session.status != "running":
                     try:
                         from app.joysafeter_orchestrator.lifespan import get_scheduler
+
                         scheduler = get_scheduler()
                         if scheduler:
                             from app.joysafeter_api.services import JoySafeterTaskService as TaskService
                             from app.joysafeter_shared.database import AsyncSessionLocal
+
                             async with AsyncSessionLocal() as task_db:
                                 task_svc = TaskService(task_db)
                                 task = await task_svc.create_task(
@@ -1110,9 +1144,7 @@ async def send_event(
                                 session_id,
                             )
             # Cross-process relay: route via Redis to the sandbox owner instance.
-            if not injected and await _relay_control_via_redis(
-                single, session=session, event_id=str(event.id)
-            ):
+            if not injected and await _relay_control_via_redis(single, session=session, event_id=str(event.id)):
                 injected = True
                 await svc.mark_event_processed(event.id)
             # interrupt 单独 abort 当前 LLM turn,但 claude headless 不会因此
@@ -1126,10 +1158,12 @@ async def send_event(
                 if resume_prompt and session.status != "running":
                     try:
                         from app.joysafeter_orchestrator.lifespan import get_scheduler
+
                         scheduler = get_scheduler()
                         if scheduler:
                             from app.joysafeter_api.services import JoySafeterTaskService as TaskService
                             from app.joysafeter_shared.database import AsyncSessionLocal
+
                             async with AsyncSessionLocal() as task_db:
                                 task_svc = TaskService(task_db)
                                 task = await task_svc.create_task(
@@ -1198,6 +1232,7 @@ async def session_event_stream(
         ensure_session_broadcaster,
         get_session_broadcaster,
     )
+
     broadcaster = get_session_broadcaster()
     if not broadcaster:
         try:
@@ -1217,6 +1252,7 @@ async def session_event_stream(
         # First, replay existing events after the cursor
         if after_seq is not None:
             from app.joysafeter_shared.database import AsyncSessionLocal
+
             async with AsyncSessionLocal() as replay_db:
                 replay_svc = SessionService(replay_db)
                 events, _ = await replay_svc.list_events(session_id, 1000, after_seq)
@@ -1344,9 +1380,9 @@ async def session_event_stream(
 # Session File Resources
 # ══════════════════════════════════════════════════════════════════════
 
-from datetime import datetime
+from datetime import datetime  # noqa: E402
 
-from pydantic import BaseModel as PydanticBaseModel
+from pydantic import BaseModel as PydanticBaseModel  # noqa: E402
 
 
 class SessionFileResourceResponse(PydanticBaseModel):
@@ -1370,6 +1406,7 @@ class AddSessionRepoRequest(PydanticBaseModel):
     Mirrors the official ``resources.add`` semantics: the unified endpoint
     accepts either a file or a github_repository, discriminated by ``type``.
     """
+
     type: str = "github_repository"
     url: str
     branch: Optional[str] = None
@@ -1380,6 +1417,7 @@ class AddSessionRepoRequest(PydanticBaseModel):
 
 class UpdateRepoResourceRequest(PydanticBaseModel):
     """Rotate the clone credential on a github_repository resource."""
+
     authorization_token: str
 
 
@@ -1392,14 +1430,13 @@ async def list_session_resources(
     from sqlalchemy import select as sa_select
 
     from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
+
     svc = SessionService(db)
     session = await svc.get_session(session_id)
     if not session or session.project_id != auth_ctx.project_id:
         raise HTTPException(404, "Session not found")
 
-    result = await db.execute(
-        sa_select(JoySafeterSessionFile).where(JoySafeterSessionFile.session_id == session_id)
-    )
+    result = await db.execute(sa_select(JoySafeterSessionFile).where(JoySafeterSessionFile.session_id == session_id))
     rows = result.scalars().all()
     data = [
         SessionFileResourceResponse(
@@ -1522,21 +1559,18 @@ async def _add_repo_resource(
 
     # Enforce per-session repo cap (mirrors create flow).
     from app.joysafeter_domain.schemas.joysafeter_session import MAX_REPO_RESOURCES
+
     existing = await _load_session_repos(db, session_id)
     if len(existing) >= MAX_REPO_RESOURCES:
         raise HTTPException(400, f"Too many repo resources (max {MAX_REPO_RESOURCES})")
 
     mount_path = _validate_mount_path(req.mount_path) if req.mount_path else ""
-    mount_name = req.mount_name or _slugify_mount_name(
-        req.url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
-    )
+    mount_name = req.mount_name or _slugify_mount_name(req.url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git"))
 
     encrypted_token = ""
     if req.authorization_token:
         secret_svc = SecretService(db)
-        encrypted_token = secret_svc.encrypt_data_for_storage(
-            {"token": req.authorization_token}
-        )["token"]
+        encrypted_token = secret_svc.encrypt_data_for_storage({"token": req.authorization_token})["token"]
 
     repo = JoySafeterSessionRepo(
         session_id=session_id,
@@ -1570,6 +1604,7 @@ async def delete_session_resource(
 
     from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
     from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
+
     svc = SessionService(db)
     session = await svc.get_session(session_id)
     if not session or session.project_id != auth_ctx.project_id:
@@ -1644,9 +1679,11 @@ async def update_repo_resource_token(
         raise HTTPException(404, "Repo resource not found")
 
     secret_svc = SecretService(db)
-    row.encrypted_token = secret_svc.encrypt_data_for_storage(
-        {"token": req.authorization_token}
-    )["token"] if req.authorization_token else ""
+    row.encrypted_token = (
+        secret_svc.encrypt_data_for_storage({"token": req.authorization_token})["token"]
+        if req.authorization_token
+        else ""
+    )
     await db.commit()
     await db.refresh(row)
 

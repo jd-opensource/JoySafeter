@@ -8,7 +8,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-_SAFE_PKG_NAME = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._\-\[\]@/:<>=!,~^*]+$')
+_SAFE_PKG_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._\-\[\]@/:<>=!,~^*]+$")
 
 
 class ImageBuildError(Exception):
@@ -81,12 +81,7 @@ class ImageBuilder:
         install_cmds = self._packages_install_commands(packages)
         run_lines = "\n".join(f"RUN {cmd}" for cmd in install_cmds)
 
-        dockerfile = (
-            f"FROM {self._default_base}\n"
-            f"USER root\n"
-            f"{run_lines}\n"
-            f"USER agent\n"
-        )
+        dockerfile = f"FROM {self._default_base}\nUSER root\n{run_lines}\nUSER agent\n"
 
         short_id = str(env_id).split("-")[0]
         tag = f"joysafeter/env-{short_id}:v{version}"
@@ -98,7 +93,13 @@ class ImageBuilder:
 
         # Build via docker CLI (pipe tar context via stdin)
         proc = await asyncio.create_subprocess_exec(
-            "docker", "build", "-t", tag, "--rm", "--force-rm", "-",
+            "docker",
+            "build",
+            "-t",
+            tag,
+            "--rm",
+            "--force-rm",
+            "-",
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

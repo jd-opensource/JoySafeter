@@ -146,7 +146,9 @@ def _create_sandbox_provider():
                 "JOYSAFETER_E2B_API_KEY and JOYSAFETER_E2B_TEMPLATE_ID are required when JOYSAFETER_SANDBOX_PROVIDER=e2b"
             )
         return E2bSandboxProvider(
-            api_url=joysafeter_config.e2b_api_url if joysafeter_config.e2b_api_url is not None else "https://api.e2b.app",
+            api_url=joysafeter_config.e2b_api_url
+            if joysafeter_config.e2b_api_url is not None
+            else "https://api.e2b.app",
             api_key=joysafeter_config.e2b_api_key,
             template_id=joysafeter_config.e2b_template_id,
         )
@@ -210,6 +212,7 @@ async def joysafeter_startup() -> None:
     redis_client = None
     try:
         from app.joysafeter_shared.cache.redis import RedisClient
+
         redis_client = RedisClient.get_client()
     except Exception:
         logger.info("Redis not available, using in-memory queue")
@@ -247,11 +250,13 @@ async def joysafeter_startup() -> None:
         instance_id=f"{joysafeter_config.instance_id}:orchestrator:{os.getpid()}",
     )
 
-    _event_buffer = EventBatchSender(EventBatchConfig(
-        enabled=joysafeter_config.event_batch_enabled,
-        max_size=joysafeter_config.event_batch_max_size,
-        max_delay_ms=joysafeter_config.event_batch_max_delay_ms,
-    ))
+    _event_buffer = EventBatchSender(
+        EventBatchConfig(
+            enabled=joysafeter_config.event_batch_enabled,
+            max_size=joysafeter_config.event_batch_max_size,
+            max_delay_ms=joysafeter_config.event_batch_max_delay_ms,
+        )
+    )
     _event_buffer.start()
 
     _resolver_kwargs = dict(
@@ -274,18 +279,20 @@ async def joysafeter_startup() -> None:
         try:
             from app.joysafeter_orchestrator.sandbox.envoy_manager import EnvoyConfig, EnvoyManager
 
-            _envoy_manager = EnvoyManager(EnvoyConfig(
-                envoy_image=joysafeter_config.envoy_image,
-                socket_volume=joysafeter_config.envoy_socket_volume,
-                config_dir=joysafeter_config.envoy_config_dir,
-                envoy_network=joysafeter_config.envoy_network,
-                grpc_target_host=joysafeter_config.envoy_grpc_host,
-                grpc_target_port=joysafeter_config.envoy_grpc_port,
-                container_name=joysafeter_config.envoy_container_name,
-            ))
+            _envoy_manager = EnvoyManager(
+                EnvoyConfig(
+                    envoy_image=joysafeter_config.envoy_image,
+                    socket_volume=joysafeter_config.envoy_socket_volume,
+                    config_dir=joysafeter_config.envoy_config_dir,
+                    envoy_network=joysafeter_config.envoy_network,
+                    grpc_target_host=joysafeter_config.envoy_grpc_host,
+                    grpc_target_port=joysafeter_config.envoy_grpc_port,
+                    container_name=joysafeter_config.envoy_container_name,
+                )
+            )
             await _envoy_manager.init()
             _sandbox_controller._envoy_manager = _envoy_manager
-            if hasattr(_sandbox_provider, '_envoy_manager'):
+            if hasattr(_sandbox_provider, "_envoy_manager"):
                 _sandbox_provider._envoy_manager = _envoy_manager
             logger.info("   EnvoyManager initialized")
         except Exception as e:
@@ -298,6 +305,7 @@ async def joysafeter_startup() -> None:
     if joysafeter_config.image_builder_enabled:
         try:
             from app.joysafeter_orchestrator.sandbox.image_builder import ImageBuilder
+
             _image_builder = ImageBuilder(
                 default_base=joysafeter_config.image_builder_base,
             )
@@ -334,8 +342,9 @@ async def joysafeter_startup() -> None:
         from app.joysafeter_orchestrator.services import VaultCipher
 
         _vault_provider = VaultCipher(joysafeter_config.vault_encryption_key)
-        logger.info("   VaultCipher initialized (encryption %s)",
-                     "enabled" if _vault_provider.is_enabled else "passthrough")
+        logger.info(
+            "   VaultCipher initialized (encryption %s)", "enabled" if _vault_provider.is_enabled else "passthrough"
+        )
     else:
         logger.info("   Vault encryption key not configured, vault provider disabled")
 
@@ -350,7 +359,9 @@ async def joysafeter_startup() -> None:
         from app.joysafeter_orchestrator.events.stream_publisher import EventStreamPersistSubscriber
 
         _event_bus.register(EventStreamPersistSubscriber(joysafeter_config.event_stream_key, _event_buffer))
-        logger.info("   JoySafeter events will be persisted through Redis Stream (%s)", joysafeter_config.event_stream_key)
+        logger.info(
+            "   JoySafeter events will be persisted through Redis Stream (%s)", joysafeter_config.event_stream_key
+        )
     else:
         from app.joysafeter_orchestrator.events.event_persist import EventPersistSubscriber
 
@@ -386,36 +397,20 @@ async def joysafeter_startup() -> None:
     except Exception as e:
         logger.warning("Startup orphan sandbox cleanup failed: %s", e)
 
+    _background_tasks.append(asyncio.create_task(_scheduler.run(), name="joysafeter-scheduler"))
+    _background_tasks.append(asyncio.create_task(_task_controller.run(), name="joysafeter-task-ctrl"))
+    _background_tasks.append(asyncio.create_task(_sandbox_controller.run_idle_sweep(), name="joysafeter-sandbox-sweep"))
     _background_tasks.append(
-        asyncio.create_task(_scheduler.run(), name="joysafeter-scheduler")
+        asyncio.create_task(_sandbox_controller.run_provisioning_poll(), name="joysafeter-prov-poll")
     )
-    _background_tasks.append(
-        asyncio.create_task(_task_controller.run(), name="joysafeter-task-ctrl")
-    )
-    _background_tasks.append(
-        asyncio.create_task(
-            _sandbox_controller.run_idle_sweep(), name="joysafeter-sandbox-sweep"
-        )
-    )
-    _background_tasks.append(
-        asyncio.create_task(
-            _sandbox_controller.run_provisioning_poll(), name="joysafeter-prov-poll"
-        )
-    )
-    _background_tasks.append(
-        asyncio.create_task(
-            _sandbox_controller.run_pool_manager(), name="joysafeter-pool-mgr"
-        )
-    )
+    _background_tasks.append(asyncio.create_task(_sandbox_controller.run_pool_manager(), name="joysafeter-pool-mgr"))
 
     # HA: cross-instance command listener
     if _redis_coordinator and redis_client:
         from app.joysafeter_orchestrator.kernel.command_listener import CommandListener
 
         cmd_listener = CommandListener(redis_client, _redis_coordinator, _bridge_registry)
-        _background_tasks.append(
-            asyncio.create_task(cmd_listener.run(), name="joysafeter-cmd-listener")
-        )
+        _background_tasks.append(asyncio.create_task(cmd_listener.run(), name="joysafeter-cmd-listener"))
 
     logger.info("JoySafeter kernel started (%d background tasks)", len(_background_tasks))
 

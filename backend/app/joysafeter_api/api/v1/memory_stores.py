@@ -3,7 +3,7 @@ import json
 import re
 import unicodedata
 import uuid
-from typing import Optional
+from typing import Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -59,13 +59,15 @@ def _is_unicode_format_char(ch: str) -> bool:
         or 0x2066 <= cp <= 0x2069  # Directional isolates
         or cp == 0xFEFF  # BOM / ZERO WIDTH NO-BREAK SPACE
         or 0xFFF9 <= cp <= 0xFFFB  # Interlinear annotations
-        or cp == 0x110BD or cp == 0x110CD  # Kaithi number signs
+        or cp == 0x110BD
+        or cp == 0x110CD  # Kaithi number signs
         or 0x13430 <= cp <= 0x1343F  # Egyptian hieroglyph format
         or 0x1BCA0 <= cp <= 0x1BCA3  # Shorthand format controls
         or 0x1D173 <= cp <= 0x1D17A  # Musical symbol formatting
         or cp == 0xE0001  # LANGUAGE TAG
         or 0xE0020 <= cp <= 0xE007F  # TAG characters
     )
+
 
 # --- Metadata validation helpers ---
 
@@ -179,9 +181,7 @@ def _version_to_response(ver, view: Optional[str] = None) -> MemoryVersionRespon
     )
 
 
-async def _get_store_or_404(
-    svc: MemoryService, store_id: uuid.UUID, project_id: str
-):
+async def _get_store_or_404(svc: MemoryService, store_id: uuid.UUID, project_id: str):
     store = await svc.get_store(store_id, project_id=project_id)
     if not store:
         raise HTTPException(404, "Memory store not found")
@@ -189,6 +189,7 @@ async def _get_store_or_404(
 
 
 # --- Store CRUD ---
+
 
 @router.post("", status_code=201)
 async def create_memory_store(
@@ -212,7 +213,9 @@ async def list_memory_stores(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> PaginatedResponse[MemoryStoreResponse]:
     svc = MemoryService(db)
-    stores, has_more = await svc.list_stores(limit, after_id, project_id=auth_ctx.project_id, include_archived=include_archived)
+    stores, has_more = await svc.list_stores(
+        limit, after_id, project_id=auth_ctx.project_id, include_archived=include_archived
+    )
     data = [_store_to_response(s) for s in stores]
     return PaginatedResponse(
         data=data,
@@ -247,9 +250,7 @@ async def update_memory_store(
     # null values remove keys from the map.
     merged_metadata = None
     if req.metadata is not None:
-        _validate_metadata(
-            {k: v for k, v in req.metadata.items() if v is not None}
-        )
+        _validate_metadata({k: v for k, v in req.metadata.items() if v is not None})
         existing = dict(store.metadata_ or {})
         for key, value in req.metadata.items():
             if value is None:
@@ -300,6 +301,7 @@ async def archive_memory_store(
 
 # --- Memory CRUD ---
 
+
 @router.post("/{store_id}/memories", status_code=201)
 async def create_memory(
     store_id: uuid.UUID,
@@ -316,9 +318,7 @@ async def create_memory(
 
     # Content size validation
     if len(req.content.encode("utf-8")) > MEMORY_MAX_CONTENT_BYTES:
-        raise HTTPException(
-            400, f"Content exceeds {MEMORY_MAX_CONTENT_BYTES} bytes (100 KB)"
-        )
+        raise HTTPException(400, f"Content exceeds {MEMORY_MAX_CONTENT_BYTES} bytes (100 KB)")
 
     # Path conflict check
     existing = await svc.get_memory_by_path(store_id, normalized_path)
@@ -348,16 +348,16 @@ async def list_memories(
     # Validate order_by to prevent arbitrary column access
     allowed_order_by = {"path", "created_at", "updated_at"}
     if order_by not in allowed_order_by:
-        raise HTTPException(
-            400, f"order_by must be one of: {', '.join(sorted(allowed_order_by))}"
-        )
+        raise HTTPException(400, f"order_by must be one of: {', '.join(sorted(allowed_order_by))}")
     if order not in ("asc", "desc"):
         raise HTTPException(400, "order must be 'asc' or 'desc'")
 
     svc = MemoryService(db)
     await _get_store_or_404(svc, store_id, auth_ctx.project_id)
     memories, has_more = await svc.list_memories(
-        store_id, limit, after_id,
+        store_id,
+        limit,
+        after_id,
         path_prefix=path_prefix,
         order_by=order_by,
         order=order,
@@ -422,9 +422,7 @@ async def update_memory(
         # Check for path conflict at target
         existing = await svc.get_memory_by_path(store_id, normalized_path)
         if existing and existing.id != memory_id:
-            raise HTTPException(
-                409, f"A memory already exists at path {normalized_path!r}"
-            )
+            raise HTTPException(409, f"A memory already exists at path {normalized_path!r}")
         mem = await svc.get_memory(store_id, memory_id)
         if not mem:
             raise HTTPException(404, "Memory not found")
@@ -436,15 +434,14 @@ async def update_memory(
         # Move: update the path on the memory object
         mem.path = normalized_path
         from app.joysafeter_shared.utils.datetime import utc_now
+
         mem.updated_at = utc_now()
         await svc.db.commit()
         await svc.db.refresh(mem)
         # Now update content if provided
         if req.content is not None:
             try:
-                mem = await svc.update_memory(
-                    store_id, memory_id, req.content, if_sha256=None
-                )
+                mem = await svc.update_memory(store_id, memory_id, req.content, if_sha256=None)
             except PreconditionFailed as e:
                 raise HTTPException(409, str(e))
             if not mem:
@@ -459,9 +456,7 @@ async def update_memory(
         return _memory_to_response(mem, view=view)
 
     try:
-        mem = await svc.update_memory(
-            store_id, memory_id, req.content, if_sha256=precondition_sha256
-        )
+        mem = await svc.update_memory(store_id, memory_id, req.content, if_sha256=precondition_sha256)
     except PreconditionFailed as e:
         raise HTTPException(409, str(e))
     if not mem:
@@ -500,6 +495,7 @@ async def delete_memory(
 
 # --- Memory Versions ---
 
+
 @router.get("/{store_id}/memory_versions")
 async def list_memory_versions(
     store_id: uuid.UUID,
@@ -515,7 +511,9 @@ async def list_memory_versions(
     svc = MemoryService(db)
     await _get_store_or_404(svc, store_id, auth_ctx.project_id)
     versions, has_more = await svc.list_versions(
-        store_id, limit, after_id,
+        store_id,
+        limit,
+        after_id,
         memory_id=memory_id,
         session_id=session_id,
         operation=operation,
@@ -574,6 +572,7 @@ async def redact_memory_version(
 
 # --- SSE Event Stream ---
 
+
 @router.get("/{store_id}/events/stream")
 async def memory_store_event_stream(
     store_id: uuid.UUID,
@@ -607,9 +606,7 @@ async def memory_store_event_stream(
         # Register a lightweight listener that puts events into our queue
         original_notify = subscribers.notify_peers
 
-        async def _intercept_notify(
-            sid: uuid.UUID, source_session_id: uuid.UUID, change_type: str, path: str
-        ) -> int:
+        async def _intercept_notify(sid: uuid.UUID, source_session_id: uuid.UUID, change_type: str, path: str) -> int:
             if sid == store_id:
                 event_data = {
                     "type": change_type,
@@ -617,7 +614,7 @@ async def memory_store_event_stream(
                     "path": path,
                 }
                 await q.put(event_data)
-            return await original_notify(sid, source_session_id, change_type, path)
+            return cast(int, await original_notify(sid, source_session_id, change_type, path))
 
         subscribers.notify_peers = _intercept_notify
         try:

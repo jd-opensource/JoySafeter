@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional, cast
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import CursorResult, and_, func, select
 from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,7 +34,7 @@ class JoySafeterTaskStateMachine:
             .values(status=JoySafeterTaskStatus.SCHEDULING.value, started_at=func.now())
         )
         await self.db.commit()
-        return result.rowcount > 0
+        return cast(CursorResult[Any], result).rowcount > 0
 
     async def claim_pending_batch(self, limit: int) -> list[uuid.UUID]:
         if limit <= 0:
@@ -121,11 +121,9 @@ class JoySafeterTaskStateMachine:
                 .values(status=new_status.value)
             )
         await self.db.commit()
-        return result.rowcount > 0
+        return cast(CursorResult[Any], result).rowcount > 0
 
-    async def claim_next_sandbox_task_for_running(
-        self, sandbox_id: uuid.UUID
-    ) -> Optional[uuid.UUID]:
+    async def claim_next_sandbox_task_for_running(self, sandbox_id: uuid.UUID) -> Optional[uuid.UUID]:
         now = utc_now()
         next_task = (
             select(JoySafeterTask.id)
@@ -155,9 +153,7 @@ class JoySafeterTaskStateMachine:
         error: str,
         new_status: JoySafeterTaskStatus,
     ) -> bool:
-        assert new_status.is_terminal(), (
-            f"fail_with_error called with non-terminal status: {new_status}"
-        )
+        assert new_status.is_terminal(), f"fail_with_error called with non-terminal status: {new_status}"
         now = utc_now()
         duration_ms = await self._duration_ms_for_task(task_id, now)
         result = await self.db.execute(
@@ -176,7 +172,7 @@ class JoySafeterTaskStateMachine:
             )
         )
         await self.db.commit()
-        return result.rowcount > 0
+        return cast(CursorResult[Any], result).rowcount > 0
 
     async def retry(self, task_id: uuid.UUID) -> bool:
         result = await self.db.execute(
@@ -195,7 +191,7 @@ class JoySafeterTaskStateMachine:
             )
         )
         await self.db.commit()
-        return result.rowcount > 0
+        return cast(CursorResult[Any], result).rowcount > 0
 
     async def reset_sandbox_scheduling_to_pending(self, sandbox_id: uuid.UUID) -> int:
         result = await self.db.execute(
@@ -214,11 +210,9 @@ class JoySafeterTaskStateMachine:
             )
         )
         await self.db.commit()
-        return result.rowcount
+        return cast(CursorResult[Any], result).rowcount
 
-    async def attach_sandbox_if_scheduling(
-        self, task_id: uuid.UUID, sandbox_id: uuid.UUID
-    ) -> bool:
+    async def attach_sandbox_if_scheduling(self, task_id: uuid.UUID, sandbox_id: uuid.UUID) -> bool:
         result = await self.db.execute(
             sa_update(JoySafeterTask)
             .where(
@@ -230,28 +224,20 @@ class JoySafeterTaskStateMachine:
             .values(sandbox_id=sandbox_id)
         )
         await self.db.commit()
-        return result.rowcount > 0
+        return cast(CursorResult[Any], result).rowcount > 0
 
     async def _get_task(self, task_id: uuid.UUID) -> Optional[JoySafeterTask]:
-        result = await self.db.execute(
-            select(JoySafeterTask).where(JoySafeterTask.id == task_id)
-        )
+        result = await self.db.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))
         return result.scalar_one_or_none()
 
-    async def _duration_ms_for_task(
-        self, task_id: uuid.UUID, completed_at: datetime
-    ) -> Optional[int]:
+    async def _duration_ms_for_task(self, task_id: uuid.UUID, completed_at: datetime) -> Optional[int]:
         started_at = (
-            await self.db.execute(
-                select(JoySafeterTask.started_at).where(JoySafeterTask.id == task_id)
-            )
+            await self.db.execute(select(JoySafeterTask.started_at).where(JoySafeterTask.id == task_id))
         ).scalar_one_or_none()
         return self._duration_ms(started_at, completed_at)
 
     @staticmethod
-    def _duration_ms(
-        started_at: Optional[datetime], completed_at: datetime
-    ) -> Optional[int]:
+    def _duration_ms(started_at: Optional[datetime], completed_at: datetime) -> Optional[int]:
         if started_at is None:
             return None
         return int((completed_at - started_at).total_seconds() * 1000)

@@ -66,6 +66,7 @@ _STOP_SENTINEL = object()
 class _PartialBatchError(Exception):
     """Raised when _batch_insert succeeds for some sessions but fails for others.
     Carries the failed events so _flush_buffer can retry them individually."""
+
     def __init__(self, failed_events: list):
         self.failed_events = failed_events
         super().__init__(f"{len(failed_events)} events failed in batch")
@@ -77,6 +78,7 @@ class _FlushRequest:
     Carries an asyncio.Event that the flush loop sets after the buffer
     has been written, so callers of flush() can await actual completion.
     """
+
     __slots__ = ("ack",)
 
     def __init__(self) -> None:
@@ -144,7 +146,8 @@ class EventBatchSender:
         except asyncio.TimeoutError:
             logger.warning(
                 "Event batch queue full for 10s (size=%d), dropping event for session %s",
-                self._queue.qsize(), event.session_id,
+                self._queue.qsize(),
+                event.session_id,
             )
 
     async def flush(self) -> None:
@@ -255,7 +258,7 @@ class EventBatchSender:
         count = len(buffer)
         logger.debug("Flushing %d events to DB", count)
         try:
-            inserted = await self._batch_insert(buffer)
+            await self._batch_insert(buffer)
             # Publish handled inside _batch_insert now (F4 regression fix)
         except _PartialBatchError as e:
             # Some sessions succeeded (already published inside _batch_insert),
@@ -268,7 +271,8 @@ class EventBatchSender:
         except Exception as e:
             logger.error(
                 "Batch insert failed (%d events), falling back to individual inserts: %s",
-                count, e,
+                count,
+                e,
             )
             await self._retry_individual(buffer)
 
@@ -288,9 +292,7 @@ class EventBatchSender:
                     if attempt == 0:
                         await asyncio.sleep(0.5)
                     else:
-                        logger.error(
-                            "Individual event insert failed after retry (event lost): %s", inner
-                        )
+                        logger.error("Individual event insert failed after retry (event lost): %s", inner)
 
     async def _batch_insert(self, events: list[BufferedEvent]) -> list[BufferedEvent]:
         from collections import defaultdict
@@ -311,7 +313,9 @@ class EventBatchSender:
             except Exception as e:
                 logger.error(
                     "Batch insert failed for session %s (%d events): %s",
-                    session_id, len(groups[session_id]), e,
+                    session_id,
+                    len(groups[session_id]),
+                    e,
                 )
                 failed_events.extend(groups[session_id])
 
@@ -329,9 +333,7 @@ class EventBatchSender:
             raise _PartialBatchError(failed_events)
         return all_inserted
 
-    async def _insert_session_group(
-        self, session_id, events: list[BufferedEvent]
-    ) -> list[BufferedEvent]:
+    async def _insert_session_group(self, session_id, events: list[BufferedEvent]) -> list[BufferedEvent]:
         """Insert events for a single session within its own transaction."""
         from sqlalchemy import func, select, text
         from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -368,7 +370,7 @@ class EventBatchSender:
                 if previous is not None
                 else None
             )
-            next_seq = base_seq
+            next_seq: int = base_seq or 0
 
             inserted: list[BufferedEvent] = []
             for e in events:
@@ -384,14 +386,12 @@ class EventBatchSender:
                 )
                 if e.id is not None:
                     values["id"] = e.id
-                stmt = pg_insert(JoySafeterSessionEvent).values(**values)
+                insert_stmt = pg_insert(JoySafeterSessionEvent).values(**values)
                 if e.id is not None:
                     # The event id is the PK, so a redelivered id becomes a no-op
                     # instead of a PK violation that would abort the whole batch.
-                    stmt = stmt.on_conflict_do_nothing(index_elements=["id"])
-                stmt = stmt.returning(
-                    JoySafeterSessionEvent.id, JoySafeterSessionEvent.seq
-                )
+                    insert_stmt = insert_stmt.on_conflict_do_nothing(index_elements=["id"])
+                stmt = insert_stmt.returning(JoySafeterSessionEvent.id, JoySafeterSessionEvent.seq)
                 row = (await db.execute(stmt)).first()
                 if row is None:
                     # Duplicate id: nothing inserted, so don't consume the seq.
@@ -452,7 +452,7 @@ class EventBatchSender:
                 if _is_duplicate_event(latest_event, event):
                     return None
 
-                seq = base_seq + 1
+                seq = (base_seq or 0) + 1
                 values: dict[str, Any] = dict(
                     session_id=event.session_id,
                     event_type=event.event_type,
@@ -461,14 +461,12 @@ class EventBatchSender:
                 )
                 if event.id is not None:
                     values["id"] = event.id
-                stmt = pg_insert(JoySafeterSessionEvent).values(**values)
+                insert_stmt = pg_insert(JoySafeterSessionEvent).values(**values)
                 if event.id is not None:
                     # Idempotent on the event-id PK: a redelivery (or a row the
                     # SessionStateSubscriber already wrote) is a no-op, not a crash.
-                    stmt = stmt.on_conflict_do_nothing(index_elements=["id"])
-                stmt = stmt.returning(
-                    JoySafeterSessionEvent.id, JoySafeterSessionEvent.seq
-                )
+                    insert_stmt = insert_stmt.on_conflict_do_nothing(index_elements=["id"])
+                stmt = insert_stmt.returning(JoySafeterSessionEvent.id, JoySafeterSessionEvent.seq)
                 row = (await db.execute(stmt)).first()
                 if row is None:
                     return None

@@ -46,15 +46,11 @@ async def session_id(db_session) -> uuid.UUID:
 
 
 @pytest.mark.asyncio
-async def test_duplicate_event_id_within_one_batch_inserts_once(
-    postgres_url, db_session, session_id, monkeypatch
-):
+async def test_duplicate_event_id_within_one_batch_inserts_once(postgres_url, db_session, session_id, monkeypatch):
     """Two events sharing an id in the SAME batch: the constraint must dedup it
     to one row instead of the commit's PK violation losing the entire batch."""
     engine = create_async_engine(postgres_url, poolclass=NullPool)
-    factory = async_sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
-    )
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
     monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
 
     dup_id = uuid.uuid4()
@@ -69,25 +65,19 @@ async def test_duplicate_event_id_within_one_batch_inserts_once(
         await engine.dispose()
 
     total = await db_session.scalar(
-        select(func.count())
-        .select_from(JoySafeterSessionEvent)
-        .where(JoySafeterSessionEvent.id == dup_id)
+        select(func.count()).select_from(JoySafeterSessionEvent).where(JoySafeterSessionEvent.id == dup_id)
     )
     assert total == 1, "a duplicate event id in one batch must persist exactly one row"
     assert len(inserted) == 1, "only the first occurrence of the id should be reported inserted"
 
 
 @pytest.mark.asyncio
-async def test_redelivered_event_id_across_batches_inserts_once(
-    postgres_url, db_session, session_id, monkeypatch
-):
+async def test_redelivered_event_id_across_batches_inserts_once(postgres_url, db_session, session_id, monkeypatch):
     """At-least-once transport: the same event id delivered in a later batch
     (a crash-then-redeliver, or the outbox relay re-publishing) must not create
     a second row."""
     engine = create_async_engine(postgres_url, poolclass=NullPool)
-    factory = async_sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
-    )
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
     monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
 
     eid = uuid.uuid4()
@@ -103,24 +93,18 @@ async def test_redelivered_event_id_across_batches_inserts_once(
     assert second == [], "a redelivery of the same id inserts nothing"
 
     total = await db_session.scalar(
-        select(func.count())
-        .select_from(JoySafeterSessionEvent)
-        .where(JoySafeterSessionEvent.id == eid)
+        select(func.count()).select_from(JoySafeterSessionEvent).where(JoySafeterSessionEvent.id == eid)
     )
     assert total == 1, "redelivery across batches must still leave exactly one row"
 
 
 @pytest.mark.asyncio
-async def test_distinct_events_get_gapless_seq_around_a_duplicate(
-    postgres_url, db_session, session_id, monkeypatch
-):
+async def test_distinct_events_get_gapless_seq_around_a_duplicate(postgres_url, db_session, session_id, monkeypatch):
     """A duplicate in the middle of a batch must not consume a seq number, so
     the surviving events stay densely ordered (1, 2, 3) — and id-less events
     still insert normally."""
     engine = create_async_engine(postgres_url, poolclass=NullPool)
-    factory = async_sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
-    )
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
     monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
 
     dup = uuid.uuid4()
@@ -153,14 +137,10 @@ async def test_distinct_events_get_gapless_seq_around_a_duplicate(
 
 
 @pytest.mark.asyncio
-async def test_write_single_is_idempotent_on_event_id(
-    postgres_url, db_session, session_id, monkeypatch
-):
+async def test_write_single_is_idempotent_on_event_id(postgres_url, db_session, session_id, monkeypatch):
     """The unbatched path (_write_single) must also dedup a redelivered id."""
     engine = create_async_engine(postgres_url, poolclass=NullPool)
-    factory = async_sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
-    )
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
     monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
 
     eid = uuid.uuid4()
@@ -176,8 +156,6 @@ async def test_write_single_is_idempotent_on_event_id(
     assert second is None, "a redelivered id must be a no-op in the single-write path"
 
     total = await db_session.scalar(
-        select(func.count())
-        .select_from(JoySafeterSessionEvent)
-        .where(JoySafeterSessionEvent.id == eid)
+        select(func.count()).select_from(JoySafeterSessionEvent).where(JoySafeterSessionEvent.id == eid)
     )
     assert total == 1, "the single-write path must leave exactly one row for a repeated id"

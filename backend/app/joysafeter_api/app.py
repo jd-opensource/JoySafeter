@@ -64,5 +64,4 @@ def register_websocket_routes(app: FastAPI) -> None:
         await _run_notification_loop(websocket, user_id)
 
 
-
 __all__ = ["create_api_app", "register_api_routes", "register_websocket_routes"]

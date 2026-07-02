@@ -54,9 +54,7 @@ class TaskScheduler:
             for task_id in task_ids:
                 await self._scheduling_semaphore.acquire()
                 logger.info("Scheduler claimed task {} from DB", task_id)
-                t = asyncio.create_task(
-                    self._schedule_task(task_id, already_claimed=True)
-                )
+                t = asyncio.create_task(self._schedule_task(task_id, already_claimed=True))
                 self._inflight_tasks.add(t)
                 t.add_done_callback(self._inflight_tasks.discard)
 
@@ -96,19 +94,17 @@ class TaskScheduler:
                     logger.error("Task {} not found after claim", task_id)
                     return
 
-                agent = await agent_svc.get_agent(
-                    task.agent_id, project_id=getattr(task, "project_id", None)
-                )
+                agent = await agent_svc.get_agent(task.agent_id, project_id=getattr(task, "project_id", None))
                 if not agent:
                     from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
-                    await task_svc.update_task_error(
-                        task_id, "Agent not found", JoySafeterTaskStatus.FAILED
-                    )
+
+                    await task_svc.update_task_error(task_id, "Agent not found", JoySafeterTaskStatus.FAILED)
                     return
 
                 if getattr(agent, "archived_at", None) is not None:
                     logger.warning("Agent {} is archived, cancelling task {}", task.agent_id, task_id)
                     from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
+
                     await task_svc.update_task_status(task_id, JoySafeterTaskStatus.CANCELLED)
                     return
 
@@ -139,25 +135,27 @@ class TaskScheduler:
 
                 env_ref = None
                 if session_id and task.chat_session_id:
-                    session = await session_svc.get_session(session_id)
-                    if session:
-                        env_ref = session.environment_ref
+                    fetched_session = await session_svc.get_session(session_id)
+                    if fetched_session:
+                        env_ref = fetched_session.environment_ref
                 if not env_ref:
                     env_ref = agent.environment_ref
 
                 from app.joysafeter_orchestrator.kernel.sandbox_resolver import image_for_provider
                 from app.joysafeter_shared.config.settings import joysafeter_config as _cfg
-                default_image = image_for_provider(
-                    getattr(agent, "engine_kind", None) or "", _cfg.sandbox_image
-                )
+
+                default_image = image_for_provider(getattr(agent, "engine_kind", None) or "", _cfg.sandbox_image)
 
                 resolved_image = default_image
                 networking = None
                 environment_config = {}
                 if env_ref:
                     from app.joysafeter_orchestrator.services import EnvironmentService
+
                     env_svc = EnvironmentService(db)
-                    environment = await env_svc.get_environment_by_ref(env_ref, project_id=getattr(agent, "project_id", None))
+                    environment = await env_svc.get_environment_by_ref(
+                        env_ref, project_id=getattr(agent, "project_id", None)
+                    )
                     if environment:
                         resolved_image = environment.image_tag or default_image
                         config = environment.config or {}
@@ -167,7 +165,7 @@ class TaskScheduler:
                             networking = net_cfg
                             if net_cfg.get("type") == "limited":
                                 allowed = list(net_cfg.get("allowed_hosts", []))
-                                for mcp in (agent.mcp_configs or []):
+                                for mcp in agent.mcp_configs or []:
                                     if isinstance(mcp, dict) and mcp.get("url"):
                                         host = _extract_host(mcp["url"])
                                         if host and host not in allowed:
@@ -175,12 +173,9 @@ class TaskScheduler:
                                 networking = {**net_cfg, "allowed_hosts": allowed}
 
                 from app.joysafeter_orchestrator.services import SecretService
+
                 secret_svc = SecretService(db)
-                project_id = (
-                    str(agent.project_id)
-                    if getattr(agent, "project_id", None) is not None
-                    else None
-                )
+                project_id = str(agent.project_id) if getattr(agent, "project_id", None) is not None else None
                 agent_env: dict[str, str] = {}
                 env_vars = environment_config.get("env_vars")
                 if isinstance(env_vars, dict):
@@ -190,9 +185,10 @@ class TaskScheduler:
                     agent_env = await secret_svc.merge_secret_refs_into_env(
                         agent_env, secret_refs, project_id=project_id
                     )
-                if getattr(agent, "secret_ref", None):
+                secret_ref_value = getattr(agent, "secret_ref", None)
+                if secret_ref_value:
                     agent_env = await secret_svc.merge_secret_refs_into_env(
-                        agent_env, [agent.secret_ref], project_id=project_id, override=True
+                        agent_env, [secret_ref_value], project_id=project_id, override=True
                     )
                 agent_env.update({str(k): str(v) for k, v in (agent.env or {}).items()})
                 secret_svc.apply_provider_aliases(agent_env)
@@ -200,7 +196,10 @@ class TaskScheduler:
             resolver = get_sandbox_resolver()
             if resolver:
                 resolved = await resolver.resolve(
-                    session_id, agent_env, image=resolved_image, networking=networking,
+                    session_id,
+                    agent_env,
+                    image=resolved_image,
+                    networking=networking,
                     engine_kind=getattr(agent, "engine_kind", None),
                     project_id=getattr(task, "project_id", None),
                 )
@@ -209,13 +208,12 @@ class TaskScheduler:
             else:
                 from app.joysafeter_orchestrator.services import SandboxService
                 from app.joysafeter_shared.config.settings import joysafeter_config
+
                 async with AsyncSessionLocal() as db:
                     sandbox_svc = SandboxService(db)
                     sandbox = await sandbox_svc.find_by_session(session_id)
                     fallback_image = resolved_image or joysafeter_config.sandbox_image
-                    requires_persistent_workspace = (
-                        joysafeter_config.sandbox_workspace_root is not None
-                    )
+                    requires_persistent_workspace = joysafeter_config.sandbox_workspace_root is not None
                     if not sandbox and not requires_persistent_workspace:
                         sandbox = await sandbox_svc.claim_from_pool(fallback_image, session_id)
                     if not sandbox:
@@ -271,9 +269,8 @@ class TaskScheduler:
             logger.error("Failed to schedule task {}: {}", task_id, e, exc_info=True)
             try:
                 from app.joysafeter_orchestrator.kernel.task_controller import TaskController
-                retry_count = await TaskController.failover_or_fail_task(
-                    task_id, f"Schedule failed: {e}"
-                )
+
+                retry_count = await TaskController.failover_or_fail_task(task_id, f"Schedule failed: {e}")
                 if retry_count is not None:
                     delay = TaskController.compute_retry_delay(retry_count, task_id)
                     await asyncio.sleep(delay)

@@ -2,12 +2,13 @@
 
 Ported from agentd/crates/joysafeter-store/src/redis_coord.rs.
 """
+
 import asyncio
 import json
 import logging
 import time
 import uuid
-from typing import Optional
+from typing import Optional, cast
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +38,7 @@ class RedisCoordinator:
 
     # --- Instance Registry ---
 
-    async def register_instance(
-        self, grpc_addr: str = "", http_addr: str = ""
-    ) -> None:
+    async def register_instance(self, grpc_addr: str = "", http_addr: str = "") -> None:
         key = f"joysafeter:instances:{self.instance_id}"
         pipe = self._redis.pipeline()
         pipe.hset(
@@ -70,9 +69,7 @@ class RedisCoordinator:
                 except Exception as e:
                     logger.warning("Heartbeat failed: %s", e)
 
-        self._heartbeat_task = asyncio.create_task(
-            _loop(), name="joysafeter-heartbeat"
-        )
+        self._heartbeat_task = asyncio.create_task(_loop(), name="joysafeter-heartbeat")
         return self._heartbeat_task
 
     # --- Sandbox Ownership ---
@@ -88,30 +85,22 @@ class RedisCoordinator:
 
     async def refresh_sandbox_owner(self, sandbox_id: uuid.UUID) -> None:
         key = f"joysafeter:sandbox_owner:{sandbox_id}"
-        await self._redis.eval(
-            REFRESH_IF_OWNER_LUA, 1, key, self.instance_id
-        )
+        await self._redis.eval(REFRESH_IF_OWNER_LUA, 1, key, self.instance_id)
 
     async def remove_sandbox_owner(self, sandbox_id: uuid.UUID) -> None:
         key = f"joysafeter:sandbox_owner:{sandbox_id}"
-        await self._redis.eval(
-            RELEASE_IF_OWNER_LUA, 1, key, self.instance_id
-        )
+        await self._redis.eval(RELEASE_IF_OWNER_LUA, 1, key, self.instance_id)
 
-    async def get_sandbox_owner(
-        self, sandbox_id: uuid.UUID
-    ) -> Optional[str]:
+    async def get_sandbox_owner(self, sandbox_id: uuid.UUID) -> Optional[str]:
         key = f"joysafeter:sandbox_owner:{sandbox_id}"
-        return await self._redis.get(key)
+        return cast(Optional[str], await self._redis.get(key))
 
     async def list_active_sandbox_owners(self) -> list[tuple[uuid.UUID, str]]:
         """Return (sandbox_id, owner_instance_id) pairs — matches Rust."""
         results: list[tuple[uuid.UUID, str]] = []
         cursor = 0
         while True:
-            cursor, keys = await self._redis.scan(
-                cursor, match="joysafeter:sandbox_owner:*", count=100
-            )
+            cursor, keys = await self._redis.scan(cursor, match="joysafeter:sandbox_owner:*", count=100)
             for key in keys:
                 key_str = key if isinstance(key, str) else key.decode()
                 uid_str = key_str.rsplit(":", 1)[-1]
@@ -128,15 +117,11 @@ class RedisCoordinator:
 
     # --- Task-Sandbox Mapping ---
 
-    async def set_task_sandbox(
-        self, task_id: uuid.UUID, sandbox_id: uuid.UUID
-    ) -> None:
+    async def set_task_sandbox(self, task_id: uuid.UUID, sandbox_id: uuid.UUID) -> None:
         key = f"joysafeter:task_sandbox:{task_id}"
         await self._redis.set(key, str(sandbox_id), ex=7200)
 
-    async def get_task_sandbox(
-        self, task_id: uuid.UUID
-    ) -> Optional[uuid.UUID]:
+    async def get_task_sandbox(self, task_id: uuid.UUID) -> Optional[uuid.UUID]:
         key = f"joysafeter:task_sandbox:{task_id}"
         val = await self._redis.get(key)
         if val:
@@ -154,16 +139,12 @@ class RedisCoordinator:
 
     async def try_acquire_lock(self, lock_name: str, ttl_sec: int) -> bool:
         key = f"joysafeter:lock:{lock_name}"
-        result = await self._redis.set(
-            key, self.instance_id, nx=True, ex=ttl_sec
-        )
+        result = await self._redis.set(key, self.instance_id, nx=True, ex=ttl_sec)
         return result is not None
 
     async def release_lock(self, lock_name: str) -> bool:
         key = f"joysafeter:lock:{lock_name}"
-        result = await self._redis.eval(
-            RELEASE_IF_OWNER_LUA, 1, key, self.instance_id
-        )
+        result = await self._redis.eval(RELEASE_IF_OWNER_LUA, 1, key, self.instance_id)
         return bool(result)
 
     # --- Pub/Sub Events ---
@@ -175,16 +156,16 @@ class RedisCoordinator:
         except Exception as e:
             logger.warning("Failed to publish task event: %s", e)
 
-    async def publish_session_event(
-        self, session_id: uuid.UUID, payload: str
-    ) -> None:
+    async def publish_session_event(self, session_id: uuid.UUID, payload: str) -> None:
         """Publish session event wrapped with source_instance — matches Rust."""
         channel = f"joysafeter:session_events:{session_id}"
         try:
-            wrapped = json.dumps({
-                "source_instance": self.instance_id,
-                "event": json.loads(payload),
-            })
+            wrapped = json.dumps(
+                {
+                    "source_instance": self.instance_id,
+                    "event": json.loads(payload),
+                }
+            )
             await self._redis.publish(channel, wrapped)
         except Exception as e:
             logger.warning("Failed to publish session event: %s", e)
@@ -208,9 +189,7 @@ class RedisCoordinator:
     async def push_to_global_queue(self, task_id: uuid.UUID) -> None:
         await self._redis.rpush("joysafeter:global_queue", str(task_id))
 
-    async def pop_from_global_queue(
-        self, timeout_secs: float
-    ) -> Optional[uuid.UUID]:
+    async def pop_from_global_queue(self, timeout_secs: float) -> Optional[uuid.UUID]:
         result = await self._redis.blpop("joysafeter:global_queue", timeout=int(timeout_secs))
         if result:
             _, val = result
@@ -221,9 +200,7 @@ class RedisCoordinator:
                 return None
         return None
 
-    async def push_to_sandbox_queue(
-        self, sandbox_id: uuid.UUID, task_id: uuid.UUID
-    ) -> None:
+    async def push_to_sandbox_queue(self, sandbox_id: uuid.UUID, task_id: uuid.UUID) -> None:
         key = f"joysafeter:sandbox_wakeup:{sandbox_id}"
         channel = f"joysafeter:sandbox_wakeup_channel:{sandbox_id}"
         pipe = self._redis.pipeline()
@@ -231,9 +208,7 @@ class RedisCoordinator:
         pipe.publish(channel, "1")
         await pipe.execute()
 
-    async def pop_from_sandbox_queue(
-        self, sandbox_id: uuid.UUID, timeout_secs: float
-    ) -> Optional[uuid.UUID]:
+    async def pop_from_sandbox_queue(self, sandbox_id: uuid.UUID, timeout_secs: float) -> Optional[uuid.UUID]:
         key = f"joysafeter:sandbox_wakeup:{sandbox_id}"
         claimed = await self._redis.get(key)
         if claimed is not None:
@@ -270,24 +245,22 @@ class RedisCoordinator:
                 pass
         return None
 
-    async def drain_sandbox_queue(
-        self, sandbox_id: uuid.UUID
-    ) -> list[uuid.UUID]:
+    async def drain_sandbox_queue(self, sandbox_id: uuid.UUID) -> list[uuid.UUID]:
         key = f"joysafeter:sandbox_wakeup:{sandbox_id}"
         await self._redis.delete(key)
         return []
 
     # --- Cross-Instance Commands ---
 
-    async def dispatch_cancel(
-        self, sandbox_id: str, reason: str = ""
-    ) -> None:
+    async def dispatch_cancel(self, sandbox_id: str, reason: str = "") -> None:
         """Publish a cancel command to all other instances — matches Rust."""
-        command = json.dumps({
-            "type": "cancel",
-            "sandbox_id": sandbox_id,
-            "reason": reason,
-        })
+        command = json.dumps(
+            {
+                "type": "cancel",
+                "sandbox_id": sandbox_id,
+                "reason": reason,
+            }
+        )
         instances = await self._list_instance_ids()
         for inst_id in instances:
             if inst_id == self.instance_id:
@@ -298,15 +271,15 @@ class RedisCoordinator:
             except Exception as e:
                 logger.warning("dispatch_cancel to %s failed: %s", inst_id, e)
 
-    async def dispatch_input(
-        self, sandbox_id: str, content: str
-    ) -> None:
+    async def dispatch_input(self, sandbox_id: str, content: str) -> None:
         """Publish an input command to all other instances — matches Rust."""
-        command = json.dumps({
-            "type": "input",
-            "sandbox_id": sandbox_id,
-            "content": content,
-        })
+        command = json.dumps(
+            {
+                "type": "input",
+                "sandbox_id": sandbox_id,
+                "content": content,
+            }
+        )
         instances = await self._list_instance_ids()
         for inst_id in instances:
             if inst_id == self.instance_id:
@@ -322,9 +295,7 @@ class RedisCoordinator:
         ids: list[str] = []
         cursor = 0
         while True:
-            cursor, keys = await self._redis.scan(
-                cursor, match="joysafeter:instances:*", count=100
-            )
+            cursor, keys = await self._redis.scan(cursor, match="joysafeter:instances:*", count=100)
             for key in keys:
                 key_str = key if isinstance(key, str) else key.decode()
                 ids.append(key_str.rsplit(":", 1)[-1])
@@ -332,9 +303,7 @@ class RedisCoordinator:
                 break
         return ids
 
-    async def send_instance_command(
-        self, target_instance_id: str, command: dict
-    ) -> None:
+    async def send_instance_command(self, target_instance_id: str, command: dict) -> None:
         channel = f"joysafeter:cmd:{target_instance_id}"
         await self._redis.publish(channel, json.dumps(command))
 

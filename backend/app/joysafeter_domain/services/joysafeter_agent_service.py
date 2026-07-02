@@ -5,7 +5,7 @@ AgentService — manages Agent lifecycle (v2 JoySafeterAgent).
 from __future__ import annotations
 
 import uuid
-from typing import Optional
+from typing import Any, Optional, cast
 
 from sqlalchemy import and_, func, select, update
 from sqlalchemy import delete as sa_delete
@@ -22,9 +22,7 @@ from app.joysafeter_domain.schemas.joysafeter_agent import (
 from app.joysafeter_shared.utils.datetime import utc_now  # noqa: E402
 
 
-def _merge_packed_items(
-    skills: list, agents: list, commands: list
-) -> list[dict]:
+def _merge_packed_items(skills: list, agents: list, commands: list) -> list[dict]:
     merged = []
     for item in skills:
         d = item.model_dump() if hasattr(item, "model_dump") else dict(item)
@@ -59,10 +57,12 @@ class JoySafeterAgentService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create_agent(self, req: JoySafeterCreateAgentRequest, project_id: Optional[str] = None) -> JoySafeterAgent:
+    async def create_agent(
+        self, req: JoySafeterCreateAgentRequest, project_id: Optional[str] = None
+    ) -> JoySafeterAgent:
         model_data = None
         if req.model:
-            model_data = req.model if isinstance(req.model, dict) else req.model.model_dump()
+            model_data = req.model if isinstance(req.model, str) else req.model.model_dump()
 
         agent = JoySafeterAgent(
             name=req.name,
@@ -96,9 +96,7 @@ class JoySafeterAgentService:
         ]
         if project_id is not None:
             conditions.append(JoySafeterAgent.project_id == project_id)
-        result = await self.db.execute(
-            select(JoySafeterAgent).where(and_(*conditions))
-        )
+        result = await self.db.execute(select(JoySafeterAgent).where(and_(*conditions)))
         return result.scalar_one_or_none()
 
     async def get_agent_by_name(self, name: str, project_id: Optional[str] = None) -> Optional[JoySafeterAgent]:
@@ -108,9 +106,7 @@ class JoySafeterAgentService:
         ]
         if project_id is not None:
             conditions.append(JoySafeterAgent.project_id == project_id)
-        result = await self.db.execute(
-            select(JoySafeterAgent).where(and_(*conditions))
-        )
+        result = await self.db.execute(select(JoySafeterAgent).where(and_(*conditions)))
         return result.scalar_one_or_none()
 
     async def list_agents(
@@ -126,9 +122,9 @@ class JoySafeterAgentService:
         if project_id is not None:
             q = q.where(JoySafeterAgent.project_id == project_id)
         if after_id:
-            cursor_created_at = select(JoySafeterAgent.created_at).where(
-                JoySafeterAgent.id == after_id
-            ).scalar_subquery()
+            cursor_created_at = (
+                select(JoySafeterAgent.created_at).where(JoySafeterAgent.id == after_id).scalar_subquery()
+            )
             q = q.where(JoySafeterAgent.created_at < cursor_created_at)
         q = q.order_by(JoySafeterAgent.created_at.desc()).limit(limit + 1)
         result = await self.db.execute(q)
@@ -147,9 +143,7 @@ class JoySafeterAgentService:
             return None
 
         if agent.version != req.version:
-            raise ValueError(
-                f"Version conflict: expected {req.version}, got {agent.version}"
-            )
+            raise ValueError(f"Version conflict: expected {req.version}, got {agent.version}")
 
         changed = False
         if req.name is not None and req.name != agent.name:
@@ -159,7 +153,9 @@ class JoySafeterAgentService:
             agent.engine_kind = req.engine_kind.value
             changed = True
         if req.model is not None:
-            model_data = req.model if isinstance(req.model, dict) else req.model.model_dump()
+            # ``req.model`` may be a bare model-name string or a structured
+            # config; both are stored verbatim in the JSONB ``model`` column.
+            model_data: Any = req.model if isinstance(req.model, str) else req.model.model_dump()
             if model_data != agent.model:
                 agent.model = model_data
                 changed = True
@@ -226,24 +222,30 @@ class JoySafeterAgentService:
             return False
 
         if not force:
-            from app.joysafeter_domain.models.joysafeter_task import TERMINAL_STATUSES, JoySafeterTask
-            active_q = select(func.count()).select_from(JoySafeterTask).where(
-                and_(
-                    JoySafeterTask.agent_id == agent_id,
-                    JoySafeterTask.status.notin_([s.value for s in TERMINAL_STATUSES]),
+            from app.joysafeter_domain.models.joysafeter_task import (
+                JOYSAFETER_TERMINAL_STATUSES,
+                JoySafeterTask,
+            )
+
+            active_q = (
+                select(func.count())
+                .select_from(JoySafeterTask)
+                .where(
+                    and_(
+                        JoySafeterTask.agent_id == agent_id,
+                        JoySafeterTask.status.notin_([s.value for s in JOYSAFETER_TERMINAL_STATUSES]),
+                    )
                 )
             )
             result = await self.db.execute(active_q)
-            if result.scalar() > 0:
+            if cast(int, result.scalar()) > 0:
                 raise ValueError("Agent has active tasks. Use force=true to delete.")
 
         agent.deleted_at = utc_now()
         await self.db.commit()
         return True
 
-    async def archive_agent(
-        self, agent_id: uuid.UUID, project_id: Optional[str] = None
-    ) -> bool:
+    async def archive_agent(self, agent_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
         agent = await self.get_agent(agent_id, project_id=project_id)
         if not agent:
             return False
@@ -260,9 +262,7 @@ class JoySafeterAgentService:
         limit: int = 20,
         before_version: Optional[int] = None,
     ) -> tuple[list[JoySafeterAgentVersion], bool]:
-        q = select(JoySafeterAgentVersion).where(
-            JoySafeterAgentVersion.agent_id == agent_id
-        )
+        q = select(JoySafeterAgentVersion).where(JoySafeterAgentVersion.agent_id == agent_id)
         if before_version is not None:
             q = q.where(JoySafeterAgentVersion.version < before_version)
         q = q.order_by(JoySafeterAgentVersion.version.desc()).limit(limit + 1)
@@ -305,48 +305,26 @@ class JoySafeterAgentService:
         if session_ids:
             # Delete session events
             await self.db.execute(
-                sa_delete(JoySafeterSessionEvent).where(
-                    JoySafeterSessionEvent.session_id.in_(session_ids)
-                )
+                sa_delete(JoySafeterSessionEvent).where(JoySafeterSessionEvent.session_id.in_(session_ids))
             )
             # Delete tasks linked to sessions
-            await self.db.execute(
-                sa_delete(JoySafeterTask).where(
-                    JoySafeterTask.chat_session_id.in_(session_ids)
-                )
-            )
+            await self.db.execute(sa_delete(JoySafeterTask).where(JoySafeterTask.chat_session_id.in_(session_ids)))
             # Delete session memory stores
             await self.db.execute(
-                sa_delete(JoySafeterSessionMemoryStore).where(
-                    JoySafeterSessionMemoryStore.session_id.in_(session_ids)
-                )
+                sa_delete(JoySafeterSessionMemoryStore).where(JoySafeterSessionMemoryStore.session_id.in_(session_ids))
             )
             # Delete sessions
-            await self.db.execute(
-                sa_delete(JoySafeterSession).where(
-                    JoySafeterSession.agent_id == agent_id
-                )
-            )
+            await self.db.execute(sa_delete(JoySafeterSession).where(JoySafeterSession.agent_id == agent_id))
 
         # Delete any tasks directly linked to agent (not via session)
-        await self.db.execute(
-            sa_delete(JoySafeterTask).where(JoySafeterTask.agent_id == agent_id)
-        )
+        await self.db.execute(sa_delete(JoySafeterTask).where(JoySafeterTask.agent_id == agent_id))
         # Delete agent versions
-        await self.db.execute(
-            sa_delete(JoySafeterAgentVersion).where(
-                JoySafeterAgentVersion.agent_id == agent_id
-            )
-        )
+        await self.db.execute(sa_delete(JoySafeterAgentVersion).where(JoySafeterAgentVersion.agent_id == agent_id))
         # Delete agent
-        await self.db.execute(
-            sa_delete(JoySafeterAgent).where(JoySafeterAgent.id == agent_id)
-        )
+        await self.db.execute(sa_delete(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))
         await self.db.commit()
 
-    async def archive_sessions_for_agent(
-        self, agent_id: uuid.UUID
-    ) -> list[uuid.UUID]:
+    async def archive_sessions_for_agent(self, agent_id: uuid.UUID) -> list[uuid.UUID]:
         # Find non-archived sessions for this agent
         result = await self.db.execute(
             select(JoySafeterSession.id).where(
@@ -368,9 +346,7 @@ class JoySafeterAgentService:
 
         return session_ids
 
-    async def get_agent_version_snapshot(
-        self, agent_id: uuid.UUID, version: int
-    ) -> Optional[dict]:
+    async def get_agent_version_snapshot(self, agent_id: uuid.UUID, version: int) -> Optional[dict]:
         result = await self.db.execute(
             select(JoySafeterAgentVersion).where(
                 and_(
@@ -384,9 +360,7 @@ class JoySafeterAgentService:
             return None
         return ver.snapshot
 
-    async def list_active_tasks_for_agent(
-        self, agent_id: uuid.UUID
-    ) -> list:
+    async def list_active_tasks_for_agent(self, agent_id: uuid.UUID) -> list:
         result = await self.db.execute(
             select(JoySafeterTask).where(
                 and_(

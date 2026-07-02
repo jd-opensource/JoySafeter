@@ -61,6 +61,7 @@ def create_app(*, lifespan, title_suffix: str = "", expose_docs: bool = True) ->
         if role == "worker":
             try:
                 from app.joysafeter_worker.lifecycle import _worker_tasks
+
                 dead_tasks = []
                 for task in _worker_tasks:
                     if task.done():
@@ -78,14 +79,17 @@ def create_app(*, lifespan, title_suffix: str = "", expose_docs: bool = True) ->
         # Check DB connectivity
         try:
             from app.joysafeter_shared.database import engine
+
             async with engine.connect() as conn:
                 from sqlalchemy import text
+
                 await conn.execute(text("SELECT 1"))
         except Exception as e:
             checks["status"] = "unhealthy"
             checks["db_error"] = str(e)
 
         from fastapi.responses import JSONResponse
+
         status_code = 200 if checks["status"] == "ok" else 503
         return JSONResponse(content=checks, status_code=status_code)
 

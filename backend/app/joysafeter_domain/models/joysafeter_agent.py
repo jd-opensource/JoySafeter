@@ -34,7 +34,10 @@ class JoySafeterAgent(JoySafeterBaseModel):
     )
 
     project_id: Mapped[Optional[str]] = mapped_column(
-        String(255), ForeignKey("joysafeter_organization_projects.id"), nullable=True, index=True,
+        String(255),
+        ForeignKey("joysafeter_organization_projects.id"),
+        nullable=True,
+        index=True,
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     engine_kind: Mapped[str] = mapped_column(Text, nullable=False, default="claude")
@@ -47,35 +50,23 @@ class JoySafeterAgent(JoySafeterBaseModel):
     tools: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     agents: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     commands: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
-    permission_mode: Mapped[str] = mapped_column(
-        Text, nullable=False, default="bypassPermissions"
-    )
-    metadata_: Mapped[dict] = mapped_column(
-        "metadata", JSONB, nullable=False, server_default="{}"
-    )
+    permission_mode: Mapped[str] = mapped_column(Text, nullable=False, default="bypassPermissions")
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, server_default="{}")
     multiagent: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     environment_ref: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     secret_ref: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    deleted_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    archived_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    versions: Mapped[list["JoySafeterAgentVersion"]] = relationship(
-        back_populates="agent", lazy="selectin"
-    )
+    versions: Mapped[list["JoySafeterAgentVersion"]] = relationship(back_populates="agent", lazy="selectin")
 
 
 class JoySafeterAgentVersion(Base, TimestampMixin):
     __tablename__ = "joysafeter_agent_versions"
     __table_args__ = (UniqueConstraint("agent_id", "version"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=lambda ctx=None: uuid7()
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=lambda ctx=None: uuid7())
     agent_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("joysafeter_agents.id"),

@@ -27,12 +27,17 @@ async def _retry_docker(coro_factory, max_retries: int = 2, delay: float = 1.0):
             if attempt < max_retries:
                 logger.warning(
                     "Docker operation failed (attempt %d/%d), retrying in %.1fs: %s",
-                    attempt + 1, max_retries + 1, delay, e,
+                    attempt + 1,
+                    max_retries + 1,
+                    delay,
+                    e,
                 )
                 await asyncio.sleep(delay)
             else:
                 raise
-    raise last_error  # unreachable, but satisfies type checker
+    if last_error is not None:
+        raise last_error  # unreachable, but satisfies type checker
+    raise RuntimeError("Docker operation failed with no captured error")
 
 
 class DockerSandboxProvider(SandboxProvider):
@@ -87,9 +92,7 @@ class DockerSandboxProvider(SandboxProvider):
             if self._network:
                 network_mode = self._network
             if "JOYSAFETER_ORCHESTRATOR_URL" not in env:
-                env["JOYSAFETER_ORCHESTRATOR_URL"] = (
-                    f"http://host.docker.internal:{joysafeter_config.grpc_port}"
-                )
+                env["JOYSAFETER_ORCHESTRATOR_URL"] = f"http://host.docker.internal:{joysafeter_config.grpc_port}"
             env.setdefault("JOYSAFETER_ORCHESTRATOR_URL", env["JOYSAFETER_ORCHESTRATOR_URL"])
 
         binds: list[str] = []
@@ -155,7 +158,8 @@ class DockerSandboxProvider(SandboxProvider):
 
         try:
             container = await self._docker.containers.create_or_replace(
-                name=container_name, config=config,
+                name=container_name,
+                config=config,
             )
         except aiodocker.exceptions.DockerError as e:
             raise RuntimeError(f"docker create failed: {e.message}") from e
@@ -191,6 +195,7 @@ class DockerSandboxProvider(SandboxProvider):
                 if "No such container" in msg or "304" in msg or "not running" in msg:
                     return
                 raise RuntimeError(f"docker stop failed: {msg}") from e
+
         await _retry_docker(_do_stop)
 
     async def destroy(self, external_id: str) -> None:
@@ -206,13 +211,15 @@ class DockerSandboxProvider(SandboxProvider):
             except aiodocker.exceptions.DockerError as e:
                 if "No such container" not in e.message:
                     raise RuntimeError(f"docker rm failed: {e.message}") from e
+
         await _retry_docker(_do_destroy)
 
     async def status(self, external_id: str) -> str:
         try:
             container = await self._docker.containers.get(external_id)
             info = await container.show()
-            return info.get("State", {}).get("Status", "unknown")
+            status: str = info.get("State", {}).get("Status", "unknown")
+            return status
         except Exception:
             return "unknown"
 
@@ -221,16 +228,15 @@ class DockerSandboxProvider(SandboxProvider):
     ) -> tuple[int, str, str]:
         try:
             container = await self._docker.containers.get(external_id)
-            exec_config: dict[str, Any] = {
-                "AttachStdout": True,
-                "AttachStderr": True,
-                "Cmd": cmd,
-            }
-            if env:
-                exec_config["Env"] = [f"{k}={v}" for k, v in env.items()]
+            environment = [f"{k}={v}" for k, v in env.items()] if env else None
 
-            exec_instance = await container.exec(exec_config)
-            resp = await exec_instance.start()
+            exec_instance = await container.exec(
+                cmd,
+                stdout=True,
+                stderr=True,
+                environment=environment,
+            )
+            resp = exec_instance.start()
             output = await resp.read_out()
 
             stdout_parts = []
@@ -252,23 +258,27 @@ class DockerSandboxProvider(SandboxProvider):
         try:
             containers = await self._docker.containers.list(
                 all=True,
-                filters=json.dumps({
-                    "label": ["joysafeter=true"],
-                    "status": ["running", "exited"],
-                }),
+                filters=json.dumps(
+                    {
+                        "label": ["joysafeter=true"],
+                        "status": ["running", "exited"],
+                    }
+                ),
             )
             results = []
             for c in containers:
                 info = c._container
                 names = info.get("Names", [])
                 name = names[0].lstrip("/") if names else ""
-                results.append({
-                    "id": info.get("Id", ""),
-                    "name": name,
-                    "status": info.get("State", ""),
-                    "image": info.get("Image", ""),
-                    "labels": info.get("Labels", {}) or {},
-                })
+                results.append(
+                    {
+                        "id": info.get("Id", ""),
+                        "name": name,
+                        "status": info.get("State", ""),
+                        "image": info.get("Image", ""),
+                        "labels": info.get("Labels", {}) or {},
+                    }
+                )
             return results
         except Exception:
             return []
@@ -279,9 +289,11 @@ class DockerSandboxProvider(SandboxProvider):
             info = await container.show()
         except Exception:
             return {
-                "stage": "provider_failed", "progress": 0,
+                "stage": "provider_failed",
+                "progress": 0,
                 "message": "Container not found",
-                "complete": False, "error": True,
+                "complete": False,
+                "error": True,
             }
 
         state = info.get("State", {})
@@ -293,28 +305,37 @@ class DockerSandboxProvider(SandboxProvider):
 
         if running:
             return {
-                "stage": "runtime_booting", "progress": 90,
+                "stage": "runtime_booting",
+                "progress": 90,
                 "message": "Container is running, waiting for runner ready",
-                "complete": True, "error": False,
+                "complete": True,
+                "error": False,
             }
         elif restarting or "created" in docker_status or "starting" in docker_status:
             return {
-                "stage": "container_starting", "progress": 60,
+                "stage": "container_starting",
+                "progress": 60,
                 "message": "Container is starting",
-                "complete": False, "error": False,
+                "complete": False,
+                "error": False,
             }
         elif "exited" in docker_status or "dead" in docker_status:
             msg = error_str if error_str else f"Container exited with code {exit_code}"
             return {
-                "stage": "provider_failed", "progress": 100,
+                "stage": "provider_failed",
+                "progress": 100,
                 "message": "Container exited before runtime ready",
-                "complete": True, "error": True, "error_message": msg,
+                "complete": True,
+                "error": True,
+                "error_message": msg,
             }
         else:
             return {
-                "stage": "provider_pending", "progress": 40,
+                "stage": "provider_pending",
+                "progress": 40,
                 "message": f"Provider state: {docker_status}",
-                "complete": False, "error": False,
+                "complete": False,
+                "error": False,
             }
 
     async def setup_networking(self, sandbox_id: uuid.UUID, networking: dict) -> None:
@@ -328,9 +349,7 @@ class DockerSandboxProvider(SandboxProvider):
         if self._envoy_manager:
             await self._envoy_manager.teardown_for_sandbox(sandbox_id)
 
-    async def inject_files(
-        self, external_id: str, session_id: uuid.UUID
-    ) -> None:
+    async def inject_files(self, external_id: str, session_id: uuid.UUID) -> None:
         """Inject session files into a running Docker container via docker cp."""
         import os
         import tempfile
@@ -395,7 +414,8 @@ class DockerSandboxProvider(SandboxProvider):
 
     async def _exec_docker(self, *args: str) -> None:
         proc = await asyncio.subprocess.create_subprocess_exec(
-            "docker", *args,
+            "docker",
+            *args,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )

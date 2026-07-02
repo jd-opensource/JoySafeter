@@ -48,7 +48,10 @@ class JoySafeterSession(JoySafeterBaseModel):
     )
 
     project_id: Mapped[Optional[str]] = mapped_column(
-        String(255), ForeignKey("joysafeter_organization_projects.id"), nullable=True, index=True,
+        String(255),
+        ForeignKey("joysafeter_organization_projects.id"),
+        nullable=True,
+        index=True,
     )
     agent_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -65,24 +68,19 @@ class JoySafeterSession(JoySafeterBaseModel):
     )
     active_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    metadata_: Mapped[dict] = mapped_column(
-        "metadata", JSONB, nullable=False, server_default="{}"
-    )
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, server_default="{}")
     vault_ids: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     agent_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     agent_snapshot: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     environment_ref: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_harness_session_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_work_dir: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    last_sandbox_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
-    archived_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    last_sandbox_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     events: Mapped[list["JoySafeterSessionEvent"]] = relationship(
-        back_populates="session", lazy="selectin",
+        back_populates="session",
+        lazy="selectin",
         cascade="all, delete-orphan",
     )
 
@@ -98,9 +96,7 @@ class JoySafeterSessionEvent(Base):
         Index("idx_cse_session_processed_event", "session_id", "processed_at", "event_type"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=lambda ctx=None: uuid7()
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=lambda ctx=None: uuid7())
     session_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("joysafeter_sessions.id"),
@@ -114,8 +110,6 @@ class JoySafeterSessionEvent(Base):
         nullable=False,
         server_default=func.now(),
     )
-    processed_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     session: Mapped["JoySafeterSession"] = relationship(back_populates="events")

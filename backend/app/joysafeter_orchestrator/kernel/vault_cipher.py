@@ -38,9 +38,7 @@ class VaultCipher:
 
     def __init__(self, key: bytes) -> None:
         if len(key) != _KEY_LENGTH:
-            raise ValueError(
-                f"Vault encryption key must be {_KEY_LENGTH} bytes, got {len(key)}"
-            )
+            raise ValueError(f"Vault encryption key must be {_KEY_LENGTH} bytes, got {len(key)}")
         self._key = key
         self._aesgcm = AESGCM(key)
 
@@ -62,8 +60,7 @@ class VaultCipher:
         key = _parse_vault_key(raw)
         if key is None:
             logger.warning(
-                "JOYSAFETER_VAULT_ENCRYPTION_KEY is set but could not be "
-                "parsed as a 32-byte hex or base64 key"
+                "JOYSAFETER_VAULT_ENCRYPTION_KEY is set but could not be parsed as a 32-byte hex or base64 key"
             )
             return None
         return cls(key)
@@ -81,7 +78,7 @@ class VaultCipher:
         if not value.startswith(_ENC_PREFIX):
             return value
 
-        encoded = value[len(_ENC_PREFIX):]
+        encoded = value[len(_ENC_PREFIX) :]
         raw = base64.b64decode(encoded)
         if len(raw) < _NONCE_LENGTH:
             raise ValueError("Encrypted vault value is too short")

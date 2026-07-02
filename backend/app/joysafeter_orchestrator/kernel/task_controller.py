@@ -46,18 +46,21 @@ class TaskController:
 
             try:
                 from app.joysafeter_orchestrator.lifespan import get_redis_coordinator
+
                 coordinator = get_redis_coordinator()
                 redis_available = coordinator is not None
                 task_svc = TaskService(db)
                 sandbox_svc = SandboxService(db)
 
                 # Running tasks that exceeded their timeout -> failed
-                recovered_result = await db.execute(text(
-                    "SELECT id FROM joysafeter_tasks"
-                    " WHERE status = 'running'"
-                    " AND started_at IS NOT NULL"
-                    " AND started_at + (COALESCE(timeout_sec, 7200) * interval '1 second') < NOW()"
-                ))
+                recovered_result = await db.execute(
+                    text(
+                        "SELECT id FROM joysafeter_tasks"
+                        " WHERE status = 'running'"
+                        " AND started_at IS NOT NULL"
+                        " AND started_at + (COALESCE(timeout_sec, 7200) * interval '1 second') < NOW()"
+                    )
+                )
                 recovered_tasks = recovered_result.all()
                 for row in recovered_tasks:
                     await task_svc.update_task_error(
@@ -68,17 +71,15 @@ class TaskController:
 
                 # DB pending tasks are the durable source of truth; enqueue all
                 # of them on startup to compensate in-memory/Redis queue loss.
-                pending_result = await db.execute(text(
-                    "SELECT id FROM joysafeter_tasks WHERE status = 'pending'"
-                ))
+                pending_result = await db.execute(text("SELECT id FROM joysafeter_tasks WHERE status = 'pending'"))
                 pending_tasks = pending_result.all()
                 for row in pending_tasks:
                     await self._queue.push_to_global(row[0])
 
                 # Scheduling tasks -> pending (unconditional, no time filter)
-                stale_scheduling_result = await db.execute(text(
-                    "SELECT id FROM joysafeter_tasks WHERE status = 'scheduling'"
-                ))
+                stale_scheduling_result = await db.execute(
+                    text("SELECT id FROM joysafeter_tasks WHERE status = 'scheduling'")
+                )
                 stale_scheduling = stale_scheduling_result.all()
                 for row in stale_scheduling:
                     await task_svc.increment_retry(row[0])
@@ -100,11 +101,13 @@ class TaskController:
                 session_lifecycle = JoySafeterSessionLifecycleService(db)
 
                 # Reset sessions stuck in 'rescheduling'
-                stale_rescheduling_result = await db.execute(text(
-                    "SELECT id FROM joysafeter_sessions"
-                    " WHERE status = 'rescheduling'"
-                    " AND updated_at < NOW() - INTERVAL '5 minutes'"
-                ))
+                stale_rescheduling_result = await db.execute(
+                    text(
+                        "SELECT id FROM joysafeter_sessions"
+                        " WHERE status = 'rescheduling'"
+                        " AND updated_at < NOW() - INTERVAL '5 minutes'"
+                    )
+                )
                 stale_rescheduling_sessions = stale_rescheduling_result.all()
 
                 for row in stale_rescheduling_sessions:
@@ -118,16 +121,18 @@ class TaskController:
                     )
 
                 # Reset sessions stuck in 'running' with no active tasks
-                stale_running_result = await db.execute(text(
-                    "SELECT id FROM joysafeter_sessions"
-                    " WHERE status = 'running'"
-                    " AND updated_at < NOW() - INTERVAL '5 minutes'"
-                    " AND NOT EXISTS ("
-                    "     SELECT 1 FROM joysafeter_tasks"
-                    "     WHERE joysafeter_tasks.chat_session_id = joysafeter_sessions.id"
-                    "     AND joysafeter_tasks.status IN ('pending', 'scheduling', 'running')"
-                    " )"
-                ))
+                stale_running_result = await db.execute(
+                    text(
+                        "SELECT id FROM joysafeter_sessions"
+                        " WHERE status = 'running'"
+                        " AND updated_at < NOW() - INTERVAL '5 minutes'"
+                        " AND NOT EXISTS ("
+                        "     SELECT 1 FROM joysafeter_tasks"
+                        "     WHERE joysafeter_tasks.chat_session_id = joysafeter_sessions.id"
+                        "     AND joysafeter_tasks.status IN ('pending', 'scheduling', 'running')"
+                        " )"
+                    )
+                )
                 stale_running_sessions = stale_running_result.all()
 
                 for row in stale_running_sessions:
@@ -172,12 +177,16 @@ class TaskController:
                 if not locked:
                     return
 
-                rows = (await db.execute(text(
-                    "SELECT id, sandbox_id, chat_session_id FROM joysafeter_tasks"
-                    " WHERE status = 'running'"
-                    " AND started_at IS NOT NULL"
-                    " AND started_at + (COALESCE(timeout_sec, 7200) * interval '1 second') < NOW()"
-                ))).all()
+                rows = (
+                    await db.execute(
+                        text(
+                            "SELECT id, sandbox_id, chat_session_id FROM joysafeter_tasks"
+                            " WHERE status = 'running'"
+                            " AND started_at IS NOT NULL"
+                            " AND started_at + (COALESCE(timeout_sec, 7200) * interval '1 second') < NOW()"
+                        )
+                    )
+                ).all()
                 task_svc = TaskService(db)
                 session_lifecycle = JoySafeterSessionLifecycleService(db)
 
@@ -192,10 +201,14 @@ class TaskController:
                     )
 
                     if session_id is not None:
-                        is_running = (await db.execute(
-                            text("SELECT EXISTS(SELECT 1 FROM joysafeter_sessions WHERE id = :sid AND status = 'running')"),
-                            {"sid": session_id},
-                        )).scalar()
+                        is_running = (
+                            await db.execute(
+                                text(
+                                    "SELECT EXISTS(SELECT 1 FROM joysafeter_sessions WHERE id = :sid AND status = 'running')"
+                                ),
+                                {"sid": session_id},
+                            )
+                        ).scalar()
 
                         if is_running:
                             await session_lifecycle.transition_and_emit(
@@ -223,16 +236,20 @@ class TaskController:
         async with AsyncSessionLocal() as db:
             locked = False
             try:
-                lock_result = await db.execute(text("SELECT pg_try_advisory_lock(hashtext('task_scheduling_watchdog'))"))
+                lock_result = await db.execute(
+                    text("SELECT pg_try_advisory_lock(hashtext('task_scheduling_watchdog'))")
+                )
                 locked = bool(lock_result.scalar())
                 if not locked:
                     return
 
-                result = await db.execute(text(
-                    "SELECT id, retry_count, max_retries FROM joysafeter_tasks"
-                    " WHERE status = 'scheduling'"
-                    " AND updated_at < NOW() - INTERVAL '2 minutes'"
-                ))
+                result = await db.execute(
+                    text(
+                        "SELECT id, retry_count, max_retries FROM joysafeter_tasks"
+                        " WHERE status = 'scheduling'"
+                        " AND updated_at < NOW() - INTERVAL '2 minutes'"
+                    )
+                )
                 rows = result.all()
                 task_svc = TaskService(db)
                 requeue_ids = []
@@ -243,7 +260,9 @@ class TaskController:
                     if retry_count >= max_retries:
                         logger.warning(
                             "Task %s stuck in scheduling >2min and retries exhausted (%d/%d), marking failed",
-                            task_id, retry_count, max_retries,
+                            task_id,
+                            retry_count,
+                            max_retries,
                         )
                         await task_svc.update_task_error(
                             task_id,
@@ -274,12 +293,13 @@ class TaskController:
                 if not locked:
                     return
 
-                rows = (await db.execute(text(
-                    "SELECT id FROM joysafeter_tasks"
-                    " WHERE status = 'pending'"
-                    " ORDER BY created_at ASC"
-                    " LIMIT 500"
-                ))).all()
+                rows = (
+                    await db.execute(
+                        text(
+                            "SELECT id FROM joysafeter_tasks WHERE status = 'pending' ORDER BY created_at ASC LIMIT 500"
+                        )
+                    )
+                ).all()
                 for row in rows:
                     await self._queue.push_to_global(row[0])
                 if rows:

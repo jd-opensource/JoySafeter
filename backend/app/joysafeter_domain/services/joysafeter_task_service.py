@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from sqlalchemy import and_, func, select, text
 from sqlalchemy import update as sa_update
@@ -27,7 +27,6 @@ class JoySafeterTaskService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.state_machine = JoySafeterTaskStateMachine(db)
-
 
     async def create_task(
         self,
@@ -77,14 +76,12 @@ class JoySafeterTaskService:
         else:
             task_id = (
                 await self.db.execute(
-                    select(JoySafeterTask.id).where(
-                        JoySafeterTask.idempotency_key == idempotency_key
-                    )
+                    select(JoySafeterTask.id).where(JoySafeterTask.idempotency_key == idempotency_key)
                 )
             ).scalar_one()
-        task = await self.get_task(task_id)
-        assert task is not None
-        return task
+        fetched = await self.get_task(task_id)
+        assert fetched is not None
+        return fetched
 
     async def get_by_idempotency_key(
         self, idempotency_key: str, project_id: Optional[str] = None
@@ -101,15 +98,11 @@ class JoySafeterTaskService:
         result = await self.db.execute(select(JoySafeterTask).where(and_(*conditions)))
         return result.scalar_one_or_none()
 
-    async def get_task(
-        self, task_id: uuid.UUID, project_id: Optional[str] = None
-    ) -> Optional[JoySafeterTask]:
+    async def get_task(self, task_id: uuid.UUID, project_id: Optional[str] = None) -> Optional[JoySafeterTask]:
         conditions = [JoySafeterTask.id == task_id]
         if project_id is not None:
             conditions.append(JoySafeterTask.project_id == project_id)
-        result = await self.db.execute(
-            select(JoySafeterTask).where(and_(*conditions))
-        )
+        result = await self.db.execute(select(JoySafeterTask).where(and_(*conditions)))
         return result.scalar_one_or_none()
 
     async def list_tasks_by_agent(
@@ -174,9 +167,7 @@ class JoySafeterTaskService:
 
     async def update_task_chat_session(self, task_id: uuid.UUID, session_id: uuid.UUID) -> None:
         await self.db.execute(
-            sa_update(JoySafeterTask)
-            .where(JoySafeterTask.id == task_id)
-            .values(chat_session_id=session_id)
+            sa_update(JoySafeterTask).where(JoySafeterTask.id == task_id).values(chat_session_id=session_id)
         )
         await self.db.commit()
 
@@ -199,9 +190,7 @@ class JoySafeterTaskService:
         )
         return list(result.scalars().all())
 
-    async def next_scheduling_task_for_sandbox(
-        self, sandbox_id: uuid.UUID
-    ) -> Optional[uuid.UUID]:
+    async def next_scheduling_task_for_sandbox(self, sandbox_id: uuid.UUID) -> Optional[uuid.UUID]:
         result = await self.db.execute(
             select(JoySafeterTask.id)
             .where(
@@ -215,14 +204,10 @@ class JoySafeterTaskService:
         )
         return result.scalar_one_or_none()
 
-    async def claim_next_sandbox_task_for_running(
-        self, sandbox_id: uuid.UUID
-    ) -> Optional[uuid.UUID]:
+    async def claim_next_sandbox_task_for_running(self, sandbox_id: uuid.UUID) -> Optional[uuid.UUID]:
         return await self.state_machine.claim_next_sandbox_task_for_running(sandbox_id)
 
-    async def list_recoverable_tasks_by_sandbox(
-        self, sandbox_id: uuid.UUID
-    ) -> list[uuid.UUID]:
+    async def list_recoverable_tasks_by_sandbox(self, sandbox_id: uuid.UUID) -> list[uuid.UUID]:
         result = await self.db.execute(
             select(JoySafeterTask.id)
             .where(
@@ -253,9 +238,7 @@ class JoySafeterTaskService:
         if project_id is not None:
             conditions.append(JoySafeterTask.project_id == project_id)
         result = await self.db.execute(
-            select(JoySafeterTask)
-            .where(and_(*conditions))
-            .order_by(JoySafeterTask.created_at.asc())
+            select(JoySafeterTask).where(and_(*conditions)).order_by(JoySafeterTask.created_at.asc())
         )
         return list(result.scalars().all())
 
@@ -275,32 +258,20 @@ class JoySafeterTaskService:
         return await self.state_machine.fail_with_error(task_id, error, new_status)
 
     async def update_task_output(self, task_id: uuid.UUID, output: str) -> None:
-        await self.db.execute(
-            sa_update(JoySafeterTask)
-            .where(JoySafeterTask.id == task_id)
-            .values(output=output)
-        )
+        await self.db.execute(sa_update(JoySafeterTask).where(JoySafeterTask.id == task_id).values(output=output))
         await self.db.commit()
 
     async def update_task_usage(self, task_id: uuid.UUID, usage: dict) -> None:
-        await self.db.execute(
-            sa_update(JoySafeterTask)
-            .where(JoySafeterTask.id == task_id)
-            .values(usage=usage)
-        )
+        await self.db.execute(sa_update(JoySafeterTask).where(JoySafeterTask.id == task_id).values(usage=usage))
         await self.db.commit()
 
     async def update_task_sandbox(self, task_id: uuid.UUID, sandbox_id: uuid.UUID) -> None:
         await self.db.execute(
-            sa_update(JoySafeterTask)
-            .where(JoySafeterTask.id == task_id)
-            .values(sandbox_id=sandbox_id)
+            sa_update(JoySafeterTask).where(JoySafeterTask.id == task_id).values(sandbox_id=sandbox_id)
         )
         await self.db.commit()
 
-    async def attach_sandbox_if_scheduling(
-        self, task_id: uuid.UUID, sandbox_id: uuid.UUID
-    ) -> bool:
+    async def attach_sandbox_if_scheduling(self, task_id: uuid.UUID, sandbox_id: uuid.UUID) -> bool:
         return await self.state_machine.attach_sandbox_if_scheduling(task_id, sandbox_id)
 
     async def increment_retry(self, task_id: uuid.UUID) -> bool:
@@ -318,7 +289,7 @@ class JoySafeterTaskService:
                 )
             )
         )
-        return result.scalar() > 0
+        return cast(int, result.scalar()) > 0
 
     async def find_overdue_tasks(self, cutoff: datetime) -> list[JoySafeterTask]:
         result = await self.db.execute(
@@ -326,9 +297,7 @@ class JoySafeterTaskService:
                 and_(
                     JoySafeterTask.status == JoySafeterTaskStatus.RUNNING.value,
                     JoySafeterTask.started_at.isnot(None),
-                    text(
-                        "started_at + (COALESCE(timeout_sec, 7200) * interval '1 second') < NOW()"
-                    ),
+                    text("started_at + (COALESCE(timeout_sec, 7200) * interval '1 second') < NOW()"),
                 )
             )
         )

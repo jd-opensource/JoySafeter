@@ -37,6 +37,7 @@ class AdapterRegistry:
         mock_enabled = os.getenv("JOYSAFETER_MOCK_ADAPTER", "").lower() in ("1", "true")
         if mock_enabled:
             from app.joysafeter_orchestrator.runtime.mock_adapter import MockAdapter
+
             mock = MockAdapter()
             registry._adapters["mock"] = mock
             logger.info("Mock adapter registered (JOYSAFETER_MOCK_ADAPTER=1)")

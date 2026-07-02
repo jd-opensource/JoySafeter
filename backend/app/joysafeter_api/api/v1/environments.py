@@ -197,13 +197,10 @@ async def delete_environment(
     if not env:
         raise HTTPException(404, "Environment not found")
 
-    if await svc.environment_is_referenced_by_sessions(
-        env.name, env.id, project_id=auth_ctx.project_id
-    ):
+    if await svc.environment_is_referenced_by_sessions(env.name, env.id, project_id=auth_ctx.project_id):
         raise HTTPException(
             409,
-            "Environment is referenced by one or more active sessions. "
-            "Archive or remove those sessions first.",
+            "Environment is referenced by one or more active sessions. Archive or remove those sessions first.",
         )
 
     ok = await svc.delete_environment(env_id, project_id=auth_ctx.project_id)

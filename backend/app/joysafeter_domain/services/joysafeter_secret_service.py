@@ -3,6 +3,7 @@ from typing import Optional
 
 from sqlalchemy import and_, delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_secret import JoySafeterSecret
@@ -69,8 +70,7 @@ class SecretService:
     def get_masked_secret_data(self, secret: JoySafeterSecret | None) -> dict[str, str]:
         data = self.get_secret_data(secret)
         return {
-            key: _mask_secret_value(value) if _is_sensitive_secret_key(key) else value
-            for key, value in data.items()
+            key: _mask_secret_value(value) if _is_sensitive_secret_key(key) else value for key, value in data.items()
         }
 
     @staticmethod
@@ -120,17 +120,13 @@ class SecretService:
             ):
                 stored_value = existing_stored[key_str]
                 next_data[key_str] = (
-                    stored_value
-                    if stored_value.startswith("enc:")
-                    else self._cipher.encrypt(existing_plain[key_str])
+                    stored_value if stored_value.startswith("enc:") else self._cipher.encrypt(existing_plain[key_str])
                 )
             else:
                 next_data[key_str] = self._cipher.encrypt(value_str)
         return next_data
 
-    async def create_secret(
-        self, req: CreateSecretRequest, project_id: Optional[str] = None
-    ) -> JoySafeterSecret:
+    async def create_secret(self, req: CreateSecretRequest, project_id: Optional[str] = None) -> JoySafeterSecret:
         # Purge any soft-deleted row with the same name before inserting
         await self.db.execute(
             delete(JoySafeterSecret).where(
@@ -168,48 +164,37 @@ class SecretService:
         )
         return result.scalar_one_or_none()
 
-    async def get_secret_by_name(
-        self, name: str, project_id: Optional[str] = None
-    ) -> Optional[JoySafeterSecret]:
+    async def get_secret_by_name(self, name: str, project_id: Optional[str] = None) -> Optional[JoySafeterSecret]:
         conditions = [
             JoySafeterSecret.name == name,
             JoySafeterSecret.deleted_at.is_(None),
         ]
         if project_id:
             conditions.append(JoySafeterSecret.project_id == project_id)
-        result = await self.db.execute(
-            select(JoySafeterSecret).where(and_(*conditions))
-        )
+        result = await self.db.execute(select(JoySafeterSecret).where(and_(*conditions)))
         return result.scalar_one_or_none()
 
-    async def get_default_secret(
-        self, project_id: Optional[str] = None
-    ) -> Optional[JoySafeterSecret]:
-        conditions = [
+    async def get_default_secret(self, project_id: Optional[str] = None) -> Optional[JoySafeterSecret]:
+        conditions: list[ColumnElement[bool]] = [
             JoySafeterSecret.is_default.is_(True),
             JoySafeterSecret.deleted_at.is_(None),
         ]
         if project_id:
             conditions.append(JoySafeterSecret.project_id == project_id)
         result = await self.db.execute(
-            select(JoySafeterSecret)
-            .where(and_(*conditions))
-            .order_by(JoySafeterSecret.updated_at.desc())
-            .limit(1)
+            select(JoySafeterSecret).where(and_(*conditions)).order_by(JoySafeterSecret.updated_at.desc()).limit(1)
         )
         return result.scalar_one_or_none()
 
     async def clear_default_secret(self, project_id: Optional[str] = None) -> None:
-        conditions = [
+        conditions: list[ColumnElement[bool]] = [
             JoySafeterSecret.is_default.is_(True),
             JoySafeterSecret.deleted_at.is_(None),
         ]
         if project_id:
             conditions.append(JoySafeterSecret.project_id == project_id)
         await self.db.execute(
-            update(JoySafeterSecret)
-            .where(and_(*conditions))
-            .values(is_default=False, updated_at=utc_now())
+            update(JoySafeterSecret).where(and_(*conditions)).values(is_default=False, updated_at=utc_now())
         )
         await self.db.flush()
 
@@ -239,17 +224,13 @@ class SecretService:
             q = q.where(JoySafeterSecret.project_id == project_id)
         if after_id:
             q = q.where(JoySafeterSecret.id < after_id)
-        q = q.order_by(
-            JoySafeterSecret.is_default.desc(), JoySafeterSecret.created_at.desc()
-        ).limit(limit + 1)
+        q = q.order_by(JoySafeterSecret.is_default.desc(), JoySafeterSecret.created_at.desc()).limit(limit + 1)
         result = await self.db.execute(q)
         secrets = list(result.scalars().all())
         has_more = len(secrets) > limit
         return secrets[:limit], has_more
 
-    async def update_secret(
-        self, secret_id: uuid.UUID, req: UpdateSecretRequest
-    ) -> Optional[JoySafeterSecret]:
+    async def update_secret(self, secret_id: uuid.UUID, req: UpdateSecretRequest) -> Optional[JoySafeterSecret]:
         secret = await self.get_secret(secret_id)
         if not secret:
             return None
@@ -275,14 +256,10 @@ class SecretService:
 
     async def hard_delete_secret(self, secret_id: uuid.UUID) -> None:
         """Physical DELETE FROM joysafeter_secrets WHERE id = :id."""
-        await self.db.execute(
-            delete(JoySafeterSecret).where(JoySafeterSecret.id == secret_id)
-        )
+        await self.db.execute(delete(JoySafeterSecret).where(JoySafeterSecret.id == secret_id))
         await self.db.commit()
 
-    async def secret_is_referenced(
-        self, name: str, project_id: Optional[str] = None
-    ) -> bool:
+    async def secret_is_referenced(self, name: str, project_id: Optional[str] = None) -> bool:
         """Check if any agent has secret_ref = name AND deleted_at IS NULL."""
         conditions = [
             JoySafeterAgent.secret_ref == name,
@@ -290,14 +267,10 @@ class SecretService:
         ]
         if project_id:
             conditions.append(JoySafeterAgent.project_id == project_id)
-        result = await self.db.execute(
-            select(JoySafeterAgent.id).where(and_(*conditions)).limit(1)
-        )
+        result = await self.db.execute(select(JoySafeterAgent.id).where(and_(*conditions)).limit(1))
         return result.scalar_one_or_none() is not None
 
-    async def secret_is_referenced_by_agent(
-        self, name: str, project_id: Optional[str] = None
-    ) -> Optional[str]:
+    async def secret_is_referenced_by_agent(self, name: str, project_id: Optional[str] = None) -> Optional[str]:
         """Return the name of the first agent referencing this secret, or None."""
         conditions = [
             JoySafeterAgent.secret_ref == name,
@@ -305,7 +278,5 @@ class SecretService:
         ]
         if project_id:
             conditions.append(JoySafeterAgent.project_id == project_id)
-        result = await self.db.execute(
-            select(JoySafeterAgent.name).where(and_(*conditions)).limit(1)
-        )
+        result = await self.db.execute(select(JoySafeterAgent.name).where(and_(*conditions)).limit(1))
         return result.scalar_one_or_none()

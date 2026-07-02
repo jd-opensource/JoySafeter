@@ -218,10 +218,7 @@ UPDATE_DRAFT_TOOL: dict[str, Any] = {
                 },
                 "content": {
                     "type": "string",
-                    "description": (
-                        "Full SKILL.md body including YAML frontmatter and "
-                        "markdown sections."
-                    ),
+                    "description": ("Full SKILL.md body including YAML frontmatter and markdown sections."),
                 },
                 "files": {
                     "type": "array",
@@ -268,8 +265,7 @@ def _build_messages(
                     "role": "system",
                     "content": (
                         "Current draft state (you previously filled these "
-                        "fields; patch incrementally):\n"
-                        + json.dumps(snapshot, ensure_ascii=False, indent=2)
+                        "fields; patch incrementally):\n" + json.dumps(snapshot, ensure_ascii=False, indent=2)
                     ),
                 }
             )

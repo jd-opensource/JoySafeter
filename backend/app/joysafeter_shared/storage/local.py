@@ -29,7 +29,8 @@ class LocalBackend:
         if not path.exists():
             raise FileNotFoundError(f"file not found: {key}")
         async with aiofiles.open(path, "rb") as f:
-            return await f.read()
+            data: bytes = await f.read()
+            return data
 
     async def delete(self, key: str) -> None:
         path = self._resolve(key)

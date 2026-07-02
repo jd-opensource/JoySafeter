@@ -4,6 +4,7 @@ Subscribes to `joysafeter:cmd:{instance_id}` and dispatches commands
 to the appropriate sandbox bridge. Matches Rust's spawn_command_listener
 + handle_remote_command in grpc.rs.
 """
+
 import asyncio
 import json
 import logging
@@ -86,17 +87,13 @@ class CommandListener:
 
         bridge = await self._bridge_registry.get(sandbox_id)
         if not bridge:
-            logger.warning(
-                "Command listener: no bridge for sandbox %s", sandbox_id
-            )
+            logger.warning("Command listener: no bridge for sandbox %s", sandbox_id)
             return
 
         cmd_type = cmd.get("type", "")
         if cmd_type == "input":
             content = cmd.get("content", "")
-            msg = joysafeter_pb2.OrchestratorMessage(
-                input=joysafeter_pb2.SendInput(content=content)
-            )
+            msg = joysafeter_pb2.OrchestratorMessage(input=joysafeter_pb2.SendInput(content=content))
             try:
                 bridge.runner_tx.put_nowait(msg)
             except asyncio.QueueFull:
@@ -106,9 +103,7 @@ class CommandListener:
             logger.info("Executed remote command: sandbox=%s type=input", sandbox_id)
         elif cmd_type == "cancel":
             reason = cmd.get("reason", "cancelled by remote instance")
-            msg = joysafeter_pb2.OrchestratorMessage(
-                cancel=joysafeter_pb2.CancelTask(reason=reason)
-            )
+            msg = joysafeter_pb2.OrchestratorMessage(cancel=joysafeter_pb2.CancelTask(reason=reason))
             try:
                 bridge.runner_tx.put_nowait(msg)
             except asyncio.QueueFull:
@@ -118,9 +113,7 @@ class CommandListener:
             logger.info("Executed remote command: sandbox=%s type=cancel reason=%s", sandbox_id, reason)
         elif cmd_type == "shutdown":
             reason = cmd.get("reason", "remote shutdown")
-            msg = joysafeter_pb2.OrchestratorMessage(
-                shutdown=joysafeter_pb2.Shutdown(reason=reason)
-            )
+            msg = joysafeter_pb2.OrchestratorMessage(shutdown=joysafeter_pb2.Shutdown(reason=reason))
             try:
                 bridge.runner_tx.put_nowait(msg)
             except asyncio.QueueFull:

@@ -19,6 +19,7 @@ def _get_cipher() -> VaultCipher:
     global _cipher
     if _cipher is None:
         from app.joysafeter_shared.config.settings import joysafeter_config
+
         _cipher = VaultCipher(joysafeter_config.vault_encryption_key)
     return _cipher
 
@@ -30,12 +31,12 @@ class VaultService:
 
     # --- Vault ---
 
-    async def create_vault(self, name: str, description: str = "", metadata: Optional[dict] = None, project_id: Optional[str] = None) -> JoySafeterVault:
+    async def create_vault(
+        self, name: str, description: str = "", metadata: Optional[dict] = None, project_id: Optional[str] = None
+    ) -> JoySafeterVault:
         # Purge soft-deleted rows with the same name before insert
         await self.db.execute(
-            delete(JoySafeterVault).where(
-                JoySafeterVault.name == name, JoySafeterVault.deleted_at.isnot(None)
-            )
+            delete(JoySafeterVault).where(JoySafeterVault.name == name, JoySafeterVault.deleted_at.isnot(None))
         )
         kwargs = dict(name=name, description=description, metadata_=metadata or {})
         if project_id is not None:
@@ -48,9 +49,7 @@ class VaultService:
 
     async def get_vault(self, vault_id: uuid.UUID) -> Optional[JoySafeterVault]:
         result = await self.db.execute(
-            select(JoySafeterVault).where(
-                and_(JoySafeterVault.id == vault_id, JoySafeterVault.deleted_at.is_(None))
-            )
+            select(JoySafeterVault).where(and_(JoySafeterVault.id == vault_id, JoySafeterVault.deleted_at.is_(None)))
         )
         return result.scalar_one_or_none()
 
@@ -75,7 +74,11 @@ class VaultService:
         return vaults[:limit], has_more
 
     async def update_vault(
-        self, vault_id: uuid.UUID, name: Optional[str] = None, description: Optional[str] = None, metadata: Optional[dict] = None
+        self,
+        vault_id: uuid.UUID,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        metadata: Optional[dict] = None,
     ) -> Optional[JoySafeterVault]:
         vault = await self.get_vault(vault_id)
         if not vault:
@@ -95,12 +98,8 @@ class VaultService:
         vault = await self.get_vault(vault_id)
         if not vault:
             return False
-        await self.db.execute(
-            delete(JoySafeterVaultCredential).where(JoySafeterVaultCredential.vault_id == vault_id)
-        )
-        await self.db.execute(
-            delete(JoySafeterVault).where(JoySafeterVault.id == vault_id)
-        )
+        await self.db.execute(delete(JoySafeterVaultCredential).where(JoySafeterVaultCredential.vault_id == vault_id))
+        await self.db.execute(delete(JoySafeterVault).where(JoySafeterVault.id == vault_id))
         await self.db.commit()
         return True
 
@@ -163,7 +162,9 @@ class VaultService:
                 pass
         return cred
 
-    async def list_credentials(self, vault_id: uuid.UUID, limit: int = 20, after_id: Optional[uuid.UUID] = None, include_archived: bool = True) -> tuple[list[JoySafeterVaultCredential], bool]:
+    async def list_credentials(
+        self, vault_id: uuid.UUID, limit: int = 20, after_id: Optional[uuid.UUID] = None, include_archived: bool = True
+    ) -> tuple[list[JoySafeterVaultCredential], bool]:
         q = select(JoySafeterVaultCredential).where(
             and_(JoySafeterVaultCredential.vault_id == vault_id, JoySafeterVaultCredential.deleted_at.is_(None))
         )
@@ -178,7 +179,11 @@ class VaultService:
         return creds[:limit], has_more
 
     async def update_credential(
-        self, cred_id: uuid.UUID, name: Optional[str] = None, token_value: Optional[str] = None, oauth_config: Optional[dict] = None
+        self,
+        cred_id: uuid.UUID,
+        name: Optional[str] = None,
+        token_value: Optional[str] = None,
+        oauth_config: Optional[dict] = None,
     ) -> Optional[JoySafeterVaultCredential]:
         cred = await self.get_credential(cred_id)
         if not cred:
@@ -217,11 +222,7 @@ class VaultService:
     ) -> None:
         encrypted_token = self._cipher.encrypt(new_token)
         values: dict = {"token_value": encrypted_token}
-        stmt = (
-            update(JoySafeterVaultCredential)
-            .where(JoySafeterVaultCredential.id == cred_id)
-            .values(**values)
-        )
+        stmt = update(JoySafeterVaultCredential).where(JoySafeterVaultCredential.id == cred_id).values(**values)
         await self.db.execute(stmt)
         if new_expires_at is not None:
             from sqlalchemy import cast, literal
@@ -286,9 +287,7 @@ class VaultService:
 
         return enriched
 
-    async def _maybe_refresh_oauth(
-        self, cred: JoySafeterVaultCredential, current_token: str
-    ) -> str:
+    async def _maybe_refresh_oauth(self, cred: JoySafeterVaultCredential, current_token: str) -> str:
         import time
 
         oauth = cred.oauth_config or {}
@@ -322,7 +321,7 @@ class VaultService:
                 )
                 if resp.status_code == 200:
                     data = resp.json()
-                    new_token = data["access_token"]
+                    new_token: str = data["access_token"]
                     new_refresh = data.get("refresh_token", refresh_token)
                     new_expires = int(time.time()) + data.get("expires_in", 3600)
 
@@ -331,12 +330,12 @@ class VaultService:
                     new_oauth["expires_at"] = new_expires
 
                     from app.joysafeter_shared.database import AsyncSessionLocal
+
                     async with AsyncSessionLocal() as refresh_db:
                         from sqlalchemy import select
+
                         result = await refresh_db.execute(
-                            select(JoySafeterVaultCredential).where(
-                                JoySafeterVaultCredential.id == cred.id
-                            )
+                            select(JoySafeterVaultCredential).where(JoySafeterVaultCredential.id == cred.id)
                         )
                         db_cred = result.scalar_one_or_none()
                         if db_cred:

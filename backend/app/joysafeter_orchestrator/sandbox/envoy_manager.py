@@ -76,17 +76,19 @@ class EnvoyManager:
         networking: dict,
     ) -> None:
         # Create socket directory inside envoy container
-        await self._exec_in_envoy(
-            f"mkdir -p /sockets/{sandbox_id} && chmod 777 /sockets/{sandbox_id}"
-        )
+        await self._exec_in_envoy(f"mkdir -p /sockets/{sandbox_id} && chmod 777 /sockets/{sandbox_id}")
 
         # Persist sandbox entry
-        entry = SandboxEntry(sandbox_id=sandbox_id, networking=networking)
         entry_path = self._sandboxes_dir / f"{sandbox_id}.json"
-        entry_path.write_text(json.dumps({
-            "sandbox_id": str(sandbox_id),
-            "networking": networking,
-        }, indent=2))
+        entry_path.write_text(
+            json.dumps(
+                {
+                    "sandbox_id": str(sandbox_id),
+                    "networking": networking,
+                },
+                indent=2,
+            )
+        )
 
         await self._regenerate_lds()
 
@@ -206,9 +208,7 @@ admin:
         # Also write via exec into Envoy container
         await self._write_file_in_envoy("/envoy-config/bootstrap.yaml", config)
 
-    async def _write_lds_config(
-        self, sandboxes: dict[uuid.UUID, dict]
-    ) -> None:
+    async def _write_lds_config(self, sandboxes: dict[uuid.UUID, dict]) -> None:
         async with self._config_lock:
             resources = ""
             version = len(sandboxes)
@@ -318,7 +318,12 @@ admin:
     async def _exec_in_envoy(self, cmd: str) -> int:
         try:
             proc = await asyncio.create_subprocess_exec(
-                "docker", "exec", self._config.container_name, "sh", "-c", cmd,
+                "docker",
+                "exec",
+                self._config.container_name,
+                "sh",
+                "-c",
+                cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -333,7 +338,13 @@ admin:
         cmd = f"cat > {tmp_path} && mv {tmp_path} {path}"
         try:
             proc = await asyncio.create_subprocess_exec(
-                "docker", "exec", "-i", self._config.container_name, "sh", "-c", cmd,
+                "docker",
+                "exec",
+                "-i",
+                self._config.container_name,
+                "sh",
+                "-c",
+                cmd,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,

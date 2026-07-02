@@ -170,19 +170,17 @@ async def get_organization(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
+    member_result = await db.execute(
         select(Member).where(
             Member.organization_id == organization_id,
             Member.user_id == current_user.id,
         )
     )
-    if not result.scalar_one_or_none():
+    if not member_result.scalar_one_or_none():
         raise HTTPException(403, "No access to organization")
 
-    result = await db.execute(
-        select(Organization).where(Organization.id == organization_id)
-    )
-    org = result.scalar_one_or_none()
+    org_result = await db.execute(select(Organization).where(Organization.id == organization_id))
+    org = org_result.scalar_one_or_none()
     if not org:
         raise HTTPException(404, "Organization not found")
 
@@ -213,10 +211,8 @@ async def update_organization(
     if not actor:
         raise HTTPException(403, "Insufficient permission")
 
-    result = await db.execute(
-        select(Organization).where(Organization.id == organization_id)
-    )
-    org = result.scalar_one_or_none()
+    org_result = await db.execute(select(Organization).where(Organization.id == organization_id))
+    org = org_result.scalar_one_or_none()
     if not org:
         raise HTTPException(404, "Organization not found")
 
@@ -247,22 +243,20 @@ async def delete_organization(
     if not result.scalar_one_or_none():
         raise HTTPException(403, "Only the organization owner can delete it")
 
-    result = await db.execute(
-        select(Organization).where(Organization.id == organization_id)
-    )
+    result = await db.execute(select(Organization).where(Organization.id == organization_id))
     org = result.scalar_one_or_none()
     if not org:
         raise HTTPException(404, "Organization not found")
 
     # Delete all members
-    await db.execute(
-        select(Member).where(Member.organization_id == organization_id)
-    )
+    await db.execute(select(Member).where(Member.organization_id == organization_id))
     from sqlalchemy import delete
+
     await db.execute(delete(Member).where(Member.organization_id == organization_id))
 
     # Delete all projects in the org
     from app.joysafeter_domain.models.joysafeter_project import Project
+
     await db.execute(delete(Project).where(Project.org_id == organization_id))
 
     # Delete the org itself
@@ -316,6 +310,7 @@ async def transfer_ownership(
 
 # ── Members ──────────────────────────────────────────────────────────
 
+
 @router.get("/{organization_id}/members")
 async def list_members(
     organization_id: str,
@@ -331,22 +326,22 @@ async def list_members(
     if not result.scalar_one_or_none():
         raise HTTPException(403, "No access to organization")
 
-    result = await db.execute(
-        select(Member).where(Member.organization_id == organization_id)
-    )
+    result = await db.execute(select(Member).where(Member.organization_id == organization_id))
     members = result.scalars().all()
 
     data = []
     for m in members:
         user = m.user
-        data.append({
-            "id": m.id,
-            "user_id": m.user_id,
-            "organization_id": m.organization_id,
-            "role": m.role,
-            "user_name": user.name if user else None,
-            "user_email": user.email if user else None,
-        })
+        data.append(
+            {
+                "id": m.id,
+                "user_id": m.user_id,
+                "organization_id": m.organization_id,
+                "role": m.role,
+                "user_name": user.name if user else None,
+                "user_email": user.email if user else None,
+            }
+        )
     return {"data": data}
 
 
@@ -412,9 +407,7 @@ async def update_member_role(
     if not actor:
         raise HTTPException(403, "Insufficient permission")
 
-    result = await db.execute(
-        select(Member).where(Member.id == member_id, Member.organization_id == organization_id)
-    )
+    result = await db.execute(select(Member).where(Member.id == member_id, Member.organization_id == organization_id))
     member = result.scalar_one_or_none()
     if not member:
         raise HTTPException(404, "Member not found")
@@ -443,9 +436,7 @@ async def remove_member(
     if not actor:
         raise HTTPException(403, "Insufficient permission")
 
-    result = await db.execute(
-        select(Member).where(Member.id == member_id, Member.organization_id == organization_id)
-    )
+    result = await db.execute(select(Member).where(Member.id == member_id, Member.organization_id == organization_id))
     member = result.scalar_one_or_none()
     if not member:
         raise HTTPException(404, "Member not found")

@@ -71,12 +71,10 @@ class E2bSandboxProvider(SandboxProvider):
                 json=body,
             )
             if resp.status_code >= 400:
-                raise RuntimeError(
-                    f"E2B API returned {resp.status_code}: {resp.text}"
-                )
+                raise RuntimeError(f"E2B API returned {resp.status_code}: {resp.text}")
             data = resp.json()
 
-        external_id = data["sandboxId"]
+        external_id = str(data["sandboxId"])
         logger.info("E2B sandbox created: %s", external_id)
         return external_id
 

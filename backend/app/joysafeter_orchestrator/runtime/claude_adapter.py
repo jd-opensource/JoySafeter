@@ -78,7 +78,8 @@ class ClaudeAdapter(HarnessAdapter):
     async def is_available(self) -> bool:
         try:
             proc = await asyncio.create_subprocess_exec(
-                self._binary, "--version",
+                self._binary,
+                "--version",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -112,10 +113,13 @@ class ClaudeAdapter(HarnessAdapter):
         cmd = [
             self._binary,
             "-p",
-            "--output-format", "stream-json",
-            "--input-format", "stream-json",
+            "--output-format",
+            "stream-json",
+            "--input-format",
+            "stream-json",
             "--verbose",
-            "--permission-prompt-tool", "stdio",
+            "--permission-prompt-tool",
+            "stdio",
         ]
         if input.permission_mode:
             cmd.extend(["--permission-mode", input.permission_mode])
@@ -135,9 +139,7 @@ class ClaudeAdapter(HarnessAdapter):
             cwd=input.work_dir,
             env=env,
         )
-        session.reader_task = asyncio.create_task(
-            self._persistent_reader(session), name=f"claude-reader-{key}"
-        )
+        session.reader_task = asyncio.create_task(self._persistent_reader(session), name=f"claude-reader-{key}")
         self._sessions[key] = session
         return session
 
@@ -154,10 +156,15 @@ class ClaudeAdapter(HarnessAdapter):
         harness.process = session.process
         harness._events = turn.events
 
-        prompt_msg = json.dumps({
-            "type": "user",
-            "content": input.prompt,
-        }) + "\n"
+        prompt_msg = (
+            json.dumps(
+                {
+                    "type": "user",
+                    "content": input.prompt,
+                }
+            )
+            + "\n"
+        )
         async with session.stdin_lock:
             if session.process and session.process.stdin:
                 session.process.stdin.write(prompt_msg.encode())
@@ -177,8 +184,6 @@ class ClaudeAdapter(HarnessAdapter):
             )
 
         harness._wait_override = _wait_turn
-        original_wait = harness.wait
-        harness.wait = _wait_turn
 
         return harness
 
@@ -191,11 +196,16 @@ class ClaudeAdapter(HarnessAdapter):
 
         if key:
             session = self._sessions[key]
-            cancel_msg = json.dumps({
-                "type": "control_request",
-                "request_id": f"cancel_{uuid.uuid4().hex[:8]}",
-                "request": {"subtype": "interrupt"},
-            }) + "\n"
+            cancel_msg = (
+                json.dumps(
+                    {
+                        "type": "control_request",
+                        "request_id": f"cancel_{uuid.uuid4().hex[:8]}",
+                        "request": {"subtype": "interrupt"},
+                    }
+                )
+                + "\n"
+            )
             async with session.stdin_lock:
                 if session.process and session.process.stdin:
                     try:
@@ -234,7 +244,7 @@ class ClaudeAdapter(HarnessAdapter):
         if not content.startswith("__joysafeter_input_v1__:"):
             return {"type": "user", "content": content}
 
-        payload_str = content[len("__joysafeter_input_v1__:"):]
+        payload_str = content[len("__joysafeter_input_v1__:") :]
         try:
             payload = json.loads(payload_str)
         except json.JSONDecodeError:
@@ -271,11 +281,13 @@ class ClaudeAdapter(HarnessAdapter):
         elif msg_type == "custom_tool_result":
             return {
                 "type": "user",
-                "content": [{
-                    "type": "tool_result",
-                    "tool_use_id": payload.get("tool_use_id", ""),
-                    "content": payload.get("result", ""),
-                }],
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": payload.get("tool_use_id", ""),
+                        "content": payload.get("result", ""),
+                    }
+                ],
             }
         elif msg_type == "interrupt":
             return {
@@ -309,15 +321,19 @@ class ClaudeAdapter(HarnessAdapter):
                                 turn.output_parts.append(block.get("text", ""))
                         elif block_type == "tool_use":
                             if turn:
-                                await turn.events.put(HarnessEvent(
-                                    event_type="tool_use",
-                                    payload=block,
-                                ))
+                                await turn.events.put(
+                                    HarnessEvent(
+                                        event_type="tool_use",
+                                        payload=block,
+                                    )
+                                )
                     if turn:
-                        await turn.events.put(HarnessEvent(
-                            event_type="assistant",
-                            payload=event,
-                        ))
+                        await turn.events.put(
+                            HarnessEvent(
+                                event_type="assistant",
+                                payload=event,
+                            )
+                        )
                     if "usage" in msg:
                         if turn:
                             turn.usage = msg["usage"]
@@ -327,23 +343,27 @@ class ClaudeAdapter(HarnessAdapter):
                     subtype = request.get("subtype", "")
                     if subtype == "can_use_tool":
                         if turn:
-                            await turn.events.put(HarnessEvent(
-                                event_type="tool_use",
-                                payload={
-                                    "type": "tool_use",
-                                    "name": request.get("tool_name", ""),
-                                    "input": request.get("tool_input", {}),
-                                    "request_id": event.get("request_id", ""),
-                                },
-                                is_control_request=True,
-                            ))
+                            await turn.events.put(
+                                HarnessEvent(
+                                    event_type="tool_use",
+                                    payload={
+                                        "type": "tool_use",
+                                        "name": request.get("tool_name", ""),
+                                        "input": request.get("tool_input", {}),
+                                        "request_id": event.get("request_id", ""),
+                                    },
+                                    is_control_request=True,
+                                )
+                            )
 
                 elif event_type == "user":
                     if turn:
-                        await turn.events.put(HarnessEvent(
-                            event_type="user",
-                            payload=event,
-                        ))
+                        await turn.events.put(
+                            HarnessEvent(
+                                event_type="user",
+                                payload=event,
+                            )
+                        )
 
                 elif event_type == "system":
                     sid = event.get("session_id")
@@ -351,10 +371,12 @@ class ClaudeAdapter(HarnessAdapter):
                         session.session_id = sid
                     if turn:
                         turn.session_id = sid
-                        await turn.events.put(HarnessEvent(
-                            event_type="system",
-                            payload=event,
-                        ))
+                        await turn.events.put(
+                            HarnessEvent(
+                                event_type="system",
+                                payload=event,
+                            )
+                        )
 
                 elif event_type == "result":
                     if turn:
@@ -367,17 +389,21 @@ class ClaudeAdapter(HarnessAdapter):
 
                 elif event_type == "log":
                     if turn:
-                        await turn.events.put(HarnessEvent(
-                            event_type="log",
-                            payload=event,
-                        ))
+                        await turn.events.put(
+                            HarnessEvent(
+                                event_type="log",
+                                payload=event,
+                            )
+                        )
 
                 else:
                     if turn:
-                        await turn.events.put(HarnessEvent(
-                            event_type=event_type,
-                            payload=event,
-                        ))
+                        await turn.events.put(
+                            HarnessEvent(
+                                event_type=event_type,
+                                payload=event,
+                            )
+                        )
 
         except asyncio.CancelledError:
             pass
@@ -416,15 +442,18 @@ class ClaudeAdapter(HarnessAdapter):
             await self._kill_process(session)
         self._sessions.clear()
 
-    async def _extract_skill_archives(
-        self, container_id: str, archives: list
-    ) -> None:
+    async def _extract_skill_archives(self, container_id: str, archives: list) -> None:
         for archive in archives:
             target_dir = f"/workspace/.claude/{archive.target}"
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    "docker", "exec", "-i", container_id,
-                    "sh", "-c", f"mkdir -p {target_dir}/{archive.name} && tar xzf - -C {target_dir}/{archive.name}",
+                    "docker",
+                    "exec",
+                    "-i",
+                    container_id,
+                    "sh",
+                    "-c",
+                    f"mkdir -p {target_dir}/{archive.name} && tar xzf - -C {target_dir}/{archive.name}",
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,

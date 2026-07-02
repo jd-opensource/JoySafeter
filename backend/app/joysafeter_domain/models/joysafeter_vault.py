@@ -17,23 +17,18 @@ class JoySafeterVault(JoySafeterBaseModel):
     )
 
     project_id: Mapped[Optional[str]] = mapped_column(
-        String(255), ForeignKey("joysafeter_organization_projects.id"), nullable=True, index=True,
+        String(255),
+        ForeignKey("joysafeter_organization_projects.id"),
+        nullable=True,
+        index=True,
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    metadata_: Mapped[dict] = mapped_column(
-        "metadata", JSONB, nullable=False, server_default="{}"
-    )
-    archived_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    deleted_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, server_default="{}")
+    archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    credentials: Mapped[list["JoySafeterVaultCredential"]] = relationship(
-        back_populates="vault", lazy="selectin"
-    )
+    credentials: Mapped[list["JoySafeterVaultCredential"]] = relationship(back_populates="vault", lazy="selectin")
 
 
 class JoySafeterVaultCredential(JoySafeterBaseModel):
@@ -52,17 +47,11 @@ class JoySafeterVaultCredential(JoySafeterBaseModel):
         nullable=False,
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    credential_type: Mapped[str] = mapped_column(
-        Text, nullable=False, default="static_bearer"
-    )
+    credential_type: Mapped[str] = mapped_column(Text, nullable=False, default="static_bearer")
     mcp_server_url: Mapped[str] = mapped_column(Text, nullable=False)
     token_value: Mapped[str] = mapped_column(Text, nullable=False)
     oauth_config: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
-    archived_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    deleted_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     vault: Mapped["JoySafeterVault"] = relationship(back_populates="credentials")

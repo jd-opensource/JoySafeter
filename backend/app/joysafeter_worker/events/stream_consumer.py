@@ -21,11 +21,7 @@ def _ids_over_delivery_limit(pending: list[dict[str, Any]], max_deliveries: int)
     """From ``XPENDING``-range output, return the message ids delivered more
     than ``max_deliveries`` times — poison messages stuck in the reclaim loop
     because they can never be persisted and therefore never acked."""
-    return [
-        entry["message_id"]
-        for entry in pending
-        if entry.get("times_delivered", 0) > max_deliveries
-    ]
+    return [entry["message_id"] for entry in pending if entry.get("times_delivered", 0) > max_deliveries]
 
 
 class EventStreamWorker:
@@ -47,11 +43,13 @@ class EventStreamWorker:
         self._batch_size = batch_size
         self._block_ms = block_ms
         self._stopping = asyncio.Event()
-        self._event_buffer = EventBatchSender(EventBatchConfig(
-            enabled=joysafeter_config.event_batch_enabled,
-            max_size=joysafeter_config.event_batch_max_size,
-            max_delay_ms=joysafeter_config.event_batch_max_delay_ms,
-        ))
+        self._event_buffer = EventBatchSender(
+            EventBatchConfig(
+                enabled=joysafeter_config.event_batch_enabled,
+                max_size=joysafeter_config.event_batch_max_size,
+                max_delay_ms=joysafeter_config.event_batch_max_delay_ms,
+            )
+        )
 
     async def run(self) -> None:
         redis = RedisClient.get_client()
@@ -95,7 +93,9 @@ class EventStreamWorker:
                                 event = self._decode_event(fields)
                                 batch.append((message_id, event))
                             except Exception as e:
-                                logger.exception("Failed to handle joysafeter event stream message %s: %s", message_id, e)
+                                logger.exception(
+                                    "Failed to handle joysafeter event stream message %s: %s", message_id, e
+                                )
 
                     if batch:
                         await self._persist_and_ack(redis, batch)
@@ -107,15 +107,17 @@ class EventStreamWorker:
                     # instead of letting the entire worker die permanently
                     logger.error(
                         "Event stream worker error (will retry in %ds): %s",
-                        backoff, e,
+                        backoff,
+                        e,
                     )
                     await asyncio.sleep(backoff)
                     backoff = min(backoff * 2, 30)
                     # Re-acquire Redis client in case connection was lost
-                    redis = RedisClient.get_client()
-                    if redis is None:
+                    reconnected = RedisClient.get_client()
+                    if reconnected is None:
                         logger.warning("Redis unavailable during reconnect, waiting...")
                         continue
+                    redis = reconnected
                     await self._ensure_group(redis)
 
         except asyncio.CancelledError:
@@ -164,7 +166,9 @@ class EventStreamWorker:
                 await redis.xack(self._stream_key, self._group, message_id)
                 logger.error(
                     "Dead-lettered poison event %s to %s after exceeding %d deliveries",
-                    message_id, self._dead_letter_key, max_deliveries,
+                    message_id,
+                    self._dead_letter_key,
+                    max_deliveries,
                 )
             except Exception as e:
                 logger.warning("Failed to dead-letter poison event %s: %s", message_id, e)

@@ -3,7 +3,7 @@ import uuid
 import zipfile
 from io import BytesIO
 from pathlib import PurePosixPath
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse
@@ -92,7 +92,7 @@ FILE_TYPE_BY_EXT = {
 ZIP_SYSTEM_FILE_NAMES = {".ds_store", "thumbs.db", "desktop.ini"}
 
 
-def _handle_service_error(e: Exception):
+def _handle_service_error(e: Exception) -> JSONResponse:
     if isinstance(e, NotFoundError):
         return JSONResponse(status_code=404, content=e.to_payload())
     if isinstance(e, AccessDeniedError):
@@ -368,7 +368,7 @@ async def create_skill(
         )
         skill = await svc.get_skill(skill.id, current_user_id=auth_ctx.user_id)
     except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
-        return _handle_service_error(e)
+        return cast(SkillResponse, _handle_service_error(e))
         # P2.16: flush any async scan descriptors the service queued. Without
         # this, a skill whose total payload exceeds ``skill_security_async_threshold_bytes``
         # would land with ``security_status='scanning'`` and stay stuck forever
@@ -386,12 +386,15 @@ async def import_skill_zip(
 ) -> SkillResponse:
     filename = file.filename or ""
     if filename and not filename.lower().endswith(".zip"):
-        return JSONResponse(
-            status_code=400,
-            content=InvalidRequestError(
-                "Only ZIP files are supported",
-                code="SKILL_IMPORT_ZIP_ONLY",
-            ).to_payload(),
+        return cast(
+            SkillResponse,
+            JSONResponse(
+                status_code=400,
+                content=InvalidRequestError(
+                    "Only ZIP files are supported",
+                    code="SKILL_IMPORT_ZIP_ONLY",
+                ).to_payload(),
+            ),
         )
 
     svc = SkillService(db, active_org_id=auth_ctx.org_id)
@@ -413,7 +416,7 @@ async def import_skill_zip(
         )
         skill = await svc.get_skill(skill.id, current_user_id=auth_ctx.user_id)
     except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
-        return _handle_service_error(e)
+        return cast(SkillResponse, _handle_service_error(e))
         # P2.16: see ``create_skill`` — ZIP imports go through the same
         # ``create_skill`` service method and emit the same async descriptors.
     _flush_async_scans(svc, background_tasks)
@@ -454,7 +457,7 @@ async def get_skill_security_scan(
     try:
         scan = await svc.get_security_scan(scan_id, current_user_id=auth_ctx.user_id)
     except (NotFoundError, AccessDeniedError) as e:
-        return _handle_service_error(e)
+        return cast(SkillSecurityScanResponse, _handle_service_error(e))
     return SkillSecurityScanResponse.model_validate(scan)
 
 
@@ -468,7 +471,7 @@ async def get_skill(
     try:
         skill = await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id)
     except (NotFoundError, AccessDeniedError) as e:
-        return _handle_service_error(e)
+        return cast(SkillResponse, _handle_service_error(e))
     return SkillResponse.model_validate(skill)
 
 
@@ -482,7 +485,7 @@ async def get_latest_skill_security_scan(
     try:
         scan = await svc.get_latest_security_scan(skill_id, current_user_id=auth_ctx.user_id)
     except (NotFoundError, AccessDeniedError) as e:
-        return _handle_service_error(e)
+        return cast(SkillSecurityScanResponse, _handle_service_error(e))
     return SkillSecurityScanResponse.model_validate(scan)
 
 
@@ -527,7 +530,7 @@ async def rescan_skill_security(
         # background. The client polls security-scans/latest for the verdict.
         scan = await svc.rescan_skill_async(skill_id, current_user_id=auth_ctx.user_id)
     except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
-        return _handle_service_error(e)
+        return cast(SkillSecurityScanResponse, _handle_service_error(e))
     _flush_async_scans(svc, background_tasks)
     return SkillSecurityScanResponse.model_validate(scan)
 
@@ -557,7 +560,7 @@ async def update_skill(
         )
         skill = await svc.get_skill(skill.id, current_user_id=auth_ctx.user_id)
     except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
-        return _handle_service_error(e)
+        return cast(SkillResponse, _handle_service_error(e))
     _flush_async_scans(svc, background_tasks)
     return SkillResponse.model_validate(skill)
 
@@ -586,7 +589,7 @@ async def _run_transition(transition_coro) -> SkillLifecycleTransitionResponse:
     try:
         result = await transition_coro
     except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
-        return _handle_service_error(e)
+        return cast(SkillLifecycleTransitionResponse, _handle_service_error(e))
     return SkillLifecycleTransitionResponse.model_validate(result)
 
 
@@ -820,7 +823,7 @@ async def create_skill_file(
             size=len(req.content) if req.content else 0,
         )
     except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
-        return _handle_service_error(e)
+        return cast(SkillFileResponse, _handle_service_error(e))
     _flush_async_scans(svc, background_tasks)
     return SkillFileResponse.model_validate(f)
 
@@ -852,7 +855,7 @@ async def get_skill_file(
     try:
         skill = await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id)
     except (NotFoundError, AccessDeniedError) as e:
-        return _handle_service_error(e)
+        return cast(SkillFileResponse, _handle_service_error(e))
     f = next((f for f in (skill.files or []) if f.id == file_id), None)
     if not f:
         raise HTTPException(404, "Skill file not found")
@@ -879,7 +882,7 @@ async def update_skill_file(
             expected_skill_id=skill_id,
         )
     except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
-        return _handle_service_error(e)
+        return cast(SkillFileResponse, _handle_service_error(e))
     _flush_async_scans(svc, background_tasks)
     return SkillFileResponse.model_validate(f)
 
@@ -936,7 +939,7 @@ async def create_skill_version(
             release_notes=req.release_notes or None,
         )
     except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
-        return _handle_service_error(e)
+        return cast(SkillVersionResponse, _handle_service_error(e))
     return SkillVersionResponse.model_validate(sv)
 
 
@@ -968,7 +971,7 @@ async def get_skill_version(
     try:
         sv = await svc.get_version(skill_id, version, current_user_id=auth_ctx.user_id)
     except (NotFoundError, AccessDeniedError) as e:
-        return _handle_service_error(e)
+        return cast(SkillVersionResponse, _handle_service_error(e))
     return SkillVersionResponse.model_validate(sv)
 
 
@@ -1021,5 +1024,5 @@ async def restore_skill_from_version(
     try:
         skill = await svc.restore_draft(skill_id, version, current_user_id=auth_ctx.user_id)
     except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
-        return _handle_service_error(e)
+        return cast(SkillResponse, _handle_service_error(e))
     return SkillResponse.model_validate(skill)

@@ -5,7 +5,7 @@ tool calls, streaming text deltas and config updates back to the frontend.
 """
 
 import json
-from typing import Literal, Optional
+from typing import Literal, Optional, cast
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -27,6 +27,7 @@ class QuickstartMessage(BaseModel):
 
 class QuickstartAgentContext(BaseModel):
     """Validated agent context — only known fields, values truncated."""
+
     name: str = Field(default="", max_length=100)
     description: Optional[str] = Field(default=None, max_length=500)
     model: Optional[str] = Field(default=None, max_length=100)
@@ -117,56 +118,62 @@ Rules:
 
 def _build_tools(step: int) -> list[dict]:
     if step == 2:
-        return [{
-            "name": "generate_agent_config",
-            "description": "Generate agent configuration based on user requirements",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "description": {"type": "string"},
-                    "model": {"type": "string"},
-                    "system_prompt": {"type": "string"},
-                    "tools": {"type": "array", "items": {"type": "object"}},
-                    "metadata": {"type": "object"},
-                },
-                "required": ["name", "description", "system_prompt"],
-            },
-        }]
-    elif step == 3:
-        return [{
-            "name": "generate_environment_config",
-            "description": "Generate environment configuration for the agent",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "description": {"type": "string"},
-                    "networking": {
-                        "type": "object",
-                        "properties": {
-                            "type": {"type": "string", "enum": ["limited", "unrestricted"]},
-                            "allowed_hosts": {"type": "array", "items": {"type": "string"}},
-                        },
-                        "required": ["type"],
+        return [
+            {
+                "name": "generate_agent_config",
+                "description": "Generate agent configuration based on user requirements",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "description": {"type": "string"},
+                        "model": {"type": "string"},
+                        "system_prompt": {"type": "string"},
+                        "tools": {"type": "array", "items": {"type": "object"}},
+                        "metadata": {"type": "object"},
                     },
+                    "required": ["name", "description", "system_prompt"],
                 },
-                "required": ["name", "description", "networking"],
-            },
-        }]
+            }
+        ]
+    elif step == 3:
+        return [
+            {
+                "name": "generate_environment_config",
+                "description": "Generate environment configuration for the agent",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "description": {"type": "string"},
+                        "networking": {
+                            "type": "object",
+                            "properties": {
+                                "type": {"type": "string", "enum": ["limited", "unrestricted"]},
+                                "allowed_hosts": {"type": "array", "items": {"type": "string"}},
+                            },
+                            "required": ["type"],
+                        },
+                    },
+                    "required": ["name", "description", "networking"],
+                },
+            }
+        ]
     elif step == 4:
-        return [{
-            "name": "generate_vault_config",
-            "description": "Generate credential vault configuration for MCP server secrets",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "Descriptive name for the vault"},
-                    "description": {"type": "string", "description": "What credentials this vault stores"},
+        return [
+            {
+                "name": "generate_vault_config",
+                "description": "Generate credential vault configuration for MCP server secrets",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Descriptive name for the vault"},
+                        "description": {"type": "string", "description": "What credentials this vault stores"},
+                    },
+                    "required": ["name"],
                 },
-                "required": ["name"],
-            },
-        }]
+            }
+        ]
     return []
 
 
@@ -212,7 +219,7 @@ def _generate_curl(tool_name: str, config: dict) -> str:
 
 def _try_parse_partial_json(input_str: str) -> Optional[dict]:
     try:
-        return json.loads(input_str)
+        return cast(Optional[dict], json.loads(input_str))
     except json.JSONDecodeError:
         pass
 
@@ -256,7 +263,7 @@ def _try_parse_partial_json(input_str: str) -> Optional[dict]:
         result += closer
 
     try:
-        return json.loads(result)
+        return cast(Optional[dict], json.loads(result))
     except json.JSONDecodeError:
         return None
 
@@ -367,7 +374,9 @@ async def _stream_anthropic(
                                 yield _sse_event({"type": "config_update", "step": current_step, "config": config})
 
                                 curl = _generate_curl(tool_name, config)
-                                yield _sse_event({"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl})
+                                yield _sse_event(
+                                    {"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl}
+                                )
                                 in_tool_use = False
 
                         elif evt_type == "error":
@@ -456,7 +465,9 @@ async def _stream_openai_chat_completions(
                                 config = {}
                             yield _sse_event({"type": "config_update", "step": current_step, "config": config})
                             curl = _generate_curl(state["name"], config)
-                            yield _sse_event({"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl})
+                            yield _sse_event(
+                                {"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl}
+                            )
 
         except httpx.HTTPError:
             yield _sse_event({"type": "error", "message": "Failed to connect to upstream API."})
@@ -528,7 +539,9 @@ async def _stream_openai_responses(
                                     state["json"] = item["arguments"]
                                     config = _try_parse_partial_json(state["json"])
                                     if config:
-                                        yield _sse_event({"type": "config_update", "step": current_step, "config": config})
+                                        yield _sse_event(
+                                            {"type": "config_update", "step": current_step, "config": config}
+                                        )
 
                         elif evt_type == "response.function_call_arguments.delta":
                             key = tool_key(evt)
@@ -551,7 +564,9 @@ async def _stream_openai_responses(
                                     config = {}
                                 yield _sse_event({"type": "config_update", "step": current_step, "config": config})
                                 curl = _generate_curl(state["name"], config)
-                                yield _sse_event({"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl})
+                                yield _sse_event(
+                                    {"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl}
+                                )
 
                         elif evt_type == "response.completed" and completed_tool_key is None:
                             response_obj = evt.get("response") or {}
@@ -571,7 +586,9 @@ async def _stream_openai_responses(
                                     config = {}
                                 yield _sse_event({"type": "config_update", "step": current_step, "config": config})
                                 curl = _generate_curl(state["name"], config)
-                                yield _sse_event({"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl})
+                                yield _sse_event(
+                                    {"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl}
+                                )
                                 break
 
                         elif evt_type == "response.failed":

@@ -8,7 +8,10 @@ skill_packer.py, and skill_async_scan.py (v1 cleanup consolidation):
   - SkillPacker — pack approved skills into tar.gz bundles
   - scan_input_bytes / run_scan_in_background — async scan dispatch
 """
+
 from __future__ import annotations
+
+# ruff: noqa: E402 — sections merged verbatim; imports intentionally follow their banners
 
 # ============================================================================
 # skill_security_service.py
@@ -638,7 +641,8 @@ class SkillSecurityService:
         target_name: str,
         target_hash: str,
     ) -> JoySafeterSkillSecurityScan:
-        risk = report.get("risk_assessment") if isinstance(report.get("risk_assessment"), dict) else {}
+        raw_risk = report.get("risk_assessment")
+        risk: dict[str, Any] = raw_risk if isinstance(raw_risk, dict) else {}
         scanner_score = self._coerce_int(risk.get("score"))
         scanner_severity = self._coerce_upper(risk.get("severity"))
         scanner_recommendation = self._coerce_upper(risk.get("recommendation"))
@@ -896,6 +900,7 @@ class SkillSecurityService:
             skill.security_status = "scanning"
             await self.db.flush()
 
+
 # ============================================================================
 # skill_runtime_policy.py
 # ============================================================================
@@ -926,8 +931,6 @@ session's bundle, the rest of the agent still runs) and "fail loud"
 P2 adds a ``scanning`` intermediate state for the async scan flow —
 treated as "no scan completed" until SkillSpector returns.
 """
-
-
 
 
 # Severities that are allowed at runtime. ``passed`` is the normal good
@@ -1018,6 +1021,7 @@ def _files_payload(skill: JoySafeterSkill) -> list[dict]:
         )
     return result
 
+
 # ============================================================================
 # skill_packer.py
 # ============================================================================
@@ -1032,13 +1036,9 @@ Supports two formats:
 
 import base64
 import io
-import logging
 import os
 import tarfile
 
-logger = logging.getLogger(__name__)
-
-from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -1205,7 +1205,6 @@ class SkillPacker:
                 logger.warning("Skill %s not found", skill_id)
             return None
 
-
         usable, reason = is_skill_usable(parent_skill)
         if not usable:
             logger.warning(
@@ -1328,6 +1327,7 @@ class SkillPacker:
             return None
         return safe_path
 
+
 # ============================================================================
 # skill_async_scan.py
 # ============================================================================
@@ -1355,11 +1355,6 @@ The runtime gate (``skill_runtime_policy.is_skill_usable``) treats
 ``scanning`` like ``not_scanned`` — no agent loads a skill while its
 scan is in flight.
 """
-
-
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 def scan_input_bytes(

@@ -47,7 +47,7 @@ class Networking(BaseModel):
         host = host.lower().strip()
         for prefix in ("https://", "http://"):
             if host.startswith(prefix):
-                host = host[len(prefix):]
+                host = host[len(prefix) :]
         return host.rstrip("/")
 
 

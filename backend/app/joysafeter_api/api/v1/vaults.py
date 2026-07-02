@@ -76,7 +76,9 @@ async def list_vaults(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
     svc = VaultService(db)
-    vaults, has_more = await svc.list_vaults(limit, after_id, project_id=auth_ctx.project_id, include_archived=include_archived)
+    vaults, has_more = await svc.list_vaults(
+        limit, after_id, project_id=auth_ctx.project_id, include_archived=include_archived
+    )
     items = [_vault_to_response(v) for v in vaults]
     return {
         "data": [item.model_dump(mode="json") for item in items],
@@ -169,6 +171,7 @@ async def archive_vault(
 
 
 # --- Credentials ---
+
 
 @router.post("/{vault_id}/credentials", status_code=201)
 async def create_credential(

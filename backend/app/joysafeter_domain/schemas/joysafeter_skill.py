@@ -36,9 +36,7 @@ class CreateSkillRequest(BaseModel):
             return None
         allowed = {"private", "project", "organization", "public"}
         if v not in allowed:
-            raise ValueError(
-                f"visibility must be one of {sorted(allowed)!r}; got {v!r}"
-            )
+            raise ValueError(f"visibility must be one of {sorted(allowed)!r}; got {v!r}")
         return v
 
     @field_validator("files")
@@ -47,6 +45,7 @@ class CreateSkillRequest(BaseModel):
         if not v:
             return v
         from pathlib import PurePosixPath
+
         for f in v:
             path = f.get("path", "")
             if path:
@@ -88,9 +87,7 @@ class UpdateSkillRequest(BaseModel):
             return None
         allowed = {"private", "project", "organization", "public"}
         if v not in allowed:
-            raise ValueError(
-                f"visibility must be one of {sorted(allowed)!r}; got {v!r}"
-            )
+            raise ValueError(f"visibility must be one of {sorted(allowed)!r}; got {v!r}")
         return v
 
 
@@ -191,6 +188,7 @@ class CreateSkillFileRequest(BaseModel):
     @classmethod
     def validate_path(cls, v: str) -> str:
         from pathlib import PurePosixPath
+
         # Normalize Windows-style separators first (P2.14).
         normalized = v.replace("\\", "/")
         p = PurePosixPath(normalized)
@@ -212,6 +210,7 @@ class UpdateSkillFileRequest(BaseModel):
         if v is None:
             return v
         from pathlib import PurePosixPath
+
         # Normalize Windows-style separators first (P2.14).
         normalized = v.replace("\\", "/")
         p = PurePosixPath(normalized)

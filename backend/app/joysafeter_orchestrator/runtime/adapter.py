@@ -2,7 +2,7 @@ import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncIterator, Awaitable, Callable, Optional
 
 
 @dataclass
@@ -88,6 +88,7 @@ class RunningHarness:
         self._events: asyncio.Queue[HarnessEvent] = asyncio.Queue()
         self._result: Optional[HarnessResult] = None
         self._done = asyncio.Event()
+        self._wait_override: Optional[Callable[[], Awaitable[HarnessResult]]] = None
 
     async def events(self) -> AsyncIterator[HarnessEvent]:
         while not self._done.is_set() or not self._events.empty():
@@ -98,6 +99,8 @@ class RunningHarness:
                 continue
 
     async def wait(self) -> HarnessResult:
+        if self._wait_override is not None:
+            return await self._wait_override()
         await self._done.wait()
         return self._result or HarnessResult(error="No result")
 

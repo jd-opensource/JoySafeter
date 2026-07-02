@@ -2,6 +2,7 @@
 
 Ported from joysafeter-kernel/src/grpc.rs `harness_event_to_session_event`.
 """
+
 from typing import Any, Optional
 
 
@@ -24,7 +25,9 @@ def map_harness_event(
         content_blocks = message.get("content", [])
         for block in content_blocks:
             mapped = _map_content_block(
-                block, custom_tool_names, mcp_server_names,
+                block,
+                custom_tool_names,
+                mcp_server_names,
                 is_control_request=event_is_control_request,
             )
             if mapped is not None:
@@ -42,7 +45,9 @@ def map_harness_event(
                 "is_control_request": True,
             }
             mapped = _map_content_block(
-                block, custom_tool_names, mcp_server_names,
+                block,
+                custom_tool_names,
+                mcp_server_names,
                 is_control_request=True,
             )
             if mapped:
@@ -73,24 +78,28 @@ def map_harness_event(
             results.append(("session.status_idle", {"stop_reason": {"type": "end_turn"}}))
 
     elif event_type == "model_request_start":
-        results.append((
-            "span.model_request_start",
-            {"model": event.get("model", "")},
-        ))
+        results.append(
+            (
+                "span.model_request_start",
+                {"model": event.get("model", "")},
+            )
+        )
 
     elif event_type == "model_request_end":
-        results.append((
-            "span.model_request_end",
-            {
-                "model": event.get("model", ""),
-                "usage": {
-                    "input_tokens": event.get("input_tokens", 0),
-                    "output_tokens": event.get("output_tokens", 0),
-                    "cache_read_input_tokens": event.get("cache_read_tokens", 0),
-                    "cache_creation_input_tokens": event.get("cache_write_tokens", 0),
+        results.append(
+            (
+                "span.model_request_end",
+                {
+                    "model": event.get("model", ""),
+                    "usage": {
+                        "input_tokens": event.get("input_tokens", 0),
+                        "output_tokens": event.get("output_tokens", 0),
+                        "cache_read_input_tokens": event.get("cache_read_tokens", 0),
+                        "cache_creation_input_tokens": event.get("cache_write_tokens", 0),
+                    },
                 },
-            },
-        ))
+            )
+        )
 
     elif event_type == "log":
         pass
@@ -186,4 +195,4 @@ def _is_mcp_tool(tool_name: str, mcp_server_names: set[str]) -> bool:
 
 
 def is_control_request(block: dict[str, Any]) -> bool:
-    return block.get("is_control_request", False)
+    return bool(block.get("is_control_request", False))

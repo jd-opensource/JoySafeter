@@ -18,13 +18,53 @@ from app.joysafeter_shared.storage.base import StorageBackend
 MAX_FILENAME_LENGTH = 255
 
 ALLOWED_EXTENSIONS = {
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-    ".txt", ".csv", ".md", ".html", ".xml", ".json", ".yaml", ".yml", ".toml",
-    ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".c", ".cpp", ".h",
-    ".go", ".rs", ".rb", ".php", ".swift", ".kt", ".scala", ".sh", ".sql",
-    ".css", ".vue", ".svelte",
-    ".jpeg", ".jpg", ".png", ".gif", ".webp",
-    ".zip", ".tar", ".gz", ".7z", ".rar",
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".ppt",
+    ".pptx",
+    ".txt",
+    ".csv",
+    ".md",
+    ".html",
+    ".xml",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".py",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".java",
+    ".c",
+    ".cpp",
+    ".h",
+    ".go",
+    ".rs",
+    ".rb",
+    ".php",
+    ".swift",
+    ".kt",
+    ".scala",
+    ".sh",
+    ".sql",
+    ".css",
+    ".vue",
+    ".svelte",
+    ".jpeg",
+    ".jpg",
+    ".png",
+    ".gif",
+    ".webp",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".7z",
+    ".rar",
     ".apk",
 }
 
@@ -37,7 +77,7 @@ def _sanitize_filename(name: str) -> str:
     if len(name) > MAX_FILENAME_LENGTH:
         ext = ""
         if "." in name:
-            ext = name[name.rfind("."):]
+            ext = name[name.rfind(".") :]
         name = name[: MAX_FILENAME_LENGTH - len(ext)] + ext
     return name or "unnamed"
 
@@ -45,7 +85,7 @@ def _sanitize_filename(name: str) -> str:
 def _validate_extension(filename: str) -> None:
     ext = ""
     if "." in filename:
-        ext = filename[filename.rfind("."):].lower()
+        ext = filename[filename.rfind(".") :].lower()
     if ext and ext not in ALLOWED_EXTENSIONS:
         raise ValueError(f"File type {ext} is not supported")
 
@@ -81,11 +121,16 @@ class FileService:
         if not content_type:
             content_type = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
         else:
-            _DANGEROUS_CONTENT_TYPES = {"text/html", "application/javascript", "text/javascript", "application/x-httpd-php"}
+            _DANGEROUS_CONTENT_TYPES = {
+                "text/html",
+                "application/javascript",
+                "text/javascript",
+                "application/x-httpd-php",
+            }
             if content_type.lower() in _DANGEROUS_CONTENT_TYPES:
                 content_type = "application/octet-stream"
 
-        file_id = uuid7()
+        file_id = uuid.UUID(str(uuid7()))
         sha = hashlib.sha256(data).hexdigest()
         storage_key = _make_storage_key(file_id, safe_name)
 
@@ -107,9 +152,7 @@ class FileService:
         await db.refresh(record)
         return record
 
-    async def get_metadata(
-        self, db: AsyncSession, file_id: uuid.UUID, project_id: str
-    ) -> JoySafeterFile | None:
+    async def get_metadata(self, db: AsyncSession, file_id: uuid.UUID, project_id: str) -> JoySafeterFile | None:
         result = await db.execute(
             select(JoySafeterFile).where(
                 JoySafeterFile.id == file_id,
@@ -148,9 +191,7 @@ class FileService:
             rows = rows[:limit]
         return rows, has_more
 
-    async def download(
-        self, db: AsyncSession, file_id: uuid.UUID, project_id: str
-    ) -> tuple[bytes, JoySafeterFile]:
+    async def download(self, db: AsyncSession, file_id: uuid.UUID, project_id: str) -> tuple[bytes, JoySafeterFile]:
         record = await self.get_metadata(db, file_id, project_id)
         if not record:
             raise FileNotFoundError("File not found")
@@ -168,9 +209,7 @@ class FileService:
         url = await self._storage.presign_url(record.storage_key)
         return url, record
 
-    async def delete(
-        self, db: AsyncSession, file_id: uuid.UUID, project_id: str
-    ) -> bool:
+    async def delete(self, db: AsyncSession, file_id: uuid.UUID, project_id: str) -> bool:
         record = await self.get_metadata(db, file_id, project_id)
         if not record:
             return False

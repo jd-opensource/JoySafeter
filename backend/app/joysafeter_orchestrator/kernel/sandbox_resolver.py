@@ -34,7 +34,7 @@ def image_for_provider(engine_kind: str, fallback: str) -> str:
     if attr:
         val = getattr(joysafeter_config, attr, None)
         if val:
-            return val
+            return str(val)
     return fallback
 
 
@@ -68,10 +68,7 @@ class SandboxResolver:
             "image": image,
             "engine_kind": engine_kind,
             "networking": networking or {},
-            "env": {
-                str(k): hashlib.sha256(str(v).encode("utf-8")).hexdigest()
-                for k, v in sorted(env_items.items())
-            },
+            "env": {str(k): hashlib.sha256(str(v).encode("utf-8")).hexdigest() for k, v in sorted(env_items.items())},
         }
 
     @staticmethod
@@ -80,8 +77,8 @@ class SandboxResolver:
         actual = config.get("fingerprint")
         if actual is None:
             # Older records have no fingerprint; only allow reuse when the image still matches.
-            return sandbox.image == expected.get("image")
-        return actual == expected
+            return bool(sandbox.image == expected.get("image"))
+        return bool(actual == expected)
 
     @staticmethod
     def _with_fingerprint(config: dict, fingerprint: dict) -> dict:
@@ -165,7 +162,10 @@ class SandboxResolver:
                     try:
                         return await asyncio.wait_for(
                             self._resolve_inner(
-                                session_id, agent_env, image, networking,
+                                session_id,
+                                agent_env,
+                                image,
+                                networking,
                                 engine_kind=engine_kind,
                                 project_id=project_id,
                             ),
@@ -210,9 +210,7 @@ class SandboxResolver:
         else:
             resolved_image = self._default_image
 
-        expected_fingerprint = self._sandbox_fingerprint(
-            resolved_image, networking, engine_kind, agent_env
-        )
+        expected_fingerprint = self._sandbox_fingerprint(resolved_image, networking, engine_kind, agent_env)
 
         # Stage 1: Reuse existing sandbox for this session
         async with AsyncSessionLocal() as db:
@@ -237,16 +235,16 @@ class SandboxResolver:
                         except Exception:
                             pass
                     elif existing.status in ("running", "provisioning", "creating"):
-                        raise RuntimeError(
-                            "Session has an active sandbox with different configuration"
-                        )
+                        raise RuntimeError("Session has an active sandbox with different configuration")
                     existing = None
 
             if existing:
                 if existing.status in ("idle", "running"):
                     logger.info(
                         "Reusing existing sandbox %s (status=%s) for session %s",
-                        existing.id, existing.status, session_id,
+                        existing.id,
+                        existing.status,
+                        session_id,
                     )
                     await svc.touch(existing.id)
                     return {
@@ -258,7 +256,9 @@ class SandboxResolver:
                 elif existing.status in ("provisioning", "creating"):
                     logger.info(
                         "Sandbox %s is still %s for session %s, reusing without touch",
-                        existing.id, existing.status, session_id,
+                        existing.id,
+                        existing.status,
+                        session_id,
                     )
                     return {
                         "sandbox_id": existing.id,
@@ -269,7 +269,8 @@ class SandboxResolver:
                 elif existing.status == "error":
                     logger.info(
                         "Sandbox %s in error state for session %s, destroying",
-                        existing.id, session_id,
+                        existing.id,
+                        session_id,
                     )
                     provider = self._get_provider()
                     try:
@@ -284,7 +285,8 @@ class SandboxResolver:
                 elif existing.status == "stopping":
                     logger.info(
                         "Sandbox %s is being stopped for session %s, creating new",
-                        existing.id, session_id,
+                        existing.id,
+                        session_id,
                     )
 
         # Stage 1b: Try to restart a stopped sandbox for this session
@@ -298,8 +300,12 @@ class SandboxResolver:
                     # I14 fix: Rust skips pool after destroying mismatched stopped sandbox
                     # and goes directly to create_new. Match that behavior.
                     return await self._create_new_sandbox(
-                        session_id, expected_fingerprint, agent_env,
-                        networking, engine_kind, resolved_image,
+                        session_id,
+                        expected_fingerprint,
+                        agent_env,
+                        networking,
+                        engine_kind,
+                        resolved_image,
                     )
                 restarted = await self._restart_sandbox(svc, stopped) if stopped else False
                 if restarted:
@@ -326,19 +332,19 @@ class SandboxResolver:
                 svc = SandboxService(db)
                 pooled = await svc.claim_from_pool(resolved_image, session_id)
                 if pooled:
-                    claim_result = await self._pool_claim_liveness_check(
-                        svc, pooled, session_id, expected_fingerprint
-                    )
+                    claim_result = await self._pool_claim_liveness_check(svc, pooled, session_id, expected_fingerprint)
                     if claim_result is not None:
                         logger.info(
                             "Claimed sandbox %s from pool for session %s",
-                            pooled.id, session_id,
+                            pooled.id,
+                            session_id,
                         )
                         from app.joysafeter_orchestrator.sandbox.file_injection import (
                             FileInjectionContext,
                             inject_session_files,
                         )
                         from app.joysafeter_shared.storage import get_storage
+
                         ctx = FileInjectionContext(
                             session_id=session_id,
                             external_id=pooled.external_id,
@@ -352,10 +358,31 @@ class SandboxResolver:
                     # Liveness check failed; fall through to Stage 3
 
         # Stage 3: Create new sandbox
+        return await self._create_new_sandbox(
+            session_id,
+            expected_fingerprint,
+            agent_env,
+            networking,
+            engine_kind,
+            resolved_image,
+            project_id=project_id,
+        )
+
+    async def _create_new_sandbox(
+        self,
+        session_id: uuid.UUID,
+        expected_fingerprint: dict,
+        agent_env: dict[str, str],
+        networking: Optional[dict],
+        engine_kind: Optional[str],
+        resolved_image: str,
+        project_id: Optional[str] = None,
+    ) -> dict:
+        from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
+        from app.joysafeter_shared.database import AsyncSessionLocal
+
         workspace_path = (
-            os.path.join(self._workspace_host_root, str(session_id))
-            if self._workspace_host_root is not None
-            else None
+            os.path.join(self._workspace_host_root, str(session_id)) if self._workspace_host_root is not None else None
         )
 
         # Preload memory files into the workspace before container start
@@ -368,6 +395,7 @@ class SandboxResolver:
                 inject_session_files,
             )
             from app.joysafeter_shared.storage import get_storage
+
             ctx = FileInjectionContext(
                 session_id=session_id,
                 external_id="",
@@ -379,17 +407,21 @@ class SandboxResolver:
             await inject_session_files(ctx)
 
         # Setup networking (e.g. Envoy proxy) before creating the container (Rust line 291)
-        sandbox_id = _uuid7()
+        sandbox_id = uuid.UUID(str(_uuid7()))
         provider = self._get_provider()
         await provider.setup_networking(sandbox_id, networking or {})
 
         import secrets as _secrets
+
         runner_token = _secrets.token_hex(32)
 
         # Provision the sandbox (create + start container) BEFORE DB record
         try:
             external_id = await self._provision_sandbox(
-                sandbox_id, resolved_image, agent_env, workspace_path,
+                sandbox_id,
+                resolved_image,
+                agent_env,
+                workspace_path,
                 networking=networking,
                 memory_mounts=memory_mounts,
                 engine_kind=engine_kind,
@@ -467,18 +499,14 @@ class SandboxResolver:
         try:
             async with AsyncSessionLocal() as db:
                 session_svc = SessionService(db)
-                store_groups = await session_svc.list_all_memories_for_session(
-                    session_id
-                )
+                store_groups = await session_svc.list_all_memories_for_session(session_id)
 
             for group in store_groups:
                 mount_name = group["mount_name"]
                 access = group.get("access", "read_write")
                 memories = group.get("memories", [])
 
-                mount_dir = os.path.join(
-                    workspace_path, ".memory", mount_name
-                )
+                mount_dir = os.path.join(workspace_path, ".memory", mount_name)
                 os.makedirs(mount_dir, exist_ok=True)
 
                 for mem in memories:
@@ -617,9 +645,7 @@ class SandboxResolver:
             "created": False,
         }
 
-    async def _destroy_broken_pooled(
-        self, svc, provider: SandboxProvider, sandbox
-    ) -> None:
+    async def _destroy_broken_pooled(self, svc, provider: SandboxProvider, sandbox) -> None:
         """Best-effort destroy of a broken pooled sandbox."""
         try:
             await provider.destroy(sandbox.external_id)
@@ -654,11 +680,9 @@ class SandboxResolver:
         else:
             resolved_image = self._default_image
 
-        sandbox_id = _uuid7()
+        sandbox_id = uuid.UUID(str(_uuid7()))
         workspace_path = (
-            os.path.join(self._workspace_host_root, str(sandbox_id))
-            if self._workspace_host_root is not None
-            else None
+            os.path.join(self._workspace_host_root, str(sandbox_id)) if self._workspace_host_root is not None else None
         )
 
         pool_env = dict(self._pool_env)
@@ -668,6 +692,7 @@ class SandboxResolver:
         pool_env["JOYSAFETER_ORCHESTRATOR_URL"] = self._grpc_public_url
 
         import secrets as _secrets
+
         pool_runner_token = _secrets.token_hex(32)
         pool_env["JOYSAFETER_RUNNER_TOKEN"] = pool_runner_token
         pool_env["JOYSAFETER_RUNNER_TOKEN"] = pool_runner_token
@@ -716,9 +741,7 @@ class SandboxResolver:
                 pass
             raise
 
-        logger.info(
-            "Pool sandbox %s provisioned (ext=%s)", sandbox_id, external_id
-        )
+        logger.info("Pool sandbox %s provisioned (ext=%s)", sandbox_id, external_id)
         return {
             "sandbox_id": sandbox_id,
             "external_id": external_id,
@@ -749,6 +772,7 @@ class SandboxResolver:
         if self._provider:
             return self._provider
         from app.joysafeter_orchestrator.sandbox.docker_provider import DockerSandboxProvider
+
         return DockerSandboxProvider()
 
     async def _restart_sandbox(self, svc, sandbox) -> bool:
@@ -797,6 +821,7 @@ class SandboxResolver:
 
         if runner_token is None:
             import secrets as _secrets
+
             runner_token = _secrets.token_hex(32)
         env["JOYSAFETER_RUNNER_TOKEN"] = runner_token
         env["JOYSAFETER_RUNNER_TOKEN"] = runner_token
@@ -814,7 +839,7 @@ class SandboxResolver:
             name=name,
             image=image,
             env=env,
-            work_dir=workspace_path,
+            work_dir=workspace_path or "",
             labels=labels,
             networking=networking,
             memory_mounts=memory_mounts,

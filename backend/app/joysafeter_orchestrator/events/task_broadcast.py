@@ -37,6 +37,7 @@ class TaskBroadcastSubscriber:
         await bridge.broadcast_to_task(envelope.task_id, ws_msg)
 
         from app.joysafeter_orchestrator.lifespan import get_redis_coordinator
+
         coordinator = get_redis_coordinator()
         if coordinator:
             await coordinator.publish_event(

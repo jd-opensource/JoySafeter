@@ -145,6 +145,7 @@ StopReason = Union[
 
 class AgentRef(BaseModel):
     """Agent reference supporting pinned versions: {type, id, version}."""
+
     type: str = "agent"
     id: uuid.UUID
     version: Optional[int] = None
@@ -166,6 +167,7 @@ class SessionFileResourceRequest(BaseModel):
     def validate_mount_path(self):
         if self.mount_path:
             import os
+
             normalized = os.path.normpath(self.mount_path)
             if ".." in normalized.split("/") or ".." in normalized.split("\\"):
                 raise ValueError("mount_path must not contain path traversal")
@@ -196,6 +198,7 @@ class SessionRepoResourceRequest(BaseModel):
     def validate_mount_path(self):
         if self.mount_path:
             import os
+
             normalized = os.path.normpath(self.mount_path)
             if ".." in normalized.split("/") or ".." in normalized.split("\\"):
                 raise ValueError("mount_path must not contain path traversal")
@@ -329,17 +332,19 @@ class SendEventRequest(BaseModel):
         if self.events:
             return self.events
         if self.type:
-            return [SingleEventRequest(
-                type=self.type,
-                content=self.content,
-                tool_use_id=self.tool_use_id,
-                custom_tool_use_id=self.custom_tool_use_id,
-                tool_use_event_id=self.tool_use_event_id,
-                result=self.result,
-                approved=self.approved,
-                deny_message=self.deny_message,
-                payload=self.payload,
-            )]
+            return [
+                SingleEventRequest(
+                    type=self.type,
+                    content=self.content,
+                    tool_use_id=self.tool_use_id,
+                    custom_tool_use_id=self.custom_tool_use_id,
+                    tool_use_event_id=self.tool_use_event_id,
+                    result=self.result,
+                    approved=self.approved,
+                    deny_message=self.deny_message,
+                    payload=self.payload,
+                )
+            ]
         return []
 
 

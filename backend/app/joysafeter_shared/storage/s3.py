@@ -45,7 +45,8 @@ class S3Backend:
         async with self._client() as s3:
             try:
                 resp = await s3.get_object(Bucket=self._bucket, Key=key)
-                return await resp["Body"].read()
+                data: bytes = await resp["Body"].read()
+                return data
             except s3.exceptions.NoSuchKey:
                 raise FileNotFoundError(f"file not found: {key}")
             except Exception as e:
@@ -67,8 +68,9 @@ class S3Backend:
 
     async def presign_url(self, key: str, expires: int = 3600) -> str | None:
         async with self._client() as s3:
-            return await s3.generate_presigned_url(
+            url: str = await s3.generate_presigned_url(
                 "get_object",
                 Params={"Bucket": self._bucket, "Key": key},
                 ExpiresIn=expires,
             )
+            return url

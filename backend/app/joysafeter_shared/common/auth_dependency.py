@@ -22,6 +22,8 @@ class AuthContext:
     """Generic authentication result used by shared dependencies."""
 
     user: User
+
+
 async def get_current_user_or_token(
     token: Optional[str] = Depends(oauth2_scheme),
     request: Request = None,  # type: ignore[assignment]

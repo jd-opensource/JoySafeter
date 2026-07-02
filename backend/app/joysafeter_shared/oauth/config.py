@@ -305,6 +305,7 @@ class OAuthConfigLoader:
 
         # SSRF protection: validate OIDC issuer URL
         from app.joysafeter_shared.security.ssrf_guard import validate_url
+
         validate_url(discovery_url, context="OIDC discovery issuer")
 
         try:

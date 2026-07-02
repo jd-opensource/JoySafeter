@@ -17,9 +17,9 @@ from app.joysafeter_worker.events.stream_consumer import (
 
 def test_ids_over_delivery_limit_selects_only_exhausted():
     pending = [
-        {"message_id": "a-0", "times_delivered": 5},   # at the cap, not over
-        {"message_id": "b-0", "times_delivered": 6},   # over the cap
-        {"message_id": "c-0"},                          # missing count -> treated as 0
+        {"message_id": "a-0", "times_delivered": 5},  # at the cap, not over
+        {"message_id": "b-0", "times_delivered": 6},  # over the cap
+        {"message_id": "c-0"},  # missing count -> treated as 0
     ]
     assert _ids_over_delivery_limit(pending, 5) == ["b-0"]
 
@@ -53,7 +53,7 @@ async def test_poison_messages_are_dead_lettered_and_acked():
     worker = EventStreamWorker(stream_key="joysafeter:events", group="g")
     pending = [
         {"message_id": "1-0", "times_delivered": 99},  # poison
-        {"message_id": "2-0", "times_delivered": 1},   # healthy, still retrying
+        {"message_id": "2-0", "times_delivered": 1},  # healthy, still retrying
         {"message_id": "3-0", "times_delivered": 99},  # poison
     ]
     entries = {"1-0": {"event_type": "agent.message"}, "3-0": {"event_type": "span.x"}}

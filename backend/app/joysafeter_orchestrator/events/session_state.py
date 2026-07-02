@@ -48,9 +48,7 @@ class SessionStateSubscriber:
                     envelope.session_id,
                 )
                 return
-            await svc.send_event(
-                envelope.session_id, envelope.event_type, envelope.payload
-            )
+            await svc.send_event(envelope.session_id, envelope.event_type, envelope.payload)
 
     @staticmethod
     def _event_type_to_status(event_type: str) -> Optional[str]:

@@ -4,6 +4,7 @@ The Rust joysafeter API returns and accepts IDs with prefixes like
 ``agent_<uuid>``, ``sess_<uuid>``, ``env_<uuid>``.  These helpers
 strip the prefix so that FastAPI can validate the underlying UUID.
 """
+
 import uuid
 
 from fastapi import HTTPException, Path

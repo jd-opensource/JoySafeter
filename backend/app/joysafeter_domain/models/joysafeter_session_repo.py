@@ -42,6 +42,4 @@ class JoySafeterSessionRepo(Base):
         nullable=False,
     )
 
-    __table_args__ = (
-        Index("idx_session_repos_session", "session_id"),
-    )
+    __table_args__ = (Index("idx_session_repos_session", "session_id"),)

@@ -59,10 +59,7 @@ class SkillVersionRepository(BaseRepository[JoySafeterSkillVersion]):
             current = latest.get(skill_id)
             # Keep the most recently published row per skill. ``published_at``
             # may be None for legacy rows; treat those as oldest.
-            if current is None or (
-                published_at is not None
-                and (current[0] is None or published_at > current[0])
-            ):
+            if current is None or (published_at is not None and (current[0] is None or published_at > current[0])):
                 latest[skill_id] = (published_at, version)
         return {skill_id: version for skill_id, (_, version) in latest.items()}
 

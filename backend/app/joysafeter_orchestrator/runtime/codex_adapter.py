@@ -55,7 +55,8 @@ class CodexAdapter(HarnessAdapter):
     async def is_available(self) -> bool:
         try:
             proc = await asyncio.create_subprocess_exec(
-                self._binary, "--version",
+                self._binary,
+                "--version",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -67,9 +68,7 @@ class CodexAdapter(HarnessAdapter):
     def _session_key(self, input: HarnessInput) -> str:
         return input.session_id or "default"
 
-    async def _rpc_request(
-        self, session: _CodexSession, method: str, params: Optional[dict] = None
-    ) -> Any:
+    async def _rpc_request(self, session: _CodexSession, method: str, params: Optional[dict] = None) -> Any:
         rpc_id = session._next_rpc_id
         session._next_rpc_id += 1
 
@@ -91,9 +90,7 @@ class CodexAdapter(HarnessAdapter):
             session._pending_rpcs.pop(rpc_id, None)
             raise RuntimeError(f"RPC {method} timed out")
 
-    async def _send_notification(
-        self, session: _CodexSession, method: str, params: Optional[dict] = None
-    ) -> None:
+    async def _send_notification(self, session: _CodexSession, method: str, params: Optional[dict] = None) -> None:
         msg: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
         if params is not None:
             msg["params"] = params
@@ -116,7 +113,9 @@ class CodexAdapter(HarnessAdapter):
         )
         logger.info(
             "Creating new codex session: key=%s input.session_id=%s workspace_path=%s",
-            key, input.session_id, input.workspace_path,
+            key,
+            input.session_id,
+            input.workspace_path,
         )
 
         session = _CodexSession()
@@ -143,24 +142,30 @@ class CodexAdapter(HarnessAdapter):
             env=env,
         )
 
-        session.reader_task = asyncio.create_task(
-            self._persistent_reader(session), name=f"codex-reader-{key}"
-        )
+        session.reader_task = asyncio.create_task(self._persistent_reader(session), name=f"codex-reader-{key}")
 
         # JSON-RPC handshake
-        init_result = await self._rpc_request(session, "initialize", {
-            "protocolVersion": "2025-01-01",
-            "clientInfo": {"name": "joysafeter", "version": "1.0"},
-        })
+        init_result = await self._rpc_request(
+            session,
+            "initialize",
+            {
+                "protocolVersion": "2025-01-01",
+                "clientInfo": {"name": "joysafeter", "version": "1.0"},
+            },
+        )
         logger.debug("Codex initialize result: %s", init_result)
 
         await self._send_notification(session, "initialized")
 
         if input.session_id:
             try:
-                thread_result = await self._rpc_request(session, "thread/resume", {
-                    "threadId": input.session_id,
-                })
+                thread_result = await self._rpc_request(
+                    session,
+                    "thread/resume",
+                    {
+                        "threadId": input.session_id,
+                    },
+                )
                 logger.info("Codex thread/resume succeeded for %s", input.session_id)
             except Exception:
                 logger.warning(
@@ -174,8 +179,7 @@ class CodexAdapter(HarnessAdapter):
         if isinstance(thread_result, dict):
             thread = thread_result.get("thread", {})
             session.thread_id = (
-                (thread.get("id") or thread.get("thread_id"))
-                if isinstance(thread, dict) else None
+                (thread.get("id") or thread.get("thread_id")) if isinstance(thread, dict) else None
             ) or thread_result.get("thread_id")
         print(
             f"[CODEX] Session established: key={key} thread_id={session.thread_id} "
@@ -220,7 +224,7 @@ class CodexAdapter(HarnessAdapter):
                 duration_ms=duration,
             )
 
-        harness.wait = _wait_turn
+        harness._wait_override = _wait_turn
         return harness
 
     async def cancel(self, harness: RunningHarness) -> None:
@@ -306,10 +310,7 @@ class CodexAdapter(HarnessAdapter):
                 if text:
                     return text
         if isinstance(value, list):
-            text = "".join(
-                part for item in value
-                if (part := self._extract_text_value(item))
-            )
+            text = "".join(part for item in value if (part := self._extract_text_value(item)))
             return text or None
         return None
 
@@ -385,11 +386,13 @@ class CodexAdapter(HarnessAdapter):
 
         if method == "requestApproval":
             if turn:
-                await turn.events.put(HarnessEvent(
-                    event_type="tool_use",
-                    payload=params,
-                    is_control_request=True,
-                ))
+                await turn.events.put(
+                    HarnessEvent(
+                        event_type="tool_use",
+                        payload=params,
+                        is_control_request=True,
+                    )
+                )
             response = {
                 "jsonrpc": "2.0",
                 "id": rpc_id,
@@ -426,18 +429,22 @@ class CodexAdapter(HarnessAdapter):
             await self._handle_legacy_event(session, params)
         elif method == "turn/started":
             if turn:
-                await turn.events.put(HarnessEvent(
-                    event_type="model_request_start",
-                    payload={"type": "model_request_start", "model": turn.model},
-                ))
+                await turn.events.put(
+                    HarnessEvent(
+                        event_type="model_request_start",
+                        payload={"type": "model_request_start", "model": turn.model},
+                    )
+                )
         elif method == "turn/completed":
             if turn:
                 turn.usage = self._extract_usage(params) or turn.usage
                 if turn.usage and not turn.usage_event_emitted:
-                    await turn.events.put(HarnessEvent(
-                        event_type="model_request_end",
-                        payload=self._model_request_end_payload(turn.model, turn.usage),
-                    ))
+                    await turn.events.put(
+                        HarnessEvent(
+                            event_type="model_request_end",
+                            payload=self._model_request_end_payload(turn.model, turn.usage),
+                        )
+                    )
                     turn.usage_event_emitted = True
                 if "output" in params:
                     turn.output_parts.append(params["output"])
@@ -448,10 +455,12 @@ class CodexAdapter(HarnessAdapter):
                 usage = self._extract_usage(params)
                 if usage:
                     turn.usage = usage
-                    await turn.events.put(HarnessEvent(
-                        event_type="model_request_end",
-                        payload=self._model_request_end_payload(turn.model, usage),
-                    ))
+                    await turn.events.put(
+                        HarnessEvent(
+                            event_type="model_request_end",
+                            payload=self._model_request_end_payload(turn.model, usage),
+                        )
+                    )
                     turn.usage_event_emitted = True
         elif method == "item/started":
             if turn:
@@ -463,32 +472,35 @@ class CodexAdapter(HarnessAdapter):
                     item = params.get("item") if isinstance(params.get("item"), dict) else {}
                     item_id = item.get("id") or ""
                     if item_id:
-                        turn.agent_message_text_by_id[item_id] = (
-                            turn.agent_message_text_by_id.get(item_id, "") + text
+                        turn.agent_message_text_by_id[item_id] = turn.agent_message_text_by_id.get(item_id, "") + text
+                    await turn.events.put(
+                        HarnessEvent(
+                            event_type="assistant",
+                            payload=self._assistant_text_event(text),
                         )
-                    await turn.events.put(HarnessEvent(
-                        event_type="assistant",
-                        payload=self._assistant_text_event(text),
-                    ))
+                    )
         elif method == "item/completed":
             if turn:
                 item = params.get("item") if isinstance(params.get("item"), dict) else {}
                 if item.get("type") == "agentMessage":
-                    text = item.get("text") if isinstance(item.get("text"), str) else ""
+                    raw_text = item.get("text")
+                    completed_text: str = raw_text if isinstance(raw_text, str) else ""
                     item_id = item.get("id") or ""
                     already_sent = turn.agent_message_text_by_id.pop(item_id, "")
                     remaining_text = (
-                        text[len(already_sent):]
-                        if already_sent and text.startswith(already_sent)
-                        else ("" if already_sent else text)
+                        completed_text[len(already_sent) :]
+                        if already_sent and completed_text.startswith(already_sent)
+                        else ("" if already_sent else completed_text)
                     )
                     if remaining_text:
-                        await turn.events.put(HarnessEvent(
-                            event_type="assistant",
-                            payload=self._assistant_text_event(remaining_text),
-                        ))
-                    if text:
-                        turn.output_parts.append(text)
+                        await turn.events.put(
+                            HarnessEvent(
+                                event_type="assistant",
+                                payload=self._assistant_text_event(remaining_text),
+                            )
+                        )
+                    if completed_text:
+                        turn.output_parts.append(completed_text)
                 else:
                     await turn.events.put(HarnessEvent(event_type="item_completed", payload=params))
                 if "output" in params:
@@ -520,10 +532,12 @@ class CodexAdapter(HarnessAdapter):
             if turn:
                 turn.usage = self._extract_usage(params) or turn.usage
                 if turn.usage and not turn.usage_event_emitted:
-                    await turn.events.put(HarnessEvent(
-                        event_type="model_request_end",
-                        payload=self._model_request_end_payload(turn.model, turn.usage),
-                    ))
+                    await turn.events.put(
+                        HarnessEvent(
+                            event_type="model_request_end",
+                            payload=self._model_request_end_payload(turn.model, turn.usage),
+                        )
+                    )
                     turn.usage_event_emitted = True
                 if "output" in params:
                     turn.output_parts.append(params["output"])
