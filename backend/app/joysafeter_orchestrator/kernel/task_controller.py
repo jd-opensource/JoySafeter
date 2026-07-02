@@ -372,8 +372,16 @@ class TaskController:
                     await db.execute(text("SELECT pg_advisory_unlock(hashtext('task_pending_scanner'))"))
 
     @staticmethod
-    async def failover_or_fail_task(task_id: uuid.UUID, reason: str) -> "int | None":
-        """Attempt to retry the task. Returns the retry_count (pre-increment) if retried, None if terminal/failed."""
+    async def failover_or_fail_task(
+        task_id: uuid.UUID, reason: str, expected_epoch: "int | None" = None
+    ) -> "int | None":
+        """Attempt to retry the task. Returns the retry_count (pre-increment) if retried, None if terminal/failed.
+
+        When ``expected_epoch`` is supplied, the call is fenced: if the task's
+        current ``owner_epoch`` has advanced past it, the caller is a zombie whose
+        task was already reclaimed and re-run — the failover is dropped so it
+        cannot retry/fail a task a new owner now holds.
+        """
         from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
         from app.joysafeter_orchestrator.services import JoySafeterSessionLifecycleService, SessionService, TaskService
         from app.joysafeter_shared.database import AsyncSessionLocal
@@ -386,6 +394,15 @@ class TaskController:
                     await svc.update_task_error(task_id, reason, TaskStatus.FAILED)
                 except Exception as e:
                     logger.error("Failed to mark task %s as failed: %s", task_id, e)
+                return None
+
+            if expected_epoch is not None and task.owner_epoch != expected_epoch:
+                logger.warning(
+                    "Stale failover for task %s (held epoch %s, current %s) — reclaimed by another owner, skipping",
+                    task_id,
+                    expected_epoch,
+                    task.owner_epoch,
+                )
                 return None
 
             status = TaskStatus(task.status)

@@ -1070,7 +1070,11 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         while not stream_cancel.is_set():
             # Idle phase: DB is the durable source of tasks. The sandbox queue is
             # only a wakeup signal so a lost Redis/local queue item cannot lose work.
-            task_id = await self._claim_next_sandbox_task_from_db(sandbox_id)
+            claimed = await self._claim_next_sandbox_task_from_db(sandbox_id)
+            task_id: Optional[uuid.UUID] = None
+            owner_epoch: int = 0
+            if claimed is not None:
+                task_id, owner_epoch = claimed
             pop_task: Optional[asyncio.Task] = None
             if task_id is None:
                 pop_task = asyncio.create_task(
@@ -1133,8 +1137,9 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     continue
 
                 if pop_task in done:
-                    task_id = await self._claim_next_sandbox_task_from_db(sandbox_id)
-                    if task_id is not None:
+                    claimed = await self._claim_next_sandbox_task_from_db(sandbox_id)
+                    if claimed is not None:
+                        task_id, owner_epoch = claimed
                         idle_wait_secs = 1.0
                         break
                     idle_wait_secs = min(idle_wait_secs * 1.5, 5.0)
@@ -1178,6 +1183,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     sandbox_id,
                     context,
                     task_id,
+                    owner_epoch,
                     stream_cancel,
                     failover_pending_tasks,
                     linked_session_id,
@@ -1219,7 +1225,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 pass
         return failure_ejected
 
-    async def _claim_next_sandbox_task_from_db(self, sandbox_id: uuid.UUID) -> Optional[uuid.UUID]:
+    async def _claim_next_sandbox_task_from_db(self, sandbox_id: uuid.UUID) -> Optional[tuple[uuid.UUID, int]]:
         from app.joysafeter_orchestrator.services import TaskService
         from app.joysafeter_shared.database import AsyncSessionLocal
 
@@ -1240,6 +1246,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         sandbox_id: uuid.UUID,
         context,
         task_id: uuid.UUID,
+        owner_epoch: int,
         stream_cancel: asyncio.Event,
         failover_pending_tasks: list,
         linked_session_id: Optional[uuid.UUID] = None,
@@ -1276,6 +1283,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
         bridge.status = SandboxBridgeStatus.BUSY
         bridge.current_task_id = task_id
+        bridge.current_owner_epoch = owner_epoch
 
         # I1 fix: update sandbox DB status to "running" (Rust parity: server.rs line 427)
         try:
@@ -2143,19 +2151,21 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                         task_id,
                         error,
                         final_status,
+                        expected_epoch=bridge.current_owner_epoch,
                     )
                 else:
                     cas_ok = await task_svc.update_task_status(
                         task_id,
                         final_status,
+                        expected_epoch=bridge.current_owner_epoch,
                     )
                 if not cas_ok:
                     logger.warning("CAS conflict: task %s already terminal, ignoring runner result", task_id)
 
             if cas_ok:
-                await task_svc.update_task_output(task_id, result.output)
+                await task_svc.update_task_output(task_id, result.output, expected_epoch=bridge.current_owner_epoch)
                 if usage:
-                    await task_svc.update_task_usage(task_id, usage)
+                    await task_svc.update_task_usage(task_id, usage, expected_epoch=bridge.current_owner_epoch)
 
                 if session_id and result.output and result.output.strip():
                     has_agent_output = await self._task_has_agent_output(db, session_id, task_id)
@@ -2317,15 +2327,19 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             task_svc = TaskService(db)
             if final_status.is_terminal():
                 if error:
-                    cas_ok = await task_svc.update_task_error(task_id, error, final_status)
+                    cas_ok = await task_svc.update_task_error(
+                        task_id, error, final_status, expected_epoch=bridge.current_owner_epoch
+                    )
                 else:
-                    cas_ok = await task_svc.update_task_status(task_id, final_status)
+                    cas_ok = await task_svc.update_task_status(
+                        task_id, final_status, expected_epoch=bridge.current_owner_epoch
+                    )
                 if not cas_ok:
                     logger.warning("CAS conflict: reconnect task %s already terminal, ignoring result", task_id)
             if cas_ok:
-                await task_svc.update_task_output(task_id, result.output)
+                await task_svc.update_task_output(task_id, result.output, expected_epoch=bridge.current_owner_epoch)
                 if usage:
-                    await task_svc.update_task_usage(task_id, usage)
+                    await task_svc.update_task_usage(task_id, usage, expected_epoch=bridge.current_owner_epoch)
 
                 if session_id and result.output and result.output.strip():
                     has_agent_output = await self._task_has_agent_output(db, session_id, task_id)

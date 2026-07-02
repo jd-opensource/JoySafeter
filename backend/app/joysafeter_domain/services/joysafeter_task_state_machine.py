@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 
-from sqlalchemy import CursorResult, and_, func, select
+from sqlalchemy import CursorResult, Sequence, and_, func, select
 from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +15,12 @@ from app.joysafeter_shared.config.settings import joysafeter_config
 from app.joysafeter_shared.utils.datetime import utc_now
 
 TERMINAL_VALUES = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
+
+# Durable monotonic source for the fencing token stamped at each →RUNNING claim.
+# Standalone (not bound to metadata) so referencing .next_value() only renders
+# ``nextval('joysafeter_task_owner_epoch_seq')`` — the sequence itself is
+# created/dropped by migration 20260702_000004.
+_OWNER_EPOCH_SEQ = Sequence("joysafeter_task_owner_epoch_seq")
 
 
 def _lease_expiry(now: datetime) -> datetime:
@@ -82,6 +88,7 @@ class JoySafeterTaskStateMachine:
         self,
         task_id: uuid.UUID,
         new_status: JoySafeterTaskStatus,
+        expected_epoch: Optional[int] = None,
     ) -> bool:
         now = utc_now()
         if new_status == JoySafeterTaskStatus.RUNNING:
@@ -102,18 +109,14 @@ class JoySafeterTaskStateMachine:
                     started_at=now,
                     owner_instance_id=joysafeter_config.instance_id,
                     lease_expires_at=_lease_expiry(now),
+                    owner_epoch=_OWNER_EPOCH_SEQ.next_value(),
                 )
             )
         elif new_status.is_terminal():
             duration_ms = await self._duration_ms_for_task(task_id, now)
             result = await self.db.execute(
                 sa_update(JoySafeterTask)
-                .where(
-                    and_(
-                        JoySafeterTask.id == task_id,
-                        JoySafeterTask.status.notin_(TERMINAL_VALUES),
-                    )
-                )
+                .where(self._owned_and_active(task_id, expected_epoch))
                 .values(
                     status=new_status.value,
                     completed_at=now,
@@ -123,18 +126,13 @@ class JoySafeterTaskStateMachine:
         else:
             result = await self.db.execute(
                 sa_update(JoySafeterTask)
-                .where(
-                    and_(
-                        JoySafeterTask.id == task_id,
-                        JoySafeterTask.status.notin_(TERMINAL_VALUES),
-                    )
-                )
+                .where(self._owned_and_active(task_id, expected_epoch))
                 .values(status=new_status.value)
             )
         await self.db.commit()
         return cast(CursorResult[Any], result).rowcount > 0
 
-    async def claim_next_sandbox_task_for_running(self, sandbox_id: uuid.UUID) -> Optional[uuid.UUID]:
+    async def claim_next_sandbox_task_for_running(self, sandbox_id: uuid.UUID) -> Optional[tuple[uuid.UUID, int]]:
         now = utc_now()
         next_task = (
             select(JoySafeterTask.id)
@@ -157,29 +155,27 @@ class JoySafeterTaskStateMachine:
                 started_at=now,
                 owner_instance_id=joysafeter_config.instance_id,
                 lease_expires_at=_lease_expiry(now),
+                owner_epoch=_OWNER_EPOCH_SEQ.next_value(),
             )
-            .returning(JoySafeterTask.id)
+            .returning(JoySafeterTask.id, JoySafeterTask.owner_epoch)
         )
         await self.db.commit()
-        return result.scalar_one_or_none()
+        row = result.one_or_none()
+        return (row[0], row[1]) if row is not None else None
 
     async def fail_with_error(
         self,
         task_id: uuid.UUID,
         error: str,
         new_status: JoySafeterTaskStatus,
+        expected_epoch: Optional[int] = None,
     ) -> bool:
         assert new_status.is_terminal(), f"fail_with_error called with non-terminal status: {new_status}"
         now = utc_now()
         duration_ms = await self._duration_ms_for_task(task_id, now)
         result = await self.db.execute(
             sa_update(JoySafeterTask)
-            .where(
-                and_(
-                    JoySafeterTask.id == task_id,
-                    JoySafeterTask.status.notin_(TERMINAL_VALUES),
-                )
-            )
+            .where(self._owned_and_active(task_id, expected_epoch))
             .values(
                 error=error,
                 status=new_status.value,
@@ -206,6 +202,7 @@ class JoySafeterTaskStateMachine:
                 sandbox_id=None,
                 owner_instance_id=None,
                 lease_expires_at=None,
+                owner_epoch=None,
             )
         )
         await self.db.commit()
@@ -283,6 +280,41 @@ class JoySafeterTaskStateMachine:
             )
         )
         return list(result.scalars().all())
+
+    @staticmethod
+    def _owned_and_active(task_id: uuid.UUID, expected_epoch: Optional[int]) -> Any:
+        """WHERE clause for a mutating write on a live task.
+
+        Always guards on "not already terminal" (the pre-fencing invariant).
+        When ``expected_epoch`` is supplied, additionally fences on the ownership
+        grant: a caller holding a stale token (its task was reclaimed and re-run,
+        bumping ``owner_epoch``) matches zero rows and its write is dropped.
+        ``None`` preserves the unconditional-by-status behavior for callers that
+        hold no grant (pre-RUNNING scheduler/watchdog paths).
+        """
+        conditions = [
+            JoySafeterTask.id == task_id,
+            JoySafeterTask.status.notin_(TERMINAL_VALUES),
+        ]
+        if expected_epoch is not None:
+            conditions.append(JoySafeterTask.owner_epoch == expected_epoch)
+        return and_(*conditions)
+
+    async def update_output(self, task_id: uuid.UUID, output: str, expected_epoch: Optional[int] = None) -> bool:
+        """Epoch-fenced write of the full task output."""
+        result = await self.db.execute(
+            sa_update(JoySafeterTask).where(self._owned_and_active(task_id, expected_epoch)).values(output=output)
+        )
+        await self.db.commit()
+        return cast(CursorResult[Any], result).rowcount > 0
+
+    async def update_usage(self, task_id: uuid.UUID, usage: dict, expected_epoch: Optional[int] = None) -> bool:
+        """Epoch-fenced write of the task usage record."""
+        result = await self.db.execute(
+            sa_update(JoySafeterTask).where(self._owned_and_active(task_id, expected_epoch)).values(usage=usage)
+        )
+        await self.db.commit()
+        return cast(CursorResult[Any], result).rowcount > 0
 
     async def _get_task(self, task_id: uuid.UUID) -> Optional[JoySafeterTask]:
         result = await self.db.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))

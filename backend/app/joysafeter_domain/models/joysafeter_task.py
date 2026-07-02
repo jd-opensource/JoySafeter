@@ -108,3 +108,4 @@ class JoySafeterTask(JoySafeterBaseModel):
     duration_ms: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     owner_instance_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    owner_epoch: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)

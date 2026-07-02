@@ -39,6 +39,7 @@ class SandboxBridge:
         self.external_id = external_id
         self.status = SandboxBridgeStatus.CONNECTED
         self.current_task_id: Optional[uuid.UUID] = None
+        self.current_owner_epoch: Optional[int] = None
         self.last_result_status: "JoySafeterTaskStatus | None" = None
         self.last_result_error: str | None = None
         self.task_available: asyncio.Event = asyncio.Event()

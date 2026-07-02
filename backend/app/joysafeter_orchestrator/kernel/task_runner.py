@@ -51,22 +51,23 @@ class TaskRunner:
         idle_wait_secs = 1.0
 
         while self._running:
-            task_id = await self._claim_next_sandbox_task_from_db(sandbox_id)
-            if task_id is None:
+            claimed = await self._claim_next_sandbox_task_from_db(sandbox_id)
+            if claimed is None:
                 await self._queue.wait_for_sandbox_wakeup(
                     sandbox_id,
                     self._cancel,
                     timeout_secs=idle_wait_secs + random.uniform(0, 0.25),
                 )
-                task_id = await self._claim_next_sandbox_task_from_db(sandbox_id)
-            if task_id is None:
+                claimed = await self._claim_next_sandbox_task_from_db(sandbox_id)
+            if claimed is None:
                 if self._cancel.is_set():
                     break
                 idle_wait_secs = min(idle_wait_secs * 1.5, 5.0)
                 continue
 
             idle_wait_secs = 1.0
-            await self._execute_task(task_id)
+            task_id, owner_epoch = claimed
+            await self._execute_task(task_id, owner_epoch)
 
             from app.joysafeter_orchestrator.lifespan import get_runtime_config
 
@@ -83,7 +84,7 @@ class TaskRunner:
 
         logger.info("TaskRunner stopped for sandbox %s", sandbox_id)
 
-    async def _claim_next_sandbox_task_from_db(self, sandbox_id: uuid.UUID) -> Optional[uuid.UUID]:
+    async def _claim_next_sandbox_task_from_db(self, sandbox_id: uuid.UUID) -> Optional[tuple[uuid.UUID, int]]:
         from app.joysafeter_orchestrator.services import TaskService
         from app.joysafeter_shared.database import AsyncSessionLocal
 
@@ -98,7 +99,7 @@ class TaskRunner:
             )
             return None
 
-    async def _execute_task(self, task_id: uuid.UUID) -> None:
+    async def _execute_task(self, task_id: uuid.UUID, owner_epoch: int) -> None:
         from app.joysafeter_domain.models.joysafeter_session import SessionStatus
         from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
         from app.joysafeter_orchestrator.services import AgentService, SessionService, TaskService
@@ -181,16 +182,18 @@ class TaskRunner:
                         task_id,
                         error_msg,
                         final_status,
+                        expected_epoch=owner_epoch,
                     )
                 else:
                     await task_svc.update_task_status(
                         task_id,
                         final_status,
+                        expected_epoch=owner_epoch,
                     )
-                await task_svc.update_task_output(task_id, result.get("output", ""))
+                await task_svc.update_task_output(task_id, result.get("output", ""), expected_epoch=owner_epoch)
                 task_usage = result.get("usage")
                 if task_usage:
-                    await task_svc.update_task_usage(task_id, task_usage)
+                    await task_svc.update_task_usage(task_id, task_usage, expected_epoch=owner_epoch)
 
                 if task.chat_session_id:
                     harness_session_id = result.get("session_id")
@@ -255,7 +258,7 @@ class TaskRunner:
             self._consecutive_failures += 1
             async with AsyncSessionLocal() as db:
                 task_svc = TaskService(db)
-                await task_svc.update_task_error(task_id, "Cancelled", TaskStatus.ABORTED)
+                await task_svc.update_task_error(task_id, "Cancelled", TaskStatus.ABORTED, expected_epoch=owner_epoch)
         except TimeoutError:
             logger.warning("Task %s exceeded server-side deadline, cancelling", task_id)
             self._consecutive_failures += 1
@@ -270,6 +273,7 @@ class TaskRunner:
                     task_id,
                     "Task timed out (server-side deadline)",
                     TaskStatus.TIMEOUT,
+                    expected_epoch=owner_epoch,
                 )
             await self._bridge.broadcast_to_task(
                 task_id,
@@ -285,7 +289,7 @@ class TaskRunner:
             from app.joysafeter_orchestrator.kernel.task_controller import TaskController
             from app.joysafeter_shared.retry import compute_retry_delay
 
-            retryable = await TaskController.failover_or_fail_task(task_id, str(e))
+            retryable = await TaskController.failover_or_fail_task(task_id, str(e), expected_epoch=owner_epoch)
             if retryable:
                 async with AsyncSessionLocal() as db:
                     task_svc = TaskService(db)

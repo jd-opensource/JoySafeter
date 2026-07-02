@@ -204,7 +204,7 @@ class JoySafeterTaskService:
         )
         return result.scalar_one_or_none()
 
-    async def claim_next_sandbox_task_for_running(self, sandbox_id: uuid.UUID) -> Optional[uuid.UUID]:
+    async def claim_next_sandbox_task_for_running(self, sandbox_id: uuid.UUID) -> Optional[tuple[uuid.UUID, int]]:
         return await self.state_machine.claim_next_sandbox_task_for_running(sandbox_id)
 
     async def list_recoverable_tasks_by_sandbox(self, sandbox_id: uuid.UUID) -> list[uuid.UUID]:
@@ -246,24 +246,24 @@ class JoySafeterTaskService:
         self,
         task_id: uuid.UUID,
         new_status: JoySafeterTaskStatus,
+        expected_epoch: Optional[int] = None,
     ) -> bool:
-        return await self.state_machine.transition_to(task_id, new_status)
+        return await self.state_machine.transition_to(task_id, new_status, expected_epoch=expected_epoch)
 
     async def update_task_error(
         self,
         task_id: uuid.UUID,
         error: str,
         new_status: JoySafeterTaskStatus,
+        expected_epoch: Optional[int] = None,
     ) -> bool:
-        return await self.state_machine.fail_with_error(task_id, error, new_status)
+        return await self.state_machine.fail_with_error(task_id, error, new_status, expected_epoch=expected_epoch)
 
-    async def update_task_output(self, task_id: uuid.UUID, output: str) -> None:
-        await self.db.execute(sa_update(JoySafeterTask).where(JoySafeterTask.id == task_id).values(output=output))
-        await self.db.commit()
+    async def update_task_output(self, task_id: uuid.UUID, output: str, expected_epoch: Optional[int] = None) -> bool:
+        return await self.state_machine.update_output(task_id, output, expected_epoch=expected_epoch)
 
-    async def update_task_usage(self, task_id: uuid.UUID, usage: dict) -> None:
-        await self.db.execute(sa_update(JoySafeterTask).where(JoySafeterTask.id == task_id).values(usage=usage))
-        await self.db.commit()
+    async def update_task_usage(self, task_id: uuid.UUID, usage: dict, expected_epoch: Optional[int] = None) -> bool:
+        return await self.state_machine.update_usage(task_id, usage, expected_epoch=expected_epoch)
 
     async def update_task_sandbox(self, task_id: uuid.UUID, sandbox_id: uuid.UUID) -> None:
         await self.db.execute(

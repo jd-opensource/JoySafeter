@@ -96,7 +96,9 @@ async def test_claim_next_sandbox_task_stamps_owner_and_lease(db_session, agent_
     sm = JoySafeterTaskStateMachine(db_session)
     before = utc_now()
     claimed = await sm.claim_next_sandbox_task_for_running(sandbox_id)
-    assert claimed == task.id, "the scheduling task on this sandbox must be claimed to running"
+    assert claimed is not None and claimed[0] == task.id, (
+        "the scheduling task on this sandbox must be claimed to running"
+    )
 
     row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task.id))).scalar_one()
     assert row.owner_instance_id == "instance-B", "the claiming instance must own the running task"
