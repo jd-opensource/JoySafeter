@@ -1,6 +1,6 @@
 # 架构（Architecture）
 
-> **状态：** 已按 `joysafeter-v2` 分支的真实代码核对（2026-07-02）。
+> **状态：** 已按 `joysafeter-v2` 分支的真实代码核对（2026-07-03）。
 > 本文档描述的是**当前实际运行的代码**。v2 之前的单进程设计
 > （DispatchService / ExecutionOrchestrator / EngineRegistry / 进程内 `ExecutionEventBus` / `/ws/executions`）
 > 已被**移除**——若你在找旧模型，见 [§11 迁移说明](#11-迁移说明v1--v2)。
@@ -43,7 +43,7 @@ flowchart TB
         RPUB[("pub/sub<br/>session_events:{id}")]
     end
     PG[("PostgreSQL<br/>权威状态 + 事件日志")]
-    SKILLSPECTOR["skillspector<br/>技能安全扫描（fail-closed）"]
+    SKILLSPECTOR["skillspector<br/>技能安全扫描"]
 
     subgraph SBX["沙箱容器（每会话，NetworkMode=none）"]
         RUN["Rust sandbox-runner<br/>+ claude / codex / ccb harness"]
@@ -97,17 +97,17 @@ flowchart TB
 |---|---|---|---|
 | **API** | `api` | `JOYSAFETER_SERVICE_ROLE=api` | REST `/api/v1/*`、SSE 执行流、通知 WebSocket、鉴权 |
 | **Orchestrator（Python）** | `orchestrator`（profile `python-orchestrator`） | `orchestrator` | gRPC `AgentBridge` 服务、任务调度器、沙箱生命周期、事件总线。**参考实现。** |
-| **Orchestrator（Rust）** | `orchestrator-rs`（profile `rust-orchestrator`） | — | 与 Python 版对齐的替代 orchestrator |
+| **Orchestrator（Rust）** | `orchestrator-rs`（profile `rust-orchestrator`） | — | 实验替代版本。Compose profile 仍保留，但当前 checkout 缺少 `backend/app/joysafeter_orchestrator_rs`，不是快速开始支持路径。 |
 | **Worker** | `worker` | `worker` | 消费 Redis 事件 Stream，批量持久化到 `joysafeter_session_events`，再发布供 SSE 使用 |
 | **前端** | `frontend` | — | Next.js App Router UI |
 | **PostgreSQL** | `db` | — | 所有状态的权威存储 |
 | **Redis** | `redis`（profile `local-redis`）或外部 | — | 事件 Streams、Pub/Sub 扇出、任务队列、协调 |
 | **Envoy** | `joysafeter-envoy` | — | 代理每个沙箱的 unix socket；强制每沙箱出口白名单 |
-| **skillspector** | `skillspector` | — | 独立的技能安全扫描服务（fail-closed） |
+| **skillspector** | `skillspector` | — | 独立的技能安全扫描服务；运行时闸门对不可用扫描状态 fail-closed |
 | **db-init** | `db-init`（profile `init`） | — | 一次性 Alembic 迁移 |
 
-通过 compose profile 选择 Python 或 Rust orchestrator：
-`docker compose --profile python-orchestrator up` 或 `--profile rust-orchestrator up`。
+当前支持的本地栈使用 Python orchestrator profile：
+`docker compose --profile local-redis --profile python-orchestrator up`。
 
 ---
 
@@ -174,16 +174,16 @@ sequenceDiagram
 | 通道 | 机制 | 用途 | 锚点 |
 |---|---|---|---|
 | 浏览器 → API | HTTPS REST `/api/v1/*` | 所有 CRUD + 命令 | `joysafeter_api/api/v1/router.py` |
-| **实时事件 → 浏览器** | **SSE** `GET /sessions/{id}/events/stream` | 主执行流（`?after_seq` 回放 DB，再转实时） | `sessions.py:1183` |
-| 通知 → 浏览器 | WebSocket `/ws/notifications` | 用户级通知（进程内 `NotificationManager`） | `app.py:58` |
-| 遗留任务流 | WebSocket `/tasks/{id}/stream` | 单任务输出（bridge 队列 → Redis 回退） | `tasks.py:234` |
-| 任务入队 | Redis **list** `joysafeter:global_queue` | API `rpush` → orchestrator 调度器弹出 | `sessions.py:977`、`queue.py:122` |
-| **可靠事件总线** | Redis **Streams** `joysafeter:orchestrator:events` + 消费组 | orchestrator `XADD` → Worker `XREADGROUP` → 落库 | `stream_publisher.py:46`、`stream_consumer.py` |
-| **实时事件扇出** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | 跨实例 SSE 投递（`SessionBroadcaster`） | `session_broadcaster.py:75` |
-| 控制/取消中继 | Redis **Pub/Sub** `joysafeter:cmd:{instance}` | 把 cancel/input 路由到拥有该沙箱的实例 | `sessions.py:645` |
+| **实时事件 → 浏览器** | **SSE** `GET /sessions/{id}/events/stream` | 主执行流（`?after_seq` 回放 DB，再转实时） | `joysafeter_api/api/v1/sessions.py` |
+| 通知 → 浏览器 | WebSocket `/ws/notifications` | 用户级通知（进程内 `NotificationManager`） | `joysafeter_api/app.py`、`joysafeter_api/websocket/notification_manager.py` |
+| 遗留任务流 | WebSocket `/tasks/{id}/stream` | 单任务输出（bridge 队列 → Redis 回退） | `joysafeter_api/api/v1/tasks.py` |
+| 任务入队 | Redis **list** `joysafeter:global_queue` | API `rpush` → orchestrator 调度器弹出 | `joysafeter_api/api/v1/sessions.py`、`joysafeter_orchestrator/kernel/queue.py` |
+| **可靠事件总线** | Redis **Streams** `joysafeter:orchestrator:events` + 消费组 | orchestrator `XADD` → Worker `XREADGROUP` → 落库 | `joysafeter_orchestrator/events/stream_publisher.py`、`joysafeter_worker/events/stream_consumer.py` |
+| **实时事件扇出** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | 跨实例 SSE 投递（`SessionBroadcaster`） | `joysafeter_orchestrator/session_broadcaster.py` |
+| 控制/取消中继 | Redis **Pub/Sub** `joysafeter:cmd:{instance}` | 把 cancel/input 路由到拥有该沙箱的实例 | `joysafeter_api/api/v1/sessions.py`、`joysafeter_orchestrator/kernel/command_listener.py` |
 | orchestrator ↔ runner | **gRPC** `AgentBridge`（双向流，:9090） | Agent 执行协议 | `proto/joysafeter.proto`、`grpc/server.py` |
 | runner 出口 | Envoy 代理（unix socket） | 每沙箱域名白名单，默认全拒 | `sandbox/envoy_manager.py` |
-| 技能扫描 | HTTP → skillspector `:8010` | 技能写入时安全扫描（fail-closed） | `joysafeter_skill_security.py` |
+| 技能扫描 | HTTP → skillspector `:8010` | 技能写入时安全扫描；运行时拦截 failed/scanning/unscanned/blocked 技能 | `joysafeter_skill_security.py` |
 
 **API ↔ orchestrator 走 Redis，而非直接 gRPC。** API 进程内联了 orchestrator 代码，但把每个进程内句柄
 （调度器、bridge、broadcaster）都视为可选，缺失时降级到 Redis。这正是 API 与 orchestrator 可拆分为独立
@@ -196,7 +196,7 @@ sequenceDiagram
 ### 4.1 API 服务（`app/joysafeter_api/`）
 
 API 面。装配 FastAPI 应用（`app.py`），通过 `ApiV1ResponseWrapperMiddleware`
-（`api/v1/middleware.py:40`）把每个 `/api/v1` 的 JSON 响应包成 `{success, code, message, data}`
+（`api/v1/middleware.py`）把每个 `/api/v1` 的 JSON 响应包成 `{success, code, message, data}`
 信封——该中间件会**跳过**任何 `/stream` 路径与任何 `StreamingResponse`，这就是 SSE 能直出
 `text/event-stream` 的原因。
 
@@ -427,7 +427,7 @@ quickstart）。**Agent 工作负载的模型流量委托给沙箱内的 CLI har
 2. **权限闸门**（`joysafeter_shared/common/skill_permissions.py`）——四级可见性
    （private/project/organization/public）+ 严格 active-org 隔离。
 3. **安全扫描**（`joysafeter_domain/.../joysafeter_skill_security.py` → **skillspector** 服务）——
-   **fail-closed**（扫描器失败即拒绝），拦截 `DO_NOT_INSTALL` 建议，规范 sha256 用于漂移检测。
+   扫描器失败会记录 failed/scanning 状态，拦截 `DO_NOT_INSTALL` 建议，规范 sha256 用于漂移检测。
 4. **打包与投递**——`SkillPacker` 在会话开始时把引用解析为 `tar.gz` `SkillArchive`，应用 `is_skill_usable`
    闸门、记录用量；orchestrator 把归档注入沙箱，runner 解包。
 
@@ -451,7 +451,7 @@ quickstart）。**Agent 工作负载的模型流量委托给沙箱内的 CLI har
 - **SSRF 守卫：** 拦截云元数据 IP、解析 DNS 以挫败 rebinding；默认允许私有 RFC-1918（内部 LLM/MCP 端点），
   可选加固开关。
 - **沙箱隔离：** 丢弃能力、非 root、no-new-privileges、PID 限制、Envoy 全拒出口。
-- **技能扫描：** 技能可用前经过 fail-closed 的 skillspector 闸门。
+- **技能扫描：** 运行时只打包已审批、`security_status` 为 `passed` / `warning` 且内容未漂移的技能。
 
 ---
 

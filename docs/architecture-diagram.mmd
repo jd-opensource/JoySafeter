@@ -18,7 +18,7 @@
 }}%%
 
 %% ═══════════════════════════════════════════════════════════════════════
-%% JoySafeter — AS-BUILT 运行时组件与数据流（joysafeter-v2, 核对于 2026-07-02）
+%% JoySafeter — AS-BUILT 运行时组件与数据流（joysafeter-v2, 核对于 2026-07-03）
 %% 这是“组件 + 一条消息如何流动”的运行时视图；分层支柱视图见 architecture-unified-event-model.mmd。
 %% 详见 docs/ARCHITECTURE.md / ARCHITECTURE_CN.md。
 %% ═══════════════════════════════════════════════════════════════════════
@@ -77,7 +77,7 @@ graph TB
     subgraph INFRA["🧱 支撑设施"]
         direction LR
         ENVOY["Envoy<br/>每沙箱出口白名单"]
-        SKILLSPECTOR["skillspector<br/>技能安全扫描 (fail-closed)"]
+        SKILLSPECTOR["skillspector<br/>写入扫描 + 运行时闸门"]
     end
 
     subgraph DATA["🗄️ Data Layer"]

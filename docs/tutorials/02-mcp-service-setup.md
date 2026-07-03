@@ -1,6 +1,6 @@
 # 教程 02：为 Agent 接入 MCP 工具
 
-> **状态：** 已按 v2 真实代码核对（2026-07-02）。
+> **状态：** 已按 v2 真实代码核对（2026-07-03）。
 > **适合人群**：希望把外部工具（如安全扫描器、内部服务）通过 MCP 协议提供给 Agent 的用户。
 
 ---
@@ -14,7 +14,8 @@ v1 的 `mcp_servers` 表、`/api/v1/mcp/*` 系列端点、内存 `ToolRegistry`�
   （前端表现为 `mcp_toolset` 工具项，带 `permission_policy`）。每条包含 `name`、连接方式
   （命令 / URL）、`server_type`、`headers` 等。
 - **MCP 凭据** 存在 **Vaults**（`joysafeter_vaults` / `joysafeter_vault_credentials`，
-  API `/api/v1/vaults`，UI `/managed/vaults`）：加密的 token / OAuth 配置，按 MCP server URL 匹配。
+  API `/api/v1/vaults`，UI **托管智能体 → 凭证库** `/managed/vaults`）：加密的 token / OAuth 配置，
+  按 MCP server URL 匹配。
 
 **运行时如何生效**：任务调度时，orchestrator：
 1. 从 Agent 的 `mcp_configs` 取 MCP 服务器列表；
@@ -31,7 +32,7 @@ v1 的 `mcp_servers` 表、`/api/v1/mcp/*` 系列端点、内存 `ToolRegistry`�
 
 ## 案例 A：给 Agent 加一个 HTTP（streamable）MCP 服务器
 
-1. 进入 **Build → Agents**，打开目标 Agent 的 **编辑器**。
+1. 进入 **托管智能体 → 智能体**（`/managed/agents`），打开目标 Agent 的 **编辑器**。
 2. 在 **MCP 服务器**区域新增一条：
    - `name`：`recon-mcp`
    - 类型：HTTP / streamable（URL 型）
@@ -42,7 +43,7 @@ v1 的 `mcp_servers` 表、`/api/v1/mcp/*` 系列端点、内存 `ToolRegistry`�
 
 ## 案例 B：给需要鉴权的 MCP 服务器配置 Vault 凭据
 
-1. 进入 **Build → Vaults**，新建一个 Vault，再在其下新建一条 **Credential**：
+1. 进入 **托管智能体 → 凭证库**（`/managed/vaults`），新建一个 Vault，再在其下新建一条 **Credential**：
    - `mcp_server_url`：与上面 Agent 里的 MCP `url` 一致（用于运行时匹配）
    - `credential_type`：`static_bearer`（或 OAuth 配置）
    - `token_value`：你的 Bearer token（**加密存储**）

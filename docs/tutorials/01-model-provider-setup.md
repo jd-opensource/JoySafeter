@@ -1,6 +1,6 @@
 # 教程 01：模型配置 —— 用 Secrets 管理供应商密钥
 
-> **状态：** 已按 v2 真实代码核对（2026-07-02）。
+> **状态：** 已按 v2 真实代码核对（2026-07-03）。
 > **适合人群**：初次配置 JoySafeter 模型，或需要接入私有 / 第三方 OpenAI 兼容端点的用户。
 
 ---
@@ -11,7 +11,7 @@ v1 的三层对象（Provider / ModelInstance / ModelCredential）以及 `/api/v
 `/api/v1/model-credentials`、独立的“Models 设置页”**都已移除**。v2 把模型配置收敛成两件事：
 
 1. **Secret（凭据）** —— 一条加密存储的供应商密钥记录，表 `joysafeter_secrets`，API `/api/v1/secrets`，
-   UI 在 **Secrets** 页（`/managed/secrets`）。字段：
+   UI 在 **资源 → 密钥** 页（`/managed/secrets`）。字段：
    - `name`：显示名
    - `provider` / `protocol`：供应商 / 协议标识（默认 `custom`）
    - `data`：键值对，放 `api_key` / `base_url` 等真正的连接信息（**AES-256-GCM 加密**存储）
@@ -31,7 +31,7 @@ v1 的三层对象（Provider / ModelInstance / ModelCredential）以及 `/api/v
 
 ## 案例 A：配置一条 Anthropic（Claude）凭据
 
-1. 左侧导航进入 **Resources → Secrets**。
+1. 左侧导航进入 **资源 → 密钥**（`/managed/secrets`）。
 2. 新建一条 Secret：
    - `name`：`claude-prod`
    - `provider`：`anthropic`（`protocol` 可留 `custom`）
@@ -65,7 +65,7 @@ curl -X POST http://localhost:8000/api/v1/secrets \
 
 许多服务都提供 OpenAI 兼容 API，只需把 `base_url` 指向对应网关即可，无需专门的“供应商适配器”。
 
-1. 在 **Secrets** 页新建：
+1. 在 **资源 → 密钥**（`/managed/secrets`）新建：
    - `name`：`local-ollama`
    - `provider`：`openai`（或 `custom`）
    - `data`：

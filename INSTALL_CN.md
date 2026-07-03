@@ -17,10 +17,8 @@ cd ../backend && cp env.example .env
 cd ../frontend && cp env.example .env
 cd ../deploy
 
-# 通过 profile 选择 orchestrator 实现：
-docker compose --profile python-orchestrator up -d --build
-# 或使用 Rust 版 orchestrator：
-# docker compose --profile rust-orchestrator up -d --build
+# 全本地：PostgreSQL + Redis + Python orchestrator
+docker compose --profile local-redis --profile python-orchestrator up -d --build
 ```
 
 访问地址：
@@ -31,8 +29,10 @@ docker compose --profile python-orchestrator up -d --build
 
 后端是同一份代码，通过 `JOYSAFETER_SERVICE_ROLE` 拆成三个服务并作为独立容器部署：`api`、
 `orchestrator`、`worker`，同时配套 PostgreSQL、Redis、Envoy（每沙箱出站代理）与
-skillspector（Skill 安全扫描服务）。必须且只能选择一个 orchestrator profile —— Python 与
-Rust 两个版本共用同一容器名和 gRPC 端口 `9090`，不能同时启动。生产、云数据库/云 Redis、镜像
+skillspector（Skill 安全扫描服务）。本地 Redis 只有启用 `local-redis` profile 时才会启动；如使用云 Redis，
+不要启用该 profile，改 `deploy/.env` 的 `REDIS_URL` 即可。快速开始支持路径是 `python-orchestrator`
+profile。当前 checkout 中 `rust-orchestrator` 仍是实验入口：其 Dockerfile 依赖
+`backend/app/joysafeter_orchestrator_rs`，但该源码目录当前不存在。生产、云数据库/云 Redis、镜像
 构建等场景请以 [deploy/README.md](deploy/README.md) 为准。
 
 ## 使用预构建的 Docker 镜像
@@ -41,7 +41,7 @@ Rust 两个版本共用同一容器名和 gRPC 端口 `9090`，不能同时启�
 cd deploy
 cp .env.example .env
 # 将镜像相关变量指向已发布的镜像仓库，再带 profile 启动。
-docker compose --profile python-orchestrator up -d
+docker compose --profile local-redis --profile python-orchestrator up -d
 ```
 
 所有镜像均支持多架构（amd64, arm64）。
@@ -107,7 +107,7 @@ uv run uvicorn app.main:app --reload --port 8000
 cd frontend
 
 # 安装依赖
-bun install  # 或: npm install
+bun install
 
 # 配置环境变量
 cp env.example .env.local

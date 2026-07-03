@@ -7,7 +7,7 @@ This document provides detailed instructions for setting up and running the JoyS
 - **Python 3.12+** with [uv](https://docs.astral.sh/uv/) package manager
 - **Node.js 20+** with [bun](https://bun.sh)
 - **PostgreSQL 15+**
-- **Redis** (optional, for caching)
+- **Redis** (required for task wakeups and event stream mode; `deploy/local-test.sh` starts it)
 - **Docker** (optional, for containerized development)
 
 ## Quick Start
@@ -70,7 +70,8 @@ role and entrypoint:
 
 ```bash
 JOYSAFETER_SERVICE_ROLE=api          uv run uvicorn app.joysafeter_api.main:app --port 8000
-JOYSAFETER_SERVICE_ROLE=orchestrator uv run uvicorn app.joysafeter_orchestrator.main:app --port 8001
+JOYSAFETER_SERVICE_ROLE=orchestrator JOYSAFETER_GRPC_HOST=0.0.0.0 JOYSAFETER_GRPC_PORT=9090 \
+  uv run uvicorn app.joysafeter_orchestrator.main:app --host 127.0.0.1 --port 8001 --workers 1
 JOYSAFETER_SERVICE_ROLE=worker       uv run uvicorn app.joysafeter_worker.main:app --port 8002
 ```
 
@@ -107,7 +108,7 @@ cp env.example .env.local
 # Edit .env.local with your settings
 
 # Start development server
-bun run dev  # or: npm run dev
+bun run dev
 ```
 
 Frontend will be available at http://localhost:3000
@@ -126,7 +127,7 @@ pytest tests/ --cov=app --cov-report=html
 
 # Frontend tests
 cd frontend
-npm run test
+bun run test
 ```
 
 ### Code Formatting & Linting
@@ -140,8 +141,8 @@ mypy app            # Type check
 
 # Frontend
 cd frontend
-npm run lint        # ESLint
-npm run type-check  # TypeScript
+bun run lint        # ESLint
+bun run type-check  # TypeScript
 ```
 
 ### Using Pre-commit Hooks
@@ -317,7 +318,13 @@ See `backend/env.example` and `frontend/env.example` for all available configura
 
 | Variable | Description |
 |----------|-------------|
-| `NEXT_PUBLIC_API_URL` | Backend API URL |
+| `NEXT_PUBLIC_API_URL` | Optional backend API URL override; defaults to `http://localhost:8000` in `lib/api-client.ts` |
+| `NEXT_PUBLIC_APP_URL` | Public frontend URL used for generated links in Docker/production |
+| `NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES` | Browser-side upload size limit; keep aligned with backend `JOYSAFETER_MAX_UPLOAD_FILE_BYTES` |
+| `NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED` | Shows the email/password signup entry point in the auth UI; backend auth policy still applies |
+| `NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA` / `NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA` | Adds third-party connect/frame domains to the generated CSP |
+| `DISABLE_REGISTRATION` / `EMAIL_VERIFICATION_ENABLED` | Frontend server auth UI flags; backend enforcement still comes from backend auth config |
+| `RESEND_API_KEY` / `AZURE_ACS_CONNECTION_STRING` / `FROM_EMAIL_ADDRESS` / `EMAIL_DOMAIN` | Frontend server email-service configuration |
 | `FRONTEND_PORT` | Internal port the Next.js server listens on |
 
 ## Troubleshooting
@@ -331,7 +338,7 @@ See `backend/env.example` and `frontend/env.example` for all available configura
 ### Frontend Build Errors
 
 1. Clear Next.js cache: `rm -rf .next`
-2. Reinstall dependencies: `rm -rf node_modules && npm install`
+2. Reinstall dependencies: `rm -rf node_modules && bun install`
 3. Check Node.js version: `node --version` (should be 20+)
 
 ### Import Errors

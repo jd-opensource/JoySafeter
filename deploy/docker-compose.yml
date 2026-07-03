@@ -3,8 +3,10 @@
 # =============================================================================
 # 用法：
 #   cd deploy
-#   Python orchestrator: docker compose --profile python-orchestrator up -d --build
-#   Rust orchestrator:   docker compose --profile rust-orchestrator up -d --build
+#   Supported local stack:
+#     docker compose --profile local-redis --profile python-orchestrator up -d --build
+#   Experimental Rust profile requires backend/app/joysafeter_orchestrator_rs, which is
+#   not present in this checkout.
 # =============================================================================
 
 x-backend-build: &backend-build
@@ -320,6 +322,12 @@ services:
       NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA: ${NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA:-}
       NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED: ${NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED:-}
       NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES: ${NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES:-52428800}
+      DISABLE_REGISTRATION: ${DISABLE_REGISTRATION:-false}
+      EMAIL_VERIFICATION_ENABLED: ${EMAIL_VERIFICATION_ENABLED:-false}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      AZURE_ACS_CONNECTION_STRING: ${AZURE_ACS_CONNECTION_STRING:-}
+      FROM_EMAIL_ADDRESS: ${FROM_EMAIL_ADDRESS:-}
+      EMAIL_DOMAIN: ${EMAIL_DOMAIN:-}
       SSO_DEFAULT_PROVIDER: ${SSO_DEFAULT_PROVIDER:-}
     ports:
       - "${FRONTEND_BIND_HOST:-0.0.0.0}:${FRONTEND_PORT_HOST:-3000}:3000"

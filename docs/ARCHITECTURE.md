@@ -1,6 +1,6 @@
 # Architecture
 
-> **Status:** As-built, verified against the `joysafeter-v2` branch (2026-07-02).
+> **Status:** As-built, verified against the `joysafeter-v2` branch (2026-07-03).
 > This document describes the code that actually ships. The pre-v2 single-process
 > design (DispatchService / ExecutionOrchestrator / EngineRegistry / in-process
 > `ExecutionEventBus` / `/ws/executions`) has been **removed** — see
@@ -49,7 +49,7 @@ flowchart TB
         RPUB[("pub/sub<br/>session_events:{id}")]
     end
     PG[("PostgreSQL<br/>source of truth + event log")]
-    SKILLSPECTOR["skillspector<br/>skill security scan (fail-closed)"]
+    SKILLSPECTOR["skillspector<br/>skill security scan"]
 
     subgraph SBX["Sandbox container (per session, NetworkMode=none)"]
         RUN["Rust sandbox-runner<br/>+ claude / codex / ccb harness"]
@@ -103,17 +103,17 @@ flowchart TB
 |---|---|---|---|
 | **API** | `api` | `JOYSAFETER_SERVICE_ROLE=api` | REST `/api/v1/*`, SSE execution stream, notification WebSocket, auth |
 | **Orchestrator (Python)** | `orchestrator` (profile `python-orchestrator`) | `orchestrator` | gRPC `AgentBridge` server, task scheduler, sandbox lifecycle, event bus. **Reference implementation.** |
-| **Orchestrator (Rust)** | `orchestrator-rs` (profile `rust-orchestrator`) | — | Alternative orchestrator that tracks the Python one for parity |
+| **Orchestrator (Rust)** | `orchestrator-rs` (profile `rust-orchestrator`) | — | Experimental alternative. The compose profile remains, but this checkout lacks `backend/app/joysafeter_orchestrator_rs`, so it is not a supported quick-start path. |
 | **Worker** | `worker` | `worker` | Consumes the Redis event Stream, batch-persists events to `joysafeter_session_events`, republishes for SSE |
 | **Frontend** | `frontend` | — | Next.js App Router UI |
 | **PostgreSQL** | `db` | — | System of record for all state |
 | **Redis** | `redis` (profile `local-redis`) or external | — | Event Streams, Pub/Sub fan-out, task queue, coordination |
 | **Envoy** | `joysafeter-envoy` | — | Fronts each sandbox's unix socket; enforces per-sandbox egress allowlist |
-| **skillspector** | `skillspector` | — | Standalone skill security-scanning service (fail-closed) |
+| **skillspector** | `skillspector` | — | Standalone skill security-scanning service; runtime gate is fail-closed for unusable scan states |
 | **db-init** | `db-init` (profile `init`) | — | One-shot Alembic migrations |
 
-Choose the Python or Rust orchestrator by compose profile:
-`docker compose --profile python-orchestrator up` or `--profile rust-orchestrator up`.
+Use the Python orchestrator profile for the supported local stack:
+`docker compose --profile local-redis --profile python-orchestrator up`.
 
 ---
 
@@ -185,16 +185,16 @@ channels. This table is the definitive reference.
 | Channel | Mechanism | Purpose | Anchor |
 |---|---|---|---|
 | Browser → API | HTTPS REST `/api/v1/*` | All CRUD + commands | `joysafeter_api/api/v1/router.py` |
-| **Live events → browser** | **SSE** `GET /sessions/{id}/events/stream` | Primary execution stream (DB replay via `?after_seq`, then live) | `sessions.py:1183` |
-| Notifications → browser | WebSocket `/ws/notifications` | User-level notifications (in-memory `NotificationManager`) | `app.py:58` |
-| Legacy task stream | WebSocket `/tasks/{id}/stream` | Per-task output (bridge queue → Redis fallback) | `tasks.py:234` |
-| Task enqueue | Redis **list** `joysafeter:global_queue` | API `rpush` → orchestrator scheduler pops | `sessions.py:977`, `queue.py:122` |
-| **Durable event bus** | Redis **Streams** `joysafeter:orchestrator:events` + consumer group | Orchestrator `XADD` → Worker `XREADGROUP` → DB persist | `stream_publisher.py:46`, `stream_consumer.py` |
-| **Live event fan-out** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | Cross-instance SSE delivery via `SessionBroadcaster` | `session_broadcaster.py:75` |
-| Control/cancel relay | Redis **Pub/Sub** `joysafeter:cmd:{instance}` | Route cancel/input to the instance owning the sandbox | `sessions.py:645` |
+| **Live events → browser** | **SSE** `GET /sessions/{id}/events/stream` | Primary execution stream (DB replay via `?after_seq`, then live) | `joysafeter_api/api/v1/sessions.py` |
+| Notifications → browser | WebSocket `/ws/notifications` | User-level notifications (in-memory `NotificationManager`) | `joysafeter_api/app.py`, `joysafeter_api/websocket/notification_manager.py` |
+| Legacy task stream | WebSocket `/tasks/{id}/stream` | Per-task output (bridge queue → Redis fallback) | `joysafeter_api/api/v1/tasks.py` |
+| Task enqueue | Redis **list** `joysafeter:global_queue` | API `rpush` → orchestrator scheduler pops | `joysafeter_api/api/v1/sessions.py`, `joysafeter_orchestrator/kernel/queue.py` |
+| **Durable event bus** | Redis **Streams** `joysafeter:orchestrator:events` + consumer group | Orchestrator `XADD` → Worker `XREADGROUP` → DB persist | `joysafeter_orchestrator/events/stream_publisher.py`, `joysafeter_worker/events/stream_consumer.py` |
+| **Live event fan-out** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | Cross-instance SSE delivery via `SessionBroadcaster` | `joysafeter_orchestrator/session_broadcaster.py` |
+| Control/cancel relay | Redis **Pub/Sub** `joysafeter:cmd:{instance}` | Route cancel/input to the instance owning the sandbox | `joysafeter_api/api/v1/sessions.py`, `joysafeter_orchestrator/kernel/command_listener.py` |
 | Orchestrator ↔ runner | **gRPC** `AgentBridge` (bidi stream, :9090) | The agent execution protocol | `proto/joysafeter.proto`, `grpc/server.py` |
 | Runner egress | Envoy proxy (unix socket) | Per-sandbox domain allowlist, deny-all default | `sandbox/envoy_manager.py` |
-| Skill scan | HTTP → skillspector `:8010` | Security scan on skill write (fail-closed) | `joysafeter_skill_security.py` |
+| Skill scan | HTTP → skillspector `:8010` | Security scan on skill writes; runtime blocks failed/scanning/unscanned/blocked skills | `joysafeter_skill_security.py` |
 
 **API ↔ orchestrator is Redis, not direct gRPC.** The API process co-locates orchestrator
 code but treats every in-process handle (scheduler, bridge, broadcaster) as optional; when
@@ -210,7 +210,7 @@ process owns the sandbox.
 
 The API surface. Assembles a FastAPI app (`app.py`), wraps every `/api/v1` JSON response in
 a `{success, code, message, data}` envelope via `ApiV1ResponseWrapperMiddleware`
-(`api/v1/middleware.py:40`) — the middleware **skips** any `/stream` path and any
+(`api/v1/middleware.py`) — the middleware **skips** any `/stream` path and any
 `StreamingResponse`, which is why SSE emits raw `text/event-stream`.
 
 **Auth** (`app/joysafeter_shared/common/joysafeter_auth/dependencies.py`) resolves a
@@ -458,8 +458,8 @@ a `SKILL.md`-fronted directory. The pipeline spans three layers:
 2. **Permission gate** (`joysafeter_shared/common/skill_permissions.py`) — 4-tier visibility
    (private/project/organization/public) with strict active-org isolation.
 3. **Security scan** (`joysafeter_domain/.../joysafeter_skill_security.py` → **skillspector**
-   service) — **fail-closed** (reject on scanner failure), blocks `DO_NOT_INSTALL`
-   recommendations, canonical sha256 for drift detection.
+   service) — records failed/scanning states on scanner failure, blocks `DO_NOT_INSTALL`
+   recommendations, and computes canonical sha256 for drift detection.
 4. **Pack & deliver** — `SkillPacker` resolves refs → `tar.gz` `SkillArchive` at session start,
    applies the `is_skill_usable` gate, logs usage; the orchestrator injects the archive into the
    sandbox, where the runner unpacks it.
@@ -486,7 +486,8 @@ a `SKILL.md`-fronted directory. The pipeline spans three layers:
   allowed by default (internal LLM/MCP endpoints), opt-in hardening flags.
 - **Sandbox isolation:** dropped capabilities, non-root, no-new-privileges, PID limits, and
   Envoy deny-all egress.
-- **Skill scanning:** fail-closed skillspector gate before a skill can be used.
+- **Skill scanning:** runtime only packs skills that are approved, have `passed` / `warning`
+  security status, and have not drifted from the last scan.
 
 ---
 

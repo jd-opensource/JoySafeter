@@ -1,6 +1,6 @@
 # JoySafeter Frontend
 
-JoySafeter 的前端应用（Next.js），提供可视化编排与交互式 Web UI。
+JoySafeter 的前端应用（Next.js App Router），提供托管 Agent 的创建、运行、资源管理与组织/项目管理 UI。
 
 > 说明：本文件只保留 **前端本地开发** 的最短路径；Docker/生产部署请统一以 `deploy/` 文档为准，避免重复与不一致。
 
@@ -17,8 +17,10 @@ bun install
 
 ```bash
 cp env.example .env.local
-# 按需修改 .env.local（例如 NEXT_PUBLIC_API_URL）
+# 本地默认连接 http://localhost:8000；需要改后端地址时可设置 NEXT_PUBLIC_API_URL
 ```
+
+`env.example` 覆盖本地开发最常用的公开变量；Docker/生产部署的完整变量清单以 `deploy/.env.example` 为准。
 
 ### 3) 启动开发服务器
 
@@ -34,15 +36,22 @@ bun run dev
 
 ```
 app/
-├── (auth)/                       # 认证页面（登录、注册、验证、重置密码）
-├── dashboard/                    # 仪表盘
-├── agents/[agentId]/             # Agent 详情：编辑、版本、发布、任务、会话
-├── executions/[executionId]/     # 执行详情 + 实时追踪
-├── tasks/                        # 任务管理
-├── skills/                       # 技能市场 + 创建器
-├── tools/                        # 工具管理
-├── memory/                       # 记忆管理
-└── settings/                     # 模型、成员、沙箱、Token
+├── page.tsx                      # 登录态分流：已登录 → /managed/quickstart，未登录 → /signin
+├── (auth)/                       # 登录、注册、邮箱验证、重置密码
+└── managed/                      # 当前产品主界面
+    ├── quickstart/               # 自然语言快速创建 Agent
+    ├── agents/                   # Agent 列表、详情、编辑、版本
+    ├── sessions/                 # 会话列表、会话详情、SSE 事件流
+    ├── environments/             # 沙箱镜像与网络配置
+    ├── vaults/                   # MCP / OAuth 凭据库
+    ├── files/                    # 上传文件资源
+    ├── skills/                   # Skill 导入、编辑、版本、安全扫描、AI authoring
+    ├── secrets/                  # 模型供应商密钥
+    ├── memory-stores/            # 记忆库与版本
+    ├── settings/                 # 组织设置
+    ├── projects/                 # 项目管理
+    ├── members/                  # 成员管理
+    └── api-keys/                 # 项目级 API keys
 ```
 
 ### 核心模块
@@ -50,10 +59,20 @@ app/
 | 模块             | 路径                   | 职责                                                                       |
 | ---------------- | ---------------------- | -------------------------------------------------------------------------- |
 | **API 客户端**   | `lib/api-client.ts`    | 统一 REST 请求（URL 构建、CSRF、401 自动刷新、ErrorDescriptor 提取）       |
-| **WebSocket 层** | `lib/ws/`              | BaseWsClient 抽象类 + ExecutionWsClient / NotificationWsClient             |
-| **状态管理**     | `stores/`              | Zustand 客户端 Store（执行追踪、侧边栏、编辑器等）                         |
-| **服务端状态**   | hooks + TanStack Query | 缓存 + 失效（agents、skills、models 等）                                   |
+| **WebSocket 层** | `lib/ws/`              | BaseWsClient 抽象类 + NotificationWsClient；会话事件主要走 SSE             |
+| **状态管理**     | `stores/`              | Zustand 客户端 Store（认证、项目上下文、侧边栏）                           |
+| **服务端状态**   | hooks + TanStack Query | 缓存 + 失效（projects、quickstart、skills、session resources 等）          |
 | **错误消费**     | `ApiError` class       | 镜像后端 ErrorDescriptor：`source`、`retryable`、`userAction` 驱动 UI 行为 |
+
+### 环境变量要点
+
+- `NEXT_PUBLIC_API_URL`：可选。覆盖后端 API 根地址；未设置时前端默认使用 `http://localhost:8000`。
+- `NEXT_PUBLIC_APP_URL`：可选。公开前端地址，Docker/生产环境用于链接拼接。
+- `NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES`：可选。浏览器侧上传大小上限，建议与后端 `JOYSAFETER_MAX_UPLOAD_FILE_BYTES` 一致。
+- `NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED`：可选。控制登录页是否显示邮箱/密码注册入口；后端仍以认证配置为准。
+- `NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA` / `NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA`：可选。补充 CSP 允许的第三方域名。
+- `DISABLE_REGISTRATION` / `EMAIL_VERIFICATION_ENABLED`：可选。前端服务端用于注册页与邮箱验证 UI；后端强制策略仍看 `backend/.env`。
+- `RESEND_API_KEY` / `AZURE_ACS_CONNECTION_STRING` / `FROM_EMAIL_ADDRESS` / `EMAIL_DOMAIN`：可选。前端服务端邮件能力探测与发信配置。
 
 > 完整架构文档：[`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) | [中文版](../docs/ARCHITECTURE_CN.md)
 

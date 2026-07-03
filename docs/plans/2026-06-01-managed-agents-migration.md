@@ -1,5 +1,11 @@
 # Managed Agents (托管智能体) Migration Plan
 
+> **Status (2026-07-03): Historical implementation plan.** The `/managed/**` product surface
+> now exists in the current frontend (`frontend/app/managed`, `frontend/components/managed`,
+> `frontend/hooks/managed`, `frontend/types/managed.ts`). Keep this document as migration
+> history; use `frontend/README.md`, `docs/ARCHITECTURE.md`, and the live code for current
+> development guidance.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Migrate joysafeter-native's "托管智能体" section (Quickstart, Agents, Sessions, Environments, Vaults) into JoySafeter under `/managed/*` routes with a collapsible sidebar group.
