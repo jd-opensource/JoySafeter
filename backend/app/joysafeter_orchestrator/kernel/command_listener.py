@@ -93,24 +93,19 @@ class CommandListener:
         cmd_type = cmd.get("type", "")
         if cmd_type == "input":
             content = cmd.get("content", "")
-            msg = joysafeter_pb2.OrchestratorMessage(input=joysafeter_pb2.SendInput(content=content))
-            try:
-                bridge.runner_tx.put_nowait(msg)
-            except asyncio.QueueFull:
-                logger.warning("Command listener: runner_tx full for sandbox %s", sandbox_id)
-                return
-            bridge.confirmation_event.set()
+            # Deliver on the channel the runner loops actually consume: the
+            # bridge's _control_queue (drained by the gRPC task loop on
+            # confirmation, and by the in-process TaskRunner control loop) plus
+            # confirmation_event. runner_tx has no consumer, so enqueuing there
+            # silently dropped remote input.
+            await bridge.send_control_input(content)
             logger.info("Executed remote command: sandbox=%s type=input", sandbox_id)
         elif cmd_type == "cancel":
-            reason = cmd.get("reason", "cancelled by remote instance")
-            msg = joysafeter_pb2.OrchestratorMessage(cancel=joysafeter_pb2.CancelTask(reason=reason))
-            try:
-                bridge.runner_tx.put_nowait(msg)
-            except asyncio.QueueFull:
-                logger.warning("Command listener: runner_tx full for sandbox %s", sandbox_id)
-                return
-            bridge._cancel_event.set()
-            logger.info("Executed remote command: sandbox=%s type=cancel reason=%s", sandbox_id, reason)
+            # request_cancel() sets the _cancel_event that BOTH the gRPC task
+            # loop and the in-process runner watch to write CancelTask to the
+            # runner.
+            bridge.request_cancel()
+            logger.info("Executed remote command: sandbox=%s type=cancel", sandbox_id)
         elif cmd_type == "shutdown":
             reason = cmd.get("reason", "remote shutdown")
             msg = joysafeter_pb2.OrchestratorMessage(shutdown=joysafeter_pb2.Shutdown(reason=reason))
