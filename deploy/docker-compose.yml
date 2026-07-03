@@ -107,6 +107,7 @@ services:
         set -eu
         mkdir -p /sockets /envoy-config/sandboxes
         printf '{"version_info":"0","resources":[]}\n' > /envoy-config/lds.json
+        printf '{"version_info":"0","resources":[]}\n' > /envoy-config/cds.json
         while [ ! -s /envoy-config/bootstrap.json ]; do
           sleep 0.2
         done

@@ -75,8 +75,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .spawn()
             {
                 Ok(_child) => {
-                    std::env::set_var("HTTP_PROXY", "http://127.0.0.1:3128");
-                    std::env::set_var("HTTPS_PROXY", "http://127.0.0.1:3128");
+                    let proxy = "http://127.0.0.1:3128";
+                    std::env::set_var("HTTP_PROXY", proxy);
+                    std::env::set_var("HTTPS_PROXY", proxy);
+                    std::env::set_var("http_proxy", proxy);
+                    std::env::set_var("https_proxy", proxy);
+                    std::env::set_var("ALL_PROXY", proxy);
+                    std::env::set_var("all_proxy", proxy);
                     info!("socat HTTP proxy bridge started on 127.0.0.1:3128");
                 }
                 Err(e) => {
