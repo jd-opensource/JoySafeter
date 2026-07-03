@@ -96,6 +96,6 @@ providers:
       avatar: ""
 
 settings:
-  default_redirect_url: "/chat"
+  default_redirect_url: "/managed/quickstart"
   allow_registration: true
   auto_link_by_email: true

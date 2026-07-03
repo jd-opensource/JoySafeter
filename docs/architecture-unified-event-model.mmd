@@ -18,7 +18,7 @@
 }}%%
 
 %% ═══════════════════════════════════════════════════════════════════════
-%% JoySafeter — 统一事件模型（AS-BUILT, joysafeter-v2, 核对于 2026-07-02）
+%% JoySafeter — 统一事件模型（AS-BUILT, joysafeter-v2, 核对于 2026-07-03）
 %% 本图描述真实运行的代码。旧的 DispatchService/ExecutionOrchestrator/
 %% EngineRegistry/ModelRouter/ModelFactory 等名称已不存在，见 docs/ARCHITECTURE.md。
 %% 六大支柱框架保留：接入 · 服务/调度 · 引擎 · 工具&技能 · 模型 · 沙箱 · 事件核心 · 观测 · 存储
@@ -84,7 +84,7 @@ graph TB
             direction TB
             SKILL_PARSE["解析 & 校验\nSKILL.md + Agent-Skills 规范\n(joysafeter_shared/skill)"]
             SKILL_PERM["权限闸门\n四级可见性 + org 隔离"]
-            SKILL_SCAN["skillspector 安全扫描\nfail-closed · 漂移检测"]
+            SKILL_SCAN["skillspector 安全扫描\n草稿保存 fail-open · 运行时闸门"]
             SKILL_PACK["SkillPacker → tar.gz\nis_skill_usable 闸门 → 注入沙箱"]
             SKILL_PARSE --> SKILL_PERM --> SKILL_SCAN --> SKILL_PACK
         end

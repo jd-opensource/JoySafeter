@@ -27,7 +27,7 @@ If applicable, add screenshots to help explain your problem.
 - Browser: [e.g., Chrome 120, Safari 17]
 - Python version: [e.g., 3.12.1]
 - Node.js version: [e.g., 20.10.0]
-- Project version: [e.g., 0.1.0]
+- Project version: [e.g., 0.3.2]
 
 ## Additional context
 Add any other context about the problem here.

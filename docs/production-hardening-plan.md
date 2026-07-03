@@ -1,8 +1,14 @@
 # JoySafeter 生产韧性 —— 系统性重构详细设计(四地基)
 
-> 状态:详细设计 v3(已用四路一手深读校准)· 2026-07-02 · 分支 `joysafeter-v2`
+> 状态:详细设计 v3 + 当前实现状态覆盖 · 2026-07-03 · 分支 `joysafeter-v2`
 > 前提:**多实例 HA** + **外部/多租户** + 沙箱 **Docker + E2B/Daytona 并存** + 跑道 **>1 个月**。
-> 本文所有代码锚点均为 2026-07-02 一手核实。深读推翻/修正的假设在各地基"深读修正"小节标注。
+> 本文代码锚点来自一手深读并在 2026-07-03 文档审计中保留为设计依据；当前实现状态见下方说明。
+
+> **Current status (2026-07-03): partially implemented design, not a runbook.** Current code
+> already includes task lease columns, `owner_epoch` fencing, `Idempotency-Key` task creation,
+> Redis Stream worker recovery, and event dead-letter handling. The outbox table, durable PG
+> cluster membership mirror, provider-chain isolation policy, tenant quota admission, and full
+> failure matrix remain design/open implementation items unless verified in a later pass.
 
 ---
 

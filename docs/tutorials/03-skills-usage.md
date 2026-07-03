@@ -1,6 +1,6 @@
 # 教程 03：Skills（技能包）的导入、安全扫描、投递与沙箱消费
 
-> **状态：** 已按 v2 真实代码核对（2026-07-02）。
+> **状态：** 已按 v2 真实代码核对（2026-07-03）。
 > **适合人群**：希望让 Agent 拥有执行本地 Python/Shell 脚本能力的高阶用户，或为团队维护通用能力库的开发者。
 > **目标**：理解 v2 中 Skills 的完整生命周期（存储 → 安全扫描 → 打包投递 → 沙箱消费），并掌握合规导入与验证。
 
@@ -26,10 +26,12 @@ v2 的技能管线横跨三层，比 v1 多了一道**独立的安全扫描服�
   （压缩包 / 文件数 / 单文件 / 解压总量）。
 - 通过后，技能落库 PostgreSQL（`joysafeter_skills` + `joysafeter_skill_files`），尚未触及任何执行环境。
 
-### 1.2 安全扫描（skillspector，**fail-closed**）
+### 1.2 安全扫描（skillspector + 运行时 fail-closed 闸门）
 - 写入 / 更新时，`SkillSecurityService` 把技能内容发给独立的 **skillspector** 服务扫描
   （`SKILL_SECURITY_*` 环境变量控制）。
-- **fail-closed**：扫描器不可用即拒绝；命中 `DO_NOT_INSTALL` 建议即拦截。
+- 扫描器故障会记录 `failed` / `scanning` 状态；草稿写入路径可继续保存，避免丢失编辑内容。
+- **运行时 fail-closed**：命中 `DO_NOT_INSTALL`、扫描失败、仍在扫描、未扫描、未审批或内容漂移的技能，
+  都不会被打包进会话沙箱。
 - 扫描结果记录 `security_status` + 内容 `sha256`（供后续**漂移检测**）。
 
 ### 1.3 生命周期与运行时闸门
@@ -73,10 +75,10 @@ def write_test_log():
     print("Success! wrote verification.log")
 ```
 
-> 命名约束：`name` 需小写字母数字连字符、≤64 字符、且与目录名一致（Agent-Skills 规范）。
+> 命名约束：新建 / 导入技能的 `name` 应使用小写字母数字连字符、≤64 字符，并与技能目录名一致。
 
 ### 2.2 导入（UI）
-1. 左侧导航 **Resources → Skills**。
+1. 左侧导航进入 **资源 → 技能**（`/managed/skills`）。
 2. 点 **导入 ZIP**（`POST /api/v1/skills/import-zip`），拖入 `my_test_skill.zip`。
 3. 后端解析 + 校验 + 触发 skillspector 扫描（较大的包走后台任务）。
 
@@ -87,7 +89,7 @@ def write_test_log():
   （`POST /api/v1/skills/{id}/submit-review` → `.../approve`）。
 
 ### 2.4 挂到 Agent 并运行验证
-1. 打开一个 Agent 的编辑器，在 **Skills** 区选中 `verify-disk-writer`（可选特定版本）。保存。
+1. 打开一个 Agent 的编辑器，在 **技能** 区选中 `verify-disk-writer`（可选特定版本）。保存。
    *（技能引用写进 Agent 的 `skills` JSONB。）*
 2. 用该 Agent 开一个 Session，发消息：
    > “运行你技能包里的 `verify.py`，调用 `write_test_log()`，只输出脚本返回值。”
@@ -101,7 +103,7 @@ def write_test_log():
 
 ## 3. Web 编辑器、版本化与协作
 
-Skills 页提供完整的 UI 生命周期管理：
+**资源 → 技能**（`/managed/skills`）提供完整的 UI 生命周期管理：
 
 - **Web 代码编辑器**：直接在浏览器改 `SKILL.md` / 脚本并保存。
   > ⚠️ 保存只更新数据库存根。**沙箱内运行的是会话启动时打包的快照**——改完技能后重开 / 新建 Session

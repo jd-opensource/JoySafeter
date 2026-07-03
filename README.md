@@ -34,9 +34,9 @@ agent runs is the whole decision. JoySafeter gives you that model **on your own 
 - **Network-contained execution.** Every session runs in a `NetworkMode=none` sandbox behind an
   Envoy proxy with a **deny-all-by-default egress allowlist** — offensive tools can't phone home or
   pivot into your network unless you explicitly permit it.
-- **Fail-closed skill supply-chain control.** Skills are code that runs in your environment; every
-  skill is scanned before use (skillspector, fail-closed) and blocked at runtime if it isn't
-  approved or has drifted from its last scan.
+- **Runtime-closed skill supply-chain control.** Skills are code that runs in your environment;
+  skills are scanned by skillspector, and runtime packing blocks anything not approved, not
+  successfully scanned, blocked, failed, still scanning, or drifted from its last scan.
 - **Engine-agnostic.** Claude Code, Codex, or the self-developed `ccb` engine behind one gRPC
   contract — not locked to a single vendor or model.
 
@@ -45,7 +45,7 @@ agent runs is the whole decision. JoySafeter gives you that model **on your own 
 | Data / target residency | Vendor cloud | Yours | **Yours — fully self-hosted** |
 | Engine / model | Single vendor | Whatever you wire | **Claude Code / Codex / native, per agent** |
 | Network isolation | Vendor-managed | You build it | **Per-sandbox Envoy deny-all egress** |
-| Skill & tool safety | Vendor-managed | You build it | **Fail-closed scan + runtime drift gate** |
+| Skill & tool safety | Vendor-managed | You build it | **SkillSpector scan + runtime-closed gate** |
 | Time to production | Days | Months | **Days, on your own hardware** |
 
 > JoySafeter frames this as **AI-driven Security Operations (AISecOps)**: the managed-agent model
@@ -143,7 +143,7 @@ Claude Managed Agents, only **self-hosted and security-specialized**:
 ### 📚 Skills
 
 - **30 versioned capability packs** — penetration testing, document analysis, planning/meta
-- **Fail-closed security scanning** (skillspector) + a runtime `is_skill_usable` gate (approved + scanned + no content drift)
+- **SkillSpector security scanning** + a runtime `is_skill_usable` gate (approved + `passed` / `warning` scan + no content drift)
 - **AI skill authoring** — draft, edit, version, and diff skills with an LLM-assisted editor
 
 </td>
@@ -206,10 +206,8 @@ cd ../backend && cp env.example .env
 cd ../frontend && cp env.example .env
 cd ../deploy
 
-# Choose the orchestrator implementation by profile:
-docker compose --profile python-orchestrator up -d --build
-# or the Rust orchestrator:
-# docker compose --profile rust-orchestrator up -d --build
+# Fully local: PostgreSQL + Redis + Python orchestrator
+docker compose --profile local-redis --profile python-orchestrator up -d --build
 ```
 
 Access points:
@@ -228,7 +226,11 @@ environment variable, deployed as separate containers:
 - `worker` — consumes the Redis event stream and persists events to Postgres.
 
 Supporting infrastructure: PostgreSQL, Redis, Envoy (per-sandbox egress proxy), and
-skillspector (skill security scanner).
+skillspector (skill security scanner). The bundled Redis service is behind the `local-redis`
+profile; for cloud Redis, leave that profile off and set `REDIS_URL` in `deploy/.env`.
+The `rust-orchestrator` compose profile is experimental in this checkout: its Dockerfile
+expects `backend/app/joysafeter_orchestrator_rs`, which is not present, so the supported
+quick-start path is the Python orchestrator.
 
 ### Local test one-command startup
 
@@ -291,7 +293,7 @@ flowchart LR
 - **Normalized error system** — `AppError` produces a canonical `ErrorDescriptor` (`{code, message, data, source, retryable, user_action}`) consumed identically across HTTP and streaming paths
 - **OTel-backed observation** — full-chain `trace_id` propagation with spans persisted to the database
 - **Encrypted credentials** — provider API keys live in Secrets and MCP credentials in Vaults, both AES-256-GCM encrypted and injected into the sandbox at run time
-- **Layered skill system** — skills are versioned capability packs, security-scanned (fail-closed) before use
+- **Layered skill system** — skills are versioned capability packs; runtime only packs approved skills with an allowed scan verdict and no content drift
 
 ### User Journey — Quick Start
 
@@ -330,7 +332,7 @@ flowchart LR
 | **NEW** | **Pluggable Sandboxes** | Docker (default, hardened), E2B, and Daytona providers behind one SPI |
 | **NEW** | **AI Skill Authoring** | LLM-assisted skill drafting, a code editor, and version diffs in the workspace UI |
 | **NEW** | **Secrets & Vaults** | AES-256-GCM encrypted provider API keys (Secrets) and MCP credentials (Vaults), injected into the sandbox at run time |
-| **NEW** | **Skill Security Scanning** | Fail-closed skillspector gate scans every skill write before it can be used |
+| **NEW** | **Skill Security Scanning** | SkillSpector scans skill content; runtime blocks unapproved, unscanned, failed, blocked, scanning, or drifted skills before use |
 | **NEW** | **Per-Sandbox Egress Control** | Envoy proxy enforces a deny-all-by-default domain allowlist per sandbox |
 | **NEW** | **Full-Chain trace_id Propagation** | End-to-end request tracing via OpenTelemetry for complete observability |
 
@@ -388,7 +390,9 @@ Combining our current capabilities with the managed-agent frontier, the next wor
 - [deploy/README.md](deploy/README.md) — Docker deployment
 
 ### Deep Dive
+- [docs/README.md](docs/README.md) — Documentation map
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Architecture overview
+- [docs/DOCUMENTATION_STATUS.md](docs/DOCUMENTATION_STATUS.md) — Current documentation review status
 - [backend/README.md](backend/README.md) — Backend guide
 - [frontend/README.md](frontend/README.md) — Frontend guide
 

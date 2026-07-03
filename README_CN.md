@@ -33,8 +33,8 @@ JoySafeter 把这套模型交到你**自己的基础设施**上：
   网络内。任何第三方都不会看到本次工作。
 - **网络受限执行。** 每个会话跑在 `NetworkMode=none` 沙箱里，前置一个 Envoy 代理，
   **默认全拒的出口白名单** —— 攻击性工具无法回连外部或横向进入你的网络，除非你显式放行。
-- **fail-closed 的技能供应链管控。** 技能是会在你环境里执行的代码；每个技能使用前都会被扫描
-  （skillspector，fail-closed），运行时若未审批或与上次扫描发生漂移则被拦截。
+- **运行时 fail-closed 的技能供应链管控。** 技能是会在你环境里执行的代码；skillspector 负责扫描，
+  运行时打包会拦截未审批、未成功扫描、blocked、failed、scanning 或与上次扫描发生漂移的技能。
 - **引擎无关。** Claude Code、Codex、或自研 `ccb` 引擎，统一在一个 gRPC 契约之后 —— 不锁定单一
   厂商或模型。
 
@@ -43,7 +43,7 @@ JoySafeter 把这套模型交到你**自己的基础设施**上：
 | 数据 / 目标驻留 | 厂商云 | 你的 | **你的 —— 完全自托管** |
 | 引擎 / 模型 | 单一厂商 | 自行拼装 | **Claude Code / Codex / native，按 Agent 选** |
 | 网络隔离 | 厂商托管 | 自行搭建 | **每沙箱 Envoy 全拒出口** |
-| 技能与工具安全 | 厂商托管 | 自行搭建 | **fail-closed 扫描 + 运行时漂移闸门** |
+| 技能与工具安全 | 厂商托管 | 自行搭建 | **SkillSpector 扫描 + 运行时 fail-closed 闸门** |
 | 上生产时间 | 数天 | 数月 | **数天，在你自己的硬件上** |
 
 > JoySafeter 将其定义为 **AI 驱动安全运营（AISecOps）**：把托管智能体模型 —— 多步自主、
@@ -140,7 +140,7 @@ JoySafeter 把这套模型交到你**自己的基础设施**上：
 ### 📚 Skills
 
 - **30 个版本化能力包** —— 渗透测试、文档分析、规划/元技能
-- **fail-closed 安全扫描**（skillspector）+ 运行时 `is_skill_usable` 闸门（approved + 已扫描 + 内容未漂移）
+- **SkillSpector 安全扫描** + 运行时 `is_skill_usable` 闸门（approved + `passed` / `warning` 扫描 + 内容未漂移）
 - **AI Skill 创作** —— LLM 辅助的起草、编辑、版本化与 diff
 
 </td>
@@ -203,10 +203,8 @@ cd ../backend && cp env.example .env
 cd ../frontend && cp env.example .env
 cd ../deploy
 
-# 通过 profile 选择 orchestrator 实现：
-docker compose --profile python-orchestrator up -d --build
-# 或使用 Rust 版 orchestrator：
-# docker compose --profile rust-orchestrator up -d --build
+# 全本地：PostgreSQL + Redis + Python orchestrator
+docker compose --profile local-redis --profile python-orchestrator up -d --build
 ```
 
 访问地址：
@@ -224,6 +222,10 @@ docker compose --profile python-orchestrator up -d --build
 - `worker`：消费 Redis 事件流并将事件落库到 Postgres。
 
 配套基础设施：PostgreSQL、Redis、Envoy（每沙箱出站代理）、skillspector（Skill 安全扫描服务）。
+内置 Redis 服务由 `local-redis` profile 控制；如果使用云 Redis，不启用该 profile，改 `deploy/.env`
+里的 `REDIS_URL` 即可。
+当前 checkout 中 `rust-orchestrator` compose profile 仍是实验入口：其 Dockerfile 依赖
+`backend/app/joysafeter_orchestrator_rs`，但该源码目录当前不存在，因此快速开始支持路径是 Python orchestrator。
 
 ### 本地测试一键启动
 
@@ -288,7 +290,7 @@ flowchart LR
 - **规范化错误系统** —— `AppError` 输出规范的 `ErrorDescriptor`（`{code, message, data, source, retryable, user_action}`），HTTP 与流式路径一致消费
 - **OTel 观测追踪** —— 全链路 `trace_id` 传播，span 落库
 - **凭据加密** —— Provider API Key 存于 Secrets、MCP 凭据存于 Vaults，均 AES-256-GCM 加密，运行时注入沙箱
-- **分层技能体系** —— Skills 是版本化能力包，使用前经安全扫描（fail-closed）
+- **分层技能体系** —— Skills 是版本化能力包；运行时只打包已审批、扫描状态允许且内容未漂移的技能
 
 ### 用户操作路径 —— 快速入门
 
@@ -327,7 +329,7 @@ flowchart LR
 | **NEW** | **可插拔沙箱** | Docker（默认，加固）、E2B、Daytona，统一 SPI |
 | **NEW** | **AI Skill 创作** | 工作区内 LLM 辅助的 Skill 起草、代码编辑与版本 diff |
 | **NEW** | **Secrets 与 Vaults** | AES-256-GCM 加密的 Provider API Key（Secrets）与 MCP 凭据（Vaults），运行时注入沙箱 |
-| **NEW** | **Skill 安全扫描** | fail-closed 的 skillspector 网关在每次 Skill 写入前扫描 |
+| **NEW** | **Skill 安全扫描** | SkillSpector 扫描技能内容；运行时拦截未审批、未扫描、failed、blocked、scanning 或漂移的技能 |
 | **NEW** | **每沙箱出站管控** | Envoy 代理对每个沙箱执行默认拒绝的域名白名单 |
 | **NEW** | **trace_id 全链路追踪** | 基于 OpenTelemetry 的端到端请求追踪，实现完整可观测性 |
 
@@ -383,7 +385,9 @@ JoySafeter 实现了 Anthropic 为
 - [deploy/README.md](deploy/README.md) — Docker 部署
 
 ### 深入了解
+- [docs/README.md](docs/README.md) — 文档地图
 - [docs/ARCHITECTURE_CN.md](docs/ARCHITECTURE_CN.md) — 架构总览
+- [docs/DOCUMENTATION_STATUS.md](docs/DOCUMENTATION_STATUS.md) — 当前文档复核状态
 - [backend/README.md](backend/README.md) — 后端指南
 - [frontend/README.md](frontend/README.md) — 前端指南
 

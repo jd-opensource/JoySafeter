@@ -1,6 +1,6 @@
 # 教程 04：构建并运行一个 Agent
 
-> **状态：** 已按 v2 真实代码核对（2026-07-02）。
+> **状态：** 已按 v2 真实代码核对（2026-07-03）。
 > **适合人群**：想端到端跑通“定义 Agent → 开会话 → 实时看执行”的用户。
 > **前置**：已配置一条模型凭据（[教程 01](./01-model-provider-setup.md)）。
 
@@ -25,7 +25,7 @@
 
 ## 1. 创建 Agent
 
-进入 **Build → Agents → 新建**，或打开已有 Agent 的**编辑器**，配置：
+进入 **托管智能体 → 智能体**（`/managed/agents`）并点击 **新建**，或打开已有 Agent 的**编辑器**，配置：
 
 | 配置 | 说明 |
 |------|------|
@@ -47,7 +47,7 @@ curl -X POST http://localhost:8000/api/v1/agents \
   -d '{
     "name": "recon-helper",
     "engine_kind": "claude",
-    "model": { "id": "claude-sonnet-4-6" },
+    "model": { "id": "claude-opus-4-20250514" },
     "system_prompt": "你是一名授权范围内的安全侦察助手。",
     "skills": [ { "type": "skill_id", "skill_id": "<id>", "version": "1.0.0" } ],
     "tools": [ ],

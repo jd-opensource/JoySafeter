@@ -1,5 +1,11 @@
 # Python Orchestrator ↔ Rust Orchestrator Parity Implementation Plan
 
+> **Status (2026-07-03): Historical implementation plan.** Major Python-side parity work has
+> landed in the current codebase, including task leases, owner-epoch fencing, task
+> idempotency, Redis Stream event consumption, and dead-letter handling. The referenced Rust
+> source directory `backend/app/joysafeter_orchestrator_rs` is not present in this checkout,
+> so use this plan as implementation history rather than current runbook guidance.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Bring the Python `joysafeter_orchestrator` to full feature parity with the Rust `joysafeter_orchestrator_rs`, covering all differences in state machines, event handling, gRPC, data structures, config, and services.

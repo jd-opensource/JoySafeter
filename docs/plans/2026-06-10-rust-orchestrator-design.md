@@ -1,5 +1,10 @@
 # Rust Orchestrator Design — `joysafeter_orchestrator_rs`
 
+> **Status (2026-07-03): Historical / experimental design.** The current checkout does **not**
+> contain `backend/app/joysafeter_orchestrator_rs`, although `deploy/docker-compose.yml` and
+> `deploy/docker/orchestrator-rs.Dockerfile` still reference it. Treat this document as design
+> history unless the Rust orchestrator source directory is restored.
+
 ## Overview
 
 Rust reimplementation of `backend/app/joysafeter_orchestrator/` that coexists with the Python version. Both share the same Postgres DB and Redis, using identical table schemas (managed by Python Alembic migrations). Deployment selects one version via config.

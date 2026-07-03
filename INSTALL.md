@@ -17,10 +17,8 @@ cd ../backend && cp env.example .env
 cd ../frontend && cp env.example .env
 cd ../deploy
 
-# Choose the orchestrator implementation by profile:
-docker compose --profile python-orchestrator up -d --build
-# or the Rust orchestrator:
-# docker compose --profile rust-orchestrator up -d --build
+# Fully local: PostgreSQL + Redis + Python orchestrator
+docker compose --profile local-redis --profile python-orchestrator up -d --build
 ```
 
 Access points:
@@ -31,9 +29,12 @@ Access points:
 
 The backend is one codebase split into three services by `JOYSAFETER_SERVICE_ROLE` and
 deployed as separate containers: `api`, `orchestrator`, and `worker`, alongside PostgreSQL,
-Redis, Envoy (per-sandbox egress proxy), and skillspector (skill security scanner). You must
-pick exactly one orchestrator profile — the Python and Rust orchestrators share the same
-container name and gRPC port `9090`, so they cannot run at the same time. For cloud
+Redis, Envoy (per-sandbox egress proxy), and skillspector (skill security scanner). Local Redis
+is started only when the `local-redis` profile is enabled; for cloud Redis, leave that profile
+off and set `REDIS_URL` in `deploy/.env`. You must
+use the `python-orchestrator` profile for the supported quick-start path. The
+`rust-orchestrator` profile is experimental in this checkout: its Dockerfile expects
+`backend/app/joysafeter_orchestrator_rs`, which is not present. For cloud
 PostgreSQL/Redis, image building, and troubleshooting, see [deploy/README.md](deploy/README.md).
 
 ## Using Pre-built Docker Images
@@ -42,7 +43,7 @@ PostgreSQL/Redis, image building, and troubleshooting, see [deploy/README.md](de
 cd deploy
 cp .env.example .env
 # Point the image variables at the published registry, then start with a profile.
-docker compose --profile python-orchestrator up -d
+docker compose --profile local-redis --profile python-orchestrator up -d
 ```
 
 ## Local Test One-Command Startup
@@ -101,7 +102,7 @@ uv run uvicorn app.main:app --reload --port 8000
 cd frontend
 
 # Install dependencies
-bun install  # or: npm install
+bun install
 
 # Configure environment
 cp env.example .env.local
