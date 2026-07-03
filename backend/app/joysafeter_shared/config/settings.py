@@ -616,8 +616,14 @@ class JoySafeterConfig(BaseSettings):
     sandbox_pool_images: list[str] = []
     sandbox_workspace_root: Optional[str] = None
     sandbox_failure_threshold: int = 3
-    sandbox_cpu: Optional[float] = None
-    sandbox_memory_mb: Optional[int] = None
+    # Per-container resource limits, applied to every Docker sandbox via the
+    # provider (NanoCpus / Memory). Enforced-by-default so a single tenant's
+    # agent cannot exhaust host CPU/RAM on the shared fleet (noisy-neighbor /
+    # resource-exhaustion DoS). Override per-deployment via env
+    # (JOYSAFETER_SANDBOX_CPU / _MEMORY_MB) or per-project via the Project
+    # max_cpu / max_memory_mb columns. Set to None to disable the limit.
+    sandbox_cpu: Optional[float] = 2.0
+    sandbox_memory_mb: Optional[int] = 4096
     sandbox_disk_mb: Optional[int] = None
 
     # -- Sandbox container hardening (P0.1) ------------------------------------

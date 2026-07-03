@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.joysafeter_shared.database import Base
@@ -51,6 +51,11 @@ class Project(Base, TimestampMixin):
     # default (settings.max_concurrent_per_project). Lets paid/trusted tenants
     # carry a higher ceiling without a code change.
     max_concurrent_tasks: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Per-project sandbox resource overrides. NULL => use the global default
+    # (settings.sandbox_cpu / sandbox_memory_mb). max_cpu is in cores (e.g. 2.0),
+    # max_memory_mb in MiB. Applied per-field, so a project may override only one.
+    max_cpu: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    max_memory_mb: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     # relationships
     organization: Mapped["Organization"] = relationship("Organization", back_populates="projects")

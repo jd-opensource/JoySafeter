@@ -427,6 +427,7 @@ class SandboxResolver:
                 engine_kind=engine_kind,
                 runner_token=runner_token,
                 session_id=session_id,
+                project_id=project_id,
             )
         except Exception as e:
             logger.error("Failed to provision sandbox container: %s", e)
@@ -807,6 +808,7 @@ class SandboxResolver:
         engine_kind: Optional[str] = None,
         runner_token: Optional[str] = None,
         session_id: Optional[uuid.UUID] = None,
+        project_id: Optional[str] = None,
     ) -> str:
         if workspace_path:
             os.makedirs(workspace_path, mode=0o777, exist_ok=True)
@@ -835,6 +837,31 @@ class SandboxResolver:
         if session_id is not None:
             labels["joysafeter.session_id"] = str(session_id)
 
+        # Resolve the per-sandbox CPU/memory ceiling (global default, or the
+        # owning project's override) so one tenant cannot exhaust host resources
+        # on the shared fleet. A project-agnostic warm-pool sandbox (project_id
+        # None) uses the global defaults without a DB read.
+        from app.joysafeter_orchestrator.sandbox.resource_limits import (
+            SandboxResourceLimits,
+            resolve_project_sandbox_limits,
+        )
+
+        if project_id is None:
+            limits = SandboxResourceLimits(
+                cpu=joysafeter_config.sandbox_cpu,
+                memory_mb=joysafeter_config.sandbox_memory_mb,
+            )
+        else:
+            from app.joysafeter_shared.database import AsyncSessionLocal
+
+            async with AsyncSessionLocal() as limits_db:
+                limits = await resolve_project_sandbox_limits(
+                    limits_db,
+                    project_id,
+                    default_cpu=joysafeter_config.sandbox_cpu,
+                    default_memory_mb=joysafeter_config.sandbox_memory_mb,
+                )
+
         external_id = await provider.create(
             name=name,
             image=image,
@@ -843,5 +870,7 @@ class SandboxResolver:
             labels=labels,
             networking=networking,
             memory_mounts=memory_mounts,
+            cpu=limits.cpu,
+            memory_mb=limits.memory_mb,
         )
         return external_id
