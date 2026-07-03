@@ -13,6 +13,7 @@ from sqlalchemy import update as sa_update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_task import (
     JOYSAFETER_TERMINAL_STATUSES as TERMINAL_STATUSES,
 )
@@ -290,6 +291,40 @@ class JoySafeterTaskService:
             )
         )
         return cast(int, result.scalar()) > 0
+
+    async def count_active_tasks_for_project(self, project_id: str) -> int:
+        """Count the project's non-terminal tasks (pending/scheduling/running).
+
+        This is the quantity admission control is gated on: a single tenant
+        (project) must not occupy unbounded fleet capacity. Terminal tasks
+        (completed/failed/cancelled) do not count against the live budget.
+        """
+        terminal_values = [s.value for s in TERMINAL_STATUSES]
+        result = await self.db.execute(
+            select(func.count())
+            .select_from(JoySafeterTask)
+            .where(
+                and_(
+                    JoySafeterTask.project_id == project_id,
+                    JoySafeterTask.status.notin_(terminal_values),
+                )
+            )
+        )
+        return cast(int, result.scalar())
+
+    async def resolve_project_task_limit(self, project_id: str, default_limit: int) -> int:
+        """The effective concurrent-task limit for a project.
+
+        A project may carry a per-project override (``max_concurrent_tasks``);
+        when unset (NULL) the caller's global default applies. Kept free of the
+        global settings singleton so the decision is a pure function of the row
+        plus the passed default — trivially testable.
+        """
+        override = await self.db.execute(select(Project.max_concurrent_tasks).where(Project.id == project_id))
+        value = override.scalar_one_or_none()
+        if value is None:
+            return default_limit
+        return cast(int, value)
 
     async def find_overdue_tasks(self, cutoff: datetime) -> list[JoySafeterTask]:
         result = await self.db.execute(

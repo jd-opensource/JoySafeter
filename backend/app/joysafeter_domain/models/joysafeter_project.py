@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.joysafeter_shared.database import Base
@@ -47,6 +47,10 @@ class Project(Base, TimestampMixin):
     slug: Mapped[str] = mapped_column(String(255), nullable=False)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Per-project concurrent-task admission override. NULL => use the global
+    # default (settings.max_concurrent_per_project). Lets paid/trusted tenants
+    # carry a higher ceiling without a code change.
+    max_concurrent_tasks: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     # relationships
     organization: Mapped["Organization"] = relationship("Organization", back_populates="projects")

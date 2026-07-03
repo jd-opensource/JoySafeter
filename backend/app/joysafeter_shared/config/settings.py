@@ -229,6 +229,12 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("MAX_CONCURRENT_PER_USER", "MAX_USER_CONCURRENCY"),
         description="Maximum concurrent requests per user",
     )
+    max_concurrent_per_project: int = Field(
+        default=5,
+        validation_alias=AliasChoices("MAX_CONCURRENT_PER_PROJECT", "MAX_PROJECT_CONCURRENCY"),
+        description="Default maximum concurrent (non-terminal) tasks per project (tenant). "
+        "A project may override this via its max_concurrent_tasks column.",
+    )
 
     # Auth
 

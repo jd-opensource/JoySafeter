@@ -5,6 +5,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.services import JoySafeterAgentService as AgentService
@@ -25,13 +26,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["joysafeter-tasks"])
 
 
-@router.post("", status_code=202)
+@router.post("", status_code=202, response_model=CreateTaskResponse)
 async def create_task(
     req: CreateTaskRequest,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
-) -> CreateTaskResponse:
+) -> CreateTaskResponse | JSONResponse:
     # Idempotent retry: if this key already produced a task, return it and skip
     # all side effects (session creation, enqueue). Clients should send a unique
     # key (e.g. a UUID) per logical submission.
@@ -39,6 +40,33 @@ async def create_task(
         existing = await TaskService(db).get_by_idempotency_key(idempotency_key, project_id=auth_ctx.project_id)
         if existing is not None:
             return CreateTaskResponse(id=existing.id, status=existing.status)
+
+    # Per-project admission control (tenancy). The project is the tenant
+    # boundary; a single tenant must not occupy unbounded fleet capacity. Placed
+    # AFTER the idempotency short-circuit so a retry of an already-created task
+    # is never rejected. This is a soft limit: count-then-create can slightly
+    # over-admit under concurrent submits, which is acceptable for a fairness
+    # quota (unlike idempotency, which must be strict).
+    if auth_ctx.project_id is not None:
+        from app.joysafeter_shared.config.settings import settings
+
+        admission_svc = TaskService(db)
+        limit = await admission_svc.resolve_project_task_limit(
+            auth_ctx.project_id, default_limit=settings.max_concurrent_per_project
+        )
+        active = await admission_svc.count_active_tasks_for_project(auth_ctx.project_id)
+        if active >= limit:
+            return JSONResponse(
+                status_code=429,
+                headers={"Retry-After": "5"},
+                content={
+                    "code": "project_task_limit_exceeded",
+                    "message": f"Project has reached its concurrent task limit ({limit}).",
+                    "limit": limit,
+                    "active": active,
+                    "project_id": auth_ctx.project_id,
+                },
+            )
 
     agent_svc = AgentService(db)
     agent = None
