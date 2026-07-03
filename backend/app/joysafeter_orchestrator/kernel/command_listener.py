@@ -96,8 +96,8 @@ class CommandListener:
             # Deliver on the channel the runner loops actually consume: the
             # bridge's _control_queue (drained by the gRPC task loop on
             # confirmation, and by the in-process TaskRunner control loop) plus
-            # confirmation_event. runner_tx has no consumer, so enqueuing there
-            # silently dropped remote input.
+            # confirmation_event. The old runner_tx queue had no consumer, so
+            # enqueuing there silently dropped remote input.
             await bridge.send_control_input(content)
             logger.info("Executed remote command: sandbox=%s type=input", sandbox_id)
         elif cmd_type == "cancel":
@@ -109,11 +109,7 @@ class CommandListener:
         elif cmd_type == "shutdown":
             reason = cmd.get("reason", "remote shutdown")
             msg = joysafeter_pb2.OrchestratorMessage(shutdown=joysafeter_pb2.Shutdown(reason=reason))
-            try:
-                bridge.runner_tx.put_nowait(msg)
-            except asyncio.QueueFull:
-                logger.warning("Command listener: runner_tx full for sandbox %s", sandbox_id)
-                return
+            await bridge.write_to_runner(msg)
             logger.info("Executed remote command: sandbox=%s type=shutdown", sandbox_id)
         else:
             logger.warning("Command listener: unknown command type: %s", cmd_type)

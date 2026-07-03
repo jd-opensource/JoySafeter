@@ -48,14 +48,6 @@ async def _best_effort_publish_event(coordinator, task_id: uuid.UUID, payload: s
         await _best_effort_redis("publish_event", coordinator.publish_event(task_id, payload))
 
 
-async def _send_shutdown(context, reason: str) -> None:
-    """Ask a runner to exit without reconnecting."""
-    try:
-        await context.write(joysafeter_pb2.OrchestratorMessage(shutdown=joysafeter_pb2.Shutdown(reason=reason)))
-    except Exception as exc:
-        logger.debug("Failed to send runner shutdown (%s): %s", reason, exc)
-
-
 def _get_heartbeat_timeout() -> int:
     from app.joysafeter_orchestrator.lifespan import get_runtime_config
 
@@ -228,7 +220,11 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                             sandbox_id,
                             _current_status,
                         )
-                        await _send_shutdown(context, f"sandbox terminal: {_current_status}")
+                        await bridge.write_to_runner(
+                            joysafeter_pb2.OrchestratorMessage(
+                                shutdown=joysafeter_pb2.Shutdown(reason=f"sandbox terminal: {_current_status}")
+                            )
+                        )
                         await self._bridge_registry.remove(sandbox_id)
                         return
                     if _current_status in ("stopping", "stopped"):
@@ -237,7 +233,11 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                             sandbox_id,
                             _current_status,
                         )
-                        await _send_shutdown(context, f"sandbox stopped: {_current_status}")
+                        await bridge.write_to_runner(
+                            joysafeter_pb2.OrchestratorMessage(
+                                shutdown=joysafeter_pb2.Shutdown(reason=f"sandbox stopped: {_current_status}")
+                            )
+                        )
                         await self._bridge_registry.remove(sandbox_id)
                         return
                     if _current_status == "pooled":
@@ -488,7 +488,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                         if isinstance(evt.payload, dict):
                             content = evt.payload.get("content", "")
                         input_msg = joysafeter_pb2.OrchestratorMessage(input=joysafeter_pb2.SendInput(content=content))
-                        await context.write(input_msg)
+                        await bridge.write_to_runner(input_msg)
                         await session_svc.mark_event_processed(evt.id)
 
             # --- Inner event loop for resumed task ---
@@ -552,7 +552,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     cancel_msg = joysafeter_pb2.OrchestratorMessage(
                         cancel=joysafeter_pb2.CancelTask(reason="Cancelled by user")
                     )
-                    await context.write(cancel_msg)
+                    await bridge.write_to_runner(cancel_msg)
                     continue
 
                 # Confirmation received
@@ -567,7 +567,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                             input_msg = joysafeter_pb2.OrchestratorMessage(
                                 input=joysafeter_pb2.SendInput(content=content)
                             )
-                            await context.write(input_msg)
+                            await bridge.write_to_runner(input_msg)
                         except asyncio.QueueEmpty:
                             break
 
@@ -648,7 +648,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     cancel_msg = joysafeter_pb2.OrchestratorMessage(
                         cancel=joysafeter_pb2.CancelTask(reason=f"Server-side deadline exceeded ({task_timeout_sec}s)")
                     )
-                    await context.write(cancel_msg)
+                    await bridge.write_to_runner(cancel_msg)
                     task_done = True
                     break
 
@@ -1374,7 +1374,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 environment=environment,
             )
             orch_msg = joysafeter_pb2.OrchestratorMessage(start=start_msg)
-            await context.write(orch_msg)
+            await bridge.write_to_runner(orch_msg)
             logger.info("StartTask sent: task=%s sandbox=%s", task_id, sandbox_id)
 
             if session_id and self._event_bus:
@@ -1452,7 +1452,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 cancel_msg = joysafeter_pb2.OrchestratorMessage(
                     cancel=joysafeter_pb2.CancelTask(reason="Cancelled by user")
                 )
-                await context.write(cancel_msg)
+                await bridge.write_to_runner(cancel_msg)
 
                 # C1 fix: update task status to cancelled + emit session.status_idle (Rust parity)
                 try:
@@ -1489,7 +1489,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     try:
                         content = bridge._control_queue.get_nowait()
                         input_msg = joysafeter_pb2.OrchestratorMessage(input=joysafeter_pb2.SendInput(content=content))
-                        await context.write(input_msg)
+                        await bridge.write_to_runner(input_msg)
                     except asyncio.QueueEmpty:
                         break
 
@@ -1620,7 +1620,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 cancel_msg = joysafeter_pb2.OrchestratorMessage(
                     cancel=joysafeter_pb2.CancelTask(reason=f"Server-side deadline exceeded ({timeout}s)")
                 )
-                await context.write(cancel_msg)
+                await bridge.write_to_runner(cancel_msg)
                 async with AsyncSessionLocal() as db:
                     task_svc = TaskService(db)
                     await task_svc.update_task_error(
@@ -2489,7 +2489,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             if bridge.runner_stream is None:
                 logger.warning("Cannot send SetupSandbox for sandbox %s: runner stream not connected", sandbox_id)
                 return
-            await bridge.runner_stream.write(orch_msg)
+            await bridge.write_to_runner(orch_msg)
             bridge.setup_done = True
             logger.info("SetupSandbox sent for sandbox %s", sandbox_id)
 

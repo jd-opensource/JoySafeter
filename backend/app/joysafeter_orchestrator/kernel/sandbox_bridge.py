@@ -53,10 +53,14 @@ class SandboxBridge:
         self._lock = asyncio.Lock()
         self._requires_action_pending = False
         # gRPC runner channel
-        self.runner_tx: asyncio.Queue = asyncio.Queue(maxsize=64)
         self.runner_connected = asyncio.Event()
         self.runner_stream: Optional[Any] = None
         self.runner_capabilities: set[str] = set()
+        # Serializes ALL writes to runner_stream. grpc.aio forbids concurrent
+        # writes to one stream, and the orchestrator writes from several
+        # coroutines (the gRPC handler loop + API/relay/shutdown paths), so every
+        # producer must funnel through write_to_runner().
+        self._write_lock: asyncio.Lock = asyncio.Lock()
 
     async def broadcast_to_task(self, task_id: uuid.UUID, msg: WsOutMessage) -> None:
         subs = self._task_subscribers.get(task_id, [])
@@ -89,11 +93,21 @@ class SandboxBridge:
         await self._control_queue.put(content)
         self.confirmation_event.set()
 
-    async def send_to_runner(self, message) -> None:
-        try:
-            self.runner_tx.put_nowait(message)
-        except asyncio.QueueFull:
-            logger.warning("Runner TX queue full for sandbox %s, dropping message", self.sandbox_db_id)
+    async def write_to_runner(self, message) -> bool:
+        """The single, serialized way to send a message to the runner stream.
+
+        Holds a per-bridge lock so writes can never overlap (grpc.aio forbids
+        concurrent writes to one stream). Returns True if written, False if the
+        stream is not currently connected (message dropped rather than raising).
+        """
+        if self.runner_stream is None:
+            return False
+        async with self._write_lock:
+            stream = self.runner_stream
+            if stream is None:
+                return False
+            await stream.write(message)
+            return True
 
     def request_cancel(self) -> None:
         self._cancel_event.set()

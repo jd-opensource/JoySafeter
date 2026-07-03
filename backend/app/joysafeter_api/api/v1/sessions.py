@@ -463,7 +463,7 @@ async def delete_session(
                     shutdown=joysafeter_pb2.Shutdown(reason="session deleted")
                 )
                 try:
-                    await bridge.runner_tx.put(shutdown_msg)
+                    await bridge.write_to_runner(shutdown_msg)
                 except Exception:
                     pass
             await bridge_registry.remove(sandbox.id)
@@ -585,7 +585,7 @@ async def stop_session(
                 bridge.request_cancel()
                 if bridge.runner_stream:
                     try:
-                        await bridge.runner_stream.write(
+                        await bridge.write_to_runner(
                             joysafeter_pb2.OrchestratorMessage(
                                 cancel=joysafeter_pb2.CancelTask(reason="Cancelled via session stop")
                             )

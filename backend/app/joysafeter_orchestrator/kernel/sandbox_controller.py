@@ -358,10 +358,7 @@ class SandboxController:
                             reason="idle timeout" if graceful else "reaped",
                         )
                     )
-                    try:
-                        bridge.runner_tx.put_nowait(shutdown_msg)
-                    except asyncio.QueueFull:
-                        pass
+                    await bridge.write_to_runner(shutdown_msg)
                     await self._bridge_registry.remove(sb_id)
 
                 # Only the graceful idle-timeout path waits for the runner to

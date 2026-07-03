@@ -433,7 +433,7 @@ async def joysafeter_shutdown() -> None:
                         reason="orchestrator shutting down",
                     )
                 )
-                await bridge.send_to_runner(shutdown_msg)
+                await bridge.write_to_runner(shutdown_msg)
             except Exception:
                 pass
         logger.info("Sent Shutdown to %d sandbox bridges", _bridge_registry.count())

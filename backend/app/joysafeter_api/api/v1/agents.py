@@ -402,7 +402,7 @@ async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) 
                     cancel=joysafeter_pb2.CancelTask(reason="Agent archived")
                 )
                 try:
-                    await bridge.runner_tx.put(cancel_msg)
+                    await bridge.write_to_runner(cancel_msg)
                 except Exception:
                     pass
             sandbox_ids_to_stop.add(sandbox_id)
@@ -440,7 +440,7 @@ async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) 
                     shutdown=joysafeter_pb2.Shutdown(reason="Agent archived")
                 )
                 try:
-                    await bridge.runner_tx.put(shutdown_msg)
+                    await bridge.write_to_runner(shutdown_msg)
                 except Exception:
                     pass
             await bridge_registry.remove(sandbox_id)

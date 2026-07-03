@@ -197,7 +197,7 @@ async def cancel_task(
                     cancel_msg = joysafeter_pb2.OrchestratorMessage(
                         cancel=joysafeter_pb2.CancelTask(reason="Cancelled via API")
                     )
-                    await bridge.runner_stream.write(cancel_msg)
+                    await bridge.write_to_runner(cancel_msg)
                     grpc_cancel_sent = True
                 except Exception:
                     logger.warning("Failed to send gRPC CancelTask for task %s", task_id)

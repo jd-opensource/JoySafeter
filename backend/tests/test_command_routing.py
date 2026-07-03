@@ -46,7 +46,7 @@ async def test_remote_input_reaches_the_control_queue():
 
     assert bridge._control_queue.get_nowait() == "approve", "remote input must land on the queue the runner drains"
     assert bridge.confirmation_event.is_set(), "remote input must wake the confirmation drain"
-    assert bridge.runner_tx.empty(), "remote input must NOT be routed to the never-drained runner_tx"
+    assert not hasattr(bridge, "runner_tx"), "the dead runner_tx queue must no longer exist"
 
 
 @pytest.mark.asyncio

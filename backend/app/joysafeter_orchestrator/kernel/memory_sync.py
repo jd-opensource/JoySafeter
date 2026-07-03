@@ -112,7 +112,7 @@ class MemoryStoreSubscribers:
                                 operation=operation,
                             )
                         )
-                        await bridge.send_to_runner(msg)
+                        await bridge.write_to_runner(msg)
                         notified += 1
                     except Exception as e:
                         logger.warning(
@@ -187,7 +187,7 @@ class MemoryStoreSubscribers:
                             operation=operation,
                         )
                     )
-                    await bridge.runner_stream.write(update_msg)
+                    await bridge.write_to_runner(update_msg)
                     notified += 1
                 except Exception as e:
                     logger.warning("Failed to push MemoryFileUpdate to peer %s: %s", peer.session_id, e)
