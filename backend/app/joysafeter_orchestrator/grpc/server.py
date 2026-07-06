@@ -821,67 +821,16 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                             continue
 
                         if mapped_type in ("session.status_running", "session.status_idle") and task_session_id:
-                            status = (
-                                SessionStatus.RUNNING.value
-                                if mapped_type == "session.status_running"
-                                else SessionStatus.IDLE.value
+                            await self._emit_task_scoped_status_event(
+                                session_id=task_session_id,
+                                task_id=active_task_id,
+                                mapped_type=mapped_type,
+                                mapped_payload=mapped_payload,
+                                sandbox_id=sandbox_id,
+                                seq=event.seq,
+                                bridge=bridge,
+                                coordinator=coordinator,
                             )
-                            mapped_stop_reason = (
-                                mapped_payload.get("stop_reason") if isinstance(mapped_payload, dict) else None
-                            )
-                            status_payload = dict(mapped_payload or {})
-                            status_payload["task_id"] = str(active_task_id)
-                            task_payload = {"type": mapped_type, **status_payload}
-                            if self._event_bus:
-                                await self._event_bus.publish(
-                                    JoySafeterEventEnvelope(
-                                        session_id=task_session_id,
-                                        event_type=mapped_type,
-                                        payload=status_payload,
-                                        task_id=active_task_id,
-                                        sandbox_id=sandbox_id,
-                                        seq=event.seq,
-                                        is_status_change=True,
-                                        stop_reason=mapped_stop_reason,
-                                        task_broadcast_payload=task_payload,
-                                    )
-                                )
-                            else:
-                                async with AsyncSessionLocal() as db:
-                                    svc = SessionService(db)
-                                    accepted = await svc.update_session_status_for_task_event(
-                                        task_session_id,
-                                        status,
-                                        active_task_id,
-                                        stop_reason=mapped_stop_reason,
-                                    )
-                                    if accepted:
-                                        persisted_event = await svc.send_event(
-                                            task_session_id,
-                                            mapped_type,
-                                            status_payload,
-                                        )
-                                    else:
-                                        persisted_event = None
-                                if persisted_event is not None:
-                                    ws_msg = WsOutMessage(type="event", payload=task_payload)
-                                    await bridge.broadcast_to_task(active_task_id, ws_msg)
-                                    await _best_effort_publish_event(
-                                        coordinator,
-                                        active_task_id,
-                                        json.dumps({"type": ws_msg.type, **ws_msg.payload}),
-                                    )
-                                    broadcaster = get_session_broadcaster()
-                                    if broadcaster:
-                                        await broadcaster.send(
-                                            task_session_id,
-                                            {
-                                                "id": f"evt_{persisted_event.id}",
-                                                "type": persisted_event.event_type,
-                                                "seq": persisted_event.seq,
-                                                **(persisted_event.payload or {}),
-                                            },
-                                        )
                             continue
 
                         if self._event_bus and task_session_id:
@@ -2009,68 +1958,16 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     # threads), so a sandbox can't be reaped mid-activity.
 
                     if mapped_type in ("session.status_running", "session.status_idle") and session_id:
-                        status = (
-                            SessionStatus.RUNNING.value
-                            if mapped_type == "session.status_running"
-                            else SessionStatus.IDLE.value
+                        await self._emit_task_scoped_status_event(
+                            session_id=session_id,
+                            task_id=task_id,
+                            mapped_type=mapped_type,
+                            mapped_payload=mapped_payload,
+                            sandbox_id=sandbox_id,
+                            seq=event.seq,
+                            bridge=bridge,
+                            coordinator=get_redis_coordinator(),
                         )
-                        mapped_stop_reason = (
-                            mapped_payload.get("stop_reason") if isinstance(mapped_payload, dict) else None
-                        )
-                        status_payload = dict(mapped_payload or {})
-                        status_payload["task_id"] = str(task_id)
-                        task_payload = {"type": mapped_type, **status_payload}
-                        if self._event_bus:
-                            await self._event_bus.publish(
-                                JoySafeterEventEnvelope(
-                                    session_id=session_id,
-                                    event_type=mapped_type,
-                                    payload=status_payload,
-                                    task_id=task_id,
-                                    sandbox_id=sandbox_id,
-                                    seq=event.seq,
-                                    is_status_change=True,
-                                    stop_reason=mapped_stop_reason,
-                                    task_broadcast_payload=task_payload,
-                                )
-                            )
-                        else:
-                            async with AsyncSessionLocal() as db:
-                                session_svc = SessionService(db)
-                                accepted = await session_svc.update_session_status_for_task_event(
-                                    session_id,
-                                    status,
-                                    task_id,
-                                    stop_reason=mapped_stop_reason,
-                                )
-                                if accepted:
-                                    persisted_event = await session_svc.send_event(
-                                        session_id,
-                                        mapped_type,
-                                        status_payload,
-                                    )
-                                else:
-                                    persisted_event = None
-                            if persisted_event is not None:
-                                ws_msg = WsOutMessage(type="event", payload=task_payload)
-                                await bridge.broadcast_to_task(task_id, ws_msg)
-                                coordinator = get_redis_coordinator()
-                                await _best_effort_publish_event(
-                                    coordinator,
-                                    task_id,
-                                    json.dumps({"type": ws_msg.type, **ws_msg.payload}),
-                                )
-                                broadcaster = get_session_broadcaster()
-                                if broadcaster:
-                                    await broadcaster.send(
-                                        session_id,
-                                        {
-                                            "id": f"evt_{persisted_event.id}",
-                                            "type": persisted_event.event_type,
-                                            "seq": persisted_event.seq,
-                                            **(persisted_event.payload or {}),
-                                        },
-                                    )
                         continue
 
                     if self._event_bus and session_id:
@@ -2540,6 +2437,80 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
         logger.info("Task %s completed: status=%s", task_id, result.status)
         return True
+
+    async def _emit_task_scoped_status_event(
+        self,
+        *,
+        session_id: uuid.UUID,
+        task_id: uuid.UUID,
+        mapped_type: str,
+        mapped_payload: Any,
+        sandbox_id: uuid.UUID,
+        seq: Any,
+        bridge: "SandboxBridge",
+        coordinator: Any,
+    ) -> None:
+        """Persist and fan out a task-scoped session.status_running/idle event.
+
+        Single source of truth for the two identical status-emit blocks in the
+        resumed-task and main streaming loops: publish via the event bus when it
+        is present, otherwise write the task-scoped transition + event directly
+        and fan out to the task's WS subscribers, cross-instance Redis, and SSE.
+        """
+        from app.joysafeter_domain.models.joysafeter_session import SessionStatus
+        from app.joysafeter_orchestrator.lifespan import get_session_broadcaster
+        from app.joysafeter_orchestrator.services import SessionService
+        from app.joysafeter_shared.database import AsyncSessionLocal
+
+        status = SessionStatus.RUNNING.value if mapped_type == "session.status_running" else SessionStatus.IDLE.value
+        stop_reason = mapped_payload.get("stop_reason") if isinstance(mapped_payload, dict) else None
+        status_payload = dict(mapped_payload or {})
+        status_payload["task_id"] = str(task_id)
+        task_payload = {"type": mapped_type, **status_payload}
+
+        if self._event_bus:
+            await self._event_bus.publish(
+                JoySafeterEventEnvelope(
+                    session_id=session_id,
+                    event_type=mapped_type,
+                    payload=status_payload,
+                    task_id=task_id,
+                    sandbox_id=sandbox_id,
+                    seq=seq,
+                    is_status_change=True,
+                    stop_reason=stop_reason,
+                    task_broadcast_payload=task_payload,
+                )
+            )
+            return
+
+        async with AsyncSessionLocal() as db:
+            svc = SessionService(db)
+            accepted = await svc.update_session_status_for_task_event(
+                session_id, status, task_id, stop_reason=stop_reason
+            )
+            persisted_event = await svc.send_event(session_id, mapped_type, status_payload) if accepted else None
+        if persisted_event is None:
+            return
+
+        ws_msg = WsOutMessage(type="event", payload=task_payload)
+        await bridge.broadcast_to_task(task_id, ws_msg)
+        await _best_effort_publish_event(
+            coordinator,
+            task_id,
+            json.dumps({"type": ws_msg.type, **ws_msg.payload}),
+        )
+        broadcaster = get_session_broadcaster()
+        if broadcaster:
+            await broadcaster.send(
+                session_id,
+                {
+                    "id": f"evt_{persisted_event.id}",
+                    "type": persisted_event.event_type,
+                    "seq": persisted_event.seq,
+                    **(persisted_event.payload or {}),
+                },
+            )
 
     @staticmethod
     def _stop_reason_from_result(status: "TaskStatus", error: Optional[str]) -> dict:
