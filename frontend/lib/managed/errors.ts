@@ -22,7 +22,8 @@ export function getOperationErrorMessage(
     data?: Record<string, unknown> | null
   }
   const code = apiError?.code || ''
-  const message = (apiError?.message || apiError?.payload?.message || '').toLowerCase()
+  const rawMessage = apiError?.message || apiError?.payload?.message || ''
+  const message = rawMessage.toLowerCase()
   const data = apiError?.data || apiError?.payload?.data || null
 
   if (message.includes('archived')) {
@@ -71,6 +72,9 @@ export function getOperationErrorMessage(
   }
   if (apiError?.status === 404 || code.includes('NOT_FOUND')) {
     return t('managed.errors.resourceNotFound')
+  }
+  if (rawMessage.trim()) {
+    return rawMessage
   }
   return t(fallbackKey)
 }

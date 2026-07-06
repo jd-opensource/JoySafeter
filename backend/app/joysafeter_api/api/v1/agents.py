@@ -536,9 +536,7 @@ async def archive_agent(
     if not agent:
         raise HTTPException(404, "Agent not found")
     try:
-        archived, archived_session_ids = await svc.archive_agent_with_sessions(
-            agent_id, project_id=auth_ctx.project_id
-        )
+        archived, archived_session_ids = await svc.archive_agent_with_sessions(agent_id, project_id=auth_ctx.project_id)
     except ValueError as e:
         raise HTTPException(409, str(e)) from e
     if not archived:

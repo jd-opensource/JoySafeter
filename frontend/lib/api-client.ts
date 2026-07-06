@@ -94,6 +94,7 @@ export interface ApiErrorPayload {
   retryable?: boolean
   user_action?: UserAction
   detail?: string
+  trace_id?: string
 }
 
 export function createApiError(
@@ -117,6 +118,8 @@ export class ApiError extends Error {
   public readonly source: ErrorSource
   public readonly retryable: boolean
   public readonly userAction?: UserAction
+  public readonly traceId?: string
+  public readonly detail?: string
 
   constructor(
     public readonly status: number,
@@ -131,13 +134,29 @@ export class ApiError extends Error {
     this.source = payload.source ?? 'internal'
     this.retryable = payload.retryable ?? false
     this.userAction = payload.user_action
+    this.traceId = payload.trace_id
+    this.detail = payload.detail
   }
+}
+
+const MAX_ERROR_TEXT_LENGTH = 1000
+
+function truncateErrorText(text: string): string {
+  if (text.length <= MAX_ERROR_TEXT_LENGTH) return text
+  return `${text.slice(0, MAX_ERROR_TEXT_LENGTH)}...`
+}
+
+function attachResponseTrace(response: Response, payload: ApiErrorPayload): ApiErrorPayload {
+  const traceId = response.headers.get('x-trace-id')
+  if (!traceId) return payload
+  return { ...payload, trace_id: payload.trace_id ?? traceId }
 }
 
 async function extractErrorFromResponse(response: Response): Promise<ApiError> {
   let payload: ApiErrorPayload | undefined
+  let text = ''
   try {
-    const text = await response.text()
+    text = await response.text()
     const errorData = JSON.parse(text)
     if (
       errorData &&
@@ -152,13 +171,25 @@ async function extractErrorFromResponse(response: Response): Promise<ApiError> {
         code: response.status > 0 ? `HTTP_${response.status}` : 'UNKNOWN_ERROR',
         message: detail || response.statusText || `API Error: ${response.status}`,
         detail,
-        data: null,
+        data: typeof errorData.detail === 'string' ? null : { detail: errorData.detail as unknown },
       }
     }
   } catch {
-    /* not JSON or empty body */
+    const message = truncateErrorText(text.trim())
+    if (message) {
+      payload = {
+        code: response.status > 0 ? `HTTP_${response.status}` : 'UNKNOWN_ERROR',
+        message,
+        detail: message,
+        data: null,
+      }
+    }
   }
-  return createApiError(response.status, response.statusText, payload)
+  return createApiError(
+    response.status,
+    response.statusText,
+    payload ? attachResponseTrace(response, payload) : payload,
+  )
 }
 
 export interface ApiRequestOptions extends Omit<RequestInit, 'body'> {
@@ -199,7 +230,11 @@ async function parseResponse<T>(response: Response): Promise<T> {
       'message' in json &&
       !('success' in json)
     ) {
-      throw createApiError(response.status, response.statusText, json as ApiErrorPayload)
+      throw createApiError(
+        response.status,
+        response.statusText,
+        attachResponseTrace(response, json as ApiErrorPayload),
+      )
     }
 
     if (json && typeof json === 'object' && 'data' in json && 'success' in json) {
@@ -468,7 +503,12 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
         ...restOptions,
         method,
         headers,
-        body: body ? (json ? JSON.stringify(requestBody) : (body as BodyInit)) : undefined,
+        body:
+          body !== undefined
+            ? json
+              ? JSON.stringify(requestBody)
+              : (body as BodyInit)
+            : undefined,
         signal: controller.signal,
         credentials: 'include',
       })
