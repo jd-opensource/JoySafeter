@@ -6,9 +6,10 @@ import re
 import uuid
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_session_id as _parse_session_id
@@ -427,6 +428,11 @@ async def delete_session(
         raise HTTPException(404, "Session not found")
     if session.status == "running":
         raise HTTPException(409, "Running session cannot be deleted. Send user.interrupt first.")
+    from app.joysafeter_api.services import JoySafeterTaskService as TaskService
+
+    active_tasks = await TaskService(db).list_active_tasks_by_session(session_id, project_id=auth_ctx.project_id)
+    if active_tasks:
+        raise HTTPException(409, "Session has an active task; stop it before deleting session")
 
     # Emit session.deleted event via broadcaster before deleting
     from app.joysafeter_orchestrator.lifespan import (
@@ -537,7 +543,6 @@ async def stop_session(
     if session.status == "terminated":
         raise HTTPException(409, "Session is terminated")
 
-    from app.joysafeter_api.services import JoySafeterSessionLifecycleService
     from app.joysafeter_api.services import JoySafeterTaskService as TaskService
     from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
     from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
@@ -548,31 +553,18 @@ async def stop_session(
     )
 
     stop_reason = {"type": "cancelled"}
-    lifecycle = JoySafeterSessionLifecycleService(db)
-    try:
-        await lifecycle.transition_and_emit(
-            session_id,
-            "idle",
-            "session.status_idle",
-            {"stop_reason": stop_reason},
-            stop_reason=stop_reason,
-        )
-    except Exception:
-        logger.debug(
-            "Could not transition session %s to idle during stop",
-            session_id,
-            exc_info=True,
-        )
-
     task_svc = TaskService(db)
     active_tasks = await task_svc.list_active_tasks_by_session(session_id, project_id=auth_ctx.project_id)
+    cancelled_task_ids: set[uuid.UUID] = set()
     for task in active_tasks:
         try:
-            await task_svc.update_task_error(
+            cancelled = await task_svc.update_task_error(
                 task.id,
                 "Cancelled via session stop",
                 JoySafeterTaskStatus.CANCELLED,
             )
+            if cancelled:
+                cancelled_task_ids.add(task.id)
         except Exception:
             logger.debug("Failed to cancel task %s during session stop", task.id)
 
@@ -580,6 +572,8 @@ async def stop_session(
     locally_cancelled: set[uuid.UUID] = set()
     if registry:
         for task in active_tasks:
+            if task.id not in cancelled_task_ids:
+                continue
             bridge = registry.get_by_task(task.id)
             if bridge:
                 bridge.request_cancel()
@@ -597,6 +591,8 @@ async def stop_session(
     coordinator = get_redis_coordinator()
     if coordinator:
         for task in active_tasks:
+            if task.id not in cancelled_task_ids:
+                continue
             if task.id not in locally_cancelled:
                 sandbox_id = await coordinator.get_task_sandbox(task.id)
                 if sandbox_id:
@@ -620,6 +616,26 @@ async def stop_session(
                 ),
             )
 
+    remaining_active = await task_svc.list_active_tasks_by_session(session_id, project_id=auth_ctx.project_id)
+    if remaining_active:
+        logger.warning(
+            "Session stop could not cancel all active tasks for session %s: remaining=%s",
+            session_id,
+            [str(task.id) for task in remaining_active],
+        )
+        raise HTTPException(503, "Failed to cancel all active tasks")
+
+    try:
+        await svc.update_session_status(session_id, "idle", stop_reason=stop_reason)
+        await svc.send_event(session_id, "session.status_idle", {"stop_reason": stop_reason})
+    except Exception:
+        logger.debug(
+            "Could not transition session %s to idle during stop",
+            session_id,
+            exc_info=True,
+        )
+        raise HTTPException(503, "Failed to mark session idle") from None
+
     broadcaster = get_session_broadcaster()
     if broadcaster:
         await broadcaster.send(
@@ -630,12 +646,13 @@ async def stop_session(
     return {
         "id": f"sess_{session_id}",
         "status": "idle",
-        "cancelled_tasks": len(active_tasks),
+        "cancelled_tasks": len(cancelled_task_ids),
     }
 
 
 CONTROL_EVENT_TYPES = {"user.tool_confirmation", "user.custom_tool_result", "user.interrupt"}
 LIVE_INPUT_PREFIX = "__joysafeter_input_v1__:"
+COMMAND_ACK_TIMEOUT_SECONDS = 2
 
 
 def _encode_live_input(event: SingleEventRequest, source_event_id: Optional[str] = None) -> Optional[str]:
@@ -685,8 +702,9 @@ async def _relay_control_via_redis(
     ``joysafeter:cmd:{instance_id}`` and dispatches ``input`` commands to its
     local bridge → SendInput gRPC → runner stdin → claude control_response.
 
-    Returns True on successful publish (does NOT confirm delivery on the
-    sandbox side; that arrives later as agent.tool_result events).
+    Returns True only after the owning command listener acknowledges that it
+    delivered the input to the local bridge. This still does not guarantee the
+    runner completed the user-visible action; that arrives later as events.
     """
     if not getattr(session, "last_sandbox_id", None):
         return False
@@ -716,28 +734,32 @@ async def _relay_control_via_redis(
     if not live_input:
         return False
 
+    command_id = uuid.uuid4().hex
+    ack_key = f"joysafeter:cmd_ack:{command_id}"
     channel = f"joysafeter:cmd:{owner}"
-    command = json.dumps(
-        {
-            "type": "input",
-            "sandbox_id": sandbox_id,
-            "content": live_input,
-        }
-    )
+    command = {
+        "type": "input",
+        "sandbox_id": sandbox_id,
+        "content": live_input,
+        "command_id": command_id,
+        "ack_key": ack_key,
+    }
     try:
-        receivers = await redis_client.publish(channel, command)
+        delivered = await _publish_command_and_wait_for_ack(
+            redis_client,
+            channel,
+            command,
+            command_id=command_id,
+            ack_key=ack_key,
+        )
     except Exception:
         logger.debug(
-            "Redis relay PUBLISH failed for %s on session %s",
+            "Redis relay command failed for %s on session %s",
             event.type,
             getattr(session, "id", "?"),
         )
         return False
-    # receivers == 0 means no subscriber — the owner instance is offline.
-    # Treat as failure so the fallback retry-task path runs.
-    if receivers is None or int(receivers) == 0:
-        return False
-    return True
+    return delivered
 
 
 async def _relay_cancel_via_redis(session, *, reason: str) -> bool:
@@ -767,19 +789,62 @@ async def _relay_cancel_via_redis(session, *, reason: str) -> bool:
         return False
     if isinstance(owner, bytes):
         owner = owner.decode()
-    command = json.dumps(
-        {
-            "type": "cancel",
-            "sandbox_id": sandbox_id,
-            "reason": reason,
-        }
-    )
+    command_id = uuid.uuid4().hex
+    ack_key = f"joysafeter:cmd_ack:{command_id}"
+    command = {
+        "type": "cancel",
+        "sandbox_id": sandbox_id,
+        "reason": reason,
+        "command_id": command_id,
+        "ack_key": ack_key,
+    }
     try:
-        await redis_client.publish(f"joysafeter:cmd:{owner}", command)
+        delivered = await _publish_command_and_wait_for_ack(
+            redis_client,
+            f"joysafeter:cmd:{owner}",
+            command,
+            command_id=command_id,
+            ack_key=ack_key,
+        )
     except Exception:
-        logger.debug("Redis relay cancel PUBLISH failed for session %s", getattr(session, "id", "?"))
+        logger.debug("Redis relay cancel command failed for session %s", getattr(session, "id", "?"))
         return False
-    return True
+    return delivered
+
+
+async def _publish_command_and_wait_for_ack(
+    redis_client,
+    channel: str,
+    command: dict[str, Any],
+    *,
+    command_id: str,
+    ack_key: str,
+) -> bool:
+    receivers = await redis_client.publish(channel, json.dumps(command))
+    if receivers is None or int(receivers) == 0:
+        return False
+
+    try:
+        ack = await redis_client.blpop(ack_key, timeout=COMMAND_ACK_TIMEOUT_SECONDS)
+    except Exception as exc:
+        logger.debug("Redis command ACK wait failed for %s: %s", command_id, exc)
+        return False
+    if not ack:
+        logger.debug("Redis command ACK timed out for %s", command_id)
+        return False
+
+    _key, raw_payload = ack
+    if isinstance(raw_payload, bytes):
+        raw_payload = raw_payload.decode()
+    try:
+        payload = json.loads(raw_payload)
+    except Exception:
+        logger.debug("Redis command ACK payload is invalid for %s: %r", command_id, raw_payload)
+        return False
+    if str(payload.get("command_id") or "") != command_id:
+        logger.debug("Redis command ACK command_id mismatch for %s: %s", command_id, payload)
+        return False
+    return bool(payload.get("ok"))
 
 
 def _build_resume_prompt(event: SingleEventRequest, event_id: str) -> Optional[str]:
@@ -832,6 +897,139 @@ def _validate_message_content(content: Any) -> str:
     raise HTTPException(422, "content must be a string or array of content blocks")
 
 
+async def _find_idempotent_user_message_event(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    idempotency_key: str,
+):
+    from app.joysafeter_domain.models.joysafeter_session import JoySafeterSessionEvent
+
+    result = await db.execute(
+        select(JoySafeterSessionEvent)
+        .where(
+            JoySafeterSessionEvent.session_id == session_id,
+            JoySafeterSessionEvent.event_type == "user.message",
+            text("payload->>'_idempotency_key' = :idempotency_key"),
+        )
+        .params(idempotency_key=idempotency_key)
+        .order_by(JoySafeterSessionEvent.seq.asc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+def _session_event_response(event) -> SessionEventResponse:
+    return SessionEventResponse(
+        id=event.id,
+        event_type=event.event_type,
+        payload=event.payload,
+        seq=event.seq,
+        processed_at=event.processed_at,
+        created_at=event.created_at,
+    )
+
+
+async def _idempotent_user_message_replay_response(
+    db: AsyncSession,
+    *,
+    session_id: uuid.UUID,
+    idempotency_key: str,
+    project_id: Optional[str],
+    expected_prompt: Optional[str] = None,
+) -> SessionEventResponse | None:
+    from app.joysafeter_api.services import JoySafeterTaskService as TaskService
+
+    existing_task = await TaskService(db).get_by_idempotency_key(
+        idempotency_key,
+        project_id=project_id,
+    )
+    if existing_task is not None:
+        if existing_task.chat_session_id != session_id:
+            raise HTTPException(409, "Idempotency-Key was already used for a different session")
+        if expected_prompt is not None and existing_task.prompt != expected_prompt:
+            raise HTTPException(409, "Idempotency-Key was already used for a different message")
+        if existing_task.status == "failed" and "Failed to enqueue task" in (existing_task.error or ""):
+            raise HTTPException(503, "Failed to enqueue task")
+
+    existing_event = await _find_idempotent_user_message_event(db, session_id, idempotency_key)
+    if existing_event is not None and existing_task is not None:
+        return _session_event_response(existing_event)
+    return None
+
+
+async def _push_task_to_global_queue(task_id: uuid.UUID) -> None:
+    from app.joysafeter_api.services import enqueue_joysafeter_task
+
+    await enqueue_joysafeter_task(task_id)
+
+
+async def _create_and_enqueue_resume_task(
+    *,
+    session_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    project_id: Optional[str],
+    prompt: str,
+    failure_context: str,
+) -> uuid.UUID:
+    from app.joysafeter_api.services import JoySafeterTaskService as TaskService
+    from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
+    from app.joysafeter_shared.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as task_db:
+        task_svc = TaskService(task_db)
+        task = await task_svc.create_task(
+            agent_id=agent_id,
+            prompt=prompt,
+            chat_session_id=session_id,
+            project_id=project_id,
+        )
+
+    try:
+        await _push_task_to_global_queue(task.id)
+    except Exception as exc:
+        async with AsyncSessionLocal() as task_db:
+            await TaskService(task_db).update_task_error(
+                task.id,
+                f"Failed to enqueue fallback task for {failure_context}: {exc}",
+                JoySafeterTaskStatus.FAILED,
+            )
+        raise
+    return task.id
+
+
+async def _mark_session_running_for_active_task(
+    *,
+    svc: SessionService,
+    session_id: uuid.UUID,
+    task_id: uuid.UUID | None = None,
+    project_id: Optional[str] = None,
+    broadcaster=None,
+) -> bool:
+    if task_id is None:
+        from app.joysafeter_api.services import JoySafeterTaskService as TaskService
+
+        active_tasks = await TaskService(svc.db).list_active_tasks_by_session(session_id, project_id=project_id)
+        if len(active_tasks) != 1:
+            return False
+        task_id = active_tasks[0].id
+
+    running_accepted = await svc.update_session_status_for_task_event(session_id, "running", task_id)
+    if not running_accepted:
+        return False
+
+    running_event = await svc.send_event(session_id, "session.status_running", {"task_id": str(task_id)})
+    if broadcaster:
+        running_broadcast = {
+            "id": f"evt_{running_event.id}",
+            "type": running_event.event_type,
+            "seq": running_event.seq,
+        }
+        if isinstance(running_event.payload, dict):
+            running_broadcast.update(running_event.payload)
+        await broadcaster.send(session_id, running_broadcast)
+    return True
+
+
 async def _replay_pending_control_inputs(
     session_id: uuid.UUID,
     bridge,
@@ -882,7 +1080,13 @@ async def send_event(
     session_id: uuid.UUID = Depends(_parse_session_id),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ) -> dict:
+    if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+        idempotency_key = None
+    else:
+        idempotency_key = idempotency_key.strip()
+
     svc = SessionService(db)
     session = await svc.get_session(session_id)
     if not session:
@@ -911,18 +1115,43 @@ async def send_event(
     for single in single_events:
         # --- user.message: reject if session is already running (409) ---
         if single.type == "user.message":
-            if session.status == "running":
-                raise HTTPException(
-                    409,
-                    "Session is already running; wait for completion before sending a new message",
-                )
-            # Validate content
+            # Validate content before idempotent replay so a reused key cannot
+            # silently map different message text to the original task/event.
             raw_content = single.content
             if raw_content is None:
                 raw_content = single.payload.get("content")
             if raw_content is None:
                 raise HTTPException(422, "user.message requires content")
             message_text = _validate_message_content(raw_content)
+
+            if idempotency_key:
+                replay = await _idempotent_user_message_replay_response(
+                    db,
+                    session_id=session_id,
+                    idempotency_key=idempotency_key,
+                    project_id=auth_ctx.project_id,
+                    expected_prompt=message_text,
+                )
+                if replay is not None:
+                    results.append(replay)
+                    continue
+
+            if session.status == "running":
+                raise HTTPException(
+                    409,
+                    "Session is already running; wait for completion before sending a new message",
+                )
+            from app.joysafeter_api.services import JoySafeterTaskService as TaskService
+
+            active_tasks = await TaskService(db).list_active_tasks_by_session(
+                session_id,
+                project_id=auth_ctx.project_id,
+            )
+            if active_tasks:
+                raise HTTPException(
+                    409,
+                    "Session has an active task; wait for completion before sending a new message",
+                )
 
         # Build payload for persistence
         payload = dict(single.payload)
@@ -934,17 +1163,35 @@ async def send_event(
             payload["deny_message"] = single.deny_message
         if single.resolved_approved() is not None and "approved" not in payload:
             payload["approved"] = single.resolved_approved()
+        if single.type == "user.message" and idempotency_key:
+            payload["_idempotency_key"] = idempotency_key
 
-        event = await svc.send_event(session_id, single.type, payload)
+        try:
+            event = await svc.send_event(session_id, single.type, payload)
+        except IntegrityError:
+            if single.type != "user.message" or not idempotency_key:
+                raise
+            try:
+                await db.rollback()
+            except Exception:
+                logger.debug("Failed to rollback after idempotent user.message collision", exc_info=True)
+            for _attempt in range(10):
+                replay = await _idempotent_user_message_replay_response(
+                    db,
+                    session_id=session_id,
+                    idempotency_key=idempotency_key,
+                    project_id=auth_ctx.project_id,
+                    expected_prompt=message_text,
+                )
+                if replay is not None:
+                    results.append(replay)
+                    break
+                await asyncio.sleep(0.05)
+            else:
+                raise HTTPException(409, "Idempotency-Key is already in progress")
+            continue
 
-        event_response = SessionEventResponse(
-            id=event.id,
-            event_type=event.event_type,
-            payload=event.payload,
-            seq=event.seq,
-            processed_at=event.processed_at,
-            created_at=event.created_at,
-        )
+        event_response = _session_event_response(event)
 
         if broadcaster:
             broadcast_data = {
@@ -961,10 +1208,8 @@ async def send_event(
         # ----------------------------------------------------------------
         if single.type == "user.message":
             # Create task, mark session running, push to scheduler
+            task = None
             try:
-                from app.joysafeter_orchestrator.lifespan import get_scheduler
-
-                scheduler = get_scheduler()
                 from app.joysafeter_api.services import JoySafeterTaskService as TaskService
                 from app.joysafeter_shared.database import AsyncSessionLocal
 
@@ -975,8 +1220,15 @@ async def send_event(
                         prompt=message_text,
                         chat_session_id=session_id,
                         project_id=auth_ctx.project_id,
+                        idempotency_key=idempotency_key,
                     )
-                # Insert session.status_running event
+                # Transition session to running before writing the event anchor.
+                # If a concurrent active task already owns the session context,
+                # do not leave a misleading session.status_running event behind.
+                running_accepted = await svc.update_session_status_for_task_event(session_id, "running", task.id)
+                if not running_accepted:
+                    raise RuntimeError("Session already has another active task")
+
                 running_event = await svc.send_event(
                     session_id,
                     "session.status_running",
@@ -991,30 +1243,86 @@ async def send_event(
                     if isinstance(running_event.payload, dict):
                         running_broadcast.update(running_event.payload)
                     await broadcaster.send(session_id, running_broadcast)
-                # Transition session to running
-                try:
-                    await svc.update_session_status(session_id, "running")
-                except Exception:
-                    logger.debug(
-                        "Could not transition session %s to running (may already be running)",
-                        session_id,
-                    )
                 # Push task to runner queue. In split-service mode the API
                 # process does not own an in-memory scheduler, so publish
                 # directly to the Redis-backed global queue.
-                if scheduler:
-                    await scheduler.push_to_global(task.id)
-                else:
-                    from app.joysafeter_shared.cache.redis import RedisClient
-
-                    redis = RedisClient.get_client()
-                    if redis is None:
-                        raise RuntimeError("Redis unavailable; cannot enqueue task to global queue")
-                    await redis.rpush("joysafeter:global_queue", str(task.id))
+                await _push_task_to_global_queue(task.id)
             except HTTPException:
                 raise
-            except Exception:
+            except Exception as exc:
                 logger.exception("Failed to dispatch user.message for session %s", session_id)
+                try:
+                    if db.in_transaction():
+                        await db.rollback()
+                except Exception:
+                    logger.debug("Failed to rollback session DB after dispatch failure", exc_info=True)
+
+                from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
+
+                if task is not None:
+                    try:
+                        from app.joysafeter_api.services import JoySafeterTaskService as TaskService
+                        from app.joysafeter_shared.database import AsyncSessionLocal
+
+                        async with AsyncSessionLocal() as task_db:
+                            await TaskService(task_db).update_task_error(
+                                task.id,
+                                f"Failed to enqueue task: {exc}",
+                                JoySafeterTaskStatus.FAILED,
+                            )
+                    except Exception:
+                        logger.error(
+                            "Failed to mark unqueued task %s as failed",
+                            getattr(task, "id", None),
+                            exc_info=True,
+                        )
+
+                stop_reason = {"type": "error", "message": "Failed to enqueue task"}
+                idle_accepted = False
+                try:
+                    if task is not None:
+                        idle_accepted = await svc.update_session_status_for_task_event(
+                            session_id,
+                            "idle",
+                            task.id,
+                            stop_reason=stop_reason,
+                        )
+                    else:
+                        idle_accepted = await svc.update_session_status(session_id, "idle", stop_reason=stop_reason)
+                except Exception:
+                    logger.debug(
+                        "Could not compensate session %s to idle after dispatch failure",
+                        session_id,
+                        exc_info=True,
+                    )
+
+                try:
+                    if idle_accepted:
+                        idle_event = await svc.send_event(
+                            session_id,
+                            "session.status_idle",
+                            {
+                                **({"task_id": str(task.id)} if task is not None else {}),
+                                "stop_reason": stop_reason,
+                            },
+                        )
+                        if broadcaster:
+                            idle_broadcast = {
+                                "id": f"evt_{idle_event.id}",
+                                "type": idle_event.event_type,
+                                "seq": idle_event.seq,
+                            }
+                            if isinstance(idle_event.payload, dict):
+                                idle_broadcast.update(idle_event.payload)
+                            await broadcaster.send(session_id, idle_broadcast)
+                except Exception:
+                    logger.debug(
+                        "Failed to emit idle compensation event for session %s",
+                        session_id,
+                        exc_info=True,
+                    )
+
+                raise HTTPException(503, "Failed to enqueue task") from exc
 
         elif single.type == "user.custom_tool_result":
             injected = False
@@ -1033,7 +1341,13 @@ async def send_event(
                             injected = True
                             bridge._requires_action_pending = False
                             await svc.mark_event_processed(event.id)
-                            await svc.update_session_status(session_id, "running")
+                            await _mark_session_running_for_active_task(
+                                svc=svc,
+                                session_id=session_id,
+                                task_id=bridge.current_task_id,
+                                project_id=auth_ctx.project_id,
+                                broadcaster=broadcaster,
+                            )
                         except Exception:
                             logger.debug(
                                 "Bridge injection failed for custom_tool_result, falling back to task",
@@ -1042,33 +1356,33 @@ async def send_event(
             if not injected and await _relay_control_via_redis(single, session=session, event_id=str(event.id)):
                 injected = True
                 await svc.mark_event_processed(event.id)
-                await svc.update_session_status(session_id, "running")
+                await _mark_session_running_for_active_task(
+                    svc=svc,
+                    session_id=session_id,
+                    project_id=auth_ctx.project_id,
+                    broadcaster=broadcaster,
+                )
             # Fallback: create a retry task when bridge injection was not possible
             if not injected:
                 resume_prompt = _build_resume_prompt(single, str(event.id))
                 if resume_prompt and session.status != "running":
                     try:
-                        from app.joysafeter_orchestrator.lifespan import get_scheduler
-
-                        scheduler = get_scheduler()
-                        if scheduler:
-                            from app.joysafeter_api.services import JoySafeterTaskService as TaskService
-                            from app.joysafeter_shared.database import AsyncSessionLocal
-
-                            async with AsyncSessionLocal() as task_db:
-                                task_svc = TaskService(task_db)
-                                task = await task_svc.create_task(
-                                    agent_id=session.agent_id,
-                                    prompt=resume_prompt,
-                                    chat_session_id=session_id,
-                                    project_id=auth_ctx.project_id,
-                                )
-                                await scheduler.push_to_global(task.id)
-                    except Exception:
+                        await _create_and_enqueue_resume_task(
+                            session_id=session_id,
+                            agent_id=session.agent_id,
+                            project_id=auth_ctx.project_id,
+                            prompt=resume_prompt,
+                            failure_context="custom_tool_result",
+                        )
+                    except Exception as exc:
                         logger.debug(
                             "Failed to create fallback task for custom_tool_result on session %s",
                             session_id,
+                            exc_info=True,
                         )
+                        raise HTTPException(503, "Failed to deliver custom tool result") from exc
+                else:
+                    raise HTTPException(503, "Failed to deliver custom tool result")
 
         elif single.type == "user.tool_confirmation":
             injected = False
@@ -1087,7 +1401,13 @@ async def send_event(
                             injected = True
                             bridge._requires_action_pending = False
                             await svc.mark_event_processed(event.id)
-                            await svc.update_session_status(session_id, "running")
+                            await _mark_session_running_for_active_task(
+                                svc=svc,
+                                session_id=session_id,
+                                task_id=bridge.current_task_id,
+                                project_id=auth_ctx.project_id,
+                                broadcaster=broadcaster,
+                            )
                         except Exception:
                             logger.debug(
                                 "Bridge injection failed for tool_confirmation on session %s",
@@ -1098,40 +1418,43 @@ async def send_event(
             if not injected and await _relay_control_via_redis(single, session=session, event_id=str(event.id)):
                 injected = True
                 await svc.mark_event_processed(event.id)
-                await svc.update_session_status(session_id, "running")
+                await _mark_session_running_for_active_task(
+                    svc=svc,
+                    session_id=session_id,
+                    project_id=auth_ctx.project_id,
+                    broadcaster=broadcaster,
+                )
             # Fallback: create a retry task
             if not injected:
                 resume_prompt = _build_resume_prompt(single, str(event.id))
                 if resume_prompt and session.status != "running":
                     try:
-                        from app.joysafeter_orchestrator.lifespan import get_scheduler
-
-                        scheduler = get_scheduler()
-                        if scheduler:
-                            from app.joysafeter_api.services import JoySafeterTaskService as TaskService
-                            from app.joysafeter_shared.database import AsyncSessionLocal
-
-                            async with AsyncSessionLocal() as task_db:
-                                task_svc = TaskService(task_db)
-                                task = await task_svc.create_task(
-                                    agent_id=session.agent_id,
-                                    prompt=resume_prompt,
-                                    chat_session_id=session_id,
-                                    project_id=auth_ctx.project_id,
-                                )
-                                await scheduler.push_to_global(task.id)
-                    except Exception:
+                        await _create_and_enqueue_resume_task(
+                            session_id=session_id,
+                            agent_id=session.agent_id,
+                            project_id=auth_ctx.project_id,
+                            prompt=resume_prompt,
+                            failure_context="tool_confirmation",
+                        )
+                    except Exception as exc:
                         logger.debug(
                             "Failed to create fallback task for tool_confirmation on session %s",
                             session_id,
+                            exc_info=True,
                         )
+                        raise HTTPException(503, "Failed to deliver tool confirmation") from exc
+                else:
+                    raise HTTPException(503, "Failed to deliver tool confirmation")
 
         elif single.type == "user.interrupt":
             # Encode interrupt as a live-input with source_event_id
             injected = False
+            cancel_requested = False
             if bridge_registry and session.last_sandbox_id:
                 bridge = await bridge_registry.get(session.last_sandbox_id)
                 if bridge:
+                    bridge.request_cancel()
+                    cancel_requested = True
                     live_input = _encode_live_input(single, source_event_id=str(event.id))
                     if live_input:
                         try:
@@ -1151,33 +1474,31 @@ async def send_event(
             # emit `result` 让 task 结束(它认为后面会有新的 user.message)。
             # 为了产品语义"中断 = task 终结,session 可续聊",额外发一次 cancel
             # 强制结束 task;下一条 user.message 会重新起 claude 进程。
-            await _relay_cancel_via_redis(session, reason="user requested interrupt")
+            if not cancel_requested and await _relay_cancel_via_redis(session, reason="user requested interrupt"):
+                cancel_requested = True
+            if session.status == "running" and not cancel_requested:
+                raise HTTPException(503, "Failed to deliver interrupt")
             # Fallback: create a retry task when bridge injection was not possible
             if not injected:
                 resume_prompt = _build_resume_prompt(single, str(event.id))
                 if resume_prompt and session.status != "running":
                     try:
-                        from app.joysafeter_orchestrator.lifespan import get_scheduler
-
-                        scheduler = get_scheduler()
-                        if scheduler:
-                            from app.joysafeter_api.services import JoySafeterTaskService as TaskService
-                            from app.joysafeter_shared.database import AsyncSessionLocal
-
-                            async with AsyncSessionLocal() as task_db:
-                                task_svc = TaskService(task_db)
-                                task = await task_svc.create_task(
-                                    agent_id=session.agent_id,
-                                    prompt=resume_prompt,
-                                    chat_session_id=session_id,
-                                    project_id=auth_ctx.project_id,
-                                )
-                                await scheduler.push_to_global(task.id)
-                    except Exception:
+                        await _create_and_enqueue_resume_task(
+                            session_id=session_id,
+                            agent_id=session.agent_id,
+                            project_id=auth_ctx.project_id,
+                            prompt=resume_prompt,
+                            failure_context="interrupt",
+                        )
+                    except Exception as exc:
                         logger.debug(
                             "Failed to create fallback task for interrupt on session %s",
                             session_id,
+                            exc_info=True,
                         )
+                        raise HTTPException(503, "Failed to deliver interrupt") from exc
+                else:
+                    raise HTTPException(503, "Failed to deliver interrupt")
 
         results.append(event_response)
 

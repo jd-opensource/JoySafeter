@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.services import JoySafeterAgentService as AgentService
 from app.joysafeter_api.services import JoySafeterTaskService as TaskService
+from app.joysafeter_api.services import enqueue_joysafeter_task
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskRequest as CreateTaskRequest
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskResponse as CreateTaskResponse
@@ -26,6 +27,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["joysafeter-tasks"])
 
 
+def _validate_idempotent_task_replay(req: CreateTaskRequest, existing) -> None:
+    if req.agent_id is not None and existing.agent_id != req.agent_id:
+        raise HTTPException(409, "Idempotency-Key was already used for a different agent")
+    if req.chat_session_id is not None and existing.chat_session_id != req.chat_session_id:
+        raise HTTPException(409, "Idempotency-Key was already used for a different session")
+    if existing.prompt != req.prompt:
+        raise HTTPException(409, "Idempotency-Key was already used for a different prompt")
+
+
 @router.post("", status_code=202, response_model=CreateTaskResponse)
 async def create_task(
     req: CreateTaskRequest,
@@ -33,12 +43,20 @@ async def create_task(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ) -> CreateTaskResponse | JSONResponse:
+    if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+        idempotency_key = None
+    else:
+        idempotency_key = idempotency_key.strip()
+
     # Idempotent retry: if this key already produced a task, return it and skip
     # all side effects (session creation, enqueue). Clients should send a unique
     # key (e.g. a UUID) per logical submission.
     if idempotency_key:
         existing = await TaskService(db).get_by_idempotency_key(idempotency_key, project_id=auth_ctx.project_id)
         if existing is not None:
+            _validate_idempotent_task_replay(req, existing)
+            if existing.status == "failed" and "Failed to enqueue task" in (existing.error or ""):
+                raise HTTPException(503, "Failed to enqueue task")
             return CreateTaskResponse(id=existing.id, status=existing.status)
 
     # Per-project admission control (tenancy). The project is the tenant
@@ -68,6 +86,28 @@ async def create_task(
                 },
             )
 
+    # Per-user admission control (tenancy). A single user must not consume the
+    # whole project/fleet budget. Same placement/soft-limit semantics as the
+    # per-project gate above.
+    if auth_ctx.user_id is not None:
+        from app.joysafeter_shared.config.settings import settings
+
+        user_svc = TaskService(db)
+        user_limit = settings.max_concurrent_per_user
+        user_active = await user_svc.count_active_tasks_for_user(auth_ctx.user_id)
+        if user_active >= user_limit:
+            return JSONResponse(
+                status_code=429,
+                headers={"Retry-After": "5"},
+                content={
+                    "code": "user_task_limit_exceeded",
+                    "message": f"User has reached their concurrent task limit ({user_limit}).",
+                    "limit": user_limit,
+                    "active": user_active,
+                    "user_id": auth_ctx.user_id,
+                },
+            )
+
     agent_svc = AgentService(db)
     agent = None
     if req.agent_id:
@@ -89,14 +129,10 @@ async def create_task(
         if not env:
             raise HTTPException(422, f"Environment not found: {environment_ref}")
 
-    from app.joysafeter_orchestrator.lifespan import get_scheduler
-
-    scheduler = get_scheduler()
-    if not scheduler:
-        raise HTTPException(503, "JoySafeter scheduler is not running")
-
     # Auto-create a ChatSession for the task if none provided
     chat_session_id = req.chat_session_id
+    auto_created_session_id: uuid.UUID | None = None
+    session_svc = None
     if not chat_session_id:
         from app.joysafeter_api.services import SessionService
 
@@ -110,6 +146,7 @@ async def create_task(
             project_id=auth_ctx.project_id,
         )
         chat_session_id = session.id
+        auto_created_session_id = session.id
     else:
         from app.joysafeter_api.services import SessionService
 
@@ -119,6 +156,29 @@ async def create_task(
             raise HTTPException(404, "Session not found")
         if existing_session.agent_id != agent.id:
             raise HTTPException(400, "Session does not belong to the selected agent")
+        if existing_session.archived_at:
+            raise HTTPException(409, "Session is archived")
+        if existing_session.status == "terminated":
+            raise HTTPException(409, "Session is terminated")
+        if existing_session.status == "rescheduling":
+            raise HTTPException(409, "Session is rescheduling, try again later")
+        if existing_session.status == "running":
+            raise HTTPException(
+                409,
+                "Session is already running; wait for completion before creating a new task",
+            )
+
+        active_tasks = await TaskService(db).list_active_tasks_by_session(
+            chat_session_id,
+            project_id=auth_ctx.project_id,
+        )
+        if active_tasks:
+            raise HTTPException(
+                409,
+                "Session has an active task; wait for completion before creating a new task",
+            )
+
+    assert session_svc is not None
 
     svc = TaskService(db)
     task = await svc.create_task(
@@ -130,10 +190,36 @@ async def create_task(
         max_retries=req.max_retries,
         project_id=auth_ctx.project_id,
         idempotency_key=idempotency_key,
+        user_id=auth_ctx.user_id,
+        org_id=auth_ctx.org_id,
     )
 
+    task_created = bool(getattr(task, "_created_by_create_task", True))
+    if not task_created:
+        if auto_created_session_id is not None and task.chat_session_id != auto_created_session_id:
+            from app.joysafeter_api.services import SessionService
+
+            try:
+                await SessionService(db).delete_session(auto_created_session_id)
+            except Exception:
+                logger.warning("Failed to delete orphan idempotency session %s", auto_created_session_id, exc_info=True)
+        elif auto_created_session_id is None and task.chat_session_id != chat_session_id:
+            raise HTTPException(409, "Idempotency-Key was already used for a different session")
+
+        if task.status == "failed" and "Failed to enqueue task" in (task.error or ""):
+            raise HTTPException(503, "Failed to enqueue task")
+        return CreateTaskResponse(id=task.id, status=task.status)
+
     try:
-        await scheduler.push_to_global(task.id)
+        running_accepted = await session_svc.update_session_status_for_task_event(chat_session_id, "running", task.id)
+        if not running_accepted:
+            raise RuntimeError("Session already has another active task")
+        await session_svc.send_event(
+            chat_session_id,
+            "session.status_running",
+            {"task_id": str(task.id)},
+        )
+        await enqueue_joysafeter_task(task.id)
     except Exception as exc:
         from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
 
@@ -142,6 +228,26 @@ async def create_task(
             f"Failed to enqueue task: {exc}",
             JoySafeterTaskStatus.FAILED,
         )
+        stop_reason = {"type": "error", "message": "Failed to enqueue task"}
+        try:
+            idle_accepted = await session_svc.update_session_status_for_task_event(
+                chat_session_id,
+                "idle",
+                task.id,
+                stop_reason=stop_reason,
+            )
+            if idle_accepted:
+                await session_svc.send_event(
+                    chat_session_id,
+                    "session.status_idle",
+                    {"task_id": str(task.id), "stop_reason": stop_reason},
+                )
+        except Exception:
+            logger.debug(
+                "Could not compensate session %s to idle after direct task dispatch failure",
+                chat_session_id,
+                exc_info=True,
+            )
         raise HTTPException(503, "Failed to enqueue task")
 
     return CreateTaskResponse(id=task.id, status=task.status)
@@ -254,22 +360,34 @@ async def cancel_task(
 
         session_svc = SessionService(db)
         stop_reason = {"type": "cancelled"}
+        session_idle_updated = False
         try:
-            await session_svc.update_session_status(
+            session_idle_updated = await session_svc.update_session_status_for_task_event(
                 session_id,
                 SessionStatus.IDLE.value,
+                task_id,
                 stop_reason=stop_reason,
             )
         except Exception:
             # Session may already be idle or terminated -- ignore transition errors
             pass
 
+        if session_idle_updated:
+            try:
+                await session_svc.send_event(
+                    session_id,
+                    "session.status_idle",
+                    {"task_id": str(task_id), "stop_reason": stop_reason},
+                )
+            except Exception:
+                logger.debug("Failed to persist cancel idle event for session %s", session_id, exc_info=True)
+
         # Emit SSE event so connected clients learn about the cancellation
         broadcaster = get_session_broadcaster()
-        if broadcaster:
+        if broadcaster and session_idle_updated:
             await broadcaster.send(
                 session_id,
-                {"type": "session.status_idle", "stop_reason": stop_reason},
+                {"type": "session.status_idle", "task_id": str(task_id), "stop_reason": stop_reason},
             )
 
     # Publish cancellation over Redis pub/sub for cross-instance WebSocket streams

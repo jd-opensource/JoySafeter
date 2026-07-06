@@ -6,6 +6,8 @@ implementations are exposed through app.joysafeter_domain.services.
 
 from __future__ import annotations
 
+import uuid
+
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService, _split_packed_items
 from app.joysafeter_domain.services.joysafeter_api_key_service import ApiKeyService
 from app.joysafeter_domain.services.joysafeter_auth_service import (
@@ -37,6 +39,24 @@ from app.joysafeter_domain.services.joysafeter_skill_service import (
 from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService
 from app.joysafeter_domain.services.joysafeter_vault_service import VaultService
 
+
+async def enqueue_joysafeter_task(task_id: uuid.UUID) -> None:
+    """Enqueue a task from either monolith/orchestrator or API-only processes."""
+    from app.joysafeter_orchestrator.lifespan import get_scheduler
+
+    scheduler = get_scheduler()
+    if scheduler:
+        await scheduler.push_to_global(task_id)
+        return
+
+    from app.joysafeter_shared.cache.redis import RedisClient
+
+    redis = RedisClient.get_client()
+    if redis is None:
+        raise RuntimeError("Redis unavailable; cannot enqueue task to global queue")
+    await redis.rpush("joysafeter:global_queue", str(task_id))
+
+
 __all__ = [
     "ApiKeyService",
     "AuthService",
@@ -59,5 +79,6 @@ __all__ = [
     "SkillVersionService",
     "VaultService",
     "_split_packed_items",
+    "enqueue_joysafeter_task",
     "run_post_login_init",
 ]
