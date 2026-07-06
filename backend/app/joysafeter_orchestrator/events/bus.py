@@ -8,15 +8,8 @@ from typing import Any
 
 from loguru import logger
 
-from app.joysafeter_orchestrator.events.envelope import JoySafeterEventEnvelope
+from app.joysafeter_orchestrator.events.envelope import STATUS_EVENT_TYPES, JoySafeterEventEnvelope
 from app.joysafeter_orchestrator.events.subscriber import JoySafeterEventSubscriber, SubscriberPhase
-
-_STATUS_EVENT_TYPES = {
-    "session.status_running",
-    "session.status_idle",
-    "session.status_rescheduling",
-    "session.status_terminated",
-}
 
 
 class JoySafeterEventBus:
@@ -184,5 +177,5 @@ class JoySafeterEventBus:
 
     @staticmethod
     def _normalize_status_envelope(envelope: JoySafeterEventEnvelope) -> None:
-        if envelope.event_type in _STATUS_EVENT_TYPES:
+        if envelope.event_type in STATUS_EVENT_TYPES:
             envelope.is_status_change = True

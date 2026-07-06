@@ -7,20 +7,13 @@ import logging
 import uuid
 from typing import Optional
 
-from app.joysafeter_orchestrator.events.envelope import JoySafeterEventEnvelope
+from app.joysafeter_orchestrator.events.envelope import STATUS_EVENT_TYPES, JoySafeterEventEnvelope
 from app.joysafeter_orchestrator.events.subscriber import SubscriberPhase
 from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.config.settings import joysafeter_config
 from app.joysafeter_worker.events.batch_writer import BufferedEvent, EventBatchSender
 
 logger = logging.getLogger(__name__)
-
-_STATUS_EVENT_TYPES = {
-    "session.status_running",
-    "session.status_idle",
-    "session.status_rescheduling",
-    "session.status_terminated",
-}
 
 
 class EventStreamPersistSubscriber:
@@ -34,7 +27,7 @@ class EventStreamPersistSubscriber:
         self._fallback_event_buffer = fallback_event_buffer
 
     async def handle(self, envelope: JoySafeterEventEnvelope) -> None:
-        if envelope.is_status_change or envelope.event_type in _STATUS_EVENT_TYPES:
+        if envelope.is_status_change or envelope.event_type in STATUS_EVENT_TYPES:
             return
         if envelope.session_id is None:
             return

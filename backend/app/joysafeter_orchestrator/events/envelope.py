@@ -12,6 +12,19 @@ except ImportError:
     _uuid7 = None
 
 
+# Session status-change event types the two-phase bus routes persist-then-broadcast,
+# and that the async batch/stream persisters skip (they are persisted inline). Shared
+# here so the bus and both persist subscribers cannot drift out of sync.
+STATUS_EVENT_TYPES = frozenset(
+    {
+        "session.status_running",
+        "session.status_idle",
+        "session.status_rescheduling",
+        "session.status_terminated",
+    }
+)
+
+
 def _new_event_id() -> uuid.UUID:
     """Generate a UUIDv7 (time-sortable) or fall back to uuid4."""
     if _uuid7 is not None:
