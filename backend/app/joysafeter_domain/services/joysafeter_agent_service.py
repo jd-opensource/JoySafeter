@@ -242,18 +242,47 @@ class JoySafeterAgentService:
         await self.db.commit()
         return True
 
-    async def archive_agent(self, agent_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
+    async def archive_agent_with_sessions(
+        self, agent_id: uuid.UUID, project_id: Optional[str] = None
+    ) -> tuple[bool, list[uuid.UUID]]:
+        """Archive an agent and its live sessions in one transaction.
+
+        Either the agent row and all its non-archived sessions flip to archived
+        together, or neither does — a single commit avoids the split state where
+        sessions were archived but the agent was not (or vice versa).
+
+        Returns (archived, archived_session_ids). archived is False when the
+        agent does not exist; True (with an empty list) when already archived.
+        """
         agent = await self.get_agent(agent_id, project_id=project_id)
         if not agent:
-            return False
+            return False, []
         if agent.archived_at:
-            return True
+            return True, []
         if await self._count_active_tasks_for_agent(agent_id) > 0:
-            raise ValueError("Agent has active tasks. Stop or cancel them before archiving.")
-        agent.archived_at = utc_now()
-        agent.updated_at = utc_now()
+            raise ValueError("Agent has active tasks. Stop or cancel them before archiving sessions.")
+
+        result = await self.db.execute(
+            select(JoySafeterSession.id).where(
+                and_(
+                    JoySafeterSession.agent_id == agent_id,
+                    JoySafeterSession.archived_at.is_(None),
+                )
+            )
+        )
+        session_ids = list(result.scalars().all())
+
+        now = utc_now()
+        if session_ids:
+            await self.db.execute(
+                update(JoySafeterSession)
+                .where(JoySafeterSession.id.in_(session_ids))
+                .values(archived_at=now, status="terminated")
+            )
+        agent.archived_at = now
+        agent.updated_at = now
         await self.db.commit()
-        return True
+        return True, session_ids
 
     async def list_versions(
         self,
