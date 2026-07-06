@@ -690,6 +690,29 @@ class SessionService:
         )
         return result.scalar() or False
 
+    async def repair_missing_agent_message(
+        self,
+        session_id: uuid.UUID,
+        task_id: uuid.UUID,
+        output: Optional[str],
+    ) -> bool:
+        """Emit a synthetic agent.message from a task's final output iff none exists.
+
+        A runner can crash after persisting task.output but before streaming the
+        agent.message chat event. Both the result handler and the failover path
+        need to backfill that message; centralizing the check-and-emit here keeps
+        the two paths from drifting and makes the emit idempotent w.r.t. an
+        agent.message already present for the task (a task legitimately produces
+        many, so we only backfill when there are none). Returns True if emitted.
+        """
+        text_output = (output or "").strip()
+        if not text_output:
+            return False
+        if await self.task_has_agent_output(task_id, session_id):
+            return False
+        await self.send_event(session_id, "agent.message", {"content": [{"type": "text", "text": output}]})
+        return True
+
     async def _lock_event_sequence(self, session_id: uuid.UUID) -> None:
         # Keep seq allocation serialized with the worker batch writer, which
         # uses the same per-session transaction advisory lock.  Mixing row locks

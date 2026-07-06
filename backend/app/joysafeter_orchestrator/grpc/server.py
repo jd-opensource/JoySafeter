@@ -2447,15 +2447,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 if not cas_ok:
                     logger.warning("CAS conflict writing usage for task %s, ignoring runner result", task_id)
                     return False
-            if session_id and result.output and result.output.strip():
-                has_agent_output = await self._task_has_agent_output(db, session_id, task_id)
-                if not has_agent_output:
-                    session_svc = SessionService(db)
-                    await session_svc.send_event(
-                        session_id,
-                        "agent.message",
-                        {"content": [{"type": "text", "text": result.output}]},
-                    )
+            if session_id:
+                await SessionService(db).repair_missing_agent_message(session_id, task_id, result.output)
             if final_status.is_terminal():
                 if error:
                     cas_ok = await task_svc.update_task_error(
@@ -2549,30 +2542,6 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         return True
 
     @staticmethod
-    async def _task_has_agent_output(db, session_id: uuid.UUID, task_id: uuid.UUID) -> bool:
-        from sqlalchemy import text
-
-        result = await db.execute(
-            text(
-                """
-                SELECT EXISTS(
-                  SELECT 1 FROM joysafeter_session_events
-                  WHERE session_id = :session_id
-                    AND event_type = 'agent.message'
-                    AND seq > (
-                      SELECT COALESCE(MAX(seq), 0) FROM joysafeter_session_events
-                      WHERE session_id = :session_id
-                        AND event_type = 'session.status_running'
-                        AND payload->>'task_id' = :task_id
-                    )
-                )
-                """
-            ),
-            {"session_id": session_id, "task_id": str(task_id)},
-        )
-        return bool(result.scalar())
-
-    @staticmethod
     def _stop_reason_from_result(status: "TaskStatus", error: Optional[str]) -> dict:
         from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
 
@@ -2632,15 +2601,8 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 if not cas_ok:
                     logger.warning("CAS conflict writing reconnect usage for task %s, ignoring result", task_id)
                     return False
-            if session_id and result.output and result.output.strip():
-                has_agent_output = await self._task_has_agent_output(db, session_id, task_id)
-                if not has_agent_output:
-                    session_svc = SessionService(db)
-                    await session_svc.send_event(
-                        session_id,
-                        "agent.message",
-                        {"content": [{"type": "text", "text": result.output}]},
-                    )
+            if session_id:
+                await SessionService(db).repair_missing_agent_message(session_id, task_id, result.output)
             if final_status.is_terminal():
                 if error:
                     cas_ok = await task_svc.update_task_error(

@@ -450,12 +450,7 @@ class TaskController:
                         "Task %s already produced output before sandbox death, marking completed",
                         task_id,
                     )
-                    if persisted_output and not has_agent_output:
-                        await session_svc.send_event(
-                            task.chat_session_id,
-                            "agent.message",
-                            {"content": [{"type": "text", "text": persisted_output}]},
-                        )
+                    await session_svc.repair_missing_agent_message(task.chat_session_id, task_id, task.output)
                     ok = await svc.update_task_status(task_id, TaskStatus.COMPLETED, expected_epoch=expected_epoch)
                     if not ok:
                         logger.warning(
