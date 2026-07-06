@@ -829,7 +829,6 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                                 sandbox_id=sandbox_id,
                                 seq=event.seq,
                                 bridge=bridge,
-                                coordinator=coordinator,
                             )
                             continue
 
@@ -1966,7 +1965,6 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                             sandbox_id=sandbox_id,
                             seq=event.seq,
                             bridge=bridge,
-                            coordinator=get_redis_coordinator(),
                         )
                         continue
 
@@ -2448,7 +2446,6 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         sandbox_id: uuid.UUID,
         seq: Any,
         bridge: "SandboxBridge",
-        coordinator: Any,
     ) -> None:
         """Persist and fan out a task-scoped session.status_running/idle event.
 
@@ -2458,7 +2455,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         and fan out to the task's WS subscribers, cross-instance Redis, and SSE.
         """
         from app.joysafeter_domain.models.joysafeter_session import SessionStatus
-        from app.joysafeter_orchestrator.lifespan import get_session_broadcaster
+        from app.joysafeter_orchestrator.lifespan import get_redis_coordinator, get_session_broadcaster
         from app.joysafeter_orchestrator.services import SessionService
         from app.joysafeter_shared.database import AsyncSessionLocal
 
@@ -2496,7 +2493,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         ws_msg = WsOutMessage(type="event", payload=task_payload)
         await bridge.broadcast_to_task(task_id, ws_msg)
         await _best_effort_publish_event(
-            coordinator,
+            get_redis_coordinator(),
             task_id,
             json.dumps({"type": ws_msg.type, **ws_msg.payload}),
         )
