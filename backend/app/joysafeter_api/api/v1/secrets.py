@@ -129,6 +129,13 @@ async def update_secret(
         raise HTTPException(404, "Secret not found")
     if secret.project_id != auth_ctx.project_id:
         raise HTTPException(404, "Secret not found")
+    active_dependency = await svc.active_task_secret_dependency(secret.name, project_id=auth_ctx.project_id)
+    if active_dependency:
+        task_id, source = active_dependency
+        raise HTTPException(
+            409,
+            f"Secret is required by active task '{task_id}' via {source}. Stop or wait for the task before updating.",
+        )
     try:
         secret = await svc.update_secret(secret_id, req)
     except ValueError as exc:
@@ -208,12 +215,26 @@ async def delete_secret(
     if secret.project_id != auth_ctx.project_id:
         raise HTTPException(404, "Secret not found")
 
+    active_dependency = await svc.active_task_secret_dependency(secret.name, project_id=auth_ctx.project_id)
+    if active_dependency:
+        task_id, source = active_dependency
+        raise HTTPException(
+            409,
+            f"Secret is required by active task '{task_id}' via {source}. Stop or wait for the task before deleting.",
+        )
+
     if not force:
         agent_name = await svc.secret_is_referenced_by_agent(secret.name, project_id=auth_ctx.project_id)
         if agent_name:
             raise HTTPException(
                 409,
                 f"Secret is referenced by agent '{agent_name}'. Use ?force=true to force delete.",
+            )
+        environment_name = await svc.secret_is_referenced_by_environment(secret.name, project_id=auth_ctx.project_id)
+        if environment_name:
+            raise HTTPException(
+                409,
+                f"Secret is referenced by environment '{environment_name}'. Use ?force=true to force delete.",
             )
 
     if force:

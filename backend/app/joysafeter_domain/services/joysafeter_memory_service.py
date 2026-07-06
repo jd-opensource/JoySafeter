@@ -9,7 +9,9 @@ from app.joysafeter_domain.models.joysafeter_memory import (
     JoySafeterMemory,
     JoySafeterMemoryStore,
     JoySafeterMemoryVersion,
+    JoySafeterSessionMemoryStore,
 )
+from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -97,10 +99,27 @@ class MemoryService:
         await self.db.refresh(store)
         return store
 
+    async def store_is_referenced_by_sessions(
+        self,
+        store_id: uuid.UUID,
+        project_id: Optional[str] = None,
+    ) -> bool:
+        conditions = [
+            JoySafeterSessionMemoryStore.store_id == store_id,
+            JoySafeterSessionMemoryStore.session_id == JoySafeterSession.id,
+            JoySafeterSession.archived_at.is_(None),
+        ]
+        if project_id is not None:
+            conditions.append(JoySafeterSession.project_id == project_id)
+        result = await self.db.execute(select(JoySafeterSessionMemoryStore.id).where(and_(*conditions)).limit(1))
+        return result.scalar_one_or_none() is not None
+
     async def delete_store(self, store_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
         store = await self.get_store(store_id, project_id=project_id, include_archived=True)
         if not store:
             return False
+        if await self.store_is_referenced_by_sessions(store_id, project_id=project_id):
+            raise ValueError("Memory store is referenced by one or more active sessions.")
         await self.db.delete(store)
         await self.db.commit()
         return True
@@ -111,6 +130,8 @@ class MemoryService:
             return False
         if store.archived_at:
             return True
+        if await self.store_is_referenced_by_sessions(store_id, project_id=project_id):
+            raise ValueError("Memory store is referenced by one or more active sessions.")
         store.archived_at = utc_now()
         await self.db.commit()
         return True

@@ -280,7 +280,10 @@ async def delete_memory_store(
     svc = MemoryService(db)
     store = await _get_store_or_404(svc, store_id, auth_ctx.project_id)
     response = _store_to_response(store)
-    ok = await svc.delete_store(store_id, project_id=auth_ctx.project_id)
+    try:
+        ok = await svc.delete_store(store_id, project_id=auth_ctx.project_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     if not ok:
         raise HTTPException(404, "Memory store not found")
     return response.model_dump(mode="json")
@@ -293,7 +296,10 @@ async def archive_memory_store(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:
     svc = MemoryService(db)
-    ok = await svc.archive_store(store_id, project_id=auth_ctx.project_id)
+    try:
+        ok = await svc.archive_store(store_id, project_id=auth_ctx.project_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     if not ok:
         raise HTTPException(404, "Memory store not found")
     return {"status": "archived"}

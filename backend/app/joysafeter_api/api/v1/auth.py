@@ -968,6 +968,15 @@ async def archive_project(
         raise HTTPException(404, "Project not found")
     if project.is_default:
         raise HTTPException(400, "Cannot archive the default project")
+
+    from app.joysafeter_api.services import JoySafeterTaskService as TaskService
+
+    active_tasks = await TaskService(db).count_active_tasks_for_project(project_id)
+    if active_tasks > 0:
+        raise HTTPException(
+            409,
+            "Project has active tasks. Stop or wait for them before archiving.",
+        )
     project.archived_at = datetime.now(timezone.utc)
     await db.commit()
     return {"status": "archived"}

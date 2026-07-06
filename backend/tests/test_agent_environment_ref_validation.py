@@ -1,0 +1,153 @@
+import uuid
+
+import pytest
+from fastapi import HTTPException
+from sqlalchemy import select
+
+from app.joysafeter_api.api.v1.agents import create_agent, update_agent
+from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
+from app.joysafeter_domain.models.joysafeter_secret import JoySafeterSecret
+from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
+from app.joysafeter_domain.schemas.joysafeter_agent import JoySafeterCreateAgentRequest, JoySafeterUpdateAgentRequest
+from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.utils.datetime import utc_now
+
+
+def _auth_ctx() -> JoySafeterAuthContext:
+    return JoySafeterAuthContext(
+        user_id="test-user",
+        org_id="test-org",
+        project_id=None,  # type: ignore[arg-type]
+        role=JoySafeterRole.DEVELOPER,
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_agent_rejects_missing_environment_ref(db_session):
+    missing_ref = f"missing-env-{uuid.uuid4()}"
+    req = JoySafeterCreateAgentRequest(name=f"env-ref-agent-{uuid.uuid4()}", environment_ref=missing_ref)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_agent(req, db_session, _auth_ctx())
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == f"Environment not found: {missing_ref}"
+    count = (
+        await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.name == req.name))
+    ).scalar_one_or_none()
+    assert count is None
+
+
+@pytest.mark.asyncio
+async def test_create_agent_rejects_archived_environment_ref(db_session):
+    env = JoySafeterEnvironment(
+        name=f"archived-env-{uuid.uuid4()}",
+        description="",
+        archived_at=utc_now(),
+    )
+    db_session.add(env)
+    await db_session.commit()
+    await db_session.refresh(env)
+    req = JoySafeterCreateAgentRequest(name=f"archived-env-agent-{uuid.uuid4()}", environment_ref=f"env_{env.id}")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_agent(req, db_session, _auth_ctx())
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == f"Environment is archived: env_{env.id}"
+    row = (
+        await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.name == req.name))
+    ).scalar_one_or_none()
+    assert row is None
+
+
+@pytest.mark.asyncio
+async def test_update_agent_rejects_missing_environment_ref_without_partial_update(db_session):
+    agent = JoySafeterAgent(name=f"update-env-agent-{uuid.uuid4()}", version=1)
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+    agent_id = agent.id
+    missing_ref = f"missing-env-{uuid.uuid4()}"
+    req = JoySafeterUpdateAgentRequest(version=1, environment_ref=missing_ref)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_agent(req, agent.id, db_session, _auth_ctx())
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == f"Environment not found: {missing_ref}"
+
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
+    assert row.environment_ref is None
+    assert row.version == 1
+
+
+@pytest.mark.asyncio
+async def test_update_agent_rejects_environment_ref_change_with_active_task(db_session):
+    env = JoySafeterEnvironment(name=f"active-update-env-{uuid.uuid4()}", description="")
+    agent = JoySafeterAgent(name=f"active-env-agent-{uuid.uuid4()}", version=1)
+    db_session.add_all([env, agent])
+    await db_session.commit()
+    await db_session.refresh(env)
+    await db_session.refresh(agent)
+    agent_id = agent.id
+    task = JoySafeterTask(
+        agent_id=agent_id,
+        prompt="scan target",
+        status=JoySafeterTaskStatus.PENDING.value,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    req = JoySafeterUpdateAgentRequest(version=1, environment_ref=f"env_{env.id}")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_agent(req, agent_id, db_session, _auth_ctx())
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == (
+        "Agent has active tasks. Stop or wait for them before changing secret_ref or environment_ref."
+    )
+
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
+    assert row.environment_ref is None
+    assert row.version == 1
+
+
+@pytest.mark.asyncio
+async def test_update_agent_rejects_secret_ref_change_with_active_task(db_session):
+    secret = JoySafeterSecret(
+        name=f"active-secret-{uuid.uuid4()}",
+        provider="anthropic",
+        protocol="anthropic_messages",
+        data={"ANTHROPIC_API_KEY": "value"},
+    )
+    agent = JoySafeterAgent(name=f"active-secret-agent-{uuid.uuid4()}", version=1)
+    db_session.add_all([secret, agent])
+    await db_session.commit()
+    await db_session.refresh(secret)
+    await db_session.refresh(agent)
+    agent_id = agent.id
+    task = JoySafeterTask(
+        agent_id=agent_id,
+        prompt="scan target",
+        status=JoySafeterTaskStatus.SCHEDULING.value,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    req = JoySafeterUpdateAgentRequest(version=1, secret_ref=secret.name)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_agent(req, agent_id, db_session, _auth_ctx())
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == (
+        "Agent has active tasks. Stop or wait for them before changing secret_ref or environment_ref."
+    )
+
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
+    assert row.secret_ref is None
+    assert row.version == 1

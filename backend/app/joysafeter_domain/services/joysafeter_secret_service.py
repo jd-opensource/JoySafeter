@@ -1,12 +1,15 @@
 import uuid
 from typing import Optional
 
-from sqlalchemy import and_, delete, select, update
+from sqlalchemy import and_, delete, outerjoin, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_secret import JoySafeterSecret
+from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
 from app.joysafeter_domain.schemas.joysafeter_secret import CreateSecretRequest, UpdateSecretRequest
 from app.joysafeter_domain.services.joysafeter_vault_cipher import VaultCipher
 from app.joysafeter_shared.utils.datetime import utc_now
@@ -35,6 +38,19 @@ def _mask_secret_value(value: str) -> str:
         return ""
     suffix = value[-4:] if len(value) > 4 else ""
     return f"{MASKED_SECRET_PREFIX}{suffix}"
+
+
+def _secret_ref_matches(secret_ref: object, name: str) -> bool:
+    return str(secret_ref).strip() == name if secret_ref is not None else False
+
+
+def _environment_secret_refs(config: object) -> list[str]:
+    if not isinstance(config, dict):
+        return []
+    refs = config.get("secret_refs")
+    if not isinstance(refs, list):
+        return []
+    return [str(ref).strip() for ref in refs if str(ref).strip()]
 
 
 class SecretService:
@@ -260,15 +276,12 @@ class SecretService:
         await self.db.commit()
 
     async def secret_is_referenced(self, name: str, project_id: Optional[str] = None) -> bool:
-        """Check if any agent has secret_ref = name AND deleted_at IS NULL."""
-        conditions = [
-            JoySafeterAgent.secret_ref == name,
-            JoySafeterAgent.deleted_at.is_(None),
-        ]
-        if project_id:
-            conditions.append(JoySafeterAgent.project_id == project_id)
-        result = await self.db.execute(select(JoySafeterAgent.id).where(and_(*conditions)).limit(1))
-        return result.scalar_one_or_none() is not None
+        """Check if any live agent or environment references this secret name."""
+        if await self.secret_is_referenced_by_agent(name, project_id=project_id):
+            return True
+        if await self.secret_is_referenced_by_environment(name, project_id=project_id):
+            return True
+        return False
 
     async def secret_is_referenced_by_agent(self, name: str, project_id: Optional[str] = None) -> Optional[str]:
         """Return the name of the first agent referencing this secret, or None."""
@@ -276,7 +289,80 @@ class SecretService:
             JoySafeterAgent.secret_ref == name,
             JoySafeterAgent.deleted_at.is_(None),
         ]
-        if project_id:
+        if project_id is not None:
             conditions.append(JoySafeterAgent.project_id == project_id)
         result = await self.db.execute(select(JoySafeterAgent.name).where(and_(*conditions)).limit(1))
         return result.scalar_one_or_none()
+
+    async def secret_is_referenced_by_environment(self, name: str, project_id: Optional[str] = None) -> Optional[str]:
+        """Return the name of the first environment referencing this secret, or None."""
+        conditions: list[ColumnElement[bool]] = [
+            JoySafeterEnvironment.deleted_at.is_(None),
+        ]
+        if project_id is not None:
+            conditions.append(JoySafeterEnvironment.project_id == project_id)
+        result = await self.db.execute(
+            select(JoySafeterEnvironment.name, JoySafeterEnvironment.config).where(and_(*conditions))
+        )
+        for env_name, config in result.all():
+            if any(_secret_ref_matches(ref, name) for ref in _environment_secret_refs(config)):
+                return str(env_name)
+        return None
+
+    async def _environment_refs_for_secret(self, name: str, project_id: Optional[str] = None) -> set[str]:
+        conditions: list[ColumnElement[bool]] = [
+            JoySafeterEnvironment.deleted_at.is_(None),
+        ]
+        if project_id is not None:
+            conditions.append(JoySafeterEnvironment.project_id == project_id)
+        result = await self.db.execute(
+            select(JoySafeterEnvironment.id, JoySafeterEnvironment.name, JoySafeterEnvironment.config).where(
+                and_(*conditions)
+            )
+        )
+        refs: set[str] = set()
+        for env_id, env_name, config in result.all():
+            if any(_secret_ref_matches(ref, name) for ref in _environment_secret_refs(config)):
+                refs.add(str(env_name))
+                refs.add(f"env_{env_id}")
+        return refs
+
+    async def active_task_secret_dependency(
+        self,
+        name: str,
+        project_id: Optional[str] = None,
+    ) -> Optional[tuple[uuid.UUID, str]]:
+        """Return an active task depending on this secret, if one exists."""
+        terminal_values = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
+        env_refs = await self._environment_refs_for_secret(name, project_id=project_id)
+        task_agent_session = outerjoin(
+            JoySafeterTask,
+            JoySafeterAgent,
+            JoySafeterTask.agent_id == JoySafeterAgent.id,
+        ).outerjoin(
+            JoySafeterSession,
+            JoySafeterTask.chat_session_id == JoySafeterSession.id,
+        )
+        conditions: list[ColumnElement[bool]] = [JoySafeterTask.status.notin_(terminal_values)]
+        if project_id is not None:
+            conditions.append(JoySafeterTask.project_id == project_id)
+        result = await self.db.execute(
+            select(
+                JoySafeterTask.id,
+                JoySafeterAgent.secret_ref,
+                JoySafeterAgent.environment_ref,
+                JoySafeterSession.environment_ref,
+            )
+            .select_from(task_agent_session)
+            .where(and_(*conditions))
+            .order_by(JoySafeterTask.created_at.asc())
+        )
+        for task_id, agent_secret_ref, agent_env_ref, session_env_ref in result.all():
+            if _secret_ref_matches(agent_secret_ref, name):
+                return task_id, "agent secret_ref"
+            if env_refs:
+                if session_env_ref and str(session_env_ref).strip() in env_refs:
+                    return task_id, "session environment_ref"
+                if agent_env_ref and str(agent_env_ref).strip() in env_refs:
+                    return task_id, "agent environment_ref"
+        return None

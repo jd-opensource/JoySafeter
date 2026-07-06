@@ -3,14 +3,24 @@ from typing import Optional
 
 from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
+from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
 from app.joysafeter_domain.schemas.joysafeter_environment import (
     CreateEnvironmentRequest,
     UpdateEnvironmentRequest,
 )
 from app.joysafeter_shared.utils.datetime import utc_now
+
+
+def _environment_ref_matches(ref: object, env_name: str, env_id: uuid.UUID) -> bool:
+    if ref is None:
+        return False
+    normalized = str(ref).strip()
+    return normalized == env_name or normalized == f"env_{env_id}"
 
 
 class EnvironmentService:
@@ -105,14 +115,32 @@ class EnvironmentService:
         env = await self.get_environment(env_id, project_id=project_id)
         if not env:
             return None
+        next_config = req.config.model_dump() if req.config is not None else None
+        name_changed = req.name is not None and req.name != env.name
+        config_changed = next_config is not None and next_config != (env.config or {})
+        if name_changed or config_changed:
+            active_dependency = await self.active_task_environment_dependency(env.name, env.id, project_id=project_id)
+            if active_dependency:
+                task_id, source = active_dependency
+                action = "config" if config_changed else "name"
+                raise ValueError(
+                    f"Environment is required by active task '{task_id}' via {source}. "
+                    f"Stop or wait for the task before updating {action}."
+                )
+        if name_changed:
+            agent_name = await self.environment_is_referenced_by_agent(env.name, env.id, project_id=project_id)
+            if agent_name:
+                raise ValueError(f"Environment is referenced by agent '{agent_name}'.")
+            if await self.environment_is_referenced_by_sessions(env.name, env.id, project_id=project_id):
+                raise ValueError("Environment is referenced by one or more active sessions.")
         if req.name is not None:
             env.name = req.name
         if req.description is not None:
             env.description = req.description
         if req.metadata is not None:
             env.metadata_ = req.metadata
-        if req.config is not None:
-            env.config = req.config.model_dump()
+        if next_config is not None:
+            env.config = next_config
         env.updated_at = utc_now()
         await self.db.commit()
         await self.db.refresh(env)
@@ -122,6 +150,18 @@ class EnvironmentService:
         env = await self.get_environment(env_id, project_id=project_id)
         if not env:
             return False
+        active_dependency = await self.active_task_environment_dependency(env.name, env.id, project_id=project_id)
+        if active_dependency:
+            task_id, source = active_dependency
+            raise ValueError(
+                f"Environment is required by active task '{task_id}' via {source}. "
+                "Stop or wait for the task before deleting."
+            )
+        agent_name = await self.environment_is_referenced_by_agent(env.name, env.id, project_id=project_id)
+        if agent_name:
+            raise ValueError(f"Environment is referenced by agent '{agent_name}'.")
+        if await self.environment_is_referenced_by_sessions(env.name, env.id, project_id=project_id):
+            raise ValueError("Environment is referenced by one or more active sessions.")
         env.deleted_at = utc_now()
         await self.db.commit()
         return True
@@ -132,6 +172,18 @@ class EnvironmentService:
             return False
         if env.archived_at:
             return True
+        active_dependency = await self.active_task_environment_dependency(env.name, env.id, project_id=project_id)
+        if active_dependency:
+            task_id, source = active_dependency
+            raise ValueError(
+                f"Environment is required by active task '{task_id}' via {source}. "
+                "Stop or wait for the task before archiving."
+            )
+        agent_name = await self.environment_is_referenced_by_agent(env.name, env.id, project_id=project_id)
+        if agent_name:
+            raise ValueError(f"Environment is referenced by agent '{agent_name}'.")
+        if await self.environment_is_referenced_by_sessions(env.name, env.id, project_id=project_id):
+            raise ValueError("Environment is referenced by one or more active sessions.")
         env.archived_at = utc_now()
         await self.db.commit()
         return True
@@ -156,3 +208,50 @@ class EnvironmentService:
             conditions.append(JoySafeterSession.project_id == project_id)
         result = await self.db.execute(select(JoySafeterSession.id).where(and_(*conditions)).limit(1))
         return result.scalar_one_or_none() is not None
+
+    async def environment_is_referenced_by_agent(
+        self,
+        env_name: str,
+        env_id: uuid.UUID,
+        project_id: Optional[str] = None,
+    ) -> Optional[str]:
+        conditions: list[ColumnElement[bool]] = [
+            JoySafeterAgent.deleted_at.is_(None),
+        ]
+        if project_id is not None:
+            conditions.append(JoySafeterAgent.project_id == project_id)
+        result = await self.db.execute(
+            select(JoySafeterAgent.name, JoySafeterAgent.environment_ref).where(and_(*conditions))
+        )
+        for agent_name, environment_ref in result.all():
+            if _environment_ref_matches(environment_ref, env_name, env_id):
+                return str(agent_name)
+        return None
+
+    async def active_task_environment_dependency(
+        self,
+        env_name: str,
+        env_id: uuid.UUID,
+        project_id: Optional[str] = None,
+    ) -> Optional[tuple[uuid.UUID, str]]:
+        terminal_values = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
+        conditions: list[ColumnElement[bool]] = [JoySafeterTask.status.notin_(terminal_values)]
+        if project_id is not None:
+            conditions.append(JoySafeterTask.project_id == project_id)
+        result = await self.db.execute(
+            select(
+                JoySafeterTask.id,
+                JoySafeterAgent.environment_ref,
+                JoySafeterSession.environment_ref,
+            )
+            .join(JoySafeterAgent, JoySafeterTask.agent_id == JoySafeterAgent.id)
+            .outerjoin(JoySafeterSession, JoySafeterTask.chat_session_id == JoySafeterSession.id)
+            .where(and_(*conditions))
+            .order_by(JoySafeterTask.created_at.asc())
+        )
+        for task_id, agent_env_ref, session_env_ref in result.all():
+            if _environment_ref_matches(session_env_ref, env_name, env_id):
+                return task_id, "session environment_ref"
+            if _environment_ref_matches(agent_env_ref, env_name, env_id):
+                return task_id, "agent environment_ref"
+        return None

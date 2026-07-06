@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
 from app.joysafeter_domain.models.joysafeter_memory import JoySafeterSessionMemoryStore
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession, JoySafeterSessionEvent
-from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
+from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
 from app.joysafeter_domain.schemas.joysafeter_agent import (
     JoySafeterCreateAgentRequest,
     JoySafeterUpdateAgentRequest,
@@ -56,6 +56,19 @@ def _split_packed_items(merged: list[dict]) -> tuple[list[dict], list[dict], lis
 class JoySafeterAgentService:
     def __init__(self, db: AsyncSession):
         self.db = db
+
+    async def _count_active_tasks_for_agent(self, agent_id: uuid.UUID) -> int:
+        result = await self.db.execute(
+            select(func.count())
+            .select_from(JoySafeterTask)
+            .where(
+                and_(
+                    JoySafeterTask.agent_id == agent_id,
+                    JoySafeterTask.status.notin_([s.value for s in JOYSAFETER_TERMINAL_STATUSES]),
+                )
+            )
+        )
+        return cast(int, result.scalar() or 0)
 
     async def create_agent(
         self, req: JoySafeterCreateAgentRequest, project_id: Optional[str] = None
@@ -222,23 +235,7 @@ class JoySafeterAgentService:
             return False
 
         if not force:
-            from app.joysafeter_domain.models.joysafeter_task import (
-                JOYSAFETER_TERMINAL_STATUSES,
-                JoySafeterTask,
-            )
-
-            active_q = (
-                select(func.count())
-                .select_from(JoySafeterTask)
-                .where(
-                    and_(
-                        JoySafeterTask.agent_id == agent_id,
-                        JoySafeterTask.status.notin_([s.value for s in JOYSAFETER_TERMINAL_STATUSES]),
-                    )
-                )
-            )
-            result = await self.db.execute(active_q)
-            if cast(int, result.scalar()) > 0:
+            if await self._count_active_tasks_for_agent(agent_id) > 0:
                 raise ValueError("Agent has active tasks. Use force=true to delete.")
 
         agent.deleted_at = utc_now()
@@ -251,6 +248,8 @@ class JoySafeterAgentService:
             return False
         if agent.archived_at:
             return True
+        if await self._count_active_tasks_for_agent(agent_id) > 0:
+            raise ValueError("Agent has active tasks. Stop or cancel them before archiving.")
         agent.archived_at = utc_now()
         agent.updated_at = utc_now()
         await self.db.commit()
@@ -296,6 +295,9 @@ class JoySafeterAgentService:
         await self.db.flush()
 
     async def hard_delete_agent(self, agent_id: uuid.UUID) -> None:
+        if await self._count_active_tasks_for_agent(agent_id) > 0:
+            raise ValueError("Agent has active tasks. Cancel them before hard delete.")
+
         # Get all session IDs for this agent
         session_ids_result = await self.db.execute(
             select(JoySafeterSession.id).where(JoySafeterSession.agent_id == agent_id)
@@ -325,6 +327,9 @@ class JoySafeterAgentService:
         await self.db.commit()
 
     async def archive_sessions_for_agent(self, agent_id: uuid.UUID) -> list[uuid.UUID]:
+        if await self._count_active_tasks_for_agent(agent_id) > 0:
+            raise ValueError("Agent has active tasks. Stop or cancel them before archiving sessions.")
+
         # Find non-archived sessions for this agent
         result = await self.db.execute(
             select(JoySafeterSession.id).where(

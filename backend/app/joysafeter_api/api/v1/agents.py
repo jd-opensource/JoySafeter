@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_agent_id
 from app.joysafeter_api.services import JoySafeterAgentService as AgentService
+from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
 from app.joysafeter_api.services import SecretService, SessionService, _split_packed_items
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_agent import (
@@ -119,6 +120,22 @@ async def _validate_secret_ref_for_engine(
         )
 
 
+async def _validate_environment_ref(
+    db: AsyncSession,
+    *,
+    environment_ref: Optional[str],
+    project_id: Optional[str],
+) -> None:
+    if not environment_ref:
+        return
+    env_svc = EnvironmentService(db)
+    environment = await env_svc.get_environment_by_ref(environment_ref, project_id=project_id)
+    if not environment:
+        raise HTTPException(400, f"Environment not found: {environment_ref}")
+    if environment.archived_at is not None:
+        raise HTTPException(409, f"Environment is archived: {environment_ref}")
+
+
 def _model_from_secret_data(secret_data: dict[str, Any] | None, engine_kind: str | None) -> Optional[dict[str, str]]:
     if not secret_data:
         return None
@@ -195,6 +212,11 @@ async def create_agent(
         db,
         secret_ref=req.secret_ref,
         engine_kind=req.engine_kind.value,
+        project_id=auth_ctx.project_id,
+    )
+    await _validate_environment_ref(
+        db,
+        environment_ref=req.environment_ref,
         project_id=auth_ctx.project_id,
     )
     svc = AgentService(db)
@@ -293,12 +315,31 @@ async def update_agent(
 
     effective_engine_kind = req.engine_kind.value if req.engine_kind is not None else current_agent.engine_kind
     effective_secret_ref = req.secret_ref if req.secret_ref is not None else current_agent.secret_ref
+    effective_environment_ref = (
+        req.environment_ref if req.environment_ref is not None else current_agent.environment_ref
+    )
     await _validate_secret_ref_for_engine(
         db,
         secret_ref=effective_secret_ref,
         engine_kind=effective_engine_kind,
         project_id=auth_ctx.project_id,
     )
+    await _validate_environment_ref(
+        db,
+        environment_ref=effective_environment_ref,
+        project_id=auth_ctx.project_id,
+    )
+
+    dependency_ref_changed = (req.secret_ref is not None and req.secret_ref != current_agent.secret_ref) or (
+        req.environment_ref is not None and req.environment_ref != current_agent.environment_ref
+    )
+    if dependency_ref_changed:
+        active_tasks = await svc.list_active_tasks_for_agent(agent_id)
+        if active_tasks:
+            raise HTTPException(
+                409,
+                "Agent has active tasks. Stop or wait for them before changing secret_ref or environment_ref.",
+            )
 
     # No-op detection: compare serialized JSON minus version/updated_at
     def _agent_snapshot(agent) -> str:
@@ -362,12 +403,18 @@ async def delete_agent(
                 409,
                 "Agent has active tasks (pending/running). Use ?force=true to force delete.",
             )
-        await svc.hard_delete_agent(agent_id)
+        try:
+            await svc.hard_delete_agent(agent_id)
+        except ValueError as e:
+            raise HTTPException(409, str(e)) from e
         return
 
     # Force delete: cascade cleanup
     await _cancel_active_tasks_for_agent(agent_id, db)
-    await svc.hard_delete_agent(agent_id)
+    try:
+        await svc.hard_delete_agent(agent_id)
+    except ValueError as e:
+        raise HTTPException(503, str(e)) from e
 
 
 async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) -> None:
@@ -413,6 +460,15 @@ async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) 
             cancelled += 1
         except Exception:
             logger.debug("Failed to cancel task %s during agent force delete", task.id)
+
+    remaining_active = await svc.list_active_tasks_for_agent(agent_id)
+    if remaining_active:
+        logger.warning(
+            "Could not cancel all active tasks for agent %s: remaining=%s",
+            agent_id,
+            [str(task.id) for task in remaining_active],
+        )
+        raise HTTPException(503, "Failed to cancel all active tasks for agent")
 
     # Archive sessions for the agent
     session_broadcaster = get_session_broadcaster()
@@ -479,11 +535,13 @@ async def archive_agent(
     agent = await svc.get_agent(agent_id, project_id=auth_ctx.project_id)
     if not agent:
         raise HTTPException(404, "Agent not found")
-    from datetime import datetime, timezone
-
-    agent.archived_at = datetime.now(timezone.utc)
-    await db.commit()
-    archived_session_ids = await svc.archive_sessions_for_agent(agent_id)
+    try:
+        archived_session_ids = await svc.archive_sessions_for_agent(agent_id)
+        archived = await svc.archive_agent(agent_id, project_id=auth_ctx.project_id)
+    except ValueError as e:
+        raise HTTPException(409, str(e)) from e
+    if not archived:
+        raise HTTPException(404, "Agent not found")
     return {
         "status": "archived",
         "archived_sessions": len(archived_session_ids),

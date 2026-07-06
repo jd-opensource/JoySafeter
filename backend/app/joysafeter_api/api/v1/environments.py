@@ -169,7 +169,10 @@ async def update_environment(
     if req.config is not None:
         await _validate_secret_refs(db, req.config.secret_refs, auth_ctx.project_id)
 
-    env = await svc.update_environment(env_id, req, project_id=auth_ctx.project_id)
+    try:
+        env = await svc.update_environment(env_id, req, project_id=auth_ctx.project_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     if not env:
         raise HTTPException(404, "Environment not found")
 
@@ -203,7 +206,10 @@ async def delete_environment(
             "Environment is referenced by one or more active sessions. Archive or remove those sessions first.",
         )
 
-    ok = await svc.delete_environment(env_id, project_id=auth_ctx.project_id)
+    try:
+        ok = await svc.delete_environment(env_id, project_id=auth_ctx.project_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     if not ok:
         raise HTTPException(404, "Environment not found")
 
@@ -222,5 +228,8 @@ async def archive_environment(
     if env.archived_at is not None:
         raise HTTPException(409, "Environment is already archived")
 
-    await svc.archive_environment(env_id, project_id=auth_ctx.project_id)
+    try:
+        await svc.archive_environment(env_id, project_id=auth_ctx.project_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     return {"status": "archived"}
