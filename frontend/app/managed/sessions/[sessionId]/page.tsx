@@ -31,6 +31,7 @@ import { managedGet, managedPost, managedDelete, managedPatch } from '@/lib/api-
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import { stripIdPrefix } from '@/lib/managed/id'
 import { useSessionStream } from '@/lib/managed/sse'
+import { generateUUID } from '@/lib/utils/uuid'
 import type {
   Agent,
   Environment,
@@ -408,10 +409,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     setMsgInput('')
     setStreamForced(true)
     try {
-      const idempotencyKey =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? crypto.randomUUID()
-          : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+      const idempotencyKey = generateUUID()
       await managedPost(
         `/sessions/${stripIdPrefix(id)}/events`,
         {
