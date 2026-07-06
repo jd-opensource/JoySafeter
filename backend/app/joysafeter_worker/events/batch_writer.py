@@ -4,6 +4,8 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 
+from app.joysafeter_shared.utils.locks import session_advisory_lock_key
+
 if TYPE_CHECKING:
     from app.joysafeter_orchestrator.runtime_config import RuntimeConfig
 
@@ -391,7 +393,7 @@ class EventBatchSender:
         from app.joysafeter_shared.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db:
-            lock_key = int.from_bytes(session_id.bytes[8:], "big", signed=True)
+            lock_key = session_advisory_lock_key(session_id)
             await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
 
             result = await db.execute(

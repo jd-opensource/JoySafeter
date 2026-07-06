@@ -99,6 +99,7 @@ from app.joysafeter_domain.models.joysafeter_session import (
 )
 from app.joysafeter_shared.common.app_errors import ConflictError
 from app.joysafeter_shared.utils.datetime import utc_now
+from app.joysafeter_shared.utils.locks import session_advisory_lock_key
 
 _VALID_TRANSITIONS: dict[str, set[str]] = {
     SessionStatus.RUNNING.value: {
@@ -216,7 +217,7 @@ class JoySafeterSessionLifecycleService:
         return True
 
     async def _lock_event_sequence(self, session_id: uuid.UUID) -> None:
-        lock_key = int.from_bytes(session_id.bytes[8:], "big", signed=True)
+        lock_key = session_advisory_lock_key(session_id)
         await self.db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
 
 
@@ -424,7 +425,7 @@ class SessionService:
         # The batch_writer acquires advisory lock then touches session rows via FK.
         # If we acquire row lock first then advisory lock, we get AB-BA deadlock.
         # Lock ordering must be: advisory lock → row lock (same as SessionLifecycleService).
-        lock_key = int.from_bytes(session_id.bytes[8:], "big", signed=True)
+        lock_key = session_advisory_lock_key(session_id)
         await self.db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
 
         result = await self.db.execute(
@@ -480,7 +481,7 @@ class SessionService:
             JoySafeterTask,
         )
 
-        lock_key = int.from_bytes(session_id.bytes[8:], "big", signed=True)
+        lock_key = session_advisory_lock_key(session_id)
         await self.db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
 
         result = await self.db.execute(
@@ -718,7 +719,7 @@ class SessionService:
         # uses the same per-session transaction advisory lock.  Mixing row locks
         # and advisory locks for the same event stream can deadlock under
         # concurrent status/event writes.
-        lock_key = int.from_bytes(session_id.bytes[8:], "big", signed=True)
+        lock_key = session_advisory_lock_key(session_id)
         await self.db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
 
     async def _next_seq_locked(self, session_id: uuid.UUID) -> int:
