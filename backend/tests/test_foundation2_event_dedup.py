@@ -137,6 +137,41 @@ async def test_distinct_events_get_gapless_seq_around_a_duplicate(postgres_url, 
 
 
 @pytest.mark.asyncio
+async def test_batch_writer_skips_session_status_events_without_consuming_seq(
+    postgres_url, db_session, session_id, monkeypatch
+):
+    engine = create_async_engine(postgres_url, poolclass=NullPool)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
+    monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
+
+    events = [
+        BufferedEvent(
+            session_id=session_id,
+            event_type="session.status_idle",
+            payload={"task_id": str(uuid.uuid4()), "stop_reason": {"type": "end_turn"}},
+            seq=0,
+            id=uuid.uuid4(),
+        ),
+        BufferedEvent(session_id=session_id, event_type="agent.message", payload={"content": "done"}, seq=0),
+    ]
+    sender = EventBatchSender(EventBatchConfig())
+    try:
+        inserted = await sender._batch_insert(events)
+    finally:
+        await engine.dispose()
+
+    assert [(event.event_type, event.seq) for event in inserted] == [("agent.message", 1)]
+    rows = (
+        await db_session.execute(
+            select(JoySafeterSessionEvent.event_type, JoySafeterSessionEvent.seq)
+            .where(JoySafeterSessionEvent.session_id == session_id)
+            .order_by(JoySafeterSessionEvent.seq.asc())
+        )
+    ).all()
+    assert rows == [("agent.message", 1)]
+
+
+@pytest.mark.asyncio
 async def test_write_single_is_idempotent_on_event_id(postgres_url, db_session, session_id, monkeypatch):
     """The unbatched path (_write_single) must also dedup a redelivered id."""
     engine = create_async_engine(postgres_url, poolclass=NullPool)

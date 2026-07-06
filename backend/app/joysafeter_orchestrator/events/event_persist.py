@@ -8,6 +8,13 @@ from app.joysafeter_worker.events.batch_writer import BufferedEvent, EventBatchS
 
 logger = logging.getLogger(__name__)
 
+_STATUS_EVENT_TYPES = {
+    "session.status_running",
+    "session.status_idle",
+    "session.status_rescheduling",
+    "session.status_terminated",
+}
+
 
 class EventPersistSubscriber:
     """Phase 1: persist session events via EventBatchSender."""
@@ -19,7 +26,7 @@ class EventPersistSubscriber:
         self._event_buffer = event_buffer
 
     async def handle(self, envelope: JoySafeterEventEnvelope) -> None:
-        if envelope.is_status_change and not envelope.event_id:
+        if envelope.is_status_change or envelope.event_type in _STATUS_EVENT_TYPES:
             return
 
         if envelope.session_id is None:

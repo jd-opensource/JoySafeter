@@ -34,6 +34,7 @@ class JoySafeterEventEnvelope:
 
     flush_immediately: bool = False
     is_status_change: bool = False
+    suppress_broadcast: bool = False
     stop_reason: Optional[dict[str, Any]] = None
 
     task_broadcast_payload: Optional[dict[str, Any]] = None

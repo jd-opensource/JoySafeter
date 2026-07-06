@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -10,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 DEDUP_EVENT_TYPES = {
     "session.status_idle",
+    "session.status_rescheduling",
     "session.status_rescheduled",
     "session.status_running",
     "session.status_terminated",
@@ -18,6 +20,14 @@ DEDUP_EVENT_TYPES = {
     "session.thread_status_terminated",
     "span.model_request_start",
     "span.model_request_end",
+}
+
+SESSION_STATUS_EVENT_TYPES = {
+    "session.status_idle",
+    "session.status_rescheduling",
+    "session.status_rescheduled",
+    "session.status_running",
+    "session.status_terminated",
 }
 
 
@@ -48,6 +58,10 @@ def _dedup_payload_key(event: BufferedEvent) -> object:
     if event.event_type == "span.model_request_end":
         return {"model": event.payload.get("model"), "usage": event.payload.get("usage") or {}}
     return event.payload
+
+
+def _is_session_status_event(event_type: str) -> bool:
+    return event_type in SESSION_STATUS_EVENT_TYPES
 
 
 def _is_duplicate_event(a: BufferedEvent | None, b: BufferedEvent) -> bool:
@@ -98,6 +112,29 @@ class EventBatchSender:
         self._queue: asyncio.Queue = asyncio.Queue(maxsize=config.max_size * 4)
         self._task: Optional[asyncio.Task] = None
         self._stopped = asyncio.Event()
+        self._lost_event_count = 0
+        self._last_lost_event: dict[str, Any] | None = None
+
+    def health_snapshot(self) -> dict[str, Any]:
+        status = "degraded" if self._lost_event_count else "ok"
+        return {
+            "status": status,
+            "enabled": self._config.enabled,
+            "queue_size": self._queue.qsize(),
+            "queue_max_size": self._queue.maxsize,
+            "lost_event_count": self._lost_event_count,
+            "last_lost_event": self._last_lost_event,
+        }
+
+    def _record_lost_event(self, event: BufferedEvent, error: Exception) -> None:
+        self._lost_event_count += 1
+        self._last_lost_event = {
+            "session_id": str(event.session_id),
+            "event_type": event.event_type,
+            "event_id": str(event.id) if event.id else None,
+            "error": str(error),
+            "timestamp": time.time(),
+        }
 
     @property
     def _effective_max_size(self) -> int:
@@ -139,16 +176,20 @@ class EventBatchSender:
             if inserted is not None:
                 await self._publish_inserted([inserted])
             return
-        # F9 fix: use put with timeout instead of blocking indefinitely.
-        # Log when queue is full so operators can detect backpressure.
+        # Do not silently drop here. This sender is used as the durable fallback
+        # for Redis Stream backpressure; if the in-memory queue is wedged, write
+        # synchronously so callers either get durable persistence or a real error.
         try:
             await asyncio.wait_for(self._queue.put(event), timeout=10.0)
         except asyncio.TimeoutError:
-            logger.warning(
-                "Event batch queue full for 10s (size=%d), dropping event for session %s",
+            logger.error(
+                "Event batch queue full for 10s (size=%d), writing event synchronously for session %s",
                 self._queue.qsize(),
                 event.session_id,
             )
+            inserted = await self._write_single(event)
+            if inserted is not None:
+                await self._publish_inserted([inserted])
 
     async def flush(self) -> None:
         """Flush buffered events and await acknowledgment from the flush loop.
@@ -292,6 +333,7 @@ class EventBatchSender:
                     if attempt == 0:
                         await asyncio.sleep(0.5)
                     else:
+                        self._record_lost_event(event, inner)
                         logger.error("Individual event insert failed after retry (event lost): %s", inner)
 
     async def _batch_insert(self, events: list[BufferedEvent]) -> list[BufferedEvent]:
@@ -299,6 +341,13 @@ class EventBatchSender:
 
         groups: dict = defaultdict(list)
         for e in events:
+            if _is_session_status_event(e.event_type):
+                logger.warning(
+                    "Skipping session status event in batch writer: session=%s event_type=%s",
+                    e.session_id,
+                    e.event_type,
+                )
+                continue
             groups[e.session_id].append(e)
 
         # F2 fix: process each session in its OWN transaction so that a slow
@@ -413,6 +462,14 @@ class EventBatchSender:
             return inserted
 
     async def _write_single(self, event: BufferedEvent) -> BufferedEvent | None:
+        if _is_session_status_event(event.event_type):
+            logger.warning(
+                "Skipping session status event in batch writer: session=%s event_type=%s",
+                event.session_id,
+                event.event_type,
+            )
+            return None
+
         from sqlalchemy import func, select, text
         from sqlalchemy.dialects.postgresql import insert as pg_insert
 
