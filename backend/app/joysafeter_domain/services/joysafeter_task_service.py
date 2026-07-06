@@ -197,9 +197,6 @@ class JoySafeterTaskService:
         )
         await self.db.commit()
 
-    async def reset_sandbox_tasks_to_pending(self, sandbox_id: uuid.UUID) -> int:
-        return await self.state_machine.reset_sandbox_scheduling_to_pending(sandbox_id)
-
     async def list_running_tasks(self) -> list:
         result = await self.db.execute(
             select(JoySafeterTask)

@@ -518,10 +518,11 @@ class SandboxController:
         from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
         from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
-        from app.joysafeter_orchestrator.services import TaskService
         from app.joysafeter_shared.database import AsyncSessionLocal
 
         async def _requeue_scheduling_tasks(sandbox_id) -> int:
+            from app.joysafeter_orchestrator.kernel.task_controller import TaskController
+
             try:
                 await self._queue.drain_sandbox(sandbox_id)
             except Exception as e:
@@ -546,20 +547,29 @@ class SandboxController:
                     .scalars()
                     .all()
                 )
-                task_svc = TaskService(db)
-                count = await task_svc.reset_sandbox_tasks_to_pending(sandbox_id)
-            if count:
-                for task_id in task_ids:
-                    try:
-                        await self._queue.push_to_global(task_id)
-                    except Exception as e:
-                        logger.warning(
-                            "Failed to requeue task %s after sandbox %s provisioning failure: %s",
-                            task_id,
-                            sandbox_id,
-                            e,
-                        )
-            return count
+
+            # Route through the same failover path as sandbox death so a task
+            # whose sandbox keeps timing out in provisioning eventually fails
+            # (max_retries) instead of being reset to pending forever.
+            requeued = 0
+            for task_id in task_ids:
+                retry_count = await TaskController.failover_or_fail_task(
+                    task_id,
+                    f"Sandbox {sandbox_id} provisioning timed out before the task started",
+                )
+                if retry_count is None:
+                    continue
+                try:
+                    await self._queue.push_to_global(task_id)
+                    requeued += 1
+                except Exception as e:
+                    logger.warning(
+                        "Failed to requeue task %s after sandbox %s provisioning failure: %s",
+                        task_id,
+                        sandbox_id,
+                        e,
+                    )
+            return requeued
 
         async with AsyncSessionLocal() as db:
             result = await db.execute(

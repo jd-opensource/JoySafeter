@@ -226,25 +226,6 @@ class JoySafeterTaskStateMachine:
         await self.db.commit()
         return cast(CursorResult[Any], result).rowcount > 0
 
-    async def reset_sandbox_scheduling_to_pending(self, sandbox_id: uuid.UUID) -> int:
-        result = await self.db.execute(
-            sa_update(JoySafeterTask)
-            .where(
-                and_(
-                    JoySafeterTask.status == JoySafeterTaskStatus.SCHEDULING.value,
-                    JoySafeterTask.sandbox_id == sandbox_id,
-                )
-            )
-            .values(
-                status=JoySafeterTaskStatus.PENDING.value,
-                started_at=None,
-                sandbox_id=None,
-                retry_count=JoySafeterTask.retry_count + 1,
-            )
-        )
-        await self.db.commit()
-        return cast(CursorResult[Any], result).rowcount
-
     async def attach_sandbox_if_scheduling(self, task_id: uuid.UUID, sandbox_id: uuid.UUID) -> bool:
         result = await self.db.execute(
             sa_update(JoySafeterTask)
