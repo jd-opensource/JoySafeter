@@ -9,10 +9,12 @@ import asyncio
 import json
 import logging
 import uuid
+from typing import Any
 
 from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
 
 logger = logging.getLogger(__name__)
+COMMAND_ACK_KEY_PREFIX = "joysafeter:cmd_ack:"
 
 
 class CommandListener:
@@ -74,21 +76,58 @@ class CommandListener:
             backoff = min(backoff * 2, max_backoff)
 
     async def _dispatch(self, cmd: dict) -> None:
+        ack_key = cmd.get("ack_key")
+        command_id = cmd.get("command_id")
+        success = False
+        error: str | None = None
+        try:
+            success = await self._dispatch_inner(cmd)
+        except Exception as exc:
+            error = str(exc)
+            logger.warning("Command listener: dispatch failed: %s", exc)
+        if ack_key:
+            ack_key_str = str(ack_key)
+            if ack_key_str.startswith(COMMAND_ACK_KEY_PREFIX):
+                await self._ack_command(ack_key_str, command_id, success=success, error=error)
+            else:
+                logger.warning("Command listener: refused invalid ack_key: %s", ack_key_str)
+
+    async def _ack_command(
+        self,
+        ack_key: str,
+        command_id: Any,
+        *,
+        success: bool,
+        error: str | None = None,
+    ) -> None:
+        payload = {
+            "command_id": str(command_id or ""),
+            "ok": success,
+        }
+        if error:
+            payload["error"] = error
+        try:
+            await self._redis.rpush(ack_key, json.dumps(payload))
+            await self._redis.expire(ack_key, 30)
+        except Exception as exc:
+            logger.warning("Command listener: failed to publish command ack: %s", exc)
+
+    async def _dispatch_inner(self, cmd: dict) -> bool:
         sandbox_id_str = cmd.get("sandbox_id", "")
         if not sandbox_id_str:
             logger.warning("Command listener: invalid sandbox_id: %s", sandbox_id_str)
-            return
+            return False
 
         try:
             sandbox_id = uuid.UUID(sandbox_id_str)
         except ValueError:
             logger.warning("Command listener: invalid sandbox_id: %s", sandbox_id_str)
-            return
+            return False
 
         bridge = await self._bridge_registry.get(sandbox_id)
         if not bridge:
             logger.warning("Command listener: no bridge for sandbox %s", sandbox_id)
-            return
+            return False
 
         cmd_type = cmd.get("type", "")
         if cmd_type == "input":
@@ -100,16 +139,20 @@ class CommandListener:
             # enqueuing there silently dropped remote input.
             await bridge.send_control_input(content)
             logger.info("Executed remote command: sandbox=%s type=input", sandbox_id)
+            return True
         elif cmd_type == "cancel":
             # request_cancel() sets the _cancel_event that BOTH the gRPC task
             # loop and the in-process runner watch to write CancelTask to the
             # runner.
             bridge.request_cancel()
             logger.info("Executed remote command: sandbox=%s type=cancel", sandbox_id)
+            return True
         elif cmd_type == "shutdown":
             reason = cmd.get("reason", "remote shutdown")
             msg = joysafeter_pb2.OrchestratorMessage(shutdown=joysafeter_pb2.Shutdown(reason=reason))
-            await bridge.write_to_runner(msg)
+            written = await bridge.write_to_runner(msg)
             logger.info("Executed remote command: sandbox=%s type=shutdown", sandbox_id)
+            return bool(written)
         else:
             logger.warning("Command listener: unknown command type: %s", cmd_type)
+            return False
