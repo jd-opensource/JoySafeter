@@ -64,6 +64,7 @@ class JoySafeterTask(JoySafeterBaseModel):
         Index("idx_ct_agent", "agent_id"),
         Index("idx_ct_created", "created_at"),
         Index("idx_ct_project", "project_id"),
+        Index("idx_ct_user_status", "user_id", "status"),
         Index("idx_ct_status_created", "status", "created_at"),
         Index("idx_ct_status_updated", "status", "updated_at"),
         Index("idx_ct_project_status_created", "project_id", "status", "created_at"),
@@ -82,6 +83,11 @@ class JoySafeterTask(JoySafeterBaseModel):
         nullable=True,
         index=True,
     )
+    # Tenant identity of the submitter, denormalized onto the task for
+    # attribution/audit and per-user admission control. Deliberately NOT
+    # FK-constrained so a task's audit record survives user/org deletion.
+    user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     agent_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("joysafeter_agents.id"),
