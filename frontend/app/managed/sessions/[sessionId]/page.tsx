@@ -408,9 +408,19 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     setMsgInput('')
     setStreamForced(true)
     try {
-      await managedPost(`/sessions/${stripIdPrefix(id)}/events`, {
-        events: [{ type: 'user.message', content: [{ type: 'text', text }] }],
-      })
+      const idempotencyKey =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+      await managedPost(
+        `/sessions/${stripIdPrefix(id)}/events`,
+        {
+          events: [{ type: 'user.message', content: [{ type: 'text', text }] }],
+        },
+        {
+          headers: { 'Idempotency-Key': idempotencyKey },
+        },
+      )
       queryClient.invalidateQueries({ queryKey: ['session', id] })
       eventsLoadedRef.current = false
       setLoadedEvents([])
