@@ -86,10 +86,12 @@ async def create_task(
                 },
             )
 
-    # Per-user admission control (tenancy). A single user must not consume the
-    # whole project/fleet budget. Same placement/soft-limit semantics as the
-    # per-project gate above.
-    if auth_ctx.user_id is not None:
+    # Per-user admission control (tenancy). Fairness quota so one human cannot
+    # occupy the whole project/fleet budget. Applies ONLY to human principals:
+    # a service API key is a single automation identity bounded by the
+    # per-project gate above, and keying its budget on the key's creator would
+    # silently clamp all of that key's traffic to one human's limit.
+    if auth_ctx.principal_type == "user" and auth_ctx.user_id:
         from app.joysafeter_shared.config.settings import settings
 
         user_svc = TaskService(db)

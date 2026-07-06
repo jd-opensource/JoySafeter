@@ -61,3 +61,8 @@ class JoySafeterAuthContext:
     org_id: str
     project_id: str
     role: JoySafeterRole
+    # How the caller authenticated. "user" = a human principal (session/JWT);
+    # "api_key" = a service principal. Per-user fairness quotas apply only to
+    # human principals; service keys are bounded by the per-project quota so a
+    # single service key is not silently clamped to one human's budget.
+    principal_type: str = "user"

@@ -32,6 +32,16 @@ def _auth_ctx() -> JoySafeterAuthContext:
     )
 
 
+def _service_auth_ctx() -> JoySafeterAuthContext:
+    return JoySafeterAuthContext(
+        user_id="test-user",
+        org_id="test-org",
+        project_id=None,  # type: ignore[arg-type]
+        role=JoySafeterRole.DEVELOPER,
+        principal_type="api_key",
+    )
+
+
 @pytest.mark.asyncio
 async def test_create_task_enqueues_via_redis_without_local_scheduler(db_session, monkeypatch):
     redis = _FakeRedis()
@@ -355,3 +365,62 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_session(d
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail == "Idempotency-Key was already used for a different session"
+
+
+@pytest.mark.asyncio
+async def test_per_user_admission_rejects_human_over_limit(db_session, monkeypatch):
+    from app.joysafeter_shared.config.settings import settings
+
+    redis = _FakeRedis()
+    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+    monkeypatch.setattr(settings, "max_concurrent_per_user", 1)
+
+    agent = JoySafeterAgent(name=f"per-user-human-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    # One active task already attributed to the human principal.
+    await JoySafeterTaskService(db_session).create_task(
+        agent_id=agent.id, prompt="busy", user_id="test-user", org_id="test-org"
+    )
+
+    req = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target")
+    response = await create_task(req, db_session, _auth_ctx())
+
+    assert getattr(response, "status_code", None) == 429
+    assert redis.rpushed == [], "an admission-rejected task must not be enqueued"
+
+
+@pytest.mark.asyncio
+async def test_per_user_admission_skips_service_principal(db_session, monkeypatch):
+    from app.joysafeter_shared.config.settings import settings
+
+    redis = _FakeRedis()
+    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+    monkeypatch.setattr(settings, "max_concurrent_per_user", 1)
+
+    agent = JoySafeterAgent(name=f"per-user-service-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    # Same identity already over the per-user limit, but the caller is a service
+    # key: the per-user fairness quota must not apply to it.
+    await JoySafeterTaskService(db_session).create_task(
+        agent_id=agent.id, prompt="busy", user_id="test-user", org_id="test-org"
+    )
+
+    req = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target")
+    response = await create_task(req, db_session, _service_auth_ctx())
+
+    assert response.status == JoySafeterTaskStatus.PENDING.value
+    assert redis.rpushed == [("joysafeter:global_queue", str(response.id))]

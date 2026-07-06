@@ -276,6 +276,7 @@ async def _auth_via_api_key(
         org_id=api_key.org_id,
         project_id=api_key.project_id,
         role=role,
+        principal_type="api_key",
     )
 
 
