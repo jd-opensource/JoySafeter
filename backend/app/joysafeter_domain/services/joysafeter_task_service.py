@@ -12,6 +12,7 @@ from sqlalchemy import and_, func, select, text
 from sqlalchemy import update as sa_update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_task import (
@@ -29,6 +30,18 @@ class JoySafeterTaskService:
         self.db = db
         self.state_machine = JoySafeterTaskStateMachine(db)
 
+    @staticmethod
+    def scoped_idempotency_key(idempotency_key: str, project_id: Optional[str]) -> str:
+        project_scope = project_id if project_id is not None else "__no_project__"
+        return f"project:{project_scope}:{idempotency_key}"
+
+    @classmethod
+    def _idempotency_key_candidates(cls, idempotency_key: str, project_id: Optional[str]) -> list[str]:
+        # Include the raw key as a legacy fallback for rows created before keys
+        # were project-scoped in storage.
+        scoped = cls.scoped_idempotency_key(idempotency_key, project_id)
+        return [scoped, idempotency_key] if scoped != idempotency_key else [scoped]
+
     async def create_task(
         self,
         agent_id: uuid.UUID,
@@ -39,6 +52,8 @@ class JoySafeterTaskService:
         max_retries: int = 2,
         project_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        user_id: Optional[str] = None,
+        org_id: Optional[str] = None,
     ) -> JoySafeterTask:
         values: dict[str, Any] = dict(
             agent_id=agent_id,
@@ -51,18 +66,24 @@ class JoySafeterTaskService:
         )
         if project_id is not None:
             values["project_id"] = project_id
+        if user_id is not None:
+            values["user_id"] = user_id
+        if org_id is not None:
+            values["org_id"] = org_id
 
         if idempotency_key is None:
             task = JoySafeterTask(**values)
             self.db.add(task)
             await self.db.commit()
             await self.db.refresh(task)
+            setattr(task, "_created_by_create_task", True)
             return task
 
         # Idempotent submission: one key -> one task, even under concurrent
         # retries from HA API replicas. INSERT ... ON CONFLICT DO NOTHING makes
         # the unique constraint the arbiter; on conflict we return the existing task.
-        values["idempotency_key"] = idempotency_key
+        stored_idempotency_key = self.scoped_idempotency_key(idempotency_key, project_id)
+        values["idempotency_key"] = stored_idempotency_key
         stmt = (
             pg_insert(JoySafeterTask)
             .values(**values)
@@ -74,14 +95,16 @@ class JoySafeterTaskService:
         row = result.first()
         if row is not None:
             task_id = row[0]
+            created = True
         else:
-            task_id = (
-                await self.db.execute(
-                    select(JoySafeterTask.id).where(JoySafeterTask.idempotency_key == idempotency_key)
-                )
-            ).scalar_one()
+            conditions = [JoySafeterTask.idempotency_key == stored_idempotency_key]
+            if project_id is not None:
+                conditions.append(JoySafeterTask.project_id == project_id)
+            task_id = (await self.db.execute(select(JoySafeterTask.id).where(and_(*conditions)))).scalar_one()
+            created = False
         fetched = await self.get_task(task_id)
         assert fetched is not None
+        setattr(fetched, "_created_by_create_task", created)
         return fetched
 
     async def get_by_idempotency_key(
@@ -93,7 +116,9 @@ class JoySafeterTaskService:
         (e.g. auto-creating a ChatSession), keeping the whole endpoint idempotent,
         not just the task INSERT.
         """
-        conditions = [JoySafeterTask.idempotency_key == idempotency_key]
+        conditions: list[ColumnElement[bool]] = [
+            JoySafeterTask.idempotency_key.in_(self._idempotency_key_candidates(idempotency_key, project_id))
+        ]
         if project_id is not None:
             conditions.append(JoySafeterTask.project_id == project_id)
         result = await self.db.execute(select(JoySafeterTask).where(and_(*conditions)))
@@ -275,8 +300,8 @@ class JoySafeterTaskService:
     async def attach_sandbox_if_scheduling(self, task_id: uuid.UUID, sandbox_id: uuid.UUID) -> bool:
         return await self.state_machine.attach_sandbox_if_scheduling(task_id, sandbox_id)
 
-    async def increment_retry(self, task_id: uuid.UUID) -> bool:
-        return await self.state_machine.retry(task_id)
+    async def increment_retry(self, task_id: uuid.UUID, expected_epoch: Optional[int] = None) -> bool:
+        return await self.state_machine.retry(task_id, expected_epoch=expected_epoch)
 
     async def agent_has_active_tasks(self, agent_id: uuid.UUID) -> bool:
         terminal_values = [s.value for s in TERMINAL_STATUSES]
@@ -306,6 +331,25 @@ class JoySafeterTaskService:
             .where(
                 and_(
                     JoySafeterTask.project_id == project_id,
+                    JoySafeterTask.status.notin_(terminal_values),
+                )
+            )
+        )
+        return cast(int, result.scalar())
+
+    async def count_active_tasks_for_user(self, user_id: str) -> int:
+        """Count a user's non-terminal tasks (pending/scheduling/running).
+
+        Backs per-user admission control: one user cannot occupy the whole
+        project/fleet budget. Terminal tasks do not count against the live total.
+        """
+        terminal_values = [s.value for s in TERMINAL_STATUSES]
+        result = await self.db.execute(
+            select(func.count())
+            .select_from(JoySafeterTask)
+            .where(
+                and_(
+                    JoySafeterTask.user_id == user_id,
                     JoySafeterTask.status.notin_(terminal_values),
                 )
             )

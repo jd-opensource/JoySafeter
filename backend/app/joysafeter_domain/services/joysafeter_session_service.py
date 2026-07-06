@@ -357,7 +357,21 @@ class SessionService:
         if not session:
             return False
         from app.joysafeter_domain.models.joysafeter_memory import JoySafeterSessionMemoryStore
-        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
+        from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
+
+        terminal_values = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
+        active_result = await self.db.execute(
+            select(func.count())
+            .select_from(JoySafeterTask)
+            .where(
+                and_(
+                    JoySafeterTask.chat_session_id == session_id,
+                    JoySafeterTask.status.notin_(terminal_values),
+                )
+            )
+        )
+        if (active_result.scalar() or 0) > 0:
+            raise ConflictError(code="CONFLICT", message="Cannot delete session with active tasks")
 
         await self.db.execute(
             update(JoySafeterTask).where(JoySafeterTask.chat_session_id == session_id).values(chat_session_id=None)
@@ -377,6 +391,21 @@ class SessionService:
             return False
         if session.status == SessionStatus.RUNNING.value:
             raise ConflictError(code="CONFLICT", message="Cannot archive running session")
+        from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
+
+        terminal_values = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
+        active_result = await self.db.execute(
+            select(func.count())
+            .select_from(JoySafeterTask)
+            .where(
+                and_(
+                    JoySafeterTask.chat_session_id == session_id,
+                    JoySafeterTask.status.notin_(terminal_values),
+                )
+            )
+        )
+        if (active_result.scalar() or 0) > 0:
+            raise ConflictError(code="CONFLICT", message="Cannot archive session with active tasks")
         if session.archived_at:
             return True
         if session.status != SessionStatus.TERMINATED.value:
@@ -411,6 +440,85 @@ class SessionService:
             return False
 
         # State machine guard
+        allowed_from = _VALID_TRANSITIONS.get(status)
+        if allowed_from is not None and session.status not in allowed_from:
+            raise ConflictError(
+                code="CONFLICT",
+                message=f"Cannot transition from '{session.status}' to '{status}'",
+            )
+
+        session.status = status
+        if stop_reason is not None or status in (
+            SessionStatus.IDLE.value,
+            SessionStatus.TERMINATED.value,
+        ):
+            session.stop_reason = stop_reason
+        session.updated_at = utc_now()
+        await self.db.commit()
+        return True
+
+    async def update_session_status_for_task_event(
+        self,
+        session_id: uuid.UUID,
+        status: str,
+        task_id: uuid.UUID,
+        stop_reason: Optional[dict] = None,
+    ) -> bool:
+        """Accept and apply a task-scoped session status transition.
+
+        Runner/session status events can arrive late after failover, cancellation,
+        or a fast follow-up task.  A stale task must not move the session back to
+        running/idle after the current task ownership has changed.
+
+        Returns True when the event belongs to the current task context and may
+        be persisted/broadcast, even if the session row was already in that
+        status. Returns False only when the event is stale or references the
+        wrong task/session.
+        """
+        from app.joysafeter_domain.models.joysafeter_task import (
+            JOYSAFETER_TERMINAL_STATUSES,
+            JoySafeterTask,
+        )
+
+        lock_key = int.from_bytes(session_id.bytes[8:], "big", signed=True)
+        await self.db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+
+        result = await self.db.execute(
+            select(JoySafeterSession).where(JoySafeterSession.id == session_id).with_for_update()
+        )
+        session = result.scalar_one_or_none()
+        if not session:
+            return False
+
+        task_result = await self.db.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))
+        task = task_result.scalar_one_or_none()
+        if not task or task.chat_session_id != session_id:
+            return False
+
+        terminal_values = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
+        if status == SessionStatus.RUNNING.value and task.status in terminal_values:
+            return False
+
+        if status in (SessionStatus.IDLE.value, SessionStatus.RUNNING.value):
+            active_other_result = await self.db.execute(
+                select(func.count())
+                .select_from(JoySafeterTask)
+                .where(
+                    and_(
+                        JoySafeterTask.chat_session_id == session_id,
+                        JoySafeterTask.id != task_id,
+                        JoySafeterTask.status.notin_(terminal_values),
+                    )
+                )
+            )
+            if (active_other_result.scalar() or 0) > 0:
+                return False
+
+        if session.status == status and _normalized_stop_reason(session.stop_reason) == _normalized_stop_reason(
+            stop_reason
+        ):
+            return True
+
         allowed_from = _VALID_TRANSITIONS.get(status)
         if allowed_from is not None and session.status not in allowed_from:
             raise ConflictError(

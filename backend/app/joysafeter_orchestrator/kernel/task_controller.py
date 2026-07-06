@@ -139,13 +139,29 @@ class TaskController:
                 for row in pending_tasks:
                     await self._queue.push_to_global(row[0])
 
-                # Scheduling tasks -> pending (unconditional, no time filter)
+                # Scheduling tasks -> pending/fail on startup. These rows were
+                # interrupted before reaching a sandbox; enqueue successful
+                # resets immediately because the pending scan above already ran.
                 stale_scheduling_result = await db.execute(
-                    text("SELECT id FROM joysafeter_tasks WHERE status = 'scheduling'")
+                    text("SELECT id, retry_count, max_retries FROM joysafeter_tasks WHERE status = 'scheduling'")
                 )
                 stale_scheduling = stale_scheduling_result.all()
+                stale_scheduling_requeued = 0
+                stale_scheduling_failed = 0
                 for row in stale_scheduling:
-                    await task_svc.increment_retry(row[0])
+                    task_id = row[0]
+                    retry_count = row[1] or 0
+                    max_retries = row[2] or 3
+                    if retry_count >= max_retries:
+                        await task_svc.update_task_error(
+                            task_id,
+                            "Retries exhausted while recovering scheduling task on startup",
+                            TaskStatus.FAILED,
+                        )
+                        stale_scheduling_failed += 1
+                    elif await task_svc.increment_retry(task_id):
+                        await self._queue.push_to_global(task_id)
+                        stale_scheduling_requeued += 1
 
                 # Provisioning sandboxes: 45min with Redis, 20min without
                 provisioning_minutes = 45 if redis_available else 20
@@ -169,6 +185,11 @@ class TaskController:
                         "SELECT id FROM joysafeter_sessions"
                         " WHERE status = 'rescheduling'"
                         " AND updated_at < NOW() - INTERVAL '5 minutes'"
+                        " AND NOT EXISTS ("
+                        "     SELECT 1 FROM joysafeter_tasks"
+                        "     WHERE joysafeter_tasks.chat_session_id = joysafeter_sessions.id"
+                        "     AND joysafeter_tasks.status IN ('pending', 'scheduling', 'running')"
+                        " )"
                     )
                 )
                 stale_rescheduling_sessions = stale_rescheduling_result.all()
@@ -211,11 +232,13 @@ class TaskController:
                 await db.commit()
                 logger.info(
                     "Startup recovery complete: tasks_failed=%d pending_requeued=%d scheduling_reset=%d "
-                    "provisioning_recovered=%d rescheduling_sessions_terminated=%d running_sessions_reset=%d "
-                    "redis_available=%s",
+                    "scheduling_requeued=%d scheduling_failed=%d provisioning_recovered=%d "
+                    "rescheduling_sessions_terminated=%d running_sessions_reset=%d redis_available=%s",
                     len(recovered_tasks),
                     len(pending_tasks),
                     len(stale_scheduling),
+                    stale_scheduling_requeued,
+                    stale_scheduling_failed,
                     len(stale_provisioning),
                     len(stale_rescheduling_sessions),
                     len(stale_running_sessions),
@@ -229,7 +252,7 @@ class TaskController:
 
         from app.joysafeter_domain.models.joysafeter_session import SessionStatus
         from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
-        from app.joysafeter_orchestrator.services import JoySafeterSessionLifecycleService, TaskService
+        from app.joysafeter_orchestrator.services import SessionService, TaskService
         from app.joysafeter_shared.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db:
@@ -251,35 +274,38 @@ class TaskController:
                     )
                 ).all()
                 task_svc = TaskService(db)
-                session_lifecycle = JoySafeterSessionLifecycleService(db)
 
                 for row in rows:
                     task_id, sandbox_id, session_id = row[0], row[1], row[2]
                     logger.warning("Task %s exceeded timeout (sandbox=%s), marking timed out", task_id, sandbox_id)
 
-                    await task_svc.update_task_error(
+                    timeout_updated = await task_svc.update_task_error(
                         task_id,
                         "Task timed out (watchdog)",
                         TaskStatus.TIMEOUT,
                     )
+                    if not timeout_updated:
+                        logger.warning("Task %s timeout watchdog write lost CAS/status race", task_id)
+                        continue
 
                     if session_id is not None:
-                        is_running = (
-                            await db.execute(
-                                text(
-                                    "SELECT EXISTS(SELECT 1 FROM joysafeter_sessions WHERE id = :sid AND status = 'running')"
-                                ),
-                                {"sid": session_id},
-                            )
-                        ).scalar()
-
-                        if is_running:
-                            await session_lifecycle.transition_and_emit(
+                        session_svc = SessionService(db)
+                        try:
+                            idle_updated = await session_svc.update_session_status_for_task_event(
                                 session_id,
                                 SessionStatus.IDLE.value,
-                                "session.status_idle",
-                                {"stop_reason": {"type": "timeout"}},
+                                task_id,
                                 stop_reason={"type": "timeout"},
+                            )
+                            if idle_updated:
+                                await session_svc.send_event(
+                                    session_id,
+                                    "session.status_idle",
+                                    {"task_id": str(task_id), "stop_reason": {"type": "timeout"}},
+                                )
+                        except Exception:
+                            logger.debug(
+                                "Could not transition timed-out task %s session to idle", task_id, exc_info=True
                             )
 
                     logger.info("Timed-out task %s marked as timeout", task_id)
@@ -383,7 +409,7 @@ class TaskController:
         cannot retry/fail a task a new owner now holds.
         """
         from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
-        from app.joysafeter_orchestrator.services import JoySafeterSessionLifecycleService, SessionService, TaskService
+        from app.joysafeter_orchestrator.services import SessionService, TaskService
         from app.joysafeter_shared.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db:
@@ -410,33 +436,54 @@ class TaskController:
                 logger.warning("Task %s already terminal (%s), skipping failover", task_id, status)
                 return None
 
-            # If the task already emitted agent.message events, it effectively completed
-            # before the sandbox died — mark it completed instead of retrying
+            # If the task already emitted or persisted final output, it
+            # effectively completed before the sandbox died. Mark it completed
+            # instead of retrying; if the process crashed after writing
+            # task.output but before sending agent.message, repair the missing
+            # chat event first.
             if task.chat_session_id:
                 session_svc = SessionService(db)
-                has_output = await session_svc.task_has_agent_output(task_id, task.chat_session_id)
-                if has_output:
+                has_agent_output = await session_svc.task_has_agent_output(task_id, task.chat_session_id)
+                persisted_output = (task.output or "").strip()
+                if has_agent_output or persisted_output:
                     logger.info(
                         "Task %s already produced output before sandbox death, marking completed",
                         task_id,
                     )
-                    await svc.update_task_status(task_id, TaskStatus.COMPLETED)
+                    if persisted_output and not has_agent_output:
+                        await session_svc.send_event(
+                            task.chat_session_id,
+                            "agent.message",
+                            {"content": [{"type": "text", "text": persisted_output}]},
+                        )
+                    ok = await svc.update_task_status(task_id, TaskStatus.COMPLETED, expected_epoch=expected_epoch)
+                    if not ok:
+                        logger.warning(
+                            "CAS conflict marking task %s completed after output; task may be owned elsewhere",
+                            task_id,
+                        )
+                        return None
                     # Transition session to idle since the task effectively finished.
                     try:
-                        await JoySafeterSessionLifecycleService(db).transition_and_emit(
+                        idle_updated = await session_svc.update_session_status_for_task_event(
                             task.chat_session_id,
                             "idle",
-                            "session.status_idle",
-                            {"stop_reason": {"type": "end_turn"}},
+                            task_id,
                             stop_reason={"type": "end_turn"},
                         )
+                        if idle_updated:
+                            await session_svc.send_event(
+                                task.chat_session_id,
+                                "session.status_idle",
+                                {"task_id": str(task_id), "stop_reason": {"type": "end_turn"}},
+                            )
                     except Exception:
                         pass
                     return None
 
             if task.retry_count < task.max_retries:
                 count = task.retry_count
-                ok = await svc.increment_retry(task_id)
+                ok = await svc.increment_retry(task_id, expected_epoch=expected_epoch)
                 if ok:
                     return count
                 else:
@@ -446,10 +493,29 @@ class TaskController:
                     )
                     return None
 
+            failed = False
             try:
-                await svc.update_task_error(task_id, reason, TaskStatus.FAILED)
+                failed = await svc.update_task_error(task_id, reason, TaskStatus.FAILED, expected_epoch=expected_epoch)
             except Exception as e:
                 logger.error("Failed to mark task %s as failed: %s", task_id, e)
+            if failed and task.chat_session_id:
+                try:
+                    session_svc = SessionService(db)
+                    stop_reason = {"type": "retries_exhausted"}
+                    idle_updated = await session_svc.update_session_status_for_task_event(
+                        task.chat_session_id,
+                        "idle",
+                        task_id,
+                        stop_reason=stop_reason,
+                    )
+                    if idle_updated:
+                        await session_svc.send_event(
+                            task.chat_session_id,
+                            "session.status_idle",
+                            {"task_id": str(task_id), "stop_reason": stop_reason},
+                        )
+                except Exception:
+                    logger.debug("Could not transition exhausted task %s session to idle", task_id, exc_info=True)
             return None
 
     @staticmethod

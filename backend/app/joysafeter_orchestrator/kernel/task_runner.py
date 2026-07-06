@@ -16,6 +16,41 @@ from app.joysafeter_worker.events.batch_writer import BufferedEvent, EventBatchS
 
 logger = logging.getLogger(__name__)
 
+_TASK_SCOPED_STATUS_EVENTS = {
+    "session.status_running": "running",
+    "session.status_idle": "idle",
+}
+
+
+async def persist_task_scoped_session_status_event(
+    *,
+    session_id: uuid.UUID,
+    task_id: uuid.UUID,
+    event_type: str,
+    payload: dict[str, Any],
+):
+    status = _TASK_SCOPED_STATUS_EVENTS.get(event_type)
+    if status is None:
+        return None
+
+    from app.joysafeter_orchestrator.services import SessionService
+    from app.joysafeter_shared.database import AsyncSessionLocal
+
+    stop_reason = payload.get("stop_reason") if isinstance(payload, dict) else None
+    status_payload = dict(payload or {})
+    status_payload["task_id"] = str(task_id)
+    async with AsyncSessionLocal() as db:
+        svc = SessionService(db)
+        accepted = await svc.update_session_status_for_task_event(
+            session_id,
+            status,
+            task_id,
+            stop_reason=stop_reason,
+        )
+        if not accepted:
+            return None
+        return await svc.send_event(session_id, event_type, status_payload)
+
 
 class TaskRunner:
     """Per-sandbox task execution loop.
@@ -128,7 +163,12 @@ class TaskRunner:
 
                 agent = await agent_svc.get_agent(task.agent_id, project_id=getattr(task, "project_id", None))
                 if not agent:
-                    await task_svc.update_task_error(task_id, "Agent not found", TaskStatus.FAILED)
+                    await task_svc.update_task_error(
+                        task_id,
+                        "Agent not found",
+                        TaskStatus.FAILED,
+                        expected_epoch=owner_epoch,
+                    )
                     return
 
                 if task.status != TaskStatus.RUNNING.value:
@@ -140,7 +180,11 @@ class TaskRunner:
                     return
 
                 if task.chat_session_id:
-                    await session_svc.update_session_status(task.chat_session_id, SessionStatus.RUNNING.value)
+                    await session_svc.update_session_status_for_task_event(
+                        task.chat_session_id,
+                        SessionStatus.RUNNING.value,
+                        task_id,
+                    )
 
                 await sandbox_svc.touch(sandbox_id, task_id)
 
@@ -177,23 +221,30 @@ class TaskRunner:
                 sandbox_svc = SandboxService(db)
 
                 error_msg = result.get("error")
+                if not await task_svc.update_task_output(task_id, result.get("output", ""), expected_epoch=owner_epoch):
+                    logger.warning("CAS conflict writing output for task %s, ignoring adapter result", task_id)
+                    return
+                task_usage = result.get("usage")
+                if task_usage:
+                    if not await task_svc.update_task_usage(task_id, task_usage, expected_epoch=owner_epoch):
+                        logger.warning("CAS conflict writing usage for task %s, ignoring adapter result", task_id)
+                        return
                 if error_msg:
-                    await task_svc.update_task_error(
+                    task_status_updated = await task_svc.update_task_error(
                         task_id,
                         error_msg,
                         final_status,
                         expected_epoch=owner_epoch,
                     )
                 else:
-                    await task_svc.update_task_status(
+                    task_status_updated = await task_svc.update_task_status(
                         task_id,
                         final_status,
                         expected_epoch=owner_epoch,
                     )
-                await task_svc.update_task_output(task_id, result.get("output", ""), expected_epoch=owner_epoch)
-                task_usage = result.get("usage")
-                if task_usage:
-                    await task_svc.update_task_usage(task_id, task_usage, expected_epoch=owner_epoch)
+                if not task_status_updated:
+                    logger.warning("CAS conflict finalizing task %s, ignoring adapter result", task_id)
+                    return
 
                 if task.chat_session_id:
                     harness_session_id = result.get("session_id")
@@ -221,9 +272,10 @@ class TaskRunner:
                             "error": result.get("error"),
                         }
                     )
-                    await session_svc.update_session_status(
+                    await session_svc.update_session_status_for_task_event(
                         task.chat_session_id,
                         SessionStatus.IDLE.value,
+                        task_id,
                         stop_reason=stop_reason,
                     )
 
@@ -290,7 +342,7 @@ class TaskRunner:
             from app.joysafeter_shared.retry import compute_retry_delay
 
             retryable = await TaskController.failover_or_fail_task(task_id, str(e), expected_epoch=owner_epoch)
-            if retryable:
+            if retryable is not None:
                 async with AsyncSessionLocal() as db:
                     task_svc = TaskService(db)
                     task = await task_svc.get_task(task_id)
@@ -352,7 +404,7 @@ class TaskRunner:
 
         for tid in recoverable_ids:
             retryable = await TaskController.failover_or_fail_task(tid, f"Sandbox {sandbox_id} ejected")
-            if retryable:
+            if retryable is not None:
                 async with AsyncSessionLocal() as db:
                     from app.joysafeter_orchestrator.services import TaskService
 
@@ -632,6 +684,29 @@ class TaskRunner:
 
             event_id = None
             if session_id:
+                if mapped_type in ("session.status_running", "session.status_idle"):
+                    event = await persist_task_scoped_session_status_event(
+                        session_id=session_id,
+                        task_id=task_id,
+                        event_type=mapped_type,
+                        payload=mapped_payload,
+                    )
+                    if event is not None:
+                        event_id = f"evt_{event.id}"
+                        from app.joysafeter_orchestrator.lifespan import get_session_broadcaster
+
+                        broadcaster = get_session_broadcaster()
+                        if broadcaster:
+                            broadcast_data = {
+                                "id": event_id,
+                                "type": event.event_type,
+                                "seq": event.seq,
+                            }
+                            if isinstance(event.payload, dict):
+                                broadcast_data.update(event.payload)
+                            await broadcaster.send(session_id, broadcast_data)
+                    return event_id
+
                 await self._event_buffer.send(
                     BufferedEvent(
                         session_id=session_id,
@@ -676,9 +751,10 @@ class TaskRunner:
                 }
                 async with AsyncSessionLocal() as db:
                     svc = SessionService(db)
-                    await svc.update_session_status(
+                    await svc.update_session_status_for_task_event(
                         session_id,
                         SessionStatus.IDLE.value,
+                        task_id,
                         stop_reason=stop_reason,
                     )
 
@@ -690,6 +766,7 @@ class TaskRunner:
                         session_id,
                         {
                             "type": "session.status_idle",
+                            "task_id": str(task_id),
                             "stop_reason": stop_reason,
                             "seq": seq + 1,
                         },
@@ -708,16 +785,27 @@ class TaskRunner:
 
                 async with AsyncSessionLocal() as db:
                     svc = SessionService(db)
-                    await svc.update_session_status(session_id, SessionStatus.RUNNING.value)
+                    running_accepted = await svc.update_session_status_for_task_event(
+                        session_id,
+                        SessionStatus.RUNNING.value,
+                        task_id,
+                    )
+                    if running_accepted:
+                        await svc.send_event(
+                            session_id,
+                            "session.status_running",
+                            {"task_id": str(task_id)},
+                        )
 
                 from app.joysafeter_orchestrator.lifespan import get_session_broadcaster
 
                 broadcaster = get_session_broadcaster()
-                if broadcaster:
+                if broadcaster and running_accepted:
                     await broadcaster.send(
                         session_id,
                         {
                             "type": "session.status_running",
+                            "task_id": str(task_id),
                             "seq": seq + 1,
                         },
                     )

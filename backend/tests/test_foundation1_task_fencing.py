@@ -22,9 +22,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession, JoySafeterSessionEvent
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
+from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService
 from app.joysafeter_domain.services.joysafeter_task_state_machine import JoySafeterTaskStateMachine
+from app.joysafeter_shared.common.app_errors import ConflictError
 
 
 @pytest_asyncio.fixture
@@ -154,6 +157,168 @@ async def test_no_expected_epoch_preserves_unconditional_write(db_session, agent
 
 
 @pytest.mark.asyncio
+async def test_task_scoped_idle_does_not_override_other_active_task(db_session, agent_id):
+    session = JoySafeterSession(agent_id=agent_id, status="running")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    session_id = session.id
+
+    old_task = JoySafeterTask(
+        agent_id=agent_id,
+        chat_session_id=session_id,
+        prompt="old turn",
+        status=JoySafeterTaskStatus.COMPLETED.value,
+    )
+    new_task = JoySafeterTask(
+        agent_id=agent_id,
+        chat_session_id=session_id,
+        prompt="new turn",
+        status=JoySafeterTaskStatus.RUNNING.value,
+    )
+    db_session.add_all([old_task, new_task])
+    await db_session.commit()
+    await db_session.refresh(old_task)
+
+    updated = await SessionService(db_session).update_session_status_for_task_event(
+        session_id,
+        "idle",
+        old_task.id,
+        stop_reason={"type": "end_turn"},
+    )
+
+    assert updated is False
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))).scalar_one()
+    assert row.status == "running"
+    assert row.stop_reason is None
+
+
+@pytest.mark.asyncio
+async def test_task_scoped_running_ignores_terminal_task(db_session, agent_id):
+    session = JoySafeterSession(agent_id=agent_id, status="idle")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    session_id = session.id
+
+    task = JoySafeterTask(
+        agent_id=agent_id,
+        chat_session_id=session_id,
+        prompt="finished turn",
+        status=JoySafeterTaskStatus.COMPLETED.value,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+
+    updated = await SessionService(db_session).update_session_status_for_task_event(
+        session_id,
+        "running",
+        task.id,
+    )
+
+    assert updated is False
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))).scalar_one()
+    assert row.status == "idle"
+
+
+@pytest.mark.asyncio
+async def test_task_scoped_running_does_not_override_other_active_task(db_session, agent_id):
+    session = JoySafeterSession(
+        agent_id=agent_id,
+        status="idle",
+        stop_reason={"type": "requires_action", "event_ids": ["evt_current"]},
+    )
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    session_id = session.id
+
+    old_task = JoySafeterTask(
+        agent_id=agent_id,
+        chat_session_id=session_id,
+        prompt="old turn",
+        status=JoySafeterTaskStatus.RUNNING.value,
+    )
+    current_task = JoySafeterTask(
+        agent_id=agent_id,
+        chat_session_id=session_id,
+        prompt="current turn",
+        status=JoySafeterTaskStatus.RUNNING.value,
+    )
+    db_session.add_all([old_task, current_task])
+    await db_session.commit()
+    await db_session.refresh(old_task)
+
+    updated = await SessionService(db_session).update_session_status_for_task_event(
+        session_id,
+        "running",
+        old_task.id,
+    )
+
+    assert updated is False
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))).scalar_one()
+    assert row.status == "idle"
+    assert row.stop_reason == {"type": "requires_action", "event_ids": ["evt_current"]}
+
+
+@pytest.mark.asyncio
+async def test_current_task_running_event_persists_when_session_already_running(
+    postgres_url, db_session, agent_id, monkeypatch
+):
+    from app.joysafeter_orchestrator.events.envelope import JoySafeterEventEnvelope
+    from app.joysafeter_orchestrator.events.session_state import SessionStateSubscriber
+
+    engine = create_async_engine(postgres_url, poolclass=NullPool)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
+
+    session = JoySafeterSession(agent_id=agent_id, status="running")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    session_id = session.id
+
+    task = JoySafeterTask(
+        agent_id=agent_id,
+        chat_session_id=session_id,
+        prompt="current turn",
+        status=JoySafeterTaskStatus.RUNNING.value,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+    task_id = task.id
+
+    try:
+        await SessionStateSubscriber().handle(
+            JoySafeterEventEnvelope(
+                session_id=session_id,
+                event_type="session.status_running",
+                payload={},
+                task_id=task_id,
+                is_status_change=True,
+            )
+        )
+    finally:
+        await engine.dispose()
+
+    db_session.expire_all()
+    event = (
+        await db_session.execute(
+            select(JoySafeterSessionEvent).where(
+                JoySafeterSessionEvent.session_id == session_id,
+                JoySafeterSessionEvent.event_type == "session.status_running",
+            )
+        )
+    ).scalar_one()
+    assert event.payload == {"task_id": str(task_id)}
+
+
+@pytest.mark.asyncio
 async def test_retry_clears_owner_epoch(db_session, agent_id):
     sm = JoySafeterTaskStateMachine(db_session)
     sb = uuid.uuid4()
@@ -163,6 +328,61 @@ async def test_retry_clears_owner_epoch(db_session, agent_id):
     assert await sm.retry(task_id) is True
     row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
     assert row.owner_epoch is None, "retry must clear the fencing token alongside owner/lease"
+
+
+@pytest.mark.asyncio
+async def test_retry_with_expected_epoch_is_single_use(db_session, agent_id):
+    """The retry transition itself must be epoch-CAS fenced, not only the
+    caller's pre-read. Otherwise two failure handlers holding the same epoch can
+    both retry and consume two attempts."""
+    svc = JoySafeterTaskService(db_session)
+    sm = JoySafeterTaskStateMachine(db_session)
+    sb = uuid.uuid4()
+    task_id = await _scheduling_task(db_session, agent_id, sb)
+    claimed = await sm.claim_next_sandbox_task_for_running(sb)
+    assert claimed is not None
+    epoch = claimed[1]
+
+    assert await svc.increment_retry(task_id, expected_epoch=epoch) is True
+    assert await svc.increment_retry(task_id, expected_epoch=epoch) is False
+
+    row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
+    assert row.status == JoySafeterTaskStatus.PENDING.value
+    assert row.retry_count == 1, "the same owner epoch must not consume retry twice"
+    assert row.owner_epoch is None
+
+
+@pytest.mark.asyncio
+async def test_cancel_is_atomic_against_concurrent_terminal_write(postgres_url, db_session, agent_id):
+    task = JoySafeterTask(
+        agent_id=agent_id,
+        prompt="cancel race",
+        status=JoySafeterTaskStatus.RUNNING.value,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+    task_id = task.id
+
+    engine = create_async_engine(postgres_url, poolclass=NullPool)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    try:
+        async with factory() as other_db:
+            await other_db.execute(
+                sa_update(JoySafeterTask)
+                .where(JoySafeterTask.id == task_id)
+                .values(status=JoySafeterTaskStatus.COMPLETED.value)
+            )
+            await other_db.commit()
+
+        with pytest.raises(ValueError):
+            await JoySafeterTaskStateMachine(db_session).cancel(task_id)
+    finally:
+        await engine.dispose()
+
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
+    assert row.status == JoySafeterTaskStatus.COMPLETED.value
 
 
 @pytest.mark.asyncio
@@ -207,3 +427,343 @@ async def test_failover_with_stale_epoch_is_dropped(postgres_url, db_session, ag
     row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
     assert row.status == JoySafeterTaskStatus.RUNNING.value, "the reclaimed task must keep running under its new owner"
     assert row.retry_count == 1, "the zombie failover must not consume another retry"
+
+
+@pytest.mark.asyncio
+async def test_failover_exhausted_retry_is_epoch_fenced(postgres_url, db_session, agent_id, monkeypatch):
+    from app.joysafeter_orchestrator.kernel.task_controller import TaskController
+
+    engine = create_async_engine(postgres_url, poolclass=NullPool)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
+
+    sb = uuid.uuid4()
+    task = JoySafeterTask(
+        agent_id=agent_id,
+        prompt="scan target",
+        status=JoySafeterTaskStatus.RUNNING.value,
+        sandbox_id=sb,
+        retry_count=2,
+        max_retries=2,
+        owner_epoch=10,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+    task_id = task.id
+
+    try:
+        result = await TaskController.failover_or_fail_task(task_id, "stale failure", expected_epoch=9)
+    finally:
+        await engine.dispose()
+
+    assert result is None
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
+    assert row.status == JoySafeterTaskStatus.RUNNING.value
+    assert row.error is None
+
+
+@pytest.mark.asyncio
+async def test_failover_exhausted_retry_marks_session_idle(postgres_url, db_session, agent_id, monkeypatch):
+    from app.joysafeter_orchestrator.kernel.task_controller import TaskController
+
+    engine = create_async_engine(postgres_url, poolclass=NullPool)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
+
+    session = JoySafeterSession(agent_id=agent_id, status="running")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    session_id = session.id
+
+    task = JoySafeterTask(
+        agent_id=agent_id,
+        chat_session_id=session_id,
+        prompt="scan target",
+        status=JoySafeterTaskStatus.RUNNING.value,
+        retry_count=2,
+        max_retries=2,
+        owner_epoch=10,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+    task_id = task.id
+
+    try:
+        result = await TaskController.failover_or_fail_task(task_id, "process crashed", expected_epoch=10)
+    finally:
+        await engine.dispose()
+
+    assert result is None
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
+    session_row = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
+    ).scalar_one()
+    event = (
+        await db_session.execute(
+            select(JoySafeterSessionEvent).where(
+                JoySafeterSessionEvent.session_id == session_id,
+                JoySafeterSessionEvent.event_type == "session.status_idle",
+            )
+        )
+    ).scalar_one()
+
+    assert row.status == JoySafeterTaskStatus.FAILED.value
+    assert row.error == "process crashed"
+    assert session_row.status == "idle"
+    assert session_row.stop_reason == {"type": "retries_exhausted"}
+    assert event.payload == {"task_id": str(task_id), "stop_reason": {"type": "retries_exhausted"}}
+
+
+@pytest.mark.asyncio
+async def test_failover_completed_after_output_is_epoch_fenced(postgres_url, db_session, agent_id, monkeypatch):
+    from app.joysafeter_orchestrator.kernel.task_controller import TaskController
+
+    engine = create_async_engine(postgres_url, poolclass=NullPool)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
+
+    session = JoySafeterSession(agent_id=agent_id, status="running")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    session_id = session.id
+
+    task = JoySafeterTask(
+        agent_id=agent_id,
+        chat_session_id=session_id,
+        prompt="scan target",
+        status=JoySafeterTaskStatus.RUNNING.value,
+        retry_count=0,
+        max_retries=2,
+        owner_epoch=20,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+    task_id = task.id
+
+    db_session.add(
+        JoySafeterSessionEvent(
+            session_id=session.id,
+            event_type="session.status_running",
+            payload={"task_id": str(task_id)},
+            seq=1,
+        )
+    )
+    await db_session.commit()
+    db_session.add(
+        JoySafeterSessionEvent(
+            session_id=session.id,
+            event_type="agent.message",
+            payload={"content": [{"type": "text", "text": "done"}]},
+            seq=2,
+        )
+    )
+    await db_session.commit()
+
+    try:
+        result = await TaskController.failover_or_fail_task(task_id, "stale failure", expected_epoch=19)
+    finally:
+        await engine.dispose()
+
+    assert result is None
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
+    assert row.status == JoySafeterTaskStatus.RUNNING.value
+    assert row.completed_at is None
+
+
+@pytest.mark.asyncio
+async def test_failover_marks_completed_when_agent_output_already_persisted(
+    postgres_url, db_session, agent_id, monkeypatch
+):
+    from app.joysafeter_orchestrator.kernel.task_controller import TaskController
+
+    engine = create_async_engine(postgres_url, poolclass=NullPool)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
+
+    session = JoySafeterSession(agent_id=agent_id, status="running")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    session_id = session.id
+
+    task = JoySafeterTask(
+        agent_id=agent_id,
+        chat_session_id=session_id,
+        prompt="scan target",
+        status=JoySafeterTaskStatus.RUNNING.value,
+        retry_count=0,
+        max_retries=2,
+        owner_epoch=30,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+    task_id = task.id
+
+    db_session.add(
+        JoySafeterSessionEvent(
+            session_id=session_id,
+            event_type="session.status_running",
+            payload={"task_id": str(task_id)},
+            seq=1,
+        )
+    )
+    await db_session.commit()
+    db_session.add(
+        JoySafeterSessionEvent(
+            session_id=session.id,
+            event_type="agent.message",
+            payload={"content": [{"type": "text", "text": "final answer"}]},
+            seq=2,
+        )
+    )
+    await db_session.commit()
+
+    try:
+        result = await TaskController.failover_or_fail_task(task_id, "process crashed", expected_epoch=30)
+    finally:
+        await engine.dispose()
+
+    assert result is None
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
+    assert row.status == JoySafeterTaskStatus.COMPLETED.value
+    assert row.retry_count == 0
+
+
+@pytest.mark.asyncio
+async def test_failover_repairs_missing_agent_message_from_persisted_task_output(
+    postgres_url, db_session, agent_id, monkeypatch
+):
+    from app.joysafeter_orchestrator.kernel.task_controller import TaskController
+
+    engine = create_async_engine(postgres_url, poolclass=NullPool)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
+
+    session = JoySafeterSession(agent_id=agent_id, status="running")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    session_id = session.id
+
+    task = JoySafeterTask(
+        agent_id=agent_id,
+        chat_session_id=session_id,
+        prompt="scan target",
+        status=JoySafeterTaskStatus.RUNNING.value,
+        output="final answer",
+        retry_count=0,
+        max_retries=2,
+        owner_epoch=40,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+    task_id = task.id
+
+    db_session.add(
+        JoySafeterSessionEvent(
+            session_id=session_id,
+            event_type="session.status_running",
+            payload={"task_id": str(task_id)},
+            seq=1,
+        )
+    )
+    await db_session.commit()
+
+    try:
+        result = await TaskController.failover_or_fail_task(task_id, "process crashed", expected_epoch=40)
+    finally:
+        await engine.dispose()
+
+    assert result is None
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
+    events = (
+        (
+            await db_session.execute(
+                select(JoySafeterSessionEvent)
+                .where(JoySafeterSessionEvent.session_id == session_id)
+                .order_by(JoySafeterSessionEvent.seq.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert row.status == JoySafeterTaskStatus.COMPLETED.value
+    assert row.retry_count == 0
+    assert [(evt.event_type, evt.payload) for evt in events] == [
+        ("session.status_running", {"task_id": str(task_id)}),
+        ("agent.message", {"content": [{"type": "text", "text": "final answer"}]}),
+        ("session.status_idle", {"task_id": str(task_id), "stop_reason": {"type": "end_turn"}}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_archive_session_rejects_active_task_even_when_session_looks_idle(db_session, agent_id):
+    session = JoySafeterSession(agent_id=agent_id, status="idle")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    session_id = session.id
+
+    task = JoySafeterTask(
+        agent_id=agent_id,
+        chat_session_id=session_id,
+        prompt="scan target",
+        status=JoySafeterTaskStatus.PENDING.value,
+    )
+    db_session.add(task)
+    await db_session.commit()
+
+    with pytest.raises(ConflictError) as exc_info:
+        await SessionService(db_session).archive_session(session_id)
+
+    assert exc_info.value.message == "Cannot archive session with active tasks"
+    db_session.expire_all()
+    session_row = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
+    ).scalar_one()
+    assert session_row.status == "idle"
+    assert session_row.archived_at is None
+
+
+@pytest.mark.asyncio
+async def test_delete_session_rejects_active_task_even_when_session_looks_idle(db_session, agent_id):
+    session = JoySafeterSession(agent_id=agent_id, status="idle")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    session_id = session.id
+
+    task = JoySafeterTask(
+        agent_id=agent_id,
+        chat_session_id=session_id,
+        prompt="scan target",
+        status=JoySafeterTaskStatus.PENDING.value,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+    task_id = task.id
+
+    with pytest.raises(ConflictError) as exc_info:
+        await SessionService(db_session).delete_session(session_id)
+
+    assert exc_info.value.message == "Cannot delete session with active tasks"
+    db_session.expire_all()
+    session_row = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
+    ).scalar_one()
+    task_row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
+    assert session_row.status == "idle"
+    assert task_row.chat_session_id == session_id

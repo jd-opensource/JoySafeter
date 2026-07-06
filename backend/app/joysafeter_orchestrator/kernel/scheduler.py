@@ -98,14 +98,28 @@ class TaskScheduler:
                 if not agent:
                     from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
 
-                    await task_svc.update_task_error(task_id, "Agent not found", JoySafeterTaskStatus.FAILED)
+                    failed = await task_svc.update_task_error(task_id, "Agent not found", JoySafeterTaskStatus.FAILED)
+                    if failed:
+                        await self._idle_task_session(
+                            session_svc,
+                            task_id,
+                            task.chat_session_id,
+                            {"type": "error", "message": "Agent not found"},
+                        )
                     return
 
                 if getattr(agent, "archived_at", None) is not None:
                     logger.warning("Agent {} is archived, cancelling task {}", task.agent_id, task_id)
                     from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
 
-                    await task_svc.update_task_status(task_id, JoySafeterTaskStatus.CANCELLED)
+                    cancelled = await task_svc.update_task_status(task_id, JoySafeterTaskStatus.CANCELLED)
+                    if cancelled:
+                        await self._idle_task_session(
+                            session_svc,
+                            task_id,
+                            task.chat_session_id,
+                            {"type": "cancelled"},
+                        )
                     return
 
                 session_id = task.chat_session_id
@@ -280,6 +294,33 @@ class TaskScheduler:
                 logger.error("Failed to failover task {}: {}", task_id, inner)
         finally:
             self._scheduling_semaphore.release()
+
+    @staticmethod
+    async def _idle_task_session(
+        session_svc,
+        task_id: uuid.UUID,
+        session_id: uuid.UUID | None,
+        stop_reason: dict,
+    ) -> None:
+        if session_id is None:
+            return
+        try:
+            idle_updated = await session_svc.update_session_status_for_task_event(
+                session_id,
+                "idle",
+                task_id,
+                stop_reason=stop_reason,
+            )
+            if idle_updated:
+                await session_svc.send_event(
+                    session_id,
+                    "session.status_idle",
+                    {"task_id": str(task_id), "stop_reason": stop_reason},
+                )
+        except Exception:
+            logger.debug(
+                "Could not transition session %s to idle for terminal task %s", session_id, task_id, exc_info=True
+            )
 
     async def push_to_global(self, task_id: uuid.UUID) -> None:
         await self._queue.push_to_global(task_id)

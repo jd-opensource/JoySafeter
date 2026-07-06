@@ -70,19 +70,35 @@ class JoySafeterTaskStateMachine:
         return list(result.scalars().all())
 
     async def cancel(self, task_id: uuid.UUID) -> Optional[JoySafeterTask]:
-        task = await self._get_task(task_id)
-        if not task:
-            return None
-        status = JoySafeterTaskStatus.from_str_lossy(task.status)
-        if status.is_terminal():
-            raise ValueError(f"Task already in terminal state: {task.status}")
-
-        task.status = JoySafeterTaskStatus.CANCELLED.value
-        task.completed_at = utc_now()
-        task.duration_ms = self._duration_ms(task.started_at, task.completed_at)
+        now = utc_now()
+        duration_ms = await self._duration_ms_for_task(task_id, now)
+        result = await self.db.execute(
+            sa_update(JoySafeterTask)
+            .where(
+                and_(
+                    JoySafeterTask.id == task_id,
+                    JoySafeterTask.status.notin_(TERMINAL_VALUES),
+                )
+            )
+            .values(
+                status=JoySafeterTaskStatus.CANCELLED.value,
+                completed_at=now,
+                duration_ms=duration_ms,
+            )
+            .returning(JoySafeterTask.id)
+        )
         await self.db.commit()
-        await self.db.refresh(task)
-        return task
+        row = result.one_or_none()
+        if row is not None:
+            return await self._get_task(task_id)
+
+        current = await self._get_task(task_id)
+        if not current:
+            return None
+        status = JoySafeterTaskStatus.from_str_lossy(current.status)
+        if status.is_terminal():
+            raise ValueError(f"Task already in terminal state: {current.status}")
+        return None
 
     async def transition_to(
         self,
@@ -186,15 +202,17 @@ class JoySafeterTaskStateMachine:
         await self.db.commit()
         return cast(CursorResult[Any], result).rowcount > 0
 
-    async def retry(self, task_id: uuid.UUID) -> bool:
+    async def retry(self, task_id: uuid.UUID, expected_epoch: Optional[int] = None) -> bool:
+        conditions = [
+            JoySafeterTask.id == task_id,
+            JoySafeterTask.status.notin_(TERMINAL_VALUES),
+        ]
+        if expected_epoch is not None:
+            conditions.append(JoySafeterTask.owner_epoch == expected_epoch)
+
         result = await self.db.execute(
             sa_update(JoySafeterTask)
-            .where(
-                and_(
-                    JoySafeterTask.id == task_id,
-                    JoySafeterTask.status.notin_(TERMINAL_VALUES),
-                )
-            )
+            .where(and_(*conditions))
             .values(
                 retry_count=JoySafeterTask.retry_count + 1,
                 status=JoySafeterTaskStatus.PENDING.value,
@@ -317,7 +335,9 @@ class JoySafeterTaskStateMachine:
         return cast(CursorResult[Any], result).rowcount > 0
 
     async def _get_task(self, task_id: uuid.UUID) -> Optional[JoySafeterTask]:
-        result = await self.db.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))
+        result = await self.db.execute(
+            select(JoySafeterTask).where(JoySafeterTask.id == task_id).execution_options(populate_existing=True)
+        )
         return result.scalar_one_or_none()
 
     async def _duration_ms_for_task(self, task_id: uuid.UUID, completed_at: datetime) -> Optional[int]:

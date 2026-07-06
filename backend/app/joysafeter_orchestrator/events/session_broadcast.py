@@ -30,6 +30,10 @@ class SessionBroadcastSubscriber:
         if envelope.is_status_change:
             if envelope.seq:
                 event_dict["_runner_seq"] = envelope.seq
+            if envelope.payload:
+                event_dict.update(envelope.payload)
+            if envelope.task_id and "task_id" not in event_dict:
+                event_dict["task_id"] = str(envelope.task_id)
             if envelope.stop_reason:
                 event_dict["stop_reason"] = envelope.stop_reason
         else:
