@@ -9,10 +9,24 @@ from app.joysafeter_shared.common.error_catalog import (
 
 def test_catalog_is_wellformed_registry():
     assert isinstance(CATALOG, dict)
+    assert CATALOG, "catalog must be seeded (Task 1.2)"
     for code, entry in CATALOG.items():
         assert isinstance(entry, CatalogEntry)
         assert entry.code == code, f"key {code!r} != entry.code {entry.code!r}"
         assert entry.default_message, f"{code} missing default_message"
+
+
+def test_conflict_codes_resolved_to_canonical_class():
+    from app.joysafeter_shared.common.app_errors import (
+        AccessDeniedError,
+        AuthenticationError,
+        ResourceConflictError,
+    )
+
+    assert CATALOG["PROJECT_ACCESS_DENIED"].error_class is AccessDeniedError
+    assert CATALOG["SKILL_NAME_ALREADY_EXISTS"].error_class is ResourceConflictError
+    assert CATALOG["USER_INVALID"].error_class is AuthenticationError
+    assert CATALOG["USER_NOT_FOUND"].error_class is AuthenticationError
 
 
 def test_catalog_accessors():
