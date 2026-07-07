@@ -123,15 +123,23 @@ def _secret_matches_engine(secret, engine_kind: str) -> bool:
     provider = (getattr(secret, "provider", "") or "").lower()
     protocol = (getattr(secret, "protocol", "") or "").lower()
     keys = set((getattr(secret, "data", None) or {}).keys())
+    is_openai_secret = (
+        provider == "codex"
+        or protocol in {"openai_responses", "chat_completions"}
+        or "OPENAI_API_KEY" in keys
+    )
+    is_anthropic_secret = (
+        provider in {"anthropic", "claude"}
+        or protocol == "anthropic_messages"
+        or "ANTHROPIC_API_KEY" in keys
+        or "ANTHROPIC_AUTH_TOKEN" in keys
+    )
     if engine_kind == "codex":
-        return provider == "codex" or protocol in {"openai_responses", "chat_completions"} or "OPENAI_API_KEY" in keys
-    if engine_kind in ("claude", "native"):
-        return (
-            provider in {"anthropic", "claude"}
-            or protocol == "anthropic_messages"
-            or "ANTHROPIC_API_KEY" in keys
-            or "ANTHROPIC_AUTH_TOKEN" in keys
-        )
+        return is_openai_secret
+    if engine_kind == "claude":
+        return is_anthropic_secret
+    if engine_kind == "native":
+        return is_anthropic_secret or is_openai_secret
     return True
 
 
@@ -196,8 +204,10 @@ def _model_from_secret_data(secret_data: dict[str, Any] | None, engine_kind: str
 
     if (engine_kind or "claude") == "codex":
         model_id = secret_data.get("OPENAI_MODEL")
+    elif engine_kind == "native":
+        model_id = secret_data.get("ANTHROPIC_MODEL") or secret_data.get("OPENAI_MODEL") or secret_data.get("MODEL")
     else:
-        # claude, native, and any other engine
+        # claude and any other engine
         model_id = secret_data.get("ANTHROPIC_MODEL") or secret_data.get("MODEL")
 
     return {"id": str(model_id)} if model_id else None

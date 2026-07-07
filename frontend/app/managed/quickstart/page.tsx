@@ -93,21 +93,23 @@ function isSecretCompatible(secret: QuickstartSecret | undefined, engine: Quicks
   const provider = (secret.provider || '').toLowerCase()
   const protocol = (secret.protocol || '').toLowerCase()
   const keys = new Set(secret.keys || [])
-  if (engine === 'codex') {
-    return (
-      provider === 'codex' ||
-      protocol === 'openai_responses' ||
-      protocol === 'chat_completions' ||
-      keys.has('OPENAI_API_KEY')
-    )
-  }
-  return (
+
+  const isOpenAiSecret =
+    provider === 'codex' ||
+    protocol === 'openai_responses' ||
+    protocol === 'chat_completions' ||
+    keys.has('OPENAI_API_KEY')
+
+  const isAnthropicSecret =
     provider === 'anthropic' ||
     provider === 'claude' ||
     protocol === 'anthropic_messages' ||
     keys.has('ANTHROPIC_API_KEY') ||
     keys.has('ANTHROPIC_AUTH_TOKEN')
-  )
+
+  if (engine === 'codex') return isOpenAiSecret
+  if (engine === 'native') return isOpenAiSecret || isAnthropicSecret
+  return isAnthropicSecret
 }
 
 function secretDetail(secret: QuickstartSecret) {
