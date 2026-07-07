@@ -54,3 +54,16 @@ def test_every_emitted_code_is_registered():
     emitted = set(collect())
     missing = sorted(emitted - all_codes())
     assert not missing, f"Codes raised in the backend but absent from CATALOG (add them to error_catalog.py): {missing}"
+
+
+def test_frontend_dispatched_codes_are_registered():
+    import re
+
+    errors_ts = Path(__file__).resolve().parents[2] / "frontend" / "lib" / "managed" / "errors.ts"
+    source = errors_ts.read_text(encoding="utf-8")
+    dispatched = set(re.findall(r"code === '([A-Z0-9_]+)'", source))
+    missing = sorted(dispatched - all_codes())
+    assert not missing, (
+        "Frontend errors.ts dispatches on codes absent from the backend catalog "
+        f"(dead/mismatched frontend branches, or missing catalog entries): {missing}"
+    )
