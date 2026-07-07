@@ -324,11 +324,18 @@ async def build_harness_input(
 
     engine_kind = getattr(agent, "engine_kind", None) or "claude"
     project_id = str(agent.project_id) if getattr(agent, "project_id", None) is not None else None
+    session_environment_ref: Optional[str] = None
+    if session_id:
+        async with AsyncSessionLocal() as db:
+            session_svc = SessionService(db)
+            session = await session_svc.get_session(session_id)
+            if session:
+                session_environment_ref = getattr(session, "environment_ref", None)
 
     # Resolve environment for setup commands
     environment = None
     environment_config: dict[str, Any] = {}
-    environment_ref = getattr(agent, "environment_ref", None)
+    environment_ref = session_environment_ref or getattr(agent, "environment_ref", None)
     if environment_ref:
         from app.joysafeter_orchestrator.services import EnvironmentService
 

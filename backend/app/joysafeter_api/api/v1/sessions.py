@@ -83,6 +83,17 @@ def _slugify_mount_name(name: str) -> str:
     return _NON_ALNUM_RE.sub("-", name.lower()).strip("-")
 
 
+def _canonical_environment_ref(raw: str | None) -> str:
+    ref = (raw or "").strip()
+    if not ref:
+        return ""
+    try:
+        env_id = uuid.UUID(ref.removeprefix("env_"))
+        return f"env_{env_id}"
+    except ValueError:
+        return ref
+
+
 def _session_task_enqueue_failed_stop_reason(
     *, session_id: uuid.UUID, task_id: uuid.UUID | None = None
 ) -> dict[str, object]:
@@ -180,11 +191,8 @@ async def create_session(
             user_action="fix_input",
         )
 
-    # --- Parse environment_id: strip env_ prefix and store raw ref ---
-    env_id_raw = req.environment_id or ""
-    environment_ref = env_id_raw
-    if env_id_raw.startswith("env_"):
-        environment_ref = env_id_raw[len("env_") :]
+    # --- Parse environment_id: canonicalize UUID refs, preserve name refs ---
+    environment_ref = _canonical_environment_ref(req.environment_id)
 
     # --- Resolve agent ---
     agent_svc = AgentService(db)

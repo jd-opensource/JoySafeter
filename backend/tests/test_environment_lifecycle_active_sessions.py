@@ -92,6 +92,39 @@ async def test_archive_environment_rejects_non_archived_session_reference(db_ses
 
 
 @pytest.mark.asyncio
+async def test_archive_environment_rejects_legacy_bare_uuid_session_reference(db_session):
+    env = JoySafeterEnvironment(name=f"legacy-env-ref-{uuid.uuid4()}", description="")
+    agent = JoySafeterAgent(name=f"legacy-env-agent-{uuid.uuid4()}")
+    db_session.add_all([env, agent])
+    await db_session.commit()
+    await db_session.refresh(env)
+    await db_session.refresh(agent)
+    env_id = env.id
+
+    session = JoySafeterSession(agent_id=agent.id, status="idle", environment_ref=str(env.id))
+    db_session.add(session)
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await archive_environment(env_id, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "ENVIRONMENT_ACTIVE_SESSION_REFERENCE",
+        "message": "Environment is referenced by one or more active sessions.",
+        "data": {"environment_id": str(env_id)},
+        "source": "api",
+        "retryable": True,
+        "user_action": "retry",
+    }
+
+    db_session.expire_all()
+    env_row = (
+        await db_session.execute(select(JoySafeterEnvironment).where(JoySafeterEnvironment.id == env_id))
+    ).scalar_one()
+    assert env_row.archived_at is None
+
+
+@pytest.mark.asyncio
 async def test_archive_environment_rejects_active_task_agent_reference_without_session(db_session):
     env = JoySafeterEnvironment(name=f"agent-env-ref-{uuid.uuid4()}", description="")
     db_session.add(env)

@@ -20,7 +20,7 @@ def _environment_ref_matches(ref: object, env_name: str, env_id: uuid.UUID) -> b
     if ref is None:
         return False
     normalized = str(ref).strip()
-    return normalized == env_name or normalized == f"env_{env_id}"
+    return normalized == env_name or normalized == f"env_{env_id}" or normalized == str(env_id)
 
 
 class EnvironmentService:
@@ -69,16 +69,20 @@ class EnvironmentService:
         self, ref: str, project_id: Optional[str] = None
     ) -> Optional[JoySafeterEnvironment]:
         """If ref starts with 'env_', try to parse as UUID and query by ID.
-        Otherwise query by name. Filter deleted_at IS NULL."""
-        if ref.startswith("env_"):
-            try:
-                env_id = uuid.UUID(ref[len("env_") :])
-                return await self.get_environment(env_id, project_id=project_id)
-            except ValueError:
-                pass
+        A bare UUID is also accepted for legacy session rows created before
+        session environment refs were canonicalized. Otherwise query by name.
+        Filter deleted_at IS NULL."""
+        normalized = ref.strip()
+        if not normalized:
+            return None
+        try:
+            env_id = uuid.UUID(normalized.removeprefix("env_"))
+            return await self.get_environment(env_id, project_id=project_id)
+        except ValueError:
+            pass
         # Fall back to name lookup
         conditions = [
-            JoySafeterEnvironment.name == ref,
+            JoySafeterEnvironment.name == normalized,
             JoySafeterEnvironment.deleted_at.is_(None),
         ]
         if project_id is not None:
@@ -195,12 +199,14 @@ class EnvironmentService:
         project_id: Optional[str] = None,
     ) -> bool:
         """Check if any session has environment_ref matching either the name or
-        env_<uuid> format AND archived_at IS NULL."""
+        env_<uuid> / legacy bare UUID format AND archived_at IS NULL."""
         env_prefixed = f"env_{env_id}"
+        env_bare = str(env_id)
         conditions = [
             or_(
                 JoySafeterSession.environment_ref == env_name,
                 JoySafeterSession.environment_ref == env_prefixed,
+                JoySafeterSession.environment_ref == env_bare,
             ),
             JoySafeterSession.archived_at.is_(None),
         ]
