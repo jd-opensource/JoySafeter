@@ -15,7 +15,7 @@ from gen_error_catalog import collect  # noqa: E402
 
 def test_catalog_is_wellformed_registry():
     assert isinstance(CATALOG, dict)
-    assert CATALOG, "catalog must be seeded (Task 1.2)"
+    assert CATALOG, "catalog must be seeded"
     for code, entry in CATALOG.items():
         assert isinstance(entry, CatalogEntry)
         assert entry.code == code, f"key {code!r} != entry.code {entry.code!r}"
@@ -36,18 +36,15 @@ def test_conflict_codes_resolved_to_canonical_class():
 
 
 def test_catalog_accessors():
-    # Absent-code behavior holds regardless of whether the catalog is seeded.
     assert is_registered("____DEFINITELY_NOT_A_CODE____") is False
     assert entry_for("____NOPE____") is None
     assert isinstance(all_codes(), frozenset)
     assert all_codes() == frozenset(CATALOG)
 
-    # When the catalog is seeded (Task 1.2+), verify the present-code path too.
-    if CATALOG:
-        sample = next(iter(CATALOG))
-        assert is_registered(sample) is True
-        assert entry_for(sample) is CATALOG[sample]
-        assert sample in all_codes()
+    sample = next(iter(CATALOG))
+    assert is_registered(sample) is True
+    assert entry_for(sample) is CATALOG[sample]
+    assert sample in all_codes()
 
 
 def test_every_emitted_code_is_registered():
