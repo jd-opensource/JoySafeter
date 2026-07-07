@@ -51,7 +51,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let orch_url = std::env::var("JOYSAFETER_ORCHESTRATOR_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:9090".into());
     let sandbox_id = std::env::var("JOYSAFETER_SANDBOX_ID").unwrap_or_default();
-    let runner_token = std::env::var("JOYSAFETER_RUNNER_TOKEN").ok();
+    // Read the runner token from env or from a file (the entrypoint may have
+    // moved it to a file and unset the env var to prevent leakage via
+    // `docker exec env`).
+    let runner_token = std::env::var("JOYSAFETER_RUNNER_TOKEN")
+        .ok()
+        .or_else(|| {
+            std::env::var("JOYSAFETER_RUNNER_TOKEN_FILE")
+                .ok()
+                .and_then(|path| {
+                    let token = std::fs::read_to_string(&path).ok()?.trim().to_string();
+                    // Delete the file after reading — one-shot.
+                    let _ = std::fs::remove_file(&path);
+                    if token.is_empty() { None } else { Some(token) }
+                })
+        });
 
     // Derive http.sock path from orchestrator URL (e.g. unix:///sockets/{id}/grpc.sock → http.sock)
     let http_sock_path = if orch_url.starts_with("unix://") {
@@ -187,6 +201,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Connected successfully
         retry_count = 0;
+        if is_first_connect {
+            // Defense-in-depth: scrub the runner token from this process's env.
+            // The entrypoint wrapper already removed it from the container-level
+            // env (preventing `docker exec env` exposure), but this also covers
+            // legacy images that run joysafeter-runner directly as ENTRYPOINT.
+            std::env::remove_var("JOYSAFETER_RUNNER_TOKEN");
+            std::env::remove_var("JOYSAFETER_RUNNER_TOKEN_FILE");
+        }
         is_first_connect = false;
         info!(
             sandbox_id = %sandbox_id,

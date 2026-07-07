@@ -34,13 +34,13 @@ class Packages(BaseModel):
 
 
 class Networking(BaseModel):
-    type: str = "unrestricted"
+    type: str = "limited"
     allowed_hosts: list[str] = Field(default_factory=list)
     allow_mcp_servers: bool = False
     allow_package_managers: bool = False
 
     def is_default(self) -> bool:
-        return self.type == "unrestricted"
+        return self.type == "limited"
 
     @staticmethod
     def normalize_allowed_host(host: str) -> str:

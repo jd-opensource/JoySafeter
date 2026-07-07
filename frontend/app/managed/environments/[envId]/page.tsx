@@ -47,7 +47,7 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [networkType, setNetworkType] = useState('unrestricted')
+  const [networkType, setNetworkType] = useState('limited')
   const [allowedHosts, setAllowedHosts] = useState('')
   const [aptPackages, setAptPackages] = useState('')
   const [pipPackages, setPipPackages] = useState('')
@@ -59,7 +59,7 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
     if (env) {
       setName(env.name)
       setDescription(env.description || '')
-      setNetworkType(env.config?.networking?.type || 'unrestricted')
+      setNetworkType(env.config?.networking?.type || 'limited')
       setAllowedHosts(env.config?.networking?.allowed_hosts?.join(', ') || '')
       setAptPackages(env.config?.packages?.apt?.join(', ') || '')
       setPipPackages(env.config?.packages?.pip?.join(', ') || '')

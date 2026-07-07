@@ -37,6 +37,7 @@ x-backend-env-files: &backend-env-files
   - ../frontend/.env
 
 x-backend-common-env: &backend-common-env
+  TZ: ${TZ:-Asia/Shanghai}
   POSTGRES_USER: ${POSTGRES_USER:-postgres}
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
   POSTGRES_DB: ${POSTGRES_DB:-joysafeter}
@@ -70,6 +71,7 @@ x-backend-common-env: &backend-common-env
   JOYSAFETER_ENVOY_GRPC_PORT: ${JOYSAFETER_ENVOY_GRPC_PORT:-9090}
   JOYSAFETER_ENVOY_CONTAINER_NAME: ${JOYSAFETER_ENVOY_CONTAINER_NAME:-joysafeter-envoy}
   JOYSAFETER_ENVOY_XDS_MODE: ${JOYSAFETER_ENVOY_XDS_MODE:-filesystem}
+  JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS: ${JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS:-api.anthropic.com,api.openai.com,generativelanguage.googleapis.com,*.openai.azure.com}
   SKILL_SECURITY_SCAN_ENABLED: ${SKILL_SECURITY_SCAN_ENABLED:-true}
   SKILL_SECURITY_SCANNER_URL: ${SKILL_SECURITY_SCANNER_URL:-http://skillspector:8010}
   SKILL_SECURITY_TIMEOUT_SECONDS: ${SKILL_SECURITY_TIMEOUT_SECONDS:-30}
@@ -100,6 +102,8 @@ services:
     image: ${JOYSAFETER_ENVOY_IMAGE:-envoyproxy/envoy:v1.37.1}
     container_name: ${JOYSAFETER_ENVOY_CONTAINER_NAME:-joysafeter-envoy}
     restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
     entrypoint: ["/bin/sh"]
     command:
       - -c
@@ -126,6 +130,7 @@ services:
     container_name: joysafeter-skillspector
     restart: unless-stopped
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       SKILLSPECTOR_VERSION: ${SKILLSPECTOR_VERSION:-local}
       SKILLSPECTOR_SERVICE_SCAN_TIMEOUT: ${SKILLSPECTOR_SERVICE_SCAN_TIMEOUT:-120}
       SKILLSPECTOR_SERVICE_MAX_FILES: ${SKILLSPECTOR_SERVICE_MAX_FILES:-100}
@@ -158,6 +163,7 @@ services:
     container_name: joysafeter-db
     restart: unless-stopped
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-joysafeter}
@@ -316,6 +322,7 @@ services:
     container_name: joysafeter-frontend
     restart: unless-stopped
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       NODE_ENV: production
       NEXT_PUBLIC_API_URL: ${BACKEND_URL:-http://localhost:8000}
       NEXT_PUBLIC_APP_URL: ${FRONTEND_URL:-http://localhost:3000}

@@ -260,7 +260,7 @@ Thumbs.db
 backend/data/files/
 
 # Local Rust orchestrator experiment (do not publish)
-backend/app/joysafeter_orchestrator_rs/
+#backend/app/joysafeter_orchestrator_rs/
 
 deploy/docker/mcp/mcp_servers/jebmcp/jeb
 deploy/docker/mcp/mcp_servers/jebmcp/core

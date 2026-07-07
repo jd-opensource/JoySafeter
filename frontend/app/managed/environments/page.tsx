@@ -51,7 +51,7 @@ export default function EnvironmentListPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [networkType, setNetworkType] = useState('unrestricted')
+  const [networkType, setNetworkType] = useState('limited')
   const [allowedHosts, setAllowedHosts] = useState('')
   const [aptPackages, setAptPackages] = useState('')
   const [pipPackages, setPipPackages] = useState('')
@@ -60,38 +60,18 @@ export default function EnvironmentListPage() {
   const [secretRefs, setSecretRefs] = useState('')
   const [creating, setCreating] = useState(false)
 
-  const {
-    data,
-    isLoading,
-    isFetching,
-    isError,
-    error,
-    hasNext,
-    hasPrev,
-    page,
-    pageSize,
-    pageSizeOptions,
-    goNext,
-    goPrev,
-    goToPage,
-    setPageSize,
-  } = usePaginatedList<Environment>({
-    queryKey: 'environments',
-    path: '/environments',
-    includeArchived: showArchived,
-  })
+  const { data, isLoading, isFetching, isError, error, hasNext, hasPrev, page, pageSize, pageSizeOptions, goNext, goPrev, goToPage, setPageSize } =
+    usePaginatedList<Environment>({
+      queryKey: 'environments',
+      path: '/environments',
+      includeArchived: showArchived,
+    })
 
   const environments = data.filter(
     (e) =>
       (showArchived || !e.archived_at) &&
       filterByCreatedTime(e.created_at, createdFilter) &&
-      matchesSearch(searchQuery, [
-        e.id,
-        e.name,
-        e.description,
-        e.config?.type,
-        e.archived_at ? 'archived' : 'active',
-      ]),
+      matchesSearch(searchQuery, [e.id, e.name, e.description, e.config?.type, e.archived_at ? 'archived' : 'active']),
   )
 
   const filters: FilterDef[] = [
@@ -122,7 +102,7 @@ export default function EnvironmentListPage() {
   const resetForm = () => {
     setName('')
     setDescription('')
-    setNetworkType('unrestricted')
+    setNetworkType('limited')
     setAllowedHosts('')
     setAptPackages('')
     setPipPackages('')
@@ -132,6 +112,9 @@ export default function EnvironmentListPage() {
   }
 
   const resetDialog = (open: boolean) => {
+    if (open) {
+      resetForm()
+    }
     setShowCreate(open)
     if (!open) {
       resetForm()
@@ -200,12 +183,16 @@ export default function EnvironmentListPage() {
     {
       key: 'name',
       header: t('managed.environments.table.name'),
-      render: (e) => <span className="font-medium text-foreground">{e.name}</span>,
+      render: (e) => (
+        <span className="font-medium text-foreground">{e.name}</span>
+      ),
     },
     {
       key: 'status',
       header: t('managed.environments.table.status'),
-      render: (e) => <StatusBadge status={e.archived_at ? 'archived' : 'active'} />,
+      render: (e) => (
+        <StatusBadge status={e.archived_at ? 'archived' : 'active'} />
+      ),
     },
     {
       key: 'type',
@@ -218,7 +205,7 @@ export default function EnvironmentListPage() {
       key: 'created_at',
       header: t('managed.table.created'),
       render: (e) => (
-        <span className="text-xs text-muted-foreground">
+        <span className="text-muted-foreground text-xs">
           <RelativeTime date={e.created_at} />
         </span>
       ),
@@ -226,13 +213,7 @@ export default function EnvironmentListPage() {
   ]
 
   if (isError) {
-    return (
-      <ResourceErrorState
-        error={error}
-        resource="environment"
-        onRetry={() => queryClient.invalidateQueries({ queryKey: ['environments'] })}
-      />
-    )
+    return <ResourceErrorState error={error} resource="environment" onRetry={() => queryClient.invalidateQueries({ queryKey: ['environments'] })} />
   }
 
   return (
@@ -242,7 +223,7 @@ export default function EnvironmentListPage() {
         subtitle={t('managed.environments.subtitle')}
         action={
           <Button size="sm" onClick={() => resetDialog(true)}>
-            <Plus className="h-4 w-4" />
+            <Plus className="w-4 h-4" />
             {t('managed.environments.add')}
           </Button>
         }
@@ -263,20 +244,16 @@ export default function EnvironmentListPage() {
         loading={isLoading}
         fetching={isFetching}
         onRowClick={(e) => router.push(`/managed/environments/${e.id}`)}
-        actionMenu={(env) =>
-          env.archived_at
-            ? []
-            : [
-                {
-                  label: t('managed.environments.archiveEnv'),
-                  onClick: () => {
-                    managedPost(`/environments/${stripIdPrefix(env.id)}/archive`, {}).then(() => {
-                      queryClient.invalidateQueries({ queryKey: ['environments'] })
-                    })
-                  },
-                },
-              ]
-        }
+        actionMenu={(env) => env.archived_at ? [] : [
+          {
+            label: t('managed.environments.archiveEnv'),
+            onClick: () => {
+              managedPost(`/environments/${stripIdPrefix(env.id)}/archive`, {}).then(() => {
+                queryClient.invalidateQueries({ queryKey: ['environments'] })
+              })
+            },
+          },
+        ]}
         pagination={{
           hasNext,
           hasPrev,
@@ -292,14 +269,18 @@ export default function EnvironmentListPage() {
       />
 
       <Dialog open={showCreate} onOpenChange={resetDialog}>
-        <DialogContent className="max-h-[85vh] max-w-xl overflow-y-auto">
+        <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t('managed.environments.addTitle')}</DialogTitle>
-            <DialogDescription>{t('managed.environments.addDesc')}</DialogDescription>
+            <DialogDescription>
+              {t('managed.environments.addDesc')}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('managed.environments.name')}</label>
+              <label className="text-sm font-medium">
+                {t('managed.environments.name')}
+              </label>
               <Input
                 placeholder={t('managed.environments.namePlaceholder')}
                 value={name}
@@ -308,7 +289,9 @@ export default function EnvironmentListPage() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('managed.environments.description')}</label>
+              <label className="text-sm font-medium">
+                {t('managed.environments.description')}
+              </label>
               <Input
                 placeholder={t('managed.environments.descPlaceholder')}
                 value={description}
@@ -317,17 +300,21 @@ export default function EnvironmentListPage() {
             </div>
 
             <div className="border-t pt-4">
-              <h4 className="mb-3 text-sm font-medium">{t('managed.environments.networking')}</h4>
+              <h4 className="text-sm font-medium mb-3">
+                {t('managed.environments.networking')}
+              </h4>
               <div className="space-y-3">
                 <Select value={networkType} onValueChange={setNetworkType}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="limited">
+                      {t('managed.environments.netLimited')}
+                    </SelectItem>
                     <SelectItem value="unrestricted">
                       {t('managed.environments.netUnrestricted')}
                     </SelectItem>
-                    <SelectItem value="limited">{t('managed.environments.netLimited')}</SelectItem>
                   </SelectContent>
                 </Select>
                 {networkType === 'limited' && (
@@ -346,7 +333,9 @@ export default function EnvironmentListPage() {
             </div>
 
             <div className="border-t pt-4">
-              <h4 className="mb-3 text-sm font-medium">{t('managed.environments.packages')}</h4>
+              <h4 className="text-sm font-medium mb-3">
+                {t('managed.environments.packages')}
+              </h4>
               <div className="space-y-3">
                 <div className="space-y-1">
                   <label className="text-xs text-muted-foreground">apt</label>
@@ -376,7 +365,9 @@ export default function EnvironmentListPage() {
             </div>
 
             <div className="border-t pt-4">
-              <h4 className="mb-3 text-sm font-medium">{t('managed.environments.envVarsLabel')}</h4>
+              <h4 className="text-sm font-medium mb-3">
+                {t('managed.environments.envVarsLabel')}
+              </h4>
               <Input
                 placeholder="KEY=value, NODE_ENV=production"
                 value={envVars}
@@ -385,7 +376,7 @@ export default function EnvironmentListPage() {
             </div>
 
             <div className="border-t pt-4">
-              <h4 className="mb-3 text-sm font-medium">
+              <h4 className="text-sm font-medium mb-3">
                 {t('managed.environments.secretRefsLabel')}
               </h4>
               <Input
@@ -396,8 +387,13 @@ export default function EnvironmentListPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button onClick={handleCreate} disabled={!name.trim() || creating}>
-              {creating ? t('managed.environments.creating') : t('managed.environments.add')}
+            <Button
+              onClick={handleCreate}
+              disabled={!name.trim() || creating}
+            >
+              {creating
+                ? t('managed.environments.creating')
+                : t('managed.environments.add')}
             </Button>
           </DialogFooter>
         </DialogContent>

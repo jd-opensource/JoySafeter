@@ -49,6 +49,8 @@ RUN npm install -g /tmp/claude-code-best-2.5.5.tgz && rm -f /tmp/claude-code-bes
 
 COPY target/x86_64-unknown-linux-gnu/release/joysafeter-runner /usr/local/bin/joysafeter-runner
 RUN chmod +x /usr/local/bin/joysafeter-runner
+COPY deploy/docker/runner-entrypoint.sh /usr/local/bin/runner-entrypoint.sh
+RUN chmod +x /usr/local/bin/runner-entrypoint.sh
 
 USER agent
-ENTRYPOINT ["joysafeter-runner"]
+ENTRYPOINT ["runner-entrypoint.sh"]
