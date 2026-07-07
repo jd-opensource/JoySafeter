@@ -5,6 +5,7 @@ import uuid
 from app.joysafeter_orchestrator.kernel.queue import QueueBackend
 from app.joysafeter_orchestrator.kernel.sandbox_bridge import SandboxBridgeRegistry
 from app.joysafeter_orchestrator.sandbox.provider import SandboxProvider, SandboxStatus
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 from app.joysafeter_shared.config.settings import joysafeter_config
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,34 @@ class SandboxController:
         self._coordinator = coordinator
         self._stop_semaphore = asyncio.Semaphore(MAX_CONCURRENT_STOPS)
 
+    @staticmethod
+    def _log_boundary_failure(
+        *,
+        code: str,
+        message: str,
+        operation: str,
+        error: Exception | None = None,
+        data: dict[str, object] | None = None,
+        retryable: bool = True,
+        user_action: str | None = "retry",
+    ) -> None:
+        logger.warning(
+            message,
+            extra={
+                "error": async_boundary_error_payload(
+                    code=code,
+                    message=message,
+                    boundary="sandbox_controller",
+                    operation=operation,
+                    data=data,
+                    retryable=retryable,
+                    user_action=user_action,
+                    detail=error.__class__.__name__ if error is not None else None,
+                )
+            },
+            exc_info=error is not None,
+        )
+
     async def cleanup_orphaned_provider_sandboxes(self) -> int:
         """Destroy provider sandboxes that have no DB record.
 
@@ -37,7 +66,12 @@ class SandboxController:
         try:
             active = await self._provider.list_active()
         except Exception as e:
-            logger.warning("Provider orphan scan failed: %s", e)
+            self._log_boundary_failure(
+                code="SANDBOX_PROVIDER_ORPHAN_SCAN_FAILED",
+                message="Provider orphan sandbox scan failed",
+                operation="provider_orphan_scan",
+                error=e,
+            )
             return 0
 
         if not active:
@@ -73,7 +107,13 @@ class SandboxController:
                 cleaned += 1
                 logger.info("Destroyed orphaned provider sandbox %s", external_id)
             except Exception as e:
-                logger.warning("Failed to destroy orphaned sandbox %s: %s", external_id, e)
+                self._log_boundary_failure(
+                    code="SANDBOX_PROVIDER_ORPHAN_DESTROY_FAILED",
+                    message="Failed to destroy orphaned provider sandbox",
+                    operation="destroy_provider_orphan",
+                    error=e,
+                    data={"external_id": str(external_id), "sandbox_id_label": str(sandbox_id_raw or "")},
+                )
 
         return cleaned
 
@@ -105,10 +145,13 @@ class SandboxController:
                 status = await self._provider.status(sandbox.external_id)
                 status_str = status if isinstance(status, str) else str(status)
                 if status_str in ("not_found", SandboxStatus.NOT_FOUND):
-                    logger.warning(
-                        "DB orphan: sandbox %s (ext=%s) not found in provider, marking destroyed",
-                        sandbox.id,
-                        sandbox.external_id,
+                    self._log_boundary_failure(
+                        code="SANDBOX_DB_ORPHAN_PROVIDER_MISSING",
+                        message="DB sandbox orphan not found in provider; marking destroyed",
+                        operation="cleanup_db_orphan_sandbox",
+                        data={"sandbox_id": str(sandbox.id), "external_id": str(sandbox.external_id)},
+                        retryable=False,
+                        user_action=None,
                     )
                     async with AsyncSessionLocal() as db:
                         svc = SandboxService(db)
@@ -117,8 +160,14 @@ class SandboxController:
                     if bridge:
                         await self._bridge_registry.remove(sandbox.id)
                     cleaned += 1
-            except Exception:
-                logger.debug("Failed to check provider status for %s, skipping", sandbox.external_id)
+            except Exception as exc:
+                self._log_boundary_failure(
+                    code="SANDBOX_PROVIDER_STATUS_CHECK_FAILED",
+                    message="Failed to check provider sandbox status",
+                    operation="provider_status_check",
+                    error=exc,
+                    data={"sandbox_id": str(sandbox.id), "external_id": str(sandbox.external_id)},
+                )
 
         if cleaned:
             logger.info("Reverse orphan sweep: destroyed %d DB-only records", cleaned)
@@ -130,28 +179,55 @@ class SandboxController:
         while True:
             await asyncio.sleep(30)
             _orphan_cleanup_counter += 1
+            await self._run_idle_sweep_iteration(_orphan_cleanup_counter)
+
+    async def _run_idle_sweep_iteration(self, orphan_cleanup_counter: int) -> None:
+        try:
+            await self._health_check_bridges()
+        except Exception as e:
+            self._log_boundary_failure(
+                code="SANDBOX_HEALTH_CHECK_FAILED",
+                message="Sandbox health check phase failed",
+                operation="health_check_bridges",
+                error=e,
+            )
+        try:
+            await self._expire_idle_sandboxes()
+        except Exception as e:
+            self._log_boundary_failure(
+                code="SANDBOX_IDLE_REAP_FAILED",
+                message="Sandbox idle reap phase failed",
+                operation="expire_idle_sandboxes",
+                error=e,
+            )
+        try:
+            await self._force_stop_stuck()
+        except Exception as e:
+            self._log_boundary_failure(
+                code="SANDBOX_STUCK_STOPPING_FAILED",
+                message="Sandbox stuck-stopping phase failed",
+                operation="force_stop_stuck",
+                error=e,
+            )
+        try:
+            await self._destroy_stopped_sandboxes()
+        except Exception as e:
+            self._log_boundary_failure(
+                code="SANDBOX_DESTROY_STOPPED_FAILED",
+                message="Sandbox destroy-stopped phase failed",
+                operation="destroy_stopped_sandboxes",
+                error=e,
+            )
+        if orphan_cleanup_counter % 10 == 0:
             try:
-                await self._health_check_bridges()
+                await self.cleanup_orphaned_provider_sandboxes()
             except Exception as e:
-                logger.warning("Phase 0 health check failed: %s", e)
-            try:
-                await self._expire_idle_sandboxes()
-            except Exception as e:
-                logger.warning("Phase 1 reap (idle/disconnect/hard-timeout) failed: %s", e)
-            try:
-                await self._force_stop_stuck()
-            except Exception as e:
-                logger.warning("Phase 2 stuck stopping failed: %s", e)
-            try:
-                await self._destroy_stopped_sandboxes()
-            except Exception as e:
-                logger.warning("Phase 3 destroy failed: %s", e)
-            # Run orphan cleanup every 10th iteration (~5 minutes)
-            if _orphan_cleanup_counter % 10 == 0:
-                try:
-                    await self.cleanup_orphaned_provider_sandboxes()
-                except Exception as e:
-                    logger.warning("Periodic orphan cleanup failed: %s", e)
+                self._log_boundary_failure(
+                    code="SANDBOX_PERIODIC_ORPHAN_CLEANUP_FAILED",
+                    message="Periodic orphan sandbox cleanup failed",
+                    operation="periodic_orphan_cleanup",
+                    error=e,
+                )
 
     async def run_provisioning_poll(self) -> None:
         logger.info("SandboxController provisioning poll started (5s interval)")
@@ -160,7 +236,12 @@ class SandboxController:
             try:
                 await self._check_provisioning_timeout()
             except Exception as e:
-                logger.warning("Provisioning poll failed: %s", e)
+                self._log_boundary_failure(
+                    code="SANDBOX_PROVISIONING_POLL_FAILED",
+                    message="Sandbox provisioning poll failed",
+                    operation="check_provisioning_timeout",
+                    error=e,
+                )
 
     async def run_pool_manager(self) -> None:
         if not joysafeter_config.sandbox_pool_enabled:
@@ -171,7 +252,12 @@ class SandboxController:
             try:
                 await self._manage_pool()
             except Exception as e:
-                logger.warning("Pool manager failed: %s", e)
+                self._log_boundary_failure(
+                    code="SANDBOX_POOL_MANAGER_FAILED",
+                    message="Sandbox pool manager failed",
+                    operation="manage_pool",
+                    error=e,
+                )
 
     # -- Phase 0: Health check all registered bridges --
 
@@ -204,20 +290,31 @@ class SandboxController:
                     is_running = False
 
                 if not is_running:
-                    logger.warning(
-                        "Sandbox %s container %s not running, cleaning up",
-                        bridge.sandbox_db_id,
-                        bridge.external_id,
+                    self._log_boundary_failure(
+                        code="SANDBOX_HEALTH_CONTAINER_NOT_RUNNING",
+                        message="Sandbox container not running; cleaning up",
+                        operation="health_check_bridge",
+                        data={
+                            "sandbox_id": str(bridge.sandbox_db_id),
+                            "external_id": str(bridge.external_id),
+                        },
+                        retryable=True,
+                        user_action="retry",
                     )
                     await self._bridge_registry.remove(bridge.sandbox_db_id)
 
                     try:
                         await self._provider.destroy(bridge.external_id)
                     except Exception as e:
-                        logger.warning(
-                            "provider.destroy(%s) failed during health check: %s",
-                            bridge.external_id,
-                            e,
+                        self._log_boundary_failure(
+                            code="SANDBOX_HEALTH_PROVIDER_DESTROY_FAILED",
+                            message="Provider destroy failed during sandbox health check",
+                            operation="health_check_destroy_sandbox",
+                            error=e,
+                            data={
+                                "sandbox_id": str(bridge.sandbox_db_id),
+                                "external_id": str(bridge.external_id),
+                            },
                         )
 
                     async with AsyncSessionLocal() as db:
@@ -227,18 +324,22 @@ class SandboxController:
                     try:
                         await self._provider.teardown_networking(bridge.sandbox_db_id)
                     except Exception as e:
-                        logger.warning(
-                            "Phase 0 teardown_networking for %s failed: %s",
-                            bridge.sandbox_db_id,
-                            e,
+                        self._log_boundary_failure(
+                            code="SANDBOX_HEALTH_NETWORK_TEARDOWN_FAILED",
+                            message="Sandbox networking teardown failed during health cleanup",
+                            operation="health_check_teardown_networking",
+                            error=e,
+                            data={"sandbox_id": str(bridge.sandbox_db_id)},
                         )
 
                     await self._queue.drain_and_requeue_sandbox(bridge.sandbox_db_id)
             except Exception as e:
-                logger.warning(
-                    "Health check for sandbox %s failed: %s",
-                    bridge.sandbox_db_id,
-                    e,
+                self._log_boundary_failure(
+                    code="SANDBOX_HEALTH_CHECK_FAILED",
+                    message="Sandbox health check failed",
+                    operation="health_check_bridge",
+                    error=e,
+                    data={"sandbox_id": str(bridge.sandbox_db_id)},
                 )
 
     # -- Phase 1: Expire idle sandboxes with actual provider.stop() --
@@ -343,10 +444,12 @@ class SandboxController:
                 try:
                     await self._queue.drain_and_requeue_sandbox(sb_id)
                 except Exception as e:
-                    logger.warning(
-                        "Failed to drain/requeue tasks for sandbox %s during idle stop: %s",
-                        sb_id,
-                        e,
+                    self._log_boundary_failure(
+                        code="SANDBOX_IDLE_STOP_TASK_DRAIN_FAILED",
+                        message="Failed to drain/requeue tasks for sandbox during idle stop",
+                        operation="idle_stop_drain_tasks",
+                        error=e,
+                        data={"sandbox_id": str(sb_id)},
                     )
 
                 bridge = await self._bridge_registry.get(sb_id)
@@ -376,10 +479,12 @@ class SandboxController:
                             svc = SandboxService(db)
                             await svc.update_status(sb_id, "stopped")
                     else:
-                        logger.warning(
-                            "provider.stop(%s) failed: %s",
-                            external_id,
-                            e,
+                        self._log_boundary_failure(
+                            code="SANDBOX_PROVIDER_STOP_FAILED",
+                            message="Provider stop failed for sandbox",
+                            operation="stop_sandbox",
+                            error=e,
+                            data={"sandbox_id": str(sb_id), "external_id": str(external_id)},
                         )
                         # Only revert to idle when we were on the graceful
                         # path — for non-graceful reaps there's nothing
@@ -428,7 +533,14 @@ class SandboxController:
 
         async def _force_stop_one(sb_id: uuid.UUID, external_id: str) -> None:
             async with self._stop_semaphore:
-                logger.warning("Sandbox %s stuck stopping >60s, force stopping", sb_id)
+                self._log_boundary_failure(
+                    code="SANDBOX_STUCK_STOPPING_FORCE_STOP",
+                    message="Sandbox stuck stopping; force stopping",
+                    operation="force_stop_stuck_sandbox",
+                    data={"sandbox_id": str(sb_id), "external_id": str(external_id), "timeout_sec": 60},
+                    retryable=True,
+                    user_action="retry",
+                )
                 await self._bridge_registry.remove(sb_id)
 
                 stop_succeeded = False
@@ -440,7 +552,13 @@ class SandboxController:
                     if "No such container" in err:
                         stop_succeeded = True  # container already gone
                     else:
-                        logger.warning("Force stop failed for %s: %s", sb_id, e)
+                        self._log_boundary_failure(
+                            code="SANDBOX_FORCE_STOP_FAILED",
+                            message="Sandbox force stop failed",
+                            operation="force_stop",
+                            error=e,
+                            data={"sandbox_id": str(sb_id), "external_id": external_id},
+                        )
 
                 if stop_succeeded:
                     async with AsyncSessionLocal() as db:
@@ -450,7 +568,13 @@ class SandboxController:
                     try:
                         await self._provider.teardown_networking(sb_id)
                     except Exception as e:
-                        logger.warning("Phase 2 teardown_networking for %s failed: %s", sb_id, e)
+                        self._log_boundary_failure(
+                            code="SANDBOX_TEARDOWN_NETWORKING_FAILED",
+                            message="Sandbox networking teardown failed after force stop",
+                            operation="teardown_networking_after_force_stop",
+                            error=e,
+                            data={"sandbox_id": str(sb_id), "external_id": external_id},
+                        )
 
         tasks = [asyncio.create_task(_force_stop_one(sb_id, ext_id)) for sb_id, ext_id in stuck]
         if tasks:
@@ -492,7 +616,13 @@ class SandboxController:
                     if "No such container" in err or "404" in err:
                         destroy_ok = True
                     else:
-                        logger.warning("provider.destroy(%s) failed: %s", external_id, e)
+                        self._log_boundary_failure(
+                            code="SANDBOX_PROVIDER_DESTROY_FAILED",
+                            message="Sandbox provider destroy failed",
+                            operation="provider_destroy",
+                            error=e,
+                            data={"sandbox_id": str(sb_id), "external_id": external_id},
+                        )
 
                 if destroy_ok:
                     async with AsyncSessionLocal() as db:
@@ -502,7 +632,13 @@ class SandboxController:
                     try:
                         await self._provider.teardown_networking(sb_id)
                     except Exception as e:
-                        logger.warning("Phase 3 teardown_networking for %s failed: %s", sb_id, e)
+                        self._log_boundary_failure(
+                            code="SANDBOX_TEARDOWN_NETWORKING_FAILED",
+                            message="Sandbox networking teardown failed after destroy",
+                            operation="teardown_networking_after_destroy",
+                            error=e,
+                            data={"sandbox_id": str(sb_id), "external_id": external_id},
+                        )
 
                     logger.info("Sandbox %s destroyed", sb_id)
 
@@ -526,10 +662,12 @@ class SandboxController:
             try:
                 await self._queue.drain_sandbox(sandbox_id)
             except Exception as e:
-                logger.warning(
-                    "Failed to drain sandbox queue before provisioning task recovery for %s: %s",
-                    sandbox_id,
-                    e,
+                self._log_boundary_failure(
+                    code="SANDBOX_PROVISIONING_RECOVERY_QUEUE_DRAIN_FAILED",
+                    message="Failed to drain sandbox queue before provisioning task recovery",
+                    operation="provisioning_timeout_drain_queue",
+                    error=e,
+                    data={"sandbox_id": str(sandbox_id)},
                 )
 
             async with AsyncSessionLocal() as db:
@@ -563,11 +701,12 @@ class SandboxController:
                     await self._queue.push_to_global(task_id)
                     requeued += 1
                 except Exception as e:
-                    logger.warning(
-                        "Failed to requeue task %s after sandbox %s provisioning failure: %s",
-                        task_id,
-                        sandbox_id,
-                        e,
+                    self._log_boundary_failure(
+                        code="SANDBOX_PROVISIONING_RECOVERY_TASK_REQUEUE_FAILED",
+                        message="Failed to requeue task after sandbox provisioning failure",
+                        operation="provisioning_timeout_requeue_task",
+                        error=e,
+                        data={"task_id": str(task_id), "sandbox_id": str(sandbox_id)},
                     )
             return requeued
 
@@ -608,28 +747,41 @@ class SandboxController:
 
                     if pstatus is not None:
                         if pstatus.get("error"):
-                            logger.error(
-                                "Sandbox %s provisioning failed: %s",
-                                sandbox.id,
-                                pstatus.get("error_message"),
+                            self._log_boundary_failure(
+                                code="SANDBOX_PROVISIONING_STATUS_FAILED",
+                                message="Sandbox provisioning status reported failure",
+                                operation="poll_provisioning_status",
+                                data={
+                                    "sandbox_id": str(sandbox.id),
+                                    "external_id": str(sandbox.external_id),
+                                    "stage": str(pstatus.get("stage") or ""),
+                                },
                             )
                             try:
                                 await self._provider.stop(sandbox.external_id)
                             except Exception as e:
-                                logger.warning(
-                                    "Failed to stop errored sandbox %s: %s",
-                                    sandbox.id,
-                                    e,
+                                self._log_boundary_failure(
+                                    code="SANDBOX_PROVISIONING_ERROR_STOP_FAILED",
+                                    message="Failed to stop errored sandbox",
+                                    operation="stop_errored_provisioning_sandbox",
+                                    error=e,
+                                    data={
+                                        "sandbox_id": str(sandbox.id),
+                                        "external_id": str(sandbox.external_id),
+                                    },
                                 )
                             async with AsyncSessionLocal() as db:
                                 svc = SandboxService(db)
                                 await svc.update_status(sandbox.id, "stopped")
                             requeued = await _requeue_scheduling_tasks(sandbox.id)
                             if requeued:
-                                logger.warning(
-                                    "Requeued %d scheduling task(s) after provisioning failure for sandbox %s",
-                                    requeued,
-                                    sandbox.id,
+                                self._log_boundary_failure(
+                                    code="SANDBOX_PROVISIONING_FAILURE_TASKS_REQUEUED",
+                                    message="Requeued scheduling tasks after provisioning failure",
+                                    operation="provisioning_failure_requeue_tasks",
+                                    data={"sandbox_id": str(sandbox.id), "requeued_count": requeued},
+                                    retryable=True,
+                                    user_action="retry",
                                 )
                         else:
                             config = {
@@ -646,24 +798,35 @@ class SandboxController:
                                 await svc.update_status_and_config(sandbox.id, "provisioning", config)
                 continue
 
-            logger.error(
-                "Provisioning sandbox %s timed out, stopping container",
-                sandbox.id,
+            self._log_boundary_failure(
+                code="SANDBOX_PROVISIONING_TIMEOUT",
+                message="Provisioning sandbox timed out, stopping container",
+                operation="poll_provisioning_timeout",
+                data={"sandbox_id": str(sandbox.id), "external_id": str(sandbox.external_id or "")},
             )
             if sandbox.external_id:
                 try:
                     await self._provider.stop(sandbox.external_id)
                 except Exception as e:
-                    logger.warning("Failed to stop timed-out sandbox %s: %s", sandbox.id, e)
+                    self._log_boundary_failure(
+                        code="SANDBOX_TIMEOUT_STOP_FAILED",
+                        message="Failed to stop timed-out provisioning sandbox",
+                        operation="stop_timed_out_provisioning",
+                        error=e,
+                        data={"sandbox_id": str(sandbox.id), "external_id": str(sandbox.external_id)},
+                    )
             async with AsyncSessionLocal() as db:
                 svc = SandboxService(db)
                 await svc.update_status(sandbox.id, "stopped")
             requeued = await _requeue_scheduling_tasks(sandbox.id)
             if requeued:
-                logger.warning(
-                    "Requeued %d scheduling task(s) after provisioning timeout for sandbox %s",
-                    requeued,
-                    sandbox.id,
+                self._log_boundary_failure(
+                    code="SANDBOX_PROVISIONING_TIMEOUT_TASKS_REQUEUED",
+                    message="Requeued scheduling tasks after provisioning timeout",
+                    operation="provisioning_timeout_requeue_tasks",
+                    data={"sandbox_id": str(sandbox.id), "requeued_count": requeued},
+                    retryable=True,
+                    user_action="retry",
                 )
 
     # -- Pool manager (unchanged logic) --
@@ -694,7 +857,12 @@ class SandboxController:
 
         resolver = get_sandbox_resolver()
         if not resolver:
-            logger.warning("Pool manager: no sandbox resolver available, skipping")
+            self._log_boundary_failure(
+                code="SANDBOX_POOL_RESOLVER_UNAVAILABLE",
+                message="Sandbox pool manager has no sandbox resolver",
+                operation="resolve_pool_sandbox_resolver",
+                retryable=True,
+            )
             return
 
         pool_images = joysafeter_config.sandbox_pool_images
@@ -714,7 +882,13 @@ class SandboxController:
                         await resolver.provision_pool_sandbox(image=image)
                         logger.info("Created pooled sandbox for image=%s", image)
                     except Exception as e:
-                        logger.warning("Failed to provision pool sandbox for image=%s: %s", image, e)
+                        self._log_boundary_failure(
+                            code="SANDBOX_POOL_PROVISION_FAILED",
+                            message="Failed to provision pooled sandbox",
+                            operation="provision_pool_sandbox",
+                            error=e,
+                            data={"image": image},
+                        )
                         break
 
         # Destroy stale pooled sandboxes
@@ -743,7 +917,13 @@ class SandboxController:
                     if "No such container" in err or "404" in err:
                         destroy_ok = True
                     else:
-                        logger.warning("Pool stale destroy(%s) failed: %s", external_id, e)
+                        self._log_boundary_failure(
+                            code="SANDBOX_POOL_STALE_DESTROY_FAILED",
+                            message="Failed to destroy stale pooled sandbox",
+                            operation="destroy_stale_pooled_sandbox",
+                            error=e,
+                            data={"sandbox_id": str(sb_id), "external_id": str(external_id)},
+                        )
             else:
                 destroy_ok = True
 

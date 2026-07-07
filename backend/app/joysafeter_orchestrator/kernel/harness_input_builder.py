@@ -9,6 +9,7 @@ import httpx
 
 from app.joysafeter_orchestrator.kernel.vault_cipher import VaultCipher
 from app.joysafeter_orchestrator.runtime.adapter import HarnessInput, SkillArchive
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,34 @@ CONVERSATION_HISTORY_MAX_CHARS = 24_000
 # ------------------------------------------------------------------
 
 _vault_cipher: VaultCipher | None = VaultCipher.from_env()
+
+
+def _log_boundary_failure(
+    *,
+    code: str,
+    message: str,
+    operation: str,
+    error: Exception,
+    data: dict[str, object] | None = None,
+    retryable: bool = True,
+    user_action: str | None = "retry",
+) -> None:
+    logger.warning(
+        message,
+        extra={
+            "error": async_boundary_error_payload(
+                code=code,
+                message=message,
+                boundary="harness_input_builder",
+                operation=operation,
+                data=data,
+                retryable=retryable,
+                user_action=user_action,
+                detail=error.__class__.__name__,
+            )
+        },
+        exc_info=True,
+    )
 
 
 def _resolve_environment_setup_commands(environment) -> list[str]:
@@ -237,7 +266,13 @@ async def _maybe_refresh_oauth(credential: dict, db_session) -> dict:
 
         logger.info("Refreshed OAuth token for credential %s", credential.get("id", "?"))
     except Exception as e:
-        logger.warning("OAuth refresh failed for credential %s: %s", credential.get("id", "?"), e)
+        _log_boundary_failure(
+            code="HARNESS_OAUTH_REFRESH_FAILED",
+            message="OAuth refresh failed for credential",
+            operation="refresh_oauth_credential",
+            error=e,
+            data={"credential_id": str(credential.get("id", "?"))},
+        )
 
     return credential
 
@@ -248,7 +283,12 @@ def _decrypt_credential_value(value: str) -> str:
         try:
             return _vault_cipher.decrypt_or_passthrough(value)
         except Exception as e:
-            logger.warning("VaultCipher decryption failed: %s", e)
+            _log_boundary_failure(
+                code="HARNESS_VAULT_CREDENTIAL_DECRYPT_FAILED",
+                message="VaultCipher credential decryption failed",
+                operation="decrypt_credential_value",
+                error=e,
+            )
     return value
 
 
@@ -425,7 +465,15 @@ async def build_harness_input(
                         )
                     )
                 except Exception as e:
-                    logger.warning("Failed to decode skill archive %s: %s", item.get("name"), e)
+                    _log_boundary_failure(
+                        code="HARNESS_SKILL_ARCHIVE_DECODE_FAILED",
+                        message="Failed to decode skill archive",
+                        operation="decode_skill_archive",
+                        error=e,
+                        data={"skill_name": str(item.get("name", "")), "target": target},
+                        retryable=False,
+                        user_action=None,
+                    )
             elif isinstance(item, dict) and item.get("skill_id"):
                 from app.joysafeter_orchestrator.services import SkillPacker
 
@@ -488,7 +536,18 @@ async def build_harness_input(
                         )
                     )
                 except Exception as e:
-                    logger.warning("Failed to load file %s: %s", sf.filename, e)
+                    _log_boundary_failure(
+                        code="HARNESS_SESSION_FILE_LOAD_FAILED",
+                        message="Failed to load session file for harness input",
+                        operation="load_session_file",
+                        error=e,
+                        data={
+                            "session_id": str(session_id),
+                            "filename": str(sf.filename),
+                            "storage_key": str(sf.storage_key),
+                            "mount_path": str(sf.mount_path),
+                        },
+                    )
                 # Generate presigned URL if storage supports it
                 try:
                     url = await storage.presign_url(sf.storage_key, expires=3600)
@@ -526,8 +585,14 @@ async def build_harness_input(
                 if rr.encrypted_token:
                     try:
                         token = secret_svc.decrypt_data({"token": rr.encrypted_token})["token"]
-                    except Exception:
-                        logger.warning("Failed to decrypt clone token for repo resource %s", rr.id)
+                    except Exception as e:
+                        _log_boundary_failure(
+                            code="HARNESS_REPO_CLONE_TOKEN_DECRYPT_FAILED",
+                            message="Failed to decrypt clone token for repo resource",
+                            operation="decrypt_repo_clone_token",
+                            error=e,
+                            data={"session_id": str(session_id), "repo_resource_id": str(rr.id)},
+                        )
                         continue
                 repos.append(
                     {

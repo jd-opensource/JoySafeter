@@ -25,6 +25,8 @@ from app.joysafeter_orchestrator.kernel.sandbox_bridge import (
     SandboxBridgeStatus,
     WsOutMessage,
 )
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
+from app.joysafeter_shared.common.stream_errors import async_error_payload
 from app.joysafeter_worker.events.batch_writer import BufferedEvent, EventBatchSender
 
 if TYPE_CHECKING:
@@ -40,12 +42,84 @@ async def _best_effort_redis(label: str, operation) -> None:
     try:
         await operation
     except Exception as exc:
-        logger.warning("Redis coordinator %s failed: %s", label, exc)
+        logger.warning(
+            "Redis coordinator %s failed",
+            label,
+            extra={
+                "error": async_boundary_error_payload(
+                    code="GRPC_REDIS_COORDINATOR_FAILED",
+                    message="Redis coordinator operation failed",
+                    boundary="grpc_agent_bridge",
+                    operation=label,
+                    detail=exc.__class__.__name__,
+                )
+            },
+            exc_info=True,
+        )
 
 
 async def _best_effort_publish_event(coordinator, task_id: uuid.UUID, payload: str) -> None:
     if coordinator:
         await _best_effort_redis("publish_event", coordinator.publish_event(task_id, payload))
+
+
+def _log_grpc_boundary_failure(
+    *,
+    code: str,
+    message: str,
+    operation: str,
+    error: Exception | None = None,
+    data: dict[str, object] | None = None,
+    retryable: bool = True,
+    user_action: str | None = "retry",
+    level: str = "warning",
+) -> None:
+    log_method = logger.error if level == "error" else logger.warning
+    log_method(
+        message,
+        extra={
+            "error": async_boundary_error_payload(
+                code=code,
+                message=message,
+                boundary="grpc_agent_bridge",
+                operation=operation,
+                data=data,
+                retryable=retryable,
+                user_action=user_action,
+                detail=error.__class__.__name__ if error is not None else None,
+            )
+        },
+        exc_info=error is not None,
+    )
+
+
+def _task_error_stop_reason(
+    *,
+    code: str,
+    message: str,
+    task_id: uuid.UUID | None = None,
+    session_id: uuid.UUID | None = None,
+    sandbox_id: uuid.UUID | None = None,
+    retryable: bool = False,
+    user_action: str | None = "refresh",
+    detail: str | None = None,
+) -> dict[str, Any]:
+    data: dict[str, object] = {}
+    if task_id is not None:
+        data["task_id"] = str(task_id)
+    if session_id is not None:
+        data["session_id"] = str(session_id)
+    if sandbox_id is not None:
+        data["sandbox_id"] = str(sandbox_id)
+    return async_error_payload(
+        code=code,
+        message=message,
+        data=data or None,
+        source="runtime",
+        retryable=retryable,
+        user_action=user_action,
+        detail=detail,
+    )
 
 
 def _get_heartbeat_timeout() -> int:
@@ -162,9 +236,13 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 if _sandbox_auth:
                     expected_token = (_sandbox_auth.config or {}).get("runner_token", "")
                     if expected_token and runner_token and not hmac.compare_digest(runner_token, expected_token):
-                        logger.warning(
-                            "Runner token mismatch for sandbox %s, rejecting",
-                            sandbox_id,
+                        _log_grpc_boundary_failure(
+                            code="GRPC_RUNNER_TOKEN_MISMATCH",
+                            message="Runner token mismatch; rejecting runner",
+                            operation="authenticate_runner",
+                            data={"sandbox_id": str(sandbox_id)},
+                            retryable=False,
+                            user_action="check_runner_configuration",
                         )
                         await context.abort(
                             grpc.StatusCode.UNAUTHENTICATED,
@@ -172,13 +250,24 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                         )
                         return
                     if expected_token and not runner_token:
-                        logger.warning(
-                            "Runner for sandbox %s did not provide runner token; allowing legacy runner",
-                            sandbox_id,
+                        _log_grpc_boundary_failure(
+                            code="GRPC_RUNNER_TOKEN_MISSING",
+                            message="Runner did not provide runner token; allowing legacy runner",
+                            operation="authenticate_runner",
+                            data={"sandbox_id": str(sandbox_id)},
+                            retryable=False,
+                            user_action="upgrade_runner",
                         )
                 elif runner_token == "":
                     # Unknown sandbox with no token — reject
-                    logger.warning("Unknown sandbox %s with no token, rejecting", sandbox_id)
+                    _log_grpc_boundary_failure(
+                        code="GRPC_UNKNOWN_SANDBOX_NO_TOKEN",
+                        message="Unknown sandbox connected without runner token",
+                        operation="authenticate_runner",
+                        data={"sandbox_id": str(sandbox_id)},
+                        retryable=False,
+                        user_action=None,
+                    )
                     await context.abort(
                         grpc.StatusCode.NOT_FOUND,
                         "Unknown sandbox_id",
@@ -215,10 +304,13 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 if _sandbox_rec:
                     _current_status = _sandbox_rec.status
                     if _current_status in ("destroyed", "error"):
-                        logger.warning(
-                            "Runner connected to terminal sandbox %s (status=%s), rejecting",
-                            sandbox_id,
-                            _current_status,
+                        _log_grpc_boundary_failure(
+                            code="GRPC_RUNNER_TERMINAL_SANDBOX_REJECTED",
+                            message="Runner connected to terminal sandbox; rejecting",
+                            operation="attach_runner",
+                            data={"sandbox_id": str(sandbox_id), "status": _current_status},
+                            retryable=False,
+                            user_action="restart_sandbox",
                         )
                         await bridge.write_to_runner(
                             joysafeter_pb2.OrchestratorMessage(
@@ -228,10 +320,13 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                         await self._bridge_registry.remove(sandbox_id)
                         return
                     if _current_status in ("stopping", "stopped"):
-                        logger.warning(
-                            "Runner connected to sandbox being stopped %s (status=%s), rejecting",
-                            sandbox_id,
-                            _current_status,
+                        _log_grpc_boundary_failure(
+                            code="GRPC_RUNNER_STOPPING_SANDBOX_REJECTED",
+                            message="Runner connected to sandbox being stopped; rejecting",
+                            operation="attach_runner",
+                            data={"sandbox_id": str(sandbox_id), "status": _current_status},
+                            retryable=False,
+                            user_action="restart_sandbox",
                         )
                         await bridge.write_to_runner(
                             joysafeter_pb2.OrchestratorMessage(
@@ -271,9 +366,13 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                             await asyncio.sleep(0.1)
 
                 if _sandbox_linked is None:
-                    logger.warning(
-                        "Timed out waiting for sandbox %s to link with session — SetupSandbox will be skipped",
-                        sandbox_id,
+                    _log_grpc_boundary_failure(
+                        code="GRPC_SETUP_SANDBOX_LINK_TIMEOUT",
+                        message="Timed out waiting for sandbox to link with session; SetupSandbox will be skipped",
+                        operation="wait_for_sandbox_session_link",
+                        data={"sandbox_id": str(sandbox_id), "attempts": 50},
+                        retryable=True,
+                        user_action="retry",
                     )
                 else:
                     await self._send_setup(bridge, sandbox_id)
@@ -338,11 +437,31 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             )
 
         except grpc_aio.AioRpcError as e:
-            logger.warning("gRPC AioRpcError for sandbox %s: code=%s details=%s", sandbox_id, e.code(), e.details())
+            _log_grpc_boundary_failure(
+                code="GRPC_SESSION_RPC_ERROR",
+                message="gRPC runner session ended with RPC error",
+                operation="runner_session",
+                error=e,
+                data={"sandbox_id": str(sandbox_id), "grpc_code": str(e.code()), "grpc_details": str(e.details())},
+            )
         except asyncio.CancelledError:
-            logger.warning("gRPC session cancelled for sandbox %s", sandbox_id)
+            _log_grpc_boundary_failure(
+                code="GRPC_SESSION_CANCELLED",
+                message="gRPC runner session cancelled",
+                operation="runner_session",
+                data={"sandbox_id": str(sandbox_id)},
+                retryable=False,
+                user_action=None,
+            )
         except Exception as e:
-            logger.error("gRPC session error for sandbox %s: %s", sandbox_id, e, exc_info=True)
+            _log_grpc_boundary_failure(
+                code="GRPC_SESSION_FAILED",
+                message="gRPC runner session failed",
+                operation="runner_session",
+                error=e,
+                data={"sandbox_id": str(sandbox_id)},
+                level="error",
+            )
         finally:
             stream_cancel.set()
             if bridge:
@@ -364,7 +483,13 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     async with AsyncSessionLocal() as _dc_db:
                         await SandboxService(_dc_db).mark_bridge_disconnected(sandbox_id)
                 except Exception as _dc_err:
-                    logger.debug("mark_bridge_disconnected(%s) failed: %s", sandbox_id, _dc_err)
+                    _log_grpc_boundary_failure(
+                        code="GRPC_MARK_BRIDGE_DISCONNECTED_FAILED",
+                        message="Failed to mark sandbox bridge disconnected",
+                        operation="mark_bridge_disconnected",
+                        error=_dc_err,
+                        data={"sandbox_id": str(sandbox_id)},
+                    )
                 await self._cleanup_sandbox(
                     sandbox_id,
                     session_id=linked_session_id,
@@ -423,11 +548,17 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 return
             # Verify task belongs to this sandbox
             if task.sandbox_id and task.sandbox_id != sandbox_id:
-                logger.warning(
-                    "Reconnect: task %s belongs to sandbox %s, not %s — rejecting",
-                    active_task_id,
-                    task.sandbox_id,
-                    sandbox_id,
+                _log_grpc_boundary_failure(
+                    code="GRPC_RECONNECT_TASK_SANDBOX_MISMATCH",
+                    message="Reconnect task belongs to a different sandbox; rejecting",
+                    operation="reconnect_active_task",
+                    data={
+                        "task_id": str(active_task_id),
+                        "task_sandbox_id": str(task.sandbox_id),
+                        "runner_sandbox_id": str(sandbox_id),
+                    },
+                    retryable=False,
+                    user_action="retry",
                 )
                 return
             if TaskStatus.from_str_lossy(task.status).is_terminal():
@@ -645,20 +776,30 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
                 # Heartbeat timeout
                 if heartbeat_fut in done:
-                    logger.warning(
-                        "Heartbeat timeout during resumed task %s: sandbox=%s",
-                        active_task_id,
-                        sandbox_id,
+                    _log_grpc_boundary_failure(
+                        code="GRPC_RESUMED_TASK_HEARTBEAT_TIMEOUT",
+                        message="Heartbeat timeout during resumed task",
+                        operation="run_resumed_task",
+                        data={"task_id": str(active_task_id), "sandbox_id": str(sandbox_id)},
+                        retryable=True,
+                        user_action="retry",
                     )
                     heartbeat_timed_out = True
                     break
 
                 # Task deadline
                 if deadline_fut in done and not requires_action_pending:
-                    logger.warning(
-                        "Task deadline exceeded for resumed task %s: timeout=%ds",
-                        active_task_id,
-                        task_timeout_sec,
+                    _log_grpc_boundary_failure(
+                        code="GRPC_RESUMED_TASK_DEADLINE_EXCEEDED",
+                        message="Task deadline exceeded for resumed task",
+                        operation="run_resumed_task",
+                        data={
+                            "task_id": str(active_task_id),
+                            "sandbox_id": str(sandbox_id),
+                            "timeout_sec": task_timeout_sec,
+                        },
+                        retryable=True,
+                        user_action="retry",
                     )
                     cancel_msg = joysafeter_pb2.OrchestratorMessage(
                         cancel=joysafeter_pb2.CancelTask(reason=f"Server-side deadline exceeded ({task_timeout_sec}s)")
@@ -673,8 +814,17 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                             expected_epoch=bridge.current_owner_epoch,
                         )
                     if not timeout_ok:
-                        logger.warning(
-                            "CAS conflict timing out resumed task %s; ignoring stale deadline", active_task_id
+                        _log_grpc_boundary_failure(
+                            code="GRPC_RESUMED_TASK_TIMEOUT_CAS_CONFLICT",
+                            message="CAS conflict timing out resumed task; ignoring stale deadline",
+                            operation="timeout_resumed_task",
+                            data={
+                                "task_id": str(active_task_id),
+                                "sandbox_id": str(sandbox_id),
+                                "owner_epoch": bridge.current_owner_epoch,
+                            },
+                            retryable=False,
+                            user_action=None,
                         )
                         stream_cancel.set()
                         return
@@ -940,17 +1090,27 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                         coordinator,
                     )
                     if not result_accepted:
-                        logger.warning("Ignoring stale reconnect result for task %s", active_task_id)
+                        _log_grpc_boundary_failure(
+                            code="GRPC_STALE_RECONNECT_RESULT_IGNORED",
+                            message="Ignoring stale reconnect result",
+                            operation="handle_reconnect_result",
+                            data={"task_id": str(active_task_id), "sandbox_id": str(sandbox_id)},
+                            retryable=False,
+                            user_action=None,
+                        )
                         stream_cancel.set()
                         return
                     task_done = True
 
                 elif payload_type == "idle":
                     if not task_done:
-                        logger.warning(
-                            "Runner idle before result for resumed task %s on sandbox %s",
-                            active_task_id,
-                            sandbox_id,
+                        _log_grpc_boundary_failure(
+                            code="GRPC_RESUMED_RUNNER_IDLE_BEFORE_RESULT",
+                            message="Runner idle before result for resumed task",
+                            operation="run_resumed_task",
+                            data={"task_id": str(active_task_id), "sandbox_id": str(sandbox_id)},
+                            retryable=True,
+                            user_action="retry",
                         )
                         break
                     idle_msg = msg.idle
@@ -1011,11 +1171,18 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     reason = f"Sandbox disconnected after reconnect (last error: {last_err})"
                 else:
                     reason = "Sandbox disconnected after reconnect"
-                logger.warning(
-                    "Resumed task %s incomplete on sandbox %s: %s",
-                    active_task_id,
-                    sandbox_id,
-                    reason,
+                _log_grpc_boundary_failure(
+                    code="GRPC_RESUMED_TASK_INCOMPLETE",
+                    message="Resumed task incomplete after sandbox disconnect",
+                    operation="failover_resumed_task",
+                    data={
+                        "task_id": str(active_task_id),
+                        "sandbox_id": str(sandbox_id),
+                        "reason": reason,
+                        "owner_epoch": bridge.current_owner_epoch,
+                    },
+                    retryable=True,
+                    user_action="retry",
                 )
                 retry_count = await TaskController.failover_or_fail_task(
                     active_task_id,
@@ -1118,9 +1285,23 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                         await self._queue.push_to_global(tid)
                         logger.info("Orphaned task %s reset to pending and re-queued", tid)
                     else:
-                        logger.warning("Could not fail over orphaned task %s (may be terminal or exhausted)", tid)
+                        _log_grpc_boundary_failure(
+                            code="GRPC_ORPHAN_TASK_FAILOVER_SKIPPED",
+                            message="Could not fail over orphaned task",
+                            operation="rescue_orphaned_task",
+                            data={"sandbox_id": str(sandbox_id), "task_id": str(tid)},
+                            retryable=False,
+                            user_action="refresh",
+                        )
         except Exception as e:
-            logger.error("Failed to rescue orphaned tasks for sandbox %s: %s", sandbox_id, e)
+            _log_grpc_boundary_failure(
+                code="GRPC_ORPHAN_TASK_RESCUE_FAILED",
+                message="Failed to rescue orphaned tasks for sandbox",
+                operation="rescue_orphaned_tasks",
+                error=e,
+                data={"sandbox_id": str(sandbox_id)},
+                level="error",
+            )
 
     async def _multi_task_loop(
         self,
@@ -1240,7 +1421,12 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 if hb_timer in done:
                     now = _time.monotonic()
                     if now >= heartbeat_deadline:
-                        logger.warning("Heartbeat timeout while idle: sandbox=%s", sandbox_id)
+                        _log_grpc_boundary_failure(
+                            code="GRPC_IDLE_HEARTBEAT_TIMEOUT",
+                            message="Heartbeat timeout while sandbox idle",
+                            operation="idle_heartbeat_timeout",
+                            data={"sandbox_id": str(sandbox_id)},
+                        )
                         stream_cancel.set()
                         if pop_task is not None:
                             pop_task.cancel()
@@ -1288,11 +1474,17 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 consecutive_failures += 1
 
             if consecutive_failures >= joysafeter_config.sandbox_failure_threshold:
-                logger.warning(
-                    "Sandbox %s exceeded failure threshold (%d >= %d), ejecting",
-                    sandbox_id,
-                    consecutive_failures,
-                    joysafeter_config.sandbox_failure_threshold,
+                _log_grpc_boundary_failure(
+                    code="GRPC_SANDBOX_FAILURE_THRESHOLD_EXCEEDED",
+                    message="Sandbox exceeded failure threshold; ejecting",
+                    operation="eject_failed_sandbox",
+                    data={
+                        "sandbox_id": str(sandbox_id),
+                        "consecutive_failures": consecutive_failures,
+                        "threshold": joysafeter_config.sandbox_failure_threshold,
+                    },
+                    retryable=True,
+                    user_action="retry",
                 )
                 failure_ejected = True
                 break
@@ -1317,10 +1509,12 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             async with AsyncSessionLocal() as db:
                 return await TaskService(db).claim_next_sandbox_task_for_running(sandbox_id)
         except Exception as e:
-            logger.warning(
-                "Failed to claim next scheduling task for sandbox %s: %s",
-                sandbox_id,
-                e,
+            _log_grpc_boundary_failure(
+                code="GRPC_SANDBOX_TASK_CLAIM_FAILED",
+                message="Failed to claim next scheduling task for sandbox",
+                operation="claim_next_sandbox_task",
+                error=e,
+                data={"sandbox_id": str(sandbox_id)},
             )
             return None
 
@@ -1375,7 +1569,13 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 svc = SandboxService(db)
                 await svc.update_status(sandbox_id, "running")
         except Exception as e:
-            logger.warning("Failed to set sandbox %s to running: %s", sandbox_id, e)
+            _log_grpc_boundary_failure(
+                code="GRPC_SANDBOX_STATUS_RUNNING_UPDATE_FAILED",
+                message="Failed to set sandbox status to running",
+                operation="set_sandbox_running",
+                error=e,
+                data={"sandbox_id": str(sandbox_id), "task_id": str(task_id)},
+            )
 
         # Pool fix: send SetupSandbox if not done yet (pool containers skip setup on first connect)
         if not bridge.setup_done:
@@ -1391,7 +1591,14 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
                 task = await task_svc.get_task(task_id)
                 if not task:
-                    logger.error("Task %s not found for dispatch", task_id)
+                    _log_grpc_boundary_failure(
+                        code="GRPC_TASK_NOT_FOUND_FOR_DISPATCH",
+                        message="Task not found for gRPC dispatch",
+                        operation="load_task_for_dispatch",
+                        data={"task_id": str(task_id), "sandbox_id": str(sandbox_id)},
+                        retryable=False,
+                        user_action="refresh",
+                    )
                     bridge.current_task_id = None
                     bridge.status = SandboxBridgeStatus.IDLE
                     return (True, False, False, False)
@@ -1413,10 +1620,13 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     return (True, False, True, False)
 
                 if task.status != TaskStatus.RUNNING.value:
-                    logger.warning(
-                        "Task %s was not running after sandbox claim (status=%s), skipping dispatch",
-                        task_id,
-                        task.status,
+                    _log_grpc_boundary_failure(
+                        code="GRPC_CLAIMED_TASK_NOT_RUNNING",
+                        message="Task was not running after sandbox claim; skipping dispatch",
+                        operation="dispatch_claimed_task",
+                        data={"task_id": str(task_id), "sandbox_id": str(sandbox_id), "status": task.status},
+                        retryable=False,
+                        user_action=None,
                     )
                     bridge.current_task_id = None
                     bridge.status = SandboxBridgeStatus.IDLE
@@ -1478,7 +1688,14 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     )
                 )
         except Exception as e:
-            logger.error("Failed to dispatch task %s: %s", task_id, e, exc_info=True)
+            _log_grpc_boundary_failure(
+                code="GRPC_TASK_DISPATCH_FAILED",
+                message="Failed to dispatch task to runner",
+                operation="dispatch_task",
+                error=e,
+                data={"sandbox_id": str(sandbox_id), "task_id": str(task_id), "session_id": str(session_id)},
+                level="error",
+            )
             bridge.current_task_id = None
             bridge.status = SandboxBridgeStatus.IDLE
             await TaskController.failover_or_fail_task(task_id, str(e), expected_epoch=bridge.current_owner_epoch)
@@ -1553,7 +1770,18 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                             expected_epoch=bridge.current_owner_epoch,
                         )
                     if not cancel_ok:
-                        logger.warning("CAS conflict cancelling task %s; ignoring stale cancel", task_id)
+                        _log_grpc_boundary_failure(
+                            code="GRPC_CANCEL_TASK_CAS_CONFLICT",
+                            message="CAS conflict cancelling task; ignoring stale cancel",
+                            operation="cancel_task",
+                            data={
+                                "task_id": str(task_id),
+                                "sandbox_id": str(sandbox_id),
+                                "owner_epoch": bridge.current_owner_epoch,
+                            },
+                            retryable=False,
+                            user_action=None,
+                        )
                         return (False, False, False, False)
                     if session_id and self._event_bus:
                         stop_reason: dict[str, Any] = {"type": "cancelled"}
@@ -1569,7 +1797,13 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                             )
                         )
                 except Exception as e:
-                    logger.warning("Failed to update cancelled task %s: %s", task_id, e)
+                    _log_grpc_boundary_failure(
+                        code="GRPC_CANCELLED_TASK_UPDATE_FAILED",
+                        message="Failed to update cancelled task",
+                        operation="update_cancelled_task",
+                        error=e,
+                        data={"sandbox_id": str(sandbox_id), "task_id": str(task_id), "session_id": str(session_id)},
+                    )
 
                 continue
 
@@ -1720,7 +1954,12 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     reason = f"Heartbeat timeout — sandbox unresponsive (last error: {last_err})"
                 else:
                     reason = "Heartbeat timeout — sandbox unresponsive"
-                logger.warning("Heartbeat timeout during task %s: sandbox=%s", task_id, sandbox_id)
+                _log_grpc_boundary_failure(
+                    code="GRPC_TASK_HEARTBEAT_TIMEOUT",
+                    message="Heartbeat timeout during task",
+                    operation="task_heartbeat_timeout",
+                    data={"task_id": str(task_id), "sandbox_id": str(sandbox_id)},
+                )
                 retry_count = await TaskController.failover_or_fail_task(
                     task_id,
                     reason,
@@ -1736,7 +1975,12 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                     await _best_effort_redis("remove_task_sandbox", _coord.remove_task_sandbox(task_id))
                 return (False, False, False, False)
             if deadline_fut in done and not requires_action_pending:
-                logger.warning("Task deadline exceeded: task=%s timeout=%ds", task_id, timeout)
+                _log_grpc_boundary_failure(
+                    code="GRPC_TASK_DEADLINE_EXCEEDED",
+                    message="Task deadline exceeded",
+                    operation="task_deadline_exceeded",
+                    data={"task_id": str(task_id), "sandbox_id": str(sandbox_id), "timeout_sec": timeout},
+                )
                 cancel_msg = joysafeter_pb2.OrchestratorMessage(
                     cancel=joysafeter_pb2.CancelTask(reason=f"Server-side deadline exceeded ({timeout}s)")
                 )
@@ -1750,7 +1994,18 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                         expected_epoch=bridge.current_owner_epoch,
                     )
                 if not timeout_ok:
-                    logger.warning("CAS conflict timing out task %s; ignoring stale deadline", task_id)
+                    _log_grpc_boundary_failure(
+                        code="GRPC_TASK_TIMEOUT_CAS_CONFLICT",
+                        message="CAS conflict timing out task; ignoring stale deadline",
+                        operation="timeout_task",
+                        data={
+                            "task_id": str(task_id),
+                            "sandbox_id": str(sandbox_id),
+                            "owner_epoch": bridge.current_owner_epoch,
+                        },
+                        retryable=False,
+                        user_action=None,
+                    )
                     return (False, False, False, False)
                 if session_id:
                     if self._event_bus:
@@ -2078,7 +2333,14 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 logger.info("Result received: task=%s status=%s got_idle=%s", task_id, result.status, got_idle)
                 result_accepted = await self._handle_result(bridge, sandbox_id, task_id, session_id, result)
                 if not result_accepted:
-                    logger.warning("Ignoring stale result for task %s", task_id)
+                    _log_grpc_boundary_failure(
+                        code="GRPC_STALE_RESULT_IGNORED",
+                        message="Ignoring stale task result",
+                        operation="handle_task_result",
+                        data={"task_id": str(task_id), "sandbox_id": str(sandbox_id)},
+                        retryable=False,
+                        user_action=None,
+                    )
                     return (False, False, False, False)
                 result_status = bridge.last_result_status or TaskStatus.from_str_lossy(result.status)
                 if result_status == TaskStatus.COMPLETED:
@@ -2102,10 +2364,13 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
             elif payload_type == "idle":
                 if not task_done:
-                    logger.warning(
-                        "Runner idle before result for task %s on sandbox %s",
-                        task_id,
-                        sandbox_id,
+                    _log_grpc_boundary_failure(
+                        code="GRPC_RUNNER_IDLE_BEFORE_RESULT",
+                        message="Runner idle before result",
+                        operation="run_task",
+                        data={"task_id": str(task_id), "sandbox_id": str(sandbox_id)},
+                        retryable=True,
+                        user_action="retry",
                     )
                     break
                 idle = msg.idle
@@ -2257,7 +2522,13 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 if deadline_exceeded:
                     stop_reason = {"type": "timeout"}
                 elif task_error_status:
-                    stop_reason = {"type": "error", "message": "Task failed"}
+                    stop_reason = _task_error_stop_reason(
+                        code="TASK_FAILED",
+                        message="Task failed",
+                        task_id=task_id,
+                        session_id=linked_session_id,
+                        sandbox_id=sandbox_id,
+                    )
                 if self._event_bus:
                     await self._event_bus.publish(
                         JoySafeterEventEnvelope(
@@ -2335,12 +2606,34 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 task_id, result.output, expected_epoch=bridge.current_owner_epoch
             )
             if not cas_ok:
-                logger.warning("CAS conflict writing output for task %s, ignoring runner result", task_id)
+                _log_grpc_boundary_failure(
+                    code="GRPC_RESULT_OUTPUT_CAS_CONFLICT",
+                    message="CAS conflict writing output; ignoring runner result",
+                    operation="persist_task_result_output",
+                    data={
+                        "task_id": str(task_id),
+                        "sandbox_id": str(sandbox_id),
+                        "owner_epoch": bridge.current_owner_epoch,
+                    },
+                    retryable=False,
+                    user_action=None,
+                )
                 return False
             if usage:
                 cas_ok = await task_svc.update_task_usage(task_id, usage, expected_epoch=bridge.current_owner_epoch)
                 if not cas_ok:
-                    logger.warning("CAS conflict writing usage for task %s, ignoring runner result", task_id)
+                    _log_grpc_boundary_failure(
+                        code="GRPC_RESULT_USAGE_CAS_CONFLICT",
+                        message="CAS conflict writing usage; ignoring runner result",
+                        operation="persist_task_result_usage",
+                        data={
+                            "task_id": str(task_id),
+                            "sandbox_id": str(sandbox_id),
+                            "owner_epoch": bridge.current_owner_epoch,
+                        },
+                        retryable=False,
+                        user_action=None,
+                    )
                     return False
             if session_id:
                 await SessionService(db).repair_missing_agent_message(session_id, task_id, result.output)
@@ -2359,7 +2652,19 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                         expected_epoch=bridge.current_owner_epoch,
                     )
                 if not cas_ok:
-                    logger.warning("CAS conflict: task %s already terminal, ignoring runner result", task_id)
+                    _log_grpc_boundary_failure(
+                        code="GRPC_RESULT_TERMINAL_CAS_CONFLICT",
+                        message="CAS conflict finalizing task; ignoring runner result",
+                        operation="finalize_task_result",
+                        data={
+                            "task_id": str(task_id),
+                            "sandbox_id": str(sandbox_id),
+                            "owner_epoch": bridge.current_owner_epoch,
+                            "final_status": final_status.value,
+                        },
+                        retryable=False,
+                        user_action=None,
+                    )
                     return False
 
             sandbox_svc = SandboxService(db)
@@ -2403,7 +2708,17 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         # Agentd pattern: update session to idle DIRECTLY in Result handler.
         # Don't wait for Idle message or post-loop fallback.
         if session_id:
-            stop_reason = {"type": "error", "message": str(error)} if error else {"type": "end_turn"}
+            stop_reason = (
+                _task_error_stop_reason(
+                    code="TASK_RESULT_FAILED",
+                    message=str(error),
+                    task_id=task_id,
+                    session_id=session_id,
+                    sandbox_id=sandbox_id,
+                )
+                if error
+                else {"type": "end_turn"}
+            )
             idle_updated = False
             async with AsyncSessionLocal() as idle_db:
                 session_svc = SessionService(idle_db)
@@ -2520,7 +2835,10 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         elif status == TaskStatus.CANCELLED:
             return {"type": "cancelled"}
         elif status in (TaskStatus.FAILED, TaskStatus.ABORTED):
-            return {"type": "error", "message": error}
+            return _task_error_stop_reason(
+                code="TASK_FAILED",
+                message=error or "Task failed",
+            )
         return {"type": "end_turn"}
 
     async def _handle_reconnect_result(
@@ -2562,12 +2880,34 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 task_id, result.output, expected_epoch=bridge.current_owner_epoch
             )
             if not cas_ok:
-                logger.warning("CAS conflict writing reconnect output for task %s, ignoring result", task_id)
+                _log_grpc_boundary_failure(
+                    code="GRPC_RECONNECT_RESULT_OUTPUT_CAS_CONFLICT",
+                    message="CAS conflict writing reconnect output; ignoring result",
+                    operation="persist_reconnect_result_output",
+                    data={
+                        "task_id": str(task_id),
+                        "sandbox_id": str(sandbox_id),
+                        "owner_epoch": bridge.current_owner_epoch,
+                    },
+                    retryable=False,
+                    user_action=None,
+                )
                 return False
             if usage:
                 cas_ok = await task_svc.update_task_usage(task_id, usage, expected_epoch=bridge.current_owner_epoch)
                 if not cas_ok:
-                    logger.warning("CAS conflict writing reconnect usage for task %s, ignoring result", task_id)
+                    _log_grpc_boundary_failure(
+                        code="GRPC_RECONNECT_RESULT_USAGE_CAS_CONFLICT",
+                        message="CAS conflict writing reconnect usage; ignoring result",
+                        operation="persist_reconnect_result_usage",
+                        data={
+                            "task_id": str(task_id),
+                            "sandbox_id": str(sandbox_id),
+                            "owner_epoch": bridge.current_owner_epoch,
+                        },
+                        retryable=False,
+                        user_action=None,
+                    )
                     return False
             if session_id:
                 await SessionService(db).repair_missing_agent_message(session_id, task_id, result.output)
@@ -2581,7 +2921,19 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                         task_id, final_status, expected_epoch=bridge.current_owner_epoch
                     )
                 if not cas_ok:
-                    logger.warning("CAS conflict: reconnect task %s already terminal, ignoring result", task_id)
+                    _log_grpc_boundary_failure(
+                        code="GRPC_RECONNECT_RESULT_TERMINAL_CAS_CONFLICT",
+                        message="CAS conflict finalizing reconnect task; ignoring result",
+                        operation="finalize_reconnect_result",
+                        data={
+                            "task_id": str(task_id),
+                            "sandbox_id": str(sandbox_id),
+                            "owner_epoch": bridge.current_owner_epoch,
+                            "final_status": final_status.value,
+                        },
+                        retryable=False,
+                        user_action=None,
+                    )
                     return False
 
         result_payload = {
@@ -2725,14 +3077,25 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
             setup_msg = _build_setup_sandbox(harness_input, agent, environment, work_dir=work_dir)
             orch_msg = joysafeter_pb2.OrchestratorMessage(setup=setup_msg)
             if bridge.runner_stream is None:
-                logger.warning("Cannot send SetupSandbox for sandbox %s: runner stream not connected", sandbox_id)
+                _log_grpc_boundary_failure(
+                    code="GRPC_SETUP_SANDBOX_STREAM_MISSING",
+                    message="Cannot send SetupSandbox because runner stream is not connected",
+                    operation="send_setup_sandbox",
+                    data={"sandbox_id": str(sandbox_id)},
+                )
                 return
             await bridge.write_to_runner(orch_msg)
             bridge.setup_done = True
             logger.info("SetupSandbox sent for sandbox %s", sandbox_id)
 
         except Exception as e:
-            logger.warning("Failed to send SetupSandbox for %s: %s", sandbox_id, e)
+            _log_grpc_boundary_failure(
+                code="GRPC_SETUP_SANDBOX_SEND_FAILED",
+                message="Failed to send SetupSandbox",
+                operation="send_setup_sandbox",
+                error=e,
+                data={"sandbox_id": str(sandbox_id)},
+            )
             bridge.setup_done = True
 
     # --- Fix 2: Full execute_sandbox_cleanup matching Rust lines 46-127 + grace period ---
@@ -2843,7 +3206,14 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 failover_pending_tasks.append((tid, retry_count))
                 logger.info("Scheduling task %s failed over during sandbox cleanup", tid)
             else:
-                logger.warning("Could not fail over scheduling task %s during sandbox cleanup", tid)
+                _log_grpc_boundary_failure(
+                    code="GRPC_CLEANUP_SCHEDULING_TASK_FAILOVER_SKIPPED",
+                    message="Could not fail over scheduling task during sandbox cleanup",
+                    operation="cleanup_sandbox_failover_scheduling_task",
+                    data={"sandbox_id": str(sandbox_id), "task_id": str(tid)},
+                    retryable=False,
+                    user_action="refresh",
+                )
 
         # 4. Drain and requeue sandbox queue
         await self._queue.drain_and_requeue_sandbox(sandbox_id)
@@ -2922,10 +3292,17 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                             {"type": "session.status_rescheduling", "stop_reason": {"type": "sandbox_failed"}},
                         )
             elif active_count > 0:
-                logger.warning(
-                    "Skipping sandbox disconnect idle for session %s because %d active task(s) remain",
-                    session_id,
-                    active_count,
+                _log_grpc_boundary_failure(
+                    code="GRPC_DISCONNECT_IDLE_SKIPPED_ACTIVE_TASKS",
+                    message="Skipping sandbox disconnect idle because active tasks remain",
+                    operation="handle_sandbox_disconnect",
+                    data={
+                        "session_id": str(session_id),
+                        "sandbox_id": str(sandbox_id),
+                        "active_task_count": active_count,
+                    },
+                    retryable=False,
+                    user_action=None,
                 )
             else:
                 async with AsyncSessionLocal() as db:
@@ -3041,7 +3418,14 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 logger.info("Re-queued orphaned task %s after reconnect", tid)
             return
 
-        logger.warning("No reconnection within grace period for sandbox %s, cleaning up", sandbox_id)
+        _log_grpc_boundary_failure(
+            code="GRPC_RECONNECT_GRACE_EXPIRED",
+            message="No reconnection within grace period, cleaning up sandbox",
+            operation="grace_period_cleanup",
+            data={"sandbox_id": str(sandbox_id), "session_id": str(session_id or "")},
+            retryable=False,
+            user_action=None,
+        )
         await self._execute_sandbox_cleanup(sandbox_id, session_id, failover_pending_tasks, is_error)
 
 
@@ -3062,7 +3446,14 @@ async def _handle_memory_sync_standalone(session_id: Optional[uuid.UUID], payloa
     # Normalize and validate path to prevent traversal
     rel_path = posixpath.normpath(rel_path)
     if rel_path.startswith("..") or "\x00" in rel_path:
-        logger.warning("Memory sync blocked: path traversal attempt: %r", rel_path)
+        _log_grpc_boundary_failure(
+            code="GRPC_MEMORY_SYNC_PATH_TRAVERSAL_BLOCKED",
+            message="Memory sync blocked path traversal attempt",
+            operation="memory_sync_validate_path",
+            data={"session_id": str(session_id), "mount_name": str(mount_name), "relative_path": str(rel_path)},
+            retryable=False,
+            user_action=None,
+        )
         return
     if not rel_path.startswith("/"):
         rel_path = "/" + rel_path
@@ -3093,7 +3484,13 @@ async def _handle_memory_sync_standalone(session_id: Optional[uuid.UUID], payloa
                 break
 
     except Exception as e:
-        logger.warning("Memory sync failed: %s", e)
+        _log_grpc_boundary_failure(
+            code="GRPC_MEMORY_SYNC_FAILED",
+            message="Memory sync failed",
+            operation="memory_sync",
+            error=e,
+            data={"session_id": str(session_id), "mount_name": str(mount_name), "relative_path": str(rel_path)},
+        )
 
 
 def _extract_setup_commands(agent=None, environment=None) -> list[str]:
@@ -3433,7 +3830,12 @@ def _proto_event_to_dict(event: joysafeter_pb2.RunnerHarnessEvent) -> dict[str, 
             },
         }
     elif event_field == "error":
-        return {"type": "error", "error": event.error.message}
+        return async_error_payload(
+            code="RUNNER_EVENT_ERROR",
+            message=event.error.message or "Runner emitted an error event",
+            source="runtime",
+            retryable=False,
+        )
     elif event_field == "status":
         return {"type": "system", "subtype": event.status.state}
     elif event_field == "log":

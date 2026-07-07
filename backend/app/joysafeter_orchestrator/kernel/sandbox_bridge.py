@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
 
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
+
 if TYPE_CHECKING:
     from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
 
@@ -128,8 +130,18 @@ class SandboxBridgeRegistry:
                 old.status = SandboxBridgeStatus.DISCONNECTED
                 old._cancel_event.set()
                 logger.warning(
-                    "Bridge replaced for sandbox %s (old session displaced by reconnect)",
-                    sandbox_db_id,
+                    "Bridge replaced for sandbox; old session displaced by reconnect",
+                    extra={
+                        "error": async_boundary_error_payload(
+                            code="SANDBOX_BRIDGE_REPLACED_BY_RECONNECT",
+                            message="Bridge replaced for sandbox; old session displaced by reconnect",
+                            boundary="sandbox_bridge",
+                            operation="register_bridge",
+                            data={"sandbox_id": str(sandbox_db_id), "external_id": external_id},
+                            retryable=True,
+                            user_action="retry",
+                        )
+                    },
                 )
             bridge = SandboxBridge(sandbox_db_id, external_id)
             self._bridges[sandbox_db_id] = bridge

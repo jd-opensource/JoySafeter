@@ -7,11 +7,19 @@ from typing import Any, Optional
 import aiodocker
 
 from app.joysafeter_orchestrator.sandbox.provider import SandboxProvider
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 
 logger = logging.getLogger(__name__)
 
 
-async def _retry_docker(coro_factory, max_retries: int = 2, delay: float = 1.0):
+async def _retry_docker(
+    coro_factory,
+    *,
+    operation: str,
+    data: dict[str, object] | None = None,
+    max_retries: int = 2,
+    delay: float = 1.0,
+):
     """Retry a Docker operation on transient errors (connection, 500, 503).
     Does NOT retry create() — only start/stop/destroy to avoid duplicates."""
     last_error = None
@@ -25,12 +33,19 @@ async def _retry_docker(coro_factory, max_retries: int = 2, delay: float = 1.0):
             if "404" in err_msg or "No such container" in err_msg or "409" in err_msg:
                 raise
             if attempt < max_retries:
-                logger.warning(
-                    "Docker operation failed (attempt %d/%d), retrying in %.1fs: %s",
-                    attempt + 1,
-                    max_retries + 1,
-                    delay,
-                    e,
+                log_boundary_failure(
+                    logger,
+                    boundary="docker_provider",
+                    code="DOCKER_OPERATION_RETRYING",
+                    message="Docker operation failed, retrying",
+                    operation=operation,
+                    error=e,
+                    data={
+                        **(data or {}),
+                        "attempt": attempt + 1,
+                        "max_attempts": max_retries + 1,
+                        "retry_delay_sec": delay,
+                    },
                 )
                 await asyncio.sleep(delay)
             else:
@@ -169,8 +184,18 @@ class DockerSandboxProvider(SandboxProvider):
         except aiodocker.exceptions.DockerError as e:
             try:
                 await container.delete(force=True)
-            except Exception:
-                pass
+            except Exception as cleanup_error:
+                log_boundary_failure(
+                    logger,
+                    boundary="docker_provider",
+                    code="DOCKER_CREATE_START_CLEANUP_FAILED",
+                    message="Failed to delete container after Docker start failure",
+                    operation="cleanup_failed_create",
+                    error=cleanup_error,
+                    data={"external_id": container_name, "image": image},
+                    retryable=False,
+                    user_action=None,
+                )
             raise RuntimeError(f"docker start failed: {e.message}") from e
 
         return container_name
@@ -183,7 +208,11 @@ class DockerSandboxProvider(SandboxProvider):
             raise RuntimeError(f"docker start failed: {e.message}") from e
 
     async def start(self, external_id: str) -> None:
-        await _retry_docker(lambda: self._start_container(external_id))
+        await _retry_docker(
+            lambda: self._start_container(external_id),
+            operation="start_container",
+            data={"external_id": external_id},
+        )
 
     async def stop(self, external_id: str) -> None:
         async def _do_stop():
@@ -196,7 +225,7 @@ class DockerSandboxProvider(SandboxProvider):
                     return
                 raise RuntimeError(f"docker stop failed: {msg}") from e
 
-        await _retry_docker(_do_stop)
+        await _retry_docker(_do_stop, operation="stop_container", data={"external_id": external_id})
 
     async def destroy(self, external_id: str) -> None:
         async def _do_destroy():
@@ -212,7 +241,7 @@ class DockerSandboxProvider(SandboxProvider):
                 if "No such container" not in e.message:
                     raise RuntimeError(f"docker rm failed: {e.message}") from e
 
-        await _retry_docker(_do_destroy)
+        await _retry_docker(_do_destroy, operation="destroy_container", data={"external_id": external_id})
 
     async def status(self, external_id: str) -> str:
         try:
@@ -220,7 +249,16 @@ class DockerSandboxProvider(SandboxProvider):
             info = await container.show()
             status: str = info.get("State", {}).get("Status", "unknown")
             return status
-        except Exception:
+        except Exception as e:
+            log_boundary_failure(
+                logger,
+                boundary="docker_provider",
+                code="DOCKER_STATUS_FAILED",
+                message="Failed to read Docker container status",
+                operation="status_container",
+                error=e,
+                data={"external_id": external_id},
+            )
             return "unknown"
 
     async def exec(
@@ -252,6 +290,15 @@ class DockerSandboxProvider(SandboxProvider):
             exit_code = inspect.get("ExitCode", 1)
             return exit_code, "".join(stdout_parts), "".join(stderr_parts)
         except aiodocker.exceptions.DockerError as e:
+            log_boundary_failure(
+                logger,
+                boundary="docker_provider",
+                code="DOCKER_EXEC_FAILED",
+                message="Docker exec failed",
+                operation="exec_container",
+                error=e,
+                data={"external_id": external_id, "command": cmd[0] if cmd else ""},
+            )
             return 1, "", f"exec failed: {e.message}"
 
     async def list_active(self) -> list[dict]:
@@ -280,14 +327,31 @@ class DockerSandboxProvider(SandboxProvider):
                     }
                 )
             return results
-        except Exception:
+        except Exception as e:
+            log_boundary_failure(
+                logger,
+                boundary="docker_provider",
+                code="DOCKER_LIST_ACTIVE_FAILED",
+                message="Failed to list active Docker sandboxes",
+                operation="list_active",
+                error=e,
+            )
             return []
 
     async def provisioning_status(self, external_id: str) -> Optional[dict]:
         try:
             container = await self._docker.containers.get(external_id)
             info = await container.show()
-        except Exception:
+        except Exception as e:
+            log_boundary_failure(
+                logger,
+                boundary="docker_provider",
+                code="DOCKER_PROVISIONING_STATUS_FAILED",
+                message="Failed to read Docker provisioning status",
+                operation="provisioning_status",
+                error=e,
+                data={"external_id": external_id},
+            )
             return {
                 "stage": "provider_failed",
                 "progress": 0,
@@ -343,7 +407,16 @@ class DockerSandboxProvider(SandboxProvider):
         if net_type == "limited" and self._envoy_manager:
             await self._envoy_manager.setup_for_sandbox(sandbox_id, networking)
         elif net_type == "limited" and not self._envoy_manager:
-            logger.warning("Limited networking requested but no envoy manager configured")
+            log_boundary_failure(
+                logger,
+                boundary="docker_provider",
+                code="DOCKER_LIMITED_NETWORKING_ENVOY_MISSING",
+                message="Limited networking requested without Envoy manager",
+                operation="setup_networking",
+                data={"sandbox_id": str(sandbox_id)},
+                retryable=False,
+                user_action="check_configuration",
+            )
 
     async def teardown_networking(self, sandbox_id: uuid.UUID) -> None:
         if self._envoy_manager:
@@ -380,7 +453,16 @@ class DockerSandboxProvider(SandboxProvider):
             mount_path = session_file.mount_path
             normalized = os.path.normpath(mount_path)
             if ".." in normalized or not normalized.startswith("/workspace/"):
-                logger.warning("docker inject_files: path traversal blocked: %s", mount_path)
+                log_boundary_failure(
+                    logger,
+                    boundary="docker_provider",
+                    code="DOCKER_FILE_INJECTION_PATH_TRAVERSAL_BLOCKED",
+                    message="Docker file injection path traversal blocked",
+                    operation="inject_session_file",
+                    data={"external_id": external_id, "session_id": str(session_id), "mount_path": mount_path},
+                    retryable=False,
+                    user_action="correct_request",
+                )
                 continue
             data = await storage.get(file_record.storage_key)
 
@@ -400,13 +482,29 @@ class DockerSandboxProvider(SandboxProvider):
                         data,
                     )
                 except Exception as extract_error:
-                    logger.warning(
-                        "Failed to auto-extract injected archive %s: %s",
-                        mount_path,
-                        extract_error,
+                    log_boundary_failure(
+                        logger,
+                        boundary="docker_provider",
+                        code="DOCKER_FILE_AUTO_EXTRACT_FAILED",
+                        message="Failed to auto-extract injected archive",
+                        operation="auto_extract_injected_archive",
+                        error=extract_error,
+                        data={
+                            "external_id": external_id,
+                            "session_id": str(session_id),
+                            "mount_path": mount_path,
+                        },
                     )
             except Exception as e:
-                logger.warning("Failed to inject file %s: %s", mount_path, e)
+                log_boundary_failure(
+                    logger,
+                    boundary="docker_provider",
+                    code="DOCKER_FILE_INJECTION_FAILED",
+                    message="Failed to inject file into Docker container",
+                    operation="inject_session_file",
+                    error=e,
+                    data={"external_id": external_id, "session_id": str(session_id), "mount_path": mount_path},
+                )
             finally:
                 os.unlink(tmp_path)
 

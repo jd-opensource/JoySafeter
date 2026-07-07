@@ -3,7 +3,37 @@ import logging
 import uuid
 from dataclasses import dataclass
 
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
+
 logger = logging.getLogger(__name__)
+
+
+def _log_memory_boundary_failure(
+    *,
+    code: str,
+    message: str,
+    operation: str,
+    error: Exception | None = None,
+    data: dict[str, object] | None = None,
+    retryable: bool = True,
+    user_action: str | None = "retry",
+) -> None:
+    logger.warning(
+        message,
+        extra={
+            "error": async_boundary_error_payload(
+                code=code,
+                message=message,
+                boundary="memory_sync",
+                operation=operation,
+                data=data,
+                detail=error.__class__.__name__ if error is not None else None,
+                retryable=retryable,
+                user_action=user_action,
+            )
+        },
+        exc_info=error is not None,
+    )
 
 
 @dataclass
@@ -115,10 +145,18 @@ class MemoryStoreSubscribers:
                         await bridge.write_to_runner(msg)
                         notified += 1
                     except Exception as e:
-                        logger.warning(
-                            "Failed to push MemoryFileUpdate to sandbox %s: %s",
-                            entry.sandbox_db_id,
-                            e,
+                        _log_memory_boundary_failure(
+                            code="MEMORY_SYNC_DIRECT_PUSH_FAILED",
+                            message="Failed to push MemoryFileUpdate to sandbox",
+                            operation="notify_peers_direct",
+                            error=e,
+                            data={
+                                "session_id": str(entry.session_id),
+                                "sandbox_id": str(entry.sandbox_db_id),
+                                "mount_name": store_mount_name,
+                                "relative_path": relative_path,
+                                "operation_type": operation,
+                            },
                         )
 
         if notified:
@@ -190,7 +228,20 @@ class MemoryStoreSubscribers:
                     await bridge.write_to_runner(update_msg)
                     notified += 1
                 except Exception as e:
-                    logger.warning("Failed to push MemoryFileUpdate to peer %s: %s", peer.session_id, e)
+                    _log_memory_boundary_failure(
+                        code="MEMORY_SYNC_PEER_PUSH_FAILED",
+                        message="Failed to push MemoryFileUpdate to peer",
+                        operation="push_memory_update",
+                        error=e,
+                        data={
+                            "store_id": str(store_id),
+                            "session_id": str(peer.session_id),
+                            "sandbox_id": str(peer.sandbox_db_id),
+                            "mount_name": peer.mount_name,
+                            "relative_path": path,
+                            "operation_type": operation,
+                        },
+                    )
 
         if notified:
             logger.info(

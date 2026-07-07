@@ -19,6 +19,7 @@ from app.joysafeter_orchestrator.runtime.adapter import (
 from app.joysafeter_orchestrator.runtime.claude_settings import (
     write_claude_settings,
 )
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 
 logger = logging.getLogger(__name__)
 
@@ -408,7 +409,15 @@ class NativeAdapter(HarnessAdapter):
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            logger.error("Persistent reader error: %s", e)
+            log_boundary_failure(
+                logger,
+                boundary="native_adapter",
+                code="NATIVE_PERSISTENT_READER_FAILED",
+                message="Native persistent reader failed",
+                operation="read_persistent_process_events",
+                error=e,
+                data={"work_dir": (session.current_turn.work_dir if session.current_turn else None) or ""},
+            )
 
         if session.current_turn and not session.current_turn.done.is_set():
             session.current_turn.status = HarnessResultStatus.FAILED
@@ -460,10 +469,26 @@ class NativeAdapter(HarnessAdapter):
                 )
                 _, stderr = await proc.communicate(input=archive.data)
                 if proc.returncode != 0:
-                    logger.warning(
-                        "Failed to extract skill %s: %s",
-                        archive.name,
-                        stderr.decode() if stderr else "unknown error",
+                    log_boundary_failure(
+                        logger,
+                        boundary="native_adapter",
+                        code="NATIVE_SKILL_ARCHIVE_EXTRACT_FAILED",
+                        message="Failed to extract skill archive",
+                        operation="extract_skill_archive",
+                        data={
+                            "container_id": container_id,
+                            "archive_name": archive.name,
+                            "target": archive.target,
+                            "returncode": proc.returncode,
+                        },
                     )
             except Exception as e:
-                logger.warning("Failed to extract skill %s: %s", archive.name, e)
+                log_boundary_failure(
+                    logger,
+                    boundary="native_adapter",
+                    code="NATIVE_SKILL_ARCHIVE_EXTRACT_FAILED",
+                    message="Failed to extract skill archive",
+                    operation="extract_skill_archive",
+                    error=e,
+                    data={"container_id": container_id, "archive_name": archive.name, "target": archive.target},
+                )

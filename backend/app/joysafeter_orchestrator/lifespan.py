@@ -11,6 +11,7 @@ import os
 import signal
 import threading
 
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 from app.joysafeter_shared.config.settings import JoySafeterConfig, joysafeter_config
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,34 @@ _grpc_server = None
 _grpc_servicer = None
 _vault_provider = None
 _event_bus = None
+
+
+def _log_lifecycle_boundary_failure(
+    *,
+    code: str,
+    message: str,
+    operation: str,
+    error: Exception | None = None,
+    data: dict[str, object] | None = None,
+    retryable: bool = True,
+    user_action: str | None = "retry",
+) -> None:
+    logger.warning(
+        message,
+        extra={
+            "error": async_boundary_error_payload(
+                code=code,
+                message=message,
+                boundary="orchestrator_lifecycle",
+                operation=operation,
+                data=data,
+                retryable=retryable,
+                user_action=user_action,
+                detail=error.__class__.__name__ if error is not None else None,
+            )
+        },
+        exc_info=error is not None,
+    )
 
 
 def get_scheduler():
@@ -296,7 +325,16 @@ async def joysafeter_startup() -> None:
                 _sandbox_provider._envoy_manager = _envoy_manager
             logger.info("   EnvoyManager initialized")
         except Exception as e:
-            logger.warning("   EnvoyManager initialization failed: %s", e)
+            _log_lifecycle_boundary_failure(
+                code="ORCHESTRATOR_ENVOY_INIT_FAILED",
+                message="EnvoyManager initialization failed",
+                operation="initialize_envoy_manager",
+                error=e,
+                data={
+                    "envoy_network": joysafeter_config.envoy_network,
+                    "envoy_container_name": joysafeter_config.envoy_container_name,
+                },
+            )
             _envoy_manager = None
     else:
         logger.info("   Envoy network isolation disabled")
@@ -311,7 +349,13 @@ async def joysafeter_startup() -> None:
             )
             logger.info("   ImageBuilder initialized")
         except Exception as e:
-            logger.warning("   ImageBuilder initialization failed: %s", e)
+            _log_lifecycle_boundary_failure(
+                code="ORCHESTRATOR_IMAGE_BUILDER_INIT_FAILED",
+                message="ImageBuilder initialization failed",
+                operation="initialize_image_builder",
+                error=e,
+                data={"base_image": joysafeter_config.image_builder_base},
+            )
     else:
         logger.info("   Image builder disabled")
 
@@ -386,7 +430,13 @@ async def joysafeter_startup() -> None:
             event_bus=_event_bus,
         )
     except Exception as e:
-        logger.warning("Failed to start gRPC server: %s", e)
+        _log_lifecycle_boundary_failure(
+            code="ORCHESTRATOR_GRPC_SERVER_START_FAILED",
+            message="Failed to start gRPC server",
+            operation="start_grpc_server",
+            error=e,
+            data={"host": joysafeter_config.grpc_host, "port": joysafeter_config.grpc_port},
+        )
 
     await _task_controller.recover_on_startup()
 
@@ -395,7 +445,13 @@ async def joysafeter_startup() -> None:
         if cleaned:
             logger.info("Startup recovery: destroyed %d orphaned provider sandboxes", cleaned)
     except Exception as e:
-        logger.warning("Startup orphan sandbox cleanup failed: %s", e)
+        _log_lifecycle_boundary_failure(
+            code="ORCHESTRATOR_STARTUP_ORPHAN_CLEANUP_FAILED",
+            message="Startup orphan sandbox cleanup failed",
+            operation="cleanup_orphaned_provider_sandboxes",
+            error=e,
+            data={"provider": joysafeter_config.sandbox_provider},
+        )
 
     _background_tasks.append(asyncio.create_task(_scheduler.run(), name="joysafeter-scheduler"))
     _background_tasks.append(asyncio.create_task(_task_controller.run(), name="joysafeter-task-ctrl"))
@@ -434,8 +490,19 @@ async def joysafeter_shutdown() -> None:
                     )
                 )
                 await bridge.write_to_runner(shutdown_msg)
-            except Exception:
-                pass
+            except Exception as e:
+                _log_lifecycle_boundary_failure(
+                    code="ORCHESTRATOR_RUNNER_SHUTDOWN_SEND_FAILED",
+                    message="Failed to send shutdown to runner bridge",
+                    operation="send_runner_shutdown",
+                    error=e,
+                    data={
+                        "sandbox_id": str(getattr(bridge, "sandbox_db_id", getattr(bridge, "sandbox_id", ""))),
+                        "external_id": str(getattr(bridge, "external_id", "")),
+                    },
+                    retryable=False,
+                    user_action=None,
+                )
         logger.info("Sent Shutdown to %d sandbox bridges", _bridge_registry.count())
 
     if _scheduler:
@@ -451,7 +518,15 @@ async def joysafeter_shutdown() -> None:
                 try:
                     await adapter.close()
                 except Exception as e:
-                    logger.warning("Failed to close adapter %s: %s", name, e)
+                    _log_lifecycle_boundary_failure(
+                        code="ORCHESTRATOR_ADAPTER_CLOSE_FAILED",
+                        message="Failed to close runtime adapter",
+                        operation="close_runtime_adapter",
+                        error=e,
+                        data={"adapter": name},
+                        retryable=False,
+                        user_action=None,
+                    )
         logger.info("Closed all adapters")
 
     if _redis_coordinator:

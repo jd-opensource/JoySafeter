@@ -10,6 +10,7 @@ from typing import Optional
 from app.joysafeter_orchestrator.events.envelope import STATUS_EVENT_TYPES, JoySafeterEventEnvelope
 from app.joysafeter_orchestrator.events.subscriber import SubscriberPhase
 from app.joysafeter_shared.cache.redis import RedisClient
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 from app.joysafeter_shared.config.settings import joysafeter_config
 from app.joysafeter_worker.events.batch_writer import BufferedEvent, EventBatchSender
 
@@ -52,16 +53,32 @@ class EventStreamPersistSubscriber:
         # buffer instead so overflow degrades to slower-but-lossless.
         if await self._stream_saturated(redis):
             if await self._persist_via_fallback(payload, envelope):
+                error = self._boundary_error_payload(
+                    code="EVENT_STREAM_SATURATED_FALLBACK",
+                    message="Redis Stream reached high-water mark; routed event to DB fallback",
+                    operation="saturation_fallback",
+                    envelope=envelope,
+                )
                 logger.warning(
                     "Redis Stream %s at high-water mark; routed event to DB fallback",
                     self._stream_key,
+                    extra={"error": error},
                 )
                 return
             # No DB fallback configured: accept bounded loss, but make it visible
             # rather than silently trimming.
+            error = self._boundary_error_payload(
+                code="EVENT_STREAM_SATURATED_NO_FALLBACK",
+                message="Redis Stream reached high-water mark and no DB fallback is configured",
+                operation="saturation_no_fallback",
+                envelope=envelope,
+                retryable=False,
+                user_action=None,
+            )
             logger.warning(
                 "Redis Stream %s at high-water mark and no DB fallback; event may be trimmed",
                 self._stream_key,
+                extra={"error": error},
             )
 
         try:
@@ -69,7 +86,19 @@ class EventStreamPersistSubscriber:
         except Exception as e:
             if not await self._persist_via_fallback(payload, envelope):
                 raise
-            logger.warning("Redis Stream event append failed; fell back to DB persistence: %s", e)
+            logger.warning(
+                "Redis Stream event append failed; fell back to DB persistence",
+                extra={
+                    "error": self._boundary_error_payload(
+                        code="EVENT_STREAM_APPEND_FALLBACK",
+                        message="Redis Stream append failed; fell back to DB persistence",
+                        operation="xadd_fallback",
+                        envelope=envelope,
+                        detail=e.__class__.__name__,
+                    )
+                },
+                exc_info=True,
+            )
 
     async def _stream_saturated(self, redis) -> bool:
         """True when the stream length is at/over the high-water mark, meaning an
@@ -84,7 +113,19 @@ class EventStreamPersistSubscriber:
         try:
             length: int = await redis.xlen(self._stream_key)
         except Exception as e:
-            logger.debug("Redis XLEN probe failed; skipping saturation check: %s", e)
+            logger.debug(
+                "Redis XLEN probe failed; skipping saturation check",
+                extra={
+                    "error": async_boundary_error_payload(
+                        code="EVENT_STREAM_XLEN_PROBE_FAILED",
+                        message="Redis Stream XLEN probe failed; skipping saturation check",
+                        boundary="event_stream_persist",
+                        operation="xlen_probe",
+                        data={"stream_key": self._stream_key},
+                        detail=e.__class__.__name__,
+                    )
+                },
+            )
             return False
         return length >= hwm
 
@@ -106,4 +147,31 @@ class EventStreamPersistSubscriber:
             payload=json.loads(payload.get("payload") or "{}"),
             seq=int(payload.get("seq") or 0),
             id=uuid.UUID(event_id) if event_id else None,
+        )
+
+    def _boundary_error_payload(
+        self,
+        *,
+        code: str,
+        message: str,
+        operation: str,
+        envelope: JoySafeterEventEnvelope,
+        detail: str | None = None,
+        retryable: bool = True,
+        user_action: str | None = "retry",
+    ) -> dict[str, object]:
+        return async_boundary_error_payload(
+            code=code,
+            message=message,
+            boundary="event_stream_persist",
+            operation=operation,
+            data={
+                "stream_key": self._stream_key,
+                "session_id": str(envelope.session_id) if envelope.session_id else None,
+                "event_type": envelope.event_type,
+                "event_id": str(envelope.event_id) if envelope.event_id else None,
+            },
+            retryable=retryable,
+            user_action=user_action,
+            detail=detail,
         )

@@ -2,6 +2,7 @@ import asyncio
 import logging
 import uuid
 
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 from app.joysafeter_shared.retry import compute_retry_delay
 
 logger = logging.getLogger(__name__)
@@ -15,18 +16,7 @@ class TaskController:
         logger.info("TaskController watchdog started (60s interval)")
         while True:
             await asyncio.sleep(60)
-            try:
-                await self._check_overdue_tasks()
-            except Exception as e:
-                logger.warning("Overdue task check failed: %s", e)
-            try:
-                await self._check_stuck_scheduling()
-            except Exception as e:
-                logger.warning("Stuck scheduling check failed: %s", e)
-            try:
-                await self._scan_pending_tasks()
-            except Exception as e:
-                logger.warning("Pending task scanner failed: %s", e)
+            await self._run_watchdog_iteration()
 
     async def run_lease_manager(self) -> None:
         """Fast loop that keeps this instance's running-task leases fresh and
@@ -43,14 +33,84 @@ class TaskController:
         logger.info("TaskController lease manager started (%ds interval)", interval)
         while True:
             await asyncio.sleep(interval)
-            try:
-                await self._renew_own_leases()
-            except Exception as e:
-                logger.warning("Lease renewal failed: %s", e)
-            try:
-                await self._reclaim_expired_leases()
-            except Exception as e:
-                logger.warning("Lease reclaim scan failed: %s", e)
+            await self._run_lease_iteration()
+
+    async def _run_watchdog_iteration(self) -> None:
+        try:
+            await self._check_overdue_tasks()
+        except Exception as e:
+            self._log_boundary_failure(
+                code="TASK_CONTROLLER_OVERDUE_CHECK_FAILED",
+                message="Overdue task check failed",
+                operation="check_overdue_tasks",
+                error=e,
+            )
+        try:
+            await self._check_stuck_scheduling()
+        except Exception as e:
+            self._log_boundary_failure(
+                code="TASK_CONTROLLER_STUCK_SCHEDULING_CHECK_FAILED",
+                message="Stuck scheduling check failed",
+                operation="check_stuck_scheduling",
+                error=e,
+            )
+        try:
+            await self._scan_pending_tasks()
+        except Exception as e:
+            self._log_boundary_failure(
+                code="TASK_CONTROLLER_PENDING_SCAN_FAILED",
+                message="Pending task scanner failed",
+                operation="scan_pending_tasks",
+                error=e,
+            )
+
+    async def _run_lease_iteration(self) -> None:
+        try:
+            await self._renew_own_leases()
+        except Exception as e:
+            self._log_boundary_failure(
+                code="TASK_CONTROLLER_LEASE_RENEWAL_FAILED",
+                message="Lease renewal failed",
+                operation="renew_own_leases",
+                error=e,
+            )
+        try:
+            await self._reclaim_expired_leases()
+        except Exception as e:
+            self._log_boundary_failure(
+                code="TASK_CONTROLLER_LEASE_RECLAIM_FAILED",
+                message="Lease reclaim scan failed",
+                operation="reclaim_expired_leases",
+                error=e,
+            )
+
+    @staticmethod
+    def _log_boundary_failure(
+        *,
+        code: str,
+        message: str,
+        operation: str,
+        error: Exception | None = None,
+        data: dict[str, object] | None = None,
+        retryable: bool = True,
+        user_action: str | None = "retry",
+    ) -> None:
+        logger.warning(
+            message,
+            extra={
+                "error": async_boundary_error_payload(
+                    code=code,
+                    message=message,
+                    boundary="task_controller",
+                    operation=operation,
+                    data=data,
+                    detail=error.__class__.__name__ if error is not None else None,
+                    retryable=retryable,
+                    user_action=user_action,
+                )
+            },
+            exc_info=error is not None,
+        )
 
     async def _renew_own_leases(self) -> None:
         from app.joysafeter_domain.services.joysafeter_task_state_machine import JoySafeterTaskStateMachine
@@ -78,7 +138,12 @@ class TaskController:
 
                 expired = await JoySafeterTaskStateMachine(db).find_lease_expired_running()
                 for task_id in expired:
-                    logger.warning("Task %s lease expired — owner presumed dead, reclaiming", task_id)
+                    self._log_boundary_failure(
+                        code="TASK_LEASE_EXPIRED_RECLAIMING",
+                        message="Task lease expired, reclaiming",
+                        operation="reclaim_expired_task_lease",
+                        data={"task_id": str(task_id)},
+                    )
                     retry_count = await self.failover_or_fail_task(
                         task_id, "Lease expired — owner instance presumed dead"
                     )
@@ -277,7 +342,16 @@ class TaskController:
 
                 for row in rows:
                     task_id, sandbox_id, session_id = row[0], row[1], row[2]
-                    logger.warning("Task %s exceeded timeout (sandbox=%s), marking timed out", task_id, sandbox_id)
+                    self._log_boundary_failure(
+                        code="TASK_WATCHDOG_TIMEOUT",
+                        message="Task exceeded watchdog timeout",
+                        operation="mark_overdue_task_timeout",
+                        data={
+                            "task_id": str(task_id),
+                            "sandbox_id": str(sandbox_id or ""),
+                            "session_id": str(session_id or ""),
+                        },
+                    )
 
                     timeout_updated = await task_svc.update_task_error(
                         task_id,
@@ -285,7 +359,18 @@ class TaskController:
                         TaskStatus.TIMEOUT,
                     )
                     if not timeout_updated:
-                        logger.warning("Task %s timeout watchdog write lost CAS/status race", task_id)
+                        self._log_boundary_failure(
+                            code="TASK_WATCHDOG_TIMEOUT_WRITE_RACE",
+                            message="Task watchdog timeout write lost CAS/status race",
+                            operation="mark_overdue_task_timeout",
+                            data={
+                                "task_id": str(task_id),
+                                "sandbox_id": str(sandbox_id or ""),
+                                "session_id": str(session_id or ""),
+                            },
+                            retryable=False,
+                            user_action="refresh",
+                        )
                         continue
 
                     if session_id is not None:
@@ -347,11 +432,17 @@ class TaskController:
                     retry_count = row[1] or 0
                     max_retries = row[2] or 3
                     if retry_count >= max_retries:
-                        logger.warning(
-                            "Task %s stuck in scheduling >2min and retries exhausted (%d/%d), marking failed",
-                            task_id,
-                            retry_count,
-                            max_retries,
+                        self._log_boundary_failure(
+                            code="TASK_CONTROLLER_STUCK_SCHEDULING_RETRIES_EXHAUSTED",
+                            message="Task stuck in scheduling and retries exhausted; marking failed",
+                            operation="mark_stuck_scheduling_failed",
+                            data={
+                                "task_id": str(task_id),
+                                "retry_count": retry_count,
+                                "max_retries": max_retries,
+                            },
+                            retryable=False,
+                            user_action="contact_support",
                         )
                         await task_svc.update_task_error(
                             task_id,
@@ -419,21 +510,40 @@ class TaskController:
                 try:
                     await svc.update_task_error(task_id, reason, TaskStatus.FAILED)
                 except Exception as e:
-                    logger.error("Failed to mark task %s as failed: %s", task_id, e)
+                    TaskController._log_boundary_failure(
+                        code="TASK_FAILOVER_MARK_FAILED",
+                        message="Failed to mark missing task as failed",
+                        operation="failover_mark_missing_task_failed",
+                        error=e,
+                        data={"task_id": str(task_id)},
+                    )
                 return None
 
             if expected_epoch is not None and task.owner_epoch != expected_epoch:
-                logger.warning(
-                    "Stale failover for task %s (held epoch %s, current %s) — reclaimed by another owner, skipping",
-                    task_id,
-                    expected_epoch,
-                    task.owner_epoch,
+                TaskController._log_boundary_failure(
+                    code="TASK_CONTROLLER_STALE_FAILOVER_SKIPPED",
+                    message="Stale failover skipped because task was reclaimed by another owner",
+                    operation="failover_or_fail_task",
+                    data={
+                        "task_id": str(task_id),
+                        "expected_epoch": expected_epoch,
+                        "current_epoch": task.owner_epoch,
+                    },
+                    retryable=False,
+                    user_action=None,
                 )
                 return None
 
             status = TaskStatus(task.status)
             if status.is_terminal():
-                logger.warning("Task %s already terminal (%s), skipping failover", task_id, status)
+                TaskController._log_boundary_failure(
+                    code="TASK_CONTROLLER_TERMINAL_FAILOVER_SKIPPED",
+                    message="Task already terminal; skipping failover",
+                    operation="failover_or_fail_task",
+                    data={"task_id": str(task_id), "status": status.value},
+                    retryable=False,
+                    user_action=None,
+                )
                 return None
 
             # If the task already emitted or persisted final output, it
@@ -453,9 +563,17 @@ class TaskController:
                     await session_svc.repair_missing_agent_message(task.chat_session_id, task_id, task.output)
                     ok = await svc.update_task_status(task_id, TaskStatus.COMPLETED, expected_epoch=expected_epoch)
                     if not ok:
-                        logger.warning(
-                            "CAS conflict marking task %s completed after output; task may be owned elsewhere",
-                            task_id,
+                        TaskController._log_boundary_failure(
+                            code="TASK_CONTROLLER_COMPLETE_AFTER_OUTPUT_CAS_CONFLICT",
+                            message="CAS conflict marking task completed after output",
+                            operation="complete_task_after_recovered_output",
+                            data={
+                                "task_id": str(task_id),
+                                "session_id": str(task.chat_session_id),
+                                "expected_epoch": expected_epoch,
+                            },
+                            retryable=False,
+                            user_action=None,
                         )
                         return None
                     # Transition session to idle since the task effectively finished.
@@ -482,9 +600,13 @@ class TaskController:
                 if ok:
                     return count
                 else:
-                    logger.warning(
-                        "CAS conflict on increment_task_retry for task %s — task may have been completed concurrently",
-                        task_id,
+                    TaskController._log_boundary_failure(
+                        code="TASK_CONTROLLER_RETRY_INCREMENT_CAS_CONFLICT",
+                        message="CAS conflict incrementing task retry",
+                        operation="increment_task_retry",
+                        data={"task_id": str(task_id), "expected_epoch": expected_epoch},
+                        retryable=False,
+                        user_action=None,
                     )
                     return None
 
@@ -492,7 +614,13 @@ class TaskController:
             try:
                 failed = await svc.update_task_error(task_id, reason, TaskStatus.FAILED, expected_epoch=expected_epoch)
             except Exception as e:
-                logger.error("Failed to mark task %s as failed: %s", task_id, e)
+                TaskController._log_boundary_failure(
+                    code="TASK_FAILOVER_MARK_FAILED",
+                    message="Failed to mark task as failed during failover",
+                    operation="failover_mark_task_failed",
+                    error=e,
+                    data={"task_id": str(task_id), "expected_epoch": expected_epoch},
+                )
             if failed and task.chat_session_id:
                 try:
                     session_svc = SessionService(db)

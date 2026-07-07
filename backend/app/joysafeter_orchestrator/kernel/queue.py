@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from redis.exceptions import ConnectionError as RedisConnectionError
 
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
+
 if TYPE_CHECKING:
     from app.joysafeter_orchestrator.kernel.redis_coordinator import RedisCoordinator
 
@@ -130,17 +132,39 @@ class InMemoryRedisQueueBackend(QueueBackend):
                 except Exception as e:
                     delay = 0.5 * (2**attempt)
                     logger.error(
-                        "Redis push_to_global failed (task=%s, attempt=%d, error=%s), retrying in %.1fs",
-                        task_id,
-                        attempt + 1,
-                        e,
-                        delay,
+                        "Redis push_to_global failed; retrying",
+                        extra={
+                            "error": async_boundary_error_payload(
+                                code="QUEUE_GLOBAL_REDIS_PUSH_RETRYING",
+                                message="Redis global queue push failed; retrying",
+                                boundary="queue",
+                                operation="push_to_global",
+                                data={
+                                    "task_id": str(task_id),
+                                    "attempt": attempt + 1,
+                                    "max_attempts": REDIS_PUSH_RETRIES,
+                                    "retry_delay_sec": delay,
+                                },
+                                detail=e.__class__.__name__,
+                            )
+                        },
+                        exc_info=True,
                     )
                     await asyncio.sleep(delay)
             logger.error(
                 "Redis push_to_global failed after %d retries, falling back to local queue (task=%s)",
                 REDIS_PUSH_RETRIES,
                 task_id,
+                extra={
+                    "error": async_boundary_error_payload(
+                        code="QUEUE_GLOBAL_REDIS_PUSH_FAILED",
+                        message="Redis global queue push failed after retries; falling back to local queue",
+                        boundary="queue",
+                        operation="push_to_global",
+                        data={"task_id": str(task_id), "retries": REDIS_PUSH_RETRIES},
+                        detail="RedisPushFailed",
+                    )
+                },
             )
         self._global_queue.push(task_id)
 
@@ -154,7 +178,19 @@ class InMemoryRedisQueueBackend(QueueBackend):
                     # Ok(None) -> timeout, continue loop
                     continue
                 except Exception as e:
-                    logger.warning("Redis global pop failed: %s, checking local queue", e)
+                    logger.warning(
+                        "Redis global pop failed; checking local queue",
+                        extra={
+                            "error": async_boundary_error_payload(
+                                code="QUEUE_GLOBAL_REDIS_POP_FAILED",
+                                message="Redis global queue pop failed; checking local queue",
+                                boundary="queue",
+                                operation="pop_from_global",
+                                detail=e.__class__.__name__,
+                            )
+                        },
+                        exc_info=True,
+                    )
                     item = self._global_queue.try_pop()
                     if item is not None:
                         return item
@@ -171,12 +207,24 @@ class InMemoryRedisQueueBackend(QueueBackend):
                 except Exception as e:
                     delay = 0.5 * (2**attempt)
                     logger.error(
-                        "Redis push_to_sandbox failed (sandbox=%s, task=%s, attempt=%d, error=%s), retrying in %.1fs",
-                        sandbox_id,
-                        task_id,
-                        attempt + 1,
-                        e,
-                        delay,
+                        "Redis push_to_sandbox failed; retrying",
+                        extra={
+                            "error": async_boundary_error_payload(
+                                code="QUEUE_SANDBOX_REDIS_PUSH_RETRYING",
+                                message="Redis sandbox queue push failed; retrying",
+                                boundary="queue",
+                                operation="push_to_sandbox",
+                                data={
+                                    "sandbox_id": str(sandbox_id),
+                                    "task_id": str(task_id),
+                                    "attempt": attempt + 1,
+                                    "max_attempts": REDIS_PUSH_RETRIES,
+                                    "retry_delay_sec": delay,
+                                },
+                                detail=e.__class__.__name__,
+                            )
+                        },
+                        exc_info=True,
                     )
                     await asyncio.sleep(delay)
             logger.error(
@@ -184,6 +232,20 @@ class InMemoryRedisQueueBackend(QueueBackend):
                 REDIS_PUSH_RETRIES,
                 sandbox_id,
                 task_id,
+                extra={
+                    "error": async_boundary_error_payload(
+                        code="QUEUE_SANDBOX_REDIS_PUSH_FAILED",
+                        message="Redis sandbox queue push failed after retries; falling back to local queue",
+                        boundary="queue",
+                        operation="push_to_sandbox",
+                        data={
+                            "sandbox_id": str(sandbox_id),
+                            "task_id": str(task_id),
+                            "retries": REDIS_PUSH_RETRIES,
+                        },
+                        detail="RedisPushFailed",
+                    )
+                },
             )
 
     async def pop_for_sandbox(self, sandbox_id: uuid.UUID, cancel: asyncio.Event) -> Optional[uuid.UUID]:
@@ -205,7 +267,20 @@ class InMemoryRedisQueueBackend(QueueBackend):
                     try:
                         result = pop_task.result()
                     except Exception as e:
-                        logger.warning("Redis pop failed: %s, retrying in 2s (no local fallback)", e)
+                        logger.warning(
+                            "Redis sandbox pop failed; retrying without local fallback",
+                            extra={
+                                "error": async_boundary_error_payload(
+                                    code="QUEUE_SANDBOX_REDIS_POP_FAILED",
+                                    message="Redis sandbox queue pop failed; retrying without local fallback",
+                                    boundary="queue",
+                                    operation="pop_for_sandbox",
+                                    data={"sandbox_id": str(sandbox_id)},
+                                    detail=e.__class__.__name__,
+                                )
+                            },
+                            exc_info=True,
+                        )
                         await asyncio.sleep(2)
                         continue
                     if result is not None:
@@ -261,7 +336,20 @@ class InMemoryRedisQueueBackend(QueueBackend):
             except RedisConnectionError as e:
                 logger.debug("Sandbox wakeup Redis wait interrupted: %s", e)
             except Exception as e:
-                logger.warning("Sandbox wakeup wait failed: %s", e)
+                logger.warning(
+                    "Sandbox wakeup wait failed",
+                    extra={
+                        "error": async_boundary_error_payload(
+                            code="QUEUE_SANDBOX_WAKEUP_WAIT_FAILED",
+                            message="Sandbox wakeup wait failed",
+                            boundary="task_queue",
+                            operation="wait_for_sandbox_wakeup",
+                            data={"sandbox_id": str(sandbox_id)},
+                            detail=e.__class__.__name__,
+                        )
+                    },
+                    exc_info=True,
+                )
 
     async def drain_and_requeue_sandbox(self, sandbox_id: uuid.UUID) -> None:
         await self.drain_sandbox(sandbox_id)
@@ -286,9 +374,18 @@ class InMemoryRedisQueueBackend(QueueBackend):
                 await self._redis_coord.drain_sandbox_queue(sandbox_id)
             except Exception as e:
                 logger.warning(
-                    "Failed to drain Redis sandbox queue for %s: %s",
-                    sandbox_id,
-                    e,
+                    "Failed to drain Redis sandbox queue",
+                    extra={
+                        "error": async_boundary_error_payload(
+                            code="QUEUE_SANDBOX_REDIS_DRAIN_FAILED",
+                            message="Failed to drain Redis sandbox queue",
+                            boundary="queue",
+                            operation="drain_sandbox_queue",
+                            data={"sandbox_id": str(sandbox_id)},
+                            detail=e.__class__.__name__,
+                        )
+                    },
+                    exc_info=True,
                 )
 
         return []

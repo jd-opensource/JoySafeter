@@ -4,6 +4,8 @@ import logging
 import uuid
 from typing import Any
 
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,8 +69,21 @@ class SessionBroadcaster:
                         while not q.empty():
                             q.get_nowait()
                         q.put_nowait({"lagged": True})
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to signal lagged session subscriber",
+                            extra={
+                                "error": async_boundary_error_payload(
+                                    code="SESSION_BROADCAST_LAG_SIGNAL_FAILED",
+                                    message="Failed to signal lagged session subscriber",
+                                    boundary="session_broadcaster",
+                                    operation="local_lag_signal",
+                                    data={"session_id": str(session_id)},
+                                    detail=exc.__class__.__name__,
+                                )
+                            },
+                            exc_info=True,
+                        )
 
         # Publish to Redis for cross-instance delivery
         if self._redis:
@@ -103,7 +118,21 @@ class SessionBroadcaster:
         try:
             await self._redis.publish(channel, wrapper)
         except Exception as e:
-            logger.warning("Failed to publish event to Redis: %s", e)
+            session_id = channel.rsplit(":", 1)[-1]
+            logger.warning(
+                "Failed to publish session event to Redis",
+                extra={
+                    "error": async_boundary_error_payload(
+                        code="SESSION_BROADCAST_REDIS_PUBLISH_FAILED",
+                        message="Failed to publish session event to Redis",
+                        boundary="session_broadcaster",
+                        operation="redis_publish",
+                        data={"channel": channel, "session_id": session_id},
+                        detail=e.__class__.__name__,
+                    )
+                },
+                exc_info=True,
+            )
 
     async def _redis_subscriber(self, session_id: uuid.UUID, q: asyncio.Queue) -> None:
         backoff = 1
@@ -132,16 +161,38 @@ class SessionBroadcaster:
                             while not q.empty():
                                 q.get_nowait()
                             q.put_nowait({"lagged": True})
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.warning(
+                                "Failed to signal lagged Redis session subscriber",
+                                extra={
+                                    "error": async_boundary_error_payload(
+                                        code="SESSION_BROADCAST_LAG_SIGNAL_FAILED",
+                                        message="Failed to signal lagged Redis session subscriber",
+                                        boundary="session_broadcaster",
+                                        operation="redis_lag_signal",
+                                        data={"session_id": str(session_id)},
+                                        detail=exc.__class__.__name__,
+                                    )
+                                },
+                                exc_info=True,
+                            )
             except asyncio.CancelledError:
                 break
             except Exception as e:
+                error_payload = async_boundary_error_payload(
+                    code="SESSION_BROADCAST_REDIS_SUBSCRIBE_FAILED",
+                    message="Redis session event subscriber failed",
+                    boundary="session_broadcaster",
+                    operation="redis_subscribe",
+                    data={"session_id": str(session_id), "backoff_seconds": backoff},
+                    detail=e.__class__.__name__,
+                )
                 logger.warning(
                     "Redis subscriber for session %s failed: %s, reconnecting in %ds",
                     session_id,
                     e,
                     backoff,
+                    extra={"error": error_payload},
                 )
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, max_backoff)

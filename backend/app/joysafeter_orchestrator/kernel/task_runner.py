@@ -12,6 +12,7 @@ from app.joysafeter_orchestrator.kernel.sandbox_bridge import (
     WsOutMessage,
 )
 from app.joysafeter_orchestrator.runtime.adapter import HarnessAdapter, HarnessInput
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 from app.joysafeter_worker.events.batch_writer import BufferedEvent, EventBatchSender
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,34 @@ _TASK_SCOPED_STATUS_EVENTS = {
     "session.status_running": "running",
     "session.status_idle": "idle",
 }
+
+
+def _log_task_runner_boundary_failure(
+    *,
+    code: str,
+    message: str,
+    operation: str,
+    error: Exception | None = None,
+    data: dict[str, object] | None = None,
+    retryable: bool = True,
+    user_action: str | None = "retry",
+) -> None:
+    logger.warning(
+        message,
+        extra={
+            "error": async_boundary_error_payload(
+                code=code,
+                message=message,
+                boundary="task_runner",
+                operation=operation,
+                data=data,
+                detail=error.__class__.__name__ if error is not None else None,
+                retryable=retryable,
+                user_action=user_action,
+            )
+        },
+        exc_info=error is not None,
+    )
 
 
 async def persist_task_scoped_session_status_event(
@@ -109,10 +138,17 @@ class TaskRunner:
             rc = get_runtime_config()
             threshold = rc.sandbox_failure_threshold if rc else joysafeter_config.sandbox_failure_threshold
             if self._consecutive_failures >= threshold:
-                logger.warning(
-                    "Sandbox %s hit failure threshold (%d), ejecting",
-                    sandbox_id,
-                    self._consecutive_failures,
+                _log_task_runner_boundary_failure(
+                    code="TASK_RUNNER_SANDBOX_FAILURE_THRESHOLD_EXCEEDED",
+                    message="Sandbox hit failure threshold; ejecting",
+                    operation="eject_failed_sandbox",
+                    data={
+                        "sandbox_id": str(sandbox_id),
+                        "consecutive_failures": self._consecutive_failures,
+                        "threshold": threshold,
+                    },
+                    retryable=True,
+                    user_action="retry",
                 )
                 await self._cleanup_sandbox(sandbox_id)
                 break
@@ -127,10 +163,12 @@ class TaskRunner:
             async with AsyncSessionLocal() as db:
                 return await TaskService(db).claim_next_sandbox_task_for_running(sandbox_id)
         except Exception as e:
-            logger.warning(
-                "Failed to claim next scheduling task for sandbox %s: %s",
-                sandbox_id,
-                e,
+            _log_task_runner_boundary_failure(
+                code="TASK_RUNNER_DB_CLAIM_FAILED",
+                message="Failed to claim next scheduling task for sandbox",
+                operation="claim_next_sandbox_task",
+                error=e,
+                data={"sandbox_id": str(sandbox_id)},
             )
             return None
 
@@ -158,7 +196,14 @@ class TaskRunner:
 
                 task = await task_svc.get_task(task_id)
                 if not task:
-                    logger.error("Task %s not found", task_id)
+                    _log_task_runner_boundary_failure(
+                        code="TASK_RUNNER_TASK_NOT_FOUND",
+                        message="Task not found during runner execution",
+                        operation="load_task_for_execution",
+                        data={"task_id": str(task_id), "sandbox_id": str(sandbox_id)},
+                        retryable=False,
+                        user_action="refresh",
+                    )
                     return
 
                 agent = await agent_svc.get_agent(task.agent_id, project_id=getattr(task, "project_id", None))
@@ -222,12 +267,26 @@ class TaskRunner:
 
                 error_msg = result.get("error")
                 if not await task_svc.update_task_output(task_id, result.get("output", ""), expected_epoch=owner_epoch):
-                    logger.warning("CAS conflict writing output for task %s, ignoring adapter result", task_id)
+                    _log_task_runner_boundary_failure(
+                        code="TASK_RUNNER_RESULT_OUTPUT_CAS_CONFLICT",
+                        message="CAS conflict writing output; ignoring adapter result",
+                        operation="persist_adapter_result_output",
+                        data={"task_id": str(task_id), "owner_epoch": owner_epoch},
+                        retryable=False,
+                        user_action=None,
+                    )
                     return
                 task_usage = result.get("usage")
                 if task_usage:
                     if not await task_svc.update_task_usage(task_id, task_usage, expected_epoch=owner_epoch):
-                        logger.warning("CAS conflict writing usage for task %s, ignoring adapter result", task_id)
+                        _log_task_runner_boundary_failure(
+                            code="TASK_RUNNER_RESULT_USAGE_CAS_CONFLICT",
+                            message="CAS conflict writing usage; ignoring adapter result",
+                            operation="persist_adapter_result_usage",
+                            data={"task_id": str(task_id), "owner_epoch": owner_epoch},
+                            retryable=False,
+                            user_action=None,
+                        )
                         return
                 if error_msg:
                     task_status_updated = await task_svc.update_task_error(
@@ -243,7 +302,14 @@ class TaskRunner:
                         expected_epoch=owner_epoch,
                     )
                 if not task_status_updated:
-                    logger.warning("CAS conflict finalizing task %s, ignoring adapter result", task_id)
+                    _log_task_runner_boundary_failure(
+                        code="TASK_RUNNER_RESULT_FINALIZE_CAS_CONFLICT",
+                        message="CAS conflict finalizing task; ignoring adapter result",
+                        operation="finalize_adapter_result",
+                        data={"task_id": str(task_id), "owner_epoch": owner_epoch, "status": final_status.value},
+                        retryable=False,
+                        user_action=None,
+                    )
                     return
 
                 if task.chat_session_id:
@@ -312,7 +378,14 @@ class TaskRunner:
                 task_svc = TaskService(db)
                 await task_svc.update_task_error(task_id, "Cancelled", TaskStatus.ABORTED, expected_epoch=owner_epoch)
         except TimeoutError:
-            logger.warning("Task %s exceeded server-side deadline, cancelling", task_id)
+            _log_task_runner_boundary_failure(
+                code="TASK_RUNNER_TASK_DEADLINE_EXCEEDED",
+                message="Task exceeded server-side deadline; cancelling",
+                operation="cancel_deadline_exceeded_task",
+                data={"task_id": str(task_id), "owner_epoch": owner_epoch},
+                retryable=True,
+                user_action="retry",
+            )
             self._consecutive_failures += 1
             if harness:
                 try:
@@ -335,7 +408,13 @@ class TaskRunner:
                 ),
             )
         except Exception as e:
-            logger.error("Task %s execution failed: %s", task_id, e)
+            _log_task_runner_boundary_failure(
+                code="TASK_RUNNER_EXECUTION_FAILED",
+                message="Task execution failed in runner",
+                operation="execute_task",
+                error=e,
+                data={"task_id": str(task_id), "sandbox_id": str(sandbox_id)},
+            )
             self._consecutive_failures += 1
 
             from app.joysafeter_orchestrator.kernel.task_controller import TaskController
@@ -437,13 +516,24 @@ class TaskRunner:
 
         try:
             status = await self._provider.status(external_id)
-        except Exception:
+        except Exception as e:
+            _log_task_runner_boundary_failure(
+                code="TASK_RUNNER_PROVIDER_STATUS_FAILED",
+                message="Provider status probe failed after task failure",
+                operation="probe_sandbox_status",
+                error=e,
+                data={"sandbox_id": str(sandbox_id), "external_id": external_id, "probe": "initial"},
+            )
             status = "unknown"
 
         if status not in ("running", "created"):
-            logger.warning(
-                "Sandbox %s container dead after disconnect, cleaning up",
-                sandbox_id,
+            _log_task_runner_boundary_failure(
+                code="TASK_RUNNER_SANDBOX_DEAD_AFTER_DISCONNECT",
+                message="Sandbox container dead after disconnect; cleaning up",
+                operation="cleanup_dead_sandbox_after_disconnect",
+                data={"sandbox_id": str(sandbox_id), "external_id": external_id, "status": status},
+                retryable=True,
+                user_action="retry",
             )
             await self._cleanup_sandbox(sandbox_id)
             self._running = False
@@ -453,13 +543,24 @@ class TaskRunner:
 
         try:
             status = await self._provider.status(external_id)
-        except Exception:
+        except Exception as e:
+            _log_task_runner_boundary_failure(
+                code="TASK_RUNNER_PROVIDER_STATUS_FAILED",
+                message="Provider status probe failed during grace check",
+                operation="probe_sandbox_status",
+                error=e,
+                data={"sandbox_id": str(sandbox_id), "external_id": external_id, "probe": "grace"},
+            )
             status = "unknown"
 
         if status not in ("running", "created"):
-            logger.warning(
-                "Sandbox %s container died during grace, cleaning up",
-                sandbox_id,
+            _log_task_runner_boundary_failure(
+                code="TASK_RUNNER_SANDBOX_DIED_DURING_GRACE",
+                message="Sandbox container died during grace; cleaning up",
+                operation="cleanup_dead_sandbox_during_grace",
+                data={"sandbox_id": str(sandbox_id), "external_id": external_id, "status": status},
+                retryable=True,
+                user_action="retry",
             )
             await self._cleanup_sandbox(sandbox_id)
             self._running = False
@@ -486,14 +587,28 @@ class TaskRunner:
 
             try:
                 status = await self._provider.status(external_id)
-            except Exception:
+            except Exception as e:
+                _log_task_runner_boundary_failure(
+                    code="TASK_RUNNER_PROVIDER_STATUS_FAILED",
+                    message="Provider status probe failed during grace period",
+                    operation="probe_sandbox_status",
+                    error=e,
+                    data={"sandbox_id": str(sandbox_id), "external_id": external_id, "probe": "periodic"},
+                )
                 status = "unknown"
 
             if status not in ("running", "created"):
                 break
 
         if self._bridge.status != SandboxBridgeStatus.BUSY:
-            logger.warning("Sandbox %s grace period expired, cleaning up", sandbox_id)
+            _log_task_runner_boundary_failure(
+                code="TASK_RUNNER_GRACE_PERIOD_EXPIRED",
+                message="Sandbox grace period expired, cleaning up",
+                operation="grace_period_cleanup",
+                data={"sandbox_id": str(sandbox_id), "external_id": external_id},
+                retryable=False,
+                user_action=None,
+            )
             await self._cleanup_sandbox(sandbox_id)
             self._running = False
 
@@ -533,7 +648,18 @@ class TaskRunner:
                         await mem_svc.upsert_memory_from_agent(sms.store_id, rel_path, content, session_id)
                     return
         except Exception as e:
-            logger.warning("Memory sync failed: %s", e)
+            _log_task_runner_boundary_failure(
+                code="TASK_RUNNER_MEMORY_SYNC_FAILED",
+                message="Memory sync failed",
+                operation="handle_memory_sync",
+                error=e,
+                data={
+                    "session_id": str(session_id),
+                    "mount_name": str(mount_name),
+                    "relative_path": str(rel_path),
+                    "operation_type": str(operation),
+                },
+            )
 
     async def _build_harness_input(self, task, agent, session_id: Optional[uuid.UUID]) -> HarnessInput:
         from app.joysafeter_orchestrator.kernel.harness_input_builder import build_harness_input
@@ -857,7 +983,13 @@ class TaskRunner:
                     if requires_action_pending and self._bridge.confirmation_event.is_set():
                         await _exit_requires_action()
                 except Exception as e:
-                    logger.warning("Control input error: %s", e)
+                    _log_task_runner_boundary_failure(
+                        code="TASK_RUNNER_CONTROL_INPUT_FAILED",
+                        message="Control input dispatch failed",
+                        operation="send_control_input",
+                        error=e,
+                        data={"task_id": str(task_id), "session_id": str(session_id or "")},
+                    )
 
         async def _watch_cancel():
             await self._bridge._cancel_event.wait()

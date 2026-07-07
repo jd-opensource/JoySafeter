@@ -12,6 +12,7 @@ import os
 from typing import Any
 
 from app.joysafeter_orchestrator.runtime.adapter import HarnessInput
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,15 @@ def write_claude_settings(work_dir: str, input: HarnessInput) -> None:
     try:
         os.makedirs(claude_dir, exist_ok=True)
     except OSError as exc:
-        logger.warning("Failed to create %s: %s", claude_dir, exc)
+        log_boundary_failure(
+            logger,
+            boundary="claude_settings",
+            code="CLAUDE_SETTINGS_DIR_CREATE_FAILED",
+            message="Failed to create Claude settings directory",
+            operation="create_claude_settings_dir",
+            error=exc,
+            data={"path": claude_dir},
+        )
         return
     settings_path = os.path.join(claude_dir, "settings.json")
 
@@ -67,7 +76,15 @@ def write_claude_settings(work_dir: str, input: HarnessInput) -> None:
         with open(settings_path, "w", encoding="utf-8") as fh:
             json.dump(settings, fh, indent=2)
     except OSError as exc:
-        logger.warning("Failed to write %s: %s", settings_path, exc)
+        log_boundary_failure(
+            logger,
+            boundary="claude_settings",
+            code="CLAUDE_SETTINGS_WRITE_FAILED",
+            message="Failed to write Claude settings",
+            operation="write_claude_settings",
+            error=exc,
+            data={"path": settings_path},
+        )
 
 
 def _write_mcp_json(work_dir: str, mcp_servers: list[dict[str, Any]]) -> None:
@@ -120,4 +137,12 @@ def _write_mcp_json(work_dir: str, mcp_servers: list[dict[str, Any]]) -> None:
         with open(mcp_json_path, "w", encoding="utf-8") as fh:
             json.dump(root, fh, indent=2)
     except OSError as exc:
-        logger.warning("Failed to write %s: %s", mcp_json_path, exc)
+        log_boundary_failure(
+            logger,
+            boundary="claude_settings",
+            code="CLAUDE_MCP_JSON_WRITE_FAILED",
+            message="Failed to write Claude MCP configuration",
+            operation="write_mcp_json",
+            error=exc,
+            data={"path": mcp_json_path},
+        )

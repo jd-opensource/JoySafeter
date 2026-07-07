@@ -15,12 +15,41 @@ from enum import Enum
 from typing import TYPE_CHECKING, Optional, Protocol
 
 from app.joysafeter_orchestrator.sandbox.archive_utils import auto_extract_archive
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 from app.joysafeter_shared.storage.base import StorageBackend
 
 if TYPE_CHECKING:
     from app.joysafeter_orchestrator.sandbox.provider import SandboxProvider
 
 logger = logging.getLogger(__name__)
+
+
+def _log_boundary_failure(
+    *,
+    code: str,
+    message: str,
+    operation: str,
+    error: Exception | None = None,
+    data: dict[str, object] | None = None,
+    retryable: bool = True,
+    user_action: str | None = "retry",
+) -> None:
+    logger.warning(
+        message,
+        extra={
+            "error": async_boundary_error_payload(
+                code=code,
+                message=message,
+                boundary="file_injection",
+                operation=operation,
+                data=data,
+                retryable=retryable,
+                user_action=user_action,
+                detail=error.__class__.__name__ if error is not None else None,
+            )
+        },
+        exc_info=error is not None,
+    )
 
 
 class InjectionStrategy(str, Enum):
@@ -138,7 +167,18 @@ class GrpcStreamStrategy:
                 await ctx.storage.get(f.storage_key)
                 count += 1
             except Exception as e:
-                logger.warning("GrpcStream: failed to load %s: %s", f.filename, e)
+                _log_boundary_failure(
+                    code="FILE_INJECTION_GRPC_LOAD_FAILED",
+                    message="gRPC file injection failed to load file bytes",
+                    operation="grpc_stream_load_file",
+                    error=e,
+                    data={
+                        "session_id": str(ctx.session_id),
+                        "filename": f.filename,
+                        "storage_key": f.storage_key,
+                        "mount_path": f.mount_path,
+                    },
+                )
         return count
 
 
@@ -161,7 +201,18 @@ class HostMountStrategy:
                     relative = relative[len("workspace/") :]
                 host_file_path = os.path.realpath(os.path.join(ctx.workspace_path, relative))
                 if not host_file_path.startswith(os.path.realpath(ctx.workspace_path)):
-                    logger.warning("HostMount: path traversal blocked: %s", f.mount_path)
+                    _log_boundary_failure(
+                        code="FILE_INJECTION_PATH_TRAVERSAL_BLOCKED",
+                        message="Host mount file injection blocked path traversal",
+                        operation="host_mount_validate_path",
+                        data={
+                            "session_id": str(ctx.session_id),
+                            "filename": f.filename,
+                            "mount_path": f.mount_path,
+                        },
+                        retryable=False,
+                        user_action=None,
+                    )
                     continue
 
                 os.makedirs(os.path.dirname(host_file_path), exist_ok=True)
@@ -171,10 +222,31 @@ class HostMountStrategy:
                 try:
                     auto_extract_archive(host_file_path)
                 except Exception as e:
-                    logger.warning("HostMount: failed to auto-extract %s: %s", f.filename, e)
+                    _log_boundary_failure(
+                        code="FILE_INJECTION_AUTO_EXTRACT_FAILED",
+                        message="Host mount file injection failed to auto-extract archive",
+                        operation="host_mount_auto_extract",
+                        error=e,
+                        data={
+                            "session_id": str(ctx.session_id),
+                            "filename": f.filename,
+                            "mount_path": f.mount_path,
+                        },
+                    )
                 count += 1
             except Exception as e:
-                logger.warning("HostMount: failed to write %s: %s", f.filename, e)
+                _log_boundary_failure(
+                    code="FILE_INJECTION_HOST_WRITE_FAILED",
+                    message="Host mount file injection failed to write file",
+                    operation="host_mount_write_file",
+                    error=e,
+                    data={
+                        "session_id": str(ctx.session_id),
+                        "filename": f.filename,
+                        "storage_key": f.storage_key,
+                        "mount_path": f.mount_path,
+                    },
+                )
         return count
 
 
@@ -236,11 +308,17 @@ async def inject_session_files(ctx: FileInjectionContext) -> None:
                 )
                 return
         except Exception as e:
-            logger.warning(
-                "Strategy %s failed for session %s: %s, trying next",
-                strategy.name,
-                ctx.session_id,
-                e,
+            _log_boundary_failure(
+                code="FILE_INJECTION_STRATEGY_FAILED",
+                message="File injection strategy failed; trying next strategy",
+                operation="run_injection_strategy",
+                error=e,
+                data={"session_id": str(ctx.session_id), "strategy": strategy.name},
             )
 
-    logger.warning("All file injection strategies failed for session %s", ctx.session_id)
+    _log_boundary_failure(
+        code="FILE_INJECTION_ALL_STRATEGIES_FAILED",
+        message="All file injection strategies failed",
+        operation="inject_session_files",
+        data={"session_id": str(ctx.session_id), "file_count": len(files)},
+    )

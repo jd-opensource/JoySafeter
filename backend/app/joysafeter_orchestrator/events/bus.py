@@ -10,6 +10,7 @@ from loguru import logger
 
 from app.joysafeter_orchestrator.events.envelope import STATUS_EVENT_TYPES, JoySafeterEventEnvelope
 from app.joysafeter_orchestrator.events.subscriber import JoySafeterEventSubscriber, SubscriberPhase
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 
 
 class JoySafeterEventBus:
@@ -36,7 +37,15 @@ class JoySafeterEventBus:
         try:
             await self._publish_inner(envelope)
         except Exception as e:
-            logger.error("EventBus.publish failed (swallowed): %s", e, exc_info=True)
+            error = self._failure_payload(
+                envelope,
+                e,
+                code="EVENT_BUS_PUBLISH_FAILED",
+                message="EventBus publish failed",
+                phase="publish",
+                operation="publish",
+            )
+            logger.bind(error=error).opt(exception=e).error("EventBus.publish failed (swallowed)")
 
     def health_snapshot(self) -> dict[str, Any]:
         status = "degraded" if self._persist_failure_count else "ok"
@@ -50,29 +59,75 @@ class JoySafeterEventBus:
             "last_broadcast_failure": self._last_broadcast_failure,
         }
 
-    def _record_persist_failure(self, envelope: JoySafeterEventEnvelope, error: Exception) -> None:
+    def _failure_payload(
+        self,
+        envelope: JoySafeterEventEnvelope,
+        error: Exception,
+        *,
+        code: str,
+        message: str,
+        phase: str,
+        operation: str,
+        subscriber: JoySafeterEventSubscriber | None = None,
+    ) -> dict[str, Any]:
+        data = {
+            "event_type": envelope.event_type,
+            "session_id": str(envelope.session_id) if envelope.session_id else None,
+            "phase": phase,
+        }
+        if subscriber is not None:
+            data["subscriber"] = subscriber.name
+        return async_boundary_error_payload(
+            code=code,
+            message=message,
+            boundary="event_bus",
+            operation=operation,
+            data=data,
+            detail=error.__class__.__name__,
+        )
+
+    def _record_persist_failure(self, envelope: JoySafeterEventEnvelope, error: Exception) -> dict[str, Any]:
         self._persist_failure_count += 1
+        error_payload = self._failure_payload(
+            envelope,
+            error,
+            code="EVENT_BUS_PERSIST_FAILED",
+            message="JoySafeter event persist phase failed",
+            phase="persist",
+            operation="persist",
+        )
         self._last_persist_failure = {
             "event_type": envelope.event_type,
             "session_id": str(envelope.session_id) if envelope.session_id else None,
-            "error": str(error),
+            "error": error_payload,
             "timestamp": time.time(),
         }
+        return error_payload
 
     def _record_broadcast_failure(
         self,
         envelope: JoySafeterEventEnvelope,
         subscriber: JoySafeterEventSubscriber | None,
         error: Exception,
-    ) -> None:
+    ) -> dict[str, Any]:
         self._broadcast_failure_count += 1
+        error_payload = self._failure_payload(
+            envelope,
+            error,
+            code="EVENT_BUS_BROADCAST_FAILED",
+            message="JoySafeter event broadcast subscriber failed",
+            phase="broadcast",
+            operation="broadcast",
+            subscriber=subscriber,
+        )
         self._last_broadcast_failure = {
             "subscriber": subscriber.name if subscriber else None,
             "event_type": envelope.event_type,
             "session_id": str(envelope.session_id) if envelope.session_id else None,
-            "error": str(error),
+            "error": error_payload,
             "timestamp": time.time(),
         }
+        return error_payload
 
     async def _publish_inner(self, envelope: JoySafeterEventEnvelope) -> None:
         if envelope.is_status_change:
@@ -80,8 +135,8 @@ class JoySafeterEventBus:
                 try:
                     await sub.handle(envelope)
                 except Exception as exc:
-                    self._record_persist_failure(envelope, exc)
-                    logger.warning("JoySafeter persist phase failed: %s", exc)
+                    error = self._record_persist_failure(envelope, exc)
+                    logger.bind(error=error).opt(exception=exc).warning("JoySafeter persist phase failed")
                     return
             if envelope.suppress_broadcast:
                 return
@@ -91,11 +146,9 @@ class JoySafeterEventBus:
             )
             for i, result in enumerate(results):
                 if isinstance(result, Exception) and i < len(self._broadcast_subs):
-                    self._record_broadcast_failure(envelope, self._broadcast_subs[i], result)
-                    logger.warning(
-                        "JoySafeter broadcast subscriber %s failed: %s",
-                        self._broadcast_subs[i].name,
-                        result,
+                    error = self._record_broadcast_failure(envelope, self._broadcast_subs[i], result)
+                    logger.bind(error=error).opt(exception=result).warning(
+                        "JoySafeter broadcast subscriber failed",
                     )
             return
 
@@ -114,16 +167,14 @@ class JoySafeterEventBus:
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 if i == 0:
-                    self._record_persist_failure(envelope, result)
-                    logger.warning("JoySafeter persist phase failed: %s", result)
+                    error = self._record_persist_failure(envelope, result)
+                    logger.bind(error=error).opt(exception=result).warning("JoySafeter persist phase failed")
                 else:
                     sub_idx = i - 1
                     if sub_idx < len(self._broadcast_subs):
-                        self._record_broadcast_failure(envelope, self._broadcast_subs[sub_idx], result)
-                        logger.warning(
-                            "JoySafeter broadcast subscriber %s failed: %s",
-                            self._broadcast_subs[sub_idx].name,
-                            result,
+                        error = self._record_broadcast_failure(envelope, self._broadcast_subs[sub_idx], result)
+                        logger.bind(error=error).opt(exception=result).warning(
+                            "JoySafeter broadcast subscriber failed",
                         )
 
     async def publish_batch(self, envelopes: list[JoySafeterEventEnvelope]) -> None:
@@ -154,19 +205,27 @@ class JoySafeterEventBus:
                 if i == 0:
                     first_envelope = envelopes[0] if envelopes else None
                     if first_envelope is not None:
-                        self._record_persist_failure(first_envelope, result)
-                    logger.warning("JoySafeter batch persist phase failed: %s", result)
+                        error = self._record_persist_failure(first_envelope, result)
+                        logger.bind(error=error).opt(exception=result).warning("JoySafeter batch persist phase failed")
+                    else:
+                        error = async_boundary_error_payload(
+                            code="EVENT_BUS_BATCH_PERSIST_FAILED",
+                            message="JoySafeter batch persist phase failed",
+                            boundary="event_bus",
+                            operation="publish_batch",
+                            data={"event_count": 0, "phase": "persist"},
+                            detail=result.__class__.__name__,
+                        )
+                        logger.bind(error=error).opt(exception=result).warning("JoySafeter batch persist phase failed")
                     continue
                 if i > 0:
                     sub_idx = (i - 1) % max(len(self._broadcast_subs), 1)
                     if sub_idx < len(self._broadcast_subs):
                         envelope_idx = (i - 1) // max(len(self._broadcast_subs), 1)
                         envelope = envelopes[envelope_idx] if envelope_idx < len(envelopes) else envelopes[-1]
-                        self._record_broadcast_failure(envelope, self._broadcast_subs[sub_idx], result)
-                        logger.warning(
-                            "JoySafeter broadcast subscriber %s failed: %s",
-                            self._broadcast_subs[sub_idx].name,
-                            result,
+                        error = self._record_broadcast_failure(envelope, self._broadcast_subs[sub_idx], result)
+                        logger.bind(error=error).opt(exception=result).warning(
+                            "JoySafeter broadcast subscriber failed",
                         )
 
     async def flush(self) -> None:

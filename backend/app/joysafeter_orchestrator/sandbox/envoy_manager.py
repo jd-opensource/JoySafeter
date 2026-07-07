@@ -6,6 +6,8 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
+
 logger = logging.getLogger(__name__)
 
 
@@ -102,9 +104,15 @@ class EnvoyManager:
                 break
             await asyncio.sleep(0.2)
         else:
-            logger.warning(
-                "Timed out waiting for Envoy sockets for sandbox %s, proceeding anyway",
-                sandbox_id,
+            log_boundary_failure(
+                logger,
+                boundary="envoy_manager",
+                code="ENVOY_SOCKET_WAIT_TIMEOUT",
+                message="Timed out waiting for Envoy sockets",
+                operation="wait_for_sandbox_sockets",
+                data={"sandbox_id": str(sandbox_id), "container_name": self._config.container_name},
+                retryable=True,
+                user_action="retry",
             )
 
         logger.info("Sandbox %s registered with Envoy proxy", sandbox_id)
@@ -145,7 +153,17 @@ class EnvoyManager:
                 sid = uuid.UUID(data["sandbox_id"])
                 result[sid] = data.get("networking", {})
             except Exception as e:
-                logger.warning("Failed to parse sandbox entry %s: %s", f, e)
+                log_boundary_failure(
+                    logger,
+                    boundary="envoy_manager",
+                    code="ENVOY_SANDBOX_ENTRY_PARSE_FAILED",
+                    message="Failed to parse Envoy sandbox entry",
+                    operation="load_sandbox_entry",
+                    error=e,
+                    data={"entry_path": str(f)},
+                    retryable=False,
+                    user_action="check_configuration",
+                )
         return result
 
     async def _write_bootstrap_config(self) -> None:
@@ -330,7 +348,15 @@ admin:
             await proc.communicate()
             return proc.returncode or 0
         except Exception as e:
-            logger.warning("Exec in envoy failed: %s", e)
+            log_boundary_failure(
+                logger,
+                boundary="envoy_manager",
+                code="ENVOY_EXEC_FAILED",
+                message="Exec in Envoy container failed",
+                operation="exec_in_envoy",
+                error=e,
+                data={"container_name": self._config.container_name},
+            )
             return 1
 
     async def _write_file_in_envoy(self, path: str, content: str) -> None:

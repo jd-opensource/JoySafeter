@@ -4,6 +4,7 @@ from typing import Optional
 import httpx
 
 from app.joysafeter_orchestrator.sandbox.provider import SandboxProvider
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +182,14 @@ class E2bSandboxProvider(SandboxProvider):
                 params={"metadata": "joysafeter=true"},
             )
             if resp.status_code >= 400:
-                logger.warning("E2B list_active failed: %s", resp.text)
+                log_boundary_failure(
+                    logger,
+                    boundary="e2b_provider",
+                    code="E2B_LIST_ACTIVE_FAILED",
+                    message="E2B list_active failed",
+                    operation="list_active",
+                    data={"status_code": resp.status_code},
+                )
                 return []
             sandboxes = resp.json()
 

@@ -10,6 +10,8 @@ import time
 import uuid
 from typing import Optional, cast
 
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
+
 logger = logging.getLogger(__name__)
 
 RELEASE_IF_OWNER_LUA = """
@@ -67,7 +69,20 @@ class RedisCoordinator:
                     key = f"joysafeter:instances:{self.instance_id}"
                     await self._redis.expire(key, ttl)
                 except Exception as e:
-                    logger.warning("Heartbeat failed: %s", e)
+                    logger.warning(
+                        "Heartbeat failed",
+                        extra={
+                            "error": async_boundary_error_payload(
+                                code="REDIS_COORDINATOR_HEARTBEAT_FAILED",
+                                message="Redis coordinator heartbeat failed",
+                                boundary="redis_coordinator",
+                                operation="heartbeat",
+                                data={"instance_id": self.instance_id, "ttl": ttl},
+                                detail=e.__class__.__name__,
+                            )
+                        },
+                        exc_info=True,
+                    )
 
         self._heartbeat_task = asyncio.create_task(_loop(), name="joysafeter-heartbeat")
         return self._heartbeat_task
@@ -154,7 +169,20 @@ class RedisCoordinator:
         try:
             await self._redis.publish(channel, payload)
         except Exception as e:
-            logger.warning("Failed to publish task event: %s", e)
+            logger.warning(
+                "Failed to publish task event to Redis",
+                extra={
+                    "error": async_boundary_error_payload(
+                        code="REDIS_TASK_EVENT_PUBLISH_FAILED",
+                        message="Failed to publish task event to Redis",
+                        boundary="redis_coordinator",
+                        operation="publish_task_event",
+                        data={"task_id": str(task_id), "channel": channel, "instance_id": self.instance_id},
+                        detail=e.__class__.__name__,
+                    )
+                },
+                exc_info=True,
+            )
 
     async def publish_session_event(self, session_id: uuid.UUID, payload: str) -> None:
         """Publish session event wrapped with source_instance — matches Rust."""
@@ -168,7 +196,20 @@ class RedisCoordinator:
             )
             await self._redis.publish(channel, wrapped)
         except Exception as e:
-            logger.warning("Failed to publish session event: %s", e)
+            logger.warning(
+                "Failed to publish session event to Redis",
+                extra={
+                    "error": async_boundary_error_payload(
+                        code="REDIS_SESSION_EVENT_PUBLISH_FAILED",
+                        message="Failed to publish session event to Redis",
+                        boundary="redis_coordinator",
+                        operation="publish_session_event",
+                        data={"session_id": str(session_id), "channel": channel, "instance_id": self.instance_id},
+                        detail=e.__class__.__name__,
+                    )
+                },
+                exc_info=True,
+            )
 
     async def is_healthy(self) -> bool:
         try:
@@ -182,7 +223,20 @@ class RedisCoordinator:
         try:
             await self._redis.delete(key)
         except Exception as e:
-            logger.warning("Failed to remove sandbox queue: %s", e)
+            logger.warning(
+                "Failed to remove sandbox queue",
+                extra={
+                    "error": async_boundary_error_payload(
+                        code="REDIS_SANDBOX_QUEUE_REMOVE_FAILED",
+                        message="Failed to remove sandbox queue",
+                        boundary="redis_coordinator",
+                        operation="remove_sandbox_queue",
+                        data={"sandbox_id": str(sandbox_id), "key": key, "instance_id": self.instance_id},
+                        detail=e.__class__.__name__,
+                    )
+                },
+                exc_info=True,
+            )
 
     # --- Task Queues ---
 
@@ -269,7 +323,26 @@ class RedisCoordinator:
             try:
                 await self._redis.publish(channel, command)
             except Exception as e:
-                logger.warning("dispatch_cancel to %s failed: %s", inst_id, e)
+                logger.warning(
+                    "dispatch_cancel to %s failed",
+                    inst_id,
+                    extra={
+                        "error": async_boundary_error_payload(
+                            code="REDIS_CANCEL_COMMAND_PUBLISH_FAILED",
+                            message="Failed to publish cancel command to Redis",
+                            boundary="redis_coordinator",
+                            operation="dispatch_cancel",
+                            data={
+                                "target_instance_id": inst_id,
+                                "source_instance_id": self.instance_id,
+                                "sandbox_id": sandbox_id,
+                                "channel": channel,
+                            },
+                            detail=e.__class__.__name__,
+                        )
+                    },
+                    exc_info=True,
+                )
 
     async def dispatch_input(self, sandbox_id: str, content: str) -> None:
         """Publish an input command to all other instances — matches Rust."""
@@ -288,7 +361,26 @@ class RedisCoordinator:
             try:
                 await self._redis.publish(channel, command)
             except Exception as e:
-                logger.warning("dispatch_input to %s failed: %s", inst_id, e)
+                logger.warning(
+                    "dispatch_input to %s failed",
+                    inst_id,
+                    extra={
+                        "error": async_boundary_error_payload(
+                            code="REDIS_INPUT_COMMAND_PUBLISH_FAILED",
+                            message="Failed to publish input command to Redis",
+                            boundary="redis_coordinator",
+                            operation="dispatch_input",
+                            data={
+                                "target_instance_id": inst_id,
+                                "source_instance_id": self.instance_id,
+                                "sandbox_id": sandbox_id,
+                                "channel": channel,
+                            },
+                            detail=e.__class__.__name__,
+                        )
+                    },
+                    exc_info=True,
+                )
 
     async def _list_instance_ids(self) -> list[str]:
         """List all active instance IDs from the registry."""
@@ -319,7 +411,20 @@ class RedisCoordinator:
             await self._redis.delete(key)
             logger.info("Deregistered instance %s", self.instance_id)
         except Exception as e:
-            logger.warning("Failed to deregister instance: %s", e)
+            logger.warning(
+                "Failed to deregister instance",
+                extra={
+                    "error": async_boundary_error_payload(
+                        code="REDIS_INSTANCE_DEREGISTER_FAILED",
+                        message="Failed to deregister instance",
+                        boundary="redis_coordinator",
+                        operation="deregister_instance",
+                        data={"instance_id": self.instance_id, "key": key},
+                        detail=e.__class__.__name__,
+                    )
+                },
+                exc_info=True,
+            )
 
     async def stop(self) -> None:
         if self._heartbeat_task:

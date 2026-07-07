@@ -12,6 +12,7 @@ import uuid
 from typing import Any
 
 from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 
 logger = logging.getLogger(__name__)
 COMMAND_ACK_KEY_PREFIX = "joysafeter:cmd_ack:"
@@ -38,7 +39,20 @@ class CommandListener:
                 await pubsub.close()
                 return
             except Exception as e:
-                logger.warning("Command listener: failed to connect to Redis pub/sub: %s", e)
+                logger.warning(
+                    "Command listener: failed to connect to Redis pub/sub",
+                    extra={
+                        "error": async_boundary_error_payload(
+                            code="COMMAND_LISTENER_REDIS_CONNECT_FAILED",
+                            message="Command listener failed to connect to Redis pub/sub",
+                            boundary="command_listener",
+                            operation="connect_pubsub",
+                            data={"channel": channel},
+                            detail=e.__class__.__name__,
+                        )
+                    },
+                    exc_info=True,
+                )
                 try:
                     await pubsub.close()
                 except Exception:
@@ -58,7 +72,22 @@ class CommandListener:
                         cmd = json.loads(data)
                         await self._dispatch(cmd)
                     except Exception as e:
-                        logger.warning("Command listener: bad payload: %s", e)
+                        logger.warning(
+                            "Command listener: bad payload",
+                            extra={
+                                "error": async_boundary_error_payload(
+                                    code="COMMAND_LISTENER_BAD_PAYLOAD",
+                                    message="Command listener received an invalid payload",
+                                    boundary="command_listener",
+                                    operation="decode_command",
+                                    data={"channel": channel},
+                                    retryable=False,
+                                    user_action=None,
+                                    detail=e.__class__.__name__,
+                                )
+                            },
+                            exc_info=True,
+                        )
             except asyncio.CancelledError:
                 await pubsub.unsubscribe(channel)
                 await pubsub.close()
@@ -84,13 +113,67 @@ class CommandListener:
             success = await self._dispatch_inner(cmd)
         except Exception as exc:
             error = str(exc)
-            logger.warning("Command listener: dispatch failed: %s", exc)
+            logger.warning(
+                "Command listener: dispatch failed",
+                extra={
+                    "error": async_boundary_error_payload(
+                        code="COMMAND_LISTENER_DISPATCH_FAILED",
+                        message="Command listener failed to dispatch command",
+                        boundary="command_listener",
+                        operation="dispatch_command",
+                        data={
+                            "command_id": str(command_id or ""),
+                            "command_type": str(cmd.get("type") or ""),
+                            "sandbox_id": str(cmd.get("sandbox_id") or ""),
+                        },
+                        detail=exc.__class__.__name__,
+                    )
+                },
+                exc_info=True,
+            )
         if ack_key:
             ack_key_str = str(ack_key)
             if ack_key_str.startswith(COMMAND_ACK_KEY_PREFIX):
                 await self._ack_command(ack_key_str, command_id, success=success, error=error)
             else:
-                logger.warning("Command listener: refused invalid ack_key: %s", ack_key_str)
+                self._log_boundary_failure(
+                    code="COMMAND_LISTENER_INVALID_ACK_KEY",
+                    message="Command listener refused invalid ack key",
+                    operation="validate_ack_key",
+                    data={
+                        "ack_key": ack_key_str,
+                        "command_id": str(command_id or ""),
+                        "command_type": str(cmd.get("type") or ""),
+                        "sandbox_id": str(cmd.get("sandbox_id") or ""),
+                    },
+                    retryable=False,
+                    user_action=None,
+                )
+
+    @staticmethod
+    def _log_boundary_failure(
+        *,
+        code: str,
+        message: str,
+        operation: str,
+        data: dict[str, object] | None = None,
+        retryable: bool = True,
+        user_action: str | None = "retry",
+    ) -> None:
+        logger.warning(
+            message,
+            extra={
+                "error": async_boundary_error_payload(
+                    code=code,
+                    message=message,
+                    boundary="command_listener",
+                    operation=operation,
+                    data=data,
+                    retryable=retryable,
+                    user_action=user_action,
+                )
+            },
+        )
 
     async def _ack_command(
         self,
@@ -110,23 +193,59 @@ class CommandListener:
             await self._redis.rpush(ack_key, json.dumps(payload))
             await self._redis.expire(ack_key, 30)
         except Exception as exc:
-            logger.warning("Command listener: failed to publish command ack: %s", exc)
+            logger.warning(
+                "Command listener: failed to publish command ack",
+                extra={
+                    "error": async_boundary_error_payload(
+                        code="COMMAND_ACK_PUBLISH_FAILED",
+                        message="Failed to publish command acknowledgement",
+                        boundary="command_listener",
+                        operation="publish_ack",
+                        data={
+                            "ack_key": ack_key,
+                            "command_id": str(command_id or ""),
+                            "success": success,
+                        },
+                        detail=exc.__class__.__name__,
+                    )
+                },
+                exc_info=True,
+            )
 
     async def _dispatch_inner(self, cmd: dict) -> bool:
         sandbox_id_str = cmd.get("sandbox_id", "")
         if not sandbox_id_str:
-            logger.warning("Command listener: invalid sandbox_id: %s", sandbox_id_str)
+            self._log_boundary_failure(
+                code="COMMAND_LISTENER_INVALID_SANDBOX_ID",
+                message="Command listener received command without sandbox id",
+                operation="validate_command",
+                data={"command_type": str(cmd.get("type") or ""), "sandbox_id": str(sandbox_id_str or "")},
+                retryable=False,
+                user_action=None,
+            )
             return False
 
         try:
             sandbox_id = uuid.UUID(sandbox_id_str)
         except ValueError:
-            logger.warning("Command listener: invalid sandbox_id: %s", sandbox_id_str)
+            self._log_boundary_failure(
+                code="COMMAND_LISTENER_INVALID_SANDBOX_ID",
+                message="Command listener received invalid sandbox id",
+                operation="validate_command",
+                data={"command_type": str(cmd.get("type") or ""), "sandbox_id": sandbox_id_str},
+                retryable=False,
+                user_action=None,
+            )
             return False
 
         bridge = await self._bridge_registry.get(sandbox_id)
         if not bridge:
-            logger.warning("Command listener: no bridge for sandbox %s", sandbox_id)
+            self._log_boundary_failure(
+                code="COMMAND_LISTENER_BRIDGE_NOT_FOUND",
+                message="Command listener found no bridge for sandbox",
+                operation="resolve_bridge",
+                data={"command_type": str(cmd.get("type") or ""), "sandbox_id": str(sandbox_id)},
+            )
             return False
 
         cmd_type = cmd.get("type", "")
@@ -154,5 +273,12 @@ class CommandListener:
             logger.info("Executed remote command: sandbox=%s type=shutdown", sandbox_id)
             return bool(written)
         else:
-            logger.warning("Command listener: unknown command type: %s", cmd_type)
+            self._log_boundary_failure(
+                code="COMMAND_LISTENER_UNKNOWN_COMMAND",
+                message="Command listener received unknown command type",
+                operation="validate_command_type",
+                data={"command_type": str(cmd_type or ""), "sandbox_id": str(sandbox_id)},
+                retryable=False,
+                user_action=None,
+            )
             return False

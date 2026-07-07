@@ -6,6 +6,8 @@ import tarfile
 import uuid
 from typing import Optional
 
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
+
 logger = logging.getLogger(__name__)
 
 _SAFE_PKG_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._\-\[\]@/:<>=!,~^*]+$")
@@ -33,7 +35,16 @@ class ImageBuilder:
         for p in pkgs:
             p = p.strip()
             if not p or not _SAFE_PKG_NAME.match(p):
-                logger.warning("Rejected unsafe package name: %r", p)
+                log_boundary_failure(
+                    logger,
+                    boundary="image_builder",
+                    code="IMAGE_BUILDER_UNSAFE_PACKAGE_REJECTED",
+                    message="Rejected unsafe package name",
+                    operation="sanitize_packages",
+                    data={"package": p},
+                    retryable=False,
+                    user_action="correct_request",
+                )
                 continue
             safe.append(p)
         return safe
@@ -108,7 +119,14 @@ class ImageBuilder:
 
         if proc.returncode != 0:
             error_msg = stderr.decode().strip()
-            logger.error("Docker build failed for %s: %s", tag, error_msg)
+            log_boundary_failure(
+                logger,
+                boundary="image_builder",
+                code="IMAGE_BUILDER_DOCKER_BUILD_FAILED",
+                message="Docker build failed for environment image",
+                operation="build_environment_image",
+                data={"env_id": str(env_id), "version": version, "tag": tag},
+            )
             raise ImageBuildError(f"Build failed: {error_msg}")
 
         logger.info("Environment image %s built successfully", tag)

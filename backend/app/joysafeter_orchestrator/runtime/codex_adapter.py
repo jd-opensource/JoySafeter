@@ -14,6 +14,7 @@ from app.joysafeter_orchestrator.runtime.adapter import (
     HarnessResultStatus,
     RunningHarness,
 )
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 
 logger = logging.getLogger(__name__)
 
@@ -167,10 +168,17 @@ class CodexAdapter(HarnessAdapter):
                     },
                 )
                 logger.info("Codex thread/resume succeeded for %s", input.session_id)
-            except Exception:
-                logger.warning(
-                    "Codex thread/resume failed for %s, falling back to thread/start",
-                    input.session_id,
+            except Exception as exc:
+                log_boundary_failure(
+                    logger,
+                    boundary="codex_runtime",
+                    code="CODEX_THREAD_RESUME_FAILED",
+                    message="Codex thread/resume failed; falling back to thread/start",
+                    operation="resume_thread",
+                    error=exc,
+                    data={"session_id": input.session_id},
+                    retryable=True,
+                    user_action="retry",
                 )
                 thread_result = await self._rpc_request(session, "thread/start", {})
         else:
@@ -371,7 +379,15 @@ class CodexAdapter(HarnessAdapter):
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            logger.error("Codex reader error: %s", e)
+            log_boundary_failure(
+                logger,
+                boundary="codex_adapter",
+                code="CODEX_READER_FAILED",
+                message="Codex reader failed",
+                operation="read_codex_process_events",
+                error=e,
+                data={"protocol": session._protocol or ""},
+            )
 
         if session.current_turn and not session.current_turn.done.is_set():
             session.current_turn.status = HarnessResultStatus.FAILED

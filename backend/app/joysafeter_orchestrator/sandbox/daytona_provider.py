@@ -4,6 +4,7 @@ from typing import Optional
 import httpx
 
 from app.joysafeter_orchestrator.sandbox.provider import SandboxProvider
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +217,14 @@ class DaytonaSandboxProvider(SandboxProvider):
                 params={"labels": '{"joysafeter":"true"}'},
             )
             if resp.status_code >= 400:
-                logger.warning("Daytona list_active failed: %s", resp.text)
+                log_boundary_failure(
+                    logger,
+                    boundary="daytona_provider",
+                    code="DAYTONA_LIST_ACTIVE_FAILED",
+                    message="Daytona list_active failed",
+                    operation="list_active",
+                    data={"status_code": resp.status_code},
+                )
                 return []
             sandboxes = resp.json()
 

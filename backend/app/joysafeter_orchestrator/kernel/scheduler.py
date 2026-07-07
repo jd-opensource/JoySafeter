@@ -10,6 +10,23 @@ import uuid
 
 from loguru import logger
 
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
+from app.joysafeter_shared.common.stream_errors import async_error_payload
+
+
+def _task_agent_not_found_stop_reason(*, task_id: uuid.UUID, agent_id: uuid.UUID, session_id: uuid.UUID | None) -> dict:
+    data: dict[str, object] = {"task_id": str(task_id), "agent_id": str(agent_id)}
+    if session_id is not None:
+        data["session_id"] = str(session_id)
+    return async_error_payload(
+        code="TASK_AGENT_NOT_FOUND",
+        message="Agent not found",
+        data=data,
+        source="runtime",
+        retryable=False,
+        user_action="refresh",
+    )
+
 
 class TaskScheduler:
     def __init__(self, queue, max_concurrent: int = 10, max_scheduling: int = 50):
@@ -18,6 +35,30 @@ class TaskScheduler:
         self._scheduling_semaphore = asyncio.Semaphore(max_scheduling)
         self._running = True
         self._inflight_tasks: set[asyncio.Task] = set()
+
+    @staticmethod
+    def _log_boundary_failure(
+        *,
+        code: str,
+        message: str,
+        operation: str,
+        error: Exception | None = None,
+        data: dict[str, object] | None = None,
+        retryable: bool = True,
+        user_action: str | None = "retry",
+    ) -> None:
+        logger.bind(
+            error=async_boundary_error_payload(
+                code=code,
+                message=message,
+                boundary="scheduler",
+                operation=operation,
+                data=data,
+                detail=error.__class__.__name__ if error is not None else None,
+                retryable=retryable,
+                user_action=user_action,
+            )
+        ).opt(exception=error).warning(message)
 
     @property
     def execution_semaphore(self) -> asyncio.Semaphore:
@@ -47,7 +88,12 @@ class TaskScheduler:
                 except asyncio.TimeoutError:
                     pass
                 except Exception as e:
-                    logger.warning("Scheduler wakeup wait failed: {}", e)
+                    self._log_boundary_failure(
+                        code="SCHEDULER_WAKEUP_WAIT_FAILED",
+                        message="Scheduler wakeup wait failed",
+                        operation="wait_for_global_wakeup",
+                        error=e,
+                    )
                     await asyncio.sleep(1.0)
                 continue
 
@@ -66,7 +112,13 @@ class TaskScheduler:
             async with AsyncSessionLocal() as db:
                 return await TaskService(db).claim_pending_tasks_for_scheduling(limit)
         except Exception as e:
-            logger.warning("Scheduler DB batch claim failed: {}", e)
+            self._log_boundary_failure(
+                code="SCHEDULER_DB_BATCH_CLAIM_FAILED",
+                message="Scheduler DB batch claim failed",
+                operation="claim_pending_batch",
+                error=e,
+                data={"limit": limit},
+            )
             return []
 
     async def _schedule_task(self, task_id: uuid.UUID, already_claimed: bool = False) -> None:
@@ -86,12 +138,24 @@ class TaskScheduler:
                 if not already_claimed:
                     claimed = await task_svc.claim_task_for_scheduling(task_id)
                     if not claimed:
-                        logger.warning("Task {} not pending (already being scheduled or terminal), skipping", task_id)
+                        self._log_boundary_failure(
+                            code="SCHEDULER_TASK_CLAIM_NOT_PENDING",
+                            message="Task not pending during scheduler claim; skipping",
+                            operation="claim_task_for_scheduling",
+                            data={"task_id": str(task_id)},
+                            retryable=False,
+                            user_action=None,
+                        )
                         return
 
                 task = await task_svc.get_task(task_id)
                 if not task:
-                    logger.error("Task {} not found after claim", task_id)
+                    self._log_boundary_failure(
+                        code="SCHEDULER_TASK_NOT_FOUND_AFTER_CLAIM",
+                        message="Task not found after scheduler claim",
+                        operation="load_claimed_task",
+                        data={"task_id": str(task_id)},
+                    )
                     return
 
                 agent = await agent_svc.get_agent(task.agent_id, project_id=getattr(task, "project_id", None))
@@ -104,7 +168,11 @@ class TaskScheduler:
                             session_svc,
                             task_id,
                             task.chat_session_id,
-                            {"type": "error", "message": "Agent not found"},
+                            _task_agent_not_found_stop_reason(
+                                task_id=task_id,
+                                agent_id=task.agent_id,
+                                session_id=task.chat_session_id,
+                            ),
                         )
                     return
 
@@ -280,7 +348,13 @@ class TaskScheduler:
             logger.info("Task {} pushed to sandbox queue {}", task_id, sandbox_id)
 
         except Exception as e:
-            logger.error("Failed to schedule task {}: {}", task_id, e, exc_info=True)
+            self._log_boundary_failure(
+                code="SCHEDULER_TASK_SCHEDULE_FAILED",
+                message="Failed to schedule task",
+                operation="schedule_task",
+                error=e,
+                data={"task_id": str(task_id), "already_claimed": already_claimed},
+            )
             try:
                 from app.joysafeter_orchestrator.kernel.task_controller import TaskController
 
@@ -291,7 +365,13 @@ class TaskScheduler:
                     await self._queue.push_to_global(task_id)
                     logger.info("Task {} re-enqueued after scheduling failure (retry {})", task_id, retry_count)
             except Exception as inner:
-                logger.error("Failed to failover task {}: {}", task_id, inner)
+                self._log_boundary_failure(
+                    code="SCHEDULER_TASK_FAILOVER_FAILED",
+                    message="Failed to failover task after scheduling failure",
+                    operation="failover_after_schedule_failure",
+                    error=inner,
+                    data={"task_id": str(task_id)},
+                )
         finally:
             self._scheduling_semaphore.release()
 
@@ -317,9 +397,13 @@ class TaskScheduler:
                     "session.status_idle",
                     {"task_id": str(task_id), "stop_reason": stop_reason},
                 )
-        except Exception:
-            logger.debug(
-                "Could not transition session %s to idle for terminal task %s", session_id, task_id, exc_info=True
+        except Exception as exc:
+            TaskScheduler._log_boundary_failure(
+                code="SCHEDULER_SESSION_IDLE_TRANSITION_FAILED",
+                message="Could not transition session to idle for terminal task",
+                operation="idle_task_session",
+                error=exc,
+                data={"session_id": str(session_id), "task_id": str(task_id)},
             )
 
     async def push_to_global(self, task_id: uuid.UUID) -> None:

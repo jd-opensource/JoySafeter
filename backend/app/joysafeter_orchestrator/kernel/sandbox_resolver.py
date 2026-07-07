@@ -8,6 +8,7 @@ from typing import Optional
 from uuid_utils import uuid7 as _uuid7
 
 from app.joysafeter_orchestrator.sandbox.provider import SandboxProvider
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 from app.joysafeter_shared.config.settings import joysafeter_config
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,30 @@ class SandboxResolver:
         requiring runtime credentials must get a freshly created sandbox.
         """
         return not env
+
+    @staticmethod
+    def _log_boundary_failure(
+        *,
+        code: str,
+        message: str,
+        operation: str,
+        error: Exception,
+        data: dict[str, object] | None = None,
+    ) -> None:
+        logger.warning(
+            message,
+            extra={
+                "error": async_boundary_error_payload(
+                    code=code,
+                    message=message,
+                    boundary="sandbox_resolver",
+                    operation=operation,
+                    data=data,
+                    detail=error.__class__.__name__,
+                )
+            },
+            exc_info=True,
+        )
 
     def __init__(
         self,
@@ -430,7 +455,19 @@ class SandboxResolver:
                 project_id=project_id,
             )
         except Exception as e:
-            logger.error("Failed to provision sandbox container: %s", e)
+            self._log_boundary_failure(
+                code="SANDBOX_RESOLVER_PROVISION_FAILED",
+                message="Failed to provision sandbox container",
+                operation="provision_sandbox",
+                error=e,
+                data={
+                    "sandbox_id": str(sandbox_id),
+                    "session_id": str(session_id),
+                    "image": resolved_image,
+                    "provider": provider.__class__.__name__,
+                    "project_id": project_id,
+                },
+            )
             await provider.teardown_networking(sandbox_id)
             raise
 
@@ -468,13 +505,31 @@ class SandboxResolver:
                 "created": True,
             }
         except Exception as e:
-            logger.error("Failed to create DB record for sandbox %s: %s", sandbox_id, e)
+            self._log_boundary_failure(
+                code="SANDBOX_RESOLVER_DB_RECORD_CREATE_FAILED",
+                message="Failed to create DB record for provisioned sandbox",
+                operation="create_sandbox_record",
+                error=e,
+                data={
+                    "sandbox_id": str(sandbox_id),
+                    "external_id": external_id,
+                    "session_id": str(session_id),
+                    "image": resolved_image,
+                    "project_id": project_id,
+                },
+            )
             # Destroy the already-provisioned container
             try:
                 provider = self._get_provider()
                 await provider.destroy(external_id)
-            except Exception:
-                pass
+            except Exception as destroy_exc:
+                self._log_boundary_failure(
+                    code="SANDBOX_RESOLVER_DB_FAILURE_CLEANUP_FAILED",
+                    message="Failed to destroy provisioned sandbox after DB record creation failed",
+                    operation="cleanup_after_db_record_create_failed",
+                    error=destroy_exc,
+                    data={"sandbox_id": str(sandbox_id), "external_id": external_id},
+                )
             await provider.teardown_networking(sandbox_id)
             raise
 
@@ -542,9 +597,18 @@ class SandboxResolver:
                 )
         except Exception as e:
             logger.warning(
-                "Memory preload failed for session %s: %s (continuing without)",
-                session_id,
-                e,
+                "Memory preload failed; continuing without memory mounts",
+                extra={
+                    "error": async_boundary_error_payload(
+                        code="SANDBOX_RESOLVER_MEMORY_PRELOAD_FAILED",
+                        message="Memory preload failed; continuing without memory mounts",
+                        boundary="sandbox_resolver",
+                        operation="preload_memory_mounts",
+                        data={"session_id": str(session_id)},
+                        detail=e.__class__.__name__,
+                    )
+                },
+                exc_info=True,
             )
 
         return memory_mounts
@@ -571,8 +635,18 @@ class SandboxResolver:
         if not sandbox.external_id:
             # Sandbox was pooled without a real container -- treat as broken
             logger.warning(
-                "Pooled sandbox %s has no external_id, destroying",
-                sandbox.id,
+                "Pooled sandbox has no external_id; destroying",
+                extra={
+                    "error": async_boundary_error_payload(
+                        code="SANDBOX_RESOLVER_POOL_MISSING_EXTERNAL_ID",
+                        message="Pooled sandbox has no external_id; destroying",
+                        boundary="sandbox_resolver",
+                        operation="claim_pooled_sandbox",
+                        data={"sandbox_id": str(sandbox.id), "session_id": str(session_id)},
+                        retryable=True,
+                        user_action="retry",
+                    )
+                },
             )
             await svc.mark_destroyed(sandbox.id)
             return None
@@ -589,10 +663,18 @@ class SandboxResolver:
             status = await provider.status(sandbox.external_id)
         except Exception as e:
             logger.warning(
-                "Cannot query status for pooled sandbox %s (%s): %s",
-                sandbox.id,
-                sandbox.external_id,
-                e,
+                "Cannot query status for pooled sandbox",
+                extra={
+                    "error": async_boundary_error_payload(
+                        code="SANDBOX_RESOLVER_POOL_STATUS_QUERY_FAILED",
+                        message="Cannot query status for pooled sandbox",
+                        boundary="sandbox_resolver",
+                        operation="query_pooled_sandbox_status",
+                        data={"sandbox_id": str(sandbox.id), "external_id": str(sandbox.external_id)},
+                        detail=e.__class__.__name__,
+                    )
+                },
+                exc_info=True,
             )
             await self._destroy_broken_pooled(svc, provider, sandbox)
             return None
@@ -632,9 +714,18 @@ class SandboxResolver:
         else:
             # Unknown / dead status -- destroy and let caller create fresh
             logger.warning(
-                "Pooled sandbox %s has unexpected status '%s', destroying",
-                sandbox.id,
-                status,
+                "Pooled sandbox has unexpected status; destroying",
+                extra={
+                    "error": async_boundary_error_payload(
+                        code="SANDBOX_RESOLVER_POOL_UNEXPECTED_STATUS",
+                        message="Pooled sandbox has unexpected status; destroying",
+                        boundary="sandbox_resolver",
+                        operation="claim_pooled_sandbox",
+                        data={"sandbox_id": str(sandbox.id), "session_id": str(session_id), "status": str(status)},
+                        retryable=True,
+                        user_action="retry",
+                    )
+                },
             )
             await self._destroy_broken_pooled(svc, provider, sandbox)
             return None
@@ -734,12 +825,24 @@ class SandboxResolver:
                     config=pool_warm_config,
                 )
         except Exception as e:
-            logger.warning("DB write failed for pooled sandbox %s: %s", sandbox_id, e)
+            self._log_boundary_failure(
+                code="SANDBOX_RESOLVER_POOL_DB_RECORD_CREATE_FAILED",
+                message="DB write failed for pooled sandbox",
+                operation="create_pool_sandbox_record",
+                error=e,
+                data={"sandbox_id": str(sandbox_id), "external_id": external_id, "image": resolved_image},
+            )
             try:
                 provider = self._get_provider()
                 await provider.destroy(external_id)
-            except Exception:
-                pass
+            except Exception as destroy_exc:
+                self._log_boundary_failure(
+                    code="SANDBOX_RESOLVER_POOL_DB_FAILURE_CLEANUP_FAILED",
+                    message="Failed to destroy pooled sandbox after DB write failed",
+                    operation="cleanup_after_pool_db_record_create_failed",
+                    error=destroy_exc,
+                    data={"sandbox_id": str(sandbox_id), "external_id": external_id},
+                )
             raise
 
         logger.info("Pool sandbox %s provisioned (ext=%s)", sandbox_id, external_id)
@@ -793,7 +896,13 @@ class SandboxResolver:
             logger.info("Restarted stopped sandbox %s", sandbox.id)
             return True
         except Exception as e:
-            logger.warning("Failed to restart sandbox %s: %s", sandbox.id, e)
+            self._log_boundary_failure(
+                code="SANDBOX_RESOLVER_RESTART_FAILED",
+                message="Failed to restart stopped sandbox",
+                operation="restart_stopped_sandbox",
+                error=e,
+                data={"sandbox_id": str(sandbox.id), "external_id": str(sandbox.external_id)},
+            )
             await svc.mark_destroyed(sandbox.id)
             return False
 
