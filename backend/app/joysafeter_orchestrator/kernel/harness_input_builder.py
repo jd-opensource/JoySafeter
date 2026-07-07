@@ -77,6 +77,24 @@ def _session_container_work_dir(last_work_dir: Optional[str]) -> str:
     return "/workspace"
 
 
+def _resolve_everos_base_url() -> str:
+    return os.getenv("EVEROS_BASE_URL", "http://everos:8003").rstrip("/")
+
+
+def _append_everos_system_prompt(
+    base_system: Optional[str], everos_base_url: str
+) -> str:
+    note = (
+        "# EverOS Memory Service\n"
+        "The EverOS memory service is available inside this sandbox at "
+        f"`{everos_base_url}`. Use it for long-term memory operations when "
+        "the task explicitly requires memory search or memory writes."
+    )
+    if base_system:
+        return f"{base_system}\n\n{note}"
+    return note
+
+
 def _policy_type(cfg: dict, default_cfg: dict) -> str:
     """Resolve a config's effective permission_policy type.
 
@@ -418,6 +436,10 @@ async def build_harness_input(
                 memory_system_prompt = "\n".join(prompt_lines)
 
     env.update({str(k): str(v) for k, v in (agent.env or {}).items()})
+    everos_base_url = env.setdefault(
+        "EVEROS_BASE_URL", _resolve_everos_base_url()
+    ).rstrip("/")
+    env["EVEROS_BASE_URL"] = everos_base_url
 
     if memory_mounts and session_id:
         from app.joysafeter_orchestrator.lifespan import get_memory_subscribers
@@ -486,6 +508,10 @@ async def build_harness_input(
         )
     else:
         combined_system = base_system or None
+
+    combined_system = _append_everos_system_prompt(
+        combined_system, everos_base_url
+    )
 
     prompt = task.prompt
     has_harness_resume = bool(harness_session_id and harness_session_id.strip())
