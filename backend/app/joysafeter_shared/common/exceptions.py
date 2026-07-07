@@ -65,6 +65,8 @@ def _status_code_for_error(error: AppError) -> int:
         return status.HTTP_409_CONFLICT
     if isinstance(error, RateLimitError):
         return status.HTTP_429_TOO_MANY_REQUESTS
+    if isinstance(error, ServiceUnavailableError):
+        return status.HTTP_503_SERVICE_UNAVAILABLE
     if isinstance(error, InternalError | InfraError):
         return status.HTTP_500_INTERNAL_SERVER_ERROR
     if isinstance(error, DomainError):

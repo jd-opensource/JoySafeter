@@ -24,7 +24,7 @@ Event shapes yielded by :func:`stream_openai_chat`::
     {"type": "done"}
         Stream finished normally. Emitted once.
 
-    {"type": "error", "message": <str>, "status": <int|None>}
+    {"type": "error", "code": <str>, "message": <str>, "data": <dict|None>, ...}
         Upstream/transport error. Caller should stop consuming.
 
 Credentials (api_key, base_url, model) are passed in — this module does NOT
@@ -39,6 +39,8 @@ import json
 from typing import Any, AsyncGenerator, Optional
 
 import httpx
+
+from app.joysafeter_shared.common.stream_errors import async_error_payload
 
 
 async def stream_openai_chat(
@@ -95,11 +97,7 @@ async def stream_openai_chat(
             async with client.stream("POST", url, headers=headers, json=body) as response:
                 if response.status_code != 200:
                     detail = await _read_error_body(response)
-                    yield {
-                        "type": "error",
-                        "status": response.status_code,
-                        "message": detail or f"upstream returned {response.status_code}",
-                    }
+                    yield _status_error_event(response.status_code, detail)
                     return
 
                 buffer = ""
@@ -166,7 +164,7 @@ async def stream_openai_chat(
                                 }
 
     except httpx.HTTPError as exc:
-        yield {"type": "error", "status": None, "message": f"transport error: {exc!s}"}
+        yield _transport_error_event(exc)
         return
 
     yield {"type": "done"}
@@ -195,6 +193,39 @@ async def _read_error_body(response: httpx.Response) -> str:
         return body[:400]
     except Exception:  # noqa: BLE001 — fallback is intentional
         return ""
+
+
+def _status_error_code(status: int) -> str:
+    if status == 401:
+        return "UPSTREAM_AUTH_FAILED"
+    if status == 403:
+        return "UPSTREAM_ACCESS_DENIED"
+    if status == 429:
+        return "UPSTREAM_RATE_LIMITED"
+    if status >= 500:
+        return "UPSTREAM_UNAVAILABLE"
+    return "UPSTREAM_ERROR"
+
+
+def _status_error_event(status: int, detail: str = "") -> dict[str, Any]:
+    return async_error_payload(
+        code=_status_error_code(status),
+        message=detail or f"upstream returned {status}",
+        source="upstream",
+        retryable=status == 429 or status >= 500,
+        status=status,
+    )
+
+
+def _transport_error_event(exc: httpx.HTTPError) -> dict[str, Any]:
+    payload = async_error_payload(
+        code="UPSTREAM_CONNECTION_FAILED",
+        message=f"transport error: {exc!s}",
+        source="upstream",
+        retryable=True,
+    )
+    payload["status"] = None
+    return payload
 
 
 def _join(base_url: str, path: str) -> str:

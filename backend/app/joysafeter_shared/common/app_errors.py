@@ -38,6 +38,12 @@ class AppError(Exception):
             result["detail"] = self.detail
         return result
 
+    def to_stream_event(self, *, status: int | None = None) -> dict[str, Any]:
+        payload = {"type": "error", **self.to_payload()}
+        if status is not None:
+            payload["status"] = status
+        return payload
+
 
 class DomainError(AppError):
     _default_source: str = "api"
