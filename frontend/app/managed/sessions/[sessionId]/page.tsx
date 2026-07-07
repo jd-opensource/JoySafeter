@@ -335,10 +335,13 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const [hasMoreEvents, setHasMoreEvents] = useState(true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const eventsLoadedRef = useRef(false)
+  const lastSessionIdRef = useRef<string | null>(null)
+  const wasRunningRef = useRef(false)
 
   const loadEvents = useCallback(
     async (afterSeq?: number) => {
       if (!id) return
+      const requestSessionId = id
       setIsLoadingMore(true)
       try {
         const params = new URLSearchParams({ limit: '100' })
@@ -346,18 +349,39 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
         const res = await managedGet<{ data: SessionEvent[]; has_more: boolean }>(
           `/sessions/${stripIdPrefix(id)}/events?${params.toString()}`,
         )
+        if (lastSessionIdRef.current !== requestSessionId) return
         const newEvents = Array.isArray(res) ? res : res.data
         const hasMore = Array.isArray(res) ? newEvents.length >= 100 : res.has_more
         setLoadedEvents((prev) => sortSessionEvents(afterSeq ? [...prev, ...newEvents] : newEvents))
         setHasMoreEvents(hasMore)
       } catch (e) {
+        if (lastSessionIdRef.current !== requestSessionId) return
         toastOperationError(t, e, 'common.operationFailed')
       } finally {
-        setIsLoadingMore(false)
+        if (lastSessionIdRef.current === requestSessionId) {
+          setIsLoadingMore(false)
+        }
       }
     },
     [id, t],
   )
+
+  useEffect(() => {
+    if (!id || lastSessionIdRef.current === id) return
+    lastSessionIdRef.current = id
+    eventsLoadedRef.current = false
+    lastStreamErrorKeyRef.current = null
+    stickToBottomRef.current = true
+    setLoadedEvents([])
+    setHasMoreEvents(true)
+    setIsLoadingMore(false)
+    setSelectedEvent(null)
+    setActiveDrawer(null)
+    setMsgInput('')
+    setIsSending(false)
+    setStreamForced(false)
+    wasRunningRef.current = false
+  }, [id])
 
   useEffect(() => {
     if (id && !eventsLoadedRef.current) {
@@ -377,7 +401,6 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const isArchived = !!session?.archived_at
   const canEditMessage = !isArchived && !isSending
   const canSendMessage = isIdle && !isArchived && !isSending
-  const wasRunningRef = useRef(false)
 
   // Update session status from live SSE events only. Initial SSE replay can contain
   // legacy/out-of-order status events, while the session query is DB-authoritative.
@@ -416,7 +439,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       setLoadedEvents([])
       loadEvents()
     }
-  }, [isRunning, streamForced, id, queryClient])
+  }, [isRunning, streamForced, loadEvents])
 
   const handleSendMessage = async () => {
     const text = msgInput.trim()

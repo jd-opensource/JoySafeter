@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { SessionEvent } from '@/types/managed'
+
 import {
   ApiError,
   createApiError,
@@ -12,6 +12,7 @@ import {
 } from '@/lib/api-client'
 import { getCsrfToken } from '@/lib/auth/csrf'
 import { useProjectStore } from '@/stores/managed/project-store'
+import type { SessionEvent } from '@/types/managed'
 
 const NON_RECONNECT_ERROR_CODES = new Set([
   'HTTP_403',
@@ -23,13 +24,29 @@ const NON_RECONNECT_ERROR_CODES = new Set([
 ])
 
 export function useSessionStream(sessionId: string, enabled: boolean) {
-  const [events, setEvents] = useState<SessionEvent[]>([])
-  const [connected, setConnected] = useState(false)
-  const [error, setError] = useState<ApiError | null>(null)
+  const [eventState, setEventState] = useState<{ sessionId: string; events: SessionEvent[] }>({
+    sessionId: '',
+    events: [],
+  })
+  const [connectionState, setConnectionState] = useState<{ sessionId: string; connected: boolean }>(
+    {
+      sessionId: '',
+      connected: false,
+    },
+  )
+  const [errorState, setErrorState] = useState<{ sessionId: string; error: ApiError | null }>({
+    sessionId: '',
+    error: null,
+  })
   const abortRef = useRef<AbortController | null>(null)
   const lastSeqRef = useRef<number>(0)
+  const runIdRef = useRef(0)
 
   useEffect(() => {
+    const runId = runIdRef.current + 1
+    runIdRef.current = runId
+    lastSeqRef.current = 0
+
     if (!enabled || !sessionId) {
       if (process.env.NODE_ENV !== 'production') {
         // eslint-disable-next-line no-console
@@ -40,6 +57,7 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
 
     let cancelled = false
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    const isCurrentRun = () => !cancelled && runIdRef.current === runId
 
     const buildHeaders = (): Record<string, string> => {
       const headers: Record<string, string> = {}
@@ -58,7 +76,7 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
     }
 
     const connect = async () => {
-      if (cancelled) return
+      if (!isCurrentRun()) return
 
       const controller = new AbortController()
       abortRef.current = controller
@@ -101,7 +119,8 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
                     source: 'auth',
                     user_action: 'relogin',
                   })
-            setError(apiError)
+            if (!isCurrentRun()) return
+            setErrorState({ sessionId, error: apiError })
             if (!isUnauthorizedApiError(apiError)) {
               scheduleReconnect()
             }
@@ -119,7 +138,8 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
                 retryable: true,
                 user_action: 'retry',
               })
-          setError(apiError)
+          if (!isCurrentRun()) return
+          setErrorState({ sessionId, error: apiError })
           if (process.env.NODE_ENV !== 'production') {
             // eslint-disable-next-line no-console
             console.debug('[session-sse] connect failed', {
@@ -136,8 +156,9 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
           }
           return
         }
-        setConnected(true)
-        setError(null)
+        if (!isCurrentRun()) return
+        setConnectionState({ sessionId, connected: true })
+        setErrorState({ sessionId, error: null })
         if (process.env.NODE_ENV !== 'production') {
           // eslint-disable-next-line no-console
           console.debug('[session-sse] connected', url)
@@ -151,30 +172,40 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
         let lagged = false
 
         const flush = () => {
+          if (!isCurrentRun()) {
+            batch = []
+            if (flushTimer) clearTimeout(flushTimer)
+            flushTimer = null
+            return
+          }
           if (batch.length > 0) {
             const toAdd = batch
             batch = []
-            setEvents((prev) => {
+            setEventState((prev) => {
               const eventKey = (event: SessionEvent) => {
                 if (event.id) return event.id
                 if (event.seq != null) return `${event.seq}:${event.type}`
                 return `live:${event.type}:${JSON.stringify(event.content ?? event.usage ?? event.stop_reason ?? event.tool ?? '')}`
               }
-              const seen = new Set(prev.map(eventKey))
-              const next = [...prev]
+              // On a session switch the accumulated bucket belongs to the
+              // previous session; start fresh rather than appending to it.
+              const base = prev.sessionId === sessionId ? prev.events : []
+              const seen = new Set(base.map(eventKey))
+              const next = [...base]
               for (const event of toAdd) {
                 const key = eventKey(event)
                 if (seen.has(key)) continue
                 seen.add(key)
                 next.push(event)
               }
-              return next
+              return { sessionId, events: next }
             })
           }
           flushTimer = null
         }
 
         while (true) {
+          if (!isCurrentRun()) break
           const { done, value } = await reader.read()
           if (done) break
 
@@ -219,19 +250,21 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
           }
         }
         flush()
+        if (flushTimer) clearTimeout(flushTimer)
 
-        setConnected(false)
+        if (!isCurrentRun()) return
+        setConnectionState({ sessionId, connected: false })
         scheduleReconnect()
       } catch (e) {
-        if ((e as Error).name !== 'AbortError') {
-          setConnected(false)
+        if (isCurrentRun() && (e as Error).name !== 'AbortError') {
+          setConnectionState({ sessionId, connected: false })
           scheduleReconnect()
         }
       }
     }
 
     const scheduleReconnect = () => {
-      if (cancelled) return
+      if (!isCurrentRun()) return
       reconnectTimer = setTimeout(connect, 500)
     }
 
@@ -242,14 +275,19 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
       if (reconnectTimer) clearTimeout(reconnectTimer)
       abortRef.current?.abort()
       abortRef.current = null
-      setConnected(false)
     }
   }, [sessionId, enabled])
 
   const clear = useCallback(() => {
-    setEvents([])
+    setEventState((prev) => ({ ...prev, events: [] }))
     lastSeqRef.current = 0
   }, [])
 
-  return { events, connected, error, clear }
+  return {
+    events: enabled && eventState.sessionId === sessionId ? eventState.events : [],
+    connected:
+      enabled && connectionState.sessionId === sessionId ? connectionState.connected : false,
+    error: enabled && errorState.sessionId === sessionId ? errorState.error : null,
+    clear,
+  }
 }
