@@ -6,7 +6,7 @@ import re
 import uuid
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
@@ -30,11 +30,22 @@ from app.joysafeter_domain.schemas.joysafeter_session import (
     SessionUsage,
     SingleEventRequest,
 )
+from app.joysafeter_shared.common.app_errors import (
+    AppError,
+    InvalidRequestError,
+    NotFoundError,
+    RequestValidationAppError,
+    ResourceConflictError,
+    ServiceUnavailableError,
+)
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
     get_joysafeter_auth_context,
     require_joysafeter_write,
 )
+from app.joysafeter_shared.common.stream_errors import async_error_payload
 from app.joysafeter_shared.database import get_db
 
 logger = logging.getLogger(__name__)
@@ -48,9 +59,19 @@ def _validate_mount_path(path: str) -> str:
 
     normalized = posixpath.normpath(path)
     if not normalized.startswith("/workspace/"):
-        raise HTTPException(400, "mount_path must be under /workspace/")
+        raise InvalidRequestError(
+            code="SESSION_RESOURCE_MOUNT_PATH_INVALID",
+            message="mount_path must be under /workspace/",
+            data={"mount_path": path},
+            user_action="fix_input",
+        )
     if ".." in normalized.split("/"):
-        raise HTTPException(400, "mount_path must not contain '..' components")
+        raise InvalidRequestError(
+            code="SESSION_RESOURCE_MOUNT_PATH_INVALID",
+            message="mount_path must not contain '..' components",
+            data={"mount_path": path},
+            user_action="fix_input",
+        )
     return normalized
 
 
@@ -60,6 +81,22 @@ _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 def _slugify_mount_name(name: str) -> str:
     """Slugify a store name: lowercase, replace non-alphanumeric runs with '-'."""
     return _NON_ALNUM_RE.sub("-", name.lower()).strip("-")
+
+
+def _session_task_enqueue_failed_stop_reason(
+    *, session_id: uuid.UUID, task_id: uuid.UUID | None = None
+) -> dict[str, object]:
+    data: dict[str, object] = {"session_id": str(session_id)}
+    if task_id is not None:
+        data["task_id"] = str(task_id)
+    return async_error_payload(
+        code="TASK_ENQUEUE_FAILED",
+        message="Failed to enqueue task",
+        data=data,
+        source="runtime",
+        retryable=True,
+        user_action="retry",
+    )
 
 
 async def _load_session_repos(db: AsyncSession, session_id: uuid.UUID) -> list:
@@ -136,9 +173,11 @@ async def create_session(
 ) -> SessionResponse:
     # --- Validate memory_store resources limit ---
     if len(req.resources) > MAX_MEMORY_STORE_RESOURCES:
-        raise HTTPException(
-            400,
-            f"Too many memory_store resources (max {MAX_MEMORY_STORE_RESOURCES})",
+        raise InvalidRequestError(
+            code="SESSION_MEMORY_STORE_RESOURCE_LIMIT_EXCEEDED",
+            message=f"Too many memory_store resources (max {MAX_MEMORY_STORE_RESOURCES})",
+            data={"max": MAX_MEMORY_STORE_RESOURCES, "actual": len(req.resources)},
+            user_action="fix_input",
         )
 
     # --- Parse environment_id: strip env_ prefix and store raw ref ---
@@ -159,14 +198,27 @@ async def create_session(
             try:
                 agent_uuid = uuid.UUID(req.agent.removeprefix("agent_"))
             except ValueError:
-                raise HTTPException(400, f"Invalid agent id: {req.agent}")
+                raise InvalidRequestError(
+                    code="SESSION_AGENT_ID_INVALID",
+                    message=f"Invalid agent id: {req.agent}",
+                    data={"agent_id": str(req.agent)},
+                    user_action="fix_input",
+                )
             agent = await agent_svc.get_agent(agent_uuid, project_id=auth_ctx.project_id)
     elif req.agent_id:
         agent = await agent_svc.get_agent(req.agent_id, project_id=auth_ctx.project_id)
     elif req.agent_name:
         agent = await agent_svc.get_agent_by_name(req.agent_name, project_id=auth_ctx.project_id)
     if not agent:
-        raise HTTPException(404, "Agent not found")
+        raise NotFoundError(
+            code="SESSION_AGENT_NOT_FOUND",
+            message="Agent not found",
+            data={
+                "agent_id": str(req.agent_id or (req.agent.id if isinstance(req.agent, AgentRef) else req.agent)),
+                "agent_name": req.agent_name,
+            },
+            user_action="refresh",
+        )
 
     # --- Build agent_snapshot ---
     agent_version = agent.version
@@ -178,7 +230,12 @@ async def create_session(
     if pinned_version is not None:
         snapshot = await agent_svc.get_agent_version_snapshot(agent.id, pinned_version)
         if snapshot is None:
-            raise HTTPException(404, f"Agent version {pinned_version} not found")
+            raise NotFoundError(
+                code="SESSION_AGENT_VERSION_NOT_FOUND",
+                message=f"Agent version {pinned_version} not found",
+                data={"agent_id": str(agent.id), "version": pinned_version},
+                user_action="refresh",
+            )
         agent_version = pinned_version
         agent_snapshot = snapshot
 
@@ -191,7 +248,12 @@ async def create_session(
         dump = r.model_dump()
         store = await mem_svc.get_store(r.memory_store_id, project_id=auth_ctx.project_id)
         if not store:
-            raise HTTPException(404, f"Memory store not found: {r.memory_store_id}")
+            raise NotFoundError(
+                code="SESSION_MEMORY_STORE_NOT_FOUND",
+                message=f"Memory store not found: {r.memory_store_id}",
+                data={"memory_store_id": str(r.memory_store_id)},
+                user_action="refresh",
+            )
         if not dump.get("mount_name"):
             dump["mount_name"] = _slugify_mount_name(store.name)
         resource_dicts.append(dump)
@@ -206,10 +268,79 @@ async def create_session(
             try:
                 vid_uuid = uuid.UUID(vid_str)
             except ValueError:
-                raise HTTPException(400, f"Invalid vault_id: {vid_raw}")
+                raise InvalidRequestError(
+                    code="SESSION_VAULT_ID_INVALID",
+                    message=f"Invalid vault_id: {vid_raw}",
+                    data={"vault_id": vid_raw},
+                    user_action="fix_input",
+                )
             vault = await vault_svc.get_vault(vid_uuid)
             if not vault or vault.project_id != auth_ctx.project_id:
-                raise HTTPException(404, f"Vault not found: {vid_raw}")
+                raise NotFoundError(
+                    code="SESSION_VAULT_NOT_FOUND",
+                    message=f"Vault not found: {vid_raw}",
+                    data={"vault_id": vid_raw},
+                    user_action="refresh",
+                )
+
+    # --- Validate file resources before creating the session ---
+    from app.joysafeter_domain.schemas.joysafeter_session import MAX_FILE_RESOURCES, MAX_REPO_RESOURCES
+
+    file_resource_records = []
+    if len(req.file_resources) > MAX_FILE_RESOURCES:
+        raise InvalidRequestError(
+            code="SESSION_FILE_RESOURCE_LIMIT_EXCEEDED",
+            message=f"Too many file resources (max {MAX_FILE_RESOURCES})",
+            data={"max": MAX_FILE_RESOURCES, "actual": len(req.file_resources)},
+            user_action="fix_input",
+        )
+    if req.file_resources:
+        from app.joysafeter_api.services import FileService
+        from app.joysafeter_shared.storage import get_storage
+
+        file_svc = FileService(get_storage())
+        for fr in req.file_resources:
+            file_id_str = fr.file_id.removeprefix("file_")
+            try:
+                fid = uuid.UUID(file_id_str)
+            except ValueError:
+                raise InvalidRequestError(
+                    code="SESSION_FILE_ID_INVALID",
+                    message=f"Invalid file_id: {fr.file_id}",
+                    data={"file_id": fr.file_id},
+                    user_action="fix_input",
+                )
+            record = await file_svc.get_metadata(db, fid, auth_ctx.project_id)
+            if not record:
+                raise NotFoundError(
+                    code="SESSION_FILE_NOT_FOUND",
+                    message=f"File not found: {fr.file_id}",
+                    data={"file_id": fr.file_id},
+                    user_action="refresh",
+                )
+            mount_path = _validate_mount_path(fr.mount_path or f"/workspace/{record.filename}")
+            file_resource_records.append((record.id, mount_path))
+
+    # --- Validate repo resources before creating the session ---
+    repo_resource_records = []
+    if len(req.repo_resources) > MAX_REPO_RESOURCES:
+        raise InvalidRequestError(
+            code="SESSION_REPO_RESOURCE_LIMIT_EXCEEDED",
+            message=f"Too many repo resources (max {MAX_REPO_RESOURCES})",
+            data={"max": MAX_REPO_RESOURCES, "actual": len(req.repo_resources)},
+            user_action="fix_input",
+        )
+    for rr in req.repo_resources:
+        if not rr.url or not rr.url.strip():
+            raise InvalidRequestError(
+                code="SESSION_REPO_URL_REQUIRED",
+                message="repo resource url is required",
+                data={"resource_type": "github_repository"},
+                user_action="fix_input",
+            )
+        mount_path = _validate_mount_path(rr.mount_path) if rr.mount_path else ""
+        mount_name = rr.mount_name or _slugify_mount_name(rr.url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git"))
+        repo_resource_records.append((rr, mount_path, mount_name))
 
     svc = SessionService(db)
     session = await svc.create_session(
@@ -228,29 +359,13 @@ async def create_session(
         resources = await svc.attach_memory_stores(session.id, resource_dicts)
 
     # --- Attach file resources ---
-    from app.joysafeter_domain.schemas.joysafeter_session import MAX_FILE_RESOURCES
-
-    if len(req.file_resources) > MAX_FILE_RESOURCES:
-        raise HTTPException(400, f"Too many file resources (max {MAX_FILE_RESOURCES})")
-    if req.file_resources:
-        from app.joysafeter_api.services import FileService
+    if file_resource_records:
         from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
-        from app.joysafeter_shared.storage import get_storage
 
-        file_svc = FileService(get_storage())
-        for fr in req.file_resources:
-            file_id_str = fr.file_id.removeprefix("file_")
-            try:
-                fid = uuid.UUID(file_id_str)
-            except ValueError:
-                raise HTTPException(400, f"Invalid file_id: {fr.file_id}")
-            record = await file_svc.get_metadata(db, fid, auth_ctx.project_id)
-            if not record:
-                raise HTTPException(404, f"File not found: {fr.file_id}")
-            mount_path = _validate_mount_path(fr.mount_path or f"/workspace/{record.filename}")
+        for file_id, mount_path in file_resource_records:
             session_file = JoySafeterSessionFile(
                 session_id=session.id,
-                file_id=record.id,
+                file_id=file_id,
                 mount_path=mount_path,
                 access="read_only",
             )
@@ -258,22 +373,12 @@ async def create_session(
         await db.commit()
 
     # --- Attach repo resources (github_repository) ---
-    from app.joysafeter_domain.schemas.joysafeter_session import MAX_REPO_RESOURCES
-
-    if len(req.repo_resources) > MAX_REPO_RESOURCES:
-        raise HTTPException(400, f"Too many repo resources (max {MAX_REPO_RESOURCES})")
-    if req.repo_resources:
+    if repo_resource_records:
         from app.joysafeter_api.services import SecretService
         from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
 
         repo_secret_svc = SecretService(db)
-        for rr in req.repo_resources:
-            if not rr.url or not rr.url.strip():
-                raise HTTPException(400, "repo resource url is required")
-            mount_path = _validate_mount_path(rr.mount_path) if rr.mount_path else ""
-            mount_name = rr.mount_name or _slugify_mount_name(
-                rr.url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
-            )
+        for rr, mount_path, mount_name in repo_resource_records:
             # Encrypt the clone token at rest; never store or echo it in plaintext.
             encrypted_token = ""
             if rr.authorization_token:
@@ -341,10 +446,15 @@ async def create_session(
             )
             if resolved.get("sandbox_id"):
                 await svc.update_session_sandbox(session.id, resolved["sandbox_id"])
-    except Exception:
-        logger.warning(
-            "Failed to provision sandbox at session creation (will be lazy-created)",
-            exc_info=True,
+    except Exception as exc:
+        log_boundary_failure(
+            logger,
+            boundary="session_api",
+            code="SESSION_SANDBOX_PROVISION_FAILED",
+            message="Failed to provision sandbox at session creation; sandbox will be lazy-created",
+            operation="provision_session_sandbox",
+            error=exc,
+            data={"session_id": str(session.id), "agent_id": str(agent.id) if agent else None},
         )
 
     repo_records = await _load_session_repos(db, session.id)
@@ -365,7 +475,12 @@ async def list_sessions(
         agent_svc = AgentService(db)
         agent = await agent_svc.get_agent(agent_id, project_id=auth_ctx.project_id)
         if not agent:
-            raise HTTPException(404, "Agent not found")
+            raise NotFoundError(
+                code="SESSION_AGENT_NOT_FOUND",
+                message="Agent not found",
+                data={"agent_id": str(agent_id)},
+                user_action="refresh",
+            )
         sessions, has_more = await svc.list_sessions_by_agent(
             agent_id, limit, after_id, project_id=auth_ctx.project_id, include_archived=include_archived
         )
@@ -402,9 +517,19 @@ async def get_session(
     svc = SessionService(db)
     session = await svc.get_session(session_id)
     if not session:
-        raise HTTPException(404, "Session not found")
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message="Session not found",
+            data={"session_id": str(session_id)},
+            user_action="refresh",
+        )
     if session.project_id != auth_ctx.project_id:
-        raise HTTPException(404, "Session not found")
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message="Session not found",
+            data={"session_id": str(session_id)},
+            user_action="refresh",
+        )
     resources = await svc.list_session_memory_stores(session_id)
     repo_records = await _load_session_repos(db, session_id)
     agent = None
@@ -423,18 +548,39 @@ async def delete_session(
     svc = SessionService(db)
     session = await svc.get_session(session_id)
     if not session:
-        raise HTTPException(404, "Session not found")
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message="Session not found",
+            data={"session_id": str(session_id)},
+            user_action="refresh",
+        )
     if session.project_id != auth_ctx.project_id:
-        raise HTTPException(404, "Session not found")
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message="Session not found",
+            data={"session_id": str(session_id)},
+            user_action="refresh",
+        )
     if session.status == "running":
-        raise HTTPException(409, "Running session cannot be deleted. Send user.interrupt first.")
+        raise ResourceConflictError(
+            code="SESSION_ALREADY_RUNNING",
+            message="Running session cannot be deleted. Send user.interrupt first.",
+            data={"session_id": str(session_id), "session_status": session.status},
+            retryable=True,
+            user_action="interrupt",
+        )
     from app.joysafeter_api.services import JoySafeterTaskService as TaskService
 
     active_tasks = await TaskService(db).list_active_tasks_by_session(session_id, project_id=auth_ctx.project_id)
     if active_tasks:
-        raise HTTPException(409, "Session has an active task; stop it before deleting session")
+        raise ResourceConflictError(
+            code="SESSION_ACTIVE_TASK",
+            message="Session has an active task; stop it before deleting session",
+            data={"session_id": str(session_id), "active_task_ids": [str(task.id) for task in active_tasks]},
+            retryable=True,
+            user_action=("retry" if True else "fix_input"),
+        )
 
-    # Emit session.deleted event via broadcaster before deleting
     from app.joysafeter_orchestrator.lifespan import (
         get_bridge_registry,
         get_envoy_manager,
@@ -443,14 +589,6 @@ async def delete_session(
     )
 
     broadcaster = get_session_broadcaster()
-    if broadcaster:
-        await broadcaster.send(
-            session_id,
-            {
-                "type": "session.deleted",
-                "session_id": str(session_id),
-            },
-        )
 
     # Clean up sandbox container linked to this session
     from app.joysafeter_api.services import SandboxService
@@ -470,8 +608,16 @@ async def delete_session(
                 )
                 try:
                     await bridge.write_to_runner(shutdown_msg)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log_boundary_failure(
+                        logger,
+                        boundary="session_api",
+                        code="SESSION_DELETE_GRPC_SHUTDOWN_FAILED",
+                        message="Failed to send gRPC Shutdown during session delete",
+                        operation="delete_session_shutdown_runner",
+                        error=exc,
+                        data={"session_id": str(session_id), "sandbox_id": str(sandbox.id)},
+                    )
             await bridge_registry.remove(sandbox.id)
 
         # Stop and destroy container
@@ -479,12 +625,36 @@ async def delete_session(
         if provider and sandbox.external_id:
             try:
                 await provider.stop(sandbox.external_id)
-            except Exception:
-                pass
+            except Exception as exc:
+                log_boundary_failure(
+                    logger,
+                    boundary="session_api",
+                    code="SESSION_DELETE_SANDBOX_STOP_FAILED",
+                    message="Failed to stop sandbox before session delete",
+                    operation="delete_session_stop_sandbox",
+                    error=exc,
+                    data={"session_id": str(session_id), "sandbox_id": str(sandbox.id)},
+                )
             try:
                 await provider.destroy(sandbox.external_id)
-            except Exception:
-                pass
+            except Exception as exc:
+                log_boundary_failure(
+                    logger,
+                    boundary="session_api",
+                    code="SESSION_SANDBOX_DESTROY_FAILED",
+                    message="Session sandbox destroy failed during delete",
+                    operation="delete_session_destroy_sandbox",
+                    error=exc,
+                    data={"session_id": str(session_id), "sandbox_id": str(sandbox.id)},
+                )
+                raise ServiceUnavailableError(
+                    code="SESSION_SANDBOX_DESTROY_FAILED",
+                    message="Session could not be deleted because its sandbox cleanup failed.",
+                    data={"session_id": str(session_id), "sandbox_id": str(sandbox.id)},
+                    source="runtime",
+                    retryable=True,
+                    user_action="retry",
+                ) from None
 
         # Mark as destroyed in DB
         await sandbox_svc.update_status_cas(sandbox.id, sandbox.status, "destroyed")
@@ -494,13 +664,36 @@ async def delete_session(
         if envoy:
             try:
                 await envoy.remove_sandbox(sandbox.id)
-            except Exception:
-                pass
+            except Exception as exc:
+                log_boundary_failure(
+                    logger,
+                    boundary="session_api",
+                    code="SESSION_DELETE_ENVOY_REMOVE_FAILED",
+                    message="Failed to remove sandbox from Envoy during session delete",
+                    operation="delete_session_remove_envoy",
+                    error=exc,
+                    data={"session_id": str(session_id), "sandbox_id": str(sandbox.id)},
+                )
 
     # Hard delete the session
     ok = await svc.delete_session(session_id)
     if not ok:
-        raise HTTPException(404, "Session not found")
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message="Session not found",
+            data={"session_id": str(session_id)},
+            user_action="refresh",
+        )
+
+    # Emit session.deleted only after cleanup and durable deletion succeeded.
+    if broadcaster:
+        await broadcaster.send(
+            session_id,
+            {
+                "type": "session.deleted",
+                "session_id": str(session_id),
+            },
+        )
 
     # Cleanup broadcaster subscriptions for this session
     if broadcaster:
@@ -521,10 +714,20 @@ async def archive_session(
     svc = SessionService(db)
     session = await svc.get_session(session_id)
     if not session or session.project_id != auth_ctx.project_id:
-        raise HTTPException(404, "Session not found")
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message="Session not found",
+            data={"session_id": str(session_id)},
+            user_action="refresh",
+        )
     ok = await svc.archive_session(session_id)
     if not ok:
-        raise HTTPException(404, "Session not found")
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message="Session not found",
+            data={"session_id": str(session_id)},
+            user_action="refresh",
+        )
     return {"status": "archived"}
 
 
@@ -537,11 +740,28 @@ async def stop_session(
     svc = SessionService(db)
     session = await svc.get_session(session_id)
     if not session or session.project_id != auth_ctx.project_id:
-        raise HTTPException(404, "Session not found")
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message="Session not found",
+            data={"session_id": str(session_id)},
+            user_action="refresh",
+        )
     if session.archived_at:
-        raise HTTPException(409, "Session is archived")
+        raise ResourceConflictError(
+            code="SESSION_ARCHIVED",
+            message="Session is archived",
+            data={"session_id": str(session_id)},
+            retryable=False,
+            user_action="fix_input",
+        )
     if session.status == "terminated":
-        raise HTTPException(409, "Session is terminated")
+        raise ResourceConflictError(
+            code="SESSION_TERMINATED",
+            message="Session is terminated",
+            data={"session_id": str(session_id), "session_status": session.status},
+            retryable=False,
+            user_action="fix_input",
+        )
 
     from app.joysafeter_api.services import JoySafeterTaskService as TaskService
     from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
@@ -585,8 +805,16 @@ async def stop_session(
                             )
                         )
                         locally_cancelled.add(task.id)
-                    except Exception:
-                        logger.warning("Failed to send CancelTask for task %s", task.id)
+                    except Exception as exc:
+                        log_boundary_failure(
+                            logger,
+                            boundary="session_api",
+                            code="SESSION_STOP_GRPC_CANCEL_FAILED",
+                            message="Failed to send CancelTask during session stop",
+                            operation="stop_session_cancel_runner",
+                            error=exc,
+                            data={"session_id": str(session_id), "task_id": str(task.id)},
+                        )
 
     coordinator = get_redis_coordinator()
     if coordinator:
@@ -623,7 +851,14 @@ async def stop_session(
             session_id,
             [str(task.id) for task in remaining_active],
         )
-        raise HTTPException(503, "Failed to cancel all active tasks")
+        raise ServiceUnavailableError(
+            code="SESSION_STOP_CANCEL_TASKS_FAILED",
+            message="Failed to cancel all active tasks",
+            data={"session_id": str(session_id), "active_task_ids": [str(task.id) for task in remaining_active]},
+            source="runtime",
+            retryable=True,
+            user_action="retry",
+        )
 
     try:
         await svc.update_session_status(session_id, "idle", stop_reason=stop_reason)
@@ -634,7 +869,14 @@ async def stop_session(
             session_id,
             exc_info=True,
         )
-        raise HTTPException(503, "Failed to mark session idle") from None
+        raise ServiceUnavailableError(
+            code="SESSION_STOP_IDLE_SYNC_FAILED",
+            message="Failed to mark session idle",
+            data={"session_id": str(session_id)},
+            source="runtime",
+            retryable=True,
+            user_action="retry",
+        ) from None
 
     broadcaster = get_session_broadcaster()
     if broadcaster:
@@ -752,11 +994,28 @@ async def _relay_control_via_redis(
             command_id=command_id,
             ack_key=ack_key,
         )
-    except Exception:
+    except Exception as exc:
         logger.debug(
             "Redis relay command failed for %s on session %s",
             event.type,
             getattr(session, "id", "?"),
+            extra={
+                "error": async_boundary_error_payload(
+                    code="SESSION_REDIS_INPUT_RELAY_FAILED",
+                    message="Redis input relay command failed",
+                    boundary="session_api",
+                    operation="relay_input_command",
+                    data={
+                        "session_id": str(getattr(session, "id", "?")),
+                        "sandbox_id": sandbox_id,
+                        "event_type": event.type,
+                        "command_id": command_id,
+                        "channel": channel,
+                    },
+                    detail=exc.__class__.__name__,
+                )
+            },
+            exc_info=True,
         )
         return False
     return delivered
@@ -806,8 +1065,27 @@ async def _relay_cancel_via_redis(session, *, reason: str) -> bool:
             command_id=command_id,
             ack_key=ack_key,
         )
-    except Exception:
-        logger.debug("Redis relay cancel command failed for session %s", getattr(session, "id", "?"))
+    except Exception as exc:
+        logger.debug(
+            "Redis relay cancel command failed for session %s",
+            getattr(session, "id", "?"),
+            extra={
+                "error": async_boundary_error_payload(
+                    code="SESSION_REDIS_CANCEL_RELAY_FAILED",
+                    message="Redis cancel relay command failed",
+                    boundary="session_api",
+                    operation="relay_cancel_command",
+                    data={
+                        "session_id": str(getattr(session, "id", "?")),
+                        "sandbox_id": sandbox_id,
+                        "command_id": command_id,
+                        "channel": f"joysafeter:cmd:{owner}",
+                    },
+                    detail=exc.__class__.__name__,
+                )
+            },
+            exc_info=True,
+        )
         return False
     return delivered
 
@@ -827,7 +1105,21 @@ async def _publish_command_and_wait_for_ack(
     try:
         ack = await redis_client.blpop(ack_key, timeout=COMMAND_ACK_TIMEOUT_SECONDS)
     except Exception as exc:
-        logger.debug("Redis command ACK wait failed for %s: %s", command_id, exc)
+        logger.debug(
+            "Redis command ACK wait failed for %s",
+            command_id,
+            extra={
+                "error": async_boundary_error_payload(
+                    code="SESSION_REDIS_COMMAND_ACK_WAIT_FAILED",
+                    message="Redis command ACK wait failed",
+                    boundary="session_api",
+                    operation="wait_command_ack",
+                    data={"command_id": command_id, "ack_key": ack_key, "channel": channel},
+                    detail=exc.__class__.__name__,
+                )
+            },
+            exc_info=True,
+        )
         return False
     if not ack:
         logger.debug("Redis command ACK timed out for %s", command_id)
@@ -879,22 +1171,40 @@ def _validate_message_content(content: Any) -> str:
         return content
     if isinstance(content, list):
         parts: list[str] = []
-        for block in content:
+        for index, block in enumerate(content):
             if not isinstance(block, dict):
-                raise HTTPException(
-                    422,
-                    "Each content block must be an object with {type, text}",
+                raise RequestValidationAppError(
+                    code="SESSION_CONTENT_BLOCK_INVALID",
+                    message="Each content block must be an object with {type, text}",
+                    data={"field": "content", "index": index},
+                    user_action="fix_input",
                 )
             if block.get("type") != "text" or not isinstance(block.get("text"), str):
-                raise HTTPException(
-                    422,
-                    "Content blocks must have type 'text' and a string 'text' field",
+                raise RequestValidationAppError(
+                    code="SESSION_CONTENT_BLOCK_INVALID",
+                    message="Content blocks must have type 'text' and a string 'text' field",
+                    data={
+                        "field": "content",
+                        "index": index,
+                        "block_type": str(block.get("type")) if block.get("type") is not None else None,
+                    },
+                    user_action="fix_input",
                 )
             parts.append(block["text"])
         if not parts:
-            raise HTTPException(422, "Content blocks array must not be empty")
+            raise RequestValidationAppError(
+                code="SESSION_CONTENT_EMPTY",
+                message="Content blocks array must not be empty",
+                data={"field": "content"},
+                user_action="fix_input",
+            )
         return "\n".join(parts)
-    raise HTTPException(422, "content must be a string or array of content blocks")
+    raise RequestValidationAppError(
+        code="SESSION_CONTENT_INVALID",
+        message="content must be a string or array of content blocks",
+        data={"field": "content", "content_type": type(content).__name__},
+        user_action="fix_input",
+    )
 
 
 async def _find_idempotent_user_message_event(
@@ -945,11 +1255,40 @@ async def _idempotent_user_message_replay_response(
     )
     if existing_task is not None:
         if existing_task.chat_session_id != session_id:
-            raise HTTPException(409, "Idempotency-Key was already used for a different session")
+            raise ResourceConflictError(
+                code="SESSION_IDEMPOTENCY_KEY_MISMATCH",
+                message="Idempotency-Key was already used for a different session",
+                data={
+                    "session_id": str(session_id),
+                    "task_id": str(existing_task.id),
+                    "conflict_field": "chat_session_id",
+                    "requested_value": str(session_id),
+                    "existing_value": str(existing_task.chat_session_id),
+                },
+                user_action="fix_input",
+            )
         if expected_prompt is not None and existing_task.prompt != expected_prompt:
-            raise HTTPException(409, "Idempotency-Key was already used for a different message")
+            raise ResourceConflictError(
+                code="SESSION_IDEMPOTENCY_KEY_MISMATCH",
+                message="Idempotency-Key was already used for a different message",
+                data={
+                    "session_id": str(session_id),
+                    "task_id": str(existing_task.id),
+                    "conflict_field": "message",
+                    "requested_value": str(expected_prompt),
+                    "existing_value": str(existing_task.prompt),
+                },
+                user_action="fix_input",
+            )
         if existing_task.status == "failed" and "Failed to enqueue task" in (existing_task.error or ""):
-            raise HTTPException(503, "Failed to enqueue task")
+            raise ServiceUnavailableError(
+                code="TASK_ENQUEUE_FAILED",
+                message="Failed to enqueue task",
+                data={"session_id": str(session_id), "task_id": str(existing_task.id)},
+                source="runtime",
+                retryable=True,
+                user_action="retry",
+            )
 
     existing_event = await _find_idempotent_user_message_event(db, session_id, idempotency_key)
     if existing_event is not None and existing_task is not None:
@@ -1090,21 +1429,47 @@ async def send_event(
     svc = SessionService(db)
     session = await svc.get_session(session_id)
     if not session:
-        raise HTTPException(404, "Session not found")
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message="Session not found",
+            data={"session_id": str(session_id)},
+            user_action="refresh",
+        )
     if session.project_id != auth_ctx.project_id:
-        raise HTTPException(404, "Session not found")
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message="Session not found",
+            data={"session_id": str(session_id)},
+            user_action="refresh",
+        )
 
     # --- gate: reject events on archived / terminated / rescheduling sessions ---
     if session.archived_at:
-        raise HTTPException(409, "Session is archived")
+        raise ResourceConflictError(
+            code="SESSION_ARCHIVED",
+            message="Session is archived",
+            data={"session_id": str(session_id)},
+        )
     if session.status == "terminated":
-        raise HTTPException(409, "Session is terminated")
+        raise ResourceConflictError(
+            code="SESSION_TERMINATED",
+            message="Session is terminated",
+            data={"session_id": str(session_id), "session_status": session.status},
+        )
     if session.status == "rescheduling":
-        raise HTTPException(409, "Session is rescheduling, try again later")
+        raise ResourceConflictError(
+            code="SESSION_RESCHEDULING",
+            message="Session is rescheduling, try again later",
+            data={"session_id": str(session_id), "session_status": session.status},
+            retryable=True,
+            user_action="retry",
+        )
 
     single_events = req.to_single_events()
     if not single_events:
-        raise HTTPException(400, "No events provided")
+        raise InvalidRequestError(
+            code="SESSION_EVENTS_EMPTY", message="No events provided", data={"field": "events"}, user_action="fix_input"
+        )
 
     from app.joysafeter_orchestrator.lifespan import get_bridge_registry, get_session_broadcaster
 
@@ -1121,7 +1486,12 @@ async def send_event(
             if raw_content is None:
                 raw_content = single.payload.get("content")
             if raw_content is None:
-                raise HTTPException(422, "user.message requires content")
+                raise RequestValidationAppError(
+                    code="SESSION_USER_MESSAGE_CONTENT_REQUIRED",
+                    message="user.message requires content",
+                    data={"field": "content", "event_type": single.type},
+                    user_action="fix_input",
+                )
             message_text = _validate_message_content(raw_content)
 
             if idempotency_key:
@@ -1137,9 +1507,12 @@ async def send_event(
                     continue
 
             if session.status == "running":
-                raise HTTPException(
-                    409,
-                    "Session is already running; wait for completion before sending a new message",
+                raise ResourceConflictError(
+                    code="SESSION_ALREADY_RUNNING",
+                    message="Session is already running; wait for completion before sending a new message",
+                    data={"session_id": str(session_id), "session_status": session.status},
+                    retryable=True,
+                    user_action="retry",
                 )
             from app.joysafeter_api.services import JoySafeterTaskService as TaskService
 
@@ -1148,9 +1521,15 @@ async def send_event(
                 project_id=auth_ctx.project_id,
             )
             if active_tasks:
-                raise HTTPException(
-                    409,
-                    "Session has an active task; wait for completion before sending a new message",
+                raise ResourceConflictError(
+                    code="SESSION_ACTIVE_TASK",
+                    message="Session has an active task; wait for completion before sending a new message",
+                    data={
+                        "session_id": str(session_id),
+                        "active_task_ids": [str(task.id) for task in active_tasks],
+                    },
+                    retryable=True,
+                    user_action="retry",
                 )
 
         # Build payload for persistence
@@ -1188,7 +1567,13 @@ async def send_event(
                     break
                 await asyncio.sleep(0.05)
             else:
-                raise HTTPException(409, "Idempotency-Key is already in progress")
+                raise ResourceConflictError(
+                    code="IDEMPOTENCY_KEY_IN_PROGRESS",
+                    message="Idempotency-Key is already in progress",
+                    data={"session_id": str(session_id)},
+                    retryable=True,
+                    user_action="retry",
+                )
             continue
 
         event_response = _session_event_response(event)
@@ -1247,10 +1632,18 @@ async def send_event(
                 # process does not own an in-memory scheduler, so publish
                 # directly to the Redis-backed global queue.
                 await _push_task_to_global_queue(task.id)
-            except HTTPException:
+            except AppError:
                 raise
             except Exception as exc:
-                logger.exception("Failed to dispatch user.message for session %s", session_id)
+                log_boundary_failure(
+                    logger,
+                    boundary="session_api",
+                    code="SESSION_USER_MESSAGE_DISPATCH_FAILED",
+                    message="Failed to dispatch user.message for session",
+                    operation="dispatch_user_message",
+                    error=exc,
+                    data={"session_id": str(session_id), "task_id": str(task.id) if task is not None else ""},
+                )
                 try:
                     if db.in_transaction():
                         await db.rollback()
@@ -1270,14 +1663,24 @@ async def send_event(
                                 f"Failed to enqueue task: {exc}",
                                 JoySafeterTaskStatus.FAILED,
                             )
-                    except Exception:
-                        logger.error(
-                            "Failed to mark unqueued task %s as failed",
-                            getattr(task, "id", None),
-                            exc_info=True,
+                    except Exception as mark_exc:
+                        log_boundary_failure(
+                            logger,
+                            boundary="session_api",
+                            code="SESSION_UNQUEUED_TASK_MARK_FAILED",
+                            message="Failed to mark unqueued task as failed",
+                            operation="mark_unqueued_task_failed",
+                            error=mark_exc,
+                            data={
+                                "session_id": str(session_id),
+                                "task_id": str(getattr(task, "id", "")),
+                            },
                         )
 
-                stop_reason = {"type": "error", "message": "Failed to enqueue task"}
+                stop_reason = _session_task_enqueue_failed_stop_reason(
+                    session_id=session_id,
+                    task_id=task.id if task is not None else None,
+                )
                 idle_accepted = False
                 try:
                     if task is not None:
@@ -1322,7 +1725,14 @@ async def send_event(
                         exc_info=True,
                     )
 
-                raise HTTPException(503, "Failed to enqueue task") from exc
+                raise ServiceUnavailableError(
+                    code="TASK_ENQUEUE_FAILED",
+                    message="Failed to enqueue task",
+                    data={"session_id": str(session_id), "task_id": str(task.id if task is not None else None)},
+                    source="runtime",
+                    retryable=True,
+                    user_action="retry",
+                ) from exc
 
         elif single.type == "user.custom_tool_result":
             injected = False
@@ -1380,9 +1790,23 @@ async def send_event(
                             session_id,
                             exc_info=True,
                         )
-                        raise HTTPException(503, "Failed to deliver custom tool result") from exc
+                        raise ServiceUnavailableError(
+                            code="SESSION_CUSTOM_TOOL_RESULT_DELIVERY_FAILED",
+                            message="Failed to deliver custom tool result",
+                            data={"session_id": str(session_id), "event_id": str(event.id), "event_type": single.type},
+                            source="runtime",
+                            retryable=True,
+                            user_action="retry",
+                        ) from exc
                 else:
-                    raise HTTPException(503, "Failed to deliver custom tool result")
+                    raise ServiceUnavailableError(
+                        code="SESSION_CUSTOM_TOOL_RESULT_DELIVERY_FAILED",
+                        message="Failed to deliver custom tool result",
+                        data={"session_id": str(session_id), "event_id": str(event.id), "event_type": single.type},
+                        source="runtime",
+                        retryable=True,
+                        user_action="retry",
+                    )
 
         elif single.type == "user.tool_confirmation":
             injected = False
@@ -1442,9 +1866,23 @@ async def send_event(
                             session_id,
                             exc_info=True,
                         )
-                        raise HTTPException(503, "Failed to deliver tool confirmation") from exc
+                        raise ServiceUnavailableError(
+                            code="SESSION_TOOL_CONFIRMATION_DELIVERY_FAILED",
+                            message="Failed to deliver tool confirmation",
+                            data={"session_id": str(session_id), "event_id": str(event.id), "event_type": single.type},
+                            source="runtime",
+                            retryable=True,
+                            user_action="retry",
+                        ) from exc
                 else:
-                    raise HTTPException(503, "Failed to deliver tool confirmation")
+                    raise ServiceUnavailableError(
+                        code="SESSION_TOOL_CONFIRMATION_DELIVERY_FAILED",
+                        message="Failed to deliver tool confirmation",
+                        data={"session_id": str(session_id), "event_id": str(event.id), "event_type": single.type},
+                        source="runtime",
+                        retryable=True,
+                        user_action="retry",
+                    )
 
         elif single.type == "user.interrupt":
             # Encode interrupt as a live-input with source_event_id
@@ -1477,7 +1915,14 @@ async def send_event(
             if not cancel_requested and await _relay_cancel_via_redis(session, reason="user requested interrupt"):
                 cancel_requested = True
             if session.status == "running" and not cancel_requested:
-                raise HTTPException(503, "Failed to deliver interrupt")
+                raise ServiceUnavailableError(
+                    code="SESSION_INTERRUPT_DELIVERY_FAILED",
+                    message="Failed to deliver interrupt",
+                    data={"session_id": str(session_id), "event_id": str(event.id), "event_type": single.type},
+                    source="runtime",
+                    retryable=True,
+                    user_action="retry",
+                )
             # Fallback: create a retry task when bridge injection was not possible
             if not injected:
                 resume_prompt = _build_resume_prompt(single, str(event.id))
@@ -1496,9 +1941,23 @@ async def send_event(
                             session_id,
                             exc_info=True,
                         )
-                        raise HTTPException(503, "Failed to deliver interrupt") from exc
+                        raise ServiceUnavailableError(
+                            code="SESSION_INTERRUPT_DELIVERY_FAILED",
+                            message="Failed to deliver interrupt",
+                            data={"session_id": str(session_id), "event_id": str(event.id), "event_type": single.type},
+                            source="runtime",
+                            retryable=True,
+                            user_action="retry",
+                        ) from exc
                 else:
-                    raise HTTPException(503, "Failed to deliver interrupt")
+                    raise ServiceUnavailableError(
+                        code="SESSION_INTERRUPT_DELIVERY_FAILED",
+                        message="Failed to deliver interrupt",
+                        data={"session_id": str(session_id), "event_id": str(event.id), "event_type": single.type},
+                        source="runtime",
+                        retryable=True,
+                        user_action="retry",
+                    )
 
         results.append(event_response)
 
@@ -1522,7 +1981,12 @@ async def list_events(
     svc = SessionService(db)
     session = await svc.get_session(session_id)
     if not session or session.project_id != auth_ctx.project_id:
-        raise HTTPException(404, "Session not found")
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message="Session not found",
+            data={"session_id": str(session_id)},
+            user_action="refresh",
+        )
     events, has_more = await svc.list_events(session_id, limit, after_seq)
     data = [SessionEventResponse.model_validate(e) for e in events]
     return PaginatedResponse(
@@ -1545,9 +2009,19 @@ async def session_event_stream(
     svc = SessionService(db)
     session = await svc.get_session(session_id)
     if not session:
-        raise HTTPException(404, "Session not found")
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message="Session not found",
+            data={"session_id": str(session_id)},
+            user_action="refresh",
+        )
     if session.project_id != auth_ctx.project_id:
-        raise HTTPException(404, "Session not found")
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message="Session not found",
+            data={"session_id": str(session_id)},
+            user_action="refresh",
+        )
 
     from app.joysafeter_orchestrator.lifespan import (
         ensure_session_broadcaster,
@@ -1676,11 +2150,15 @@ async def session_event_stream(
                             data_dict["_sse_source"] = "db_fallback_timeout"
                             yield f"id: evt_{ev.id}\ndata: {json.dumps(data_dict)}\n\n"
                         if events:
-                            logger.warning(
-                                "SSE db_fallback_timeout session=%s count=%s to_seq=%s",
-                                session_id,
-                                len(events),
-                                last_seq,
+                            log_boundary_failure(
+                                logger,
+                                boundary="session_stream",
+                                code="SESSION_STREAM_DB_FALLBACK_TIMEOUT",
+                                message="SSE DB fallback timeout",
+                                operation="stream_session_events_db_fallback",
+                                data={"session_id": str(session_id), "count": len(events), "to_seq": last_seq},
+                                retryable=True,
+                                user_action="retry",
                             )
                     yield ": heartbeat\n\n"
         finally:
@@ -1755,7 +2233,12 @@ async def list_session_resources(
     svc = SessionService(db)
     session = await svc.get_session(session_id)
     if not session or session.project_id != auth_ctx.project_id:
-        raise HTTPException(404, "Session not found")
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message="Session not found",
+            data={"session_id": str(session_id)},
+            user_action="refresh",
+        )
 
     result = await db.execute(sa_select(JoySafeterSessionFile).where(JoySafeterSessionFile.session_id == session_id))
     rows = result.scalars().all()
@@ -1801,29 +2284,56 @@ async def add_session_resource(
     Matches the official Managed Agents unified ``resources.add`` endpoint.
     """
     if not isinstance(req, dict):
-        raise HTTPException(400, "Request body must be an object")
+        raise InvalidRequestError(
+            code="SESSION_RESOURCE_BODY_INVALID",
+            message="Request body must be an object",
+            data={"expected": "object"},
+            user_action="fix_input",
+        )
     rtype = req.get("type") or "file"
 
     svc = SessionService(db)
     session = await svc.get_session(session_id)
     if not session or session.project_id != auth_ctx.project_id:
-        raise HTTPException(404, "Session not found")
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message="Session not found",
+            data={"session_id": str(session_id)},
+            user_action="refresh",
+        )
 
     if rtype == "file":
         try:
             file_req = AddSessionFileRequest.model_validate(req)
         except Exception as e:
-            raise HTTPException(400, f"Invalid file resource: {e}")
+            raise InvalidRequestError(
+                code="SESSION_FILE_RESOURCE_INVALID",
+                message="Invalid file resource",
+                data={"resource_type": "file"},
+                detail=str(e),
+                user_action="fix_input",
+            ) from e
         return await _add_file_resource(db, session_id, file_req, auth_ctx)
 
     if rtype == "github_repository":
         try:
             repo_req = AddSessionRepoRequest.model_validate(req)
         except Exception as e:
-            raise HTTPException(400, f"Invalid repo resource: {e}")
+            raise InvalidRequestError(
+                code="SESSION_REPO_RESOURCE_INVALID",
+                message="Invalid repo resource",
+                data={"resource_type": "github_repository"},
+                detail=str(e),
+                user_action="fix_input",
+            ) from e
         return await _add_repo_resource(db, session_id, repo_req)
 
-    raise HTTPException(400, f"Unsupported resource type: {rtype}")
+    raise InvalidRequestError(
+        code="SESSION_RESOURCE_TYPE_UNSUPPORTED",
+        message=f"Unsupported resource type: {rtype}",
+        data={"resource_type": str(rtype)},
+        user_action="fix_input",
+    )
 
 
 async def _add_file_resource(
@@ -1840,12 +2350,22 @@ async def _add_file_resource(
     try:
         fid = uuid.UUID(file_id_str)
     except ValueError:
-        raise HTTPException(400, f"Invalid file_id: {req.file_id}")
+        raise InvalidRequestError(
+            code="SESSION_FILE_ID_INVALID",
+            message=f"Invalid file_id: {req.file_id}",
+            data={"session_id": str(session_id), "file_id": req.file_id},
+            user_action="fix_input",
+        )
 
     file_svc = FileService(get_storage())
     record = await file_svc.get_metadata(db, fid, auth_ctx.project_id)
     if not record:
-        raise HTTPException(404, f"File not found: {req.file_id}")
+        raise NotFoundError(
+            code="SESSION_FILE_NOT_FOUND",
+            message=f"File not found: {req.file_id}",
+            data={"session_id": str(session_id), "file_id": req.file_id},
+            user_action="refresh",
+        )
 
     mount_path = _validate_mount_path(req.mount_path or f"/workspace/{record.filename}")
     session_file = JoySafeterSessionFile(
@@ -1876,14 +2396,24 @@ async def _add_repo_resource(
     from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
 
     if not req.url or not req.url.strip():
-        raise HTTPException(400, "Repo url is required")
+        raise InvalidRequestError(
+            code="SESSION_REPO_URL_REQUIRED",
+            message="Repo url is required",
+            data={"session_id": str(session_id), "resource_type": "github_repository"},
+            user_action="fix_input",
+        )
 
     # Enforce per-session repo cap (mirrors create flow).
     from app.joysafeter_domain.schemas.joysafeter_session import MAX_REPO_RESOURCES
 
     existing = await _load_session_repos(db, session_id)
     if len(existing) >= MAX_REPO_RESOURCES:
-        raise HTTPException(400, f"Too many repo resources (max {MAX_REPO_RESOURCES})")
+        raise InvalidRequestError(
+            code="SESSION_REPO_RESOURCE_LIMIT_EXCEEDED",
+            message=f"Too many repo resources (max {MAX_REPO_RESOURCES})",
+            data={"session_id": str(session_id), "max": MAX_REPO_RESOURCES, "actual": len(existing) + 1},
+            user_action="fix_input",
+        )
 
     mount_path = _validate_mount_path(req.mount_path) if req.mount_path else ""
     mount_name = req.mount_name or _slugify_mount_name(req.url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git"))
@@ -1929,13 +2459,23 @@ async def delete_session_resource(
     svc = SessionService(db)
     session = await svc.get_session(session_id)
     if not session or session.project_id != auth_ctx.project_id:
-        raise HTTPException(404, "Session not found")
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message="Session not found",
+            data={"session_id": str(session_id)},
+            user_action="refresh",
+        )
 
     rid = resource_id.removeprefix("sesrsc_")
     try:
         rid_uuid = uuid.UUID(rid)
     except ValueError:
-        raise HTTPException(400, "Invalid resource_id")
+        raise InvalidRequestError(
+            code="SESSION_RESOURCE_ID_INVALID",
+            message="Invalid resource_id",
+            data={"session_id": str(session_id), "resource_id": resource_id},
+            user_action="fix_input",
+        )
 
     # Resource id space is shared by files and repos — look in both tables.
     result = await db.execute(
@@ -1954,7 +2494,12 @@ async def delete_session_resource(
         )
         row = result.scalar_one_or_none()
     if not row:
-        raise HTTPException(404, "Resource not found")
+        raise NotFoundError(
+            code="SESSION_RESOURCE_NOT_FOUND",
+            message="Resource not found",
+            data={"session_id": str(session_id), "resource_id": resource_id},
+            user_action="refresh",
+        )
 
     await db.delete(row)
     await db.commit()
@@ -1981,13 +2526,23 @@ async def update_repo_resource_token(
     svc = SessionService(db)
     session = await svc.get_session(session_id)
     if not session or session.project_id != auth_ctx.project_id:
-        raise HTTPException(404, "Session not found")
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message="Session not found",
+            data={"session_id": str(session_id)},
+            user_action="refresh",
+        )
 
     rid = resource_id.removeprefix("sesrsc_")
     try:
         rid_uuid = uuid.UUID(rid)
     except ValueError:
-        raise HTTPException(400, "Invalid resource_id")
+        raise InvalidRequestError(
+            code="SESSION_RESOURCE_ID_INVALID",
+            message="Invalid resource_id",
+            data={"session_id": str(session_id), "resource_id": resource_id},
+            user_action="fix_input",
+        )
 
     result = await db.execute(
         sa_select(JoySafeterSessionRepo).where(
@@ -1997,7 +2552,12 @@ async def update_repo_resource_token(
     )
     row = result.scalar_one_or_none()
     if not row:
-        raise HTTPException(404, "Repo resource not found")
+        raise NotFoundError(
+            code="SESSION_REPO_RESOURCE_NOT_FOUND",
+            message="Repo resource not found",
+            data={"session_id": str(session_id), "resource_id": resource_id},
+            user_action="refresh",
+        )
 
     secret_svc = SecretService(db)
     row.encrypted_token = (

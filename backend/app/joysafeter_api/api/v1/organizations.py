@@ -7,13 +7,20 @@ aligned with the unified Organization + Project model.
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_shared.common.app_errors import (
+    AccessDeniedError,
+    AppError,
+    InvalidRequestError,
+    NotFoundError,
+    ResourceConflictError,
+)
 from app.joysafeter_shared.common.dependencies import CurrentUser
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterRole
 from app.joysafeter_shared.database import get_db
@@ -65,6 +72,57 @@ def _generate_str_id() -> str:
     return str(uuid.uuid4())
 
 
+def _organization_not_found_error(organization_id: str) -> AppError:
+    return NotFoundError(
+        code="ORGANIZATION_NOT_FOUND",
+        message="Organization not found",
+        data={"organization_id": organization_id},
+        user_action="refresh",
+    )
+
+
+def _organization_member_not_found_error(organization_id: str, member_id: str | None = None) -> AppError:
+    data = {"organization_id": organization_id}
+    if member_id is not None:
+        data["member_id"] = member_id
+    return NotFoundError(
+        code="ORGANIZATION_MEMBER_NOT_FOUND",
+        message="Member not found",
+        data=data,
+        user_action="refresh",
+    )
+
+
+def _organization_permission_error(
+    *,
+    code: str,
+    message: str,
+    organization_id: str | None = None,
+    actor_role: str | None = None,
+    target_role: str | None = None,
+    current_role: str | None = None,
+    member_id: str | None = None,
+) -> AppError:
+    data: dict[str, object] = {}
+    if organization_id is not None:
+        data["organization_id"] = organization_id
+    if actor_role is not None:
+        data["actor_role"] = actor_role
+    if target_role is not None:
+        data["target_role"] = target_role
+    if current_role is not None:
+        data["current_role"] = current_role
+    if member_id is not None:
+        data["member_id"] = member_id
+    return AccessDeniedError(
+        code=code,
+        message=message,
+        data=data,
+        source="auth",
+        user_action="request_access",
+    )
+
+
 VALID_MEMBER_ROLES = {"owner", "admin", "developer", "member", "viewer"}
 
 
@@ -73,7 +131,12 @@ def _validate_member_role(role: str) -> str:
     if normalized == "member":
         normalized = "developer"
     if normalized not in VALID_MEMBER_ROLES:
-        raise HTTPException(400, "Invalid member role")
+        raise InvalidRequestError(
+            code="ORGANIZATION_MEMBER_ROLE_INVALID",
+            message="Invalid member role",
+            data={"role": role, "allowed": sorted(VALID_MEMBER_ROLES)},
+            user_action="fix_input",
+        )
     return normalized
 
 
@@ -83,18 +146,45 @@ def _role_rank(role: str) -> int:
 
 def _ensure_can_assign_role(actor_role: str, target_role: str) -> None:
     if target_role == "owner" and actor_role != "owner":
-        raise HTTPException(403, "Only organization owners can assign owner role")
+        raise _organization_permission_error(
+            code="ORGANIZATION_OWNER_ROLE_ASSIGN_FORBIDDEN",
+            message="Only organization owners can assign owner role",
+            actor_role=actor_role,
+            target_role=target_role,
+        )
     if _role_rank(actor_role) < _role_rank(target_role):
-        raise HTTPException(403, "Cannot grant a role higher than your own")
+        raise _organization_permission_error(
+            code="ORGANIZATION_ROLE_GRANT_FORBIDDEN",
+            message="Cannot grant a role higher than your own",
+            actor_role=actor_role,
+            target_role=target_role,
+        )
 
 
 def _ensure_can_modify_member(actor_role: str, current_role: str, new_role: str) -> None:
     if current_role == "owner" and new_role != "owner":
-        raise HTTPException(403, "Cannot change the organization owner role")
+        raise _organization_permission_error(
+            code="ORGANIZATION_OWNER_ROLE_CHANGE_FORBIDDEN",
+            message="Cannot change the organization owner role",
+            actor_role=actor_role,
+            current_role=current_role,
+            target_role=new_role,
+        )
     if actor_role != "owner" and new_role == "owner":
-        raise HTTPException(403, "Only organization owners can assign owner role")
+        raise _organization_permission_error(
+            code="ORGANIZATION_OWNER_ROLE_ASSIGN_FORBIDDEN",
+            message="Only organization owners can assign owner role",
+            actor_role=actor_role,
+            target_role=new_role,
+        )
     if _role_rank(actor_role) < _role_rank(current_role) or _role_rank(actor_role) < _role_rank(new_role):
-        raise HTTPException(403, "Cannot modify or grant a role higher than your own")
+        raise _organization_permission_error(
+            code="ORGANIZATION_ROLE_MODIFY_FORBIDDEN",
+            message="Cannot modify or grant a role higher than your own",
+            actor_role=actor_role,
+            current_role=current_role,
+            target_role=new_role,
+        )
 
 
 @router.get("")
@@ -177,12 +267,16 @@ async def get_organization(
         )
     )
     if not member_result.scalar_one_or_none():
-        raise HTTPException(403, "No access to organization")
+        raise _organization_permission_error(
+            code="ORGANIZATION_ACCESS_DENIED",
+            message="No access to organization",
+            organization_id=organization_id,
+        )
 
     org_result = await db.execute(select(Organization).where(Organization.id == organization_id))
     org = org_result.scalar_one_or_none()
     if not org:
-        raise HTTPException(404, "Organization not found")
+        raise _organization_not_found_error(organization_id)
 
     return {
         "id": org.id,
@@ -209,12 +303,16 @@ async def update_organization(
     )
     actor = result.scalar_one_or_none()
     if not actor:
-        raise HTTPException(403, "Insufficient permission")
+        raise _organization_permission_error(
+            code="ORGANIZATION_PERMISSION_DENIED",
+            message="Insufficient permission",
+            organization_id=organization_id,
+        )
 
     org_result = await db.execute(select(Organization).where(Organization.id == organization_id))
     org = org_result.scalar_one_or_none()
     if not org:
-        raise HTTPException(404, "Organization not found")
+        raise _organization_not_found_error(organization_id)
 
     if req.name is not None:
         org.name = req.name
@@ -241,12 +339,16 @@ async def delete_organization(
         )
     )
     if not result.scalar_one_or_none():
-        raise HTTPException(403, "Only the organization owner can delete it")
+        raise _organization_permission_error(
+            code="ORGANIZATION_OWNER_REQUIRED",
+            message="Only the organization owner can delete it",
+            organization_id=organization_id,
+        )
 
     result = await db.execute(select(Organization).where(Organization.id == organization_id))
     org = result.scalar_one_or_none()
     if not org:
-        raise HTTPException(404, "Organization not found")
+        raise _organization_not_found_error(organization_id)
 
     # Delete all members
     await db.execute(select(Member).where(Member.organization_id == organization_id))
@@ -280,10 +382,19 @@ async def transfer_ownership(
     )
     current_owner = result.scalar_one_or_none()
     if not current_owner:
-        raise HTTPException(403, "Only the organization owner can transfer ownership")
+        raise _organization_permission_error(
+            code="ORGANIZATION_OWNER_REQUIRED",
+            message="Only the organization owner can transfer ownership",
+            organization_id=organization_id,
+        )
 
     if req.new_owner_user_id == current_user.id:
-        raise HTTPException(400, "Cannot transfer ownership to yourself")
+        raise InvalidRequestError(
+            code="ORGANIZATION_OWNER_TRANSFER_SELF",
+            message="Cannot transfer ownership to yourself",
+            data={"organization_id": organization_id, "user_id": current_user.id},
+            user_action="fix_input",
+        )
 
     result = await db.execute(
         select(Member).where(
@@ -293,7 +404,12 @@ async def transfer_ownership(
     )
     new_owner = result.scalar_one_or_none()
     if not new_owner:
-        raise HTTPException(404, "New owner must be an existing organization member")
+        raise NotFoundError(
+            code="ORGANIZATION_MEMBER_NOT_FOUND",
+            message="New owner must be an existing organization member",
+            data={"organization_id": organization_id, "user_id": req.new_owner_user_id},
+            user_action="fix_input",
+        )
 
     current_owner.role = "admin"
     new_owner.role = "owner"
@@ -324,7 +440,11 @@ async def list_members(
         )
     )
     if not result.scalar_one_or_none():
-        raise HTTPException(403, "No access to organization")
+        raise _organization_permission_error(
+            code="ORGANIZATION_ACCESS_DENIED",
+            message="No access to organization",
+            organization_id=organization_id,
+        )
 
     result = await db.execute(select(Member).where(Member.organization_id == organization_id))
     members = result.scalars().all()
@@ -363,7 +483,11 @@ async def add_member(
     )
     actor = result.scalar_one_or_none()
     if not actor:
-        raise HTTPException(403, "Insufficient permission")
+        raise _organization_permission_error(
+            code="ORGANIZATION_PERMISSION_DENIED",
+            message="Insufficient permission",
+            organization_id=organization_id,
+        )
     _ensure_can_assign_role(actor.role, role)
 
     existing = await db.execute(
@@ -373,7 +497,12 @@ async def add_member(
         )
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(409, "User is already a member")
+        raise ResourceConflictError(
+            code="ORGANIZATION_MEMBER_ALREADY_EXISTS",
+            message="User is already a member",
+            data={"organization_id": organization_id, "user_id": req.user_id},
+            user_action="refresh",
+        )
 
     member = Member(
         id=_generate_str_id(),
@@ -405,12 +534,16 @@ async def update_member_role(
     )
     actor = result.scalar_one_or_none()
     if not actor:
-        raise HTTPException(403, "Insufficient permission")
+        raise _organization_permission_error(
+            code="ORGANIZATION_PERMISSION_DENIED",
+            message="Insufficient permission",
+            organization_id=organization_id,
+        )
 
     result = await db.execute(select(Member).where(Member.id == member_id, Member.organization_id == organization_id))
     member = result.scalar_one_or_none()
     if not member:
-        raise HTTPException(404, "Member not found")
+        raise _organization_member_not_found_error(organization_id, member_id)
 
     _ensure_can_modify_member(actor.role, member.role, new_role)
     member.role = new_role
@@ -434,17 +567,33 @@ async def remove_member(
     )
     actor = result.scalar_one_or_none()
     if not actor:
-        raise HTTPException(403, "Insufficient permission")
+        raise _organization_permission_error(
+            code="ORGANIZATION_PERMISSION_DENIED",
+            message="Insufficient permission",
+            organization_id=organization_id,
+        )
 
     result = await db.execute(select(Member).where(Member.id == member_id, Member.organization_id == organization_id))
     member = result.scalar_one_or_none()
     if not member:
-        raise HTTPException(404, "Member not found")
+        raise _organization_member_not_found_error(organization_id, member_id)
 
     if member.role == "owner":
-        raise HTTPException(400, "Cannot remove the owner")
+        raise InvalidRequestError(
+            code="ORGANIZATION_OWNER_REMOVE_FORBIDDEN",
+            message="Cannot remove the owner",
+            data={"organization_id": organization_id, "member_id": member_id},
+            user_action="fix_input",
+        )
     if _role_rank(actor.role) < _role_rank(member.role):
-        raise HTTPException(403, "Cannot remove a member with a higher role than your own")
+        raise _organization_permission_error(
+            code="ORGANIZATION_ROLE_REMOVE_FORBIDDEN",
+            message="Cannot remove a member with a higher role than your own",
+            organization_id=organization_id,
+            actor_role=actor.role,
+            current_role=member.role,
+            member_id=member_id,
+        )
 
     await db.delete(member)
     await db.commit()

@@ -5,7 +5,7 @@ import unicodedata
 import uuid
 from typing import Optional, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +28,7 @@ from app.joysafeter_domain.schemas.joysafeter_memory import (
     UpdateMemoryRequest,
     UpdateMemoryStoreRequest,
 )
+from app.joysafeter_shared.common.app_errors import AppError, InvalidRequestError, NotFoundError, ResourceConflictError
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
     get_joysafeter_auth_context,
@@ -38,6 +39,114 @@ from app.joysafeter_shared.database import get_db
 router = APIRouter(tags=["joysafeter-memory-stores"])
 
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _memory_store_conflict_error(store_id: uuid.UUID, exc: ValueError) -> AppError:
+    message = str(exc)
+    if message.startswith("Memory store is referenced by one or more active sessions"):
+        return ResourceConflictError(
+            code="MEMORY_STORE_ACTIVE_SESSION_REFERENCE",
+            message=message,
+            data={"memory_store_id": str(store_id)},
+            retryable=True,
+            user_action="retry",
+        )
+    return ResourceConflictError(
+        code="MEMORY_STORE_CONFLICT",
+        message=message,
+        data={"memory_store_id": str(store_id)},
+    )
+
+
+def _memory_store_not_found_error(store_id: uuid.UUID) -> AppError:
+    return NotFoundError(
+        code="MEMORY_STORE_NOT_FOUND",
+        message="Memory store not found",
+        data={"memory_store_id": str(store_id)},
+        user_action="refresh",
+    )
+
+
+def _memory_not_found_error(store_id: uuid.UUID, memory_id: uuid.UUID) -> AppError:
+    return NotFoundError(
+        code="MEMORY_NOT_FOUND",
+        message="Memory not found",
+        data={"memory_store_id": str(store_id), "memory_id": str(memory_id)},
+        user_action="refresh",
+    )
+
+
+def _memory_version_not_found_error(store_id: uuid.UUID, version_id: uuid.UUID) -> AppError:
+    return NotFoundError(
+        code="MEMORY_VERSION_NOT_FOUND",
+        message="Memory version not found",
+        data={"memory_store_id": str(store_id), "version_id": str(version_id)},
+        user_action="refresh",
+    )
+
+
+def _memory_metadata_invalid_error(message: str, data: dict[str, object]) -> AppError:
+    return InvalidRequestError(
+        code="MEMORY_METADATA_INVALID",
+        message=message,
+        data=data,
+        user_action="fix_input",
+    )
+
+
+def _memory_path_invalid_error(message: str, *, path: str) -> AppError:
+    return InvalidRequestError(
+        code="MEMORY_PATH_INVALID",
+        message=message,
+        data={"path": path, "max_bytes": MEMORY_MAX_PATH_BYTES},
+        user_action="fix_input",
+    )
+
+
+def _memory_precondition_error(
+    *,
+    store_id: uuid.UUID,
+    memory_id: uuid.UUID,
+    expected_sha256: str,
+    actual_sha256: str,
+) -> AppError:
+    return ResourceConflictError(
+        code="MEMORY_PRECONDITION_FAILED",
+        message=f"SHA256 mismatch: expected {expected_sha256}, got {actual_sha256}",
+        data={
+            "memory_store_id": str(store_id),
+            "memory_id": str(memory_id),
+            "expected_sha256": expected_sha256,
+            "actual_sha256": actual_sha256,
+        },
+        retryable=True,
+        user_action="retry",
+    )
+
+
+def _memory_precondition_exception_error(
+    *,
+    store_id: uuid.UUID,
+    memory_id: uuid.UUID,
+    exc: PreconditionFailed,
+) -> AppError:
+    message = str(exc)
+    match = re.match(r"^SHA256 mismatch: expected ([^,]+), got (.+)$", message)
+    if match:
+        expected_sha256, actual_sha256 = match.groups()
+        return _memory_precondition_error(
+            store_id=store_id,
+            memory_id=memory_id,
+            expected_sha256=expected_sha256,
+            actual_sha256=actual_sha256,
+        )
+    return ResourceConflictError(
+        code="MEMORY_PRECONDITION_FAILED",
+        message=message,
+        data={"memory_store_id": str(store_id), "memory_id": str(memory_id)},
+        retryable=True,
+        user_action="retry",
+    )
 
 
 def _is_unicode_format_char(ch: str) -> bool:
@@ -80,27 +189,35 @@ _META_VALUE_MAX_LEN = 512
 def _validate_metadata(metadata: dict) -> None:
     """Validate metadata constraints: max 16 keys, keys 1-64 chars, values max 512 chars, all string values."""
     if len(metadata) > _META_MAX_KEYS:
-        raise HTTPException(
-            400,
+        raise _memory_metadata_invalid_error(
             f"Metadata exceeds maximum of {_META_MAX_KEYS} keys (got {len(metadata)})",
+            {"field": "metadata", "max_keys": _META_MAX_KEYS, "actual_keys": len(metadata)},
         )
     for key, value in metadata.items():
         if not isinstance(key, str):
-            raise HTTPException(400, "Metadata keys must be strings")
+            raise _memory_metadata_invalid_error(
+                "Metadata keys must be strings",
+                {"field": "metadata", "key": repr(key)},
+            )
         if len(key) < _META_KEY_MIN_LEN or len(key) > _META_KEY_MAX_LEN:
-            raise HTTPException(
-                400,
+            raise _memory_metadata_invalid_error(
                 f"Metadata key length must be between {_META_KEY_MIN_LEN} and {_META_KEY_MAX_LEN} characters (key={key!r})",
+                {
+                    "field": "metadata",
+                    "key": key,
+                    "min_length": _META_KEY_MIN_LEN,
+                    "max_length": _META_KEY_MAX_LEN,
+                },
             )
         if not isinstance(value, str):
-            raise HTTPException(
-                400,
+            raise _memory_metadata_invalid_error(
                 f"Metadata values must be strings (key={key!r}, got {type(value).__name__})",
+                {"field": "metadata", "key": key, "value_type": type(value).__name__},
             )
         if len(value) > _META_VALUE_MAX_LEN:
-            raise HTTPException(
-                400,
+            raise _memory_metadata_invalid_error(
                 f"Metadata value exceeds {_META_VALUE_MAX_LEN} characters (key={key!r})",
+                {"field": "metadata", "key": key, "max_length": _META_VALUE_MAX_LEN, "actual_length": len(value)},
             )
 
 
@@ -113,20 +230,20 @@ def _normalize_and_validate_path(path: str) -> str:
     path = unicodedata.normalize("NFC", path)
 
     if not path.startswith("/"):
-        raise HTTPException(400, "Path must start with '/'")
+        raise _memory_path_invalid_error("Path must start with '/'", path=path)
     if len(path.encode("utf-8")) > MEMORY_MAX_PATH_BYTES:
-        raise HTTPException(400, f"Path exceeds {MEMORY_MAX_PATH_BYTES} bytes")
+        raise _memory_path_invalid_error(f"Path exceeds {MEMORY_MAX_PATH_BYTES} bytes", path=path)
     segments = path.split("/")
     for segment in segments:
         if segment in (".", ".."):
-            raise HTTPException(400, "Path must not contain '.' or '..' segments")
+            raise _memory_path_invalid_error("Path must not contain '.' or '..' segments", path=path)
     if "//" in path:
-        raise HTTPException(400, "Path must not contain '//'")
+        raise _memory_path_invalid_error("Path must not contain '//'", path=path)
     if _CONTROL_CHAR_RE.search(path):
-        raise HTTPException(400, "Path must not contain control characters")
+        raise _memory_path_invalid_error("Path must not contain control characters", path=path)
     for ch in path:
         if _is_unicode_format_char(ch):
-            raise HTTPException(400, "Path must not contain control or format characters")
+            raise _memory_path_invalid_error("Path must not contain control or format characters", path=path)
     return path
 
 
@@ -184,7 +301,7 @@ def _version_to_response(ver, view: Optional[str] = None) -> MemoryVersionRespon
 async def _get_store_or_404(svc: MemoryService, store_id: uuid.UUID, project_id: str):
     store = await svc.get_store(store_id, project_id=project_id)
     if not store:
-        raise HTTPException(404, "Memory store not found")
+        raise _memory_store_not_found_error(store_id)
     return store
 
 
@@ -267,7 +384,7 @@ async def update_memory_store(
         project_id=auth_ctx.project_id,
     )
     if not store:
-        raise HTTPException(404, "Memory store not found")
+        raise _memory_store_not_found_error(store_id)
     return _store_to_response(store)
 
 
@@ -283,9 +400,9 @@ async def delete_memory_store(
     try:
         ok = await svc.delete_store(store_id, project_id=auth_ctx.project_id)
     except ValueError as exc:
-        raise HTTPException(409, str(exc)) from exc
+        raise _memory_store_conflict_error(store_id, exc) from exc
     if not ok:
-        raise HTTPException(404, "Memory store not found")
+        raise _memory_store_not_found_error(store_id)
     return response.model_dump(mode="json")
 
 
@@ -299,9 +416,9 @@ async def archive_memory_store(
     try:
         ok = await svc.archive_store(store_id, project_id=auth_ctx.project_id)
     except ValueError as exc:
-        raise HTTPException(409, str(exc)) from exc
+        raise _memory_store_conflict_error(store_id, exc) from exc
     if not ok:
-        raise HTTPException(404, "Memory store not found")
+        raise _memory_store_not_found_error(store_id)
     return {"status": "archived"}
 
 
@@ -323,18 +440,34 @@ async def create_memory(
     normalized_path = _normalize_and_validate_path(req.path)
 
     # Content size validation
-    if len(req.content.encode("utf-8")) > MEMORY_MAX_CONTENT_BYTES:
-        raise HTTPException(400, f"Content exceeds {MEMORY_MAX_CONTENT_BYTES} bytes (100 KB)")
+    content_size = len(req.content.encode("utf-8"))
+    if content_size > MEMORY_MAX_CONTENT_BYTES:
+        raise InvalidRequestError(
+            code="MEMORY_CONTENT_TOO_LARGE",
+            message=f"Content exceeds {MEMORY_MAX_CONTENT_BYTES} bytes (100 KB)",
+            data={"memory_store_id": str(store_id), "size_bytes": content_size, "max_bytes": MEMORY_MAX_CONTENT_BYTES},
+            user_action="fix_input",
+        )
 
     # Path conflict check
     existing = await svc.get_memory_by_path(store_id, normalized_path)
     if existing:
-        raise HTTPException(409, f"A memory already exists at path {normalized_path!r}")
+        raise ResourceConflictError(
+            code="MEMORY_PATH_CONFLICT",
+            message=f"A memory already exists at path {normalized_path!r}",
+            data={"memory_store_id": str(store_id), "path": normalized_path},
+            user_action="fix_input",
+        )
 
     try:
         mem = await svc.create_memory(store_id, normalized_path, req.content)
     except MemoryStoreLimitExceeded as exc:
-        raise HTTPException(409, str(exc)) from exc
+        raise ResourceConflictError(
+            code="MEMORY_STORE_LIMIT_EXCEEDED",
+            message=str(exc),
+            data={"memory_store_id": str(store_id)},
+            user_action="fix_input",
+        ) from exc
     return _memory_to_response(mem, view=view)
 
 
@@ -354,9 +487,19 @@ async def list_memories(
     # Validate order_by to prevent arbitrary column access
     allowed_order_by = {"path", "created_at", "updated_at"}
     if order_by not in allowed_order_by:
-        raise HTTPException(400, f"order_by must be one of: {', '.join(sorted(allowed_order_by))}")
+        raise InvalidRequestError(
+            code="MEMORY_LIST_ORDER_INVALID",
+            message=f"order_by must be one of: {', '.join(sorted(allowed_order_by))}",
+            data={"field": "order_by", "value": order_by, "allowed": sorted(allowed_order_by)},
+            user_action="fix_input",
+        )
     if order not in ("asc", "desc"):
-        raise HTTPException(400, "order must be 'asc' or 'desc'")
+        raise InvalidRequestError(
+            code="MEMORY_LIST_ORDER_INVALID",
+            message="order must be 'asc' or 'desc'",
+            data={"field": "order", "value": order, "allowed": ["asc", "desc"]},
+            user_action="fix_input",
+        )
 
     svc = MemoryService(db)
     await _get_store_or_404(svc, store_id, auth_ctx.project_id)
@@ -400,7 +543,7 @@ async def get_memory(
     await _get_store_or_404(svc, store_id, auth_ctx.project_id)
     mem = await svc.get_memory(store_id, memory_id)
     if not mem:
-        raise HTTPException(404, "Memory not found")
+        raise _memory_not_found_error(store_id, memory_id)
     return _memory_to_response(mem, view=view)
 
 
@@ -428,14 +571,21 @@ async def update_memory(
         # Check for path conflict at target
         existing = await svc.get_memory_by_path(store_id, normalized_path)
         if existing and existing.id != memory_id:
-            raise HTTPException(409, f"A memory already exists at path {normalized_path!r}")
+            raise ResourceConflictError(
+                code="MEMORY_PATH_CONFLICT",
+                message=f"A memory already exists at path {normalized_path!r}",
+                data={"memory_store_id": str(store_id), "path": normalized_path},
+                user_action="fix_input",
+            )
         mem = await svc.get_memory(store_id, memory_id)
         if not mem:
-            raise HTTPException(404, "Memory not found")
+            raise _memory_not_found_error(store_id, memory_id)
         if precondition_sha256 is not None and mem.content_sha256 != precondition_sha256:
-            raise HTTPException(
-                409,
-                f"SHA256 mismatch: expected {precondition_sha256}, got {mem.content_sha256}",
+            raise _memory_precondition_error(
+                store_id=store_id,
+                memory_id=memory_id,
+                expected_sha256=precondition_sha256,
+                actual_sha256=mem.content_sha256,
             )
         # Move: update the path on the memory object
         mem.path = normalized_path
@@ -449,24 +599,24 @@ async def update_memory(
             try:
                 mem = await svc.update_memory(store_id, memory_id, req.content, if_sha256=None)
             except PreconditionFailed as e:
-                raise HTTPException(409, str(e))
+                raise _memory_precondition_exception_error(store_id=store_id, memory_id=memory_id, exc=e) from e
             if not mem:
-                raise HTTPException(404, "Memory not found")
+                raise _memory_not_found_error(store_id, memory_id)
         return _memory_to_response(mem, view=view)
 
     if req.content is None:
         # No content and no path move -- nothing to update
         mem = await svc.get_memory(store_id, memory_id)
         if not mem:
-            raise HTTPException(404, "Memory not found")
+            raise _memory_not_found_error(store_id, memory_id)
         return _memory_to_response(mem, view=view)
 
     try:
         mem = await svc.update_memory(store_id, memory_id, req.content, if_sha256=precondition_sha256)
     except PreconditionFailed as e:
-        raise HTTPException(409, str(e))
+        raise _memory_precondition_exception_error(store_id=store_id, memory_id=memory_id, exc=e) from e
     if not mem:
-        raise HTTPException(404, "Memory not found")
+        raise _memory_not_found_error(store_id, memory_id)
     return _memory_to_response(mem, view=view)
 
 
@@ -482,20 +632,22 @@ async def delete_memory(
     await _get_store_or_404(svc, store_id, auth_ctx.project_id)
     mem = await svc.get_memory(store_id, memory_id)
     if not mem:
-        raise HTTPException(404, "Memory not found")
+        raise _memory_not_found_error(store_id, memory_id)
 
     # Precondition check via query param
     if expected_content_sha256 is not None:
         if mem.content_sha256 != expected_content_sha256:
-            raise HTTPException(
-                409,
-                f"SHA256 mismatch: expected {expected_content_sha256}, got {mem.content_sha256}",
+            raise _memory_precondition_error(
+                store_id=store_id,
+                memory_id=memory_id,
+                expected_sha256=expected_content_sha256,
+                actual_sha256=mem.content_sha256,
             )
 
     response = _memory_to_response(mem, view="full")
     ok = await svc.delete_memory(store_id, memory_id)
     if not ok:
-        raise HTTPException(404, "Memory not found")
+        raise _memory_not_found_error(store_id, memory_id)
     return response.model_dump(mode="json")
 
 
@@ -545,7 +697,7 @@ async def get_memory_version(
     await _get_store_or_404(svc, store_id, auth_ctx.project_id)
     ver = await svc.get_version(store_id, version_id)
     if not ver:
-        raise HTTPException(404, "Memory version not found")
+        raise _memory_version_not_found_error(store_id, version_id)
     return _version_to_response(ver, view=view)
 
 
@@ -560,19 +712,21 @@ async def redact_memory_version(
     await _get_store_or_404(svc, store_id, auth_ctx.project_id)
     ver = await svc.get_version(store_id, version_id)
     if not ver:
-        raise HTTPException(404, "Memory version not found")
+        raise _memory_version_not_found_error(store_id, version_id)
 
     # Block redaction if this is the live (current) version of any memory
     is_live = await svc.is_live_version(store_id, version_id)
     if is_live:
-        raise HTTPException(
-            409,
-            "Cannot redact a live version. This version is the current version of a memory.",
+        raise ResourceConflictError(
+            code="MEMORY_LIVE_VERSION_REDACTION_FORBIDDEN",
+            message="Cannot redact a live version. This version is the current version of a memory.",
+            data={"memory_store_id": str(store_id), "memory_version_id": str(version_id)},
+            user_action="refresh",
         )
 
     ok = await svc.redact_version(store_id, version_id)
     if not ok:
-        raise HTTPException(404, "Memory version not found")
+        raise _memory_version_not_found_error(store_id, version_id)
     return {"status": "redacted"}
 
 

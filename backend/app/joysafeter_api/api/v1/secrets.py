@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
@@ -13,6 +13,13 @@ from app.joysafeter_domain.schemas.joysafeter_secret import (
     SecretResponse,
     UpdateSecretRequest,
 )
+from app.joysafeter_shared.common.app_errors import (
+    AppError,
+    InvalidRequestError,
+    NotFoundError,
+    ResourceConflictError,
+    ServiceUnavailableError,
+)
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
     get_joysafeter_auth_context,
@@ -21,6 +28,76 @@ from app.joysafeter_shared.common.joysafeter_auth import (
 from app.joysafeter_shared.database import get_db
 
 router = APIRouter(tags=["joysafeter-secrets"])
+
+
+def _secret_not_found_error(secret_id: uuid.UUID) -> AppError:
+    return NotFoundError(
+        code="SECRET_NOT_FOUND",
+        message="Secret not found",
+        data={"secret_id": str(secret_id)},
+        user_action="refresh",
+    )
+
+
+def _secret_active_task_error(
+    *,
+    secret_id: uuid.UUID,
+    secret_name: str,
+    task_id: uuid.UUID | str,
+    source: str,
+    operation: str,
+) -> AppError:
+    return ResourceConflictError(
+        code="SECRET_ACTIVE_TASK_DEPENDENCY",
+        message=f"Secret is required by active task '{task_id}' via {source}. Stop or wait for the task before {operation}.",
+        data={
+            "secret_id": str(secret_id),
+            "secret_name": secret_name,
+            "task_id": str(task_id),
+            "source": source,
+            "operation": operation,
+        },
+        retryable=True,
+        user_action="retry",
+    )
+
+
+def _secret_reference_error(
+    *,
+    secret_id: uuid.UUID,
+    secret_name: str,
+    code: str,
+    message: str,
+    reference_key: str,
+    reference_value: str,
+) -> AppError:
+    return ResourceConflictError(
+        code=code,
+        message=message,
+        data={
+            "secret_id": str(secret_id),
+            "secret_name": secret_name,
+            reference_key: reference_value,
+        },
+    )
+
+
+def _secret_value_error(*, exc: ValueError, operation: str) -> AppError:
+    message = str(exc)
+    data = {"operation": operation}
+    if "JOYSAFETER_VAULT_ENCRYPTION_KEY" in message:
+        return ServiceUnavailableError(
+            code="SECRET_VAULT_CONFIGURATION_REQUIRED",
+            message="Managed secrets require JOYSAFETER_VAULT_ENCRYPTION_KEY to be configured.",
+            data=data,
+            user_action="configure",
+        )
+    return InvalidRequestError(
+        code="SECRET_VALIDATION_FAILED",
+        message=message,
+        data=data,
+        user_action="fix_input",
+    )
 
 
 @router.post("", status_code=201)
@@ -34,7 +111,7 @@ async def create_secret(
     try:
         secret = await svc.create_secret(req, project_id=auth_ctx.project_id)
     except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise _secret_value_error(exc=exc, operation="create") from exc
     await audit_joysafeter_event(
         db,
         request,
@@ -100,9 +177,9 @@ async def get_secret(
     svc = SecretService(db)
     secret = await svc.get_secret(secret_id)
     if not secret:
-        raise HTTPException(404, "Secret not found")
+        raise _secret_not_found_error(secret_id)
     if secret.project_id != auth_ctx.project_id:
-        raise HTTPException(404, "Secret not found")
+        raise _secret_not_found_error(secret_id)
     return SecretResponse(
         id=f"secret_{secret.id}",
         name=secret.name,
@@ -126,22 +203,25 @@ async def update_secret(
     svc = SecretService(db)
     secret = await svc.get_secret(secret_id)
     if not secret:
-        raise HTTPException(404, "Secret not found")
+        raise _secret_not_found_error(secret_id)
     if secret.project_id != auth_ctx.project_id:
-        raise HTTPException(404, "Secret not found")
+        raise _secret_not_found_error(secret_id)
     active_dependency = await svc.active_task_secret_dependency(secret.name, project_id=auth_ctx.project_id)
     if active_dependency:
         task_id, source = active_dependency
-        raise HTTPException(
-            409,
-            f"Secret is required by active task '{task_id}' via {source}. Stop or wait for the task before updating.",
+        raise _secret_active_task_error(
+            secret_id=secret_id,
+            secret_name=secret.name,
+            task_id=task_id,
+            source=source,
+            operation="updating",
         )
     try:
         secret = await svc.update_secret(secret_id, req)
     except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise _secret_value_error(exc=exc, operation="update") from exc
     if secret is None:
-        raise HTTPException(404, "Secret not found")
+        raise _secret_not_found_error(secret_id)
     await audit_joysafeter_event(
         db,
         request,
@@ -178,7 +258,7 @@ async def set_default_secret(
     svc = SecretService(db)
     secret = await svc.set_default_secret(secret_id, project_id=auth_ctx.project_id)
     if not secret:
-        raise HTTPException(404, "Secret not found")
+        raise _secret_not_found_error(secret_id)
     await audit_joysafeter_event(
         db,
         request,
@@ -211,30 +291,41 @@ async def delete_secret(
     svc = SecretService(db)
     secret = await svc.get_secret(secret_id)
     if not secret:
-        raise HTTPException(404, "Secret not found")
+        raise _secret_not_found_error(secret_id)
     if secret.project_id != auth_ctx.project_id:
-        raise HTTPException(404, "Secret not found")
+        raise _secret_not_found_error(secret_id)
 
     active_dependency = await svc.active_task_secret_dependency(secret.name, project_id=auth_ctx.project_id)
     if active_dependency:
         task_id, source = active_dependency
-        raise HTTPException(
-            409,
-            f"Secret is required by active task '{task_id}' via {source}. Stop or wait for the task before deleting.",
+        raise _secret_active_task_error(
+            secret_id=secret_id,
+            secret_name=secret.name,
+            task_id=task_id,
+            source=source,
+            operation="deleting",
         )
 
     if not force:
         agent_name = await svc.secret_is_referenced_by_agent(secret.name, project_id=auth_ctx.project_id)
         if agent_name:
-            raise HTTPException(
-                409,
-                f"Secret is referenced by agent '{agent_name}'. Use ?force=true to force delete.",
+            raise _secret_reference_error(
+                secret_id=secret_id,
+                secret_name=secret.name,
+                code="SECRET_AGENT_REFERENCE",
+                message=f"Secret is referenced by agent '{agent_name}'. Use ?force=true to force delete.",
+                reference_key="agent_name",
+                reference_value=agent_name,
             )
         environment_name = await svc.secret_is_referenced_by_environment(secret.name, project_id=auth_ctx.project_id)
         if environment_name:
-            raise HTTPException(
-                409,
-                f"Secret is referenced by environment '{environment_name}'. Use ?force=true to force delete.",
+            raise _secret_reference_error(
+                secret_id=secret_id,
+                secret_name=secret.name,
+                code="SECRET_ENVIRONMENT_REFERENCE",
+                message=f"Secret is referenced by environment '{environment_name}'. Use ?force=true to force delete.",
+                reference_key="environment_name",
+                reference_value=environment_name,
             )
 
     if force:
@@ -242,7 +333,7 @@ async def delete_secret(
     else:
         ok = await svc.delete_secret(secret_id)
         if not ok:
-            raise HTTPException(404, "Secret not found")
+            raise _secret_not_found_error(secret_id)
     await audit_joysafeter_event(
         db,
         request,

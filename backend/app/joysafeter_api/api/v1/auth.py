@@ -18,7 +18,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional, cast
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Body, Depends, Header, Query, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -31,7 +31,14 @@ from app.joysafeter_api.services import ApiKeyService, AuthService, AuthSessionS
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
-from app.joysafeter_shared.common.app_errors import AppError, AuthenticationError
+from app.joysafeter_shared.common.app_errors import (
+    AccessDeniedError,
+    AppError,
+    AuthenticationError,
+    InvalidRequestError,
+    NotFoundError,
+    ResourceConflictError,
+)
 from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
@@ -147,30 +154,76 @@ def _api_key_to_response(key) -> ApiKeyResponse:
     )
 
 
+def _auth_permission_error(
+    *,
+    code: str,
+    message: str,
+    organization_id: str | None = None,
+    actor_role: str | None = None,
+    target_role: str | None = None,
+    current_role: str | None = None,
+) -> AppError:
+    data: dict[str, object] = {}
+    if organization_id is not None:
+        data["organization_id"] = organization_id
+    if actor_role is not None:
+        data["actor_role"] = actor_role
+    if target_role is not None:
+        data["target_role"] = target_role
+    if current_role is not None:
+        data["current_role"] = current_role
+    return AccessDeniedError(
+        code=code,
+        message=message,
+        data=data,
+        source="auth",
+        user_action="request_access",
+    )
+
+
 def _normalize_assignable_role(role: str) -> JoySafeterRole:
     normalized = (role or "").strip().lower()
     if normalized == "member":
         normalized = "developer"
-    if normalized not in {JoySafeterRole.ADMIN.value, JoySafeterRole.DEVELOPER.value, JoySafeterRole.VIEWER.value}:
-        raise HTTPException(
-            400,
-            "无效角色，必须为以下之一 / Invalid role. Must be one of: admin, developer, viewer",
+    allowed = [JoySafeterRole.ADMIN.value, JoySafeterRole.DEVELOPER.value, JoySafeterRole.VIEWER.value]
+    if normalized not in set(allowed):
+        raise InvalidRequestError(
+            code="AUTH_INVALID_ASSIGNABLE_ROLE",
+            message="Invalid role. Must be one of: admin, developer, viewer",
+            data={"role": role, "allowed": allowed},
+            source="auth",
+            user_action="correct_request",
         )
     return JoySafeterRole(normalized)
 
 
 def _ensure_can_assign_role(actor_role: JoySafeterRole, target_role: JoySafeterRole) -> None:
     if not actor_role.can_grant(target_role):
-        raise HTTPException(403, "不能授予高于自身权限的角色 / Cannot grant a role higher than your own")
+        raise _auth_permission_error(
+            code="AUTH_ROLE_GRANT_FORBIDDEN",
+            message="Cannot grant a role higher than your own",
+            actor_role=actor_role.value,
+            target_role=target_role.value,
+        )
 
 
 def _ensure_can_modify_member(actor_role: JoySafeterRole, current_role: str, new_role: JoySafeterRole) -> None:
     current = JoySafeterRole.normalize(current_role)
     if current == JoySafeterRole.OWNER:
-        raise HTTPException(403, "无法修改所有者的角色 / Cannot change the owner's role")
+        raise _auth_permission_error(
+            code="AUTH_OWNER_ROLE_CHANGE_FORBIDDEN",
+            message="Cannot change the owner's role",
+            actor_role=actor_role.value,
+            current_role=current.value,
+            target_role=new_role.value,
+        )
     if not actor_role.can_grant(current) or not actor_role.can_grant(new_role):
-        raise HTTPException(
-            403, "不能修改或授予高于自身权限的角色 / Cannot modify or grant a role higher than your own"
+        raise _auth_permission_error(
+            code="AUTH_ROLE_MODIFY_FORBIDDEN",
+            message="Cannot modify or grant a role higher than your own",
+            actor_role=actor_role.value,
+            current_role=current.value,
+            target_role=new_role.value,
         )
 
 
@@ -752,7 +805,11 @@ async def switch_context(
     )
     member = member_result.scalar_one_or_none()
     if not member:
-        raise HTTPException(403, "User is not a member of the target organization")
+        raise _auth_permission_error(
+            code="AUTH_ORGANIZATION_MEMBERSHIP_REQUIRED",
+            message="User is not a member of the target organization",
+            organization_id=target_org_id,
+        )
 
     # Resolve project
     target_project_id = req.project_id
@@ -760,7 +817,12 @@ async def switch_context(
         proj_svc = ProjectService(db)
         default_proj = await proj_svc.get_default_project(target_org_id)
         if not default_proj:
-            raise HTTPException(404, "No default project found for the organization")
+            raise NotFoundError(
+                code="DEFAULT_PROJECT_NOT_FOUND",
+                message="No default project found for the organization",
+                data={"organization_id": target_org_id},
+                user_action="refresh",
+            )
         target_project_id = default_proj.id
     else:
         proj_result = await db.execute(
@@ -773,7 +835,11 @@ async def switch_context(
         )
         proj = proj_result.scalar_one_or_none()
         if not proj:
-            raise HTTPException(404, "Project not found in the target organization")
+            raise _project_not_found_error(
+                target_project_id,
+                organization_id=target_org_id,
+                message="Project not found in the target organization",
+            )
 
     # Fetch resolved project details
     proj_result = await db.execute(select(Project).where(Project.id == target_project_id).limit(1))
@@ -897,10 +963,14 @@ async def revoke_api_key(
 ) -> None:
     """Revoke an API key."""
     svc = ApiKeyService(db)
-    try:
-        await svc.revoke_key(key_id, auth_ctx.project_id)
-    except ValueError:
-        raise HTTPException(404, "API key not found")
+    revoked = await svc.revoke_key(key_id, auth_ctx.project_id)
+    if not revoked:
+        raise NotFoundError(
+            code="API_KEY_NOT_FOUND",
+            message="API key not found",
+            data={"key_id": str(key_id)},
+            user_action="refresh",
+        )
     await audit_joysafeter_event(
         db,
         request,
@@ -925,7 +995,7 @@ async def get_project(
     result = await db.execute(select(Project).where(Project.id == project_id, Project.org_id == auth_ctx.org_id))
     project = result.scalar_one_or_none()
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
     return _project_to_response(project)
 
 
@@ -944,7 +1014,7 @@ async def update_project(
     result = await db.execute(select(Project).where(Project.id == project_id, Project.org_id == auth_ctx.org_id))
     project = result.scalar_one_or_none()
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
     if req.name is not None:
         project.name = req.name
     if req.slug is not None:
@@ -965,17 +1035,25 @@ async def archive_project(
     result = await db.execute(select(Project).where(Project.id == project_id, Project.org_id == auth_ctx.org_id))
     project = result.scalar_one_or_none()
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
     if project.is_default:
-        raise HTTPException(400, "Cannot archive the default project")
+        raise InvalidRequestError(
+            code="PROJECT_DEFAULT_ARCHIVE_FORBIDDEN",
+            message="Cannot archive the default project",
+            data={"project_id": project_id, "organization_id": auth_ctx.org_id},
+            user_action="fix_input",
+        )
 
     from app.joysafeter_api.services import JoySafeterTaskService as TaskService
 
     active_tasks = await TaskService(db).count_active_tasks_for_project(project_id)
     if active_tasks > 0:
-        raise HTTPException(
-            409,
-            "Project has active tasks. Stop or wait for them before archiving.",
+        raise ResourceConflictError(
+            code="PROJECT_ACTIVE_TASKS",
+            message="Project has active tasks. Stop or wait for them before archiving.",
+            data={"project_id": project_id, "active": active_tasks},
+            retryable=True,
+            user_action="retry",
         )
     project.archived_at = datetime.now(timezone.utc)
     await db.commit()
@@ -991,7 +1069,7 @@ async def set_default_project(
     result = await db.execute(select(Project).where(Project.id == project_id, Project.org_id == auth_ctx.org_id))
     project = result.scalar_one_or_none()
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
     # Unset current default
     all_projects_result = await db.execute(
         select(Project).where(Project.org_id == auth_ctx.org_id, Project.is_default.is_(True))
@@ -1093,6 +1171,32 @@ def _slugify(name: str) -> str:
     return slug
 
 
+def _project_not_found_error(
+    project_id: str,
+    *,
+    organization_id: str | None = None,
+    message: str = "Project not found",
+) -> AppError:
+    data = {"project_id": project_id}
+    if organization_id is not None:
+        data["organization_id"] = organization_id
+    return NotFoundError(
+        code="PROJECT_NOT_FOUND",
+        message=message,
+        data=data,
+        user_action="refresh",
+    )
+
+
+def _organization_member_not_found_error(organization_id: str, user_id: str) -> AppError:
+    return NotFoundError(
+        code="ORGANIZATION_MEMBER_NOT_FOUND",
+        message="Member not found",
+        data={"organization_id": organization_id, "user_id": user_id},
+        user_action="refresh",
+    )
+
+
 @router.post("/organizations", status_code=201)
 async def create_organization(
     req: CreateOrganizationRequest,
@@ -1101,7 +1205,12 @@ async def create_organization(
 ) -> OrganizationResponse:
     """Create a new organization. The current user becomes the owner."""
     if not req.name or not req.name.strip():
-        raise HTTPException(400, "Organization name is required")
+        raise InvalidRequestError(
+            code="ORGANIZATION_NAME_REQUIRED",
+            message="Organization name is required",
+            data={"field": "name"},
+            user_action="fix_input",
+        )
 
     slug = _slugify(req.name)
 
@@ -1174,7 +1283,12 @@ async def invite_member(
     user_result = await db.execute(select(AuthUser).where(AuthUser.email == req.email.strip()).limit(1))
     user = user_result.scalar_one_or_none()
     if not user:
-        raise HTTPException(404, "未找到该邮箱对应的用户 / User not found with the given email")
+        raise NotFoundError(
+            code="AUTH_USER_NOT_FOUND",
+            message="User not found with the given email",
+            data={"email": req.email.strip()},
+            user_action="fix_input",
+        )
 
     # Check if already a member
     existing = await db.execute(
@@ -1186,7 +1300,12 @@ async def invite_member(
         .limit(1)
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(409, "该用户已是组织成员 / User is already a member of this organization")
+        raise ResourceConflictError(
+            code="ORGANIZATION_MEMBER_ALREADY_EXISTS",
+            message="User is already a member of this organization",
+            data={"organization_id": auth_ctx.org_id, "user_id": user.id},
+            user_action="refresh",
+        )
 
     role = _normalize_assignable_role(req.role)
     _ensure_can_assign_role(auth_ctx.role, role)
@@ -1237,7 +1356,7 @@ async def remove_member(
     )
     member = result.scalar_one_or_none()
     if not member:
-        raise HTTPException(404, "Member not found")
+        raise _organization_member_not_found_error(auth_ctx.org_id, user_id)
 
     previous_role = member.role
     _ensure_can_modify_member(auth_ctx.role, member.role, JoySafeterRole.VIEWER)
@@ -1280,7 +1399,7 @@ async def update_member_role(
     )
     member = result.scalar_one_or_none()
     if not member:
-        raise HTTPException(404, "Member not found")
+        raise _organization_member_not_found_error(auth_ctx.org_id, user_id)
 
     new_role = _normalize_assignable_role(req.role)
     _ensure_can_modify_member(auth_ctx.role, member.role, new_role)

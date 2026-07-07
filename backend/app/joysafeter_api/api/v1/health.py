@@ -3,6 +3,8 @@ import logging
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["joysafeter-health"])
@@ -23,7 +25,16 @@ async def health_ready():
         async with AsyncSessionLocal() as db:
             await db.execute(text("SELECT 1"))
     except Exception as e:
-        logger.warning("Health check: postgres down: %s", e)
+        log_boundary_failure(
+            logger,
+            boundary="health_api",
+            code="HEALTH_POSTGRES_CHECK_FAILED",
+            message="Health check postgres probe failed",
+            operation="check_postgres",
+            error=e,
+            retryable=True,
+            user_action="check_status",
+        )
         postgres_ok = False
 
     # Probe Redis via RedisCoordinator.is_healthy() if available
@@ -44,7 +55,16 @@ async def health_ready():
                 # Redis not configured — treat as healthy (optional dependency)
                 redis_ok = True
     except Exception as e:
-        logger.warning("Health check: redis down: %s", e)
+        log_boundary_failure(
+            logger,
+            boundary="health_api",
+            code="HEALTH_REDIS_CHECK_FAILED",
+            message="Health check Redis probe failed",
+            operation="check_redis",
+            error=e,
+            retryable=True,
+            user_action="check_status",
+        )
         redis_ok = False
 
     healthy = postgres_ok and redis_ok

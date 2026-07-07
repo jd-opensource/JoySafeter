@@ -3,7 +3,7 @@ import logging
 import uuid
 from typing import Any, Optional, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_agent_id
@@ -25,6 +25,14 @@ from app.joysafeter_domain.schemas.joysafeter_agent import (
 )
 from app.joysafeter_domain.schemas.joysafeter_session import SessionResponse
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterTaskResponse as TaskResponse
+from app.joysafeter_shared.common.app_errors import (
+    AppError,
+    InvalidRequestError,
+    NotFoundError,
+    ResourceConflictError,
+    ServiceUnavailableError,
+)
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
     get_joysafeter_auth_context,
@@ -38,6 +46,24 @@ router = APIRouter(tags=["joysafeter-agents"])
 
 
 _LOCAL_MCP_HOSTS = {"localhost", "127.0.0.1", "host.docker.internal", "::1"}
+
+
+def _agent_config_error(*, code: str, message: str, data: dict[str, Any]) -> AppError:
+    return InvalidRequestError(
+        code=code,
+        message=message,
+        data=data,
+        user_action="fix_input",
+    )
+
+
+def _agent_not_found_error(agent_id: uuid.UUID) -> AppError:
+    return NotFoundError(
+        code="AGENT_NOT_FOUND",
+        message="Agent not found",
+        data={"agent_id": str(agent_id)},
+        user_action="refresh",
+    )
 
 
 def _validate_mcp_configs(mcp_configs: list[dict] | None) -> None:
@@ -55,11 +81,19 @@ def _validate_mcp_configs(mcp_configs: list[dict] | None) -> None:
 
             host = (urlparse(url).hostname or "").lower()
             if host not in _LOCAL_MCP_HOSTS:
-                raise HTTPException(400, f"MCP server URL must use HTTPS: {url}")
+                raise _agent_config_error(
+                    code="AGENT_MCP_URL_SCHEME_INVALID",
+                    message=f"MCP server URL must use HTTPS: {url}",
+                    data={"url": url, "host": host},
+                )
         name = cfg.get("name", "")
         if name:
             if name in seen_names:
-                raise HTTPException(400, f"Duplicate MCP server name: {name}")
+                raise _agent_config_error(
+                    code="AGENT_MCP_SERVER_NAME_DUPLICATE",
+                    message=f"Duplicate MCP server name: {name}",
+                    data={"mcp_server_name": name},
+                )
             seen_names.add(name)
 
 
@@ -78,9 +112,10 @@ def _validate_tool_mcp_references(tools: list | None, mcp_configs: list[dict] | 
         if tool_dict.get("type") == "mcp_toolset":
             server_name = tool_dict.get("mcp_server_name", "")
             if server_name and server_name not in declared_names:
-                raise HTTPException(
-                    400,
-                    f"Tool references undeclared MCP server: {server_name}",
+                raise _agent_config_error(
+                    code="AGENT_TOOL_MCP_SERVER_UNDECLARED",
+                    message=f"Tool references undeclared MCP server: {server_name}",
+                    data={"mcp_server_name": server_name, "declared_mcp_server_names": sorted(declared_names)},
                 )
 
 
@@ -112,11 +147,21 @@ async def _validate_secret_ref_for_engine(
     secret_svc = SecretService(db)
     secret = await secret_svc.get_secret_by_name(secret_ref, project_id=project_id)
     if not secret:
-        raise HTTPException(400, f"Secret not found: {secret_ref}")
+        raise _agent_config_error(
+            code="AGENT_SECRET_NOT_FOUND",
+            message=f"Secret not found: {secret_ref}",
+            data={"secret_ref": secret_ref, "engine_kind": engine_kind},
+        )
     if not _secret_matches_engine(secret, engine_kind):
-        raise HTTPException(
-            400,
-            f"Secret '{secret_ref}' is not compatible with engine_kind '{engine_kind}'",
+        raise _agent_config_error(
+            code="AGENT_SECRET_ENGINE_INCOMPATIBLE",
+            message=f"Secret '{secret_ref}' is not compatible with engine_kind '{engine_kind}'",
+            data={
+                "secret_ref": secret_ref,
+                "engine_kind": engine_kind,
+                "provider": getattr(secret, "provider", None),
+                "protocol": getattr(secret, "protocol", None),
+            },
         )
 
 
@@ -131,9 +176,18 @@ async def _validate_environment_ref(
     env_svc = EnvironmentService(db)
     environment = await env_svc.get_environment_by_ref(environment_ref, project_id=project_id)
     if not environment:
-        raise HTTPException(400, f"Environment not found: {environment_ref}")
+        raise _agent_config_error(
+            code="AGENT_ENVIRONMENT_NOT_FOUND",
+            message=f"Environment not found: {environment_ref}",
+            data={"environment_ref": environment_ref},
+        )
     if environment.archived_at is not None:
-        raise HTTPException(409, f"Environment is archived: {environment_ref}")
+        raise ResourceConflictError(
+            code="ENVIRONMENT_ARCHIVED",
+            message=f"Environment is archived: {environment_ref}",
+            data={"environment_ref": environment_ref, "environment_id": str(environment.id)},
+            user_action="refresh",
+        )
 
 
 def _model_from_secret_data(secret_data: dict[str, Any] | None, engine_kind: str | None) -> Optional[dict[str, str]]:
@@ -270,9 +324,9 @@ async def get_agent(
     svc = AgentService(db)
     agent = await svc.get_agent(agent_id, project_id=auth_ctx.project_id)
     if not agent:
-        raise HTTPException(404, "Agent not found")
+        raise _agent_not_found_error(agent_id)
     if agent.project_id != auth_ctx.project_id:
-        raise HTTPException(404, "Agent not found")
+        raise _agent_not_found_error(agent_id)
     secret_svc = SecretService(db)
     model = await _resolve_agent_model(agent, secret_svc, project_id=auth_ctx.project_id)
     return _agent_to_response(agent, model=model)
@@ -289,17 +343,28 @@ async def update_agent(
     # Fetch current agent first for MCP cross-validation context
     current_agent = await svc.get_agent(agent_id, project_id=auth_ctx.project_id)
     if not current_agent:
-        raise HTTPException(404, "Agent not found")
+        raise _agent_not_found_error(agent_id)
 
     # Archived guard: reject updates on archived agents
     if current_agent.archived_at is not None:
-        raise HTTPException(409, "Agent is archived and read-only. Updates are not allowed.")
+        raise ResourceConflictError(
+            code="AGENT_ARCHIVED",
+            message="Agent is archived and read-only. Updates are not allowed.",
+            data={"agent_id": str(agent_id)},
+            user_action="refresh",
+        )
 
     # Optimistic concurrency check -- only if version is provided
     if req.version is not None and current_agent.version != req.version:
-        raise HTTPException(
-            409,
-            f"Version conflict: expected {req.version}, got {current_agent.version}",
+        raise ResourceConflictError(
+            code="AGENT_VERSION_CONFLICT",
+            message=f"Version conflict: expected {req.version}, got {current_agent.version}",
+            data={
+                "agent_id": str(agent_id),
+                "expected_version": req.version,
+                "actual_version": current_agent.version,
+            },
+            user_action="refresh",
         )
 
     # Resolve the effective mcp_configs for cross-validation
@@ -336,9 +401,12 @@ async def update_agent(
     if dependency_ref_changed:
         active_tasks = await svc.list_active_tasks_for_agent(agent_id)
         if active_tasks:
-            raise HTTPException(
-                409,
-                "Agent has active tasks. Stop or wait for them before changing secret_ref or environment_ref.",
+            raise ResourceConflictError(
+                code="AGENT_ACTIVE_TASKS",
+                message="Agent has active tasks. Stop or wait for them before changing secret_ref or environment_ref.",
+                data={"agent_id": str(agent_id), "active_task_ids": [str(task.id) for task in active_tasks]},
+                retryable=True,
+                user_action="retry",
             )
 
     # No-op detection: compare serialized JSON minus version/updated_at
@@ -368,9 +436,13 @@ async def update_agent(
     try:
         agent = await svc.update_agent(agent_id, req, project_id=auth_ctx.project_id)
     except ValueError as e:
-        raise HTTPException(409, str(e))
+        raise ResourceConflictError(
+            code="AGENT_VERSION_CONFLICT",
+            message=str(e),
+            data={"agent_id": str(agent_id)},
+        ) from e
     if not agent:
-        raise HTTPException(404, "Agent not found")
+        raise _agent_not_found_error(agent_id)
 
     after_snapshot = _agent_snapshot(agent)
     secret_svc = SecretService(db)
@@ -393,20 +465,32 @@ async def delete_agent(
     svc = AgentService(db)
     agent = await svc.get_agent(agent_id, project_id=auth_ctx.project_id)
     if not agent:
-        raise HTTPException(404, "Agent not found")
+        raise _agent_not_found_error(agent_id)
 
     if not force:
         # Check for active tasks before soft delete
         active_tasks = await svc.list_active_tasks_for_agent(agent_id)
         if active_tasks:
-            raise HTTPException(
-                409,
-                "Agent has active tasks (pending/running). Use ?force=true to force delete.",
+            raise ResourceConflictError(
+                code="AGENT_ACTIVE_TASKS",
+                message="Agent has active tasks (pending/running). Use ?force=true to force delete.",
+                data={
+                    "agent_id": str(agent_id),
+                    "active_task_ids": [str(task.id) for task in active_tasks],
+                },
+                retryable=True,
+                user_action="retry",
             )
         try:
             await svc.hard_delete_agent(agent_id)
         except ValueError as e:
-            raise HTTPException(409, str(e)) from e
+            raise ResourceConflictError(
+                code="AGENT_ACTIVE_TASKS",
+                message=str(e),
+                data={"agent_id": str(agent_id)},
+                retryable=True,
+                user_action="retry",
+            ) from e
         return
 
     # Force delete: cascade cleanup
@@ -414,7 +498,13 @@ async def delete_agent(
     try:
         await svc.hard_delete_agent(agent_id)
     except ValueError as e:
-        raise HTTPException(503, str(e)) from e
+        raise ServiceUnavailableError(
+            code="AGENT_FORCE_DELETE_ACTIVE_TASKS_REMAIN",
+            message=str(e),
+            data={"agent_id": str(agent_id)},
+            retryable=True,
+            user_action="refresh",
+        ) from e
 
 
 async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) -> None:
@@ -440,18 +530,27 @@ async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) 
     for task in active_tasks:
         # Send CancelTask to the sandbox bridge
         sandbox_id = getattr(task, "sandbox_id", None)
-        if sandbox_id and bridge_registry:
-            bridge = await bridge_registry.get(sandbox_id)
-            if bridge:
-                from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
+        if sandbox_id:
+            if bridge_registry:
+                bridge = await bridge_registry.get(sandbox_id)
+                if bridge:
+                    from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
 
-                cancel_msg = joysafeter_pb2.OrchestratorMessage(
-                    cancel=joysafeter_pb2.CancelTask(reason="Agent archived")
-                )
-                try:
-                    await bridge.write_to_runner(cancel_msg)
-                except Exception:
-                    pass
+                    cancel_msg = joysafeter_pb2.OrchestratorMessage(
+                        cancel=joysafeter_pb2.CancelTask(reason="Agent archived")
+                    )
+                    try:
+                        await bridge.write_to_runner(cancel_msg)
+                    except Exception as exc:
+                        log_boundary_failure(
+                            logger,
+                            boundary="agent_api",
+                            code="AGENT_CLEANUP_CANCEL_TASK_FAILED",
+                            message="Failed to send CancelTask during agent cleanup",
+                            operation="cleanup_agent_cancel_task",
+                            error=exc,
+                            data={"agent_id": str(agent_id), "sandbox_id": str(sandbox_id), "task_id": str(task.id)},
+                        )
             sandbox_ids_to_stop.add(sandbox_id)
 
         # Mark task as cancelled in DB
@@ -468,7 +567,14 @@ async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) 
             agent_id,
             [str(task.id) for task in remaining_active],
         )
-        raise HTTPException(503, "Failed to cancel all active tasks for agent")
+        raise ServiceUnavailableError(
+            code="AGENT_FORCE_CANCEL_ACTIVE_TASKS_FAILED",
+            message="Failed to cancel all active tasks for agent",
+            data={"agent_id": str(agent_id), "active_task_ids": [str(task.id) for task in remaining_active]},
+            source="runtime",
+            retryable=True,
+            user_action="retry",
+        )
 
     # Archive sessions for the agent
     session_broadcaster = get_session_broadcaster()
@@ -481,8 +587,16 @@ async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) 
                     "stop_reason": {"type": "agent_archived"},
                 }
                 await session_broadcaster.send(sid, stop_reason_event)
-    except Exception:
-        logger.warning("Failed to archive sessions for agent %s", agent_id, exc_info=True)
+    except Exception as exc:
+        log_boundary_failure(
+            logger,
+            boundary="agent_api",
+            code="AGENT_SESSION_ARCHIVE_FAILED",
+            message="Failed to archive sessions during agent cleanup",
+            operation="archive_agent_sessions",
+            error=exc,
+            data={"agent_id": str(agent_id)},
+        )
 
     # Send Shutdown to each sandbox and stop containers
     provider = get_sandbox_provider()
@@ -497,8 +611,16 @@ async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) 
                 )
                 try:
                     await bridge.write_to_runner(shutdown_msg)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log_boundary_failure(
+                        logger,
+                        boundary="agent_api",
+                        code="AGENT_CLEANUP_SHUTDOWN_SANDBOX_FAILED",
+                        message="Failed to send Shutdown during agent cleanup",
+                        operation="cleanup_agent_shutdown_runner",
+                        error=exc,
+                        data={"agent_id": str(agent_id), "sandbox_id": str(sandbox_id)},
+                    )
             await bridge_registry.remove(sandbox_id)
 
         # Stop container via provider
@@ -509,12 +631,53 @@ async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) 
                 if status not in ("destroyed", "stopped", "error"):
                     try:
                         await provider.stop(sandbox.external_id)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        log_boundary_failure(
+                            logger,
+                            boundary="agent_api",
+                            code="AGENT_SANDBOX_STOP_FAILED",
+                            message="Failed to stop sandbox during agent cleanup",
+                            operation="cleanup_agent_stop_sandbox",
+                            error=exc,
+                            data={"agent_id": str(agent_id), "sandbox_id": str(sandbox_id)},
+                        )
+                        raise ServiceUnavailableError(
+                            code="AGENT_SANDBOX_STOP_FAILED",
+                            message="Agent could not be deleted because sandbox cleanup failed.",
+                            data={"agent_id": str(agent_id), "sandbox_id": str(sandbox_id)},
+                            source="runtime",
+                            retryable=True,
+                            user_action="retry",
+                        ) from None
                     try:
-                        await sandbox_svc.update_status_cas(sandbox_id, status, "stopped")
-                    except Exception:
-                        pass
+                        updated = await sandbox_svc.update_status_cas(sandbox_id, status, "stopped")
+                    except Exception as exc:
+                        log_boundary_failure(
+                            logger,
+                            boundary="agent_api",
+                            code="AGENT_SANDBOX_STATE_SYNC_FAILED",
+                            message="Failed to mark sandbox stopped during agent cleanup",
+                            operation="cleanup_agent_mark_sandbox_stopped",
+                            error=exc,
+                            data={"agent_id": str(agent_id), "sandbox_id": str(sandbox_id)},
+                        )
+                        raise ServiceUnavailableError(
+                            code="AGENT_SANDBOX_STATE_SYNC_FAILED",
+                            message="Agent could not be deleted because sandbox state sync failed.",
+                            data={"agent_id": str(agent_id), "sandbox_id": str(sandbox_id)},
+                            source="api",
+                            retryable=True,
+                            user_action="retry",
+                        ) from None
+                    if not updated:
+                        raise ServiceUnavailableError(
+                            code="AGENT_SANDBOX_STATE_SYNC_FAILED",
+                            message="Agent could not be deleted because sandbox state sync failed.",
+                            data={"agent_id": str(agent_id), "sandbox_id": str(sandbox_id)},
+                            source="api",
+                            retryable=True,
+                            user_action="retry",
+                        )
 
     if cancelled > 0:
         logger.info(
@@ -534,13 +697,19 @@ async def archive_agent(
     svc = AgentService(db)
     agent = await svc.get_agent(agent_id, project_id=auth_ctx.project_id)
     if not agent:
-        raise HTTPException(404, "Agent not found")
+        raise _agent_not_found_error(agent_id)
     try:
         archived, archived_session_ids = await svc.archive_agent_with_sessions(agent_id, project_id=auth_ctx.project_id)
     except ValueError as e:
-        raise HTTPException(409, str(e)) from e
+        raise ResourceConflictError(
+            code="AGENT_ACTIVE_TASKS",
+            message=str(e),
+            data={"agent_id": str(agent_id)},
+            retryable=True,
+            user_action="retry",
+        ) from e
     if not archived:
-        raise HTTPException(404, "Agent not found")
+        raise _agent_not_found_error(agent_id)
     return {
         "status": "archived",
         "archived_sessions": len(archived_session_ids),
@@ -556,7 +725,7 @@ async def list_agent_tasks(
     svc = AgentService(db)
     agent = await svc.get_agent(agent_id, project_id=auth_ctx.project_id)
     if not agent:
-        raise HTTPException(404, "Agent not found")
+        raise _agent_not_found_error(agent_id)
     tasks = await svc.list_active_tasks_for_agent(agent_id)
     return [TaskResponse.model_validate(t) for t in tasks]
 
@@ -573,7 +742,7 @@ async def list_agent_sessions(
     svc = AgentService(db)
     agent = await svc.get_agent(agent_id, project_id=auth_ctx.project_id)
     if not agent:
-        raise HTTPException(404, "Agent not found")
+        raise _agent_not_found_error(agent_id)
     session_svc = SessionService(db)
     sessions, has_more = await session_svc.list_sessions_by_agent(
         agent_id,
@@ -608,7 +777,7 @@ async def list_agent_versions(
     svc = AgentService(db)
     agent = await svc.get_agent(agent_id, project_id=auth_ctx.project_id)
     if not agent:
-        raise HTTPException(404, "Agent not found")
+        raise _agent_not_found_error(agent_id)
     versions, has_more = await svc.list_versions(agent_id, limit, before_version)
     data = [AgentVersionResponse.model_validate(v) for v in versions]
     return PaginatedResponse(

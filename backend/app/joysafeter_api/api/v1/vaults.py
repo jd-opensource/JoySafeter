@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
@@ -15,6 +15,7 @@ from app.joysafeter_domain.schemas.joysafeter_vault import (
     VaultCredentialResponse,
     VaultResponse,
 )
+from app.joysafeter_shared.common.app_errors import AppError, NotFoundError
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
     get_joysafeter_auth_context,
@@ -25,12 +26,30 @@ from app.joysafeter_shared.database import get_db
 router = APIRouter(tags=["joysafeter-vaults"])
 
 
+def _vault_not_found_error(vault_id: uuid.UUID) -> AppError:
+    return NotFoundError(
+        code="VAULT_NOT_FOUND",
+        message="Vault not found",
+        data={"vault_id": str(vault_id)},
+        user_action="refresh",
+    )
+
+
+def _vault_credential_not_found_error(vault_id: uuid.UUID, cred_id: uuid.UUID) -> AppError:
+    return NotFoundError(
+        code="VAULT_CREDENTIAL_NOT_FOUND",
+        message="Credential not found",
+        data={"vault_id": str(vault_id), "credential_id": str(cred_id)},
+        user_action="refresh",
+    )
+
+
 async def _get_vault_or_404(svc: VaultService, vault_id: uuid.UUID, project_id: str):
     vault = await svc.get_vault(vault_id)
     if not vault:
-        raise HTTPException(404, "Vault not found")
+        raise _vault_not_found_error(vault_id)
     if vault.project_id != project_id:
-        raise HTTPException(404, "Vault not found")
+        raise _vault_not_found_error(vault_id)
     return vault
 
 
@@ -111,7 +130,7 @@ async def update_vault(
     await _get_vault_or_404(svc, vault_id, auth_ctx.project_id)
     vault = await svc.update_vault(vault_id, description=req.description, metadata=req.metadata)
     if not vault:
-        raise HTTPException(404, "Vault not found")
+        raise _vault_not_found_error(vault_id)
     await audit_joysafeter_event(
         db,
         request,
@@ -135,7 +154,7 @@ async def delete_vault(
     await _get_vault_or_404(svc, vault_id, auth_ctx.project_id)
     ok = await svc.delete_vault(vault_id)
     if not ok:
-        raise HTTPException(404, "Vault not found")
+        raise _vault_not_found_error(vault_id)
     await audit_joysafeter_event(
         db,
         request,
@@ -158,7 +177,7 @@ async def archive_vault(
     await _get_vault_or_404(svc, vault_id, auth_ctx.project_id)
     ok = await svc.archive_vault(vault_id)
     if not ok:
-        raise HTTPException(404, "Vault not found")
+        raise _vault_not_found_error(vault_id)
     await audit_joysafeter_event(
         db,
         request,
@@ -235,7 +254,7 @@ async def get_credential(
     await _get_vault_or_404(svc, vault_id, auth_ctx.project_id)
     cred = await svc.get_credential(cred_id)
     if not cred or cred.vault_id != vault_id:
-        raise HTTPException(404, "Credential not found")
+        raise _vault_credential_not_found_error(vault_id, cred_id)
     return VaultCredentialResponse.model_validate(cred)
 
 
@@ -252,7 +271,7 @@ async def update_credential(
     await _get_vault_or_404(svc, vault_id, auth_ctx.project_id)
     cred = await svc.get_credential(cred_id)
     if not cred or cred.vault_id != vault_id:
-        raise HTTPException(404, "Credential not found")
+        raise _vault_credential_not_found_error(vault_id, cred_id)
     updated = await svc.update_credential(
         cred_id,
         name=req.name,
@@ -260,7 +279,7 @@ async def update_credential(
         oauth_config=req.oauth_config.model_dump() if req.oauth_config else None,
     )
     if not updated:
-        raise HTTPException(404, "Credential not found")
+        raise _vault_credential_not_found_error(vault_id, cred_id)
     await audit_joysafeter_event(
         db,
         request,
@@ -285,10 +304,10 @@ async def archive_credential(
     await _get_vault_or_404(svc, vault_id, auth_ctx.project_id)
     cred = await svc.get_credential(cred_id)
     if not cred or cred.vault_id != vault_id:
-        raise HTTPException(404, "Credential not found")
+        raise _vault_credential_not_found_error(vault_id, cred_id)
     ok = await svc.archive_credential(cred_id)
     if not ok:
-        raise HTTPException(404, "Credential not found")
+        raise _vault_credential_not_found_error(vault_id, cred_id)
     await audit_joysafeter_event(
         db,
         request,
@@ -313,10 +332,10 @@ async def delete_credential(
     await _get_vault_or_404(svc, vault_id, auth_ctx.project_id)
     cred = await svc.get_credential(cred_id)
     if not cred or cred.vault_id != vault_id:
-        raise HTTPException(404, "Credential not found")
+        raise _vault_credential_not_found_error(vault_id, cred_id)
     ok = await svc.delete_credential(cred_id)
     if not ok:
-        raise HTTPException(404, "Credential not found")
+        raise _vault_credential_not_found_error(vault_id, cred_id)
     await audit_joysafeter_event(
         db,
         request,

@@ -11,6 +11,7 @@ from app.joysafeter_api.api.v1.middleware import ApiV1ResponseWrapperMiddleware
 from app.joysafeter_api.api.v1.router import joysafeter_router
 from app.joysafeter_api.websocket.auth import WebSocketCloseCode, authenticate_websocket, reject_websocket
 from app.joysafeter_api.websocket.notification_manager import NotificationType, notification_manager
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure_loguru
 from app.joysafeter_shared.runtime.app_factory import create_app
 
 
@@ -50,7 +51,15 @@ def register_websocket_routes(app: FastAPI) -> None:
         except WebSocketDisconnect:
             pass
         except Exception as e:
-            logger.error(f"WebSocket notification error for user {user_id}: {e}")
+            log_boundary_failure_loguru(
+                logger,
+                boundary="api_websocket",
+                code="WEBSOCKET_NOTIFICATION_LOOP_FAILED",
+                message="WebSocket notification loop failed",
+                operation="run_notification_loop",
+                error=e,
+                data={"user_id": user_id},
+            )
         finally:
             notification_manager.disconnect(websocket)
             logger.info(f"WebSocket notification disconnected for user {user_id}")

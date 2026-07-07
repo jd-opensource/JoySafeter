@@ -5,19 +5,24 @@ tool calls, streaming text deltas and config updates back to the frontend.
 """
 
 import json
+import logging
 from typing import Literal, Optional, cast
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.services import SecretService
+from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, require_joysafeter_write
+from app.joysafeter_shared.common.stream_errors import async_error_payload
 from app.joysafeter_shared.database import get_db
 
 router = APIRouter(tags=["joysafeter-quickstart"])
+logger = logging.getLogger(__name__)
 
 
 class QuickstartMessage(BaseModel):
@@ -286,6 +291,48 @@ def _upstream_error_message(status: int) -> str:
     return f"Upstream API error ({status})."
 
 
+def _upstream_error_code(status: int) -> str:
+    if status == 401:
+        return "UPSTREAM_AUTH_FAILED"
+    if status == 429:
+        return "UPSTREAM_RATE_LIMITED"
+    if status == 400:
+        return "UPSTREAM_INVALID_REQUEST"
+    if status == 403:
+        return "UPSTREAM_ACCESS_DENIED"
+    if status >= 500:
+        return "UPSTREAM_UNAVAILABLE"
+    return "UPSTREAM_ERROR"
+
+
+def _upstream_error_event(status: int) -> dict:
+    return async_error_payload(
+        code=_upstream_error_code(status),
+        message=_upstream_error_message(status),
+        source="upstream",
+        retryable=status == 429 or status >= 500,
+        status=status,
+    )
+
+
+def _upstream_connection_error_event(exc: httpx.HTTPError) -> dict:
+    return async_error_payload(
+        code="UPSTREAM_CONNECTION_FAILED",
+        message=f"Failed to connect to upstream API ({exc.__class__.__name__}).",
+        source="upstream",
+        retryable=True,
+    )
+
+
+def _upstream_stream_error_event(message: str) -> dict:
+    return async_error_payload(
+        code="UPSTREAM_STREAM_ERROR",
+        message=message or "Upstream API failed.",
+        source="upstream",
+        retryable=False,
+    )
+
+
 def _url_join(base_url: str, path: str) -> str:
     return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
 
@@ -319,7 +366,7 @@ async def _stream_anthropic(
                 json=body,
             ) as response:
                 if response.status_code != 200:
-                    yield _sse_event({"type": "error", "message": _upstream_error_message(response.status_code)})
+                    yield _sse_event(_upstream_error_event(response.status_code))
                     return
 
                 buffer = ""
@@ -382,10 +429,19 @@ async def _stream_anthropic(
                         elif evt_type == "error":
                             error = evt.get("error", {})
                             msg = error.get("message", "Unknown error")
-                            yield _sse_event({"type": "error", "message": msg})
+                            yield _sse_event(_upstream_stream_error_event(msg))
 
-        except httpx.HTTPError:
-            yield _sse_event({"type": "error", "message": "Failed to connect to upstream API."})
+        except httpx.HTTPError as exc:
+            log_boundary_failure(
+                logger,
+                boundary="quickstart_api",
+                code="QUICKSTART_ANTHROPIC_STREAM_FAILED",
+                message="Quickstart upstream stream failed",
+                operation="stream_anthropic_messages",
+                error=exc,
+                data={"step": current_step},
+            )
+            yield _sse_event(_upstream_connection_error_event(exc))
 
 
 async def _stream_openai_chat_completions(
@@ -411,7 +467,7 @@ async def _stream_openai_chat_completions(
                 json=body,
             ) as response:
                 if response.status_code != 200:
-                    yield _sse_event({"type": "error", "message": _upstream_error_message(response.status_code)})
+                    yield _sse_event(_upstream_error_event(response.status_code))
                     return
 
                 buffer = ""
@@ -469,8 +525,17 @@ async def _stream_openai_chat_completions(
                                 {"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl}
                             )
 
-        except httpx.HTTPError:
-            yield _sse_event({"type": "error", "message": "Failed to connect to upstream API."})
+        except httpx.HTTPError as exc:
+            log_boundary_failure(
+                logger,
+                boundary="quickstart_api",
+                code="QUICKSTART_OPENAI_CHAT_STREAM_FAILED",
+                message="Quickstart upstream stream failed",
+                operation="stream_openai_chat_completions",
+                error=exc,
+                data={"step": current_step},
+            )
+            yield _sse_event(_upstream_connection_error_event(exc))
 
 
 async def _stream_openai_responses(
@@ -499,7 +564,7 @@ async def _stream_openai_responses(
                 json=body,
             ) as response:
                 if response.status_code != 200:
-                    yield _sse_event({"type": "error", "message": _upstream_error_message(response.status_code)})
+                    yield _sse_event(_upstream_error_event(response.status_code))
                     return
 
                 buffer = ""
@@ -594,10 +659,19 @@ async def _stream_openai_responses(
                         elif evt_type == "response.failed":
                             response_obj = evt.get("response") or {}
                             error = response_obj.get("error") or evt.get("error") or {}
-                            yield _sse_event({"type": "error", "message": error.get("message", "Upstream API failed.")})
+                            yield _sse_event(_upstream_stream_error_event(error.get("message", "Upstream API failed.")))
 
-        except httpx.HTTPError:
-            yield _sse_event({"type": "error", "message": "Failed to connect to upstream API."})
+        except httpx.HTTPError as exc:
+            log_boundary_failure(
+                logger,
+                boundary="quickstart_api",
+                code="QUICKSTART_OPENAI_RESPONSES_STREAM_FAILED",
+                message="Quickstart upstream stream failed",
+                operation="stream_openai_responses",
+                error=exc,
+                data={"step": current_step},
+            )
+            yield _sse_event(_upstream_connection_error_event(exc))
 
 
 @router.post("/chat")
@@ -609,7 +683,12 @@ async def quickstart_chat(
     svc = SecretService(db)
     secret = await svc.get_secret_by_name(req.secret_ref, project_id=auth_ctx.project_id)
     if not secret:
-        raise HTTPException(404, "Secret not found or missing required keys")
+        raise NotFoundError(
+            code="QUICKSTART_SECRET_NOT_FOUND",
+            message="Secret not found or missing required keys",
+            data={"secret_ref": req.secret_ref, "provider": req.provider},
+            user_action="fix_input",
+        )
 
     data = svc.get_secret_data(secret)
     provider = "codex" if req.provider == "codex" else "claude"
@@ -631,10 +710,20 @@ async def quickstart_chat(
         try:
             validate_url(base_url, allow_http=True, allow_private=True, context="ANTHROPIC_BASE_URL")
         except SSRFError:
-            raise HTTPException(400, "Invalid ANTHROPIC_BASE_URL")
+            raise InvalidRequestError(
+                code="QUICKSTART_BASE_URL_INVALID",
+                message="Invalid ANTHROPIC_BASE_URL",
+                data={"provider": provider, "key": "ANTHROPIC_BASE_URL", "base_url": base_url},
+                user_action="fix_input",
+            ) from None
 
         if not api_key:
-            raise HTTPException(404, "Secret not found or missing required keys")
+            raise InvalidRequestError(
+                code="QUICKSTART_SECRET_MISSING_KEY",
+                message="Secret not found or missing required keys",
+                data={"secret_ref": req.secret_ref, "provider": provider, "required_key": "ANTHROPIC_API_KEY"},
+                user_action="fix_input",
+            )
 
         model = data.get("MODEL") or data.get("ANTHROPIC_MODEL") or "claude-sonnet-4-20250514"
         claude_body = {
@@ -657,10 +746,20 @@ async def quickstart_chat(
         try:
             validate_url(base_url, allow_http=True, allow_private=True, context="OPENAI_BASE_URL")
         except SSRFError:
-            raise HTTPException(400, "Invalid OPENAI_BASE_URL")
+            raise InvalidRequestError(
+                code="QUICKSTART_BASE_URL_INVALID",
+                message="Invalid OPENAI_BASE_URL",
+                data={"provider": provider, "key": "OPENAI_BASE_URL", "base_url": base_url},
+                user_action="fix_input",
+            ) from None
 
         if not api_key:
-            raise HTTPException(404, "Secret not found or missing required keys")
+            raise InvalidRequestError(
+                code="QUICKSTART_SECRET_MISSING_KEY",
+                message="Secret not found or missing required keys",
+                data={"secret_ref": req.secret_ref, "provider": provider, "required_key": "OPENAI_API_KEY"},
+                user_action="fix_input",
+            )
 
         model = data.get("OPENAI_MODEL") or "gpt-5.3-codex"
         protocol = getattr(secret, "protocol", "") or ""

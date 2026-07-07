@@ -22,7 +22,7 @@ import json
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
@@ -37,6 +37,7 @@ from app.joysafeter_shared.common.app_errors import (
     AccessDeniedError,
     InvalidRequestError,
     NotFoundError,
+    ResourceConflictError,
 )
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
@@ -216,12 +217,33 @@ async def authoring_chat(
     svc = SecretService(db)
     secret = await svc.get_secret_by_name(req.secret_ref, project_id=auth_ctx.project_id)
     if not secret:
-        raise HTTPException(404, "Secret not found.")
+        raise NotFoundError(
+            code="SKILL_AUTHORING_SECRET_NOT_FOUND",
+            message="Secret not found.",
+            data={"secret_ref": req.secret_ref},
+            user_action="fix_input",
+        )
     data = svc.get_secret_data(secret)
     api_key = data.get("OPENAI_API_KEY") or ""
     if not api_key:
-        raise HTTPException(400, "Secret missing OPENAI_API_KEY.")
+        raise InvalidRequestError(
+            code="SKILL_AUTHORING_SECRET_MISSING_KEY",
+            message="Secret missing OPENAI_API_KEY.",
+            data={"secret_ref": req.secret_ref, "required_key": "OPENAI_API_KEY"},
+            user_action="fix_input",
+        )
     base_url = data.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+    from app.joysafeter_shared.security.ssrf_guard import SSRFError, validate_url
+
+    try:
+        validate_url(base_url, allow_http=True, allow_private=True, context="OPENAI_BASE_URL")
+    except SSRFError:
+        raise InvalidRequestError(
+            code="SKILL_AUTHORING_BASE_URL_INVALID",
+            message="Invalid OPENAI_BASE_URL.",
+            data={"secret_ref": req.secret_ref, "key": "OPENAI_BASE_URL", "base_url": base_url},
+            user_action="fix_input",
+        ) from None
     model = data.get("OPENAI_MODEL") or "gpt-5.5"
 
     history = [m.model_dump() for m in req.messages]
@@ -287,13 +309,13 @@ async def authoring_save_draft(
                 files=files or None,
             )
         except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
-            return {"error": str(e), "code": getattr(e, "code", None)}
+            raise e
         except IntegrityError:
             await db.rollback()
-            return {
-                "error": f"技能名「{req.name}」已被占用，请换一个名称。",
-                "code": "SKILL_NAME_ALREADY_EXISTS",
-            }
+            raise ResourceConflictError(
+                f"技能名「{req.name}」已被占用，请换一个名称。",
+                code="SKILL_NAME_ALREADY_EXISTS",
+            ) from None
         return {"skill_id": f"skill_{skill.id}", "created": False}
 
     # Only-when-taken suffix: keep the first save clean, auto-bump to
@@ -314,15 +336,15 @@ async def authoring_save_draft(
             project_id=auth_ctx.project_id,
         )
     except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
-        return {"error": str(e), "code": getattr(e, "code", None)}
+        raise e
     except IntegrityError:
         # Backstop: a race (two saves in flight) or a frontmatter-overridden
         # name that dodged the dedup probe can still trip the DB's
         # ``(owner_id, name)`` unique constraint. Translate to a friendly
         # error instead of a 500; the session must be rolled back first.
         await db.rollback()
-        return {
-            "error": f"技能名「{unique_name}」已存在，请换一个名称，或回到该草稿继续编辑。",
-            "code": "SKILL_NAME_ALREADY_EXISTS",
-        }
+        raise ResourceConflictError(
+            f"技能名「{unique_name}」已存在，请换一个名称，或回到该草稿继续编辑。",
+            code="SKILL_NAME_ALREADY_EXISTS",
+        ) from None
     return {"skill_id": f"skill_{skill.id}", "created": True}

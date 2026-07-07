@@ -7,6 +7,7 @@ import os
 from loguru import logger
 
 from app.joysafeter_shared.cache.redis import RedisClient
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure_loguru
 
 
 async def run_api_startup() -> None:
@@ -30,5 +31,13 @@ async def _initialize_session_broadcaster() -> None:
         )
         logger.info("   ✓ Session broadcaster ready")
     except Exception as e:
-        logger.warning(f"   ⚠️  Session broadcaster initialization failed: {e}")
+        log_boundary_failure_loguru(
+            logger,
+            boundary="api_startup",
+            code="API_SESSION_BROADCASTER_INIT_FAILED",
+            message="Session broadcaster initialization failed",
+            operation="initialize_session_broadcaster",
+            error=e,
+            data={"service": "api"},
+        )
         logger.warning("   SSE live events will be degraded until broadcaster is available")

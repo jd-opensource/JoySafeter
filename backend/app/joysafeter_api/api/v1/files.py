@@ -4,13 +4,15 @@ import logging
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.services import FileService
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_file import FileDeleteResponse, FileResponse
+from app.joysafeter_shared.common.app_errors import AppError, InternalServiceError, InvalidRequestError, NotFoundError
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
     get_joysafeter_auth_context,
@@ -33,7 +35,21 @@ def _parse_file_id(raw: str) -> uuid.UUID:
     try:
         return uuid.UUID(s)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid file_id")
+        raise InvalidRequestError(
+            code="FILE_ID_INVALID",
+            message="Invalid file_id",
+            data={"file_id": raw},
+            user_action="fix_input",
+        )
+
+
+def _file_not_found_error(file_id: str) -> AppError:
+    return NotFoundError(
+        code="FILE_NOT_FOUND",
+        message="File not found",
+        data={"file_id": file_id},
+        user_action="refresh",
+    )
 
 
 def _parse_session_scope(scope_id: str | None) -> uuid.UUID | None:
@@ -50,6 +66,25 @@ def _parse_session_scope(scope_id: str | None) -> uuid.UUID | None:
         return uuid.UUID(s)
     except ValueError:
         return None
+
+
+def _file_upload_validation_error(*, exc: ValueError, filename: str) -> AppError:
+    message = str(exc)
+    data: dict[str, object] = {"filename": filename}
+    code = "FILE_UPLOAD_INVALID"
+    if message == "File cannot be empty":
+        code = "FILE_EMPTY"
+    elif message.startswith("File size exceeds maximum"):
+        code = "FILE_TOO_LARGE"
+    elif message.startswith("File type ") and message.endswith(" is not supported"):
+        code = "FILE_TYPE_UNSUPPORTED"
+        data["extension"] = message.removeprefix("File type ").removesuffix(" is not supported")
+    return InvalidRequestError(
+        code=code,
+        message=message,
+        data=data,
+        user_action="fix_input",
+    )
 
 
 @router.post("", status_code=201)
@@ -71,10 +106,24 @@ async def upload_file(
             content_type=file.content_type,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception:
-        logger.exception("File upload failed")
-        raise HTTPException(status_code=500, detail="File upload failed")
+        raise _file_upload_validation_error(exc=e, filename=filename) from e
+    except Exception as exc:
+        log_boundary_failure(
+            logger,
+            boundary="file_api",
+            code="FILE_UPLOAD_FAILED",
+            message="File upload failed",
+            operation="upload_file",
+            error=exc,
+            data={"filename": filename, "content_type": file.content_type or ""},
+        )
+        raise InternalServiceError(
+            code="FILE_UPLOAD_FAILED",
+            message="File upload failed",
+            data={"filename": filename},
+            retryable=True,
+            user_action="retry",
+        ) from None
 
     return FileResponse.from_model(record)
 
@@ -118,7 +167,7 @@ async def get_file(
     uid = _parse_file_id(file_id)
     record = await svc.get_metadata(db, uid, auth_ctx.project_id)
     if not record:
-        raise HTTPException(status_code=404, detail="File not found")
+        raise _file_not_found_error(file_id)
     return FileResponse.from_model(record)
 
 
@@ -131,14 +180,13 @@ async def download_file(
     svc = _get_service()
     uid = _parse_file_id(file_id)
 
-    presign_url, record = await svc.get_presign_url(db, uid, auth_ctx.project_id)
-    if presign_url:
-        return RedirectResponse(url=presign_url, status_code=302)
-
     try:
+        presign_url, record = await svc.get_presign_url(db, uid, auth_ctx.project_id)
+        if presign_url:
+            return RedirectResponse(url=presign_url, status_code=302)
         data, record = await svc.download(db, uid, auth_ctx.project_id)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="File not found")
+        raise _file_not_found_error(file_id)
 
     return Response(
         content=data,
@@ -159,5 +207,5 @@ async def delete_file(
     uid = _parse_file_id(file_id)
     deleted = await svc.delete(db, uid, auth_ctx.project_id)
     if not deleted:
-        raise HTTPException(status_code=404, detail="File not found")
+        raise _file_not_found_error(file_id)
     return FileDeleteResponse(id=file_id)
