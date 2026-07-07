@@ -1,9 +1,8 @@
-"""LLM lifespan provider — eagerly resolves the LLM singleton at startup.
+"""LLM lifespan provider.
 
-The framework's core value (memory extraction) is meaningless without
-an LLM, so misconfiguration must surface as a startup failure instead
-of N silent skips per request downstream. Ordered before the storage
-stack so we fail before paying to bring sqlite / lancedb / cascade up.
+The JoySafeter sidecar must be able to boot for health and sandbox
+connectivity checks before real LLM credentials are installed. Memory
+operations still fail at the call site if they require an unconfigured LLM.
 """
 
 from __future__ import annotations
@@ -12,7 +11,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from app.everos.component.llm import get_llm_client
+from app.everos.component.llm import LLMNotConfiguredError, get_llm_client
 from app.everos.core.lifespan import LifespanProvider
 from app.everos.core.observability.logging import get_logger
 
@@ -20,13 +19,17 @@ logger = get_logger(__name__)
 
 
 class LLMLifespanProvider(LifespanProvider):
-    """Resolve the LLM client at startup; raise if credentials are missing."""
+    """Resolve the LLM client at startup when credentials are configured."""
 
     def __init__(self, order: int = 8) -> None:
         super().__init__(name="llm", order=order)
 
     async def startup(self, app: FastAPI) -> Any:
-        client = get_llm_client()
+        try:
+            client = get_llm_client()
+        except LLMNotConfiguredError as exc:
+            logger.warning("llm_lifespan_not_configured", error=str(exc))
+            return None
         logger.info("llm_lifespan_ready")
         return client
 
