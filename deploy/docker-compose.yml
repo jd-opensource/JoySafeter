@@ -11,7 +11,7 @@ x-backend-build: &backend-build
   context: ../backend
   dockerfile: ../deploy/docker/backend.Dockerfile
   args:
-    BASE_IMAGE_REGISTRY: ${BASE_IMAGE_REGISTRY:-}
+    BASE_IMAGE_REGISTRY: ${BASE_IMAGE_REGISTRY:-mirror.gcr.io/library/}
     PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
     UV_INDEX_URL: ${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
     GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-unknown}
