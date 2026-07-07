@@ -167,7 +167,7 @@ async def test_scheduler_agent_scope_miss_terminalizes_session_with_structured_e
             "agent_id": str(agent_id),
             "session_id": str(session_id),
         },
-        "source": "runtime",
+        "source": "api",
         "retryable": False,
         "user_action": "refresh",
     }
