@@ -1102,6 +1102,7 @@ const zh = {
             severityLabel: '严重程度',
             scoreLabel: '风险分数',
             issuesLabel: '问题数',
+            errorLabel: '错误',
             status: {
               passed: '通过',
               warning: '警告',

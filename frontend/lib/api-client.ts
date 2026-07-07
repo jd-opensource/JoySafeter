@@ -139,6 +139,21 @@ export class ApiError extends Error {
   }
 }
 
+const UNAUTHORIZED_ERROR_CODES = new Set([
+  'HTTP_401',
+  'UNAUTHORIZED',
+  'JOYSAFETER_UNAUTHORIZED',
+  'REFRESH_TOKEN_INVALID',
+  'TOKEN_INVALID',
+  'BEARER_TOKEN_MISSING',
+  'MISSING_CREDENTIALS',
+  'USER_INVALID',
+])
+
+export function isUnauthorizedApiError(error: unknown): boolean {
+  return error instanceof ApiError && UNAUTHORIZED_ERROR_CODES.has(error.code)
+}
+
 const MAX_ERROR_TEXT_LENGTH = 1000
 
 function truncateErrorText(text: string): string {
@@ -152,7 +167,7 @@ function attachResponseTrace(response: Response, payload: ApiErrorPayload): ApiE
   return { ...payload, trace_id: payload.trace_id ?? traceId }
 }
 
-async function extractErrorFromResponse(response: Response): Promise<ApiError> {
+export async function extractErrorFromResponse(response: Response): Promise<ApiError> {
   let payload: ApiErrorPayload | undefined
   let text = ''
   try {
@@ -521,7 +536,7 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
           if (newCsrfToken) headers['X-CSRF-Token'] = newCsrfToken
           return makeRequest()
         } catch (refreshError) {
-          if (!(refreshError instanceof ApiError && refreshError.status === 401)) {
+          if (!isUnauthorizedApiError(refreshError)) {
             throw refreshError
           }
           // Refresh token is invalid/expired, continue throwing original 401.
@@ -626,9 +641,9 @@ export async function apiUpload<T>(
 export async function apiStream(
   url: string,
   body: unknown,
-  options?: { signal?: AbortSignal; withAuth?: boolean },
+  options?: { signal?: AbortSignal; withAuth?: boolean; skipManagedContext?: boolean },
 ): Promise<Response> {
-  const { withAuth = true, signal } = options || {}
+  const { withAuth = true, signal, skipManagedContext } = options || {}
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -638,6 +653,11 @@ export async function apiStream(
   if (withAuth) {
     const csrfToken = getCsrfToken()
     if (csrfToken) headers['X-CSRF-Token'] = csrfToken
+    if (!skipManagedContext) {
+      const { currentProjectId, currentOrgId } = useProjectStore.getState()
+      if (currentOrgId) headers['X-Org-Id'] = currentOrgId
+      if (currentProjectId) headers['X-Project-Id'] = currentProjectId
+    }
   }
 
   const fullUrl = buildUrl(url)
@@ -660,7 +680,7 @@ export async function apiStream(
         if (newCsrfToken) headers['X-CSRF-Token'] = newCsrfToken
         return makeRequest()
       } catch (refreshError) {
-        if (!(refreshError instanceof ApiError && refreshError.status === 401)) {
+        if (!isUnauthorizedApiError(refreshError)) {
           throw refreshError
         }
         /* Refresh token is invalid/expired, continue throwing original 401. */

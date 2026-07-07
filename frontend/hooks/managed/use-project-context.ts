@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { ApiError, managedGet, managedPost } from '@/lib/api-client'
+import { managedGet, managedPost } from '@/lib/api-client'
+import { parseApiError } from '@/lib/managed/errors'
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { OrgInfo, ProjectInfo } from '@/stores/managed/project-store'
 
@@ -28,7 +29,16 @@ async function loadAuthContext(): Promise<AuthMeResponse> {
   try {
     return await managedGet<AuthMeResponse>('/auth/me')
   } catch (error) {
-    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+    const { code } = parseApiError(error)
+    if (
+      code === 'JOYSAFETER_UNAUTHORIZED' ||
+      code === 'UNAUTHORIZED' ||
+      code === 'PROJECT_ACCESS_DENIED' ||
+      code === 'NOT_ORG_MEMBER' ||
+      code === 'MEMBERSHIP_EXPIRED' ||
+      code === 'HTTP_401' ||
+      code === 'HTTP_403'
+    ) {
       return managedGet<AuthMeResponse>('/auth/me', { skipManagedContext: true })
     }
     throw error

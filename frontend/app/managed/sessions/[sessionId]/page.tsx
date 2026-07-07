@@ -255,10 +255,15 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   // new events auto-scroll into view; when the user scrolls up to read history,
   // we stop yanking them back down.
   const stickToBottomRef = useRef(true)
-  const { events: streamEvents, connected: sseConnected } = useSessionStream(
+  const {
+    events: streamEvents,
+    connected: sseConnected,
+    error: streamError,
+  } = useSessionStream(
     stripIdPrefix(id || ''),
     !!id,
   )
+  const lastStreamErrorKeyRef = useRef<string | null>(null)
 
   const {
     data: session,
@@ -345,13 +350,13 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
         const hasMore = Array.isArray(res) ? newEvents.length >= 100 : res.has_more
         setLoadedEvents((prev) => sortSessionEvents(afterSeq ? [...prev, ...newEvents] : newEvents))
         setHasMoreEvents(hasMore)
-      } catch {
-        // silently fail
+      } catch (e) {
+        toastOperationError(t, e, 'common.operationFailed')
       } finally {
         setIsLoadingMore(false)
       }
     },
-    [id],
+    [id, t],
   )
 
   useEffect(() => {
@@ -390,6 +395,17 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     // prevents stale/out-of-order SSE events from showing wrong status
     queryClient.invalidateQueries({ queryKey: ['session', id] })
   }, [streamEvents, sseConnected, session, id, queryClient])
+
+  useEffect(() => {
+    if (!streamError) {
+      lastStreamErrorKeyRef.current = null
+      return
+    }
+    const errorKey = `${streamError.status}:${streamError.code}:${streamError.traceId || ''}`
+    if (lastStreamErrorKeyRef.current === errorKey) return
+    lastStreamErrorKeyRef.current = errorKey
+    toastOperationError(t, streamError, 'common.operationFailed')
+  }, [streamError, t])
 
   useEffect(() => {
     if (isRunning) wasRunningRef.current = true

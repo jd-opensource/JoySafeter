@@ -8,6 +8,7 @@ import CryptoJS from 'crypto-js'
 import {
   ApiError,
   createApiError,
+  isUnauthorizedApiError,
   managedGet,
   managedPost,
   refreshAccessTokenOrRelogin,
@@ -195,7 +196,7 @@ export const authApi = {
         },
       }
     } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
+      if (isUnauthorizedApiError(error)) {
         return null
       }
       logger.warn('Failed to get session', { error })

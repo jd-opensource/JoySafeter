@@ -1084,6 +1084,7 @@ const en = {
             severityLabel: 'Severity',
             scoreLabel: 'Risk score',
             issuesLabel: 'Issues',
+            errorLabel: 'Error',
             status: {
               passed: 'Passed',
               warning: 'Warning',

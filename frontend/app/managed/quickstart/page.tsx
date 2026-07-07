@@ -36,7 +36,7 @@ import {
   type QuickstartEngine,
   type StepId,
 } from '@/hooks/managed/use-quickstart-chat'
-import { managedGet, managedPost } from '@/lib/api-client'
+import { ApiError, managedGet, managedPost } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
 import { shortIdWithPrefix, stripIdPrefix } from '@/lib/managed/id'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -765,8 +765,10 @@ export default function QuickstartPage() {
         events: [{ type: 'user.message', content: [{ type: 'text', text }] }],
       })
     } catch (e) {
-      const msg = (e as Error).message
-      if (!msg.includes('409') && !msg.includes('running')) {
+      const sessionBusy =
+        e instanceof ApiError &&
+        (e.code === 'SESSION_ALREADY_RUNNING' || e.code === 'SESSION_ACTIVE_TASK')
+      if (!sessionBusy) {
         toastOperationError(t, e, 'common.operationFailed')
       }
     } finally {

@@ -21,11 +21,13 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { MANAGED_API_BASE } from '@/lib/api-client'
-import { getCsrfToken } from '@/lib/auth/csrf'
-import { useProjectStore } from '@/stores/managed/project-store'
+import { apiStream, ApiError, managedGet, managedPost } from '@/lib/api-client'
+import { getOperationErrorMessageWithDetails } from '@/lib/managed/errors'
+import { getManagedStreamErrorMessage } from '@/lib/managed/stream-errors'
 
 const STORAGE_KEY = 'joysafeter:skill-authoring-state:v1'
+
+const passthroughTranslator = (key: string) => key
 
 export type AuthoringMessage = {
   role: 'user' | 'assistant'
@@ -69,17 +71,8 @@ type ScanRecord = {
   severity?: string | null
   score?: number | null
   issues_count?: number
+  error_message?: string | null
   scanned_at?: string | null
-}
-
-function getAuthHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {}
-  const csrf = getCsrfToken()
-  if (csrf) headers['X-CSRF-Token'] = csrf
-  const { currentProjectId, currentOrgId } = useProjectStore.getState()
-  if (currentOrgId) headers['X-Org-Id'] = currentOrgId
-  if (currentProjectId) headers['X-Project-Id'] = currentProjectId
-  return headers
 }
 
 function loadPersisted(): Partial<PersistedState> | null {
@@ -203,41 +196,17 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
       abortRef.current = controller
 
       try {
-        const resp = await fetch(`${MANAGED_API_BASE}/skills/ai-authoring/chat`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({
+        const resp = await apiStream(
+          'skills/ai-authoring/chat',
+          {
             secret_ref: secretRef,
             // Send the conversation up to (but not including) the blank
             // assistant placeholder we just appended.
             messages: nextMessages.slice(0, -1),
             draft: draftRef.current,
-          }),
-          signal: controller.signal,
-        })
-
-        if (!resp.ok) {
-          let detail = `HTTP ${resp.status}`
-          try {
-            const err = await resp.json()
-            if (err?.detail) detail = String(err.detail)
-          } catch {
-            /* keep raw status */
-          }
-          setMessages((prev) => {
-            const updated = [...prev]
-            const last = updated[updated.length - 1]
-            if (last && last.role === 'assistant') {
-              updated[updated.length - 1] = {
-                ...last,
-                content: `⚠️ ${detail}`,
-              }
-            }
-            return updated
-          })
-          return
-        }
+          },
+          { signal: controller.signal },
+        )
 
         const reader = resp.body!.getReader()
         const decoder = new TextDecoder()
@@ -284,7 +253,11 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
                 setMessages((prev) => {
                   const updated = [...prev]
                   const last = updated[updated.length - 1]
-                  const msg = (evt.message as string) || 'LLM 调用失败'
+                  const msg = getManagedStreamErrorMessage(
+                    (key) => key,
+                    evt,
+                    'LLM 调用失败',
+                  )
                   if (last && last.role === 'assistant') {
                     updated[updated.length - 1] = {
                       ...last,
@@ -337,13 +310,14 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
           // user cancelled — keep partial state
           return
         }
+        const message = err instanceof Error ? err.message : '连接失败,请稍后重试。'
         setMessages((prev) => {
           const updated = [...prev]
           const last = updated[updated.length - 1]
           if (last && last.role === 'assistant') {
             updated[updated.length - 1] = {
               ...last,
-              content: `${last.content || ''}\n\n⚠️ 连接失败,请稍后重试。`,
+              content: `${last.content || ''}\n\n⚠️ ${message}`,
             }
           }
           return updated
@@ -368,45 +342,36 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
       return null
     }
     try {
-      const resp = await fetch(`${MANAGED_API_BASE}/skills/ai-authoring/save-draft`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({
-          draft_skill_id: draftSkillId,
-          name: current.name,
-          description: current.description,
-          content: current.content,
-          tags: current.tags,
-          visibility: current.visibility,
-          files: current.files,
-        }),
+      const data = await managedPost<SaveDraftResponse>('skills/ai-authoring/save-draft', {
+        draft_skill_id: draftSkillId,
+        name: current.name,
+        description: current.description,
+        content: current.content,
+        tags: current.tags,
+        visibility: current.visibility,
+        files: current.files,
       })
-      const data: SaveDraftResponse = await resp.json().catch(() => ({}))
-      if (!resp.ok || data.error || !data.skill_id) {
-        setSaveError(data.error || `保存失败 (HTTP ${resp.status})`)
+      if (data.error || !data.skill_id) {
+        setSaveError(data.error || '保存失败: 响应缺少 skill_id')
         return null
       }
       setDraftSkillId(data.skill_id)
       return data.skill_id
     } catch (err) {
-      setSaveError(`保存失败:${(err as Error).message}`)
+      setSaveError(
+        `保存失败:${getOperationErrorMessageWithDetails(
+          passthroughTranslator,
+          err,
+          '保存失败',
+        )}`,
+      )
       return null
     }
   }, [draftSkillId])
 
   const fetchLatestScan = useCallback(async (skillId: string): Promise<ScanRecord | null> => {
     const sid = stripSkillIdPrefix(skillId)
-    try {
-      const resp = await fetch(`${MANAGED_API_BASE}/skills/${sid}/security-scans/latest`, {
-        credentials: 'include',
-        headers: getAuthHeaders(),
-      })
-      if (!resp.ok) return null
-      return (await resp.json()) as ScanRecord
-    } catch {
-      return null
-    }
+    return await managedGet<ScanRecord>(`skills/${sid}/security-scans/latest`)
   }, [])
 
   const runScan = useCallback(async () => {
@@ -421,16 +386,8 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
     setScanResult(null)
     const justId = stripSkillIdPrefix(sid)
     try {
-      const resp = await fetch(`${MANAGED_API_BASE}/skills/${justId}/security-scans/rescan`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({}),
-      })
-      if (!resp.ok) {
-        setScanResult({ status: 'failed' })
-        return
-      }
+      const initialScan = await managedPost<ScanRecord>(`skills/${justId}/security-scans/rescan`, {})
+      setScanResult(initialScan)
       // Backend dispatched async; poll latest until status leaves 'scanning'.
       // Cap polling at 120s so a stuck scan doesn't pin the UI forever.
       const deadline = Date.now() + 120_000
@@ -444,6 +401,15 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
         }
       }
       setScanResult({ status: 'timeout' })
+    } catch (error) {
+      setScanResult({
+        status: 'failed',
+        error_message: getOperationErrorMessageWithDetails(
+          passthroughTranslator,
+          error,
+          '安全扫描失败',
+        ),
+      })
     } finally {
       setScanRunning(false)
     }
@@ -464,18 +430,13 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
     // reaches the version-publish step.
     const transition = async (endpoint: string): Promise<boolean> => {
       try {
-        const resp = await fetch(`${MANAGED_API_BASE}/skills/${justId}/${endpoint}`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({}),
-        })
-        if (resp.ok) return true
-        const data = await resp.json().catch(() => ({}))
+        await managedPost(`skills/${justId}/${endpoint}`, {})
+        return true
+      } catch (error) {
         // Already in/past the target state — not a real failure.
-        if (data?.code === 'SKILL_LIFECYCLE_INVALID_TRANSITION') return true
-        return false
-      } catch {
+        if (error instanceof ApiError && error.code === 'SKILL_LIFECYCLE_INVALID_TRANSITION') {
+          return true
+        }
         return false
       }
     }
@@ -488,17 +449,16 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
 
       // Cut the first published version. Empty version lets the backend
       // auto-assign (0.1.0 for the first release / bumped patch otherwise).
-      const verResp = await fetch(`${MANAGED_API_BASE}/skills/${justId}/versions`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({ release_notes: null }),
-      })
-      if (!verResp.ok) {
-        const data = await verResp.json().catch(() => ({}))
+      try {
+        await managedPost(`skills/${justId}/versions`, { release_notes: null })
+      } catch (error) {
         return {
           skillId: sid,
-          error: data?.detail || data?.error || `发布版本失败 (HTTP ${verResp.status})`,
+          error: getOperationErrorMessageWithDetails(
+            passthroughTranslator,
+            error,
+            '发布版本失败',
+          ),
         }
       }
       return { skillId: sid }

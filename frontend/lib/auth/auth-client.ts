@@ -5,7 +5,7 @@
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 
-import { ApiError } from '@/lib/api-client'
+import { ApiError, isUnauthorizedApiError } from '@/lib/api-client'
 
 import {
   authApi,
@@ -48,7 +48,7 @@ async function runSilentSessionRefresh(queryClient: QueryClient): Promise<void> 
     await authApi.refreshToken()
     await queryClient.invalidateQueries({ queryKey: ['session'] })
   } catch (error) {
-    if (error instanceof ApiError && error.status === 401) {
+    if (isUnauthorizedApiError(error)) {
       queryClient.setQueryData(['session'], null)
     }
   }
@@ -102,8 +102,7 @@ export function useSession(): SessionHookResult {
       return response?.user ? { user: response.user } : null
     },
     staleTime: 5 * 60 * 1000,
-    retry: (failureCount, error) =>
-      !(error instanceof ApiError && error.status === 401) && failureCount < 2,
+    retry: (failureCount, error) => !isUnauthorizedApiError(error) && failureCount < 2,
     retryDelay: 1000,
     refetchOnReconnect: true,
     refetchOnWindowFocus: true,

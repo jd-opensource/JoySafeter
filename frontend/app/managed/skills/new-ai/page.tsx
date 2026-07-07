@@ -1076,6 +1076,7 @@ function ScanResultBadge({
     severity?: string | null
     score?: number | null
     issues_count?: number
+    error_message?: string | null
   }
 }) {
   const { t } = useTranslation()
@@ -1114,6 +1115,14 @@ function ScanResultBadge({
               {t('managed.skills.aiAuthor.scan.issuesLabel')}:{' '}
             </span>
             <span>{result.issues_count}</span>
+          </div>
+        )}
+        {result.error_message && (
+          <div>
+            <span className="text-muted-foreground">
+              {t('managed.skills.aiAuthor.scan.errorLabel')}:{' '}
+            </span>
+            <span>{result.error_message}</span>
           </div>
         )}
       </div>

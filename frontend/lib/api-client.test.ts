@@ -4,12 +4,15 @@ vi.mock('next-runtime-env', () => ({
   env: vi.fn(() => undefined),
 }))
 
-import { ApiError, apiFetch, apiPost } from './api-client'
+import { useProjectStore } from '@/stores/managed/project-store'
+
+import { ApiError, apiFetch, apiPost, apiStream } from './api-client'
 
 describe('api-client error contract', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+    useProjectStore.setState({ currentOrgId: null, currentProjectId: null })
   })
 
   it('preserves backend error payload and response trace id', async () => {
@@ -89,5 +92,26 @@ describe('api-client error contract', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock.mock.calls[0][1]?.body).toBe(JSON.stringify(''))
+  })
+
+  it('sends managed context headers on streaming requests', async () => {
+    useProjectStore.setState({ currentOrgId: 'org-1', currentProjectId: 'project-1' })
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('data: [DONE]\n\n', {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await apiStream('quickstart/chat', { messages: [] })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][1]?.headers).toMatchObject({
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      'X-Org-Id': 'org-1',
+      'X-Project-Id': 'project-1',
+    })
   })
 })

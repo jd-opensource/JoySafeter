@@ -2,12 +2,11 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useTranslation } from '@/lib/i18n'
-import { MANAGED_API_BASE } from '@/lib/api-client'
-import { getCsrfToken } from '@/lib/auth/csrf'
+import { apiStream, MANAGED_API_BASE, managedPost } from '@/lib/api-client'
 import { getOperationErrorMessage } from '@/lib/managed/errors'
 import { stripIdPrefix } from '@/lib/managed/id'
+import { getManagedStreamErrorMessage } from '@/lib/managed/stream-errors'
 import { generateUUID } from '@/lib/utils/uuid'
-import { useProjectStore } from '@/stores/managed/project-store'
 
 export type StepId = 1 | 2 | 3 | 4 | 5 | 6
 export type QuickstartEngine = 'claude' | 'codex' | 'native'
@@ -48,16 +47,9 @@ interface QuickstartEvent {
   resource_id?: string
   curl?: string
   message?: string
-}
-
-function getAuthHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {}
-  const csrf = getCsrfToken()
-  if (csrf) headers['X-CSRF-Token'] = csrf
-  const { currentProjectId, currentOrgId } = useProjectStore.getState()
-  if (currentOrgId) headers['X-Org-Id'] = currentOrgId
-  if (currentProjectId) headers['X-Project-Id'] = currentProjectId
-  return headers
+  code?: string
+  status?: number
+  source?: string
 }
 
 function unwrapManagedResponse<T = Record<string, unknown>>(payload: unknown): T {
@@ -173,23 +165,17 @@ export function useQuickstartChat(
           content: m.content,
         }))
 
-        const response = await fetch(`${MANAGED_API_BASE}/quickstart/chat`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({
+        const response = await apiStream(
+          'quickstart/chat',
+          {
             messages: historyForApi,
             current_step: apiStepForUiStep(step),
             provider,
             secret_ref: requestSecretRef,
             agent_context: step === 4 || step === 5 ? configRef.current.agent : undefined,
-          }),
-          signal: controller.signal,
-        })
-
-        if (!response.ok) {
-          throw new Error(`API error: ${response.status}`)
-        }
+          },
+          { signal: controller.signal },
+        )
 
         const reader = response.body!.getReader()
         const decoder = new TextDecoder()
@@ -257,7 +243,11 @@ export function useQuickstartChat(
                   break
 
                 case 'error':
-                  accumulatedText += `\n\n⚠️ ${event.message || t('managed.quickstart.errors.generic')}`
+                  accumulatedText += `\n\n⚠️ ${getManagedStreamErrorMessage(
+                    t,
+                    event,
+                    'managed.quickstart.errors.generic',
+                  )}`
                   setMessages((prev) => {
                     const updated = [...prev]
                     const last = updated[updated.length - 1]
@@ -330,19 +320,7 @@ export function useQuickstartChat(
       if (envId) body.environment_id = stripIdPrefix(envId)
       if (vaultId) body.vault_ids = [stripIdPrefix(vaultId)]
 
-      const resp = await fetch(`${MANAGED_API_BASE}/sessions`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify(body),
-      })
-
-      if (!resp.ok) {
-        const text = await resp.text()
-        throw new Error(`API ${resp.status}: ${text}`)
-      }
-
-      const result = await resp.json()
+      const result = await managedPost<unknown>('/sessions', body)
       const sessionId = getCreatedResourceId(result)
       if (sessionId) {
         setResourceIds((prev) => {
@@ -394,19 +372,7 @@ export function useQuickstartChat(
           },
         }
 
-        const resp = await fetch(`${MANAGED_API_BASE}/environments`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify(envBody),
-        })
-
-        if (!resp.ok) {
-          const text = await resp.text()
-          throw new Error(`API ${resp.status}: ${text}`)
-        }
-
-        const result = await resp.json()
+        const result = await managedPost<unknown>('/environments', envBody)
         const environmentId = getCreatedResourceId(result)
         if (environmentId) {
           setResourceIds((prev) => {
@@ -448,19 +414,7 @@ export function useQuickstartChat(
       setIsCreating(true)
       try {
         const vaultBody = { name }
-        const resp = await fetch(`${MANAGED_API_BASE}/vaults`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify(vaultBody),
-        })
-
-        if (!resp.ok) {
-          const text = await resp.text()
-          throw new Error(`API ${resp.status}: ${text}`)
-        }
-
-        const result = await resp.json()
+        const result = await managedPost<unknown>('/vaults', vaultBody)
         const vaultId = getCreatedResourceId(result)
         if (vaultId) {
           setResourceIds((prev) => {
@@ -528,7 +482,7 @@ export function useQuickstartChat(
     setIsCreating(true)
 
     try {
-      let resp: Response
+      let result: unknown
 
       const suffix = `-${Date.now().toString(36).slice(-4)}`
 
@@ -539,60 +493,39 @@ export function useQuickstartChat(
         if (!a) throw new Error(t('managed.quickstart.errors.agentConfigMissing'))
         const engine = selectedEngine || 'claude'
         const engineConfig = ENGINE_CONFIG[engine]
-        resp = await fetch(`${MANAGED_API_BASE}/agents`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({
-            name: (a.name || 'Untitled Agent') + suffix,
-            engine_kind: engineConfig.engineKind,
-            system_prompt: a.system_prompt || a.system || null,
-            secret_ref: agentSecretRef,
-            tools: a.tools || [],
-          }),
+        result = await managedPost<unknown>('/agents', {
+          name: (a.name || 'Untitled Agent') + suffix,
+          engine_kind: engineConfig.engineKind,
+          system_prompt: a.system_prompt || a.system || null,
+          secret_ref: agentSecretRef,
+          tools: a.tools || [],
         })
       } else if (step === 4) {
         const e = latestConfig.environment
         if (!e) throw new Error(t('managed.quickstart.errors.environmentConfigMissing'))
         const networking = e.networking as Record<string, unknown> | undefined
-        resp = await fetch(`${MANAGED_API_BASE}/environments`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({
-            name: (e.name || 'quickstart-env') + suffix,
-            description: e.description || '',
-            config: {
-              type: 'cloud',
-              networking: {
-                type: networking?.type || 'unrestricted',
-                allowed_hosts: (networking?.allowed_hosts as string[]) || [],
-              },
+        result = await managedPost<unknown>('/environments', {
+          name: (e.name || 'quickstart-env') + suffix,
+          description: e.description || '',
+          config: {
+            type: 'cloud',
+            networking: {
+              type: networking?.type || 'unrestricted',
+              allowed_hosts: (networking?.allowed_hosts as string[]) || [],
             },
-          }),
+          },
         })
       } else if (step === 5) {
         const v = latestConfig.vault
         if (!v) throw new Error(t('managed.quickstart.errors.vaultConfigMissing'))
-        resp = await fetch(`${MANAGED_API_BASE}/vaults`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({
-            name: (v.name || 'quickstart-vault') + suffix,
-            description: v.description || '',
-          }),
+        result = await managedPost<unknown>('/vaults', {
+          name: (v.name || 'quickstart-vault') + suffix,
+          description: v.description || '',
         })
       } else {
         throw new Error(t('managed.quickstart.errors.unexpectedStep', { step }))
       }
 
-      if (!resp.ok) {
-        const body = await resp.text()
-        throw new Error(`API ${resp.status}: ${body}`)
-      }
-
-      const result = await resp.json()
       const createdResource = unwrapManagedResponse<Record<string, unknown>>(result)
       const createdAgent =
         step === 3
@@ -704,22 +637,16 @@ ${agentDesc ? `System prompt: ${agentDesc.slice(0, 300)}` : ''}
 ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
 
     try {
-      const response = await fetch(`${MANAGED_API_BASE}/quickstart/chat`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({
+      const response = await apiStream(
+        'quickstart/chat',
+        {
           messages: [{ role: 'user', content: prompt }],
           current_step: 5,
           provider: generationSecret?.provider ?? 'claude',
           secret_ref: generationSecret?.secretRef ?? agentSecretRef,
           agent_context: agent,
-        }),
-      })
-
-      if (!response.ok) {
-        return t('managed.quickstart.trialRun.defaultPrompt', { agentName })
-      }
+        },
+      )
 
       const reader = response.body!.getReader()
       const decoder = new TextDecoder()

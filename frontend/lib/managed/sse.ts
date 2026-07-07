@@ -2,13 +2,30 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SessionEvent } from '@/types/managed'
-import { MANAGED_API_BASE } from '@/lib/api-client'
+import {
+  ApiError,
+  createApiError,
+  extractErrorFromResponse,
+  isUnauthorizedApiError,
+  MANAGED_API_BASE,
+  refreshAccessTokenOrRelogin,
+} from '@/lib/api-client'
 import { getCsrfToken } from '@/lib/auth/csrf'
 import { useProjectStore } from '@/stores/managed/project-store'
+
+const NON_RECONNECT_ERROR_CODES = new Set([
+  'HTTP_403',
+  'FORBIDDEN',
+  'PROJECT_ACCESS_DENIED',
+  'JOYSAFETER_WRITE_REQUIRED',
+  'JOYSAFETER_ADMIN_REQUIRED',
+  'NOT_ORG_MEMBER',
+])
 
 export function useSessionStream(sessionId: string, enabled: boolean) {
   const [events, setEvents] = useState<SessionEvent[]>([])
   const [connected, setConnected] = useState(false)
+  const [error, setError] = useState<ApiError | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const lastSeqRef = useRef<number>(0)
 
@@ -23,6 +40,22 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
 
     let cancelled = false
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+    const buildHeaders = (): Record<string, string> => {
+      const headers: Record<string, string> = {}
+      const csrfToken = getCsrfToken()
+      if (csrfToken) {
+        headers['X-CSRF-Token'] = csrfToken
+      }
+      const { currentProjectId, currentOrgId } = useProjectStore.getState()
+      if (currentOrgId) {
+        headers['X-Org-Id'] = currentOrgId
+      }
+      if (currentProjectId) {
+        headers['X-Project-Id'] = currentProjectId
+      }
+      return headers
+    }
 
     const connect = async () => {
       if (cancelled) return
@@ -39,33 +72,72 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
           console.debug('[session-sse] connecting', url)
         }
 
-        const headers: Record<string, string> = {}
-        const csrfToken = getCsrfToken()
-        if (csrfToken) {
-          headers['X-CSRF-Token'] = csrfToken
-        }
-        const { currentProjectId, currentOrgId } = useProjectStore.getState()
-        if (currentOrgId) {
-          headers['X-Org-Id'] = currentOrgId
-        }
-        if (currentProjectId) {
-          headers['X-Project-Id'] = currentProjectId
-        }
-
-        const resp = await fetch(url, {
+        let didRefresh = false
+        let resp = await fetch(url, {
           signal: controller.signal,
-          headers,
+          headers: buildHeaders(),
           credentials: 'include',
         })
+        if (resp.status === 401) {
+          try {
+            didRefresh = true
+            await refreshAccessTokenOrRelogin()
+            resp = await fetch(url, {
+              signal: controller.signal,
+              headers: buildHeaders(),
+              credentials: 'include',
+            })
+          } catch (refreshError) {
+            const apiError =
+              refreshError instanceof ApiError
+                ? refreshError
+                : createApiError(0, 'SSE Refresh Error', {
+                    code: 'SSE_REFRESH_FAILED',
+                    message:
+                      refreshError instanceof Error
+                        ? refreshError.message
+                        : 'Failed to refresh session stream authentication',
+                    data: null,
+                    source: 'auth',
+                    user_action: 'relogin',
+                  })
+            setError(apiError)
+            if (!isUnauthorizedApiError(apiError)) {
+              scheduleReconnect()
+            }
+            return
+          }
+        }
         if (!resp.ok || !resp.body) {
+          const apiError = !resp.ok
+            ? await extractErrorFromResponse(resp)
+            : createApiError(0, 'SSE Stream Error', {
+                code: 'SSE_STREAM_EMPTY',
+                message: 'Session event stream returned no response body',
+                data: null,
+                source: 'api',
+                retryable: true,
+                user_action: 'retry',
+              })
+          setError(apiError)
           if (process.env.NODE_ENV !== 'production') {
             // eslint-disable-next-line no-console
-            console.debug('[session-sse] connect failed', resp.status, resp.statusText)
+            console.debug('[session-sse] connect failed', {
+              status: resp.status,
+              statusText: resp.statusText,
+              code: apiError.code,
+              message: apiError.message,
+              traceId: apiError.traceId,
+              didRefresh,
+            })
           }
-          scheduleReconnect()
+          if (!isUnauthorizedApiError(apiError) && !NON_RECONNECT_ERROR_CODES.has(apiError.code)) {
+            scheduleReconnect()
+          }
           return
         }
         setConnected(true)
+        setError(null)
         if (process.env.NODE_ENV !== 'production') {
           // eslint-disable-next-line no-console
           console.debug('[session-sse] connected', url)
@@ -179,5 +251,5 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
     lastSeqRef.current = 0
   }, [])
 
-  return { events, connected, clear }
+  return { events, connected, error, clear }
 }
