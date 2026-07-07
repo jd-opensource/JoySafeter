@@ -3,15 +3,18 @@
 import uuid
 
 import pytest
-from fastapi import HTTPException
+from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import func, select
 
-from app.joysafeter_api.api.v1.tasks import create_task
+from app.joysafeter_api.api.v1.tasks import cancel_task, create_task
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+from app.joysafeter_domain.models.joysafeter_organization import Organization
+from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession, JoySafeterSessionEvent
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskRequest
 from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService
+from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 
 
@@ -32,6 +35,15 @@ def _auth_ctx() -> JoySafeterAuthContext:
     )
 
 
+def _project_auth_ctx(project_id: str) -> JoySafeterAuthContext:
+    return JoySafeterAuthContext(
+        user_id="test-user",
+        org_id="test-org",
+        project_id=project_id,
+        role=JoySafeterRole.DEVELOPER,
+    )
+
+
 def _service_auth_ctx() -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
         user_id="test-user",
@@ -40,6 +52,17 @@ def _service_auth_ctx() -> JoySafeterAuthContext:
         role=JoySafeterRole.DEVELOPER,
         principal_type="api_key",
     )
+
+
+async def _create_project(db_session) -> Project:
+    org = Organization(name=f"task-api-org-{uuid.uuid4()}", slug=f"task-api-org-{uuid.uuid4()}")
+    db_session.add(org)
+    await db_session.flush()
+    project = Project(org_id=org.id, name=f"task-api-project-{uuid.uuid4()}", slug=f"task-api-project-{uuid.uuid4()}")
+    db_session.add(project)
+    await db_session.commit()
+    await db_session.refresh(project)
+    return project
 
 
 @pytest.mark.asyncio
@@ -87,6 +110,38 @@ async def test_create_task_enqueues_via_redis_without_local_scheduler(db_session
 
 
 @pytest.mark.asyncio
+async def test_create_task_rejects_missing_environment_ref_with_structured_error(db_session, monkeypatch):
+    redis = _FakeRedis()
+    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+
+    agent = JoySafeterAgent(name=f"direct-task-missing-env-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    missing_ref = f"missing-env-{uuid.uuid4()}"
+    req = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target", environment_ref=missing_ref)
+    with pytest.raises(AppError) as exc_info:
+        await create_task(req, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=422) == {
+        "code": "TASK_ENVIRONMENT_NOT_FOUND",
+        "message": f"Environment not found: {missing_ref}",
+        "data": {"environment_ref": missing_ref},
+        "source": "validation",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+    assert redis.rpushed == []
+    task_count = await db_session.scalar(select(func.count()).select_from(JoySafeterTask))
+    assert task_count == 0
+
+
+@pytest.mark.asyncio
 async def test_create_task_enqueue_failure_returns_503_and_marks_task_failed(db_session, monkeypatch):
     monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
     monkeypatch.setattr(
@@ -101,13 +156,19 @@ async def test_create_task_enqueue_failure_returns_503_and_marks_task_failed(db_
 
     req = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target")
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(AppError) as exc_info:
         await create_task(req, db_session, _auth_ctx())
 
-    assert exc_info.value.status_code == 503
-    assert exc_info.value.detail == "Failed to enqueue task"
-
     task = (await db_session.execute(select(JoySafeterTask))).scalar_one()
+    assert await handled_app_error_payload(exc_info.value, status_code=503) == {
+        "code": "TASK_ENQUEUE_FAILED",
+        "message": "Failed to enqueue task",
+        "data": {"task_id": str(task.id), "session_id": str(task.chat_session_id)},
+        "source": "runtime",
+        "retryable": True,
+        "user_action": "retry",
+    }
+
     assert task.status == JoySafeterTaskStatus.FAILED.value
     assert "Failed to enqueue task" in (task.error or "")
 
@@ -115,7 +176,16 @@ async def test_create_task_enqueue_failure_returns_503_and_marks_task_failed(db_
         await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == task.chat_session_id))
     ).scalar_one()
     assert session.status == "idle"
-    assert session.stop_reason == {"type": "error", "message": "Failed to enqueue task"}
+    expected_stop_reason = {
+        "type": "error",
+        "code": "TASK_ENQUEUE_FAILED",
+        "message": "Failed to enqueue task",
+        "data": {"task_id": str(task.id), "session_id": str(task.chat_session_id)},
+        "source": "runtime",
+        "retryable": True,
+        "user_action": "retry",
+    }
+    assert session.stop_reason == expected_stop_reason
 
     events = (
         (
@@ -134,7 +204,7 @@ async def test_create_task_enqueue_failure_returns_503_and_marks_task_failed(db_
             "session.status_idle",
             {
                 "task_id": str(task.id),
-                "stop_reason": {"type": "error", "message": "Failed to enqueue task"},
+                "stop_reason": expected_stop_reason,
             },
         ),
     ]
@@ -168,11 +238,20 @@ async def test_create_task_rejects_session_with_active_task_even_if_session_look
     )
 
     req = JoySafeterCreateTaskRequest(agent_id=agent.id, chat_session_id=session.id, prompt="scan target")
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(AppError) as exc_info:
         await create_task(req, db_session, _auth_ctx())
 
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == "Session has an active task; wait for completion before creating a new task"
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "SESSION_ACTIVE_TASK",
+        "message": "Session has an active task; wait for completion before creating a new task",
+        "data": {
+            "session_id": str(session.id),
+            "active_task_ids": [str(existing_task.id)],
+        },
+        "source": "api",
+        "retryable": True,
+        "user_action": "retry",
+    }
     assert redis.rpushed == []
     tasks = (await db_session.execute(select(JoySafeterTask).order_by(JoySafeterTask.created_at.asc()))).scalars().all()
     assert [task.id for task in tasks] == [existing_task.id]
@@ -239,18 +318,24 @@ async def test_create_task_idempotent_retry_after_enqueue_failure_stays_503(db_s
     req = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target")
     key = f"task-{uuid.uuid4()}"
 
-    with pytest.raises(HTTPException) as first_exc:
+    with pytest.raises(AppError) as first_exc:
         await create_task(req, db_session, _auth_ctx(), idempotency_key=key)
-    with pytest.raises(HTTPException) as second_exc:
+    with pytest.raises(AppError) as second_exc:
         await create_task(req, db_session, _auth_ctx(), idempotency_key=key)
 
-    assert first_exc.value.status_code == 503
-    assert second_exc.value.status_code == 503
-    assert second_exc.value.detail == "Failed to enqueue task"
+    assert (await handled_app_error_payload(first_exc.value, status_code=503))["code"] == "TASK_ENQUEUE_FAILED"
 
     tasks = (await db_session.execute(select(JoySafeterTask))).scalars().all()
     assert len(tasks) == 1
     assert tasks[0].status == JoySafeterTaskStatus.FAILED.value
+    assert await handled_app_error_payload(second_exc.value, status_code=503) == {
+        "code": "TASK_ENQUEUE_FAILED",
+        "message": "Failed to enqueue task",
+        "data": {"task_id": str(tasks[0].id), "session_id": str(tasks[0].chat_session_id)},
+        "source": "runtime",
+        "retryable": True,
+        "user_action": "retry",
+    }
 
 
 @pytest.mark.asyncio
@@ -324,12 +409,23 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_prompt(db
     first = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target a")
     second = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target b")
 
-    await create_task(first, db_session, _auth_ctx(), idempotency_key=key)
-    with pytest.raises(HTTPException) as exc_info:
+    first_response = await create_task(first, db_session, _auth_ctx(), idempotency_key=key)
+    with pytest.raises(AppError) as exc_info:
         await create_task(second, db_session, _auth_ctx(), idempotency_key=key)
 
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == "Idempotency-Key was already used for a different prompt"
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "TASK_IDEMPOTENCY_KEY_MISMATCH",
+        "message": "Idempotency-Key was already used for a different prompt",
+        "data": {
+            "task_id": str(first_response.id),
+            "conflict_field": "prompt",
+            "requested_value": "scan target b",
+            "existing_value": "scan target a",
+        },
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
 
 
 @pytest.mark.asyncio
@@ -359,12 +455,123 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_session(d
     first = JoySafeterCreateTaskRequest(agent_id=agent.id, chat_session_id=session_a.id, prompt="scan target")
     second = JoySafeterCreateTaskRequest(agent_id=agent.id, chat_session_id=session_b.id, prompt="scan target")
 
-    await create_task(first, db_session, _auth_ctx(), idempotency_key=key)
-    with pytest.raises(HTTPException) as exc_info:
+    first_response = await create_task(first, db_session, _auth_ctx(), idempotency_key=key)
+    with pytest.raises(AppError) as exc_info:
         await create_task(second, db_session, _auth_ctx(), idempotency_key=key)
 
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == "Idempotency-Key was already used for a different session"
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "TASK_IDEMPOTENCY_KEY_MISMATCH",
+        "message": "Idempotency-Key was already used for a different session",
+        "data": {
+            "task_id": str(first_response.id),
+            "conflict_field": "chat_session_id",
+            "requested_value": str(session_b.id),
+            "existing_value": str(session_a.id),
+        },
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+
+
+@pytest.mark.asyncio
+async def test_cancel_task_rejects_terminal_task_with_structured_error(db_session):
+    agent = JoySafeterAgent(name=f"cancel-terminal-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    task = JoySafeterTask(
+        agent_id=agent.id,
+        prompt="already done",
+        status=JoySafeterTaskStatus.COMPLETED.value,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+
+    with pytest.raises(AppError) as exc_info:
+        await cancel_task(task.id, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "TASK_ALREADY_TERMINAL",
+        "message": "Task already in terminal state: completed",
+        "data": {
+            "task_id": str(task.id),
+            "task_status": "completed",
+        },
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+
+
+@pytest.mark.asyncio
+async def test_cancel_task_reports_session_idle_write_failure(db_session, monkeypatch):
+    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_bridge_registry", lambda: None)
+    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_redis_coordinator", lambda: None)
+    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_session_broadcaster", lambda: None)
+
+    async def fail_idle_transition(self, session_id, status, task_id, stop_reason=None):
+        raise RuntimeError("session write failed")
+
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_session_service.SessionService.update_session_status_for_task_event",
+        fail_idle_transition,
+    )
+
+    agent = JoySafeterAgent(name=f"cancel-session-sync-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    session = JoySafeterSession(agent_id=agent.id, status="running")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+
+    task = JoySafeterTask(
+        agent_id=agent.id,
+        chat_session_id=session.id,
+        prompt="long running",
+        status=JoySafeterTaskStatus.RUNNING.value,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+    task_id = task.id
+    session_id = session.id
+
+    with pytest.raises(AppError) as exc_info:
+        await cancel_task(task_id, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=503) == {
+        "code": "TASK_CANCEL_SESSION_SYNC_FAILED",
+        "message": "Task was cancelled, but failed to mark the linked session idle.",
+        "data": {"task_id": str(task_id), "session_id": str(session_id)},
+        "source": "api",
+        "retryable": True,
+        "user_action": "refresh",
+    }
+
+    db_session.expire_all()
+    task_row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
+    session_row = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
+    ).scalar_one()
+    idle_events = (
+        await db_session.execute(
+            select(func.count())
+            .select_from(JoySafeterSessionEvent)
+            .where(
+                JoySafeterSessionEvent.session_id == session_id,
+                JoySafeterSessionEvent.event_type == "session.status_idle",
+            )
+        )
+    ).scalar_one()
+    assert task_row.status == JoySafeterTaskStatus.CANCELLED.value
+    assert session_row.status == "running"
+    assert idle_events == 0
 
 
 @pytest.mark.asyncio
@@ -390,9 +597,66 @@ async def test_per_user_admission_rejects_human_over_limit(db_session, monkeypat
     )
 
     req = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target")
-    response = await create_task(req, db_session, _auth_ctx())
+    with pytest.raises(AppError) as exc_info:
+        await create_task(req, db_session, _auth_ctx())
 
-    assert getattr(response, "status_code", None) == 429
+    assert await handled_app_error_payload(exc_info.value, status_code=429) == {
+        "code": "USER_TASK_LIMIT_EXCEEDED",
+        "message": "User has reached their concurrent task limit (1).",
+        "data": {
+            "limit": 1,
+            "active": 1,
+            "user_id": "test-user",
+        },
+        "source": "api",
+        "retryable": True,
+        "user_action": "retry",
+    }
+    assert redis.rpushed == [], "an admission-rejected task must not be enqueued"
+
+
+@pytest.mark.asyncio
+async def test_per_project_admission_returns_structured_retryable_error(db_session, monkeypatch):
+    from app.joysafeter_shared.config.settings import settings
+
+    redis = _FakeRedis()
+    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+    monkeypatch.setattr(settings, "max_concurrent_per_project", 1)
+
+    project = await _create_project(db_session)
+    agent = JoySafeterAgent(name=f"per-project-agent-{uuid.uuid4()}", project_id=project.id)
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    await JoySafeterTaskService(db_session).create_task(
+        agent_id=agent.id,
+        prompt="busy",
+        project_id=project.id,
+        user_id="other-user",
+        org_id="test-org",
+    )
+
+    req = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target")
+    with pytest.raises(AppError) as exc_info:
+        await create_task(req, db_session, _project_auth_ctx(project.id))
+
+    assert await handled_app_error_payload(exc_info.value, status_code=429) == {
+        "code": "PROJECT_TASK_LIMIT_EXCEEDED",
+        "message": "Project has reached its concurrent task limit (1).",
+        "data": {
+            "limit": 1,
+            "active": 1,
+            "project_id": project.id,
+        },
+        "source": "api",
+        "retryable": True,
+        "user_action": "retry",
+    }
     assert redis.rpushed == [], "an admission-rejected task must not be enqueued"
 
 

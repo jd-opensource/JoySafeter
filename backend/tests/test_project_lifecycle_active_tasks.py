@@ -1,7 +1,7 @@
 import uuid
 
 import pytest
-from fastapi import HTTPException
+from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import select
 
 from app.joysafeter_api.api.v1.auth import archive_project
@@ -9,6 +9,7 @@ from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
+from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 
 
@@ -48,11 +49,17 @@ async def test_archive_project_rejects_active_tasks(db_session):
     db_session.add(task)
     await db_session.commit()
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(AppError) as exc_info:
         await archive_project(project_id, db_session, _admin_ctx(project_id, org_id))
 
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == "Project has active tasks. Stop or wait for them before archiving."
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "PROJECT_ACTIVE_TASKS",
+        "message": "Project has active tasks. Stop or wait for them before archiving.",
+        "data": {"project_id": project_id, "active": 1},
+        "source": "api",
+        "retryable": True,
+        "user_action": "retry",
+    }
 
     db_session.expire_all()
     project_row = (await db_session.execute(select(Project).where(Project.id == project_id))).scalar_one()

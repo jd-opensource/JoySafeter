@@ -12,7 +12,7 @@ from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession, JoySafeterSessionEvent
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
-from app.joysafeter_orchestrator.grpc.server import AgentBridgeServicer
+from app.joysafeter_orchestrator.grpc.server import AgentBridgeServicer, _proto_event_to_dict
 from app.joysafeter_orchestrator.kernel.sandbox_bridge import SandboxBridge, SandboxBridgeRegistry
 
 
@@ -585,7 +585,32 @@ async def test_handle_result_non_terminal_status_is_failed(postgres_url, db_sess
     assert row.status == JoySafeterTaskStatus.FAILED.value
     assert row.error == "Runner returned non-terminal result status: running"
     assert sess.status == "idle"
-    assert sess.stop_reason == {"type": "error", "message": "Runner returned non-terminal result status: running"}
+    assert sess.stop_reason == {
+        "type": "error",
+        "code": "TASK_RESULT_FAILED",
+        "message": "Runner returned non-terminal result status: running",
+        "data": {
+            "task_id": str(task_id),
+            "session_id": str(session_id),
+            "sandbox_id": str(sandbox_id),
+        },
+        "source": "runtime",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+
+
+def test_proto_error_event_maps_to_structured_async_error_payload():
+    event = joysafeter_pb2.RunnerHarnessEvent(error=joysafeter_pb2.ErrorEvent(message="tool execution failed"))
+
+    assert _proto_event_to_dict(event) == {
+        "type": "error",
+        "code": "RUNNER_EVENT_ERROR",
+        "message": "tool execution failed",
+        "data": None,
+        "source": "runtime",
+        "retryable": False,
+    }
 
 
 @pytest.mark.asyncio

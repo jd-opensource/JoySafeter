@@ -8,6 +8,7 @@ DB buffer instead of letting it be trimmed — overflow degrades to
 slower-but-lossless rather than silent loss.
 """
 
+import logging
 import uuid
 
 import pytest
@@ -41,6 +42,11 @@ class _FakeRedis:
         return "1-0"
 
 
+class _FailingXaddRedis(_FakeRedis):
+    async def xadd(self, key, payload, maxlen=None, approximate=None):
+        raise RuntimeError("xadd failed")
+
+
 class _FakeBuffer:
     def __init__(self):
         self.sent: list = []
@@ -55,6 +61,10 @@ class _FakeBuffer:
 
 def _env():
     return _Env(session_id=uuid.uuid4(), event_id=uuid.uuid4())
+
+
+def _logged_errors(caplog):
+    return [getattr(record, "error", None) for record in caplog.records if getattr(record, "error", None)]
 
 
 @pytest.mark.asyncio
@@ -89,6 +99,24 @@ async def test_saturated_routes_to_db_fallback_instead_of_trimming(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_saturated_fallback_logs_structured_boundary_error(monkeypatch, caplog):
+    fake = _FakeRedis(length=999)
+    monkeypatch.setattr(joysafeter_config, "event_stream_high_water_mark", 100)
+    monkeypatch.setattr(sp.RedisClient, "get_client", staticmethod(lambda: fake))
+    buf = _FakeBuffer()
+    sub = EventStreamPersistSubscriber(stream_key="joysafeter:events", fallback_event_buffer=buf)
+
+    with caplog.at_level(logging.WARNING, logger=sp.__name__):
+        await sub.handle(_env())
+
+    error = _logged_errors(caplog)[0]
+    assert error["code"] == "EVENT_STREAM_SATURATED_FALLBACK"
+    assert error["data"]["boundary"] == "event_stream_persist"
+    assert error["data"]["operation"] == "saturation_fallback"
+    assert error["data"]["stream_key"] == "joysafeter:events"
+
+
+@pytest.mark.asyncio
 async def test_saturated_without_fallback_degrades_to_stream_not_crash(monkeypatch):
     fake = _FakeRedis(length=999)
     monkeypatch.setattr(joysafeter_config, "event_stream_high_water_mark", 100)
@@ -100,6 +128,23 @@ async def test_saturated_without_fallback_degrades_to_stream_not_crash(monkeypat
     await sub.handle(_env())
 
     assert len(fake.xadds) == 1, "with no fallback, saturation falls through to a best-effort xadd"
+
+
+@pytest.mark.asyncio
+async def test_xadd_failure_fallback_logs_structured_boundary_error(monkeypatch, caplog):
+    fake = _FailingXaddRedis(length=10)
+    monkeypatch.setattr(joysafeter_config, "event_stream_high_water_mark", 100)
+    monkeypatch.setattr(sp.RedisClient, "get_client", staticmethod(lambda: fake))
+    buf = _FakeBuffer()
+    sub = EventStreamPersistSubscriber(stream_key="joysafeter:events", fallback_event_buffer=buf)
+
+    with caplog.at_level(logging.WARNING, logger=sp.__name__):
+        await sub.handle(_env())
+
+    error = _logged_errors(caplog)[0]
+    assert error["code"] == "EVENT_STREAM_APPEND_FALLBACK"
+    assert error["detail"] == "RuntimeError"
+    assert error["data"]["operation"] == "xadd_fallback"
 
 
 @pytest.mark.asyncio

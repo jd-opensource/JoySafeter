@@ -1,7 +1,7 @@
 import uuid
 
 import pytest
-from fastapi import HTTPException
+from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import select
 
 from app.joysafeter_api.api.v1.agents import create_agent, update_agent
@@ -9,7 +9,13 @@ from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_secret import JoySafeterSecret
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
-from app.joysafeter_domain.schemas.joysafeter_agent import JoySafeterCreateAgentRequest, JoySafeterUpdateAgentRequest
+from app.joysafeter_domain.schemas.joysafeter_agent import (
+    JoySafeterCreateAgentRequest,
+    JoySafeterUpdateAgentRequest,
+    McpServerConfig,
+    McpToolsetTool,
+)
+from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.utils.datetime import utc_now
 
@@ -28,11 +34,17 @@ async def test_create_agent_rejects_missing_environment_ref(db_session):
     missing_ref = f"missing-env-{uuid.uuid4()}"
     req = JoySafeterCreateAgentRequest(name=f"env-ref-agent-{uuid.uuid4()}", environment_ref=missing_ref)
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(AppError) as exc_info:
         await create_agent(req, db_session, _auth_ctx())
 
-    assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == f"Environment not found: {missing_ref}"
+    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
+        "code": "AGENT_ENVIRONMENT_NOT_FOUND",
+        "message": f"Environment not found: {missing_ref}",
+        "data": {"environment_ref": missing_ref},
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
     count = (
         await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.name == req.name))
     ).scalar_one_or_none()
@@ -51,11 +63,17 @@ async def test_create_agent_rejects_archived_environment_ref(db_session):
     await db_session.refresh(env)
     req = JoySafeterCreateAgentRequest(name=f"archived-env-agent-{uuid.uuid4()}", environment_ref=f"env_{env.id}")
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(AppError) as exc_info:
         await create_agent(req, db_session, _auth_ctx())
 
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == f"Environment is archived: env_{env.id}"
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "ENVIRONMENT_ARCHIVED",
+        "message": f"Environment is archived: env_{env.id}",
+        "data": {"environment_ref": f"env_{env.id}", "environment_id": str(env.id)},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
     row = (
         await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.name == req.name))
     ).scalar_one_or_none()
@@ -72,11 +90,17 @@ async def test_update_agent_rejects_missing_environment_ref_without_partial_upda
     missing_ref = f"missing-env-{uuid.uuid4()}"
     req = JoySafeterUpdateAgentRequest(version=1, environment_ref=missing_ref)
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(AppError) as exc_info:
         await update_agent(req, agent.id, db_session, _auth_ctx())
 
-    assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == f"Environment not found: {missing_ref}"
+    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
+        "code": "AGENT_ENVIRONMENT_NOT_FOUND",
+        "message": f"Environment not found: {missing_ref}",
+        "data": {"environment_ref": missing_ref},
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
 
     db_session.expire_all()
     row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
@@ -102,13 +126,17 @@ async def test_update_agent_rejects_environment_ref_change_with_active_task(db_s
     await db_session.commit()
     req = JoySafeterUpdateAgentRequest(version=1, environment_ref=f"env_{env.id}")
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(AppError) as exc_info:
         await update_agent(req, agent_id, db_session, _auth_ctx())
 
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == (
-        "Agent has active tasks. Stop or wait for them before changing secret_ref or environment_ref."
-    )
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "AGENT_ACTIVE_TASKS",
+        "message": "Agent has active tasks. Stop or wait for them before changing secret_ref or environment_ref.",
+        "data": {"agent_id": str(agent_id), "active_task_ids": [str(task.id)]},
+        "source": "api",
+        "retryable": True,
+        "user_action": "retry",
+    }
 
     db_session.expire_all()
     row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
@@ -139,15 +167,173 @@ async def test_update_agent_rejects_secret_ref_change_with_active_task(db_sessio
     await db_session.commit()
     req = JoySafeterUpdateAgentRequest(version=1, secret_ref=secret.name)
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(AppError) as exc_info:
         await update_agent(req, agent_id, db_session, _auth_ctx())
 
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == (
-        "Agent has active tasks. Stop or wait for them before changing secret_ref or environment_ref."
-    )
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "AGENT_ACTIVE_TASKS",
+        "message": "Agent has active tasks. Stop or wait for them before changing secret_ref or environment_ref.",
+        "data": {"agent_id": str(agent_id), "active_task_ids": [str(task.id)]},
+        "source": "api",
+        "retryable": True,
+        "user_action": "retry",
+    }
 
     db_session.expire_all()
     row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
     assert row.secret_ref is None
     assert row.version == 1
+
+
+@pytest.mark.asyncio
+async def test_update_agent_rejects_archived_agent_with_structured_error(db_session):
+    agent = JoySafeterAgent(name=f"archived-agent-{uuid.uuid4()}", version=1, archived_at=utc_now())
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+    agent_id = agent.id
+    original_name = agent.name
+
+    req = JoySafeterUpdateAgentRequest(version=1, name=f"renamed-agent-{uuid.uuid4()}")
+    with pytest.raises(AppError) as exc_info:
+        await update_agent(req, agent_id, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "AGENT_ARCHIVED",
+        "message": "Agent is archived and read-only. Updates are not allowed.",
+        "data": {"agent_id": str(agent_id)},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
+    assert row.name == original_name
+    assert row.version == 1
+
+
+@pytest.mark.asyncio
+async def test_update_agent_rejects_version_conflict_with_structured_error(db_session):
+    agent = JoySafeterAgent(name=f"version-agent-{uuid.uuid4()}", version=2)
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+    agent_id = agent.id
+    original_name = agent.name
+
+    req = JoySafeterUpdateAgentRequest(version=1, name=f"renamed-agent-{uuid.uuid4()}")
+    with pytest.raises(AppError) as exc_info:
+        await update_agent(req, agent_id, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "AGENT_VERSION_CONFLICT",
+        "message": "Version conflict: expected 1, got 2",
+        "data": {"agent_id": str(agent_id), "expected_version": 1, "actual_version": 2},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
+    assert row.name == original_name
+    assert row.version == 2
+
+
+@pytest.mark.asyncio
+async def test_create_agent_rejects_missing_secret_ref_with_structured_error(db_session):
+    missing_ref = f"missing-secret-{uuid.uuid4()}"
+    req = JoySafeterCreateAgentRequest(name=f"secret-ref-agent-{uuid.uuid4()}", secret_ref=missing_ref)
+
+    with pytest.raises(AppError) as exc_info:
+        await create_agent(req, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
+        "code": "AGENT_SECRET_NOT_FOUND",
+        "message": f"Secret not found: {missing_ref}",
+        "data": {"secret_ref": missing_ref, "engine_kind": "claude"},
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+
+    row = (
+        await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.name == req.name))
+    ).scalar_one_or_none()
+    assert row is None
+
+
+@pytest.mark.asyncio
+async def test_create_agent_rejects_secret_engine_mismatch_with_structured_error(db_session):
+    secret = JoySafeterSecret(
+        name=f"openai-secret-{uuid.uuid4()}",
+        provider="codex",
+        protocol="openai_responses",
+        data={"OPENAI_API_KEY": "value"},
+    )
+    db_session.add(secret)
+    await db_session.commit()
+    await db_session.refresh(secret)
+
+    req = JoySafeterCreateAgentRequest(name=f"secret-mismatch-agent-{uuid.uuid4()}", secret_ref=secret.name)
+    with pytest.raises(AppError) as exc_info:
+        await create_agent(req, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
+        "code": "AGENT_SECRET_ENGINE_INCOMPATIBLE",
+        "message": f"Secret '{secret.name}' is not compatible with engine_kind 'claude'",
+        "data": {
+            "secret_ref": secret.name,
+            "engine_kind": "claude",
+            "provider": "codex",
+            "protocol": "openai_responses",
+        },
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+
+
+@pytest.mark.asyncio
+async def test_create_agent_rejects_duplicate_mcp_server_name_with_structured_error(db_session):
+    req = JoySafeterCreateAgentRequest(
+        name=f"duplicate-mcp-agent-{uuid.uuid4()}",
+        mcp_servers=[
+            McpServerConfig(name="tools", url="https://example.com/a"),
+            McpServerConfig(name="tools", url="https://example.com/b"),
+        ],
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await create_agent(req, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
+        "code": "AGENT_MCP_SERVER_NAME_DUPLICATE",
+        "message": "Duplicate MCP server name: tools",
+        "data": {"mcp_server_name": "tools"},
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+
+
+@pytest.mark.asyncio
+async def test_create_agent_rejects_undeclared_mcp_tool_server_with_structured_error(db_session):
+    req = JoySafeterCreateAgentRequest(
+        name=f"undeclared-mcp-agent-{uuid.uuid4()}",
+        mcp_servers=[McpServerConfig(name="declared", url="https://example.com/mcp")],
+        tools=[McpToolsetTool(mcp_server_name="missing")],
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await create_agent(req, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
+        "code": "AGENT_TOOL_MCP_SERVER_UNDECLARED",
+        "message": "Tool references undeclared MCP server: missing",
+        "data": {"mcp_server_name": "missing", "declared_mcp_server_names": ["declared"]},
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }

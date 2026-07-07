@@ -10,7 +10,7 @@ import json
 import uuid
 
 import pytest
-from fastapi import HTTPException
+from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -24,10 +24,13 @@ from app.joysafeter_api.api.v1.sessions import (
     delete_session as delete_session_endpoint,
 )
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession, JoySafeterSessionEvent
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from app.joysafeter_domain.schemas.joysafeter_session import SendEventRequest, SingleEventRequest
+from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.utils.datetime import utc_now
 
 
 class _FakeScheduler:
@@ -53,6 +56,19 @@ class _FakeBroadcaster:
 
     async def send(self, session_id: uuid.UUID, payload: dict) -> None:
         self.sent.append((session_id, payload))
+
+
+class _DestroyFailingSandboxProvider:
+    def __init__(self):
+        self.stopped: list[str] = []
+        self.destroyed: list[str] = []
+
+    async def stop(self, external_id: str) -> None:
+        self.stopped.append(external_id)
+
+    async def destroy(self, external_id: str) -> None:
+        self.destroyed.append(external_id)
+        raise RuntimeError("provider destroy failed")
 
 
 class _FakeCommandRedis:
@@ -107,6 +123,11 @@ class _FakeAckRedis:
         return key, json.dumps(self.ack_payload)
 
 
+class _AckWaitFailingRedis(_FakeAckRedis):
+    async def blpop(self, key: str, timeout: int = 0):
+        raise RuntimeError("ack wait failed")
+
+
 @pytest.mark.asyncio
 async def test_user_message_enqueue_failure_returns_503_and_compensates(
     postgres_url,
@@ -150,16 +171,21 @@ async def test_user_message_enqueue_failure_returns_503_and_compensates(
     )
 
     try:
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(AppError) as exc_info:
             await send_event(req, session_id, db_session, auth_ctx)
     finally:
         await engine.dispose()
 
-    assert exc_info.value.status_code == 503
-    assert exc_info.value.detail == "Failed to enqueue task"
-
     db_session.expire_all()
     task = (await db_session.execute(select(JoySafeterTask))).scalar_one()
+    assert await handled_app_error_payload(exc_info.value, status_code=503) == {
+        "code": "TASK_ENQUEUE_FAILED",
+        "message": "Failed to enqueue task",
+        "data": {"session_id": str(session_id), "task_id": str(task.id)},
+        "source": "runtime",
+        "retryable": True,
+        "user_action": "retry",
+    }
     assert task.status == JoySafeterTaskStatus.FAILED.value
     assert "Failed to enqueue task" in (task.error or "")
 
@@ -167,7 +193,15 @@ async def test_user_message_enqueue_failure_returns_503_and_compensates(
         await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
     ).scalar_one()
     assert session_row.status == "idle"
-    assert session_row.stop_reason == {"type": "error", "message": "Failed to enqueue task"}
+    assert session_row.stop_reason == {
+        "type": "error",
+        "code": "TASK_ENQUEUE_FAILED",
+        "message": "Failed to enqueue task",
+        "data": {"session_id": str(session_id), "task_id": str(task.id)},
+        "source": "runtime",
+        "retryable": True,
+        "user_action": "retry",
+    }
 
     event_types = list(
         (
@@ -227,6 +261,28 @@ async def test_command_ack_wait_requires_matching_success_payload():
 
 
 @pytest.mark.asyncio
+async def test_command_ack_wait_failure_logs_structured_boundary_error(caplog):
+    with caplog.at_level("DEBUG", logger="app.joysafeter_api.api.v1.sessions"):
+        result = await _publish_command_and_wait_for_ack(
+            _AckWaitFailingRedis({"command_id": "cmd-1", "ok": True}),
+            "joysafeter:cmd:owner-1",
+            {"type": "cancel"},
+            command_id="cmd-1",
+            ack_key="joysafeter:cmd_ack:cmd-1",
+        )
+
+    assert result is False
+    errors = [getattr(record, "error", None) for record in caplog.records if getattr(record, "error", None)]
+    assert errors
+    error = errors[0]
+    assert error["code"] == "SESSION_REDIS_COMMAND_ACK_WAIT_FAILED"
+    assert error["data"]["boundary"] == "session_api"
+    assert error["data"]["operation"] == "wait_command_ack"
+    assert error["data"]["command_id"] == "cmd-1"
+    assert error["detail"] == "RuntimeError"
+
+
+@pytest.mark.asyncio
 async def test_user_message_rejects_idle_session_with_active_task(db_session, monkeypatch):
     monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_session_broadcaster", lambda: None)
 
@@ -265,11 +321,20 @@ async def test_user_message_rejects_idle_session_with_active_task(db_session, mo
         role=JoySafeterRole.DEVELOPER,
     )
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(AppError) as exc_info:
         await send_event(req, session_id, db_session, auth_ctx)
 
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == "Session has an active task; wait for completion before sending a new message"
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "SESSION_ACTIVE_TASK",
+        "message": "Session has an active task; wait for completion before sending a new message",
+        "source": "api",
+        "retryable": True,
+        "user_action": "retry",
+        "data": {
+            "session_id": str(session_id),
+            "active_task_ids": [str(task.id)],
+        },
+    }
     user_message_count = (
         await db_session.execute(
             select(func.count())
@@ -327,19 +392,24 @@ async def test_user_message_idempotent_retry_after_enqueue_failure_stays_503(
     key = f"msg-{uuid.uuid4()}"
 
     try:
-        with pytest.raises(HTTPException) as first_exc:
+        with pytest.raises(AppError) as first_exc:
             await send_event(req, session_id, db_session, auth_ctx, idempotency_key=key)
-        with pytest.raises(HTTPException) as second_exc:
+        with pytest.raises(AppError) as second_exc:
             await send_event(req, session_id, db_session, auth_ctx, idempotency_key=key)
     finally:
         await engine.dispose()
 
-    assert first_exc.value.status_code == 503
-    assert second_exc.value.status_code == 503
-    assert second_exc.value.detail == "Failed to enqueue task"
+    assert (await handled_app_error_payload(first_exc.value, status_code=503))["code"] == "TASK_ENQUEUE_FAILED"
 
-    task_count = await db_session.scalar(select(func.count()).select_from(JoySafeterTask))
-    assert task_count == 1
+    task = (await db_session.execute(select(JoySafeterTask))).scalar_one()
+    assert await handled_app_error_payload(second_exc.value, status_code=503) == {
+        "code": "TASK_ENQUEUE_FAILED",
+        "message": "Failed to enqueue task",
+        "data": {"session_id": str(session_id), "task_id": str(task.id)},
+        "source": "runtime",
+        "retryable": True,
+        "user_action": "retry",
+    }
     user_message_count = await db_session.scalar(
         select(func.count())
         .select_from(JoySafeterSessionEvent)
@@ -462,13 +532,25 @@ async def test_user_message_rejects_idempotency_key_reuse_for_different_message(
 
     try:
         await send_event(first, session_id, db_session, auth_ctx, idempotency_key=key)
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(AppError) as exc_info:
             await send_event(second, session_id, db_session, auth_ctx, idempotency_key=key)
     finally:
         await engine.dispose()
 
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == "Idempotency-Key was already used for a different message"
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "SESSION_IDEMPOTENCY_KEY_MISMATCH",
+        "message": "Idempotency-Key was already used for a different message",
+        "data": {
+            "session_id": str(session_id),
+            "task_id": str(scheduler.pushed[0]),
+            "conflict_field": "message",
+            "requested_value": "second",
+            "existing_value": "first",
+        },
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
     assert len(scheduler.pushed) == 1
 
 
@@ -573,13 +655,31 @@ async def test_tool_confirmation_fallback_failure_returns_503_and_marks_task_fai
     )
 
     try:
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(AppError) as exc_info:
             await send_event(req, session_id, db_session, auth_ctx)
     finally:
         await engine.dispose()
 
-    assert exc_info.value.status_code == 503
-    assert exc_info.value.detail == "Failed to deliver tool confirmation"
+    event = (
+        await db_session.execute(
+            select(JoySafeterSessionEvent).where(
+                JoySafeterSessionEvent.session_id == session_id,
+                JoySafeterSessionEvent.event_type == "user.tool_confirmation",
+            )
+        )
+    ).scalar_one()
+    assert await handled_app_error_payload(exc_info.value, status_code=503) == {
+        "code": "SESSION_TOOL_CONFIRMATION_DELIVERY_FAILED",
+        "message": "Failed to deliver tool confirmation",
+        "data": {
+            "session_id": str(session_id),
+            "event_id": str(event.id),
+            "event_type": "user.tool_confirmation",
+        },
+        "source": "runtime",
+        "retryable": True,
+        "user_action": "retry",
+    }
 
     task = (await db_session.execute(select(JoySafeterTask))).scalar_one()
     assert task.status == JoySafeterTaskStatus.FAILED.value
@@ -624,14 +724,10 @@ async def test_interrupt_requires_cancel_delivery_for_running_session(
     )
 
     try:
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(AppError) as exc_info:
             await send_event(req, session_id, db_session, auth_ctx)
     finally:
         await engine.dispose()
-
-    assert exc_info.value.status_code == 503
-    assert exc_info.value.detail == "Failed to deliver interrupt"
-    assert [payload["type"] for _channel, payload in redis.published] == ["input", "cancel"]
 
     event = (
         await db_session.execute(
@@ -641,6 +737,20 @@ async def test_interrupt_requires_cancel_delivery_for_running_session(
             )
         )
     ).scalar_one()
+    assert await handled_app_error_payload(exc_info.value, status_code=503) == {
+        "code": "SESSION_INTERRUPT_DELIVERY_FAILED",
+        "message": "Failed to deliver interrupt",
+        "data": {
+            "session_id": str(session_id),
+            "event_id": str(event.id),
+            "event_type": "user.interrupt",
+        },
+        "source": "runtime",
+        "retryable": True,
+        "user_action": "retry",
+    }
+    assert [payload["type"] for _channel, payload in redis.published] == ["input", "cancel"]
+
     assert event.processed_at is not None, "the input half was delivered and should not be replayed as pending"
 
 
@@ -690,11 +800,17 @@ async def test_stop_session_does_not_mark_idle_when_task_cancel_write_fails(
         role=JoySafeterRole.DEVELOPER,
     )
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(AppError) as exc_info:
         await stop_session(session_id, db_session, auth_ctx)
 
-    assert exc_info.value.status_code == 503
-    assert exc_info.value.detail == "Failed to cancel all active tasks"
+    assert await handled_app_error_payload(exc_info.value, status_code=503) == {
+        "code": "SESSION_STOP_CANCEL_TASKS_FAILED",
+        "message": "Failed to cancel all active tasks",
+        "data": {"session_id": str(session_id), "active_task_ids": [str(task_id)]},
+        "source": "runtime",
+        "retryable": True,
+        "user_action": "retry",
+    }
 
     db_session.expire_all()
     session_row = (
@@ -714,6 +830,72 @@ async def test_stop_session_does_not_mark_idle_when_task_cancel_write_fails(
     assert session_row.status == "running"
     assert task_row.status == JoySafeterTaskStatus.RUNNING.value
     assert idle_events == 0
+
+
+@pytest.mark.asyncio
+async def test_stop_session_rejects_archived_session_with_structured_error(db_session):
+    agent = JoySafeterAgent(name=f"stop-archived-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    session = JoySafeterSession(agent_id=agent.id, status="idle", archived_at=utc_now())
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    session_id = session.id
+
+    auth_ctx = JoySafeterAuthContext(
+        user_id="test-user",
+        org_id="test-org",
+        project_id=None,  # type: ignore[arg-type]
+        role=JoySafeterRole.DEVELOPER,
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await stop_session(session_id, db_session, auth_ctx)
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "SESSION_ARCHIVED",
+        "message": "Session is archived",
+        "data": {"session_id": str(session_id)},
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+
+
+@pytest.mark.asyncio
+async def test_stop_session_rejects_terminated_session_with_structured_error(db_session):
+    agent = JoySafeterAgent(name=f"stop-terminated-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    session = JoySafeterSession(agent_id=agent.id, status="terminated")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    session_id = session.id
+
+    auth_ctx = JoySafeterAuthContext(
+        user_id="test-user",
+        org_id="test-org",
+        project_id=None,  # type: ignore[arg-type]
+        role=JoySafeterRole.DEVELOPER,
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await stop_session(session_id, db_session, auth_ctx)
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "SESSION_TERMINATED",
+        "message": "Session is terminated",
+        "data": {"session_id": str(session_id), "session_status": "terminated"},
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
 
 
 @pytest.mark.asyncio
@@ -779,6 +961,39 @@ async def test_stop_session_marks_idle_only_after_active_tasks_cancelled(
 
 
 @pytest.mark.asyncio
+async def test_delete_session_rejects_running_session_with_structured_error(db_session):
+    agent = JoySafeterAgent(name=f"delete-running-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    session = JoySafeterSession(agent_id=agent.id, status="running")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    session_id = session.id
+
+    auth_ctx = JoySafeterAuthContext(
+        user_id="test-user",
+        org_id="test-org",
+        project_id=None,  # type: ignore[arg-type]
+        role=JoySafeterRole.DEVELOPER,
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await delete_session_endpoint(session_id, db_session, auth_ctx)
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "SESSION_ALREADY_RUNNING",
+        "message": "Running session cannot be deleted. Send user.interrupt first.",
+        "data": {"session_id": str(session_id), "session_status": "running"},
+        "source": "api",
+        "retryable": True,
+        "user_action": "interrupt",
+    }
+
+
+@pytest.mark.asyncio
 async def test_delete_session_rejects_active_task_before_deleted_broadcast(db_session, monkeypatch):
     broadcaster = _FakeBroadcaster()
     monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_session_broadcaster", lambda: broadcaster)
@@ -812,11 +1027,17 @@ async def test_delete_session_rejects_active_task_before_deleted_broadcast(db_se
         role=JoySafeterRole.DEVELOPER,
     )
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(AppError) as exc_info:
         await delete_session_endpoint(session_id, db_session, auth_ctx)
 
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == "Session has an active task; stop it before deleting session"
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "SESSION_ACTIVE_TASK",
+        "message": "Session has an active task; stop it before deleting session",
+        "data": {"session_id": str(session_id), "active_task_ids": [str(task_id)]},
+        "source": "api",
+        "retryable": True,
+        "user_action": "retry",
+    }
     assert broadcaster.sent == []
 
     db_session.expire_all()
@@ -826,3 +1047,68 @@ async def test_delete_session_rejects_active_task_before_deleted_broadcast(db_se
     task_row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
     assert session_row.status == "idle"
     assert task_row.chat_session_id == session_id
+
+
+@pytest.mark.asyncio
+async def test_delete_session_keeps_session_when_sandbox_destroy_fails(db_session, monkeypatch):
+    broadcaster = _FakeBroadcaster()
+    provider = _DestroyFailingSandboxProvider()
+    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_session_broadcaster", lambda: broadcaster)
+    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_bridge_registry", lambda: None)
+    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_envoy_manager", lambda: None)
+    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_sandbox_provider", lambda: provider)
+
+    agent = JoySafeterAgent(name=f"delete-sandbox-fail-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    session_id = session.id
+
+    sandbox = JoySafeterSandbox(
+        chat_session_id=session_id,
+        external_id=f"sandbox-{uuid.uuid4()}",
+        image="test-image",
+        status="running",
+    )
+    db_session.add(sandbox)
+    await db_session.commit()
+    await db_session.refresh(sandbox)
+    sandbox_id = sandbox.id
+    external_id = sandbox.external_id
+
+    auth_ctx = JoySafeterAuthContext(
+        user_id="test-user",
+        org_id="test-org",
+        project_id=None,  # type: ignore[arg-type]
+        role=JoySafeterRole.DEVELOPER,
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await delete_session_endpoint(session_id, db_session, auth_ctx)
+
+    assert await handled_app_error_payload(exc_info.value, status_code=503) == {
+        "code": "SESSION_SANDBOX_DESTROY_FAILED",
+        "message": "Session could not be deleted because its sandbox cleanup failed.",
+        "data": {"session_id": str(session_id), "sandbox_id": str(sandbox_id)},
+        "source": "runtime",
+        "retryable": True,
+        "user_action": "retry",
+    }
+    assert provider.stopped == [external_id]
+    assert provider.destroyed == [external_id]
+    assert broadcaster.sent == []
+
+    db_session.expire_all()
+    session_row = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
+    ).scalar_one()
+    sandbox_row = (
+        await db_session.execute(select(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id))
+    ).scalar_one()
+    assert session_row.status == "idle"
+    assert sandbox_row.status == "running"

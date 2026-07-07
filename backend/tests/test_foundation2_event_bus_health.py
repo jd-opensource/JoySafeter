@@ -27,6 +27,14 @@ class _NoopBroadcastSubscriber:
         return None
 
 
+class _FailingBroadcastSubscriber:
+    name = "failing_broadcast"
+    phase = SubscriberPhase.BROADCAST
+
+    async def handle(self, envelope):
+        raise RuntimeError(f"broadcast failed for {envelope.event_type}")
+
+
 class _SuppressingPersistSubscriber:
     name = "suppressing_persist"
     phase = SubscriberPhase.PERSIST
@@ -88,7 +96,32 @@ async def test_publish_records_persist_failure_in_health_snapshot():
     assert health["status"] == "degraded"
     assert health["persist_failure_count"] == 1
     assert health["last_persist_failure"]["event_type"] == "agent.message"
-    assert "persist failed" in health["last_persist_failure"]["error"]
+    error = health["last_persist_failure"]["error"]
+    assert error["type"] == "error"
+    assert error["code"] == "EVENT_BUS_PERSIST_FAILED"
+    assert error["data"]["boundary"] == "event_bus"
+    assert error["data"]["operation"] == "persist"
+    assert error["data"]["event_type"] == "agent.message"
+    assert error["detail"] == "RuntimeError"
+
+
+@pytest.mark.asyncio
+async def test_publish_records_broadcast_failure_in_health_snapshot():
+    bus = JoySafeterEventBus()
+    bus.register(_RecordingPersistSubscriber())
+    bus.register(_FailingBroadcastSubscriber())
+
+    await bus.publish(_envelope("agent.message"))
+
+    health = bus.health_snapshot()
+    assert health["broadcast_failure_count"] == 1
+    assert health["last_broadcast_failure"]["subscriber"] == "failing_broadcast"
+    error = health["last_broadcast_failure"]["error"]
+    assert error["type"] == "error"
+    assert error["code"] == "EVENT_BUS_BROADCAST_FAILED"
+    assert error["data"]["boundary"] == "event_bus"
+    assert error["data"]["operation"] == "broadcast"
+    assert error["data"]["subscriber"] == "failing_broadcast"
 
 
 @pytest.mark.asyncio
@@ -189,3 +222,4 @@ async def test_publish_batch_records_persist_failure_in_health_snapshot():
     assert health["status"] == "degraded"
     assert health["persist_failure_count"] == 1
     assert health["last_persist_failure"]["event_type"] == "agent.message"
+    assert health["last_persist_failure"]["error"]["code"] == "EVENT_BUS_PERSIST_FAILED"
