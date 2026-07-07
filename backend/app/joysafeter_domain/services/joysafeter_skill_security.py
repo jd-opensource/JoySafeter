@@ -38,6 +38,8 @@ from app.joysafeter_domain.models.joysafeter_skill import (
 )
 from app.joysafeter_domain.repositories.joysafeter_skill import SkillRepository, SkillSecurityScanRepository
 from app.joysafeter_shared.common.app_errors import AccessDeniedError, InvalidRequestError, NotFoundError
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure_loguru
 from app.joysafeter_shared.common.skill_permissions import check_skill_access
 from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.skill.yaml_parser import is_system_file
@@ -363,7 +365,20 @@ class SkillSecurityService:
                 target_hash=target_hash,
             )
         except Exception as exc:
-            logger.exception("Skill security scan failed")
+            log_boundary_failure_loguru(
+                logger,
+                boundary="skill_security",
+                code="SKILL_SECURITY_SCAN_FAILED",
+                message="Skill security scan failed",
+                operation="scan_skill",
+                error=exc,
+                data={
+                    "skill_id": str(skill_id) if skill_id else "",
+                    "project_id": str(project_id) if project_id else "",
+                    "trigger": trigger,
+                    "target_hash": target_hash,
+                },
+            )
             scan = JoySafeterSkillSecurityScan(
                 skill_id=skill_id,
                 project_id=project_id,
@@ -1093,7 +1108,17 @@ class SkillPacker:
                     target=target,
                 )
             except Exception as e:
-                logger.warning("Failed to decode packed skill %s: %s", item.get("name"), e)
+                log_boundary_failure_loguru(
+                    logger,
+                    boundary="skill_security",
+                    code="SKILL_PACKED_ARCHIVE_DECODE_FAILED",
+                    message="Failed to decode packed skill archive",
+                    operation="decode_packed_skill",
+                    error=e,
+                    data={"skill_name": str(item.get("name") or "unknown")},
+                    retryable=False,
+                    user_action="correct_request",
+                )
                 return None
 
                 # New format: skill reference
@@ -1265,11 +1290,21 @@ class SkillPacker:
             )
             await self.db.flush()
         except Exception as exc:  # noqa: BLE001 — never fail a pack on logging
-            logger.warning(
-                "Failed to write skill usage log skill=%s version=%s: %s",
-                skill_id,
-                skill_version,
-                exc,
+            log_boundary_failure_loguru(
+                logger,
+                boundary="skill_security",
+                code="SKILL_USAGE_LOG_WRITE_FAILED",
+                message="Failed to write skill usage log",
+                operation="write_skill_usage_log",
+                error=exc,
+                data={
+                    "skill_id": str(skill_id),
+                    "skill_version": str(skill_version) if skill_version is not None else None,
+                    "session_id": str(self._session_id) if self._session_id is not None else None,
+                    "agent_id": str(self._agent_id) if self._agent_id is not None else None,
+                    "project_id": str(self._project_id) if self._project_id is not None else None,
+                    "user_id": self._user_id,
+                },
             )
 
     def _create_targz(self, files, root_dir: Optional[str] = None) -> bytes:
@@ -1402,11 +1437,11 @@ async def run_scan_in_background(
     write the verdict back. Designed to be wired into FastAPI's
     ``BackgroundTasks.add_task(...)``.
 
-    Failure handling: any exception is logged and the skill row is left
-    with ``security_status='scanning'`` until the next manual rescan.
-    We deliberately do NOT auto-flip to ``failed`` here — a transient
-    SkillSpector outage shouldn't trap the skill in a runtime-blocked
-    state; the next user-triggered scan will resolve it.
+    Failure handling: scanner failures normally return a ``failed`` scan via
+    ``scan_for_write(..., failure_mode='fail_open')``. If the background task
+    itself fails outside that scanner path, record a synthetic ``failed`` scan
+    with a structured error payload and apply it to the skill row. This avoids
+    leaving the runtime gate stuck on the transient ``scanning`` state.
 
     The function lives in this module (not inside the service) because
     it needs to open a fresh DB session — the request's session has
@@ -1448,15 +1483,94 @@ async def run_scan_in_background(
                 # Refresh the skill row with the latest verdict.
             skill = await db.get(JoySafeterSkill, skill_id)
             if skill is None:
-                logger.warning(
-                    "Skill %s vanished before async scan finished; verdict dropped",
-                    skill_id,
+                log_boundary_failure_loguru(
+                    logger,
+                    boundary="skill_security",
+                    code="SKILL_SECURITY_ASYNC_SCAN_TARGET_MISSING",
+                    message="Skill vanished before async scan finished; verdict dropped",
+                    operation="apply_async_scan_verdict",
+                    data={"skill_id": str(skill_id), "trigger": trigger, "project_id": project_id},
+                    retryable=False,
+                    user_action=None,
                 )
                 return
             svc.apply_latest_scan(skill, scan)
             await db.commit()
-        except Exception:  # noqa: BLE001 — see docstring
+        except Exception as exc:  # noqa: BLE001 — see docstring
+            error_payload = async_boundary_error_payload(
+                code="SKILL_SECURITY_BACKGROUND_SCAN_FAILED",
+                message="Background skill security scan failed",
+                boundary="skill_security",
+                operation="run_background_scan",
+                data={
+                    "skill_id": str(skill_id),
+                    "trigger": trigger,
+                    "project_id": project_id,
+                    "owner_id": owner_id,
+                },
+                source="runtime",
+                retryable=True,
+                user_action="retry",
+                detail=exc.__class__.__name__,
+            )
             logger.exception(
                 "Background skill security scan failed for skill_id=%s",
                 skill_id,
+                extra={"error": error_payload},
             )
+            try:
+                await db.rollback()
+            except Exception:
+                logger.debug("Failed to rollback after background skill scan failure", exc_info=True)
+            try:
+                svc = SkillSecurityService(db)
+                scan_files = svc._build_scan_files(
+                    name=name,
+                    description=description,
+                    content=content,
+                    tags=tags or [],
+                    license=license,
+                    files=files,
+                )
+                target_hash = svc._target_hash(
+                    name=name,
+                    description=description,
+                    content=content,
+                    tags=tags or [],
+                    license=license,
+                    files=scan_files,
+                )
+                failed_scan = JoySafeterSkillSecurityScan(
+                    skill_id=skill_id,
+                    project_id=project_id,
+                    owner_id=owner_id,
+                    created_by_id=created_by_id,
+                    trigger=trigger,
+                    target_name=name,
+                    target_hash=target_hash,
+                    scanner="skillspector",
+                    scanner_version=None,
+                    status="failed",
+                    score=None,
+                    severity=None,
+                    recommendation=None,
+                    issues_count=0,
+                    critical_count=0,
+                    high_count=0,
+                    medium_count=0,
+                    low_count=0,
+                    report={"error": error_payload},
+                    error_message=error_payload["message"],
+                )
+                db.add(failed_scan)
+                await db.flush()
+                skill = await db.get(JoySafeterSkill, skill_id)
+                if skill and skill.security_status == "scanning":
+                    svc.apply_latest_scan(skill, failed_scan)
+                await db.commit()
+            except Exception:
+                logger.exception(
+                    "Failed to record background skill security scan failure for skill_id=%s",
+                    skill_id,
+                    extra={"error": error_payload},
+                )

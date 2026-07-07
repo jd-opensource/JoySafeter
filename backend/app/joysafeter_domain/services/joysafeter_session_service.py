@@ -25,6 +25,7 @@ import uuid
 from typing import Any, cast
 
 from app.joysafeter_shared.cache.redis import RedisClient
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 from app.joysafeter_shared.config.service_role import current_role
 from app.joysafeter_shared.config.settings import joysafeter_config
 
@@ -79,7 +80,26 @@ async def publish_session_event_realtime(
     try:
         await redis.publish(channel, wrapper)
     except Exception as exc:
-        logger.debug("Failed to publish session event realtime", exc_info=exc)
+        logger.warning(
+            "Failed to publish session event realtime",
+            extra={
+                "error": async_boundary_error_payload(
+                    code="SESSION_REALTIME_REDIS_PUBLISH_FAILED",
+                    message="Failed to publish session event realtime",
+                    boundary="session_event_realtime",
+                    operation="redis_publish",
+                    data={
+                        "session_id": str(session_id),
+                        "event_id": str(event_id) if event_id else None,
+                        "event_type": event_type,
+                        "seq": seq,
+                        "channel": channel,
+                    },
+                    detail=exc.__class__.__name__,
+                )
+            },
+            exc_info=True,
+        )
 
 
 # ============================================================================

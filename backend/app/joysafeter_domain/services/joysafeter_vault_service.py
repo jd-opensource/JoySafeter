@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_vault import JoySafeterVault, JoySafeterVaultCredential
 from app.joysafeter_domain.services.joysafeter_vault_cipher import VaultCipher
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.utils.datetime import utc_now
 
 logger = logging.getLogger(__name__)
@@ -346,6 +347,14 @@ class VaultService:
 
                     return new_token
         except Exception as e:
-            logger.warning("OAuth refresh failed for cred %s: %s", cred.id, e)
+            log_boundary_failure(
+                logger,
+                boundary="vault_service",
+                code="VAULT_OAUTH_REFRESH_FAILED",
+                message="OAuth credential refresh failed",
+                operation="refresh_oauth_credential",
+                error=e,
+                data={"credential_id": str(cred.id), "vault_id": str(cred.vault_id)},
+            )
 
         return current_token

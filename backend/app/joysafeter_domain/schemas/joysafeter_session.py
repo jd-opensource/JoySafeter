@@ -111,7 +111,13 @@ class InterruptedStopReason(BaseModel):
 
 class ErrorStopReason(BaseModel):
     type: Literal["error"] = "error"
-    message: Optional[str] = None
+    code: str = "UNKNOWN_ERROR"
+    message: str
+    data: Optional[Dict[str, Any]] = None
+    source: str = "internal"
+    retryable: bool = False
+    user_action: Optional[str] = None
+    detail: Optional[str] = None
 
 
 class TimeoutStopReason(BaseModel):

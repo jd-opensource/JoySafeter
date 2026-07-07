@@ -26,6 +26,8 @@ import logging
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
+from app.joysafeter_shared.common.stream_errors import async_error_payload
 from app.joysafeter_shared.llm.openai_stream import stream_openai_chat
 
 logger = logging.getLogger(__name__)
@@ -293,7 +295,7 @@ async def stream_authoring_chat(
         {"type": "text_delta", "text": "..."}
         {"type": "draft_patch", "patch": {...}}
         {"type": "done"}
-        {"type": "error", "message": "..."}
+        {"type": "error", "code": "...", "message": "...", "data": None, ...}
 
     ``draft_patch`` is produced by parsing the completed ``update_draft``
     tool call's JSON arguments. Invalid JSON from the model is logged and
@@ -324,13 +326,31 @@ async def stream_authoring_chat(
             try:
                 patch = json.loads(args_raw)
             except json.JSONDecodeError as exc:
-                logger.warning("update_draft args parse failed: %s; raw=%r", exc, args_raw[:400])
+                log_boundary_failure(
+                    logger,
+                    boundary="skill_authoring",
+                    code="SKILL_AUTHORING_DRAFT_PATCH_PARSE_FAILED",
+                    message="Failed to parse update_draft arguments",
+                    operation="parse_update_draft_args",
+                    error=exc,
+                    data={"raw_length": len(args_raw)},
+                    retryable=False,
+                    user_action=None,
+                )
                 continue
             if not isinstance(patch, dict) or not patch:
                 continue
             yield {"type": "draft_patch", "patch": patch}
         elif etype == "error":
-            yield {"type": "error", "message": event.get("message") or "LLM error"}
+            status = event.get("status")
+            yield async_error_payload(
+                code=event.get("code") or "UPSTREAM_STREAM_ERROR",
+                message=event.get("message") or "LLM error",
+                data=event.get("data") if isinstance(event.get("data"), dict) else None,
+                source=event.get("source") or "upstream",
+                retryable=bool(event.get("retryable", False)),
+                status=status if isinstance(status, int) else None,
+            )
             return
         elif etype == "done":
             yield {"type": "done"}

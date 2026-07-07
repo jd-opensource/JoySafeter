@@ -52,16 +52,18 @@ class ApiKeyService:
         )
         return list(result.scalars().all())
 
-    async def revoke_key(self, key_id, project_id: str) -> None:
+    async def revoke_key(self, key_id, project_id: str) -> bool:
         result = await self.db.execute(
             select(JoySafeterApiKey).where(
                 and_(JoySafeterApiKey.id == key_id, JoySafeterApiKey.project_id == project_id)
             )
         )
         key = result.scalar_one_or_none()
-        if key:
-            key.revoked_at = datetime.now(timezone.utc)
-            await self.db.commit()
+        if not key:
+            return False
+        key.revoked_at = datetime.now(timezone.utc)
+        await self.db.commit()
+        return True
 
     async def touch_last_used(self, key_id) -> None:
         result = await self.db.execute(select(JoySafeterApiKey).where(JoySafeterApiKey.id == key_id))
