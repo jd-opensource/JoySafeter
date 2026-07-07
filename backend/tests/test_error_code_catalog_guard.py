@@ -1,3 +1,6 @@
+import sys
+from pathlib import Path
+
 from app.joysafeter_shared.common.error_catalog import (
     CATALOG,
     CatalogEntry,
@@ -5,6 +8,9 @@ from app.joysafeter_shared.common.error_catalog import (
     entry_for,
     is_registered,
 )
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+from gen_error_catalog import collect  # noqa: E402
 
 
 def test_catalog_is_wellformed_registry():
@@ -42,3 +48,9 @@ def test_catalog_accessors():
         assert is_registered(sample) is True
         assert entry_for(sample) is CATALOG[sample]
         assert sample in all_codes()
+
+
+def test_every_emitted_code_is_registered():
+    emitted = set(collect())
+    missing = sorted(emitted - all_codes())
+    assert not missing, f"Codes raised in the backend but absent from CATALOG (add them to error_catalog.py): {missing}"
