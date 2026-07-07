@@ -1270,3 +1270,26 @@ async def test_session_realtime_publish_failure_logs_structured_boundary_error(c
         "user_action": "retry",
         "detail": "RuntimeError",
     }
+
+
+def test_boundary_payload_honors_explicit_error_class():
+    from app.joysafeter_shared.common.app_errors import NotFoundError
+    from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
+
+    payload = async_boundary_error_payload(
+        code="TASK_AGENT_NOT_FOUND",
+        message="agent gone",
+        boundary="worker",
+        operation="dispatch",
+        error_class=NotFoundError,
+    )
+    assert payload["code"] == "TASK_AGENT_NOT_FOUND"
+    # NotFoundError default retryable is False -- not the old hardcoded 503 retryable=True.
+    assert payload["retryable"] is False
+
+
+def test_boundary_payload_defaults_to_service_unavailable():
+    from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
+
+    payload = async_boundary_error_payload(code="REDIS_DOWN", message="redis", boundary="bus", operation="publish")
+    assert payload["retryable"] is True

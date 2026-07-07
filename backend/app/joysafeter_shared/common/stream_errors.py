@@ -4,6 +4,41 @@ import json
 from typing import Any, Mapping
 
 from app.joysafeter_shared.common.app_errors import AppError, normalize_app_error
+from app.joysafeter_shared.common.error_catalog import entry_for
+
+
+def _build_error(
+    *,
+    code: str,
+    message: str,
+    data: Mapping[str, Any] | None,
+    source: str,
+    retryable: bool,
+    user_action: str | None,
+    detail: str | None,
+) -> AppError:
+    """Construct the catalog-registered semantic subclass for ``code`` (so HTTP
+    source/semantics are derived centrally), falling back to a bare AppError for
+    codes not in the catalog (e.g. stream/boundary-only codes)."""
+    entry = entry_for(code)
+    if entry is not None:
+        return entry.error_class(
+            code=code,
+            message=message,
+            data=data,
+            retryable=retryable,
+            user_action=user_action,
+            detail=detail,
+        )
+    return AppError(
+        code=code,
+        message=message,
+        data=data,
+        source=source,
+        retryable=retryable,
+        user_action=user_action,
+        detail=detail,
+    )
 
 
 def error_payload(
@@ -59,7 +94,7 @@ def async_error_payload(
     detail: str | None = None,
     status: int | None = None,
 ) -> dict[str, Any]:
-    return AppError(
+    return _build_error(
         code=code,
         message=message,
         data=data,
@@ -81,7 +116,7 @@ def stream_error_event(
     detail: str | None = None,
     status: int | None = None,
 ) -> str:
-    payload = AppError(
+    payload = _build_error(
         code=code,
         message=message,
         data=data,

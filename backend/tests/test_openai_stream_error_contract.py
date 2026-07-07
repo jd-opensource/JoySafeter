@@ -25,3 +25,22 @@ def test_openai_stream_transport_error_event_is_structured():
         "retryable": True,
         "status": None,
     }
+
+
+def test_async_error_payload_uses_catalog_semantic_class():
+    from app.joysafeter_shared.common.stream_errors import async_error_payload
+
+    payload = async_error_payload(code="SESSION_NOT_FOUND", message="x")
+    assert payload["type"] == "error"
+    assert payload["code"] == "SESSION_NOT_FOUND"
+    # SESSION_NOT_FOUND is a NotFoundError (DomainError) in the catalog, so its source
+    # is "api" -- not the bare-AppError default "internal" the old path produced.
+    assert payload["source"] == "api"
+
+
+def test_async_error_payload_falls_back_for_unregistered_code():
+    from app.joysafeter_shared.common.stream_errors import async_error_payload
+
+    payload = async_error_payload(code="__NOT_IN_CATALOG__", message="x", source="runtime")
+    assert payload["code"] == "__NOT_IN_CATALOG__"
+    assert payload["source"] == "runtime"
