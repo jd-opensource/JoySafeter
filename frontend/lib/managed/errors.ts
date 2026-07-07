@@ -77,7 +77,7 @@ export function getOperationErrorMessage(
     })
   }
 
-  if (code === 'JOYSAFETER_WRITE_REQUIRED' || code === 'WRITE_ACCESS_DENIED') {
+  if (code === 'JOYSAFETER_WRITE_REQUIRED') {
     return t('managed.errors.writeRequired')
   }
   if (code === 'JOYSAFETER_ADMIN_REQUIRED') {
@@ -97,9 +97,6 @@ export function getOperationErrorMessage(
   }
   if (code === 'PROJECT_ARCHIVED') {
     return t('managed.errors.projectArchived')
-  }
-  if (code === 'RESOURCE_ARCHIVED') {
-    return t('managed.errors.resourceArchived')
   }
   if (code === 'NOT_FOUND' || code.endsWith('_NOT_FOUND')) {
     return t('managed.errors.resourceNotFound')
