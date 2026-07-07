@@ -2,7 +2,7 @@
 # 支持可配置的基础镜像源和 pip 镜像源
 
 # 可配置的基础镜像（默认使用官方镜像，可通过 ARG 切换到国内镜像）
-ARG BASE_IMAGE_REGISTRY="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/"
+ARG BASE_IMAGE_REGISTRY=""
 ARG PYTHON_VERSION=3.12-slim
 FROM ${BASE_IMAGE_REGISTRY}python:${PYTHON_VERSION} AS base
 
@@ -55,6 +55,6 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV UV_CACHE_DIR=/app/.cache/uv
 
-EXPOSE 8000 8001 8002 9090
+EXPOSE 8000 8001 8002 8003 9090
 
 CMD ["sh", "-c", "python -m gunicorn ${BACKEND_APP_MODULE:-app.joysafeter_api.main:app} -w ${WORKERS:-1} -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${BACKEND_PORT:-8000} --timeout 120"]
