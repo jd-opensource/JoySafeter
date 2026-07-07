@@ -295,6 +295,13 @@ services:
       EVEROS_ROOT: ${EVEROS_ROOT:-/data/everos}
       EVEROS_API__HOST: 0.0.0.0
       EVEROS_API__PORT: 8003
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        python -m app.everos.entrypoints.cli.main init --root "$${EVEROS_ROOT:-/data/everos}" || true
+        exec python -m gunicorn "$${BACKEND_APP_MODULE:-app.everos.entrypoints.api.app:create_app}" -w "$${WORKERS:-1}" -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:"$${BACKEND_PORT:-8003}" --timeout 120
     ports:
       - "${EVEROS_BIND_HOST:-127.0.0.1}:${EVEROS_PORT_HOST:-8003}:8003"
     depends_on: *backend-depends
