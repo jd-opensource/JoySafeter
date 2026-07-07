@@ -279,6 +279,35 @@ services:
     networks:
       - joysafeter-network
 
+  everos:
+    image: ${BACKEND_FULL_IMAGE:-joysafeter-backend:latest}
+    build: *backend-build
+    container_name: joysafeter-everos
+    restart: unless-stopped
+    env_file: *backend-env-files
+    environment:
+      <<: *backend-common-env
+      JOYSAFETER_SERVICE_ROLE: everos
+      BACKEND_APP_MODULE: app.everos.entrypoints.api.app:create_app
+      BACKEND_PORT: 8003
+      WORKERS: 1
+      EVEROS_ROOT: ${EVEROS_ROOT:-/data/everos}
+      EVEROS_API__HOST: 0.0.0.0
+      EVEROS_API__PORT: 8003
+    ports:
+      - "${EVEROS_BIND_HOST:-127.0.0.1}:${EVEROS_PORT_HOST:-8003}:8003"
+    depends_on: *backend-depends
+    volumes:
+      - backend-logs:/app/app/logs
+      - backend-files:/app/data/files
+      - ../skills:/app/skills:ro
+      - everos-data:/data/everos
+    healthcheck:
+      <<: *backend-health-common
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health', timeout=5)"]
+    networks:
+      - joysafeter-network
+
   worker:
     image: ${BACKEND_FULL_IMAGE:-joysafeter-backend:latest}
     build: *backend-build
@@ -359,6 +388,9 @@ volumes:
   backend-files:
     driver: local
     name: joysafeter-backend-files
+  everos-data:
+    driver: local
+    name: joysafeter-everos-data
   joysafeter-sockets:
     driver: local
     name: ${JOYSAFETER_ENVOY_SOCKET_VOLUME:-joysafeter-sockets}
