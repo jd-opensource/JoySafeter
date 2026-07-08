@@ -1,5 +1,6 @@
 """Direct task API dispatch must work in split-service mode and fail explicitly."""
 
+import json
 import uuid
 
 import pytest
@@ -12,6 +13,7 @@ from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession, JoySafeterSessionEvent
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskRequest
@@ -27,6 +29,34 @@ class _FakeRedis:
 
     async def rpush(self, key: str, value: str) -> None:
         self.rpushed.append((key, value))
+
+
+class _FakeCommandRedis:
+    def __init__(self):
+        self.published: list[tuple[str, dict]] = []
+        self.acks: dict[str, str] = {}
+
+    async def get(self, key: str) -> str:
+        assert key.startswith("joysafeter:sandbox_owner:")
+        return "owner-1"
+
+    async def publish(self, channel: str, command: str) -> int:
+        payload = json.loads(command)
+        self.published.append((channel, payload))
+        if payload.get("ack_key"):
+            self.acks[payload["ack_key"]] = json.dumps(
+                {
+                    "command_id": payload.get("command_id", ""),
+                    "ok": True,
+                }
+            )
+        return 1
+
+    async def blpop(self, key: str, timeout: int = 0):
+        payload = self.acks.pop(key, None)
+        if payload is None:
+            return None
+        return key, payload
 
 
 def _auth_ctx() -> JoySafeterAuthContext:
@@ -770,6 +800,57 @@ async def test_cancel_task_rejects_terminal_task_with_structured_error(db_sessio
         "retryable": False,
         "user_action": "refresh",
     }
+
+
+@pytest.mark.asyncio
+async def test_cancel_task_relays_cancel_to_rust_orchestrator(db_session, monkeypatch):
+    redis = _FakeCommandRedis()
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+
+    agent = JoySafeterAgent(name=f"cancel-relay-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.flush()
+    session = JoySafeterSession(agent_id=agent.id, status="running")
+    db_session.add(session)
+    await db_session.flush()
+
+    sandbox = JoySafeterSandbox(
+        chat_session_id=session.id,
+        external_id="sandbox-cancel-relay",
+        provider="docker",
+        status="running",
+        image="joysafeter/test:latest",
+    )
+    db_session.add(sandbox)
+    await db_session.flush()
+    session.last_sandbox_id = sandbox.id
+
+    task = JoySafeterTask(
+        agent_id=agent.id,
+        chat_session_id=session.id,
+        sandbox_id=sandbox.id,
+        prompt="long running",
+        status=JoySafeterTaskStatus.RUNNING.value,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    task_id = task.id
+
+    response = await cancel_task(task_id, db_session, _auth_ctx())
+
+    assert response == {"id": str(task_id), "status": "cancelled"}
+    command_publishes = [(channel, payload) for channel, payload in redis.published if channel.startswith("joysafeter:cmd:")]
+    assert len(command_publishes) == 1
+    channel, payload = command_publishes[0]
+    assert channel == "joysafeter:cmd:owner-1"
+    assert payload["type"] == "cancel"
+    assert payload["sandbox_id"] == str(sandbox.id)
+    assert payload["reason"] == "Cancelled via API"
+    assert payload["ack_key"].startswith("joysafeter:cmd_ack:")
 
 
 @pytest.mark.asyncio

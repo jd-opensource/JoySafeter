@@ -829,12 +829,7 @@ async def stop_session(
 
     from app.joysafeter_api.services import JoySafeterTaskService as TaskService
     from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
-    from app.joysafeter_shared.orchestrator_bridge import (
-        get_bridge_registry,
-        get_redis_coordinator,
-        get_session_broadcaster,
-    )
-    from app.joysafeter_shared.orchestrator_bridge.proto import joysafeter_pb2
+    from app.joysafeter_shared.orchestrator_bridge import get_session_broadcaster
 
     stop_reason = {"type": "cancelled"}
     task_svc = TaskService(db)
@@ -852,60 +847,12 @@ async def stop_session(
         except Exception:
             logger.debug("Failed to cancel task %s during session stop", task.id)
 
-    registry = get_bridge_registry()
-    locally_cancelled: set[uuid.UUID] = set()
-    if registry:
-        for task in active_tasks:
-            if task.id not in cancelled_task_ids:
-                continue
-            bridge = registry.get_by_task(task.id)
-            if bridge:
-                bridge.request_cancel()
-                if bridge.runner_stream:
-                    try:
-                        await bridge.write_to_runner(
-                            joysafeter_pb2.OrchestratorMessage(
-                                cancel=joysafeter_pb2.CancelTask(reason="Cancelled via session stop")
-                            )
-                        )
-                        locally_cancelled.add(task.id)
-                    except Exception as exc:
-                        log_boundary_failure(
-                            logger,
-                            boundary="session_api",
-                            code="SESSION_STOP_GRPC_CANCEL_FAILED",
-                            message="Failed to send CancelTask during session stop",
-                            operation="stop_session_cancel_runner",
-                            error=exc,
-                            data={"session_id": str(session_id), "task_id": str(task.id)},
-                        )
-
-    coordinator = get_redis_coordinator()
-    if coordinator:
-        for task in active_tasks:
-            if task.id not in cancelled_task_ids:
-                continue
-            if task.id not in locally_cancelled:
-                sandbox_id = await coordinator.get_task_sandbox(task.id)
-                if sandbox_id:
-                    owner = await coordinator.get_sandbox_owner(sandbox_id)
-                    if owner:
-                        if isinstance(owner, bytes):
-                            owner = owner.decode()
-                        await coordinator.send_instance_command(
-                            owner,
-                            {"type": "cancel", "sandbox_id": str(sandbox_id)},
-                        )
-            await coordinator.publish_event(
-                task.id,
-                json.dumps(
-                    {
-                        "type": "complete",
-                        "output": "",
-                        "error": "Cancelled via session stop",
-                        "status": "cancelled",
-                    }
-                ),
+    for task in active_tasks:
+        if task.id in cancelled_task_ids:
+            await _relay_cancel_via_redis(
+                session,
+                reason="Cancelled via session stop",
+                sandbox_id=getattr(task, "sandbox_id", None),
             )
 
     remaining_active = await task_svc.list_active_tasks_by_session(session_id, project_id=auth_ctx.project_id)
@@ -1106,7 +1053,7 @@ async def _relay_control_via_redis(
     return delivered
 
 
-async def _relay_cancel_via_redis(session, *, reason: str) -> bool:
+async def _relay_cancel_via_redis(session, *, reason: str, sandbox_id: uuid.UUID | str | None = None) -> bool:
     """Send a `cancel` command for this session's active sandbox via Redis.
 
     Used by user.interrupt to force the task to terminate after the LLM has
@@ -1115,7 +1062,8 @@ async def _relay_cancel_via_redis(session, *, reason: str) -> bool:
     completes). Pairing interrupt with cancel ensures the task transitions
     to a terminal status so the session can be sent a fresh user.message.
     """
-    if not getattr(session, "last_sandbox_id", None):
+    sandbox_id = sandbox_id or getattr(session, "last_sandbox_id", None)
+    if not sandbox_id:
         return False
     try:
         from app.joysafeter_shared.cache.redis import RedisClient
@@ -1124,7 +1072,7 @@ async def _relay_cancel_via_redis(session, *, reason: str) -> bool:
     redis_client = RedisClient.get_client()
     if redis_client is None:
         return False
-    sandbox_id = str(session.last_sandbox_id)
+    sandbox_id = str(sandbox_id)
     try:
         owner = await redis_client.get(f"joysafeter:sandbox_owner:{sandbox_id}")
     except Exception:

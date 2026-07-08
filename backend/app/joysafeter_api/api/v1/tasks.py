@@ -153,6 +153,33 @@ def _task_stream_error_payload(
     )
 
 
+async def _relay_task_cancel_to_orchestrator(task, db: AsyncSession, *, reason: str) -> bool:
+    sandbox_id = getattr(task, "sandbox_id", None)
+    if not sandbox_id and getattr(task, "chat_session_id", None):
+        from app.joysafeter_api.services import SandboxService
+
+        sandbox = await SandboxService(db).find_by_session(task.chat_session_id)
+        sandbox_id = sandbox.id if sandbox else None
+    if not sandbox_id:
+        return False
+
+    from app.joysafeter_api.runtime_commands import relay_sandbox_command_via_redis
+
+    return await relay_sandbox_command_via_redis(
+        sandbox_id,
+        command_type="cancel",
+        reason=reason,
+        boundary="task_api",
+        operation="cancel_task_relay_runner",
+        failure_code="TASK_CANCEL_REDIS_RELAY_FAILED",
+        failure_message="Task cancel Redis relay failed",
+        data={
+            "task_id": str(task.id),
+            "session_id": str(getattr(task, "chat_session_id", "") or ""),
+        },
+    )
+
+
 def _validate_idempotent_task_replay(req: CreateTaskRequest, existing) -> None:
     if req.agent_id is not None and existing.agent_id != req.agent_id:
         raise _task_idempotency_conflict_error(
@@ -645,50 +672,9 @@ async def cancel_task(
     # already checked above.
     assert task is not None
 
-    from app.joysafeter_shared.orchestrator_bridge.proto import joysafeter_pb2
-    from app.joysafeter_shared.orchestrator_bridge import get_bridge_registry, get_redis_coordinator, get_session_broadcaster
+    from app.joysafeter_shared.orchestrator_bridge import get_session_broadcaster
 
-    # Send gRPC CancelTask to the sandbox bridge if the task is running locally
-    registry = get_bridge_registry()
-    grpc_cancel_sent = False
-    if registry:
-        bridge = registry.get_by_task(task_id)
-        if bridge:
-            bridge.request_cancel()
-            # Send CancelTask message over gRPC so the runner actually stops
-            if bridge.runner_stream:
-                try:
-                    cancel_msg = joysafeter_pb2.OrchestratorMessage(
-                        cancel=joysafeter_pb2.CancelTask(reason="Cancelled via API")
-                    )
-                    await bridge.write_to_runner(cancel_msg)
-                    grpc_cancel_sent = True
-                except Exception as exc:
-                    log_boundary_failure(
-                        logger,
-                        boundary="task_api",
-                        code="TASK_CANCEL_GRPC_SEND_FAILED",
-                        message="Failed to send gRPC CancelTask",
-                        operation="cancel_task_grpc_send",
-                        error=exc,
-                        data={"task_id": str(task_id)},
-                    )
-
-    # Cross-instance: if the task wasn't found on this instance, route via Redis
-    if not grpc_cancel_sent:
-        coordinator = get_redis_coordinator()
-        if coordinator:
-            sandbox_id = await coordinator.get_task_sandbox(task_id)
-            if sandbox_id:
-                owner = await coordinator.get_sandbox_owner(sandbox_id)
-                if owner:
-                    # Decode bytes from Redis if needed
-                    if isinstance(owner, bytes):
-                        owner = owner.decode()
-                    await coordinator.send_instance_command(
-                        owner,
-                        {"type": "cancel", "sandbox_id": str(sandbox_id)},
-                    )
+    await _relay_task_cancel_to_orchestrator(task, db, reason="Cancelled via API")
 
     # Transition the linked ChatSession to idle with cancellation stop_reason
     session_id = task.chat_session_id
@@ -752,14 +738,6 @@ async def cancel_task(
                 {"type": "session.status_idle", "task_id": str(task_id), "stop_reason": stop_reason},
             )
 
-    # Publish cancellation over Redis pub/sub for cross-instance WebSocket streams
-    coordinator = get_redis_coordinator()
-    if coordinator:
-        await coordinator.publish_event(
-            task_id,
-            json.dumps({"type": "complete", "output": "", "error": "Cancelled via API", "status": "cancelled"}),
-        )
-
     return {"id": str(task_id), "status": "cancelled"}
 
 
@@ -771,8 +749,8 @@ async def task_stream(websocket: WebSocket, task_id: uuid.UUID):
     from app.joysafeter_domain.models.joysafeter_auth import AuthUser
     from app.joysafeter_domain.models.joysafeter_organization import Member
     from app.joysafeter_domain.models.joysafeter_project import Project
-    from app.joysafeter_shared.orchestrator_bridge import get_bridge_registry
     from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
+    from app.joysafeter_shared.orchestrator_bridge import get_bridge_registry
     from app.joysafeter_shared.security import decode_token
 
     token = None

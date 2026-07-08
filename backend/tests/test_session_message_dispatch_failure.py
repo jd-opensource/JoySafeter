@@ -903,9 +903,14 @@ async def test_stop_session_marks_idle_only_after_active_tasks_cancelled(
     db_session,
     monkeypatch,
 ):
+    redis = _FakeCommandRedis()
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_bridge_registry", lambda: None)
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_redis_coordinator", lambda: None)
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
 
     agent = JoySafeterAgent(name=f"stop-ok-agent-{uuid.uuid4()}")
     db_session.add(agent)
@@ -918,9 +923,22 @@ async def test_stop_session_marks_idle_only_after_active_tasks_cancelled(
     await db_session.refresh(session)
     session_id = session.id
 
+    sandbox = JoySafeterSandbox(
+        chat_session_id=session_id,
+        external_id="sandbox-stop-relay",
+        provider="docker",
+        status="running",
+        image="joysafeter/test:latest",
+    )
+    db_session.add(sandbox)
+    await db_session.flush()
+    session.last_sandbox_id = sandbox.id
+    sandbox_id = str(sandbox.id)
+
     task = JoySafeterTask(
         agent_id=agent.id,
         chat_session_id=session_id,
+        sandbox_id=sandbox.id,
         prompt="long running",
         status=JoySafeterTaskStatus.RUNNING.value,
     )
@@ -958,6 +976,13 @@ async def test_stop_session_marks_idle_only_after_active_tasks_cancelled(
     assert session_row.status == "idle"
     assert session_row.stop_reason == {"type": "cancelled"}
     assert idle_event.payload == {"stop_reason": {"type": "cancelled"}}
+    command_publishes = [(channel, payload) for channel, payload in redis.published if channel.startswith("joysafeter:cmd:")]
+    assert len(command_publishes) == 1
+    channel, payload = command_publishes[0]
+    assert channel == "joysafeter:cmd:owner-1"
+    assert payload["type"] == "cancel"
+    assert payload["sandbox_id"] == sandbox_id
+    assert payload["reason"] == "Cancelled via session stop"
 
 
 @pytest.mark.asyncio
