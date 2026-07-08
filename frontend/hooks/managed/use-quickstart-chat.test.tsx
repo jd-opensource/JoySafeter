@@ -18,6 +18,30 @@ const originalFetch = globalThis.fetch
 const dom = new JSDOM('<!doctype html><html><body></body></html>')
 const encoder = new TextEncoder()
 
+function quickstartAgentConfigResponse(resourceId?: string): Response {
+  const stream = new ReadableStream({
+    start(controller) {
+      for (const event of [
+        {
+          type: 'config_update',
+          step: 2,
+          config: { name: 'Research Agent', system_prompt: 'Research carefully.' },
+        },
+        {
+          type: 'step_complete',
+          step: 2,
+          curl: 'curl -X POST /agents',
+          ...(resourceId ? { resource_id: resourceId } : {}),
+        },
+      ]) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+      }
+      controller.close()
+    },
+  })
+  return new Response(stream, { status: 200 })
+}
+
 Object.assign(globalThis, {
   window: dom.window,
   document: dom.window.document,
@@ -99,24 +123,9 @@ describe('useQuickstartChat resource creation', () => {
 
   it('keeps generated-step confirmation available when confirmed creation fails', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    const stream = new ReadableStream({
-      start(controller) {
-        for (const event of [
-          {
-            type: 'config_update',
-            step: 2,
-            config: { name: 'Research Agent', system_prompt: 'Research carefully.' },
-          },
-          { type: 'step_complete', step: 2, curl: 'curl -X POST /agents' },
-        ]) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
-        }
-        controller.close()
-      },
-    })
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(new Response(stream, { status: 200 }))
+      .mockResolvedValueOnce(quickstartAgentConfigResponse())
       .mockResolvedValueOnce(new Response('agent create failed', { status: 500 }))
     globalThis.fetch = fetchMock as typeof fetch
 
@@ -142,5 +151,65 @@ describe('useQuickstartChat resource creation', () => {
     expect(result.current.resourceIds[3]).toBeUndefined()
     expect(result.current.completedSteps.has(3)).toBe(false)
     expect(result.current.messages.at(-1)?.content).toContain('API 500')
+  })
+
+  it('requires an id from confirmed generated resource creation before completing the step', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(quickstartAgentConfigResponse())
+      .mockResolvedValueOnce(
+        Response.json({
+          success: true,
+          data: { name: 'Research Agent' },
+        }),
+      )
+    globalThis.fetch = fetchMock as typeof fetch
+
+    const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
+
+    await act(async () => {
+      await result.current.sendMessage('make an agent', { stepOverride: 3 })
+    })
+    await act(async () => {
+      await result.current.confirmStep()
+    })
+
+    expect(result.current.pendingConfirmation).toEqual({
+      step: 3,
+      curl: 'curl -X POST /agents',
+    })
+    expect(result.current.resourceIds[3]).toBeUndefined()
+    expect(result.current.completedSteps.has(3)).toBe(false)
+  })
+
+  it('requires a session id before marking session creation complete', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(quickstartAgentConfigResponse('agent_123'))
+      .mockResolvedValueOnce(
+        Response.json({
+          success: true,
+          data: { status: 'running' },
+        }),
+      )
+    globalThis.fetch = fetchMock as typeof fetch
+
+    const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
+
+    await act(async () => {
+      await result.current.sendMessage('make an agent', { stepOverride: 3 })
+    })
+    expect(result.current.resourceIds[3]).toBe('agent_123')
+
+    await act(async () => {
+      await result.current.createSession()
+    })
+
+    expect(result.current.resourceIds[6]).toBeUndefined()
+    expect(result.current.completedSteps.has(6)).toBe(false)
+    expect(result.current.messages.at(-1)?.content).toBe(
+      'managed.quickstart.errors.createSessionFailed',
+    )
   })
 })

@@ -341,13 +341,13 @@ export function useQuickstartChat(
 
       const result = await resp.json()
       const sessionId = getCreatedResourceId(result)
-      if (sessionId) {
-        setResourceIds((prev) => {
-          const next = { ...prev, [6]: sessionId }
-          resourceIdsRef.current = next
-          return next
-        })
-      }
+      if (!sessionId) throw new Error(t('managed.quickstart.errors.createSessionFailed'))
+
+      setResourceIds((prev) => {
+        const next = { ...prev, [6]: sessionId }
+        resourceIdsRef.current = next
+        return next
+      })
 
       const sessionCurl = `curl -X POST ${MANAGED_API_BASE}/sessions \\
   -H "Content-Type: application/json" \\
@@ -597,13 +597,13 @@ export function useQuickstartChat(
         }))
       }
       const resourceId = getCreatedResourceId(result)
-      if (resourceId) {
-        setResourceIds((prev) => {
-          const next = { ...prev, [step]: resourceId }
-          resourceIdsRef.current = next
-          return next
-        })
-      }
+      if (!resourceId) throw new Error(t('managed.quickstart.errors.createResourceFailed'))
+
+      setResourceIds((prev) => {
+        const next = { ...prev, [step]: resourceId }
+        resourceIdsRef.current = next
+        return next
+      })
 
       setCompletedSteps((prev) => new Set([...prev, step]))
       setCurls((prev) => ({ ...prev, [step]: curl }))
