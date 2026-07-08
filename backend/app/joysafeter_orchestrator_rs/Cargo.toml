@@ -1,0 +1,123 @@
+[package]
+name = "joysafeter-orchestrator"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "JoySafeter Orchestrator — Rust implementation"
+
+[[bin]]
+name = "joysafeter-orchestrator"
+path = "src/main.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+futures = "0.3"
+
+# gRPC
+tonic = "0.12"
+prost = "0.13"
+prost-types = "0.13"
+# Pre-generated Envoy xDS protobuf types (Listener, ADS server, filter configs).
+# Pinned to =0.5.1: it targets tonic ">=0.12.3, <0.13" / prost 0.13, matching this
+# crate's tonic 0.12. 0.6.0+ require tonic 0.13, which would fork the tonic graph.
+# Only used by the gRPC (Delta xDS) LDS backend; filesystem backend does not touch it.
+envoy-types = "=0.5.1"
+
+# Database
+sqlx = { version = "0.8", features = [
+    "runtime-tokio",
+    "tls-rustls",
+    "postgres",
+    "uuid",
+    "chrono",
+    "json",
+] }
+
+# Redis
+redis = { version = "0.27", features = ["tokio-comp", "aio"] }
+
+# Docker
+bollard = "0.18"
+
+# HTTP client (for Daytona/E2B providers)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+aws-config = { version = "1", default-features = false, features = ["behavior-version-latest", "rt-tokio", "rustls"] }
+aws-credential-types = "1"
+aws-sdk-s3 = "1"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# UUID
+uuid = { version = "1", features = ["v7", "serde"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Config
+dotenvy = "0.15"
+
+# Crypto
+sha2 = "0.10"
+base64 = "0.22"
+subtle = "2"
+aes-gcm = "0.10"
+
+# Async trait
+async-trait = "0.1"
+
+# Concurrent collections
+dashmap = "6"
+
+# System
+gethostname = "0.5"
+
+# Archive (for image builder)
+tar = "0.4"
+flate2 = "1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+tempfile = "3"
+
+# Regex (for package name validation)
+regex-lite = "0.1"
+
+# Random (for runner token generation)
+rand = "0.8"
+hex = "0.4"
+url = "2"
+
+[build-dependencies]
+tonic-build = "0.12"
+
+# ---------------------------------------------------------------------------
+# Build profile optimization — reduce target/ size from ~10GB to ~3-4GB
+# ---------------------------------------------------------------------------
+
+[profile.dev]
+debug = 0                       # No debug info (saves ~60% disk, gdb/lldb won't work but backtraces still work)
+split-debuginfo = "unpacked"    # macOS: avoid huge .dSYM bundles
+incremental = true              # Keep incremental compilation (fast rebuilds)
+
+[profile.dev.package."*"]
+opt-level = 1                   # Compile dependencies at O1 (smaller + faster runtime, slightly slower build)
+
+[profile.release]
+opt-level = "s"                 # optimize for size (keeps better perf than "z" for a long-running service)
+lto = "fat"                     # full link-time optimization (smaller than thin)
+codegen-units = 1               # better cross-module optimization (slower build, smaller binary)
+strip = true                    # Strip symbols from release binary
+# NOTE: panic stays "unwind" (default) on purpose — orchestrator is a long-running
+# axum/tonic service; unwinding isolates a panicking request instead of aborting
+# the whole process.
