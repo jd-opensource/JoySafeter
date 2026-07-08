@@ -14,6 +14,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend"))
 
 from app.joysafeter_api.api.v1 import environments as env_api  # noqa: E402
 from app.joysafeter_domain.schemas.joysafeter_environment import (  # noqa: E402
+    CreateEnvironmentRequest,
     EnvironmentConfig,
     Packages,
     UpdateEnvironmentRequest,
@@ -42,9 +43,17 @@ class FakeEnvironmentService:
         self.env = env
         self.update_called = False
         self.update_commit_arg = None
+        self.deleted = False
 
     async def get_environment(self, env_id, project_id=None):
         return self.env if env_id == self.env.id else None
+
+    async def create_environment(self, req, project_id=None):
+        return self.env
+
+    async def delete_environment(self, env_id, project_id=None):
+        self.deleted = True
+        return True
 
     async def update_environment(self, env_id, req, project_id=None, *, commit=True):
         self.update_called = True
@@ -113,7 +122,7 @@ async def test_update_environment_clears_image_when_packages_are_removed(monkeyp
     svc = FakeEnvironmentService(env)
 
     async def clear_image(_env):
-        return env_api._EnvironmentImageUpdate(image_tag=None, image_version=0, apply=True)
+        return env_api._EnvironmentImageUpdate(image_tag=None, image_version=0)
 
     monkeypatch.setattr(env_api, "EnvironmentService", lambda _db: svc)
     monkeypatch.setattr(env_api, "_build_image_update", clear_image)
@@ -129,3 +138,55 @@ async def test_update_environment_clears_image_when_packages_are_removed(monkeyp
     assert env.image_version == 0
     assert response.image_tag is None
     assert response.image_version == 0
+
+
+@pytest.mark.asyncio
+async def test_update_environment_raises_when_builder_unavailable(monkeypatch) -> None:
+    env = _fake_env()
+    db = FakeDb()
+    svc = FakeEnvironmentService(env)
+
+    import app.joysafeter_orchestrator.lifespan as lifespan_mod
+
+    monkeypatch.setattr(env_api, "EnvironmentService", lambda _db: svc)
+    monkeypatch.setattr(lifespan_mod, "get_image_builder", lambda: None)
+
+    req = UpdateEnvironmentRequest(
+        config=EnvironmentConfig(type="cloud", packages=Packages(pip=["numpy"]))
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await env_api.update_environment(req, env.id, db, SimpleNamespace(project_id=None))
+
+    assert exc_info.value.code == "ENVIRONMENT_IMAGE_BUILDER_UNAVAILABLE"
+    # We refuse the write instead of committing config with a stale image.
+    assert svc.update_commit_arg is False
+    assert db.commits == 0
+    assert db.rollbacks == 1
+    assert env.image_tag == "joysafeter/env-old:v3"
+    assert env.image_version == 3
+
+
+@pytest.mark.asyncio
+async def test_create_environment_raises_when_builder_unavailable(monkeypatch) -> None:
+    env = _fake_env(config={"type": "cloud", "packages": {"pip": ["numpy"]}})
+    db = FakeDb()
+    svc = FakeEnvironmentService(env)
+
+    import app.joysafeter_orchestrator.lifespan as lifespan_mod
+
+    monkeypatch.setattr(env_api, "EnvironmentService", lambda _db: svc)
+    monkeypatch.setattr(lifespan_mod, "get_image_builder", lambda: None)
+
+    req = CreateEnvironmentRequest(
+        name="python-env",
+        config=EnvironmentConfig(type="cloud", packages=Packages(pip=["numpy"])),
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await env_api.create_environment(req, db, SimpleNamespace(project_id=None))
+
+    assert exc_info.value.code == "ENVIRONMENT_IMAGE_BUILDER_UNAVAILABLE"
+    # The half-created environment must be rolled back.
+    assert svc.deleted is True
+    assert db.commits == 0

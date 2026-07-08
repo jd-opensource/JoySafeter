@@ -126,6 +126,11 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=InternalServiceError,
         default_message="Environment image build failed",
     ),
+    "ENVIRONMENT_IMAGE_BUILDER_UNAVAILABLE": CatalogEntry(
+        code="ENVIRONMENT_IMAGE_BUILDER_UNAVAILABLE",
+        error_class=ServiceUnavailableError,
+        default_message="Image builder is unavailable",
+    ),
     "ENVIRONMENT_NOT_FOUND": CatalogEntry(
         code="ENVIRONMENT_NOT_FOUND", error_class=NotFoundError, default_message="Environment not found"
     ),
