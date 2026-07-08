@@ -85,7 +85,7 @@ cd deploy
 - 创建缺失的 `.env`
 - 启动 `db` / `redis`
 - 执行数据库迁移
-- 本地启动 `api` / `orchestrator` / `worker`
+- 本地启动 Python `api` / Rust `orchestrator-rs` / Python `worker`
 - 本地启动前端 `bun run dev`
 
 按 `Ctrl+C` 停止本地进程。PostgreSQL/Redis 用下面命令停止：

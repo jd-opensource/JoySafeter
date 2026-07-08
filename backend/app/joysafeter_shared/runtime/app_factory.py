@@ -97,29 +97,6 @@ def create_app(*, lifespan, title_suffix: str = "", expose_docs: bool = True) ->
                 checks["status"] = "unhealthy"
                 checks["event_stream"] = {"status": "unhealthy", "error": str(e)}
 
-        if role in {"all", "orchestrator"}:
-            try:
-                from app.joysafeter_shared.orchestrator_bridge.globals import get_event_bus
-
-                event_bus = get_event_bus()
-                if event_bus and hasattr(event_bus, "health_snapshot"):
-                    event_bus_health = event_bus.health_snapshot()
-                    checks["event_bus"] = event_bus_health
-                    if event_bus_health.get("status") == "degraded" and checks["status"] == "ok":
-                        checks["status"] = "degraded"
-
-                from app.joysafeter_shared.orchestrator_bridge.globals import get_event_buffer
-
-                event_buffer = get_event_buffer()
-                if event_buffer and hasattr(event_buffer, "health_snapshot"):
-                    event_buffer_health = event_buffer.health_snapshot()
-                    checks["event_buffer"] = event_buffer_health
-                    if event_buffer_health.get("status") == "degraded" and checks["status"] == "ok":
-                        checks["status"] = "degraded"
-            except Exception as e:
-                checks["status"] = "unhealthy"
-                checks["event_bus"] = {"status": "unhealthy", "error": str(e)}
-
         # Check DB connectivity
         try:
             from app.joysafeter_shared.database import engine

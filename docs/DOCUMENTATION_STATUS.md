@@ -47,9 +47,8 @@ current repository, not older design notes.
 
 ## Current Code Facts Used For This Pass
 
-- Backend Python service roles are `api`, `worker`, and legacy `all`; Rust owns orchestration.
+- Backend Python service roles are `api` and `worker`; Rust owns orchestration.
 - Explicit Python ASGI entrypoints are `app.joysafeter_api.main:app` and `app.joysafeter_worker.main:app`.
-- `app.main:app` remains only as an API/worker compatibility entrypoint.
 - API routes are mounted under `/api/v1`; notifications use `/ws/notifications`.
 - Programmatic live runs should use the session-first flow: `POST /sessions`, `POST /sessions/{id}/events`
   with `user.message`, then `GET /sessions/{id}/events/stream`. Direct `POST /tasks` returns only

@@ -1,8 +1,9 @@
-"""Global singleton registry for orchestrator components.
+"""Global singleton registry for API-side orchestrator bridge seams.
 
 API and Worker services use the getter functions to access orchestrator
-internals (bridge registry, redis coordinator, etc.).  In Rust-orchestrator
-mode these remain ``None`` and callers fall back to Redis-based communication.
+boundary helpers (bridge registry, redis coordinator, etc.).  In normal
+Rust-orchestrator deployments these remain ``None`` and callers fall back to
+Redis-based communication.
 """
 
 import logging
@@ -10,7 +11,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Global singletons — initialized to None; set by orchestrator startup
+# Global singletons — initialized to None; set only by tests/local injection.
 # ---------------------------------------------------------------------------
 
 _scheduler = None
@@ -22,8 +23,6 @@ _envoy_manager = None
 _memory_subscribers = None
 _image_builder = None
 _redis_coordinator = None
-_event_bus = None
-_event_buffer = None
 
 
 # ---------------------------------------------------------------------------
@@ -64,14 +63,6 @@ def get_image_builder():
 
 def get_redis_coordinator():
     return _redis_coordinator
-
-
-def get_event_bus():
-    return _event_bus
-
-
-def get_event_buffer():
-    return _event_buffer
 
 
 def ensure_session_broadcaster(redis_client=None, instance_id: str | None = None):

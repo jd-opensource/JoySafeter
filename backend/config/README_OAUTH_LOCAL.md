@@ -36,8 +36,7 @@ local:
 
 ### 4. 启动后端并验证
 
-- 启动后端（本地兼容单进程可用 `cd backend && uv run uvicorn app.main:app --reload --port 8000`；
-  显式三服务部署时使用 `app.joysafeter_api.main:app` 作为 API 入口）
+- 启动后端 API：`cd backend && uv run uvicorn app.joysafeter_api.main:app --reload --port 8000`
 - 前端登录页应出现「本地测试」按钮
 - 点击后跳转到 Mock 授权页，再被重定向回后端 callback，完成登录
 

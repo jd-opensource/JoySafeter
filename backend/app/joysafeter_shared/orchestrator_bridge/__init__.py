@@ -1,10 +1,10 @@
-"""Orchestrator bridge — shared code used by API/Worker to interact with the
-orchestrator (Rust or legacy Python).
+"""Orchestrator bridge — shared code used by API/Worker around the Rust
+orchestrator boundary.
 
-In Rust-orchestrator deployments the getter functions return ``None`` and callers
-fall back to Redis-based communication.  The ``ensure_session_broadcaster``
-helper is the only one that actively initializes an object (the
-``SessionBroadcaster`` used by the API SSE endpoint).
+In normal deployments the getter functions return ``None`` and callers fall back
+to Redis-based communication.  The ``ensure_session_broadcaster`` helper is the
+only one that actively initializes an object: the ``SessionBroadcaster`` used by
+the API SSE endpoint.
 """
 
 from .globals import (

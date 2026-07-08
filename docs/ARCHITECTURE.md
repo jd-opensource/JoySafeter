@@ -19,12 +19,10 @@ persisted, and pushed to the browser live over **SSE**.
 
 ## 1. Deployment topology
 
-JoySafeter runs as **three FastAPI services plus supporting infrastructure**. The three
-services share one codebase; each selects its behavior at boot from the
-`JOYSAFETER_SERVICE_ROLE` environment variable (`api` / `orchestrator` / `worker`, or
-`all` to run everything in one process for local dev). The split mechanism is
-`app/joysafeter_shared/config/service_role.py` — each role predicate also returns true
-for `all`.
+JoySafeter runs as **two Python FastAPI services, one Rust orchestrator, and supporting
+infrastructure**. The Python API and Worker share one codebase and select behavior at boot
+from `JOYSAFETER_SERVICE_ROLE` (`api` / `worker`). The orchestrator is the Rust binary in
+`app/joysafeter_orchestrator_rs`.
 
 ```mermaid
 flowchart TB
@@ -35,7 +33,7 @@ flowchart TB
         BC["SSE endpoint<br/>SessionBroadcaster"]
     end
 
-    subgraph ORCH_S["Orchestrator service　role=orchestrator"]
+    subgraph ORCH_S["Rust Orchestrator service"]
         SCHED["Task scheduler<br/>DB pull · FOR UPDATE SKIP LOCKED"]
         GRPC["gRPC AgentBridge :9090"]
         BUS["Two-phase event bus<br/>persist ∥ broadcast"]
@@ -541,7 +539,7 @@ resolve in the codebase:
 
 | v1 (removed) | v2 (current) |
 |---|---|
-| Single process | 3 services (`api` / `orchestrator` / `worker`) split by `JOYSAFETER_SERVICE_ROLE` |
+| Single process | API and Worker Python services plus the Rust `orchestrator-rs` service |
 | In-process `ExecutionEventBus` | Two-phase bus → **Redis Streams** (durable, Worker) + **Redis Pub/Sub** (live, SSE) |
 | WebSocket `/ws/executions` | **SSE** `/sessions/{id}/events/stream`; WS only for `/ws/notifications` |
 | `DispatchService` → `ExecutionOrchestrator` → `EngineRegistry` | API enqueues via Redis; orchestrator scheduler pulls from DB |

@@ -46,7 +46,7 @@ graph TB
         ENVELOPE["ApiV1 响应信封<br/>{success,code,message,data}"]
     end
 
-    subgraph ORCH_SVC["⚙️ Orchestrator 服务 (role=orchestrator)"]
+    subgraph ORCH_SVC["⚙️ Rust Orchestrator 服务"]
         direction TB
         SCHED["TaskScheduler<br/>DB 拉取 · FOR UPDATE SKIP LOCKED"]
         GRPC["gRPC AgentBridge :9090<br/>SetupSandbox / StartTask / Cancel"]

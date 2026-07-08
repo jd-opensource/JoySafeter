@@ -90,9 +90,9 @@ class Settings(BaseSettings):
         default=1, validation_alias=AliasChoices("WORKERS", "UVICORN_WORKERS"), description="Number of worker processes"
     )
     service_role: str = Field(
-        default="all",
+        default="api",
         validation_alias=AliasChoices("JOYSAFETER_SERVICE_ROLE", "SERVICE_ROLE", "APP_SERVICE_ROLE"),
-        description="Service role to start: all, api, orchestrator, or worker",
+        description="Python service role to start: api or worker. The orchestrator is the Rust binary.",
     )
     run_runtime_instance_id: str = Field(
         default=socket.gethostname(),

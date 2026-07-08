@@ -309,6 +309,23 @@ def test_orchestrator_bridge_exports_runtime_boundary_contract():
     assert missing == []
 
 
+def test_removed_python_monolith_entrypoint_is_not_reintroduced():
+    assert not Path("backend/app/main.py").exists()
+
+
+def test_python_service_roles_stay_explicit_api_or_worker_only():
+    from app.joysafeter_shared.config.service_role import ServiceRole
+
+    assert {role.value for role in ServiceRole} == {"api", "worker"}
+
+
+def test_orchestrator_bridge_does_not_expose_removed_python_event_bus():
+    from app.joysafeter_shared import orchestrator_bridge
+
+    assert not hasattr(orchestrator_bridge, "get_event_bus")
+    assert not hasattr(orchestrator_bridge, "get_event_buffer")
+
+
 def test_api_v1_async_error_boundaries_use_shared_contract_builders():
     offenders: list[str] = []
     raw_websocket_error_pattern = re.compile(

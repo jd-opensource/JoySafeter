@@ -15,10 +15,9 @@ JoySafeter 是一个面向安全工作的 AI Agent 编排平台。用户定义�
 
 ## 1. 部署拓扑
 
-JoySafeter 以**三个 FastAPI 服务 + 支撑基础设施**的形态运行。三个服务共享同一份代码库，每个服务在启动时
-根据 `JOYSAFETER_SERVICE_ROLE` 环境变量（`api` / `orchestrator` / `worker`，或用 `all` 在单进程中
-跑全部，便于本地开发）选择自身行为。切分机制在
-`app/joysafeter_shared/config/service_role.py`——每个角色判定对 `all` 也返回真。
+JoySafeter 以**两个 Python FastAPI 服务 + 一个 Rust orchestrator + 支撑基础设施**的形态运行。
+Python API 与 Worker 共享同一份代码库，并通过 `JOYSAFETER_SERVICE_ROLE`（`api` / `worker`）
+选择自身行为。orchestrator 是 `app/joysafeter_orchestrator_rs` 中的 Rust 二进制。
 
 ```mermaid
 flowchart TB
@@ -29,7 +28,7 @@ flowchart TB
         BC["SSE 端点<br/>SessionBroadcaster"]
     end
 
-    subgraph ORCH_S["Orchestrator 服务　role=orchestrator"]
+    subgraph ORCH_S["Rust Orchestrator 服务"]
         SCHED["任务调度器<br/>DB 拉取 · FOR UPDATE SKIP LOCKED"]
         GRPC["gRPC AgentBridge :9090"]
         BUS["两相事件总线<br/>持久化 ∥ 广播"]
@@ -505,7 +504,7 @@ frontend/                      # Next.js App Router UI
 
 | v1（已移除） | v2（当前） |
 |---|---|
-| 单进程 | 3 服务（`api` / `orchestrator` / `worker`），按 `JOYSAFETER_SERVICE_ROLE` 切分 |
+| 单进程 | API / Worker 两个 Python 服务 + Rust `orchestrator-rs` 服务 |
 | 进程内 `ExecutionEventBus` | 两相总线 → **Redis Streams**（可靠，Worker）+ **Redis Pub/Sub**（实时，SSE） |
 | WebSocket `/ws/executions` | **SSE** `/sessions/{id}/events/stream`；WS 只用于 `/ws/notifications` |
 | `DispatchService` → `ExecutionOrchestrator` → `EngineRegistry` | API 经 Redis 入队；orchestrator 调度器从 DB 拉取 |

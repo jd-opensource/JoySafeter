@@ -218,12 +218,14 @@ Access points:
 | Backend API | http://localhost:8000 |
 | API Docs | http://localhost:8000/docs |
 
-The backend is a single codebase split into three services by the `JOYSAFETER_SERVICE_ROLE`
-environment variable, deployed as separate containers:
+The backend runs as two Python services plus the Rust orchestrator, deployed as separate
+containers:
 
-- `api` — REST `/api/v1/*`, SSE event stream, notification WebSocket, auth.
+- `api` — REST `/api/v1/*`, SSE event stream, notification WebSocket, auth
+  (`JOYSAFETER_SERVICE_ROLE=api`).
 - `orchestrator-rs` — task scheduler, gRPC `AgentBridge`, and sandbox lifecycle.
-- `worker` — consumes the Redis event stream and persists events to Postgres.
+- `worker` — consumes the Redis event stream and persists events to Postgres
+  (`JOYSAFETER_SERVICE_ROLE=worker`).
 
 Supporting infrastructure: PostgreSQL, Redis, Envoy (per-sandbox egress proxy), and
 skillspector (skill security scanner). The bundled Redis service is behind the `local-redis`
@@ -281,7 +283,7 @@ flowchart LR
 
 **Key design principles:**
 
-- **Three services, one codebase** — `api`, `orchestrator`, and `worker` share a single codebase and select their behavior at boot from `JOYSAFETER_SERVICE_ROLE` (`all` runs everything in one process for local dev)
+- **Explicit service boundaries** — Python exposes `api` and `worker` roles; orchestration runs in the Rust `orchestrator-rs` service
 - **DB is the source of truth for scheduling** — the API enqueues a task onto a Redis list as a wakeup signal; the orchestrator claims pending rows from Postgres with `FOR UPDATE SKIP LOCKED`
 - **Decoupled persistence and live delivery** — a two-phase event bus fans out to Redis Streams (durable, consumed by the Worker → `joysafeter_session_events`) and Redis Pub/Sub (ephemeral, driving the SSE fan-out to the browser)
 - **Live events over SSE** — the browser subscribes to `GET /api/v1/sessions/{id}/events/stream` (DB replay via `?after_seq`, then live); WebSocket is reserved for `/ws/notifications`
@@ -323,7 +325,7 @@ flowchart LR
 
 | Tag | Feature | What it means |
 |-----|---------|---------------|
-| **NEW** | **Three-Service Architecture** | The single-process monolith was split into `api` / `orchestrator` / `worker`, one codebase selected by `JOYSAFETER_SERVICE_ROLE`, deployed as separate containers |
+| **NEW** | **Split Runtime Architecture** | The monolith was split into Python `api` / `worker` services and the Rust `orchestrator-rs`, deployed as separate containers |
 | **NEW** | **Redis-Backed Event Bus** | A two-phase bus fans out to Redis Streams (durable, Worker-consumed) and Redis Pub/Sub (live SSE), replacing the old in-process WebSocket bus |
 | **NEW** | **SSE Live Event Stream** | The browser subscribes to `GET /api/v1/sessions/{id}/events/stream` with `?after_seq` replay; WebSocket is reserved for notifications |
 | **NEW** | **Sandboxed gRPC Execution** | A Rust `sandbox-runner` runs the harness inside a per-session container and speaks the gRPC `AgentBridge` protocol back to the orchestrator |

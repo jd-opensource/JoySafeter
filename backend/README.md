@@ -73,7 +73,6 @@ uv run uvicorn app.joysafeter_worker.main:app --host 127.0.0.1 --port 8002 --wor
 
 - 显式 Python 入口：`app.joysafeter_api.main:app`、`app.joysafeter_worker.main:app`。
 - Rust orchestrator 入口：`app/joysafeter_orchestrator_rs`。
-- 旧单体兼容入口：`app.main:app` 只兼容 API/worker Python 角色；不会启动 orchestrator。
 - 单机云虚拟机部署建议只对公网暴露 API；Worker HTTP 监听 `127.0.0.1:8002`，Orchestrator gRPC 监听 `0.0.0.0:9090` 供沙箱容器访问，并通过云安全组/防火墙禁止公网访问 `9090`。
 
 注意事项：
@@ -115,8 +114,7 @@ app/
 │   ├── services.py          # worker-facing service facade
 │   └── startup.py           # worker 专属初始化/关闭
 ├── joysafeter_shared/       # 跨服务共享基础设施（runtime/common/utils/storage/templates）
-├── joysafeter_domain/       # 领域层真实实现（models/repositories/schemas/services/contracts/ports/state_machines）
-└── main.py                  # API/worker-only 兼容入口 app.main:app
+└── joysafeter_domain/       # 领域层真实实现（models/repositories/schemas/services/contracts/ports/state_machines）
 ```
 
 > 完整架构文档：[`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) | [中文版](../docs/ARCHITECTURE_CN.md)
