@@ -112,32 +112,39 @@ def _apply_image_update(env, update: _EnvironmentImageUpdate) -> None:
     env.image_version = update.image_version
 
 
+def _is_packages_empty(packages: dict) -> bool:
+    return not any(packages.get(key) for key in ("apt", "pip", "npm", "cargo", "gem", "go"))
+
+
 async def _build_image_update(env) -> _EnvironmentImageUpdate:
-    """Validate packages by building the Docker image synchronously.
+    """Validate packages by asking the Rust runtime to build the Docker image.
 
     Raises an AppError if the build fails so the caller can propagate the
     error to the client.
     """
-    from app.joysafeter_shared.orchestrator_bridge import get_image_builder
-    from app.joysafeter_shared.orchestrator_bridge import ImageBuilder
+    from app.joysafeter_api.runtime_commands import relay_environment_image_build_via_redis
 
     config = env.config or {}
     packages = config.get("packages", {}) if isinstance(config, dict) else {}
-    if not packages or ImageBuilder._is_packages_empty(packages):
+    if not isinstance(packages, dict) or not packages or _is_packages_empty(packages):
         return _EnvironmentImageUpdate(image_tag=None, image_version=0)
 
-    builder = get_image_builder()
-    if not builder:
-        logger.warning("Image builder unavailable; refusing to persist environment %s with packages", env.id)
-        raise _environment_image_builder_unavailable_error(env.id)
-
     version = getattr(env, "image_version", 0) or 0
-    tag = await builder.build_environment_image(env.id, version + 1, packages)
+    tag = await relay_environment_image_build_via_redis(
+        env.id,
+        version=version + 1,
+        packages=packages,
+        boundary="environment_api",
+        operation="build_environment_image",
+        failure_code="ENVIRONMENT_IMAGE_BUILD_RELAY_FAILED",
+        failure_message="Redis environment image build relay failed",
+    )
     if tag:
         logger.info("Built environment image %s for env %s", tag, env.id)
         return _EnvironmentImageUpdate(image_tag=tag, image_version=version + 1)
 
-    return _EnvironmentImageUpdate(image_tag=None, image_version=0)
+    logger.warning("Image builder unavailable; refusing to persist environment %s with packages", env.id)
+    raise _environment_image_builder_unavailable_error(env.id)
 
 
 def _env_to_response(env) -> EnvironmentResponse:

@@ -231,14 +231,14 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    let _image_builder = if config.image_builder_enabled {
+    let image_builder = if config.image_builder_enabled {
         match Docker::connect_with_local_defaults() {
             Ok(docker) => {
                 info!("ImageBuilder initialized");
-                Some(sandbox::image_builder::ImageBuilder::new(
+                Some(Arc::new(sandbox::image_builder::ImageBuilder::new(
                     Arc::new(docker),
                     &config.image_builder_base,
-                ))
+                )))
             }
             Err(e) => {
                 warn!("ImageBuilder initialization failed: {e}");
@@ -391,6 +391,7 @@ async fn main() -> anyhow::Result<()> {
             bridge_registry.clone(),
             sandbox_provider.clone(),
             envoy_manager.clone(),
+            image_builder.clone(),
             redis_coordinator.clone(),
             memory_subscribers.clone(),
         );

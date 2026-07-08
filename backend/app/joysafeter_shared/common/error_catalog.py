@@ -72,6 +72,11 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=ServiceUnavailableError,
         default_message="Failed to cancel agent task in sandbox runtime.",
     ),
+    "AGENT_SESSION_ARCHIVE_FAILED": CatalogEntry(
+        code="AGENT_SESSION_ARCHIVE_FAILED",
+        error_class=ServiceUnavailableError,
+        default_message="Failed to archive sessions during agent cleanup.",
+    ),
     "AGENT_VERSION_CONFLICT": CatalogEntry(
         code="AGENT_VERSION_CONFLICT", error_class=ResourceConflictError, default_message="Agent version conflict"
     ),
@@ -135,6 +140,11 @@ CATALOG: dict[str, CatalogEntry] = {
         code="ENVIRONMENT_IMAGE_BUILD_FAILED",
         error_class=InternalServiceError,
         default_message="Environment image build failed",
+    ),
+    "ENVIRONMENT_IMAGE_BUILD_RELAY_FAILED": CatalogEntry(
+        code="ENVIRONMENT_IMAGE_BUILD_RELAY_FAILED",
+        error_class=ServiceUnavailableError,
+        default_message="Redis environment image build relay failed",
     ),
     "ENVIRONMENT_IMAGE_BUILDER_UNAVAILABLE": CatalogEntry(
         code="ENVIRONMENT_IMAGE_BUILDER_UNAVAILABLE",
@@ -400,6 +410,26 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=ResourceConflictError,
         default_message="Secret active task dependency",
     ),
+    "SECRET_TEST_BASE_URL_INVALID": CatalogEntry(
+        code="SECRET_TEST_BASE_URL_INVALID",
+        error_class=InvalidRequestError,
+        default_message="Invalid secret test base URL",
+    ),
+    "SECRET_TEST_BASE_URL_NOT_ALLOWED": CatalogEntry(
+        code="SECRET_TEST_BASE_URL_NOT_ALLOWED",
+        error_class=InvalidRequestError,
+        default_message="Secret test base URL host is not allowlisted.",
+    ),
+    "SECRET_TEST_MISSING_KEY": CatalogEntry(
+        code="SECRET_TEST_MISSING_KEY",
+        error_class=InvalidRequestError,
+        default_message="Secret test missing required key.",
+    ),
+    "SECRET_TEST_PROVIDER_UNSUPPORTED": CatalogEntry(
+        code="SECRET_TEST_PROVIDER_UNSUPPORTED",
+        error_class=InvalidRequestError,
+        default_message="Secret test provider unsupported.",
+    ),
     "SECRET_NOT_FOUND": CatalogEntry(
         code="SECRET_NOT_FOUND", error_class=NotFoundError, default_message="Secret not found"
     ),
@@ -460,6 +490,11 @@ CATALOG: dict[str, CatalogEntry] = {
     ),
     "SESSION_EVENTS_EMPTY": CatalogEntry(
         code="SESSION_EVENTS_EMPTY", error_class=InvalidRequestError, default_message="No events provided"
+    ),
+    "SESSION_ENVIRONMENT_NOT_FOUND": CatalogEntry(
+        code="SESSION_ENVIRONMENT_NOT_FOUND",
+        error_class=RequestValidationAppError,
+        default_message="Environment not found",
     ),
     "SESSION_FILE_ID_INVALID": CatalogEntry(
         code="SESSION_FILE_ID_INVALID", error_class=InvalidRequestError, default_message="Session file id invalid"
@@ -759,6 +794,11 @@ CATALOG: dict[str, CatalogEntry] = {
         code="TASK_SESSION_AGENT_MISMATCH",
         error_class=InvalidRequestError,
         default_message="Session does not belong to the selected agent",
+    ),
+    "TASK_SESSION_ENVIRONMENT_MISMATCH": CatalogEntry(
+        code="TASK_SESSION_ENVIRONMENT_MISMATCH",
+        error_class=ResourceConflictError,
+        default_message="Task environment_ref does not match the existing session environment",
     ),
     "TASK_SESSION_NOT_FOUND": CatalogEntry(
         code="TASK_SESSION_NOT_FOUND", error_class=NotFoundError, default_message="Session not found"

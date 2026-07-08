@@ -11,6 +11,7 @@ use crate::kernel::memory_sync::MemoryStoreSubscribers;
 use crate::kernel::redis_coordinator::RedisCoordinator;
 use crate::kernel::sandbox_bridge::BridgeRegistry;
 use crate::sandbox::envoy::EnvoyManager;
+use crate::sandbox::image_builder::{EnvironmentPackages, ImageBuilder};
 use crate::sandbox::provider::SandboxProvider;
 
 const SANDBOX_DESTROY_BROADCAST_CHANNEL: &str = "joysafeter:cmd:destroy";
@@ -22,6 +23,7 @@ const SANDBOX_DESTROY_BROADCAST_CHANNEL: &str = "joysafeter:cmd:destroy";
 /// - `input` → sends SendInput to target sandbox bridge + notifies confirmation
 /// - `shutdown` → sends Shutdown to target sandbox bridge
 /// - `destroy` → destroys the provider sandbox on its owner instance
+/// - `build_environment_image` → builds custom environment image on one Rust runtime instance
 /// - `memory_update` → broadcasts MemoryFileUpdate to all sandboxes sharing the store
 pub struct CommandListener {
     client: redis::Client,
@@ -30,6 +32,7 @@ pub struct CommandListener {
     bridge_registry: BridgeRegistry,
     provider: Arc<dyn SandboxProvider>,
     envoy_manager: Option<Arc<EnvoyManager>>,
+    image_builder: Option<Arc<ImageBuilder>>,
     redis_coordinator: Option<Arc<RedisCoordinator>>,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
 }
@@ -42,6 +45,7 @@ impl CommandListener {
         bridge_registry: BridgeRegistry,
         provider: Arc<dyn SandboxProvider>,
         envoy_manager: Option<Arc<EnvoyManager>>,
+        image_builder: Option<Arc<ImageBuilder>>,
         redis_coordinator: Option<Arc<RedisCoordinator>>,
         memory_subscribers: Arc<MemoryStoreSubscribers>,
     ) -> Self {
@@ -52,6 +56,7 @@ impl CommandListener {
             bridge_registry,
             provider,
             envoy_manager,
+            image_builder,
             redis_coordinator,
             memory_subscribers,
         }
@@ -119,6 +124,11 @@ impl CommandListener {
             let result = self.handle_memory_update(&cmd).await;
             self.publish_ack(&cmd, result.is_ok()).await;
             return result;
+        }
+
+        if cmd_type == "build_environment_image" {
+            self.handle_build_environment_image(&cmd).await;
+            return Ok(());
         }
 
         let sandbox_id_str = cmd["sandbox_id"].as_str().unwrap_or("");
@@ -249,15 +259,105 @@ impl CommandListener {
         Ok(())
     }
 
+    async fn handle_build_environment_image(&self, cmd: &serde_json::Value) {
+        let Some(builder) = self.image_builder.as_ref() else {
+            self.publish_ack_payload(
+                cmd,
+                serde_json::json!({
+                    "ok": false,
+                    "code": "IMAGE_BUILDER_UNAVAILABLE",
+                    "error": "image builder is not enabled on this runtime instance",
+                }),
+            )
+            .await;
+            return;
+        };
+
+        let env_id = match cmd["environment_id"]
+            .as_str()
+            .and_then(|value| value.parse().ok())
+        {
+            Some(env_id) => env_id,
+            None => {
+                self.publish_ack_payload(
+                    cmd,
+                    serde_json::json!({
+                        "ok": false,
+                        "code": "IMAGE_BUILD_INVALID_COMMAND",
+                        "error": "build_environment_image command has invalid environment_id",
+                    }),
+                )
+                .await;
+                return;
+            }
+        };
+        let version = match cmd["version"]
+            .as_i64()
+            .and_then(|value| i32::try_from(value).ok())
+        {
+            Some(version) if version > 0 => version,
+            _ => {
+                self.publish_ack_payload(
+                    cmd,
+                    serde_json::json!({
+                        "ok": false,
+                        "code": "IMAGE_BUILD_INVALID_COMMAND",
+                        "error": "build_environment_image command has invalid version",
+                    }),
+                )
+                .await;
+                return;
+            }
+        };
+        let package_config = serde_json::json!({
+            "packages": cmd["packages"].clone(),
+        });
+        let packages = EnvironmentPackages::from_config(&package_config);
+
+        match builder
+            .build_environment_image(env_id, version, &packages)
+            .await
+        {
+            Ok(image_tag) => {
+                self.publish_ack_payload(
+                    cmd,
+                    serde_json::json!({
+                        "ok": true,
+                        "image_tag": image_tag,
+                    }),
+                )
+                .await;
+            }
+            Err(e) => {
+                self.publish_ack_payload(
+                    cmd,
+                    serde_json::json!({
+                        "ok": false,
+                        "code": "IMAGE_BUILD_FAILED",
+                        "error": e.to_string(),
+                    }),
+                )
+                .await;
+            }
+        }
+    }
+
     async fn publish_ack(&self, cmd: &serde_json::Value, ok: bool) {
+        self.publish_ack_payload(cmd, serde_json::json!({ "ok": ok }))
+            .await;
+    }
+
+    async fn publish_ack_payload(&self, cmd: &serde_json::Value, mut payload: serde_json::Value) {
         let Some(ack_key) = cmd["ack_key"].as_str() else {
             return;
         };
         let command_id = cmd["command_id"].as_str().unwrap_or("");
-        let payload = serde_json::json!({
-            "command_id": command_id,
-            "ok": ok,
-        });
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert(
+                "command_id".to_string(),
+                serde_json::Value::String(command_id.to_string()),
+            );
+        }
         let Ok(encoded) = serde_json::to_string(&payload) else {
             return;
         };

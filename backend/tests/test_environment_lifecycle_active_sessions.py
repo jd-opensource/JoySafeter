@@ -1,3 +1,4 @@
+import json
 import uuid
 
 import pytest
@@ -17,6 +18,7 @@ from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafe
 from app.joysafeter_domain.schemas.joysafeter_environment import (
     CreateEnvironmentRequest,
     EnvironmentConfig,
+    Packages,
     UpdateEnvironmentRequest,
 )
 from app.joysafeter_shared.common.app_errors import AppError
@@ -31,6 +33,56 @@ def _auth_ctx() -> JoySafeterAuthContext:
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.DEVELOPER,
     )
+
+
+class _FakeRuntimeRedis:
+    def __init__(
+        self,
+        *,
+        instance_ids: list[str] | None = None,
+        image_tag: str | None = "joysafeter/env-test:v1",
+        ok: bool = True,
+        code: str | None = None,
+        error: str | None = None,
+    ):
+        self.instance_ids = instance_ids if instance_ids is not None else ["runtime-1"]
+        self.image_tag = image_tag
+        self.ok = ok
+        self.code = code
+        self.error = error
+        self.published: list[tuple[str, dict]] = []
+        self.acks: dict[str, str] = {}
+        self.blpop_timeouts: list[int] = []
+
+    async def scan(self, cursor: int = 0, match: str | None = None, count: int | None = None):
+        assert match == "joysafeter:instances:*"
+        if cursor != 0:
+            return 0, []
+        return 0, [f"joysafeter:instances:{instance_id}" for instance_id in self.instance_ids]
+
+    async def publish(self, channel: str, command: str) -> int:
+        payload = json.loads(command)
+        self.published.append((channel, payload))
+        ack_key = payload.get("ack_key")
+        if ack_key:
+            ack_payload = {
+                "command_id": payload.get("command_id"),
+                "ok": self.ok,
+                "image_tag": self.image_tag,
+            }
+            if self.code:
+                ack_payload["code"] = self.code
+            if self.error:
+                ack_payload["error"] = self.error
+            self.acks[ack_key] = json.dumps(ack_payload)
+        return 1
+
+    async def blpop(self, key: str, timeout: int = 0):
+        self.blpop_timeouts.append(timeout)
+        payload = self.acks.pop(key, None)
+        if payload is None:
+            return None
+        return key, payload
 
 
 @pytest.mark.asyncio
@@ -56,6 +108,71 @@ async def test_create_environment_rejects_missing_secret_ref_with_structured_err
         await db_session.execute(select(JoySafeterEnvironment).where(JoySafeterEnvironment.name == req.name))
     ).scalar_one_or_none()
     assert row is None
+
+
+@pytest.mark.asyncio
+async def test_create_environment_with_packages_builds_image_via_rust_runtime(db_session, monkeypatch):
+    redis = _FakeRuntimeRedis(image_tag="joysafeter/env-runtime:v1")
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+
+    req = CreateEnvironmentRequest(
+        name=f"runtime-build-env-{uuid.uuid4()}",
+        config=EnvironmentConfig(packages=Packages(apt=["curl"], pip=["pytest"])),
+    )
+
+    response = await create_environment(req, db_session, _auth_ctx())
+
+    assert response.image_tag == "joysafeter/env-runtime:v1"
+    assert response.image_version == 1
+    assert len(redis.published) == 1
+    channel, payload = redis.published[0]
+    assert channel == "joysafeter:cmd:runtime-1"
+    assert payload["type"] == "build_environment_image"
+    assert payload["environment_id"] == str(response.id)
+    assert payload["version"] == 1
+    assert payload["packages"] == {
+        "apt": ["curl"],
+        "pip": ["pytest"],
+        "npm": [],
+        "cargo": [],
+        "gem": [],
+        "go": [],
+    }
+    assert redis.blpop_timeouts == [600]
+
+
+@pytest.mark.asyncio
+async def test_create_environment_with_packages_rolls_back_when_rust_builder_unavailable(db_session, monkeypatch):
+    redis = _FakeRuntimeRedis(instance_ids=[])
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+
+    env_name = f"runtime-unavailable-env-{uuid.uuid4()}"
+    req = CreateEnvironmentRequest(
+        name=env_name,
+        config=EnvironmentConfig(packages=Packages(apt=["curl"])),
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await create_environment(req, db_session, _auth_ctx())
+
+    detail = await handled_app_error_payload(exc_info.value, status_code=503)
+    assert detail["code"] == "ENVIRONMENT_IMAGE_BUILDER_UNAVAILABLE"
+    assert detail["message"] == "Image builder is unavailable; cannot provision environment packages right now"
+    assert detail["source"] == "runtime"
+    assert detail["retryable"] is True
+    assert detail["user_action"] == "retry"
+
+    db_session.expire_all()
+    env_row = (
+        await db_session.execute(select(JoySafeterEnvironment).where(JoySafeterEnvironment.name == env_name))
+    ).scalar_one()
+    assert env_row.deleted_at is not None
 
 
 @pytest.mark.asyncio

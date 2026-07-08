@@ -326,6 +326,13 @@ def test_orchestrator_bridge_does_not_expose_removed_python_event_bus():
     assert not hasattr(orchestrator_bridge, "get_event_buffer")
 
 
+def test_environment_api_does_not_use_python_image_builder_boundary():
+    text = Path("backend/app/joysafeter_api/api/v1/environments.py").read_text()
+
+    assert "get_image_builder" not in text
+    assert "ImageBuilder" not in text
+
+
 def test_api_v1_async_error_boundaries_use_shared_contract_builders():
     offenders: list[str] = []
     raw_websocket_error_pattern = re.compile(
