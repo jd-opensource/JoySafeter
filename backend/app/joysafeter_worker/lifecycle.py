@@ -18,6 +18,8 @@ import asyncio
 
 from loguru import logger
 
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
+
 # Module-level reference to background tasks for health check inspection
 _worker_tasks: list[asyncio.Task] = []
 
@@ -43,7 +45,19 @@ async def start_worker_loops() -> list[asyncio.Task]:
         else:
             logger.info("   JoySafeter event stream worker disabled")
     except Exception as e:
-        logger.warning(f"   ⚠️  JoySafeter event stream worker failed to start: {e}")
+        logger.bind(
+            error=async_boundary_error_payload(
+                code="WORKER_EVENT_STREAM_START_FAILED",
+                message="JoySafeter event stream worker failed to start.",
+                boundary="worker_lifecycle",
+                operation="start_worker_loops",
+                data={},
+                source="worker",
+                detail=e.__class__.__name__,
+                retryable=True,
+                user_action="retry",
+            )
+        ).warning(f"   ⚠️  JoySafeter event stream worker failed to start: {e}")
 
     _worker_tasks = list(tasks)
     return tasks

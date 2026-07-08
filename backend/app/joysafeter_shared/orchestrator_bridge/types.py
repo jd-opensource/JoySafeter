@@ -1,4 +1,4 @@
-"""Minimal dataclass types extracted from the legacy Python orchestrator runtime.
+"""Minimal dataclass types shared across Python API/worker runtime boundaries.
 
 Only types that API/Worker code imports are kept here.
 """

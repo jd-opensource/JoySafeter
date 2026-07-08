@@ -48,8 +48,8 @@ pub fn map_harness_event(
                 // input_json arrives as a JSON-encoded string from the runner
                 // (proto field `input_json: string`). Parse it back to a Value
                 // so consumers see structured fields, not a doubly-escaped
-                // string. Mirrors the Python orchestrator at
-                // grpc/server.py:_proto_event_to_dict (json.loads(tu.input_json)).
+                // string. Preserve the historical gRPC event contract:
+                // consumers receive parsed input objects when JSON is valid.
                 "input": serde_json::from_str::<Value>(&e.input_json)
                     .unwrap_or_else(|_| Value::String(e.input_json.clone())),
             });

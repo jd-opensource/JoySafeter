@@ -96,8 +96,7 @@ flowchart TB
 | 组件 | Compose 服务 | 角色 | 关键职责 |
 |---|---|---|---|
 | **API** | `api` | `JOYSAFETER_SERVICE_ROLE=api` | REST `/api/v1/*`、SSE 执行流、通知 WebSocket、鉴权 |
-| **Orchestrator（Python）** | `orchestrator`（profile `python-orchestrator`） | `orchestrator` | gRPC `AgentBridge` 服务、任务调度器、沙箱生命周期、事件总线。**参考实现。** |
-| **Orchestrator（Rust）** | `orchestrator-rs`（profile `rust-orchestrator`） | — | 实验替代版本。Compose profile 仍保留，但当前 checkout 缺少 `backend/app/joysafeter_orchestrator_rs`，不是快速开始支持路径。 |
+| **Orchestrator（Rust）** | `orchestrator-rs`（profile `rust-orchestrator`） | — | gRPC `AgentBridge` 服务、任务调度器、沙箱生命周期、事件总线 |
 | **Worker** | `worker` | `worker` | 消费 Redis 事件 Stream，批量持久化到 `joysafeter_session_events`，再发布供 SSE 使用 |
 | **前端** | `frontend` | — | Next.js App Router UI |
 | **PostgreSQL** | `db` | — | 所有状态的权威存储 |
@@ -106,8 +105,8 @@ flowchart TB
 | **skillspector** | `skillspector` | — | 独立的技能安全扫描服务；运行时闸门对不可用扫描状态 fail-closed |
 | **db-init** | `db-init`（profile `init`） | — | 一次性 Alembic 迁移 |
 
-当前支持的本地栈使用 Python orchestrator profile：
-`docker compose --profile local-redis --profile python-orchestrator up`。
+当前支持的本地栈使用 Rust orchestrator profile：
+`docker compose --profile local-redis --profile rust-orchestrator up`。
 
 ---
 

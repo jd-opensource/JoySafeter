@@ -350,6 +350,14 @@ class JoySafeterSandboxService:
     async def mark_destroyed(self, sandbox_id: uuid.UUID) -> None:
         await self.state_machine.transition(sandbox_id, "destroyed", mark_destroyed=True)
 
+    async def mark_destroyed_cas(self, sandbox_id: uuid.UUID, expected_status: str) -> bool:
+        return await self.state_machine.transition(
+            sandbox_id,
+            "destroyed",
+            expected_status=expected_status,
+            mark_destroyed=True,
+        )
+
     async def update_status_and_config(self, sandbox_id: uuid.UUID, status: str, config: dict) -> None:
         await self.state_machine.transition(sandbox_id, status, config=config, touch=True)
 

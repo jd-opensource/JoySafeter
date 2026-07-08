@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 from app.joysafeter_shared.utils.locks import session_advisory_lock_key
 
 if TYPE_CHECKING:
@@ -77,6 +78,29 @@ def _is_duplicate_event(a: BufferedEvent | None, b: BufferedEvent) -> bool:
 
 
 _STOP_SENTINEL = object()
+
+
+def _event_batch_error(
+    *,
+    code: str,
+    message: str,
+    operation: str,
+    error: Exception | None = None,
+    data: dict[str, Any] | None = None,
+    retryable: bool = True,
+    user_action: str | None = "retry",
+) -> dict[str, Any]:
+    return async_boundary_error_payload(
+        code=code,
+        message=message,
+        boundary="event_batch_writer",
+        operation=operation,
+        data=data,
+        source="worker",
+        detail=error.__class__.__name__ if error is not None else None,
+        retryable=retryable,
+        user_action=user_action,
+    )
 
 
 class _PartialBatchError(Exception):
@@ -160,12 +184,32 @@ class EventBatchSender:
             try:
                 await asyncio.wait_for(self._queue.put(_STOP_SENTINEL), timeout=5.0)
             except asyncio.TimeoutError:
-                logger.warning("Could not enqueue stop sentinel (queue full), force cancelling")
+                logger.warning(
+                    "Could not enqueue stop sentinel (queue full), force cancelling",
+                    extra={
+                        "error": _event_batch_error(
+                            code="EVENT_BATCH_STOP_SENTINEL_QUEUE_FULL",
+                            message="Could not enqueue stop sentinel; force cancelling batch writer.",
+                            operation="stop_event_batch_writer",
+                            data={"queue_size": self._queue.qsize()},
+                        )
+                    },
+                )
                 self._task.cancel()
             try:
                 await asyncio.wait_for(self._stopped.wait(), timeout=5.0)
             except asyncio.TimeoutError:
-                logger.warning("Event buffer did not drain in 5s, force cancelling")
+                logger.warning(
+                    "Event buffer did not drain in 5s, force cancelling",
+                    extra={
+                        "error": _event_batch_error(
+                            code="EVENT_BATCH_DRAIN_TIMEOUT",
+                            message="Event batch buffer did not drain before shutdown.",
+                            operation="stop_event_batch_writer",
+                            data={"queue_size": self._queue.qsize()},
+                        )
+                    },
+                )
                 self._task.cancel()
             try:
                 await self._task
@@ -188,6 +232,14 @@ class EventBatchSender:
                 "Event batch queue full for 10s (size=%d), writing event synchronously for session %s",
                 self._queue.qsize(),
                 event.session_id,
+                extra={
+                    "error": _event_batch_error(
+                        code="EVENT_BATCH_QUEUE_FULL",
+                        message="Event batch queue full; writing event synchronously.",
+                        operation="enqueue_event_batch",
+                        data={"queue_size": self._queue.qsize(), "session_id": str(event.session_id)},
+                    )
+                },
             )
             inserted = await self._write_single(event)
             if inserted is not None:
@@ -206,7 +258,17 @@ class EventBatchSender:
         try:
             await asyncio.wait_for(self._queue.put(req), timeout=10.0)
         except asyncio.TimeoutError:
-            logger.warning("Flush request could not be enqueued (queue full for 10s)")
+            logger.warning(
+                "Flush request could not be enqueued (queue full for 10s)",
+                extra={
+                    "error": _event_batch_error(
+                        code="EVENT_BATCH_FLUSH_QUEUE_FULL",
+                        message="Flush request could not be enqueued.",
+                        operation="flush_event_batch",
+                        data={"queue_size": self._queue.qsize()},
+                    )
+                },
+            )
             return
         await req.ack.wait()
 
@@ -309,6 +371,16 @@ class EventBatchSender:
             logger.error(
                 "Partial batch failure (%d events failed), retrying individually",
                 len(e.failed_events),
+                extra={
+                    "error": _event_batch_error(
+                        code="EVENT_BATCH_PARTIAL_INSERT_FAILED",
+                        message="Partial event batch insert failed; retrying failed events individually.",
+                        operation="flush_event_batch",
+                        error=e,
+                        data={"failed_events": len(e.failed_events)},
+                    )
+                },
+                exc_info=True,
             )
             await self._retry_individual(e.failed_events)
         except Exception as e:
@@ -316,6 +388,16 @@ class EventBatchSender:
                 "Batch insert failed (%d events), falling back to individual inserts: %s",
                 count,
                 e,
+                extra={
+                    "error": _event_batch_error(
+                        code="EVENT_BATCH_INSERT_FAILED",
+                        message="Event batch insert failed; falling back to individual inserts.",
+                        operation="flush_event_batch",
+                        error=e,
+                        data={"event_count": count},
+                    )
+                },
+                exc_info=True,
             )
             await self._retry_individual(buffer)
 
@@ -329,14 +411,41 @@ class EventBatchSender:
                         try:
                             await self._publish_inserted([inserted])
                         except Exception as pub_err:
-                            logger.warning("Realtime publish failed (event persisted): %s", pub_err)
+                            logger.warning(
+                                "Realtime publish failed (event persisted): %s",
+                                pub_err,
+                                extra={
+                                    "error": _event_batch_error(
+                                        code="EVENT_REALTIME_PUBLISH_FAILED",
+                                        message="Realtime publish failed after event was persisted.",
+                                        operation="publish_persisted_event",
+                                        error=pub_err,
+                                        data={"session_id": str(event.session_id), "event_type": event.event_type},
+                                    )
+                                },
+                                exc_info=True,
+                            )
                     break
                 except Exception as inner:
                     if attempt == 0:
                         await asyncio.sleep(0.5)
                     else:
                         self._record_lost_event(event, inner)
-                        logger.error("Individual event insert failed after retry (event lost): %s", inner)
+                        logger.error(
+                            "Individual event insert failed after retry (event lost): %s",
+                            inner,
+                            extra={
+                                "error": _event_batch_error(
+                                    code="EVENT_INSERT_RETRY_EXHAUSTED",
+                                    message="Individual event insert failed after retry.",
+                                    operation="retry_individual_event_insert",
+                                    error=inner,
+                                    data={"session_id": str(event.session_id), "event_type": event.event_type},
+                                    retryable=False,
+                                )
+                            },
+                            exc_info=True,
+                        )
 
     async def _batch_insert(self, events: list[BufferedEvent]) -> list[BufferedEvent]:
         from collections import defaultdict
@@ -348,6 +457,16 @@ class EventBatchSender:
                     "Skipping session status event in batch writer: session=%s event_type=%s",
                     e.session_id,
                     e.event_type,
+                    extra={
+                        "error": _event_batch_error(
+                            code="EVENT_BATCH_SESSION_STATUS_SKIPPED",
+                            message="Session status event skipped by batch writer.",
+                            operation="batch_insert_events",
+                            data={"session_id": str(e.session_id), "event_type": e.event_type},
+                            retryable=False,
+                            user_action="refresh",
+                        )
+                    },
                 )
                 continue
             groups[e.session_id].append(e)
@@ -367,6 +486,16 @@ class EventBatchSender:
                     session_id,
                     len(groups[session_id]),
                     e,
+                    extra={
+                        "error": _event_batch_error(
+                            code="EVENT_BATCH_SESSION_INSERT_FAILED",
+                            message="Event batch insert failed for session.",
+                            operation="batch_insert_session_group",
+                            error=e,
+                            data={"session_id": str(session_id), "event_count": len(groups[session_id])},
+                        )
+                    },
+                    exc_info=True,
                 )
                 failed_events.extend(groups[session_id])
 
@@ -375,7 +504,20 @@ class EventBatchSender:
             try:
                 await self._publish_inserted(all_inserted)
             except Exception as pub_err:
-                logger.warning("Realtime publish failed for batch (events persisted): %s", pub_err)
+                logger.warning(
+                    "Realtime publish failed for batch (events persisted): %s",
+                    pub_err,
+                    extra={
+                        "error": _event_batch_error(
+                            code="EVENT_BATCH_REALTIME_PUBLISH_FAILED",
+                            message="Realtime publish failed after batch events were persisted.",
+                            operation="publish_persisted_event_batch",
+                            error=pub_err,
+                            data={"event_count": len(all_inserted)},
+                        )
+                    },
+                    exc_info=True,
+                )
 
         # If any sessions failed, raise so callers can handle:
         # - _flush_buffer will fall back to individual inserts for failed_events
@@ -469,6 +611,16 @@ class EventBatchSender:
                 "Skipping session status event in batch writer: session=%s event_type=%s",
                 event.session_id,
                 event.event_type,
+                extra={
+                    "error": _event_batch_error(
+                        code="EVENT_BATCH_SESSION_STATUS_SKIPPED",
+                        message="Session status event skipped by batch writer.",
+                        operation="write_single_event",
+                        data={"session_id": str(event.session_id), "event_type": event.event_type},
+                        retryable=False,
+                        user_action="refresh",
+                    )
+                },
             )
             return None
 

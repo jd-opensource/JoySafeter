@@ -134,9 +134,9 @@ async def test_force_delete_agent_does_not_hard_delete_when_cancel_fails(db_sess
     session_id = session.id
     task_id = task.id
 
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_bridge_registry", lambda: None)
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_sandbox_provider", lambda: None)
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_session_broadcaster", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_bridge_registry", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_sandbox_provider", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
 
     async def cancel_noop(self, task_id):
         return None
@@ -190,9 +190,9 @@ async def test_force_delete_agent_keeps_agent_when_sandbox_stop_fails(db_session
     task.sandbox_id = sandbox_id
     await db_session.commit()
 
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_bridge_registry", lambda: None)
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_sandbox_provider", lambda: provider)
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_session_broadcaster", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_bridge_registry", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_sandbox_provider", lambda: provider)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
 
     with pytest.raises(AppError) as exc_info:
         await delete_agent(agent_id, True, db_session, _auth_ctx())

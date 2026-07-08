@@ -10,11 +10,35 @@ import uuid
 from typing import Any, Optional
 
 from app.joysafeter_shared.cache.redis import RedisClient
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 from app.joysafeter_shared.config.service_role import current_role
 from app.joysafeter_shared.config.settings import joysafeter_config
 from app.joysafeter_worker.events.batch_writer import BufferedEvent, EventBatchConfig, EventBatchSender
 
 logger = logging.getLogger(__name__)
+
+
+def _event_stream_error(
+    *,
+    code: str,
+    message: str,
+    operation: str,
+    error: Exception | None = None,
+    data: dict[str, Any] | None = None,
+    retryable: bool = True,
+    user_action: str | None = "retry",
+) -> dict[str, Any]:
+    return async_boundary_error_payload(
+        code=code,
+        message=message,
+        boundary="event_stream_worker",
+        operation=operation,
+        data=data,
+        source="worker",
+        detail=error.__class__.__name__ if error is not None else None,
+        retryable=retryable,
+        user_action=user_action,
+    )
 
 
 def _ids_over_delivery_limit(pending: list[dict[str, Any]], max_deliveries: int) -> list[str]:
@@ -54,7 +78,16 @@ class EventStreamWorker:
     async def run(self) -> None:
         redis = RedisClient.get_client()
         if redis is None:
-            logger.warning("Redis unavailable; joysafeter event stream worker is disabled")
+            logger.warning(
+                "Redis unavailable; joysafeter event stream worker is disabled",
+                extra={
+                    "error": _event_stream_error(
+                        code="EVENT_STREAM_REDIS_UNAVAILABLE",
+                        message="Redis unavailable; event stream worker is disabled.",
+                        operation="start_event_stream_worker",
+                    )
+                },
+            )
             return
 
         await self._ensure_group(redis)
@@ -94,7 +127,18 @@ class EventStreamWorker:
                                 batch.append((message_id, event))
                             except Exception as e:
                                 logger.exception(
-                                    "Failed to handle joysafeter event stream message %s: %s", message_id, e
+                                    "Failed to handle joysafeter event stream message %s: %s",
+                                    message_id,
+                                    e,
+                                    extra={
+                                        "error": _event_stream_error(
+                                            code="EVENT_STREAM_MESSAGE_DECODE_FAILED",
+                                            message="Failed to decode event stream message.",
+                                            operation="decode_event_stream_message",
+                                            error=e,
+                                            data={"message_id": str(message_id)},
+                                        )
+                                    },
                                 )
 
                     if batch:
@@ -109,13 +153,32 @@ class EventStreamWorker:
                         "Event stream worker error (will retry in %ds): %s",
                         backoff,
                         e,
+                        extra={
+                            "error": _event_stream_error(
+                                code="EVENT_STREAM_WORKER_LOOP_FAILED",
+                                message="Event stream worker loop failed; retrying with backoff.",
+                                operation="run_event_stream_worker",
+                                error=e,
+                                data={"backoff_seconds": backoff},
+                            )
+                        },
+                        exc_info=True,
                     )
                     await asyncio.sleep(backoff)
                     backoff = min(backoff * 2, 30)
                     # Re-acquire Redis client in case connection was lost
                     reconnected = RedisClient.get_client()
                     if reconnected is None:
-                        logger.warning("Redis unavailable during reconnect, waiting...")
+                        logger.warning(
+                            "Redis unavailable during reconnect, waiting...",
+                            extra={
+                                "error": _event_stream_error(
+                                    code="EVENT_STREAM_REDIS_RECONNECT_UNAVAILABLE",
+                                    message="Redis unavailable during event stream worker reconnect.",
+                                    operation="reconnect_event_stream_worker",
+                                )
+                            },
+                        )
                         continue
                     redis = reconnected
                     await self._ensure_group(redis)
@@ -169,9 +232,37 @@ class EventStreamWorker:
                     message_id,
                     self._dead_letter_key,
                     max_deliveries,
+                    extra={
+                        "error": _event_stream_error(
+                            code="EVENT_STREAM_POISON_MESSAGE_DEAD_LETTERED",
+                            message="Event stream poison message moved to dead-letter stream.",
+                            operation="dead_letter_poison_event",
+                            data={
+                                "message_id": str(message_id),
+                                "dead_letter_key": self._dead_letter_key,
+                                "max_deliveries": max_deliveries,
+                            },
+                            retryable=False,
+                            user_action="refresh",
+                        )
+                    },
                 )
             except Exception as e:
-                logger.warning("Failed to dead-letter poison event %s: %s", message_id, e)
+                logger.warning(
+                    "Failed to dead-letter poison event %s: %s",
+                    message_id,
+                    e,
+                    extra={
+                        "error": _event_stream_error(
+                            code="EVENT_STREAM_DEAD_LETTER_FAILED",
+                            message="Failed to move poison event to dead-letter stream.",
+                            operation="dead_letter_poison_event",
+                            error=e,
+                            data={"message_id": str(message_id), "dead_letter_key": self._dead_letter_key},
+                        )
+                    },
+                    exc_info=True,
+                )
         return len(dead_ids)
 
     async def _process_pending(self, redis: Any) -> bool:
@@ -198,7 +289,20 @@ class EventStreamWorker:
             try:
                 batch.append((message_id, self._decode_event(fields)))
             except Exception as e:
-                logger.exception("Failed to decode pending joysafeter event %s: %s", message_id, e)
+                logger.exception(
+                    "Failed to decode pending joysafeter event %s: %s",
+                    message_id,
+                    e,
+                    extra={
+                        "error": _event_stream_error(
+                            code="EVENT_STREAM_PENDING_MESSAGE_DECODE_FAILED",
+                            message="Failed to decode pending event stream message.",
+                            operation="decode_pending_event_stream_message",
+                            error=e,
+                            data={"message_id": str(message_id)},
+                        )
+                    },
+                )
 
         if batch:
             await self._persist_and_ack(redis, batch)

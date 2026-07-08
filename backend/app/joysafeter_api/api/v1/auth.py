@@ -1030,7 +1030,7 @@ async def _cleanup_project_sessions_for_archive(project_id: str, db: AsyncSessio
     from app.joysafeter_api.runtime_commands import relay_sandbox_command_via_redis
     from app.joysafeter_api.services import SandboxService
     from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
-    from app.joysafeter_orchestrator.lifespan import get_sandbox_provider
+    from app.joysafeter_shared.orchestrator_bridge import get_sandbox_provider
 
     result = await db.execute(
         select(JoySafeterSession.id).where(
@@ -1117,7 +1117,8 @@ async def _cleanup_project_sessions_for_archive(project_id: str, db: AsyncSessio
         try:
             destroyed = await sandbox_svc.mark_destroyed_cas(sandbox.id, sandbox.status)
             if not destroyed:
-                destroyed = await sandbox_svc.mark_destroyed(sandbox.id)
+                await sandbox_svc.mark_destroyed(sandbox.id)
+                destroyed = True
         except Exception as exc:
             log_boundary_failure_loguru(
                 logger,

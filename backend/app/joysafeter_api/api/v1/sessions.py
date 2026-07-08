@@ -829,12 +829,12 @@ async def stop_session(
 
     from app.joysafeter_api.services import JoySafeterTaskService as TaskService
     from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
-    from app.joysafeter_shared.orchestrator_bridge.proto import joysafeter_pb2
     from app.joysafeter_shared.orchestrator_bridge import (
         get_bridge_registry,
         get_redis_coordinator,
         get_session_broadcaster,
     )
+    from app.joysafeter_shared.orchestrator_bridge.proto import joysafeter_pb2
 
     stop_reason = {"type": "cancelled"}
     task_svc = TaskService(db)
@@ -958,7 +958,28 @@ async def stop_session(
 
 CONTROL_EVENT_TYPES = {"user.tool_confirmation", "user.custom_tool_result", "user.interrupt"}
 LIVE_INPUT_PREFIX = "__joysafeter_input_v1__:"
-COMMAND_ACK_TIMEOUT_SECONDS = 2
+
+
+async def _publish_command_and_wait_for_ack(
+    redis_client,
+    channel: str,
+    command: dict[str, Any],
+    *,
+    command_id: str,
+    ack_key: str,
+) -> bool:
+    from app.joysafeter_api.runtime_commands import publish_command_and_wait_for_ack
+
+    return await publish_command_and_wait_for_ack(
+        redis_client,
+        channel,
+        command,
+        command_id=command_id,
+        ack_key=ack_key,
+        boundary="session_api",
+        failure_code="SESSION_REDIS_COMMAND_ACK_WAIT_FAILED",
+        failure_message="Redis command ACK wait failed",
+    )
 
 
 def _encode_live_input(event: SingleEventRequest, source_event_id: Optional[str] = None) -> Optional[str]:
@@ -1152,55 +1173,6 @@ async def _relay_cancel_via_redis(session, *, reason: str) -> bool:
         )
         return False
     return delivered
-
-
-async def _publish_command_and_wait_for_ack(
-    redis_client,
-    channel: str,
-    command: dict[str, Any],
-    *,
-    command_id: str,
-    ack_key: str,
-) -> bool:
-    receivers = await redis_client.publish(channel, json.dumps(command))
-    if receivers is None or int(receivers) == 0:
-        return False
-
-    try:
-        ack = await redis_client.blpop(ack_key, timeout=COMMAND_ACK_TIMEOUT_SECONDS)
-    except Exception as exc:
-        logger.debug(
-            "Redis command ACK wait failed for %s",
-            command_id,
-            extra={
-                "error": async_boundary_error_payload(
-                    code="SESSION_REDIS_COMMAND_ACK_WAIT_FAILED",
-                    message="Redis command ACK wait failed",
-                    boundary="session_api",
-                    operation="wait_command_ack",
-                    data={"command_id": command_id, "ack_key": ack_key, "channel": channel},
-                    detail=exc.__class__.__name__,
-                )
-            },
-            exc_info=True,
-        )
-        return False
-    if not ack:
-        logger.debug("Redis command ACK timed out for %s", command_id)
-        return False
-
-    _key, raw_payload = ack
-    if isinstance(raw_payload, bytes):
-        raw_payload = raw_payload.decode()
-    try:
-        payload = json.loads(raw_payload)
-    except Exception:
-        logger.debug("Redis command ACK payload is invalid for %s: %r", command_id, raw_payload)
-        return False
-    if str(payload.get("command_id") or "") != command_id:
-        logger.debug("Redis command ACK command_id mismatch for %s: %s", command_id, payload)
-        return False
-    return bool(payload.get("ok"))
 
 
 def _build_resume_prompt(event: SingleEventRequest, event_id: str) -> Optional[str]:

@@ -2,13 +2,18 @@ import ast
 import re
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.no_db
+
 API_V1_FILES = sorted(Path("backend/app/joysafeter_api/api/v1").glob("*.py"))
-SCHEDULER_FILE = Path("backend/app/joysafeter_orchestrator/kernel/scheduler.py")
-GRPC_SERVER_FILE = Path("backend/app/joysafeter_orchestrator/grpc/server.py")
-ASYNC_BOUNDARY_ROOTS = (
+SCHEDULER_FILE = Path("backend/app/joysafeter_orchestrator_rs/src/kernel/scheduler.rs")
+GRPC_SERVER_FILE = Path("backend/app/joysafeter_orchestrator_rs/src/grpc/server.rs")
+PY_ASYNC_BOUNDARY_ROOTS = (
     Path("backend/app/joysafeter_api"),
     Path("backend/app/joysafeter_domain/services"),
-    Path("backend/app/joysafeter_orchestrator"),
+    Path("backend/app/joysafeter_shared/orchestrator_bridge"),
+    Path("backend/app/joysafeter_worker"),
 )
 LOGGER_FAILURE_METHODS = {"warning", "error", "exception"}
 EXCEPTION_ARG_NAMES = {"e", "exc", "err", "error", "result"}
@@ -51,6 +56,35 @@ STATE_BOUNDARY_TERMS = HIGH_SIGNAL_BOUNDARY_TERMS + (
     "incomplete",
     "requeued",
 )
+
+OLD_ORCHESTRATOR_MODULE = "app." + "joysafeter_orchestrator"
+PRODUCTION_PY_ROOTS = (
+    Path("backend/app/joysafeter_api"),
+    Path("backend/app/joysafeter_domain"),
+    Path("backend/app/joysafeter_shared"),
+    Path("backend/app/joysafeter_worker"),
+)
+REQUIRED_BRIDGE_EXPORTS = {
+    "ensure_session_broadcaster",
+    "get_bridge_registry",
+    "get_envoy_manager",
+    "get_image_builder",
+    "get_memory_subscribers",
+    "get_redis_coordinator",
+    "get_sandbox_provider",
+    "get_sandbox_resolver",
+    "get_scheduler",
+    "get_session_broadcaster",
+    "set_bridge_registry",
+    "set_envoy_manager",
+    "set_image_builder",
+    "set_memory_subscribers",
+    "set_redis_coordinator",
+    "set_sandbox_provider",
+    "set_sandbox_resolver",
+    "set_scheduler",
+    "set_session_broadcaster",
+}
 
 
 def _logger_failure_method(call: ast.Call) -> str | None:
@@ -225,8 +259,54 @@ def test_parallel_error_helper_modules_are_not_reintroduced():
     assert not Path("backend/app/joysafeter_shared/common/http_errors.py").exists()
     assert not Path("backend/app/joysafeter_api/api/v1/boundary_errors.py").exists()
     assert not Path("backend/app/joysafeter_domain/services/boundary_errors.py").exists()
-    assert not Path("backend/app/joysafeter_orchestrator/runtime/boundary_errors.py").exists()
-    assert not Path("backend/app/joysafeter_orchestrator/sandbox/boundary_errors.py").exists()
+
+
+def test_python_orchestrator_source_is_not_reintroduced():
+    source_files = [
+        path
+        for path in Path("backend/app/joysafeter_orchestrator").rglob("*.py")
+        if "__pycache__" not in path.parts
+    ]
+    assert source_files == []
+
+
+def test_python_services_do_not_import_removed_orchestrator_package():
+    offenders: list[str] = []
+
+    for root in PRODUCTION_PY_ROOTS:
+        for file_path in sorted(root.rglob("*.py")):
+            tree = ast.parse(file_path.read_text(), filename=str(file_path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    if node.module == OLD_ORCHESTRATOR_MODULE or node.module.startswith(f"{OLD_ORCHESTRATOR_MODULE}."):
+                        offenders.append(f"{file_path}:{node.lineno}: from {node.module} import ...")
+                elif isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.name == OLD_ORCHESTRATOR_MODULE or alias.name.startswith(f"{OLD_ORCHESTRATOR_MODULE}."):
+                            offenders.append(f"{file_path}:{node.lineno}: import {alias.name}")
+
+    assert offenders == []
+
+
+def test_tests_do_not_target_removed_python_orchestrator_package():
+    offenders: list[str] = []
+    this_file = Path(__file__).resolve()
+
+    for file_path in sorted(Path("backend/tests").rglob("*.py")):
+        if file_path.resolve() == this_file:
+            continue
+        text = file_path.read_text()
+        if OLD_ORCHESTRATOR_MODULE in text:
+            offenders.append(str(file_path))
+
+    assert offenders == []
+
+
+def test_orchestrator_bridge_exports_runtime_boundary_contract():
+    from app.joysafeter_shared import orchestrator_bridge
+
+    missing = sorted(name for name in REQUIRED_BRIDGE_EXPORTS if not hasattr(orchestrator_bridge, name))
+    assert missing == []
 
 
 def test_api_v1_async_error_boundaries_use_shared_contract_builders():
@@ -263,7 +343,7 @@ def test_api_v1_async_error_boundaries_use_shared_contract_builders():
 def test_high_signal_async_boundary_logs_include_structured_error_payload():
     offenders: list[str] = []
 
-    for root in ASYNC_BOUNDARY_ROOTS:
+    for root in PY_ASYNC_BOUNDARY_ROOTS:
         for file_path in sorted(root.rglob("*.py")):
             if file_path.name == "boundary_errors.py":
                 continue
@@ -286,7 +366,7 @@ def test_high_signal_async_boundary_logs_include_structured_error_payload():
 def test_state_boundary_logs_include_structured_error_payload():
     offenders: list[str] = []
 
-    for root in ASYNC_BOUNDARY_ROOTS:
+    for root in PY_ASYNC_BOUNDARY_ROOTS:
         for file_path in sorted(root.rglob("*.py")):
             if file_path.name == "boundary_errors.py":
                 continue

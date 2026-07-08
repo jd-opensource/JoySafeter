@@ -206,8 +206,8 @@ cd ../backend && cp env.example .env
 cd ../frontend && cp env.example .env
 cd ../deploy
 
-# Fully local: PostgreSQL + Redis + Python orchestrator
-docker compose --profile local-redis --profile python-orchestrator up -d --build
+# Fully local: PostgreSQL + Redis + Rust orchestrator
+docker compose --profile local-redis --profile rust-orchestrator up -d --build
 ```
 
 Access points:
@@ -222,15 +222,14 @@ The backend is a single codebase split into three services by the `JOYSAFETER_SE
 environment variable, deployed as separate containers:
 
 - `api` — REST `/api/v1/*`, SSE event stream, notification WebSocket, auth.
-- `orchestrator` — task scheduler, gRPC `AgentBridge`, and sandbox lifecycle.
+- `orchestrator-rs` — task scheduler, gRPC `AgentBridge`, and sandbox lifecycle.
 - `worker` — consumes the Redis event stream and persists events to Postgres.
 
 Supporting infrastructure: PostgreSQL, Redis, Envoy (per-sandbox egress proxy), and
 skillspector (skill security scanner). The bundled Redis service is behind the `local-redis`
 profile; for cloud Redis, leave that profile off and set `REDIS_URL` in `deploy/.env`.
-The `rust-orchestrator` compose profile is experimental in this checkout: its Dockerfile
-expects `backend/app/joysafeter_orchestrator_rs`, which is not present, so the supported
-quick-start path is the Python orchestrator.
+The Python orchestrator package has been removed. Use the Rust orchestrator
+profile for local and containerized orchestration.
 
 ### Local test one-command startup
 

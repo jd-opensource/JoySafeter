@@ -46,8 +46,13 @@ start_backend() {
   JOYSAFETER_SERVICE_ROLE=api uv run uvicorn app.joysafeter_api.main:app --host 0.0.0.0 --port 8000 &
   PIDS+=("$!")
 
-  log "启动 Orchestrator :8001 / gRPC :9090"
-  JOYSAFETER_SERVICE_ROLE=orchestrator uv run uvicorn app.joysafeter_orchestrator.main:app --host 127.0.0.1 --port 8001 &
+  log "启动 Rust Orchestrator gRPC :9090"
+  (
+    cd "$ROOT/backend/app/joysafeter_orchestrator_rs"
+    JOYSAFETER_GRPC_HOST=0.0.0.0 \
+      JOYSAFETER_GRPC_PORT="${JOYSAFETER_GRPC_PORT:-9090}" \
+      cargo run --release
+  ) &
   PIDS+=("$!")
 
   log "启动 Worker :8002"
@@ -72,6 +77,7 @@ main() {
   echo "Frontend: http://localhost:3000"
   echo "API:      http://localhost:8000"
   echo "Docs:     http://localhost:8000/docs"
+  echo "gRPC:     http://host.docker.internal:${JOYSAFETER_GRPC_PORT:-9090}"
   echo "按 Ctrl+C 停止本地进程；PostgreSQL/Redis 可用: cd deploy && docker compose down"
   wait
 }

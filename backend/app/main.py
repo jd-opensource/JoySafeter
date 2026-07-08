@@ -1,7 +1,8 @@
-"""Compatibility entrypoint for the legacy single-process backend.
+"""Compatibility entrypoint for API/worker-only Python service roles.
 
-Use `app.joysafeter_api.main`, `app.joysafeter_orchestrator.main`, and
-`app.joysafeter_worker.main` for the explicit three-service deployment.
+The orchestrator runtime has moved to `backend/app/joysafeter_orchestrator_rs`.
+Use `app.joysafeter_api.main` and `app.joysafeter_worker.main` for explicit
+Python service entrypoints.
 """
 
 from __future__ import annotations
@@ -42,35 +43,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         logger.info("   Worker loops skipped for service role")
 
     if is_orchestrator_role() and not is_worker_role():
-        from app.joysafeter_shared.runtime.lifecycle import _check_docker_availability
-
-        await _check_docker_availability()
-
+        raise RuntimeError(
+            "The Python orchestrator entrypoint has been removed. "
+            "Run the Rust orchestrator from backend/app/joysafeter_orchestrator_rs."
+        )
     if is_orchestrator_role():
-        # Legacy Python orchestrator startup — only triggered when SERVICE_ROLE
-        # includes "orchestrator". In Rust-orchestrator deployments this branch
-        # is never taken (SERVICE_ROLE is "api" or "worker"). The import will
-        # fail gracefully (try/except) if the legacy package was removed.
-        try:
-            from app.joysafeter_orchestrator.lifespan import joysafeter_startup
-
-            await joysafeter_startup()
-        except Exception as e:
-            logger.warning(f"   ⚠️  JoySafeter kernel startup failed: {e}")
+        logger.info("   JoySafeter Rust orchestrator runs as a separate process")
     else:
         logger.info("   JoySafeter kernel skipped for service role")
 
     try:
         yield
     finally:
-        if is_orchestrator_role():
-            try:
-                from app.joysafeter_orchestrator.lifespan import joysafeter_shutdown
-
-                await joysafeter_shutdown()
-            except Exception as e:
-                logger.warning(f"   ⚠️  JoySafeter kernel shutdown failed: {e}")
-
         if worker_tasks:
             from app.joysafeter_worker.lifecycle import stop_worker_loops
 

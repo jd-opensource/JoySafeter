@@ -18,11 +18,11 @@ current repository, not older design notes.
 | `frontend/README.md` / `frontend/env.example` | Updated App Router structure to the current `/managed/**` product surface and current frontend runtime/server config. |
 | `deploy/README.md` | Updated to the single existing Compose file, removed stale remote-compose instructions, documented cloud Redis vs local Redis, and clarified SkillSpector draft-save vs runtime-gate behavior. |
 | `deploy/.env.example` | Updated the Redis default to match the local compose quickstart while keeping cloud Redis examples, and clarified SkillSpector failure behavior for draft writes vs runtime packing. |
-| `deploy/docker-compose.yml` | Updated top-level usage comments to show the supported Python orchestrator local stack and mark the Rust profile experimental. |
+| `deploy/docker-compose.yml` | Updated top-level usage comments to show the supported Rust orchestrator local stack and removed the stale Python orchestrator service. |
 | `docs/api/openapi.md` | Updated response envelope, mounted router list, API key request/response details, session-first run flow, task-first response shape, and task ID path semantics from current routers/schemas. |
 | `docs/README.md` | Added a docs-level entry point linking status, architecture, tutorials, API notes, hardening, plans, and assets. |
 | `docs/tutorials/*.md` | Updated v2 tutorial navigation to current sidebar labels/routes, clarified new skill naming guidance and SkillSpector runtime-gate semantics, and aligned the Agent example model with the current default Anthropic secret model. |
-| `docs/ARCHITECTURE.md` / `docs/ARCHITECTURE_CN.md` / `docs/*.mmd` | Updated compose command snippets for the supported Python orchestrator stack, marked the Rust profile experimental in this checkout, replaced brittle line-number anchors with stable module references, and corrected SkillSpector failure-mode wording. |
+| `docs/ARCHITECTURE.md` / `docs/ARCHITECTURE_CN.md` / `docs/*.mmd` | Updated compose command snippets for the supported Rust orchestrator stack, replaced brittle line-number anchors with stable module references, and corrected SkillSpector failure-mode wording. |
 | `docs/user-journey-quickstart.drawio` | Updated stale `/chat`, `/settings/models`, `/tools`, `/workspace`, `/runs`, and `/ws/executions` labels to the current managed routes and SSE session stream. |
 | `docs/assets/README.md` | Updated committed asset inventory and screenshot TODOs for the current `/managed/**` UI. |
 | `docs/plans/*.md` | Added status banners marking historical implementation plans and the missing Rust orchestrator source directory where relevant. |
@@ -47,9 +47,9 @@ current repository, not older design notes.
 
 ## Current Code Facts Used For This Pass
 
-- Backend service roles are `api`, `orchestrator`, `worker`, and legacy `all`.
-- Explicit ASGI entrypoints are `app.joysafeter_api.main:app`, `app.joysafeter_orchestrator.main:app`, and `app.joysafeter_worker.main:app`.
-- `app.main:app` remains only as a legacy single-process compatibility entrypoint.
+- Backend Python service roles are `api`, `worker`, and legacy `all`; Rust owns orchestration.
+- Explicit Python ASGI entrypoints are `app.joysafeter_api.main:app` and `app.joysafeter_worker.main:app`.
+- `app.main:app` remains only as an API/worker compatibility entrypoint.
 - API routes are mounted under `/api/v1`; notifications use `/ws/notifications`.
 - Programmatic live runs should use the session-first flow: `POST /sessions`, `POST /sessions/{id}/events`
   with `user.message`, then `GET /sessions/{id}/events/stream`. Direct `POST /tasks` returns only
@@ -57,7 +57,7 @@ current repository, not older design notes.
 - Worker currently runs the Redis Stream event consumer and batch persistence path.
 - Frontend's main product surface is under `/managed/**`; root redirects authenticated users to `/managed/quickstart`.
 - Docker Compose has one active file: `deploy/docker-compose.yml`. Local Redis is behind the `local-redis` profile.
-- The supported quick-start orchestrator is Python. The `rust-orchestrator` compose profile still exists, but this checkout does not contain `backend/app/joysafeter_orchestrator_rs`.
+- The supported quick-start orchestrator is Rust via the `rust-orchestrator` profile.
 
 ## Verification Notes
 
@@ -66,7 +66,7 @@ current repository, not older design notes.
   virtualenv, and `skills/**` directories.
 - Ruby YAML parsing succeeds for `deploy/docker-compose.yml`,
   `backend/config/oauth_providers.yaml`, and `backend/config/oauth_providers.example.yaml`.
-  `docker-compose --env-file .env.example --profile local-redis --profile python-orchestrator
+  `docker-compose --env-file .env.example --profile local-redis --profile rust-orchestrator
   config --services` resolves the supported local service set. Full `docker-compose config --quiet`
   requires local `backend/.env` and `frontend/.env` files; those are intentionally created by the
   documented setup commands and were not generated during this audit.

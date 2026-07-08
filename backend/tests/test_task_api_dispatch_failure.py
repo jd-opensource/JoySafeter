@@ -71,7 +71,7 @@ async def _create_project(db_session) -> Project:
 @pytest.mark.asyncio
 async def test_create_task_enqueues_via_redis_without_local_scheduler(db_session, monkeypatch):
     redis = _FakeRedis()
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
@@ -115,7 +115,7 @@ async def test_create_task_enqueues_via_redis_without_local_scheduler(db_session
 @pytest.mark.asyncio
 async def test_create_task_rejects_missing_environment_ref_with_structured_error(db_session, monkeypatch):
     redis = _FakeRedis()
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
@@ -147,7 +147,7 @@ async def test_create_task_rejects_missing_environment_ref_with_structured_error
 @pytest.mark.asyncio
 async def test_create_task_rejects_archived_environment_ref_with_structured_error(db_session, monkeypatch):
     redis = _FakeRedis()
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
@@ -188,7 +188,7 @@ async def test_create_task_rejects_archived_environment_ref_with_structured_erro
 @pytest.mark.asyncio
 async def test_create_task_rejects_archived_agent_with_structured_error(db_session, monkeypatch):
     redis = _FakeRedis()
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
@@ -220,7 +220,7 @@ async def test_create_task_rejects_archived_agent_with_structured_error(db_sessi
 
 @pytest.mark.asyncio
 async def test_create_task_enqueue_failure_returns_503_and_marks_task_failed(db_session, monkeypatch):
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: None),
@@ -290,7 +290,7 @@ async def test_create_task_enqueue_failure_returns_503_and_marks_task_failed(db_
 @pytest.mark.asyncio
 async def test_create_task_rejects_session_with_active_task_even_if_session_looks_idle(db_session, monkeypatch):
     redis = _FakeRedis()
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
@@ -337,7 +337,7 @@ async def test_create_task_rejects_session_with_active_task_even_if_session_look
 @pytest.mark.asyncio
 async def test_create_task_with_existing_session_marks_running_before_enqueue(db_session, monkeypatch):
     redis = _FakeRedis()
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
@@ -382,7 +382,7 @@ async def test_create_task_with_existing_session_marks_running_before_enqueue(db
 @pytest.mark.asyncio
 async def test_create_task_rejects_environment_ref_mismatch_for_existing_session(db_session, monkeypatch):
     redis = _FakeRedis()
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
@@ -438,7 +438,7 @@ async def test_create_task_rejects_environment_ref_mismatch_for_existing_session
 @pytest.mark.asyncio
 async def test_create_task_uses_existing_session_environment_before_agent_default(db_session, monkeypatch):
     redis = _FakeRedis()
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
@@ -474,7 +474,7 @@ async def test_create_task_uses_existing_session_environment_before_agent_defaul
 
 @pytest.mark.asyncio
 async def test_create_task_idempotent_retry_after_enqueue_failure_stays_503(db_session, monkeypatch):
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: None),
@@ -514,7 +514,7 @@ async def test_create_task_idempotent_race_does_not_duplicate_enqueue_or_leave_o
     monkeypatch,
 ):
     redis = _FakeRedis()
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
@@ -564,7 +564,7 @@ async def test_create_task_idempotent_race_does_not_duplicate_enqueue_or_leave_o
 @pytest.mark.asyncio
 async def test_create_task_rejects_idempotency_key_reuse_for_different_prompt(db_session, monkeypatch):
     redis = _FakeRedis()
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
@@ -601,7 +601,7 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_prompt(db
 @pytest.mark.asyncio
 async def test_create_task_rejects_idempotency_key_reuse_for_different_session(db_session, monkeypatch):
     redis = _FakeRedis()
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
@@ -647,7 +647,7 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_session(d
 @pytest.mark.asyncio
 async def test_create_task_rejects_idempotency_key_reuse_for_different_environment(db_session, monkeypatch):
     redis = _FakeRedis()
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
@@ -701,7 +701,7 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_environme
 @pytest.mark.asyncio
 async def test_create_task_idempotent_retry_allows_original_environment_archived_later(db_session, monkeypatch):
     redis = _FakeRedis()
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
@@ -774,9 +774,9 @@ async def test_cancel_task_rejects_terminal_task_with_structured_error(db_sessio
 
 @pytest.mark.asyncio
 async def test_cancel_task_reports_session_idle_write_failure(db_session, monkeypatch):
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_bridge_registry", lambda: None)
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_redis_coordinator", lambda: None)
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_session_broadcaster", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_bridge_registry", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_redis_coordinator", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
 
     async def fail_idle_transition(self, session_id, status, task_id, stop_reason=None):
         raise RuntimeError("session write failed")
@@ -845,7 +845,7 @@ async def test_per_user_admission_rejects_human_over_limit(db_session, monkeypat
     from app.joysafeter_shared.config.settings import settings
 
     redis = _FakeRedis()
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
@@ -886,7 +886,7 @@ async def test_per_project_admission_returns_structured_retryable_error(db_sessi
     from app.joysafeter_shared.config.settings import settings
 
     redis = _FakeRedis()
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
@@ -931,7 +931,7 @@ async def test_per_user_admission_skips_service_principal(db_session, monkeypatc
     from app.joysafeter_shared.config.settings import settings
 
     redis = _FakeRedis()
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),

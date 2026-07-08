@@ -175,7 +175,7 @@ async def test_archive_project_closes_session_sandbox_after_shutdown_ack_without
     sandbox_id = sandbox.id
 
     redis = _FakeCommandRedis()
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_sandbox_provider", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_sandbox_provider", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
@@ -239,7 +239,7 @@ async def test_archive_project_requires_session_sandbox_shutdown_ack_without_pro
     sandbox_id = sandbox.id
 
     redis = _FakeCommandRedis(receivers=0)
-    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_sandbox_provider", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_sandbox_provider", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),

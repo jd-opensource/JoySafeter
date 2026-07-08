@@ -17,6 +17,8 @@ _scheduler = None
 _session_broadcaster = None
 _bridge_registry = None
 _sandbox_resolver = None
+_sandbox_provider = None
+_envoy_manager = None
 _memory_subscribers = None
 _image_builder = None
 _redis_coordinator = None
@@ -42,6 +44,14 @@ def get_bridge_registry():
 
 def get_sandbox_resolver():
     return _sandbox_resolver
+
+
+def get_sandbox_provider():
+    return _sandbox_provider
+
+
+def get_envoy_manager():
+    return _envoy_manager
 
 
 def get_memory_subscribers():
@@ -74,8 +84,9 @@ def ensure_session_broadcaster(redis_client=None, instance_id: str | None = None
     """
     global _session_broadcaster
     if _session_broadcaster is None:
-        from .session_broadcaster import SessionBroadcaster
         from app.joysafeter_shared.config.settings import joysafeter_config
+
+        from .session_broadcaster import SessionBroadcaster
 
         _session_broadcaster = SessionBroadcaster(
             redis_client=redis_client,
@@ -107,6 +118,16 @@ def set_bridge_registry(v):
 def set_sandbox_resolver(v):
     global _sandbox_resolver
     _sandbox_resolver = v
+
+
+def set_sandbox_provider(v):
+    global _sandbox_provider
+    _sandbox_provider = v
+
+
+def set_envoy_manager(v):
+    global _envoy_manager
+    _envoy_manager = v
 
 
 def set_memory_subscribers(v):

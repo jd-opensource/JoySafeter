@@ -102,8 +102,7 @@ flowchart TB
 | Component | Compose service | Role | Key responsibility |
 |---|---|---|---|
 | **API** | `api` | `JOYSAFETER_SERVICE_ROLE=api` | REST `/api/v1/*`, SSE execution stream, notification WebSocket, auth |
-| **Orchestrator (Python)** | `orchestrator` (profile `python-orchestrator`) | `orchestrator` | gRPC `AgentBridge` server, task scheduler, sandbox lifecycle, event bus. **Reference implementation.** |
-| **Orchestrator (Rust)** | `orchestrator-rs` (profile `rust-orchestrator`) | — | Experimental alternative. The compose profile remains, but this checkout lacks `backend/app/joysafeter_orchestrator_rs`, so it is not a supported quick-start path. |
+| **Orchestrator (Rust)** | `orchestrator-rs` (profile `rust-orchestrator`) | — | gRPC `AgentBridge` server, task scheduler, sandbox lifecycle, event bus |
 | **Worker** | `worker` | `worker` | Consumes the Redis event Stream, batch-persists events to `joysafeter_session_events`, republishes for SSE |
 | **Frontend** | `frontend` | — | Next.js App Router UI |
 | **PostgreSQL** | `db` | — | System of record for all state |
@@ -112,8 +111,8 @@ flowchart TB
 | **skillspector** | `skillspector` | — | Standalone skill security-scanning service; runtime gate is fail-closed for unusable scan states |
 | **db-init** | `db-init` (profile `init`) | — | One-shot Alembic migrations |
 
-Use the Python orchestrator profile for the supported local stack:
-`docker compose --profile local-redis --profile python-orchestrator up`.
+Use the Rust orchestrator profile for the supported local stack:
+`docker compose --profile local-redis --profile rust-orchestrator up`.
 
 ---
 

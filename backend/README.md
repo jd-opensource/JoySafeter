@@ -50,7 +50,7 @@ uv run uvicorn app.joysafeter_api.main:app --reload --host 0.0.0.0 --port 8000
 
 ## 三服务启动方式
 
-本地开发默认仍可使用 `JOYSAFETER_SERVICE_ROLE=all` 单进程兼容模式。生产或压测时使用同一套代码拆成三个显式服务角色：
+Python 进程只承载 API 与 worker；orchestrator 已迁移到 Rust。生产或压测时使用显式服务角色：
 
 ```bash
 # API：HTTP、WebSocket、管理接口
@@ -58,12 +58,10 @@ JOYSAFETER_SERVICE_ROLE=api \
 uv run uvicorn app.joysafeter_api.main:app --host 0.0.0.0 --port 8000
 
 # Orchestrator：gRPC AgentBridge、scheduler、sandbox/task lifecycle
-JOYSAFETER_SERVICE_ROLE=orchestrator \
 JOYSAFETER_INSTANCE_ID=orchestrator-001 \
-ORCHESTRATOR_HTTP_HOST=127.0.0.1 \
 JOYSAFETER_GRPC_HOST=0.0.0.0 \
 JOYSAFETER_GRPC_PORT=9090 \
-uv run uvicorn app.joysafeter_orchestrator.main:app --host 127.0.0.1 --port 8001 --workers 1
+cargo run --manifest-path app/joysafeter_orchestrator_rs/Cargo.toml --release
 
 # Worker：Redis Stream consumer、批量事件落库
 JOYSAFETER_SERVICE_ROLE=worker \
@@ -73,13 +71,14 @@ uv run uvicorn app.joysafeter_worker.main:app --host 127.0.0.1 --port 8002 --wor
 
 入口说明：
 
-- 显式三服务入口：`app.joysafeter_api.main:app`、`app.joysafeter_orchestrator.main:app`、`app.joysafeter_worker.main:app`。
-- 旧单体兼容入口：`app.main:app`，会根据 `JOYSAFETER_SERVICE_ROLE` 决定是否同时启动 orchestrator/worker 逻辑；新部署建议直接使用显式三服务入口。
-- 单机云虚拟机部署建议只对公网暴露 API；Orchestrator/Worker HTTP 监听 `127.0.0.1:8001/8002`，Orchestrator gRPC 监听 `0.0.0.0:9090` 供沙箱容器访问，并通过云安全组/防火墙禁止公网访问 `9090`。
+- 显式 Python 入口：`app.joysafeter_api.main:app`、`app.joysafeter_worker.main:app`。
+- Rust orchestrator 入口：`app/joysafeter_orchestrator_rs`。
+- 旧单体兼容入口：`app.main:app` 只兼容 API/worker Python 角色；不会启动 orchestrator。
+- 单机云虚拟机部署建议只对公网暴露 API；Worker HTTP 监听 `127.0.0.1:8002`，Orchestrator gRPC 监听 `0.0.0.0:9090` 供沙箱容器访问，并通过云安全组/防火墙禁止公网访问 `9090`。
 
 注意事项：
 
-- `orchestrator` 不建议使用 `uvicorn --workers N`；需要扩容时启动多个 orchestrator 实例，并为每个实例配置唯一 `JOYSAFETER_INSTANCE_ID`。
+- Rust orchestrator 需要扩容时启动多个实例，并为每个实例配置唯一 `JOYSAFETER_INSTANCE_ID`。
 - 三个服务共享同一套 PostgreSQL / Redis；服务之间通过 DB 状态和 Redis 唤醒/协调通信。
 - 三服务模式建议开启 `JOYSAFETER_EVENT_STREAM_ENABLED=true`，让 orchestrator 把高频 JoySafeter event 写入 Redis Stream，再由 `worker` 批量消费落库。
 - `JOYSAFETER_EVENT_STREAM_FALLBACK_TO_DB=true` 时，如果 orchestrator 写 Redis Stream 失败，会自动降级为本地 DB 落库，避免事件直接丢失。
@@ -89,7 +88,7 @@ Docker Compose 可启动完整本地三服务栈：
 
 ```bash
 cd deploy
-docker compose --profile local-redis --profile python-orchestrator up -d db redis api orchestrator worker frontend
+docker compose --profile local-redis --profile rust-orchestrator up -d db redis api orchestrator-rs worker frontend
 ```
 
 ## 项目结构
@@ -103,15 +102,12 @@ app/
 │   ├── main.py              # API ASGI 入口 app.joysafeter_api.main:app
 │   ├── services.py          # API-facing service facade
 │   └── startup.py           # API 专属初始化
-├── joysafeter_orchestrator/       # Orchestrator 服务：gRPC gateway、scheduler、sandbox/task lifecycle
-│   ├── grpc/                # orchestrator gRPC server + protobuf
-│   ├── kernel/              # queue、scheduler、task/sandbox controller、task runner
-│   ├── events/              # JoySafeter event bus、mapping、Redis Stream publisher
-│   ├── runtime/             # Claude/Codex/mock runtime adapters
-│   ├── sandbox/             # Docker/Daytona/E2B sandbox providers
-│   ├── lifespan.py          # orchestrator 内核启动/关闭
-│   ├── main.py              # Orchestrator ASGI 入口 app.joysafeter_orchestrator.main:app
-│   └── services.py          # orchestrator-facing service facade
+├── joysafeter_orchestrator_rs/    # Rust orchestrator：gRPC、scheduler、sandbox/task lifecycle
+│   ├── src/grpc/            # orchestrator gRPC server + protobuf
+│   ├── src/kernel/          # queue、scheduler、task/sandbox controller、task runner
+│   ├── src/events/          # JoySafeter event bus、mapping、Redis Stream publisher
+│   ├── src/runtime/         # Claude/Codex/mock runtime adapters
+│   └── src/sandbox/         # Docker/Daytona/E2B sandbox providers
 ├── joysafeter_worker/       # Worker 服务：Redis Stream consumer、批量事件落库
 │   ├── events/              # batch writer + stream consumer
 │   ├── lifecycle.py         # worker loops start/stop
@@ -120,7 +116,7 @@ app/
 │   └── startup.py           # worker 专属初始化/关闭
 ├── joysafeter_shared/       # 跨服务共享基础设施（runtime/common/utils/storage/templates）
 ├── joysafeter_domain/       # 领域层真实实现（models/repositories/schemas/services/contracts/ports/state_machines）
-└── main.py                  # 旧单进程兼容入口 app.main:app
+└── main.py                  # API/worker-only 兼容入口 app.main:app
 ```
 
 > 完整架构文档：[`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) | [中文版](../docs/ARCHITECTURE_CN.md)

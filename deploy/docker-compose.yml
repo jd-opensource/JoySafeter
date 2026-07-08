@@ -4,9 +4,7 @@
 # 用法：
 #   cd deploy
 #   Supported local stack:
-#     docker compose --profile local-redis --profile python-orchestrator up -d --build
-#   Experimental Rust profile requires backend/app/joysafeter_orchestrator_rs, which is
-#   not present in this checkout.
+#     docker compose --profile local-redis --profile rust-orchestrator up -d --build
 # =============================================================================
 
 x-backend-build: &backend-build
@@ -219,44 +217,6 @@ services:
     healthcheck:
       <<: *backend-health-common
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
-    networks:
-      - joysafeter-network
-
-  orchestrator:
-    profiles: ["python-orchestrator"]
-    image: ${BACKEND_FULL_IMAGE:-joysafeter-backend:latest}
-    build: *backend-build
-    container_name: joysafeter-orchestrator
-    restart: unless-stopped
-    env_file: *backend-env-files
-    environment:
-      <<: *backend-common-env
-      JOYSAFETER_SERVICE_ROLE: orchestrator
-      BACKEND_APP_MODULE: app.joysafeter_orchestrator.main:app
-      BACKEND_PORT: 8001
-      ORCHESTRATOR_HTTP_HOST: 0.0.0.0
-      WORKERS: 1
-      JOYSAFETER_INSTANCE_ID: ${JOYSAFETER_INSTANCE_ID:-orchestrator-001}
-      JOYSAFETER_GRPC_HOST: 0.0.0.0
-      JOYSAFETER_GRPC_PORT: ${JOYSAFETER_GRPC_PORT:-9090}
-      JOYSAFETER_GRPC_PUBLIC_URL: ${JOYSAFETER_GRPC_PUBLIC_URL:-http://host.docker.internal:9090}
-    ports:
-      - "${ORCHESTRATOR_HEALTH_BIND_HOST:-127.0.0.1}:${ORCHESTRATOR_HEALTH_PORT_HOST:-8001}:8001"
-      - "${JOYSAFETER_GRPC_BIND_HOST:-0.0.0.0}:${JOYSAFETER_GRPC_PORT_HOST:-9090}:9090"
-    depends_on:
-      <<: *backend-depends
-      joysafeter-envoy:
-        condition: service_started
-    volumes:
-      - backend-logs:/app/app/logs
-      - backend-files:/app/data/files
-      - ../skills:/app/skills:ro
-      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
-      - ${DOCKER_BIN_PATH:-/usr/bin/docker}:/usr/bin/docker:ro
-      - ${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}:${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}
-    healthcheck:
-      <<: *backend-health-common
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)"]
     networks:
       - joysafeter-network
 

@@ -11,8 +11,8 @@ cd ../backend && cp env.example .env
 cd ../frontend && cp env.example .env
 cd ../deploy
 
-# 全本地：PostgreSQL + Redis + Python orchestrator
-docker compose --profile local-redis --profile python-orchestrator up -d --build
+# 全本地：PostgreSQL + Redis + Rust orchestrator
+docker compose --profile local-redis --profile rust-orchestrator up -d --build
 
 ```
 
@@ -22,8 +22,7 @@ docker compose --profile local-redis --profile python-orchestrator up -d --build
 - `redis`：Redis（仅在启用 `local-redis` profile 时启动；使用云 Redis 时改 `deploy/.env` 的 `REDIS_URL`）
 - `skillspector`：内部 Skill 安全扫描服务，API 在创建、更新、导入和文件变更时调用
 - `api`：后端 API，端口 `8000`
-- `orchestrator`：Python 版调度 / gRPC / sandbox 生命周期，gRPC 端口 `9090`，HTTP health 端口 `8001`
-- `orchestrator-rs`：实验 Rust 版调度 / gRPC / sandbox 生命周期，gRPC 端口 `9090`；当前 checkout 缺少 `backend/app/joysafeter_orchestrator_rs` 源码目录，不能作为默认启动路径
+- `orchestrator-rs`：Rust 版调度 / gRPC / sandbox 生命周期，gRPC 端口 `9090`
 - `worker`：Redis Stream 消费 / 批量事件落库
 - `frontend`：前端，端口 `3000`
 
@@ -40,23 +39,22 @@ docker compose --profile local-redis --profile python-orchestrator up -d --build
 
 ```bash
 docker compose ps
-docker compose logs -f api orchestrator worker
+docker compose logs -f api orchestrator-rs worker
 docker compose down
 ```
 
-`python-orchestrator` 是当前支持的启动路径。`rust-orchestrator` profile 保留在 Compose 中，但其 Dockerfile
-依赖当前 checkout 不存在的 `backend/app/joysafeter_orchestrator_rs`，直接 build 会失败；除非恢复该源码目录
-或改用预构建 `ORCHESTRATOR_RS_FULL_IMAGE`，否则不要启用。
+Python orchestrator 源码已移除；本地和容器化部署都使用 `rust-orchestrator`
+profile。也可以通过 `ORCHESTRATOR_RS_FULL_IMAGE` 指向预构建镜像。
 
 如果使用云 Redis，不要启用 `local-redis` profile；把 `deploy/.env` 里的 `REDIS_URL` 改成云 Redis 内网地址即可：
 
 ```bash
-docker compose --profile python-orchestrator up -d --build
+docker compose --profile rust-orchestrator up -d --build
 ```
 
 Skill 安全扫描默认开启。`deploy/.env` 里的 `SKILLSPECTOR_SOURCE_PATH` 默认指向与 JoySafeter 同级的 `../../SkillSpector`，生产构建时要确保该源码目录存在，或预先构建并推送 `SKILLSPECTOR_FULL_IMAGE`。草稿写入路径在扫描器故障时会记录 `failed`/`scanning` 状态并允许保存；运行时只会打包 `approved` 且扫描状态为 `passed`/`warning`、内容未漂移的技能。
 
-实验：单独构建 Rust orchestrator 镜像（需要先恢复 `backend/app/joysafeter_orchestrator_rs` 源码目录）：
+单独构建 Rust orchestrator 镜像：
 
 ```bash
 cd ..

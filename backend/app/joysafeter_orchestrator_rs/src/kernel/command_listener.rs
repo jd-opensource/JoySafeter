@@ -1,3 +1,4 @@
+use redis::AsyncCommands;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
@@ -13,8 +14,6 @@ use crate::kernel::sandbox_bridge::BridgeRegistry;
 /// - `input` → sends SendInput to target sandbox bridge + notifies confirmation
 /// - `shutdown` → sends Shutdown to target sandbox bridge
 /// - `memory_update` → broadcasts MemoryFileUpdate to all sandboxes sharing the store
-///
-/// Mirrors the Python `CommandListener`.
 pub struct CommandListener {
     client: redis::Client,
     instance_id: String,
@@ -91,7 +90,9 @@ impl CommandListener {
 
         // memory_update is a broadcast command — no sandbox_id needed.
         if cmd_type == "memory_update" {
-            return self.handle_memory_update(&cmd).await;
+            let result = self.handle_memory_update(&cmd).await;
+            self.publish_ack(&cmd, result.is_ok()).await;
+            return result;
         }
 
         let sandbox_id_str = cmd["sandbox_id"].as_str().unwrap_or("");
@@ -106,6 +107,7 @@ impl CommandListener {
             Ok(id) => id,
             Err(_) => {
                 warn!("Invalid sandbox_id in command: {sandbox_id_str}");
+                self.publish_ack(&cmd, false).await;
                 return Ok(());
             }
         };
@@ -114,10 +116,12 @@ impl CommandListener {
             Some(b) => b,
             None => {
                 debug!("No local bridge for sandbox {sandbox_id}, ignoring command");
+                self.publish_ack(&cmd, false).await;
                 return Ok(());
             }
         };
 
+        let mut ack_ok = false;
         match cmd_type {
             "cancel" => {
                 let reason = cmd["reason"].as_str().unwrap_or("cancelled by remote");
@@ -126,13 +130,14 @@ impl CommandListener {
                         reason: reason.to_string(),
                     })),
                 };
-                let _ = bridge.send_to_runner(msg).await;
+                ack_ok = bridge.send_to_runner(msg).await.is_ok();
                 bridge.request_cancel().await;
                 info!(sandbox_id = %sandbox_id, "Relayed cancel command");
             }
             "input" => {
                 let content = cmd["content"].as_str().unwrap_or("");
                 bridge.send_control_input(content.to_string()).await;
+                ack_ok = true;
                 info!(sandbox_id = %sandbox_id, "Relayed input command");
             }
             "shutdown" => {
@@ -142,15 +147,42 @@ impl CommandListener {
                         reason: reason.to_string(),
                     })),
                 };
-                let _ = bridge.send_to_runner(msg).await;
+                ack_ok = bridge.send_to_runner(msg).await.is_ok();
                 info!(sandbox_id = %sandbox_id, "Relayed shutdown command");
             }
             other => {
                 warn!("Unknown command type: {other}");
             }
         }
+        self.publish_ack(&cmd, ack_ok).await;
 
         Ok(())
+    }
+
+    async fn publish_ack(&self, cmd: &serde_json::Value, ok: bool) {
+        let Some(ack_key) = cmd["ack_key"].as_str() else {
+            return;
+        };
+        let command_id = cmd["command_id"].as_str().unwrap_or("");
+        let payload = serde_json::json!({
+            "command_id": command_id,
+            "ok": ok,
+        });
+        let Ok(encoded) = serde_json::to_string(&payload) else {
+            return;
+        };
+        let mut conn = match self.client.get_multiplexed_async_connection().await {
+            Ok(conn) => conn,
+            Err(e) => {
+                warn!("Failed to open Redis connection for command ACK: {e}");
+                return;
+            }
+        };
+        if let Err(e) = conn.rpush::<_, _, ()>(ack_key, encoded).await {
+            warn!("Failed to write command ACK {ack_key}: {e}");
+            return;
+        }
+        let _ = conn.expire::<_, ()>(ack_key, 30).await;
     }
 
     /// Handle a `memory_update` broadcast: notify all sandboxes sharing the

@@ -785,7 +785,7 @@ impl HarnessInputBuilder {
     }
 
     /// Load session-scoped GitHub repository resources and decrypt their clone
-    /// tokens. Mirrors the Python orchestrator: repos live on the session
+    /// tokens. Repos live on the session
     /// (``joysafeter_session_repos``), not on ``agent.metadata``; the token is
     /// stored encrypted and decrypted here just before handing it to the runner.
     async fn load_session_repos(&self, session_id: Uuid, input: &mut HarnessInput) {
