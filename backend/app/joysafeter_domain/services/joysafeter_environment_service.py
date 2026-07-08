@@ -115,6 +115,8 @@ class EnvironmentService:
         env_id: uuid.UUID,
         req: UpdateEnvironmentRequest,
         project_id: Optional[str] = None,
+        *,
+        commit: bool = True,
     ) -> Optional[JoySafeterEnvironment]:
         env = await self.get_environment(env_id, project_id=project_id)
         if not env:
@@ -146,8 +148,11 @@ class EnvironmentService:
         if next_config is not None:
             env.config = next_config
         env.updated_at = utc_now()
-        await self.db.commit()
-        await self.db.refresh(env)
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(env)
+        else:
+            await self.db.flush()
         return env
 
     async def delete_environment(self, env_id: uuid.UUID, project_id: Optional[str] = None) -> bool:

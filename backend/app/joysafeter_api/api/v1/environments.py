@@ -1,7 +1,7 @@
 import logging
 import re
 import uuid
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +34,12 @@ router = APIRouter(tags=["joysafeter-environments"])
 
 _ACTIVE_TASK_ENV_RE = re.compile(r"^Environment is required by active task '([^']+)' via ([^.]+)\. (.+)$")
 _AGENT_ENV_RE = re.compile(r"^Environment is referenced by agent '([^']+)'\.$")
+
+
+class _EnvironmentImageUpdate(NamedTuple):
+    image_tag: Optional[str]
+    image_version: int
+    apply: bool
 
 
 def _environment_conflict_error(env_id: uuid.UUID, exc: ValueError) -> AppError:
@@ -93,38 +99,43 @@ def _environment_image_build_error(env_id: uuid.UUID, *, operation: str, exc: Ex
     )
 
 
-async def _validate_and_build_image(env) -> None:
+def _apply_image_update(env, update: _EnvironmentImageUpdate) -> None:
+    if not update.apply:
+        return
+    env.image_tag = update.image_tag
+    env.image_version = update.image_version
+
+
+async def _build_image_update(env) -> _EnvironmentImageUpdate:
     """Validate packages by building the Docker image synchronously.
 
     Raises an AppError if the build fails so the caller can propagate the
     error to the client.
     """
     from app.joysafeter_orchestrator.lifespan import get_image_builder
+    from app.joysafeter_orchestrator.sandbox.image_builder import ImageBuilder
 
-    builder = get_image_builder()
     config = env.config or {}
     packages = config.get("packages", {}) if isinstance(config, dict) else {}
-    if not packages:
-        return
+    if not packages or ImageBuilder._is_packages_empty(packages):
+        return _EnvironmentImageUpdate(image_tag=None, image_version=0, apply=True)
 
+    builder = get_image_builder()
     if not builder:
         logger.info("Image builder unavailable; skipping environment image build for %s", env.id)
-        return
+        return _EnvironmentImageUpdate(
+            image_tag=None,
+            image_version=getattr(env, "image_version", 0) or 0,
+            apply=False,
+        )
 
     version = getattr(env, "image_version", 0) or 0
     tag = await builder.build_environment_image(env.id, version + 1, packages)
     if tag:
-        from app.joysafeter_api.services import JoySafeterEnvironmentService as ES
-        from app.joysafeter_shared.database import AsyncSessionLocal
-
-        async with AsyncSessionLocal() as db:
-            svc = ES(db)
-            e = await svc.get_environment(env.id, project_id=getattr(env, "project_id", None))
-            if e:
-                e.image_tag = tag
-                e.image_version = version + 1
-                await db.commit()
         logger.info("Built environment image %s for env %s", tag, env.id)
+        return _EnvironmentImageUpdate(image_tag=tag, image_version=version + 1, apply=True)
+
+    return _EnvironmentImageUpdate(image_tag=None, image_version=0, apply=True)
 
 
 def _env_to_response(env) -> EnvironmentResponse:
@@ -180,7 +191,9 @@ async def create_environment(
 
     # Validate packages synchronously -- fail the request on build error
     try:
-        await _validate_and_build_image(env)
+        _apply_image_update(env, await _build_image_update(env))
+        await db.commit()
+        await db.refresh(env)
     except Exception as exc:
         # Roll back the created environment on build failure
         await svc.delete_environment(env.id, project_id=auth_ctx.project_id)
@@ -245,18 +258,28 @@ async def update_environment(
         await _validate_secret_refs(db, req.config.secret_refs, auth_ctx.project_id)
 
     try:
-        env = await svc.update_environment(env_id, req, project_id=auth_ctx.project_id)
-    except ValueError as exc:
-        raise _environment_conflict_error(env_id, exc) from exc
-    if not env:
-        raise _environment_not_found_error(env_id)
-
-    # Validate packages synchronously if config changed
-    if req.config is not None:
         try:
-            await _validate_and_build_image(env)
-        except Exception as exc:
+            env = await svc.update_environment(env_id, req, project_id=auth_ctx.project_id, commit=False)
+        except ValueError as exc:
+            raise _environment_conflict_error(env_id, exc) from exc
+        if not env:
+            raise _environment_not_found_error(env_id)
+
+        # Validate packages synchronously if config changed. Config and image
+        # fields commit together so failed builds do not leave a half-updated
+        # environment pointing at the previous image.
+        if req.config is not None:
+            _apply_image_update(env, await _build_image_update(env))
+        await db.commit()
+        await db.refresh(env)
+    except AppError:
+        await db.rollback()
+        raise
+    except Exception as exc:
+        await db.rollback()
+        if req.config is not None:
             raise _environment_image_build_error(env.id, operation="update", exc=exc) from exc
+        raise
 
     return _env_to_response(env)
 

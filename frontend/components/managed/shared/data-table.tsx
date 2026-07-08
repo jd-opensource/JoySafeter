@@ -59,6 +59,16 @@ function widthToSize(w?: string): number | undefined {
   return Math.round(n)
 }
 
+export type DataTableSelectionKey = string | number
+
+export function dataTableSelectionKey<T>(row: T, index: number): DataTableSelectionKey {
+  if (row && typeof row === 'object' && 'id' in row) {
+    const id = (row as { id?: unknown }).id
+    if (typeof id === 'string' || typeof id === 'number') return id
+  }
+  return index
+}
+
 // ── Component ───────────────────────────────────────────────────────────
 
 export function DataTable<T>({
@@ -73,20 +83,22 @@ export function DataTable<T>({
   emptyMessage,
 }: DataTableProps<T>) {
   const { t } = useTranslation()
-  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [selected, setSelected] = useState<Set<DataTableSelectionKey>>(new Set())
   const [columnResizeMode] = useState<ColumnResizeMode>('onChange')
 
-  const allSelected = data.length > 0 && selected.size === data.length
+  const allSelected =
+    data.length > 0 &&
+    data.every((row, index) => selected.has(dataTableSelectionKey(row, index)))
 
   const toggleAll = () => {
     if (allSelected) setSelected(new Set())
-    else setSelected(new Set(data.map((_, i) => i)))
+    else setSelected(new Set(data.map((row, i) => dataTableSelectionKey(row, i))))
   }
 
-  const toggleRow = (i: number) => {
+  const toggleRow = (key: DataTableSelectionKey) => {
     const next = new Set(selected)
-    if (next.has(i)) next.delete(i)
-    else next.add(i)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
     setSelected(next)
   }
 
@@ -110,18 +122,21 @@ export function DataTable<T>({
             className="rounded border-border"
           />
         ),
-        cell: ({ row }) => (
-          <input
-            type="checkbox"
-            checked={selected.has(row.index)}
-            onChange={(e) => {
-              e.stopPropagation()
-              toggleRow(row.index)
-            }}
-            onClick={(e) => e.stopPropagation()}
-            className="rounded border-border"
-          />
-        ),
+        cell: ({ row }) => {
+          const key = dataTableSelectionKey(row.original, row.index)
+          return (
+            <input
+              type="checkbox"
+              checked={selected.has(key)}
+              onChange={(e) => {
+                e.stopPropagation()
+                toggleRow(key)
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="rounded border-border"
+            />
+          )
+        },
       })
     }
 
