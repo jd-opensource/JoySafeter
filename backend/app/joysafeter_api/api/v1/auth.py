@@ -23,7 +23,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
@@ -38,7 +38,9 @@ from app.joysafeter_shared.common.app_errors import (
     InvalidRequestError,
     NotFoundError,
     ResourceConflictError,
+    ServiceUnavailableError,
 )
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure_loguru
 from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
@@ -1024,6 +1026,137 @@ async def update_project(
     return _project_to_response(project)
 
 
+async def _cleanup_project_sessions_for_archive(project_id: str, db: AsyncSession) -> None:
+    from app.joysafeter_api.runtime_commands import relay_sandbox_command_via_redis
+    from app.joysafeter_api.services import SandboxService
+    from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+    from app.joysafeter_orchestrator.lifespan import get_sandbox_provider
+
+    result = await db.execute(
+        select(JoySafeterSession.id).where(
+            JoySafeterSession.project_id == project_id,
+            JoySafeterSession.archived_at.is_(None),
+        )
+    )
+    session_ids = list(result.scalars().all())
+    if not session_ids:
+        return
+
+    sandbox_svc = SandboxService(db)
+    provider = get_sandbox_provider()
+    active_sandbox_statuses = {"creating", "provisioning", "idle", "running", "stopping"}
+
+    for session_id in session_ids:
+        sandbox = await sandbox_svc.find_by_session(session_id)
+        if not sandbox or sandbox.status == "destroyed":
+            continue
+
+        shutdown_relayed = await relay_sandbox_command_via_redis(
+            sandbox.id,
+            command_type="shutdown",
+            reason="project archived",
+            boundary="project_api",
+            operation="archive_project_shutdown_runner",
+            failure_code="PROJECT_ARCHIVE_REDIS_SHUTDOWN_FAILED",
+            failure_message="Redis shutdown relay command failed",
+            data={"project_id": project_id, "session_id": str(session_id)},
+        )
+        if not provider and sandbox.status in active_sandbox_statuses and not shutdown_relayed:
+            raise ServiceUnavailableError(
+                code="PROJECT_ARCHIVE_REDIS_SHUTDOWN_FAILED",
+                message="Failed to deliver shutdown command to project session sandbox runtime.",
+                data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
+                source="runtime",
+                retryable=True,
+                user_action="retry",
+            )
+
+        if provider and sandbox.external_id:
+            if sandbox.status not in ("stopped", "error"):
+                try:
+                    await provider.stop(sandbox.external_id)
+                except Exception as exc:
+                    log_boundary_failure_loguru(
+                        logger,
+                        boundary="project_api",
+                        code="PROJECT_SANDBOX_STOP_FAILED",
+                        message="Failed to stop sandbox during project archive",
+                        operation="archive_project_stop_sandbox",
+                        error=exc,
+                        data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
+                    )
+                    raise ServiceUnavailableError(
+                        code="PROJECT_SANDBOX_STOP_FAILED",
+                        message="Project could not be archived because sandbox cleanup failed.",
+                        data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
+                        source="runtime",
+                        retryable=True,
+                        user_action="retry",
+                    ) from None
+            try:
+                await provider.destroy(sandbox.external_id)
+            except Exception as exc:
+                log_boundary_failure_loguru(
+                    logger,
+                    boundary="project_api",
+                    code="PROJECT_SANDBOX_DESTROY_FAILED",
+                    message="Failed to destroy sandbox during project archive",
+                    operation="archive_project_destroy_sandbox",
+                    error=exc,
+                    data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
+                )
+                raise ServiceUnavailableError(
+                    code="PROJECT_SANDBOX_DESTROY_FAILED",
+                    message="Project could not be archived because sandbox cleanup failed.",
+                    data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
+                    source="runtime",
+                    retryable=True,
+                    user_action="retry",
+                ) from None
+
+        try:
+            destroyed = await sandbox_svc.mark_destroyed_cas(sandbox.id, sandbox.status)
+            if not destroyed:
+                destroyed = await sandbox_svc.mark_destroyed(sandbox.id)
+        except Exception as exc:
+            log_boundary_failure_loguru(
+                logger,
+                boundary="project_api",
+                code="PROJECT_SANDBOX_STATE_SYNC_FAILED",
+                message="Failed to mark sandbox destroyed during project archive",
+                operation="archive_project_mark_sandbox_destroyed",
+                error=exc,
+                data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
+                source="api",
+            )
+            raise ServiceUnavailableError(
+                code="PROJECT_SANDBOX_STATE_SYNC_FAILED",
+                message="Project could not be archived because sandbox state sync failed.",
+                data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
+                source="api",
+                retryable=True,
+                user_action="retry",
+            ) from None
+        if not destroyed:
+            log_boundary_failure_loguru(
+                logger,
+                boundary="project_api",
+                code="PROJECT_SANDBOX_STATE_SYNC_FAILED",
+                message="Failed to mark sandbox destroyed during project archive",
+                operation="archive_project_mark_sandbox_destroyed",
+                data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
+                source="api",
+            )
+            raise ServiceUnavailableError(
+                code="PROJECT_SANDBOX_STATE_SYNC_FAILED",
+                message="Project could not be archived because sandbox state sync failed.",
+                data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
+                source="api",
+                retryable=True,
+                user_action="retry",
+            )
+
+
 @router.delete("/projects/{project_id}")
 async def archive_project(
     project_id: str,
@@ -1055,7 +1188,19 @@ async def archive_project(
             retryable=True,
             user_action="retry",
         )
-    project.archived_at = datetime.now(timezone.utc)
+    await _cleanup_project_sessions_for_archive(project_id, db)
+    archived_at = datetime.now(timezone.utc)
+    from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+
+    await db.execute(
+        update(JoySafeterSession)
+        .where(
+            JoySafeterSession.project_id == project_id,
+            JoySafeterSession.archived_at.is_(None),
+        )
+        .values(archived_at=archived_at, status="terminated")
+    )
+    project.archived_at = archived_at
     await db.commit()
     return {"status": "archived"}
 

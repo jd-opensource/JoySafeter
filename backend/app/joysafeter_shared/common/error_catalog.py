@@ -309,6 +309,11 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=ResourceConflictError,
         default_message="Project has active tasks. Stop or wait for them before archiving.",
     ),
+    "PROJECT_ARCHIVE_REDIS_SHUTDOWN_FAILED": CatalogEntry(
+        code="PROJECT_ARCHIVE_REDIS_SHUTDOWN_FAILED",
+        error_class=ServiceUnavailableError,
+        default_message="Failed to deliver shutdown command to project session sandbox runtime.",
+    ),
     "PROJECT_ARCHIVED": CatalogEntry(
         code="PROJECT_ARCHIVED",
         error_class=AccessDeniedError,
@@ -324,6 +329,21 @@ CATALOG: dict[str, CatalogEntry] = {
     ),
     "PROJECT_NOT_FOUND": CatalogEntry(
         code="PROJECT_NOT_FOUND", error_class=NotFoundError, default_message="Project not found"
+    ),
+    "PROJECT_SANDBOX_DESTROY_FAILED": CatalogEntry(
+        code="PROJECT_SANDBOX_DESTROY_FAILED",
+        error_class=ServiceUnavailableError,
+        default_message="Project could not be archived because sandbox cleanup failed.",
+    ),
+    "PROJECT_SANDBOX_STATE_SYNC_FAILED": CatalogEntry(
+        code="PROJECT_SANDBOX_STATE_SYNC_FAILED",
+        error_class=ServiceUnavailableError,
+        default_message="Project could not be archived because sandbox state sync failed.",
+    ),
+    "PROJECT_SANDBOX_STOP_FAILED": CatalogEntry(
+        code="PROJECT_SANDBOX_STOP_FAILED",
+        error_class=ServiceUnavailableError,
+        default_message="Project could not be archived because sandbox cleanup failed.",
     ),
     "QUICKSTART_BASE_URL_INVALID": CatalogEntry(
         code="QUICKSTART_BASE_URL_INVALID",
