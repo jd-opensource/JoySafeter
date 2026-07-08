@@ -459,68 +459,6 @@ async def create_session(
             )
         await db.commit()
 
-    # Provision sandbox at session creation time (per API spec)
-    try:
-        from app.joysafeter_shared.orchestrator_bridge import get_sandbox_resolver
-
-        resolver = get_sandbox_resolver()
-        if resolver:
-            env_ref = environment_ref or agent.environment_ref
-            agent_env: dict[str, str] = {}
-            resolved_image = None
-            networking = None
-            environment_config = {}
-            if env_ref:
-                from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
-
-                env_svc = EnvironmentService(db)
-                environment = await env_svc.get_environment_by_ref(env_ref, project_id=auth_ctx.project_id)
-                if environment:
-                    resolved_image = getattr(environment, "image_tag", None)
-                    config = environment.config or {}
-                    environment_config = config if isinstance(config, dict) else {}
-                    net_cfg = environment_config.get("networking")
-                    if net_cfg and isinstance(net_cfg, dict):
-                        networking = _networking_with_agent_mcp_hosts(net_cfg, agent.mcp_configs or [])
-            from app.joysafeter_api.services import SecretService
-
-            secret_svc = SecretService(db)
-            env_vars = environment_config.get("env_vars")
-            if isinstance(env_vars, dict):
-                agent_env.update({str(k): str(v) for k, v in env_vars.items()})
-            secret_refs = environment_config.get("secret_refs")
-            if isinstance(secret_refs, list):
-                agent_env = await secret_svc.merge_secret_refs_into_env(
-                    agent_env,
-                    [str(ref) for ref in secret_refs if ref is not None],
-                    project_id=auth_ctx.project_id,
-                )
-            if getattr(agent, "secret_ref", None):
-                agent_env = await secret_svc.merge_secret_refs_into_env(
-                    agent_env, [str(agent.secret_ref)], project_id=auth_ctx.project_id, override=True
-                )
-            agent_env.update({str(k): str(v) for k, v in (agent.env or {}).items()})
-            secret_svc.apply_provider_aliases(agent_env)
-            resolved = await resolver.resolve(
-                session.id,
-                agent_env,
-                image=resolved_image,
-                networking=networking,
-                engine_kind=getattr(agent, "engine_kind", None),
-            )
-            if resolved.get("sandbox_id"):
-                await svc.update_session_sandbox(session.id, resolved["sandbox_id"])
-    except Exception as exc:
-        log_boundary_failure(
-            logger,
-            boundary="session_api",
-            code="SESSION_SANDBOX_PROVISION_FAILED",
-            message="Failed to provision sandbox at session creation; sandbox will be lazy-created",
-            operation="provision_session_sandbox",
-            error=exc,
-            data={"session_id": str(session.id), "agent_id": str(agent.id) if agent else None},
-        )
-
     repo_records = await _load_session_repos(db, session.id)
     return _session_to_response(session, agent, resources=resources, repo_resources=repo_records)
 
@@ -645,12 +583,7 @@ async def delete_session(
             user_action=("retry" if True else "fix_input"),
         )
 
-    from app.joysafeter_shared.orchestrator_bridge import (
-        get_bridge_registry,
-        get_envoy_manager,
-        get_sandbox_provider,
-        get_session_broadcaster,
-    )
+    from app.joysafeter_shared.orchestrator_bridge import get_session_broadcaster
 
     broadcaster = get_session_broadcaster()
 
@@ -660,97 +593,19 @@ async def delete_session(
     sandbox_svc = SandboxService(db)
     sandbox = await sandbox_svc.find_by_session(session_id)
     if sandbox:
-        # Send gRPC Shutdown to runner via bridge (not cancel)
-        bridge_registry = get_bridge_registry()
-        if bridge_registry:
-            bridge = await bridge_registry.get(sandbox.id)
-            if bridge:
-                from app.joysafeter_shared.orchestrator_bridge.proto import joysafeter_pb2
-
-                shutdown_msg = joysafeter_pb2.OrchestratorMessage(
-                    shutdown=joysafeter_pb2.Shutdown(reason="session deleted")
-                )
-                try:
-                    await bridge.write_to_runner(shutdown_msg)
-                except Exception as exc:
-                    log_boundary_failure(
-                        logger,
-                        boundary="session_api",
-                        code="SESSION_DELETE_GRPC_SHUTDOWN_FAILED",
-                        message="Failed to send gRPC Shutdown during session delete",
-                        operation="delete_session_shutdown_runner",
-                        error=exc,
-                        data={"session_id": str(session_id), "sandbox_id": str(sandbox.id)},
-                    )
-            await bridge_registry.remove(sandbox.id)
-
-        provider = get_sandbox_provider()
-        if provider and sandbox.external_id:
-            # Local/test seam: in production the API process normally has no
-            # sandbox provider; Rust owns provider lifecycle.
-            try:
-                await provider.stop(sandbox.external_id)
-            except Exception as exc:
-                log_boundary_failure(
-                    logger,
-                    boundary="session_api",
-                    code="SESSION_DELETE_SANDBOX_STOP_FAILED",
-                    message="Failed to stop sandbox before session delete",
-                    operation="delete_session_stop_sandbox",
-                    error=exc,
-                    data={"session_id": str(session_id), "sandbox_id": str(sandbox.id)},
-                )
-            try:
-                await provider.destroy(sandbox.external_id)
-            except Exception as exc:
-                log_boundary_failure(
-                    logger,
-                    boundary="session_api",
-                    code="SESSION_SANDBOX_DESTROY_FAILED",
-                    message="Session sandbox destroy failed during delete",
-                    operation="delete_session_destroy_sandbox",
-                    error=exc,
-                    data={"session_id": str(session_id), "sandbox_id": str(sandbox.id)},
-                )
-                raise ServiceUnavailableError(
-                    code="SESSION_SANDBOX_DESTROY_FAILED",
-                    message="Session could not be deleted because its sandbox cleanup failed.",
-                    data={"session_id": str(session_id), "sandbox_id": str(sandbox.id)},
-                    source="runtime",
-                    retryable=True,
-                    user_action="retry",
-                ) from None
-
-            await sandbox_svc.update_status_cas(sandbox.id, sandbox.status, "destroyed")
-
-            envoy = get_envoy_manager()
-            if envoy:
-                try:
-                    await envoy.remove_sandbox(sandbox.id)
-                except Exception as exc:
-                    log_boundary_failure(
-                        logger,
-                        boundary="session_api",
-                        code="SESSION_DELETE_ENVOY_REMOVE_FAILED",
-                        message="Failed to remove sandbox from Envoy during session delete",
-                        operation="delete_session_remove_envoy",
-                        error=exc,
-                        data={"session_id": str(session_id), "sandbox_id": str(sandbox.id)},
-                    )
-        else:
-            if not await _relay_sandbox_destroy_via_redis(sandbox, session_id=session_id):
-                raise ServiceUnavailableError(
-                    code="SESSION_SANDBOX_DESTROY_FAILED",
-                    message="Session could not be deleted because its sandbox cleanup failed.",
-                    data={"session_id": str(session_id), "sandbox_id": str(sandbox.id)},
-                    source="runtime",
-                    retryable=True,
-                    user_action="retry",
-                )
-            # The Rust owner updates this row before ACK. This CAS is idempotent
-            # for unit tests and for API DB sessions that have not observed the
-            # Rust-side write yet.
-            await sandbox_svc.update_status_cas(sandbox.id, sandbox.status, "destroyed")
+        if not await _relay_sandbox_destroy_via_redis(sandbox, session_id=session_id):
+            raise ServiceUnavailableError(
+                code="SESSION_SANDBOX_DESTROY_FAILED",
+                message="Session could not be deleted because its sandbox cleanup failed.",
+                data={"session_id": str(session_id), "sandbox_id": str(sandbox.id)},
+                source="runtime",
+                retryable=True,
+                user_action="retry",
+            )
+        # The Rust owner updates this row before ACK. This CAS is idempotent
+        # for unit tests and for API DB sessions that have not observed the
+        # Rust-side write yet.
+        await sandbox_svc.update_status_cas(sandbox.id, sandbox.status, "destroyed")
 
     # Hard delete the session
     ok = await svc.delete_session(session_id)
@@ -1137,20 +992,18 @@ async def _relay_cancel_via_redis(session, *, reason: str, sandbox_id: uuid.UUID
 
 
 async def _relay_sandbox_destroy_via_redis(sandbox, *, session_id: uuid.UUID) -> bool:
-    from app.joysafeter_api.runtime_commands import relay_sandbox_command_via_redis
+    from app.joysafeter_api.runtime_commands import relay_sandbox_destroy_via_redis
 
     external_id = str(getattr(sandbox, "external_id", "") or "")
-    return await relay_sandbox_command_via_redis(
+    return await relay_sandbox_destroy_via_redis(
         getattr(sandbox, "id"),
-        command_type="destroy",
         boundary="session_api",
         operation="delete_session_destroy_sandbox",
         failure_code="SESSION_REDIS_DESTROY_RELAY_FAILED",
         failure_message="Redis sandbox destroy relay command failed",
         reason="session deleted",
+        external_id=external_id or None,
         data={"session_id": str(session_id), "sandbox_id": str(getattr(sandbox, "id"))},
-        extra_command={"external_id": external_id} if external_id else None,
-        ack_timeout_seconds=30,
     )
 
 

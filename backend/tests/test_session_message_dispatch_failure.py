@@ -1211,13 +1211,18 @@ async def test_delete_session_keeps_session_when_rust_destroy_relay_unavailable(
 
 
 @pytest.mark.asyncio
-async def test_delete_session_keeps_session_when_sandbox_destroy_fails(db_session, monkeypatch):
+async def test_delete_session_uses_rust_destroy_even_if_local_provider_is_injected(db_session, monkeypatch):
     broadcaster = _FakeBroadcaster()
     provider = _DestroyFailingSandboxProvider()
+    redis = _FakeCommandRedis()
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: broadcaster)
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_bridge_registry", lambda: None)
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_envoy_manager", lambda: None)
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_sandbox_provider", lambda: provider)
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
 
     agent = JoySafeterAgent(name=f"delete-sandbox-fail-agent-{uuid.uuid4()}")
     db_session.add(agent)
@@ -1240,7 +1245,6 @@ async def test_delete_session_keeps_session_when_sandbox_destroy_fails(db_sessio
     await db_session.commit()
     await db_session.refresh(sandbox)
     sandbox_id = sandbox.id
-    external_id = sandbox.external_id
 
     auth_ctx = JoySafeterAuthContext(
         user_id="test-user",
@@ -1249,27 +1253,19 @@ async def test_delete_session_keeps_session_when_sandbox_destroy_fails(db_sessio
         role=JoySafeterRole.DEVELOPER,
     )
 
-    with pytest.raises(AppError) as exc_info:
-        await delete_session_endpoint(session_id, db_session, auth_ctx)
+    response = await delete_session_endpoint(session_id, db_session, auth_ctx)
 
-    assert await handled_app_error_payload(exc_info.value, status_code=503) == {
-        "code": "SESSION_SANDBOX_DESTROY_FAILED",
-        "message": "Session could not be deleted because its sandbox cleanup failed.",
-        "data": {"session_id": str(session_id), "sandbox_id": str(sandbox_id)},
-        "source": "runtime",
-        "retryable": True,
-        "user_action": "retry",
-    }
-    assert provider.stopped == [external_id]
-    assert provider.destroyed == [external_id]
-    assert broadcaster.sent == []
+    assert response == {"id": f"sess_{session_id}", "object": "session", "deleted": True}
+    assert provider.stopped == []
+    assert provider.destroyed == []
+    assert redis.published[0][1]["type"] == "destroy"
 
     db_session.expire_all()
     session_row = (
         await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
-    ).scalar_one()
+    ).scalar_one_or_none()
     sandbox_row = (
         await db_session.execute(select(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id))
     ).scalar_one()
-    assert session_row.status == "idle"
-    assert sandbox_row.status == "running"
+    assert session_row is None
+    assert sandbox_row.status == "destroyed"

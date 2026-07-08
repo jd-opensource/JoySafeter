@@ -1027,10 +1027,9 @@ async def update_project(
 
 
 async def _cleanup_project_sessions_for_archive(project_id: str, db: AsyncSession) -> None:
-    from app.joysafeter_api.runtime_commands import relay_sandbox_command_via_redis
+    from app.joysafeter_api.runtime_commands import relay_sandbox_destroy_via_redis
     from app.joysafeter_api.services import SandboxService
     from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
-    from app.joysafeter_shared.orchestrator_bridge import get_sandbox_provider
 
     result = await db.execute(
         select(JoySafeterSession.id).where(
@@ -1043,76 +1042,31 @@ async def _cleanup_project_sessions_for_archive(project_id: str, db: AsyncSessio
         return
 
     sandbox_svc = SandboxService(db)
-    provider = get_sandbox_provider()
-    active_sandbox_statuses = {"creating", "provisioning", "idle", "running", "stopping"}
 
     for session_id in session_ids:
         sandbox = await sandbox_svc.find_by_session(session_id)
         if not sandbox or sandbox.status == "destroyed":
             continue
 
-        shutdown_relayed = await relay_sandbox_command_via_redis(
+        destroy_relayed = await relay_sandbox_destroy_via_redis(
             sandbox.id,
-            command_type="shutdown",
             reason="project archived",
             boundary="project_api",
-            operation="archive_project_shutdown_runner",
-            failure_code="PROJECT_ARCHIVE_REDIS_SHUTDOWN_FAILED",
-            failure_message="Redis shutdown relay command failed",
-            data={"project_id": project_id, "session_id": str(session_id)},
+            operation="archive_project_destroy_sandbox",
+            failure_code="PROJECT_ARCHIVE_REDIS_DESTROY_FAILED",
+            failure_message="Redis sandbox destroy relay command failed",
+            external_id=str(sandbox.external_id or "") or None,
+            data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
         )
-        if not provider and sandbox.status in active_sandbox_statuses and not shutdown_relayed:
+        if not destroy_relayed:
             raise ServiceUnavailableError(
-                code="PROJECT_ARCHIVE_REDIS_SHUTDOWN_FAILED",
-                message="Failed to deliver shutdown command to project session sandbox runtime.",
+                code="PROJECT_ARCHIVE_REDIS_DESTROY_FAILED",
+                message="Failed to destroy project session sandbox runtime.",
                 data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
                 source="runtime",
                 retryable=True,
                 user_action="retry",
             )
-
-        if provider and sandbox.external_id:
-            if sandbox.status not in ("stopped", "error"):
-                try:
-                    await provider.stop(sandbox.external_id)
-                except Exception as exc:
-                    log_boundary_failure_loguru(
-                        logger,
-                        boundary="project_api",
-                        code="PROJECT_SANDBOX_STOP_FAILED",
-                        message="Failed to stop sandbox during project archive",
-                        operation="archive_project_stop_sandbox",
-                        error=exc,
-                        data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
-                    )
-                    raise ServiceUnavailableError(
-                        code="PROJECT_SANDBOX_STOP_FAILED",
-                        message="Project could not be archived because sandbox cleanup failed.",
-                        data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
-                        source="runtime",
-                        retryable=True,
-                        user_action="retry",
-                    ) from None
-            try:
-                await provider.destroy(sandbox.external_id)
-            except Exception as exc:
-                log_boundary_failure_loguru(
-                    logger,
-                    boundary="project_api",
-                    code="PROJECT_SANDBOX_DESTROY_FAILED",
-                    message="Failed to destroy sandbox during project archive",
-                    operation="archive_project_destroy_sandbox",
-                    error=exc,
-                    data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
-                )
-                raise ServiceUnavailableError(
-                    code="PROJECT_SANDBOX_DESTROY_FAILED",
-                    message="Project could not be archived because sandbox cleanup failed.",
-                    data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
-                    source="runtime",
-                    retryable=True,
-                    user_action="retry",
-                ) from None
 
         try:
             destroyed = await sandbox_svc.mark_destroyed_cas(sandbox.id, sandbox.status)

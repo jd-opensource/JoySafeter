@@ -27,14 +27,16 @@ def _admin_ctx(project_id: str, org_id: str) -> JoySafeterAuthContext:
 
 
 class _FakeCommandRedis:
-    def __init__(self, *, receivers: int = 1):
+    def __init__(self, *, receivers: int = 1, owner: str | None = "owner-1"):
         self.receivers = receivers
+        self.owner = owner
         self.published: list[tuple[str, dict]] = []
         self.acks: dict[str, str] = {}
+        self.blpop_timeouts: list[int] = []
 
     async def get(self, key: str) -> str | None:
         if key.startswith("joysafeter:sandbox_owner:"):
-            return "owner-1"
+            return self.owner
         return None
 
     async def publish(self, channel: str, command: str) -> int:
@@ -46,6 +48,7 @@ class _FakeCommandRedis:
         return self.receivers
 
     async def blpop(self, key: str, timeout: int = 0):
+        self.blpop_timeouts.append(timeout)
         payload = self.acks.pop(key, None)
         if payload is None:
             return None
@@ -139,7 +142,7 @@ async def test_set_default_project_rejects_archived_project(db_session):
 
 
 @pytest.mark.asyncio
-async def test_archive_project_closes_session_sandbox_after_shutdown_ack_without_provider(db_session, monkeypatch):
+async def test_archive_project_destroys_session_sandbox_via_rust_owner(db_session, monkeypatch):
     org_id = f"org-{uuid.uuid4()}"
     org = Organization(id=org_id, name="Project Archive Org", slug=f"archive-org-{uuid.uuid4()}")
     project = Project(id=f"proj-{uuid.uuid4()}", org_id=org_id, name="Archive", slug=f"archive-{uuid.uuid4()}")
@@ -174,8 +177,7 @@ async def test_archive_project_closes_session_sandbox_after_shutdown_ack_without
     await db_session.refresh(sandbox)
     sandbox_id = sandbox.id
 
-    redis = _FakeCommandRedis()
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_sandbox_provider", lambda: None)
+    redis = _FakeCommandRedis(owner=None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
@@ -185,7 +187,10 @@ async def test_archive_project_closes_session_sandbox_after_shutdown_ack_without
 
     assert response == {"status": "archived"}
     assert len(redis.published) == 1
-    assert redis.published[0][1]["type"] == "shutdown"
+    assert redis.published[0][0] == "joysafeter:cmd:destroy"
+    assert redis.published[0][1]["type"] == "destroy"
+    assert redis.published[0][1]["external_id"] == sandbox.external_id
+    assert redis.blpop_timeouts == [30]
 
     db_session.expire_all()
     project_row = (await db_session.execute(select(Project).where(Project.id == project_id))).scalar_one()
@@ -203,7 +208,7 @@ async def test_archive_project_closes_session_sandbox_after_shutdown_ack_without
 
 
 @pytest.mark.asyncio
-async def test_archive_project_requires_session_sandbox_shutdown_ack_without_provider(db_session, monkeypatch):
+async def test_archive_project_requires_session_sandbox_destroy_ack_without_provider(db_session, monkeypatch):
     org_id = f"org-{uuid.uuid4()}"
     org = Organization(id=org_id, name="Project Shutdown Org", slug=f"shutdown-org-{uuid.uuid4()}")
     project = Project(id=f"proj-{uuid.uuid4()}", org_id=org_id, name="Shutdown", slug=f"shutdown-{uuid.uuid4()}")
@@ -239,7 +244,6 @@ async def test_archive_project_requires_session_sandbox_shutdown_ack_without_pro
     sandbox_id = sandbox.id
 
     redis = _FakeCommandRedis(receivers=0)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_sandbox_provider", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
@@ -249,15 +253,15 @@ async def test_archive_project_requires_session_sandbox_shutdown_ack_without_pro
         await archive_project(project_id, db_session, _admin_ctx(project_id, org_id))
 
     assert await handled_app_error_payload(exc_info.value, status_code=503) == {
-        "code": "PROJECT_ARCHIVE_REDIS_SHUTDOWN_FAILED",
-        "message": "Failed to deliver shutdown command to project session sandbox runtime.",
+        "code": "PROJECT_ARCHIVE_REDIS_DESTROY_FAILED",
+        "message": "Failed to destroy project session sandbox runtime.",
         "data": {"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox_id)},
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",
     }
     assert len(redis.published) == 1
-    assert redis.published[0][1]["type"] == "shutdown"
+    assert redis.published[0][1]["type"] == "destroy"
 
     db_session.expire_all()
     project_row = (await db_session.execute(select(Project).where(Project.id == project_id))).scalar_one()

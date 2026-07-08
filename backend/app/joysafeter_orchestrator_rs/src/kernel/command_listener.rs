@@ -13,6 +13,8 @@ use crate::kernel::sandbox_bridge::BridgeRegistry;
 use crate::sandbox::envoy::EnvoyManager;
 use crate::sandbox::provider::SandboxProvider;
 
+const SANDBOX_DESTROY_BROADCAST_CHANNEL: &str = "joysafeter:cmd:destroy";
+
 /// Redis pub/sub command listener for cross-instance gRPC control.
 ///
 /// Subscribes to `joysafeter:cmd:{instance_id}`, dispatches commands:
@@ -85,7 +87,12 @@ impl CommandListener {
     async fn subscribe_loop(&self, channel: &str) -> anyhow::Result<()> {
         let mut pubsub = self.client.get_async_pubsub().await?;
         pubsub.subscribe(channel).await?;
-        info!(channel = channel, "Command listener subscribed");
+        pubsub.subscribe(SANDBOX_DESTROY_BROADCAST_CHANNEL).await?;
+        info!(
+            channel = channel,
+            destroy_channel = SANDBOX_DESTROY_BROADCAST_CHANNEL,
+            "Command listener subscribed"
+        );
 
         loop {
             let msg = pubsub.on_message().next().await;

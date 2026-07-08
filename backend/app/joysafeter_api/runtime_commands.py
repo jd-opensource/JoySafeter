@@ -13,6 +13,8 @@ from app.joysafeter_shared.common.async_boundaries import async_boundary_error_p
 logger = logging.getLogger(__name__)
 
 COMMAND_ACK_TIMEOUT_SECONDS = 2
+SANDBOX_DESTROY_ACK_TIMEOUT_SECONDS = 30
+SANDBOX_DESTROY_BROADCAST_CHANNEL = "joysafeter:cmd:destroy"
 
 
 async def publish_command_and_wait_for_ack(
@@ -129,6 +131,63 @@ async def relay_sandbox_command_via_redis(
             "sandbox_id": sandbox_id_str,
             "command_type": command_type,
             "relay_operation": operation,
+            **(data or {}),
+        },
+    )
+
+
+async def relay_sandbox_destroy_via_redis(
+    sandbox_id,
+    *,
+    boundary: str,
+    operation: str,
+    failure_code: str,
+    failure_message: str,
+    reason: str,
+    external_id: str | None = None,
+    data: dict[str, Any] | None = None,
+) -> bool:
+    redis_client = RedisClient.get_client()
+    if redis_client is None:
+        return False
+
+    sandbox_id_str = str(sandbox_id)
+    owner = None
+    try:
+        owner = await redis_client.get(f"joysafeter:sandbox_owner:{sandbox_id_str}")
+    except Exception:
+        owner = None
+    if isinstance(owner, bytes):
+        owner = owner.decode()
+
+    command_id = uuid.uuid4().hex
+    ack_key = f"joysafeter:cmd_ack:{command_id}"
+    channel = f"joysafeter:cmd:{owner}" if owner else SANDBOX_DESTROY_BROADCAST_CHANNEL
+    command: dict[str, Any] = {
+        "type": "destroy",
+        "sandbox_id": sandbox_id_str,
+        "reason": reason,
+        "command_id": command_id,
+        "ack_key": ack_key,
+    }
+    if external_id:
+        command["external_id"] = external_id
+
+    return await publish_command_and_wait_for_ack(
+        redis_client,
+        channel,
+        command,
+        command_id=command_id,
+        ack_key=ack_key,
+        ack_timeout_seconds=SANDBOX_DESTROY_ACK_TIMEOUT_SECONDS,
+        boundary=boundary,
+        failure_code=failure_code,
+        failure_message=failure_message,
+        data={
+            "sandbox_id": sandbox_id_str,
+            "command_type": "destroy",
+            "relay_operation": operation,
+            "relay_route": "owner" if owner else "broadcast",
             **(data or {}),
         },
     )

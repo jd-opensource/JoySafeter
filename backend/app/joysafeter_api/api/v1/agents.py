@@ -4,9 +4,11 @@ import uuid
 from typing import Any, Optional, cast
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_agent_id
+from app.joysafeter_api.runtime_commands import relay_sandbox_command_via_redis, relay_sandbox_destroy_via_redis
 from app.joysafeter_api.services import JoySafeterAgentService as AgentService
 from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
 from app.joysafeter_api.services import SecretService, SessionService, _split_packed_items
@@ -492,6 +494,7 @@ async def delete_agent(
                 user_action="retry",
             )
         try:
+            await _destroy_sandboxes_for_agent(agent_id, db, reason="Agent deleted")
             await svc.hard_delete_agent(agent_id)
         except ValueError as e:
             raise ResourceConflictError(
@@ -505,6 +508,7 @@ async def delete_agent(
 
     # Force delete: cascade cleanup
     await _cancel_active_tasks_for_agent(agent_id, db)
+    await _destroy_sandboxes_for_agent(agent_id, db, reason="Agent force deleted")
     try:
         await svc.hard_delete_agent(agent_id)
     except ValueError as e:
@@ -518,52 +522,43 @@ async def delete_agent(
 
 
 async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) -> None:
-    """Cancel all active tasks, send gRPC Shutdown to sandboxes, archive sessions,
-    stop containers. Mirrors the Rust cancel_active_tasks_for_agent."""
+    """Cancel all active tasks through the Rust runtime boundary."""
     from app.joysafeter_api.services import JoySafeterTaskService as TaskService
     from app.joysafeter_api.services import SandboxService
-    from app.joysafeter_shared.orchestrator_bridge import (
-        get_bridge_registry,
-        get_sandbox_provider,
-        get_session_broadcaster,
-    )
 
     svc = AgentService(db)
     task_svc = TaskService(db)
     sandbox_svc = SandboxService(db)
 
     active_tasks = await svc.list_active_tasks_for_agent(agent_id)
-    sandbox_ids_to_stop: set[uuid.UUID] = set()
     cancelled = 0
-    bridge_registry = get_bridge_registry()
 
     for task in active_tasks:
-        # Send CancelTask to the sandbox bridge
         sandbox_id = getattr(task, "sandbox_id", None)
+        if not sandbox_id and getattr(task, "chat_session_id", None):
+            sandbox = await sandbox_svc.find_by_session(task.chat_session_id)
+            sandbox_id = sandbox.id if sandbox else None
         if sandbox_id:
-            if bridge_registry:
-                bridge = await bridge_registry.get(sandbox_id)
-                if bridge:
-                    from app.joysafeter_shared.orchestrator_bridge.proto import joysafeter_pb2
+            relayed = await relay_sandbox_command_via_redis(
+                sandbox_id,
+                command_type="cancel",
+                reason="Agent deleted",
+                boundary="agent_api",
+                operation="delete_agent_cancel_task",
+                failure_code="AGENT_REDIS_CANCEL_RELAY_FAILED",
+                failure_message="Redis task cancel relay failed during agent delete",
+                data={"agent_id": str(agent_id), "task_id": str(task.id)},
+            )
+            if not relayed:
+                raise ServiceUnavailableError(
+                    code="AGENT_REDIS_CANCEL_RELAY_FAILED",
+                    message="Failed to cancel agent task in sandbox runtime.",
+                    data={"agent_id": str(agent_id), "task_id": str(task.id), "sandbox_id": str(sandbox_id)},
+                    source="runtime",
+                    retryable=True,
+                    user_action="retry",
+                )
 
-                    cancel_msg = joysafeter_pb2.OrchestratorMessage(
-                        cancel=joysafeter_pb2.CancelTask(reason="Agent archived")
-                    )
-                    try:
-                        await bridge.write_to_runner(cancel_msg)
-                    except Exception as exc:
-                        log_boundary_failure(
-                            logger,
-                            boundary="agent_api",
-                            code="AGENT_CLEANUP_CANCEL_TASK_FAILED",
-                            message="Failed to send CancelTask during agent cleanup",
-                            operation="cleanup_agent_cancel_task",
-                            error=exc,
-                            data={"agent_id": str(agent_id), "sandbox_id": str(sandbox_id), "task_id": str(task.id)},
-                        )
-            sandbox_ids_to_stop.add(sandbox_id)
-
-        # Mark task as cancelled in DB
         try:
             await task_svc.cancel_task(task.id)
             cancelled += 1
@@ -586,17 +581,8 @@ async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) 
             user_action="retry",
         )
 
-    # Archive sessions for the agent
-    session_broadcaster = get_session_broadcaster()
     try:
-        archived_session_ids = await svc.archive_sessions_for_agent(agent_id)
-        if archived_session_ids and session_broadcaster:
-            for sid in archived_session_ids:
-                stop_reason_event = {
-                    "type": "session.status_terminated",
-                    "stop_reason": {"type": "agent_archived"},
-                }
-                await session_broadcaster.send(sid, stop_reason_event)
+        await svc.archive_sessions_for_agent(agent_id)
     except Exception as exc:
         log_boundary_failure(
             logger,
@@ -607,95 +593,94 @@ async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) 
             error=exc,
             data={"agent_id": str(agent_id)},
         )
-
-    # Send Shutdown to each sandbox and stop containers
-    provider = get_sandbox_provider()
-    for sandbox_id in sandbox_ids_to_stop:
-        if bridge_registry:
-            bridge = await bridge_registry.get(sandbox_id)
-            if bridge:
-                from app.joysafeter_shared.orchestrator_bridge.proto import joysafeter_pb2
-
-                shutdown_msg = joysafeter_pb2.OrchestratorMessage(
-                    shutdown=joysafeter_pb2.Shutdown(reason="Agent archived")
-                )
-                try:
-                    await bridge.write_to_runner(shutdown_msg)
-                except Exception as exc:
-                    log_boundary_failure(
-                        logger,
-                        boundary="agent_api",
-                        code="AGENT_CLEANUP_SHUTDOWN_SANDBOX_FAILED",
-                        message="Failed to send Shutdown during agent cleanup",
-                        operation="cleanup_agent_shutdown_runner",
-                        error=exc,
-                        data={"agent_id": str(agent_id), "sandbox_id": str(sandbox_id)},
-                    )
-            await bridge_registry.remove(sandbox_id)
-
-        # Stop container via provider
-        if provider:
-            sandbox = await sandbox_svc.get_sandbox(sandbox_id)
-            if sandbox and sandbox.external_id:
-                status = getattr(sandbox, "status", "")
-                if status not in ("destroyed", "stopped", "error"):
-                    try:
-                        await provider.stop(sandbox.external_id)
-                    except Exception as exc:
-                        log_boundary_failure(
-                            logger,
-                            boundary="agent_api",
-                            code="AGENT_SANDBOX_STOP_FAILED",
-                            message="Failed to stop sandbox during agent cleanup",
-                            operation="cleanup_agent_stop_sandbox",
-                            error=exc,
-                            data={"agent_id": str(agent_id), "sandbox_id": str(sandbox_id)},
-                        )
-                        raise ServiceUnavailableError(
-                            code="AGENT_SANDBOX_STOP_FAILED",
-                            message="Agent could not be deleted because sandbox cleanup failed.",
-                            data={"agent_id": str(agent_id), "sandbox_id": str(sandbox_id)},
-                            source="runtime",
-                            retryable=True,
-                            user_action="retry",
-                        ) from None
-                    try:
-                        updated = await sandbox_svc.update_status_cas(sandbox_id, status, "stopped")
-                    except Exception as exc:
-                        log_boundary_failure(
-                            logger,
-                            boundary="agent_api",
-                            code="AGENT_SANDBOX_STATE_SYNC_FAILED",
-                            message="Failed to mark sandbox stopped during agent cleanup",
-                            operation="cleanup_agent_mark_sandbox_stopped",
-                            error=exc,
-                            data={"agent_id": str(agent_id), "sandbox_id": str(sandbox_id)},
-                        )
-                        raise ServiceUnavailableError(
-                            code="AGENT_SANDBOX_STATE_SYNC_FAILED",
-                            message="Agent could not be deleted because sandbox state sync failed.",
-                            data={"agent_id": str(agent_id), "sandbox_id": str(sandbox_id)},
-                            source="api",
-                            retryable=True,
-                            user_action="retry",
-                        ) from None
-                    if not updated:
-                        raise ServiceUnavailableError(
-                            code="AGENT_SANDBOX_STATE_SYNC_FAILED",
-                            message="Agent could not be deleted because sandbox state sync failed.",
-                            data={"agent_id": str(agent_id), "sandbox_id": str(sandbox_id)},
-                            source="api",
-                            retryable=True,
-                            user_action="retry",
-                        )
+        raise ServiceUnavailableError(
+            code="AGENT_SESSION_ARCHIVE_FAILED",
+            message="Failed to archive sessions during agent cleanup.",
+            data={"agent_id": str(agent_id)},
+            source="api",
+            retryable=True,
+            user_action="retry",
+        ) from None
 
     if cancelled > 0:
         logger.info(
-            "Cancelled %d active tasks and stopped %d sandboxes for agent %s",
+            "Cancelled %d active tasks for agent %s",
             cancelled,
-            len(sandbox_ids_to_stop),
             agent_id,
         )
+
+
+async def _destroy_sandboxes_for_agent(agent_id: uuid.UUID, db: AsyncSession, *, reason: str) -> None:
+    from app.joysafeter_api.services import SandboxService
+    from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
+    from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+
+    result = await db.execute(
+        select(JoySafeterSandbox)
+        .join(JoySafeterSession, JoySafeterSandbox.chat_session_id == JoySafeterSession.id)
+        .where(
+            JoySafeterSession.agent_id == agent_id,
+            JoySafeterSandbox.destroyed_at.is_(None),
+            JoySafeterSandbox.status != "destroyed",
+        )
+    )
+    sandboxes = list(result.scalars().all())
+    if not sandboxes:
+        return
+
+    sandbox_svc = SandboxService(db)
+    for sandbox in sandboxes:
+        relayed = await relay_sandbox_destroy_via_redis(
+            sandbox.id,
+            boundary="agent_api",
+            operation="delete_agent_destroy_sandbox",
+            failure_code="AGENT_SANDBOX_DESTROY_FAILED",
+            failure_message="Redis sandbox destroy relay failed during agent delete",
+            reason=reason,
+            external_id=str(sandbox.external_id or "") or None,
+            data={"agent_id": str(agent_id), "sandbox_id": str(sandbox.id)},
+        )
+        if not relayed:
+            raise ServiceUnavailableError(
+                code="AGENT_SANDBOX_DESTROY_FAILED",
+                message="Agent could not be deleted because sandbox cleanup failed.",
+                data={"agent_id": str(agent_id), "sandbox_id": str(sandbox.id)},
+                source="runtime",
+                retryable=True,
+                user_action="retry",
+            )
+        try:
+            destroyed = await sandbox_svc.mark_destroyed_cas(sandbox.id, sandbox.status)
+            if not destroyed:
+                await sandbox_svc.mark_destroyed(sandbox.id)
+                destroyed = True
+        except Exception as exc:
+            log_boundary_failure(
+                logger,
+                boundary="agent_api",
+                code="AGENT_SANDBOX_STATE_SYNC_FAILED",
+                message="Failed to mark sandbox destroyed during agent cleanup",
+                operation="delete_agent_mark_sandbox_destroyed",
+                error=exc,
+                data={"agent_id": str(agent_id), "sandbox_id": str(sandbox.id)},
+            )
+            raise ServiceUnavailableError(
+                code="AGENT_SANDBOX_STATE_SYNC_FAILED",
+                message="Agent could not be deleted because sandbox state sync failed.",
+                data={"agent_id": str(agent_id), "sandbox_id": str(sandbox.id)},
+                source="api",
+                retryable=True,
+                user_action="retry",
+            ) from None
+        if not destroyed:
+            raise ServiceUnavailableError(
+                code="AGENT_SANDBOX_STATE_SYNC_FAILED",
+                message="Agent could not be deleted because sandbox state sync failed.",
+                data={"agent_id": str(agent_id), "sandbox_id": str(sandbox.id)},
+                source="api",
+                retryable=True,
+                user_action="retry",
+            )
 
 
 @router.post("/{agent_id}/archive", status_code=200)

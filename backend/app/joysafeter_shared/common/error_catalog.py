@@ -62,6 +62,16 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=ServiceUnavailableError,
         default_message="Agent could not be deleted because sandbox cleanup failed.",
     ),
+    "AGENT_SANDBOX_DESTROY_FAILED": CatalogEntry(
+        code="AGENT_SANDBOX_DESTROY_FAILED",
+        error_class=ServiceUnavailableError,
+        default_message="Agent could not be deleted because sandbox cleanup failed.",
+    ),
+    "AGENT_REDIS_CANCEL_RELAY_FAILED": CatalogEntry(
+        code="AGENT_REDIS_CANCEL_RELAY_FAILED",
+        error_class=ServiceUnavailableError,
+        default_message="Failed to cancel agent task in sandbox runtime.",
+    ),
     "AGENT_VERSION_CONFLICT": CatalogEntry(
         code="AGENT_VERSION_CONFLICT", error_class=ResourceConflictError, default_message="Agent version conflict"
     ),
@@ -313,6 +323,11 @@ CATALOG: dict[str, CatalogEntry] = {
         code="PROJECT_ARCHIVE_REDIS_SHUTDOWN_FAILED",
         error_class=ServiceUnavailableError,
         default_message="Failed to deliver shutdown command to project session sandbox runtime.",
+    ),
+    "PROJECT_ARCHIVE_REDIS_DESTROY_FAILED": CatalogEntry(
+        code="PROJECT_ARCHIVE_REDIS_DESTROY_FAILED",
+        error_class=ServiceUnavailableError,
+        default_message="Failed to destroy project session sandbox runtime.",
     ),
     "PROJECT_ARCHIVED": CatalogEntry(
         code="PROJECT_ARCHIVED",
