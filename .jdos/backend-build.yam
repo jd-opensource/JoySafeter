@@ -1,0 +1,18 @@
+version: v1alpha  #配置的版本，目前都是这个版本
+
+architecture: x86    #镜像架构 (x86/arm64)
+artifact_type: app_image # 制品类型 基础镜像/应用镜像/制品包 (base_image/app_image/package)
+dockerfile_path: ./.jdos/docker/   # dockerfile文件所在路径(. 即表示在代码库根路径)
+dockerfile_name: backend.Dockerfile  # dockerfile文件名称
+build_context: ./backend    # 执行dockerfile构建的context （. 即表示在代码库根路径）
+build_args:         # docker build args
+  RUN_ENV: Prod
+build_target: production   # 多阶段构建，要触发的target
+resources:
+  requests:
+    cpu: 4
+    mem: 32768
+  limits:
+    cpu: 4
+    mem: 32768
+
