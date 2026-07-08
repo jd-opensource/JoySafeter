@@ -6,6 +6,7 @@ import { MANAGED_API_BASE } from '@/lib/api-client'
 import { getCsrfToken } from '@/lib/auth/csrf'
 import { getOperationErrorMessage } from '@/lib/managed/errors'
 import { stripIdPrefix } from '@/lib/managed/id'
+import { buildQuickstartAgentCreateBody } from '@/lib/managed/quickstart-create'
 import { generateUUID } from '@/lib/utils/uuid'
 import { useProjectStore } from '@/stores/managed/project-store'
 
@@ -522,13 +523,13 @@ export function useQuickstartChat(
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({
-            name: (a.name || 'Untitled Agent') + suffix,
-            engine_kind: engineConfig.engineKind,
-            system_prompt: a.system_prompt || a.system || null,
-            secret_ref: agentSecretRef,
-            tools: a.tools || [],
-          }),
+          body: JSON.stringify(
+            buildQuickstartAgentCreateBody(a, {
+              engineKind: engineConfig.engineKind,
+              secretRef: agentSecretRef,
+              suffix,
+            }),
+          ),
         })
       } else if (step === 4) {
         const e = latestConfig.environment

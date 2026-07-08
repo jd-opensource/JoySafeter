@@ -901,6 +901,10 @@ export default function QuickstartPage() {
     if (a.description) ordered.description = a.description
     if (a.system_prompt || a.system) ordered.system = a.system_prompt || a.system
     if (a.tools) ordered.tools = a.tools
+    if (a.mcp_servers) ordered.mcp_servers = a.mcp_servers
+    if (a.skills) ordered.skills = a.skills
+    if (a.env) ordered.env = a.env
+    if (a.multiagent) ordered.multiagent = a.multiagent
     if (a.metadata) ordered.metadata = a.metadata
     return ordered
   }, [config, currentStep])

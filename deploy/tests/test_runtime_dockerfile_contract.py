@@ -38,6 +38,29 @@ def test_runtime_dockerfiles_copy_runner_binary_built_by_deploy_script() -> None
         assert expected_copy in body, f"{dockerfile.name} must copy the runner target built by deploy.sh"
 
 
+def test_deploy_script_builds_every_runtime_engine_image() -> None:
+    body = DEPLOY_SH.read_text()
+    runtime_cases = {
+        (engine, platform): dockerfile
+        for engine, platform, dockerfile in re.findall(
+            r"(claudecode|codex|native):linux/(amd64|arm64)\) echo \"\$SCRIPT_DIR/docker/([^\"]+)\"",
+            body,
+        )
+    }
+
+    assert runtime_cases == {
+        ("claudecode", "amd64"): "claudecode-amd64.Dockerfile",
+        ("claudecode", "arm64"): "claudecode-arm64.Dockerfile",
+        ("codex", "amd64"): "codex-amd64.Dockerfile",
+        ("codex", "arm64"): "codex-arm64.Dockerfile",
+        ("native", "amd64"): "native-amd64.Dockerfile",
+        ("native", "arm64"): "native-arm64.Dockerfile",
+    }
+    assert "--native-only" in body
+    assert 'BUILD_NATIVE=true' in body
+    assert 'build_runtime_image "Native 运行镜像" "native" "$NATIVE_FULL_IMAGE"' in body
+
+
 def test_runner_runtime_dockerfiles_use_token_scrubbing_entrypoints() -> None:
     expected_entrypoints = {
         "claudecode-amd64.Dockerfile": "runner-entrypoint.sh",

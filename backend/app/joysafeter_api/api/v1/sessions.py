@@ -94,6 +94,28 @@ def _canonical_environment_ref(raw: str | None) -> str:
         return ref
 
 
+def _extract_host(url: str) -> str | None:
+    try:
+        from urllib.parse import urlparse
+
+        return urlparse(url).hostname
+    except Exception:
+        return None
+
+
+def _networking_with_agent_mcp_hosts(networking: dict, mcp_configs: list[dict] | None) -> dict:
+    if networking.get("type") != "limited":
+        return networking
+
+    allowed = list(networking.get("allowed_hosts", []))
+    for mcp in mcp_configs or []:
+        if isinstance(mcp, dict) and mcp.get("url"):
+            host = _extract_host(str(mcp["url"]))
+            if host and host not in allowed:
+                allowed.append(host)
+    return {**networking, "allowed_hosts": allowed}
+
+
 def _session_task_enqueue_failed_stop_reason(
     *, session_id: uuid.UUID, task_id: uuid.UUID | None = None
 ) -> dict[str, object]:
@@ -425,7 +447,7 @@ async def create_session(
                     environment_config = config if isinstance(config, dict) else {}
                     net_cfg = environment_config.get("networking")
                     if net_cfg and isinstance(net_cfg, dict):
-                        networking = net_cfg
+                        networking = _networking_with_agent_mcp_hosts(net_cfg, agent.mcp_configs or [])
             from app.joysafeter_api.services import SecretService
 
             secret_svc = SecretService(db)
