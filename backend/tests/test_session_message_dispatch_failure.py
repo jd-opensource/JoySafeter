@@ -72,11 +72,13 @@ class _DestroyFailingSandboxProvider:
 
 
 class _FakeCommandRedis:
-    def __init__(self, *, input_receivers: int = 1, cancel_receivers: int = 1):
+    def __init__(self, *, input_receivers: int = 1, cancel_receivers: int = 1, destroy_receivers: int = 1):
         self.input_receivers = input_receivers
         self.cancel_receivers = cancel_receivers
+        self.destroy_receivers = destroy_receivers
         self.published: list[tuple[str, dict]] = []
         self.acks: dict[str, str] = {}
+        self.blpop_timeouts: list[int] = []
 
     async def get(self, key: str) -> str:
         assert key.startswith("joysafeter:sandbox_owner:")
@@ -89,6 +91,8 @@ class _FakeCommandRedis:
         self.published.append((channel, payload))
         if payload.get("type") == "cancel":
             receivers = self.cancel_receivers
+        elif payload.get("type") == "destroy":
+            receivers = self.destroy_receivers
         else:
             receivers = self.input_receivers
         if receivers > 0 and payload.get("ack_key"):
@@ -101,6 +105,7 @@ class _FakeCommandRedis:
         return receivers
 
     async def blpop(self, key: str, timeout: int = 0):
+        self.blpop_timeouts.append(timeout)
         payload = self.acks.pop(key, None)
         if payload is None:
             return None
@@ -1072,6 +1077,137 @@ async def test_delete_session_rejects_active_task_before_deleted_broadcast(db_se
     task_row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
     assert session_row.status == "idle"
     assert task_row.chat_session_id == session_id
+
+
+@pytest.mark.asyncio
+async def test_delete_session_relays_sandbox_destroy_to_rust_when_api_has_no_provider(db_session, monkeypatch):
+    broadcaster = _FakeBroadcaster()
+    redis = _FakeCommandRedis()
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: broadcaster)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_bridge_registry", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_envoy_manager", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_sandbox_provider", lambda: None)
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+
+    agent = JoySafeterAgent(name=f"delete-sandbox-rust-relay-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    session_id = session.id
+
+    sandbox = JoySafeterSandbox(
+        chat_session_id=session_id,
+        external_id=f"sandbox-{uuid.uuid4()}",
+        image="test-image",
+        status="idle",
+    )
+    db_session.add(sandbox)
+    await db_session.commit()
+    await db_session.refresh(sandbox)
+    sandbox_id = sandbox.id
+    external_id = sandbox.external_id
+
+    auth_ctx = JoySafeterAuthContext(
+        user_id="test-user",
+        org_id="test-org",
+        project_id=None,  # type: ignore[arg-type]
+        role=JoySafeterRole.DEVELOPER,
+    )
+
+    response = await delete_session_endpoint(session_id, db_session, auth_ctx)
+
+    assert response == {"id": f"sess_{session_id}", "object": "session", "deleted": True}
+    assert len(redis.published) == 1
+    channel, payload = redis.published[0]
+    assert channel == "joysafeter:cmd:owner-1"
+    assert payload["type"] == "destroy"
+    assert payload["sandbox_id"] == str(sandbox_id)
+    assert payload["external_id"] == external_id
+    assert payload["reason"] == "session deleted"
+    assert payload["ack_key"].startswith("joysafeter:cmd_ack:")
+    assert redis.blpop_timeouts == [30]
+
+    db_session.expire_all()
+    session_row = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
+    ).scalar_one_or_none()
+    sandbox_row = (
+        await db_session.execute(select(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id))
+    ).scalar_one()
+    assert session_row is None
+    assert sandbox_row.status == "destroyed"
+
+
+@pytest.mark.asyncio
+async def test_delete_session_keeps_session_when_rust_destroy_relay_unavailable(db_session, monkeypatch):
+    broadcaster = _FakeBroadcaster()
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: broadcaster)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_bridge_registry", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_envoy_manager", lambda: None)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_sandbox_provider", lambda: None)
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: None),
+    )
+
+    agent = JoySafeterAgent(name=f"delete-sandbox-rust-relay-missing-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    session_id = session.id
+
+    sandbox = JoySafeterSandbox(
+        chat_session_id=session_id,
+        external_id=f"sandbox-{uuid.uuid4()}",
+        image="test-image",
+        status="idle",
+    )
+    db_session.add(sandbox)
+    await db_session.commit()
+    await db_session.refresh(sandbox)
+    sandbox_id = sandbox.id
+
+    auth_ctx = JoySafeterAuthContext(
+        user_id="test-user",
+        org_id="test-org",
+        project_id=None,  # type: ignore[arg-type]
+        role=JoySafeterRole.DEVELOPER,
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await delete_session_endpoint(session_id, db_session, auth_ctx)
+
+    assert await handled_app_error_payload(exc_info.value, status_code=503) == {
+        "code": "SESSION_SANDBOX_DESTROY_FAILED",
+        "message": "Session could not be deleted because its sandbox cleanup failed.",
+        "data": {"session_id": str(session_id), "sandbox_id": str(sandbox_id)},
+        "source": "runtime",
+        "retryable": True,
+        "user_action": "retry",
+    }
+
+    db_session.expire_all()
+    session_row = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
+    ).scalar_one()
+    sandbox_row = (
+        await db_session.execute(select(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id))
+    ).scalar_one()
+    assert session_row.status == "idle"
+    assert sandbox_row.status == "idle"
 
 
 @pytest.mark.asyncio

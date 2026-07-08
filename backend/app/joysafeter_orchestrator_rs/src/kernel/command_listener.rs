@@ -1,11 +1,17 @@
 use redis::AsyncCommands;
+use sqlx::PgPool;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
+use uuid::Uuid;
 
+use crate::db::queries;
 use crate::grpc::proto::{self, orchestrator_message, OrchestratorMessage};
 use crate::kernel::memory_sync::MemoryStoreSubscribers;
+use crate::kernel::redis_coordinator::RedisCoordinator;
 use crate::kernel::sandbox_bridge::BridgeRegistry;
+use crate::sandbox::envoy::EnvoyManager;
+use crate::sandbox::provider::SandboxProvider;
 
 /// Redis pub/sub command listener for cross-instance gRPC control.
 ///
@@ -13,11 +19,16 @@ use crate::kernel::sandbox_bridge::BridgeRegistry;
 /// - `cancel` → sends CancelTask to target sandbox bridge
 /// - `input` → sends SendInput to target sandbox bridge + notifies confirmation
 /// - `shutdown` → sends Shutdown to target sandbox bridge
+/// - `destroy` → destroys the provider sandbox on its owner instance
 /// - `memory_update` → broadcasts MemoryFileUpdate to all sandboxes sharing the store
 pub struct CommandListener {
     client: redis::Client,
     instance_id: String,
+    pool: PgPool,
     bridge_registry: BridgeRegistry,
+    provider: Arc<dyn SandboxProvider>,
+    envoy_manager: Option<Arc<EnvoyManager>>,
+    redis_coordinator: Option<Arc<RedisCoordinator>>,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
 }
 
@@ -25,13 +36,21 @@ impl CommandListener {
     pub fn new(
         client: redis::Client,
         instance_id: &str,
+        pool: PgPool,
         bridge_registry: BridgeRegistry,
+        provider: Arc<dyn SandboxProvider>,
+        envoy_manager: Option<Arc<EnvoyManager>>,
+        redis_coordinator: Option<Arc<RedisCoordinator>>,
         memory_subscribers: Arc<MemoryStoreSubscribers>,
     ) -> Self {
         Self {
             client,
             instance_id: instance_id.to_string(),
+            pool,
             bridge_registry,
+            provider,
+            envoy_manager,
+            redis_coordinator,
             memory_subscribers,
         }
     }
@@ -103,7 +122,7 @@ impl CommandListener {
             "Received cross-instance command"
         );
 
-        let sandbox_id: uuid::Uuid = match sandbox_id_str.parse() {
+        let sandbox_id: Uuid = match sandbox_id_str.parse() {
             Ok(id) => id,
             Err(_) => {
                 warn!("Invalid sandbox_id in command: {sandbox_id_str}");
@@ -111,6 +130,12 @@ impl CommandListener {
                 return Ok(());
             }
         };
+
+        if cmd_type == "destroy" {
+            let result = self.handle_destroy_sandbox(&cmd, sandbox_id).await;
+            self.publish_ack(&cmd, result.is_ok()).await;
+            return result;
+        }
 
         let bridge = match self.bridge_registry.get_by_db_id(sandbox_id) {
             Some(b) => b,
@@ -156,6 +181,64 @@ impl CommandListener {
         }
         self.publish_ack(&cmd, ack_ok).await;
 
+        Ok(())
+    }
+
+    async fn handle_destroy_sandbox(
+        &self,
+        cmd: &serde_json::Value,
+        sandbox_id: Uuid,
+    ) -> anyhow::Result<()> {
+        let reason = cmd["reason"].as_str().unwrap_or("remote destroy");
+        let sandbox = queries::get_sandbox(&self.pool, sandbox_id).await?;
+        let external_id = cmd["external_id"]
+            .as_str()
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                sandbox
+                    .as_ref()
+                    .and_then(|row| row.external_id.clone())
+                    .filter(|value| !value.is_empty())
+            });
+
+        if sandbox.is_none() && external_id.is_none() {
+            anyhow::bail!("destroy command has no DB row or external_id for sandbox {sandbox_id}");
+        }
+
+        if let Some(bridge) = self.bridge_registry.get_by_db_id(sandbox_id) {
+            let msg = OrchestratorMessage {
+                payload: Some(orchestrator_message::Payload::Shutdown(proto::Shutdown {
+                    reason: reason.to_string(),
+                })),
+            };
+            let _ = bridge.send_to_runner(msg).await;
+        }
+
+        if let Some(ref ext_id) = external_id {
+            self.bridge_registry.remove(ext_id);
+            if let Err(e) = self.provider.destroy(ext_id).await {
+                let err = format!("{e}");
+                if !(err.contains("No such container") || err.contains("404")) {
+                    return Err(e);
+                }
+            }
+        }
+
+        if let Some(ref envoy) = self.envoy_manager {
+            if let Err(e) = envoy.remove_sandbox(sandbox_id).await {
+                warn!(sandbox_id = %sandbox_id, "Failed to remove sandbox from Envoy during destroy command: {e}");
+            }
+        }
+
+        queries::destroy_sandbox(&self.pool, sandbox_id).await?;
+
+        if let Some(ref coord) = self.redis_coordinator {
+            let _ = coord.remove_sandbox(sandbox_id).await;
+            let _ = coord.remove_sandbox_queue(sandbox_id).await;
+        }
+
+        info!(sandbox_id = %sandbox_id, "Destroyed sandbox via command listener");
         Ok(())
     }
 

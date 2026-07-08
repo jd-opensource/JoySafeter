@@ -22,6 +22,7 @@ async def publish_command_and_wait_for_ack(
     *,
     command_id: str,
     ack_key: str,
+    ack_timeout_seconds: int = COMMAND_ACK_TIMEOUT_SECONDS,
     boundary: str = "runtime_command",
     failure_code: str = "RUNTIME_REDIS_COMMAND_ACK_WAIT_FAILED",
     failure_message: str = "Redis command ACK wait failed",
@@ -32,7 +33,7 @@ async def publish_command_and_wait_for_ack(
         return False
 
     try:
-        ack = await redis_client.blpop(ack_key, timeout=COMMAND_ACK_TIMEOUT_SECONDS)
+        ack = await redis_client.blpop(ack_key, timeout=ack_timeout_seconds)
     except Exception as exc:
         logger.debug(
             "Redis command ACK wait failed for %s",
@@ -84,6 +85,7 @@ async def relay_sandbox_command_via_redis(
     reason: str | None = None,
     data: dict[str, Any] | None = None,
     extra_command: dict[str, Any] | None = None,
+    ack_timeout_seconds: int = COMMAND_ACK_TIMEOUT_SECONDS,
 ) -> bool:
     redis_client = RedisClient.get_client()
     if redis_client is None:
@@ -119,6 +121,7 @@ async def relay_sandbox_command_via_redis(
         command,
         command_id=command_id,
         ack_key=ack_key,
+        ack_timeout_seconds=ack_timeout_seconds,
         boundary=boundary,
         failure_code=failure_code,
         failure_message=failure_message,

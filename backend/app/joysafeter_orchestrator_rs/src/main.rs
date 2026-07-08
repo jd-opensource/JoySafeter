@@ -387,7 +387,11 @@ async fn main() -> anyhow::Result<()> {
         let listener = kernel::command_listener::CommandListener::new(
             client.clone(),
             &config.instance_id,
+            db_pool.clone(),
             bridge_registry.clone(),
+            sandbox_provider.clone(),
+            envoy_manager.clone(),
+            redis_coordinator.clone(),
             memory_subscribers.clone(),
         );
         Some(listener.spawn())

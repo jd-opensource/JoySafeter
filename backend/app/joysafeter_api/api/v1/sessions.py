@@ -684,9 +684,10 @@ async def delete_session(
                     )
             await bridge_registry.remove(sandbox.id)
 
-        # Stop and destroy container
         provider = get_sandbox_provider()
         if provider and sandbox.external_id:
+            # Local/test seam: in production the API process normally has no
+            # sandbox provider; Rust owns provider lifecycle.
             try:
                 await provider.stop(sandbox.external_id)
             except Exception as exc:
@@ -720,24 +721,36 @@ async def delete_session(
                     user_action="retry",
                 ) from None
 
-        # Mark as destroyed in DB
-        await sandbox_svc.update_status_cas(sandbox.id, sandbox.status, "destroyed")
+            await sandbox_svc.update_status_cas(sandbox.id, sandbox.status, "destroyed")
 
-        # Envoy teardown
-        envoy = get_envoy_manager()
-        if envoy:
-            try:
-                await envoy.remove_sandbox(sandbox.id)
-            except Exception as exc:
-                log_boundary_failure(
-                    logger,
-                    boundary="session_api",
-                    code="SESSION_DELETE_ENVOY_REMOVE_FAILED",
-                    message="Failed to remove sandbox from Envoy during session delete",
-                    operation="delete_session_remove_envoy",
-                    error=exc,
+            envoy = get_envoy_manager()
+            if envoy:
+                try:
+                    await envoy.remove_sandbox(sandbox.id)
+                except Exception as exc:
+                    log_boundary_failure(
+                        logger,
+                        boundary="session_api",
+                        code="SESSION_DELETE_ENVOY_REMOVE_FAILED",
+                        message="Failed to remove sandbox from Envoy during session delete",
+                        operation="delete_session_remove_envoy",
+                        error=exc,
+                        data={"session_id": str(session_id), "sandbox_id": str(sandbox.id)},
+                    )
+        else:
+            if not await _relay_sandbox_destroy_via_redis(sandbox, session_id=session_id):
+                raise ServiceUnavailableError(
+                    code="SESSION_SANDBOX_DESTROY_FAILED",
+                    message="Session could not be deleted because its sandbox cleanup failed.",
                     data={"session_id": str(session_id), "sandbox_id": str(sandbox.id)},
+                    source="runtime",
+                    retryable=True,
+                    user_action="retry",
                 )
+            # The Rust owner updates this row before ACK. This CAS is idempotent
+            # for unit tests and for API DB sessions that have not observed the
+            # Rust-side write yet.
+            await sandbox_svc.update_status_cas(sandbox.id, sandbox.status, "destroyed")
 
     # Hard delete the session
     ok = await svc.delete_session(session_id)
@@ -1121,6 +1134,24 @@ async def _relay_cancel_via_redis(session, *, reason: str, sandbox_id: uuid.UUID
         )
         return False
     return delivered
+
+
+async def _relay_sandbox_destroy_via_redis(sandbox, *, session_id: uuid.UUID) -> bool:
+    from app.joysafeter_api.runtime_commands import relay_sandbox_command_via_redis
+
+    external_id = str(getattr(sandbox, "external_id", "") or "")
+    return await relay_sandbox_command_via_redis(
+        getattr(sandbox, "id"),
+        command_type="destroy",
+        boundary="session_api",
+        operation="delete_session_destroy_sandbox",
+        failure_code="SESSION_REDIS_DESTROY_RELAY_FAILED",
+        failure_message="Redis sandbox destroy relay command failed",
+        reason="session deleted",
+        data={"session_id": str(session_id), "sandbox_id": str(getattr(sandbox, "id"))},
+        extra_command={"external_id": external_id} if external_id else None,
+        ack_timeout_seconds=30,
+    )
 
 
 def _build_resume_prompt(event: SingleEventRequest, event_id: str) -> Optional[str]:
