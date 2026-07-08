@@ -384,13 +384,21 @@ async def _auth_via_user_session(
             .where(
                 Project.org_id == org_id,
                 Project.is_default.is_(True),
+                Project.archived_at.is_(None),
             )
             .limit(1)
         )
         default_project = proj_result.scalar_one_or_none()
         if default_project is None:
             # Fall back to *any* project in the org
-            proj_result = await db.execute(select(Project).where(Project.org_id == org_id).limit(1))
+            proj_result = await db.execute(
+                select(Project)
+                .where(
+                    Project.org_id == org_id,
+                    Project.archived_at.is_(None),
+                )
+                .limit(1)
+            )
             default_project = proj_result.scalar_one_or_none()
         if default_project is None:
             raise AuthenticationError(

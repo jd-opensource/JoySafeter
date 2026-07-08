@@ -1215,6 +1215,13 @@ async def set_default_project(
     project = result.scalar_one_or_none()
     if not project:
         raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
+    if project.archived_at is not None:
+        raise ResourceConflictError(
+            code="PROJECT_ARCHIVED",
+            message="Cannot set an archived project as default",
+            data={"project_id": project_id, "organization_id": auth_ctx.org_id},
+            user_action="refresh",
+        )
     # Unset current default
     all_projects_result = await db.execute(
         select(Project).where(Project.org_id == auth_ctx.org_id, Project.is_default.is_(True))

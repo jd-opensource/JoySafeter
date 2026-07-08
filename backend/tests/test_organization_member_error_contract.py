@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 from error_contract_helpers import handled_app_error_payload
+from fastapi import Request
 
 from app.joysafeter_api.api.v1.auth import (
     CreateOrganizationRequest,
@@ -31,6 +32,8 @@ from app.joysafeter_domain.models.joysafeter_organization import Member, Organiz
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.common.joysafeter_auth import dependencies as auth_dependencies
+from app.joysafeter_shared.utils.datetime import utc_now
 
 
 def _auth_ctx(org_id: str) -> JoySafeterAuthContext:
@@ -276,6 +279,48 @@ async def test_archive_default_project_returns_structured_error(db_session):
         "retryable": False,
         "user_action": "fix_input",
     }
+
+
+@pytest.mark.asyncio
+async def test_user_session_auth_skips_archived_default_project(db_session, monkeypatch):
+    org = await _org(db_session)
+    user = AuthUser(name="Fallback User", email=f"fallback-{uuid.uuid4()}@example.com")
+    db_session.add(user)
+    await db_session.flush()
+    user_id = user.id
+    db_session.add(Member(user_id=user_id, organization_id=org.id, role="admin"))
+    archived_default = Project(
+        org_id=org.id,
+        name="Archived Default",
+        slug=f"archived-default-{uuid.uuid4()}",
+        is_default=True,
+        archived_at=utc_now(),
+    )
+    active_project = Project(
+        org_id=org.id,
+        name="Active",
+        slug=f"active-{uuid.uuid4()}",
+    )
+    db_session.add_all([archived_default, active_project])
+    await db_session.commit()
+    await db_session.refresh(active_project)
+
+    async def fake_get_current_user(*, token, request, db):  # noqa: ARG001
+        return SimpleNamespace(id=user_id, name=user.name)
+
+    monkeypatch.setattr(auth_dependencies, "get_current_user", fake_get_current_user)
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/agents",
+            "headers": [(b"authorization", b"Bearer old-token")],
+        }
+    )
+
+    ctx = await auth_dependencies._auth_via_user_session(request, db_session)
+
+    assert ctx.project_id == active_project.id
 
 
 @pytest.mark.asyncio

@@ -5,7 +5,7 @@ import pytest
 from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import select
 
-from app.joysafeter_api.api.v1.auth import archive_project
+from app.joysafeter_api.api.v1.auth import archive_project, set_default_project
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
@@ -14,6 +14,7 @@ from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.utils.datetime import utc_now
 
 
 def _admin_ctx(project_id: str, org_id: str) -> JoySafeterAuthContext:
@@ -93,6 +94,48 @@ async def test_archive_project_rejects_active_tasks(db_session):
     db_session.expire_all()
     project_row = (await db_session.execute(select(Project).where(Project.id == project_id))).scalar_one()
     assert project_row.archived_at is None
+
+
+@pytest.mark.asyncio
+async def test_set_default_project_rejects_archived_project(db_session):
+    org_id = f"org-{uuid.uuid4()}"
+    org = Organization(id=org_id, name="Default Org", slug=f"default-org-{uuid.uuid4()}")
+    active_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Active",
+        slug=f"active-{uuid.uuid4()}",
+        is_default=True,
+    )
+    archived_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Archived",
+        slug=f"archived-{uuid.uuid4()}",
+        archived_at=utc_now(),
+    )
+    db_session.add_all([org, active_project, archived_project])
+    await db_session.commit()
+    active_project_id = active_project.id
+    archived_project_id = archived_project.id
+
+    with pytest.raises(AppError) as exc_info:
+        await set_default_project(archived_project_id, db_session, _admin_ctx(active_project_id, org_id))
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "PROJECT_ARCHIVED",
+        "message": "Cannot set an archived project as default",
+        "data": {"project_id": archived_project_id, "organization_id": org_id},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+
+    db_session.expire_all()
+    active_row = (await db_session.execute(select(Project).where(Project.id == active_project_id))).scalar_one()
+    archived_row = (await db_session.execute(select(Project).where(Project.id == archived_project_id))).scalar_one()
+    assert active_row.is_default is True
+    assert archived_row.is_default is False
 
 
 @pytest.mark.asyncio
