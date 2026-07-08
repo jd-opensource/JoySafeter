@@ -176,17 +176,17 @@ sequenceDiagram
 | **实时事件 → 浏览器** | **SSE** `GET /sessions/{id}/events/stream` | 主执行流（`?after_seq` 回放 DB，再转实时） | `joysafeter_api/api/v1/sessions.py` |
 | 通知 → 浏览器 | WebSocket `/ws/notifications` | 用户级通知（进程内 `NotificationManager`） | `joysafeter_api/app.py`、`joysafeter_api/websocket/notification_manager.py` |
 | 遗留任务流 | WebSocket `/tasks/{id}/stream` | 单任务输出（bridge 队列 → Redis 回退） | `joysafeter_api/api/v1/tasks.py` |
-| 任务入队 | Redis **list** `joysafeter:global_queue` | API `rpush` → orchestrator 调度器弹出 | `joysafeter_api/api/v1/sessions.py`、`joysafeter_orchestrator/kernel/queue.py` |
-| **可靠事件总线** | Redis **Streams** `joysafeter:orchestrator:events` + 消费组 | orchestrator `XADD` → Worker `XREADGROUP` → 落库 | `joysafeter_orchestrator/events/stream_publisher.py`、`joysafeter_worker/events/stream_consumer.py` |
-| **实时事件扇出** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | 跨实例 SSE 投递（`SessionBroadcaster`） | `joysafeter_orchestrator/session_broadcaster.py` |
-| 控制/取消中继 | Redis **Pub/Sub** `joysafeter:cmd:{instance}` | 把 cancel/input 路由到拥有该沙箱的实例 | `joysafeter_api/api/v1/sessions.py`、`joysafeter_orchestrator/kernel/command_listener.py` |
-| orchestrator ↔ runner | **gRPC** `AgentBridge`（双向流，:9090） | Agent 执行协议 | `proto/joysafeter.proto`、`grpc/server.py` |
-| runner 出口 | Envoy 代理（unix socket） | 每沙箱域名白名单，默认全拒 | `sandbox/envoy_manager.py` |
+| 任务入队 | Redis **list** `joysafeter:global_queue` | API `rpush` → Rust orchestrator 调度器弹出 | `joysafeter_api/services.py`、`joysafeter_orchestrator_rs/src/kernel/queue.rs` |
+| **可靠事件总线** | Redis **Streams** `joysafeter:orchestrator:events` + 消费组 | orchestrator `XADD` → Worker `XREADGROUP` → 落库 | `joysafeter_orchestrator_rs/src/events/stream_publisher.rs`、`joysafeter_worker/events/stream_consumer.py` |
+| **实时事件扇出** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | 跨实例 SSE 投递（`SessionBroadcaster`） | `joysafeter_orchestrator_rs/src/kernel/session_broadcaster.rs`、`joysafeter_shared/orchestrator_bridge/session_broadcaster.py` |
+| 控制/取消中继 | Redis **Pub/Sub** `joysafeter:cmd:{instance}` | 把 cancel/input/shutdown 路由到拥有该沙箱的实例 | `joysafeter_api/runtime_commands.py`、`joysafeter_orchestrator_rs/src/kernel/command_listener.rs` |
+| orchestrator ↔ runner | **gRPC** `AgentBridge`（双向流，:9090） | Agent 执行协议 | `proto/joysafeter.proto`、`joysafeter_orchestrator_rs/src/grpc/server.rs` |
+| runner 出口 | Envoy 代理（unix socket） | 每沙箱域名白名单，默认全拒 | `joysafeter_orchestrator_rs/src/sandbox/envoy.rs` |
 | 技能扫描 | HTTP → skillspector `:8010` | 技能写入时安全扫描；运行时拦截 failed/scanning/unscanned/blocked 技能 | `joysafeter_skill_security.py` |
 
-**API ↔ orchestrator 走 Redis，而非直接 gRPC。** API 进程内联了 orchestrator 代码，但把每个进程内句柄
-（调度器、bridge、broadcaster）都视为可选，缺失时降级到 Redis。这正是 API 与 orchestrator 可拆分为独立
-进程的原因。gRPC *仅*用于 bridge ↔ 沙箱内 runner 这一跳，与拥有该沙箱的进程同置。
+**API ↔ orchestrator 走 Redis，而非直接 gRPC。** Python API/worker 进程不再导入已删除的 Python
+orchestrator 包。它们只通过 `joysafeter_shared.orchestrator_bridge` 使用轻量 API 侧 helper 和测试 seam；
+运行时控制通过 Redis 命令中继和 ACK 闭合。gRPC *仅*用于 Rust orchestrator ↔ 沙箱内 runner 这一跳。
 
 ---
 
@@ -209,27 +209,27 @@ MCP 服务器启动钩子已删除。
 
 完整 REST 清单见 [§8 API 面](#8-api-面)。
 
-### 4.2 Orchestrator 服务（`app/joysafeter_orchestrator/`）
+### 4.2 Orchestrator 服务（`app/joysafeter_orchestrator_rs/`）
 
 引擎室。托管 gRPC `AgentBridge` 服务以及一组数据库驱动的控制循环。Agent 代码**不**在本进程运行——
 它在沙箱 runner 内运行，通过 gRPC 触达。
 
 | 子系统 | 模块 | 职责 |
 |---|---|---|
-| gRPC 服务 | `grpc/server.py` | `AgentBridge.Session` 双向流；处理 runner 消息、下发 orchestrator 命令 |
-| 任务调度器 | `kernel/scheduler.py` | 认领 pending 任务（`FOR UPDATE SKIP LOCKED`），解析沙箱，推入沙箱队列 |
-| 任务控制器 | `kernel/task_controller.py` | 生命周期、启动恢复、故障转移/重试 |
-| 沙箱控制器 | `kernel/sandbox_controller.py` | 空闲清扫、provisioning 轮询、预热池、孤儿清理 |
-| 沙箱解析器 | `kernel/sandbox_resolver.py` | 三段式解析：复用会话沙箱 → 从池认领 → 新建；注入 runner env |
-| 沙箱 bridge | `kernel/sandbox_bridge.py` | 每沙箱的进程内状态：runner 流、状态、订阅者、控制队列 |
-| Redis 协调器 | `kernel/redis_coordinator.py` | 跨实例 HA：owner 映射、心跳、`publish_event` |
-| 事件总线 | `events/bus.py` | 两相（持久化 ∥ 广播）进程内总线 + 4 个订阅者 |
-| 会话广播器 | `session_broadcaster.py` | 实时 SSE 扇出：本地队列 + Redis Pub/Sub |
+| gRPC 服务 | `src/grpc/server.rs` | `AgentBridge.Session` 双向流；处理 runner 消息、下发 orchestrator 命令 |
+| 任务调度器 | `src/kernel/scheduler.rs` | 认领 pending 任务（`FOR UPDATE SKIP LOCKED`），解析沙箱，推入沙箱队列 |
+| 任务控制器 | `src/kernel/task_controller.rs` | 生命周期、启动恢复、故障转移/重试 |
+| 沙箱控制器 | `src/kernel/sandbox_controller.rs` | 空闲清扫、provisioning 轮询、预热池、孤儿清理 |
+| 沙箱解析器 | `src/kernel/sandbox_resolver.rs` | 三段式解析：复用会话沙箱 → 从池认领 → 新建；注入 runner env |
+| 沙箱 bridge | `src/kernel/sandbox_bridge.rs` | 每沙箱的进程内状态：runner 流、状态、订阅者、控制队列 |
+| Redis 协调器 | `src/kernel/redis_coordinator.rs` | 跨实例 HA：owner 映射、心跳、队列、事件发布 |
+| 命令监听器 | `src/kernel/command_listener.rs` | Redis cancel/input/shutdown/memory_update 中继与 ACK |
+| 事件总线 | `src/events/bus.rs` | 进程内事件总线，驱动 stream 持久化和实时扇出 |
+| 会话广播器 | `src/kernel/session_broadcaster.rs` | 实时 SSE 扇出：Redis Pub/Sub |
 
-启动顺序（`lifespan.py`）：Redis + 协调器 → 内存队列 → 调度器/控制器 → bridge 注册表 → 沙箱 provider +
-控制器 → 会话广播器 → 事件批写器 → 沙箱解析器 → 内存订阅者 → **Envoy**（如启用）→ **镜像构建器**
-（如启用）→ 运行时配置 + SIGHUP 热重载 → 适配器发现 → vault cipher → **事件总线 + 4 订阅者** →
-**:9090 gRPC 服务** → 任务恢复 → 5 个后台循环。
+启动顺序（`src/main.rs`）：配置 + 数据库 + Redis 协调器 → 队列/调度器/控制器 → bridge 注册表 →
+沙箱 provider/控制器/解析器 → 会话广播器 → 内存订阅者 → Envoy/镜像构建器（按配置）→
+事件总线 + stream/realtime 订阅者 → 命令监听器 → `:9090` gRPC 服务 → 任务恢复与后台循环。
 
 ### 4.3 Worker 服务（`app/joysafeter_worker/`）
 
@@ -321,7 +321,7 @@ runner 从 env 启动（`JOYSAFETER_ORCHESTRATOR_URL`、`JOYSAFETER_SANDBOX_ID`�
 | `native` | `NativeAdapter` | **`ccb`** 二进制 | claude 风格 stream-json——自研 "Harness-Core" 引擎（仅在 Rust runner 侧为独立引擎） |
 | `mock` | `MockAdapter` | 测试替身 | 由 env 开关 |
 
-### 6.3 沙箱 provider（`app/joysafeter_orchestrator/sandbox/`）
+### 6.3 沙箱 provider（`app/joysafeter_orchestrator_rs/src/sandbox/`）
 
 由 `JOYSAFETER_SANDBOX_PROVIDER` 选择（默认 `docker`）。SPI：`SandboxProvider`
 （`create/start/stop/destroy/status/exec/inject_files/setup_networking/...`）。
@@ -463,14 +463,14 @@ backend/app/
 │   ├── websocket/             #   通知管理器 + WS 鉴权
 │   ├── app.py / main.py       #   应用装配 + 入口
 │   └── startup.py             #   装配 SessionBroadcaster
-├── joysafeter_orchestrator/   # Orchestrator 服务
-│   ├── grpc/                  #   AgentBridge 服务（+ 生成的 proto）
-│   ├── kernel/                #   调度器、控制器、沙箱解析器/bridge、协调器、队列
-│   ├── runtime/               #   HarnessAdapter SPI + 适配器（参考/对齐——非实时路径）
-│   ├── sandbox/               #   Docker/E2B/Daytona provider、Envoy 管理器、镜像构建器
-│   ├── events/                #   两相事件总线 + 订阅者（stream/persist/broadcast/task）
-│   ├── session_broadcaster.py #   SSE 扇出（本地队列 + Redis pub/sub）
-│   └── lifespan.py            #   启停装配
+├── joysafeter_orchestrator_rs/ # Rust Orchestrator 服务
+│   ├── src/grpc/              #   AgentBridge 服务（+ 生成的 proto）
+│   ├── src/kernel/            #   调度器、控制器、沙箱解析器/bridge、协调器、队列
+│   ├── src/runtime/           #   HarnessAdapter SPI + 适配器
+│   ├── src/sandbox/           #   Docker/E2B/Daytona provider、Envoy 管理器、镜像构建器
+│   ├── src/events/            #   事件总线 + stream/realtime 订阅者
+│   ├── src/main.rs            #   启停装配
+│   └── Cargo.toml             #   Rust crate manifest
 ├── joysafeter_worker/         # Worker 服务
 │   └── events/                #   EventStreamWorker（Redis Stream 消费者）+ EventBatchSender
 ├── joysafeter_domain/         # 数据模型 + 业务逻辑

@@ -187,19 +187,18 @@ channels. This table is the definitive reference.
 | **Live events → browser** | **SSE** `GET /sessions/{id}/events/stream` | Primary execution stream (DB replay via `?after_seq`, then live) | `joysafeter_api/api/v1/sessions.py` |
 | Notifications → browser | WebSocket `/ws/notifications` | User-level notifications (in-memory `NotificationManager`) | `joysafeter_api/app.py`, `joysafeter_api/websocket/notification_manager.py` |
 | Legacy task stream | WebSocket `/tasks/{id}/stream` | Per-task output (bridge queue → Redis fallback) | `joysafeter_api/api/v1/tasks.py` |
-| Task enqueue | Redis **list** `joysafeter:global_queue` | API `rpush` → orchestrator scheduler pops | `joysafeter_api/api/v1/sessions.py`, `joysafeter_orchestrator/kernel/queue.py` |
-| **Durable event bus** | Redis **Streams** `joysafeter:orchestrator:events` + consumer group | Orchestrator `XADD` → Worker `XREADGROUP` → DB persist | `joysafeter_orchestrator/events/stream_publisher.py`, `joysafeter_worker/events/stream_consumer.py` |
-| **Live event fan-out** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | Cross-instance SSE delivery via `SessionBroadcaster` | `joysafeter_orchestrator/session_broadcaster.py` |
-| Control/cancel relay | Redis **Pub/Sub** `joysafeter:cmd:{instance}` | Route cancel/input to the instance owning the sandbox | `joysafeter_api/api/v1/sessions.py`, `joysafeter_orchestrator/kernel/command_listener.py` |
-| Orchestrator ↔ runner | **gRPC** `AgentBridge` (bidi stream, :9090) | The agent execution protocol | `proto/joysafeter.proto`, `grpc/server.py` |
-| Runner egress | Envoy proxy (unix socket) | Per-sandbox domain allowlist, deny-all default | `sandbox/envoy_manager.py` |
+| Task enqueue | Redis **list** `joysafeter:global_queue` | API `rpush` → Rust orchestrator scheduler pops | `joysafeter_api/services.py`, `joysafeter_orchestrator_rs/src/kernel/queue.rs` |
+| **Durable event bus** | Redis **Streams** `joysafeter:orchestrator:events` + consumer group | Orchestrator `XADD` → Worker `XREADGROUP` → DB persist | `joysafeter_orchestrator_rs/src/events/stream_publisher.rs`, `joysafeter_worker/events/stream_consumer.py` |
+| **Live event fan-out** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | Cross-instance SSE delivery via `SessionBroadcaster` | `joysafeter_orchestrator_rs/src/kernel/session_broadcaster.rs`, `joysafeter_shared/orchestrator_bridge/session_broadcaster.py` |
+| Control/cancel relay | Redis **Pub/Sub** `joysafeter:cmd:{instance}` | Route cancel/input/shutdown to the instance owning the sandbox | `joysafeter_api/runtime_commands.py`, `joysafeter_orchestrator_rs/src/kernel/command_listener.rs` |
+| Orchestrator ↔ runner | **gRPC** `AgentBridge` (bidi stream, :9090) | The agent execution protocol | `proto/joysafeter.proto`, `joysafeter_orchestrator_rs/src/grpc/server.rs` |
+| Runner egress | Envoy proxy (unix socket) | Per-sandbox domain allowlist, deny-all default | `joysafeter_orchestrator_rs/src/sandbox/envoy.rs` |
 | Skill scan | HTTP → skillspector `:8010` | Security scan on skill writes; runtime blocks failed/scanning/unscanned/blocked skills | `joysafeter_skill_security.py` |
 
-**API ↔ orchestrator is Redis, not direct gRPC.** The API process co-locates orchestrator
-code but treats every in-process handle (scheduler, bridge, broadcaster) as optional; when
-absent it degrades to Redis. That is what makes API and orchestrator separable processes.
-gRPC is used *only* for the bridge ↔ in-sandbox-runner hop, co-located with whichever
-process owns the sandbox.
+**API ↔ orchestrator is Redis, not direct gRPC.** Python API/worker processes do not import
+the removed Python orchestrator package. They use `joysafeter_shared.orchestrator_bridge`
+only for lightweight API-side helpers and optional test seams; runtime control flows through
+Redis command relay and ACKs. gRPC is used *only* for the Rust orchestrator ↔ in-sandbox-runner hop.
 
 ---
 
@@ -224,7 +223,7 @@ for SSE; the v1 model-registry and MCP-server startup hooks were deleted.
 
 The full REST inventory is in [§8 API surface](#8-api-surface).
 
-### 4.2 Orchestrator service (`app/joysafeter_orchestrator/`)
+### 4.2 Orchestrator service (`app/joysafeter_orchestrator_rs/`)
 
 The engine room. Hosts the gRPC `AgentBridge` server and a set of DB-driven control loops.
 Agent code does **not** run in this process — it runs inside the sandbox runner, reached
@@ -232,21 +231,21 @@ over gRPC.
 
 | Subsystem | Module | Responsibility |
 |---|---|---|
-| gRPC server | `grpc/server.py` | `AgentBridge.Session` bidi stream; handles runner messages, sends orchestrator commands |
-| Task scheduler | `kernel/scheduler.py` | Claims pending tasks (`FOR UPDATE SKIP LOCKED`), resolves a sandbox, pushes to the sandbox queue |
-| Task controller | `kernel/task_controller.py` | Lifecycle, startup recovery, failover/retry |
-| Sandbox controller | `kernel/sandbox_controller.py` | Idle sweep, provisioning poll, warm-pool, orphan cleanup |
-| Sandbox resolver | `kernel/sandbox_resolver.py` | 3-stage resolve: reuse session sandbox → claim from pool → create new; injects runner env |
-| Sandbox bridge | `kernel/sandbox_bridge.py` | Per-sandbox in-memory state: runner stream, status, subscribers, control queue |
-| Redis coordinator | `kernel/redis_coordinator.py` | Cross-instance HA: owner mapping, heartbeats, `publish_event` |
-| Event bus | `events/bus.py` | Two-phase (persist ∥ broadcast) in-process bus with 4 subscribers |
-| Session broadcaster | `session_broadcaster.py` | Live SSE fan-out: local queues + Redis Pub/Sub |
+| gRPC server | `src/grpc/server.rs` | `AgentBridge.Session` bidi stream; handles runner messages, sends orchestrator commands |
+| Task scheduler | `src/kernel/scheduler.rs` | Claims pending tasks (`FOR UPDATE SKIP LOCKED`), resolves a sandbox, pushes to the sandbox queue |
+| Task controller | `src/kernel/task_controller.rs` | Lifecycle, startup recovery, failover/retry |
+| Sandbox controller | `src/kernel/sandbox_controller.rs` | Idle sweep, provisioning poll, warm-pool, orphan cleanup |
+| Sandbox resolver | `src/kernel/sandbox_resolver.rs` | 3-stage resolve: reuse session sandbox → claim from pool → create new; injects runner env |
+| Sandbox bridge | `src/kernel/sandbox_bridge.rs` | Per-sandbox in-memory state: runner stream, status, subscribers, control queue |
+| Redis coordinator | `src/kernel/redis_coordinator.rs` | Cross-instance HA: owner mapping, heartbeats, queues, event publishing |
+| Command listener | `src/kernel/command_listener.rs` | Redis command relay for cancel/input/shutdown/memory updates with ACKs |
+| Event bus | `src/events/bus.rs` | In-process event bus feeding stream persistence and realtime fan-out |
+| Session broadcaster | `src/kernel/session_broadcaster.rs` | Live SSE fan-out via Redis Pub/Sub |
 
-Startup order (`lifespan.py`): Redis + coordinator → in-memory queue → scheduler/controller →
-bridge registry → sandbox provider + controller → session broadcaster → event batch sender →
-sandbox resolver → memory subscribers → **Envoy** (if enabled) → **image builder** (if enabled)
-→ runtime config + SIGHUP hot-reload → adapter discovery → vault cipher →
-**event bus + 4 subscribers** → **gRPC server on :9090** → task recovery → 5 background loops.
+Startup order (`src/main.rs`): config + database + Redis coordinator → queue/scheduler/controller →
+bridge registry → sandbox provider/controller/resolver → session broadcaster → memory subscribers →
+Envoy/image builder as configured → event bus + stream/realtime subscribers → command listener →
+gRPC server on `:9090` → task recovery and background loops.
 
 ### 4.3 Worker service (`app/joysafeter_worker/`)
 
@@ -345,7 +344,7 @@ harness as a persistent subprocess:
 | `native` | `NativeAdapter` | **`ccb`** binary | claude-style stream-json — the self-developed "Harness-Core" engine |
 | `mock` | `MockAdapter` | test double | env-gated |
 
-### 6.3 Sandbox providers (`app/joysafeter_orchestrator/sandbox/`)
+### 6.3 Sandbox providers (`app/joysafeter_orchestrator_rs/src/sandbox/`)
 
 Selected by `JOYSAFETER_SANDBOX_PROVIDER` (default `docker`). SPI: `SandboxProvider`
 (`create/start/stop/destroy/status/exec/inject_files/setup_networking/...`).
@@ -499,14 +498,14 @@ backend/app/
 │   ├── websocket/             #   notification manager + WS auth
 │   ├── app.py / main.py       #   app assembly + entrypoint
 │   └── startup.py             #   wires SessionBroadcaster
-├── joysafeter_orchestrator/   # Orchestrator service
-│   ├── grpc/                  #   AgentBridge server (+ generated proto)
-│   ├── kernel/                #   scheduler, controllers, sandbox resolver/bridge, coordinator, queue
-│   ├── runtime/               #   HarnessAdapter SPI + adapters (reference/parity — not live path)
-│   ├── sandbox/               #   Docker/E2B/Daytona providers, Envoy manager, image builder
-│   ├── events/                #   two-phase event bus + subscribers (stream/persist/broadcast/task)
-│   ├── session_broadcaster.py #   SSE fan-out (local queues + Redis pub/sub)
-│   └── lifespan.py            #   boot/shutdown wiring
+├── joysafeter_orchestrator_rs/ # Rust orchestrator service
+│   ├── src/grpc/              #   AgentBridge server (+ generated proto)
+│   ├── src/kernel/            #   scheduler, controllers, sandbox resolver/bridge, coordinator, queue
+│   ├── src/runtime/           #   HarnessAdapter SPI + adapters
+│   ├── src/sandbox/           #   Docker/E2B/Daytona providers, Envoy manager, image builder
+│   ├── src/events/            #   event bus + stream/realtime subscribers
+│   ├── src/main.rs            #   boot/shutdown wiring
+│   └── Cargo.toml             #   Rust crate manifest
 ├── joysafeter_worker/         # Worker service
 │   └── events/                #   EventStreamWorker (Redis Stream consumer) + EventBatchSender
 ├── joysafeter_domain/         # Data model + business logic

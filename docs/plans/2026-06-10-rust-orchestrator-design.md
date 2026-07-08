@@ -1,18 +1,20 @@
 # Rust Orchestrator Design — `joysafeter_orchestrator_rs`
 
-> **Status (2026-07-03): Historical / experimental design.** The current checkout does **not**
-> contain `backend/app/joysafeter_orchestrator_rs`, although `deploy/docker-compose.yml` and
-> `deploy/docker/orchestrator-rs.Dockerfile` still reference it. Treat this document as design
-> history unless the Rust orchestrator source directory is restored.
+> **Status (2026-07-08): Historical design.** The Rust orchestrator now lives at
+> `backend/app/joysafeter_orchestrator_rs` and is the supported orchestration runtime. The
+> removed Python orchestrator package must not be restored from this document.
 
 ## Overview
 
-Rust reimplementation of `backend/app/joysafeter_orchestrator/` that coexists with the Python version. Both share the same Postgres DB and Redis, using identical table schemas (managed by Python Alembic migrations). Deployment selects one version via config.
+Rust orchestration runtime for JoySafeter. It shares the same Postgres DB and Redis with the
+Python API/worker services, using table schemas managed by Python Alembic migrations. Runtime
+control between Python services and the Rust orchestrator flows through Redis queues, Pub/Sub,
+and ACK channels; gRPC is reserved for the orchestrator-to-runner protocol.
 
 ## Location
 
 ```
-backend/app/joysafeter_orchestrator_rs/   # Rust workspace, peer to joysafeter_orchestrator/
+backend/app/joysafeter_orchestrator_rs/   # Rust orchestrator crate
 ```
 
 ## Architecture
@@ -41,7 +43,8 @@ backend/app/joysafeter_orchestrator_rs/   # Rust workspace, peer to joysafeter_o
 5. **Tokio async runtime** — multi-thread, mirrors Python asyncio
 6. **Same DB tables** — `joysafeter_tasks`, `joysafeter_sessions`, `joysafeter_sandboxes`, `joysafeter_session_events`, etc.
 7. **Same Redis keys** — `joysafeter:*` namespace, identical pub/sub channels
-8. **Deployment switch** — `ORCHESTRATOR_IMPL=rust|python` in docker-compose
+8. **Deployment** — docker-compose runs the Rust orchestrator profile; Python no longer owns
+   orchestration
 
 ## Batch Plan
 

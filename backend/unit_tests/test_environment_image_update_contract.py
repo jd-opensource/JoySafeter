@@ -146,10 +146,10 @@ async def test_update_environment_raises_when_builder_unavailable(monkeypatch) -
     db = FakeDb()
     svc = FakeEnvironmentService(env)
 
-    import app.joysafeter_orchestrator.lifespan as lifespan_mod
+    import app.joysafeter_shared.orchestrator_bridge as bridge_mod
 
     monkeypatch.setattr(env_api, "EnvironmentService", lambda _db: svc)
-    monkeypatch.setattr(lifespan_mod, "get_image_builder", lambda: None)
+    monkeypatch.setattr(bridge_mod, "get_image_builder", lambda: None)
 
     req = UpdateEnvironmentRequest(
         config=EnvironmentConfig(type="cloud", packages=Packages(pip=["numpy"]))
@@ -173,10 +173,10 @@ async def test_create_environment_raises_when_builder_unavailable(monkeypatch) -
     db = FakeDb()
     svc = FakeEnvironmentService(env)
 
-    import app.joysafeter_orchestrator.lifespan as lifespan_mod
+    import app.joysafeter_shared.orchestrator_bridge as bridge_mod
 
     monkeypatch.setattr(env_api, "EnvironmentService", lambda _db: svc)
-    monkeypatch.setattr(lifespan_mod, "get_image_builder", lambda: None)
+    monkeypatch.setattr(bridge_mod, "get_image_builder", lambda: None)
 
     req = CreateEnvironmentRequest(
         name="python-env",
