@@ -163,8 +163,8 @@ async def list_secrets(
     return {
         "data": [item.model_dump(mode="json") for item in items],
         "has_more": has_more,
-        "first_id": str(items[0].id) if items else None,
-        "last_id": str(items[-1].id) if items else None,
+        "first_id": str(secrets[0].id) if secrets else None,
+        "last_id": str(secrets[-1].id) if secrets else None,
     }
 
 

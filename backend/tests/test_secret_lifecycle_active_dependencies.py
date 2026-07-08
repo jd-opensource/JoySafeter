@@ -4,7 +4,7 @@ import pytest
 from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import select
 
-from app.joysafeter_api.api.v1.secrets import create_secret, delete_secret, update_secret
+from app.joysafeter_api.api.v1.secrets import create_secret, delete_secret, list_secrets, update_secret
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_secret import JoySafeterSecret
@@ -52,6 +52,18 @@ async def _assert_secret_intact(db_session, secret_id: uuid.UUID) -> JoySafeterS
     row = (await db_session.execute(select(JoySafeterSecret).where(JoySafeterSecret.id == secret_id))).scalar_one()
     assert row.deleted_at is None
     return row
+
+
+@pytest.mark.asyncio
+async def test_list_secrets_returns_uuid_cursor_compatible_with_after_id(db_session):
+    await _secret(db_session)
+    await _secret(db_session)
+
+    page = await list_secrets(limit=1, after_id=None, db=db_session, auth_ctx=_auth_ctx())
+
+    assert page["has_more"] is True
+    assert page["last_id"] is not None
+    uuid.UUID(page["last_id"])
 
 
 @pytest.mark.asyncio

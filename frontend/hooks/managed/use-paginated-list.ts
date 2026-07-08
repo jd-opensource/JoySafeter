@@ -60,9 +60,17 @@ async function apiPage<T extends { id?: string }>(
     return { data: res, has_more: false }
   }
   const items = res.data
-  const firstId = res.first_id || (items.length > 0 ? stripIdPrefix(items[0].id || '') : undefined)
+  const firstId = res.first_id
+    ? stripIdPrefix(res.first_id)
+    : items.length > 0
+      ? stripIdPrefix(items[0].id || '')
+      : undefined
   const lastId =
-    res.last_id || (items.length > 0 ? stripIdPrefix(items[items.length - 1].id || '') : undefined)
+    res.last_id
+      ? stripIdPrefix(res.last_id)
+      : items.length > 0
+        ? stripIdPrefix(items[items.length - 1].id || '')
+        : undefined
   return { data: items, has_more: res.has_more, first_id: firstId, last_id: lastId }
 }
 
