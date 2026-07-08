@@ -261,6 +261,7 @@ async def test_update_environment_config_rejects_active_task_agent_reference(db_
     db_session.add(task)
     await db_session.commit()
     await db_session.refresh(task)
+    task_id = str(task.id)
 
     req = UpdateEnvironmentRequest(config=EnvironmentConfig(env_vars={"NEW_ENV": "value"}))
     with pytest.raises(AppError) as exc_info:
@@ -269,10 +270,10 @@ async def test_update_environment_config_rejects_active_task_agent_reference(db_
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "ENVIRONMENT_ACTIVE_TASK",
         "message": (
-            f"Environment is required by active task '{task.id}' via agent environment_ref. "
+            f"Environment is required by active task '{task_id}' via agent environment_ref. "
             "Stop or wait for the task before updating config."
         ),
-        "data": {"environment_id": str(env_id), "task_id": str(task.id), "source": "agent environment_ref"},
+        "data": {"environment_id": str(env_id), "task_id": task_id, "source": "agent environment_ref"},
         "source": "api",
         "retryable": True,
         "user_action": "retry",
@@ -298,6 +299,7 @@ async def test_update_environment_name_rejects_agent_reference_without_active_ta
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
+    agent_name = agent.name
 
     req = UpdateEnvironmentRequest(name=f"renamed-env-{uuid.uuid4()}")
     with pytest.raises(AppError) as exc_info:
@@ -305,8 +307,8 @@ async def test_update_environment_name_rejects_agent_reference_without_active_ta
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "ENVIRONMENT_AGENT_REFERENCE",
-        "message": f"Environment is referenced by agent '{agent.name}'.",
-        "data": {"environment_id": str(env_id), "agent_name": agent.name},
+        "message": f"Environment is referenced by agent '{agent_name}'.",
+        "data": {"environment_id": str(env_id), "agent_name": agent_name},
         "source": "api",
         "retryable": False,
     }
@@ -376,7 +378,7 @@ async def test_create_environment_image_build_failure_returns_structured_error_a
     async def fail_build(env):
         raise RuntimeError("apt failed")
 
-    monkeypatch.setattr("app.joysafeter_api.api.v1.environments._validate_and_build_image", fail_build)
+    monkeypatch.setattr("app.joysafeter_api.api.v1.environments._build_image_update", fail_build)
 
     env_name = f"build-fail-env-{uuid.uuid4()}"
     req = CreateEnvironmentRequest(name=env_name, config=EnvironmentConfig(env_vars={"A": "B"}))
@@ -407,7 +409,7 @@ async def test_update_environment_image_build_failure_returns_structured_error_w
     async def fail_build(env):
         raise RuntimeError("pip failed")
 
-    monkeypatch.setattr("app.joysafeter_api.api.v1.environments._validate_and_build_image", fail_build)
+    monkeypatch.setattr("app.joysafeter_api.api.v1.environments._build_image_update", fail_build)
 
     env = JoySafeterEnvironment(name=f"update-build-fail-env-{uuid.uuid4()}", description="", config={})
     db_session.add(env)

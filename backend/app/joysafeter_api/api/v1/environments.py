@@ -128,9 +128,7 @@ async def _build_image_update(env) -> _EnvironmentImageUpdate:
 
     builder = get_image_builder()
     if not builder:
-        logger.warning(
-            "Image builder unavailable; refusing to persist environment %s with packages", env.id
-        )
+        logger.warning("Image builder unavailable; refusing to persist environment %s with packages", env.id)
         raise _environment_image_builder_unavailable_error(env.id)
 
     version = getattr(env, "image_version", 0) or 0
@@ -287,7 +285,7 @@ async def update_environment(
     except Exception as exc:
         await db.rollback()
         if req.config is not None:
-            raise _environment_image_build_error(env.id, operation="update", exc=exc) from exc
+            raise _environment_image_build_error(env_id, operation="update", exc=exc) from exc
         raise
 
     return _env_to_response(env)
