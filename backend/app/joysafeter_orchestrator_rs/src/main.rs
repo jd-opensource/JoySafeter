@@ -388,6 +388,7 @@ async fn main() -> anyhow::Result<()> {
             client.clone(),
             &config.instance_id,
             bridge_registry.clone(),
+            memory_subscribers.clone(),
         );
         Some(listener.spawn())
     } else {

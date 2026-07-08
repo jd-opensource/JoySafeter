@@ -39,7 +39,7 @@ async def health_ready():
 
     # Probe Redis via RedisCoordinator.is_healthy() if available
     try:
-        from app.joysafeter_orchestrator.lifespan import get_redis_coordinator
+        from app.joysafeter_shared.orchestrator_bridge import get_redis_coordinator
 
         coordinator = get_redis_coordinator()
         if coordinator:

@@ -522,7 +522,7 @@ async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) 
     stop containers. Mirrors the Rust cancel_active_tasks_for_agent."""
     from app.joysafeter_api.services import JoySafeterTaskService as TaskService
     from app.joysafeter_api.services import SandboxService
-    from app.joysafeter_orchestrator.lifespan import (
+    from app.joysafeter_shared.orchestrator_bridge import (
         get_bridge_registry,
         get_sandbox_provider,
         get_session_broadcaster,
@@ -544,7 +544,7 @@ async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) 
             if bridge_registry:
                 bridge = await bridge_registry.get(sandbox_id)
                 if bridge:
-                    from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
+                    from app.joysafeter_shared.orchestrator_bridge.proto import joysafeter_pb2
 
                     cancel_msg = joysafeter_pb2.OrchestratorMessage(
                         cancel=joysafeter_pb2.CancelTask(reason="Agent archived")
@@ -614,7 +614,7 @@ async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) 
         if bridge_registry:
             bridge = await bridge_registry.get(sandbox_id)
             if bridge:
-                from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
+                from app.joysafeter_shared.orchestrator_bridge.proto import joysafeter_pb2
 
                 shutdown_msg = joysafeter_pb2.OrchestratorMessage(
                     shutdown=joysafeter_pb2.Shutdown(reason="Agent archived")

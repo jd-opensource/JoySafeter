@@ -99,7 +99,7 @@ def create_app(*, lifespan, title_suffix: str = "", expose_docs: bool = True) ->
 
         if role in {"all", "orchestrator"}:
             try:
-                from app.joysafeter_orchestrator.lifespan import get_event_bus
+                from app.joysafeter_shared.orchestrator_bridge.globals import get_event_bus
 
                 event_bus = get_event_bus()
                 if event_bus and hasattr(event_bus, "health_snapshot"):
@@ -108,7 +108,7 @@ def create_app(*, lifespan, title_suffix: str = "", expose_docs: bool = True) ->
                     if event_bus_health.get("status") == "degraded" and checks["status"] == "ok":
                         checks["status"] = "degraded"
 
-                from app.joysafeter_orchestrator.lifespan import get_event_buffer
+                from app.joysafeter_shared.orchestrator_bridge.globals import get_event_buffer
 
                 event_buffer = get_event_buffer()
                 if event_buffer and hasattr(event_buffer, "health_snapshot"):

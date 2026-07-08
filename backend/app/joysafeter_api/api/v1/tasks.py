@@ -534,8 +534,8 @@ async def cancel_task(
     # already checked above.
     assert task is not None
 
-    from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
-    from app.joysafeter_orchestrator.lifespan import get_bridge_registry, get_redis_coordinator, get_session_broadcaster
+    from app.joysafeter_shared.orchestrator_bridge.proto import joysafeter_pb2
+    from app.joysafeter_shared.orchestrator_bridge import get_bridge_registry, get_redis_coordinator, get_session_broadcaster
 
     # Send gRPC CancelTask to the sandbox bridge if the task is running locally
     registry = get_bridge_registry()
@@ -661,7 +661,7 @@ async def task_stream(websocket: WebSocket, task_id: uuid.UUID):
     from app.joysafeter_domain.models.joysafeter_auth import AuthUser
     from app.joysafeter_domain.models.joysafeter_organization import Member
     from app.joysafeter_domain.models.joysafeter_project import Project
-    from app.joysafeter_orchestrator.lifespan import get_bridge_registry
+    from app.joysafeter_shared.orchestrator_bridge import get_bridge_registry
     from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
     from app.joysafeter_shared.security import decode_token
 
@@ -762,7 +762,7 @@ async def task_stream(websocket: WebSocket, task_id: uuid.UUID):
 
         if not bridge:
             # Cross-instance: try Redis pub/sub for task events
-            from app.joysafeter_orchestrator.lifespan import get_redis_coordinator
+            from app.joysafeter_shared.orchestrator_bridge import get_redis_coordinator
 
             coordinator = get_redis_coordinator()
             if coordinator:

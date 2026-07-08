@@ -398,36 +398,17 @@ impl SandboxResolver {
                 .await?;
         }
 
-        // #13: Memory preloading — write memory files to workspace before container start
+        // #13: File injection — write local session files to workspace before start.
+        //
+        // NB: memory stores are NOT preloaded here. The runner writes them to
+        // the canonical `/mnt/memory/{slug}` mount inside the container from the
+        // SetupSandbox `memory_mounts[].files` payload (see harness_input_builder).
+        // A previous preload wrote them to `/workspace/mnt/memory/` too, which
+        // created a stale duplicate that real-time updates never touched.
         if let (Some(sid), Some(ref workspace_root)) =
             (context.session_id, &self.config.sandbox_workspace_root)
         {
             let workspace_path = format!("{}/{}", workspace_root, sid);
-            if let Ok(stores) =
-                crate::db::queries::list_session_memory_stores(&self.pool, sid).await
-            {
-                for store in &stores {
-                    let mount_dir = format!("{}/mnt/memory/{}", workspace_path, store.mount_name);
-                    let _ = tokio::fs::create_dir_all(&mount_dir).await;
-                    if let Ok(files) =
-                        crate::db::queries::load_memory_files(&self.pool, store.store_id, 10000)
-                            .await
-                    {
-                        for f in files {
-                            let file_path =
-                                format!("{}/{}", mount_dir, f.path.trim_start_matches('/'));
-                            if let Some(parent) = std::path::Path::new(&file_path).parent() {
-                                let _ = tokio::fs::create_dir_all(parent).await;
-                            }
-                            if let Some(content) = &f.content {
-                                let _ = tokio::fs::write(&file_path, content.as_bytes()).await;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // #13: File injection — write local session files to workspace before start.
             let ctx = crate::sandbox::file_injection::FileInjectionContext {
                 session_id: sid,
                 external_id: String::new(),

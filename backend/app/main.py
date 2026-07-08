@@ -47,6 +47,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         await _check_docker_availability()
 
     if is_orchestrator_role():
+        # Legacy Python orchestrator startup — only triggered when SERVICE_ROLE
+        # includes "orchestrator". In Rust-orchestrator deployments this branch
+        # is never taken (SERVICE_ROLE is "api" or "worker"). The import will
+        # fail gracefully (try/except) if the legacy package was removed.
         try:
             from app.joysafeter_orchestrator.lifespan import joysafeter_startup
 

@@ -4,9 +4,9 @@ import { useState } from 'react'
 import { useTranslation } from '@/lib/i18n'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, Plus, Star, Trash2 } from 'lucide-react'
+import { Check, CheckCircle2, Loader2, Plus, Star, Trash2, Wifi, XCircle } from 'lucide-react'
 import { managedPost, managedDelete } from '@/lib/api-client'
-import { toastOperationError } from '@/lib/managed/errors'
+import { parseApiError, toastOperationError } from '@/lib/managed/errors'
 import type { Secret } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,6 +24,7 @@ import {
   getDefaultSecretPairs,
   getSecretProviderLabel,
   isModelKey,
+  isSecretValueMaskedKey,
   SECRET_PROTOCOL_OPTIONS,
   SECRET_PROVIDER_GROUPS,
 } from '@/lib/managed/secret-keys'
@@ -55,6 +56,16 @@ interface KVPair {
   value: string
 }
 
+interface SecretTestResult {
+  ok: boolean
+  provider: string
+  protocol: string
+  message: string
+  endpoint?: string | null
+  status?: number | null
+  error_detail?: string | null
+}
+
 export default function SecretListPage() {
   const { t } = useTranslation()
   const router = useRouter()
@@ -83,33 +94,57 @@ export default function SecretListPage() {
   const [newProtocol, setNewProtocol] = useState('anthropic_messages')
   const [pairs, setPairs] = useState<KVPair[]>([{ key: '', value: '' }])
   const [creating, setCreating] = useState(false)
+  const [testingSecret, setTestingSecret] = useState(false)
+  const [testResult, setTestResult] = useState<SecretTestResult | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Secret | null>(null)
 
   const updatePair = (index: number, field: 'key' | 'value', val: string) => {
+    setTestResult(null)
     setPairs((prev) => prev.map((p, i) => (i === index ? { ...p, [field]: val } : p)))
   }
 
   const removePair = (index: number) => {
+    setTestResult(null)
     setPairs((prev) => prev.filter((_, i) => i !== index))
   }
 
   const addPair = () => {
+    setTestResult(null)
     setPairs((prev) => [...prev, { key: '', value: '' }])
   }
 
   const updateProvider = (provider: string) => {
     const nextProtocol = getDefaultProtocol(provider)
+    setTestResult(null)
     setNewProvider(provider)
     setNewProtocol(nextProtocol)
     setPairs(getDefaultSecretPairs(provider, nextProtocol))
   }
 
   const updateProtocol = (protocol: string) => {
+    setTestResult(null)
     setNewProtocol(protocol)
     setPairs(getDefaultSecretPairs(newProvider, protocol))
   }
 
+  const openCreateDialog = () => {
+    setNewName('')
+    setNewProvider('claude')
+    setNewProtocol('anthropic_messages')
+    setPairs(getDefaultSecretPairs('claude', 'anthropic_messages'))
+    setTestResult(null)
+    setShowCreate(true)
+  }
+
   const validPairs = pairs.filter((p) => p.key.trim())
+  const canCreate = Boolean(newName.trim() && validPairs.length > 0 && testResult?.ok)
+  const buildSecretData = () => {
+    const data: Record<string, string> = {}
+    for (const p of validPairs) {
+      data[p.key.trim()] = p.value
+    }
+    return data
+  }
   const filteredSecrets = secrets.filter(
     (s) =>
       filterByCreatedTime(s.created_at, createdFilter) &&
@@ -124,13 +159,10 @@ export default function SecretListPage() {
   ]
 
   const handleCreate = async () => {
-    if (!newName.trim() || validPairs.length === 0) return
+    if (!canCreate) return
     setCreating(true)
     try {
-      const data: Record<string, string> = {}
-      for (const p of validPairs) {
-        data[p.key.trim()] = p.value
-      }
+      const data = buildSecretData()
       await managedPost('/secrets', {
         name: newName.trim(),
         provider: newProvider,
@@ -142,12 +174,38 @@ export default function SecretListPage() {
       setNewProvider('claude')
       setNewProtocol('anthropic_messages')
       setPairs([{ key: '', value: '' }])
+      setTestResult(null)
       setShowCreate(false)
       queryClient.invalidateQueries({ queryKey: ['secrets'] })
     } catch (e) {
       toastOperationError(t, e, 'common.operationFailed')
     } finally {
       setCreating(false)
+    }
+  }
+
+  const handleTestConnection = async () => {
+    if (validPairs.length === 0) return
+    setTestingSecret(true)
+    setTestResult(null)
+    try {
+      const result = await managedPost<SecretTestResult>('/secrets/test', {
+        provider: newProvider,
+        protocol: newProtocol,
+        data: buildSecretData(),
+      })
+      setTestResult(result)
+    } catch (e) {
+      const error = parseApiError(e)
+      setTestResult({
+        ok: false,
+        provider: newProvider,
+        protocol: newProtocol,
+        message: error.message || t('managed.secrets.testFailed'),
+        status: error.status,
+      })
+    } finally {
+      setTestingSecret(false)
     }
   }
 
@@ -234,15 +292,7 @@ export default function SecretListPage() {
         title={t('managed.secrets.title')}
         subtitle={t('managed.secrets.subtitle')}
         action={
-          <Button
-            size="sm"
-            onClick={() => {
-              setNewProvider('claude')
-              setNewProtocol('anthropic_messages')
-              setPairs(getDefaultSecretPairs('claude', 'anthropic_messages'))
-              setShowCreate(true)
-            }}
-          >
+          <Button size="sm" onClick={openCreateDialog}>
             <Plus className="h-4 w-4" />
             {t('managed.secrets.new')}
           </Button>
@@ -290,7 +340,15 @@ export default function SecretListPage() {
         emptyMessage={t('managed.secrets.empty')}
       />
 
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+      <Dialog
+        open={showCreate}
+        onOpenChange={(open) => {
+          setShowCreate(open)
+          if (!open) {
+            setTestResult(null)
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('managed.secrets.new')}</DialogTitle>
@@ -302,7 +360,10 @@ export default function SecretListPage() {
               <Input
                 placeholder={t('managed.secrets.namePlaceholder')}
                 value={newName}
-                onChange={(e) => setNewName(e.target.value)}
+                onChange={(e) => {
+                  setTestResult(null)
+                  setNewName(e.target.value)
+                }}
                 autoFocus
               />
             </div>
@@ -393,7 +454,7 @@ export default function SecretListPage() {
                       value={pair.value}
                       onChange={(e) => updatePair(i, 'value', e.target.value)}
                       className="min-w-0"
-                      type="password"
+                      type={isSecretValueMaskedKey(pair.key) ? 'password' : 'text'}
                     />
                   )}
                   {pairs.length > 1 ? (
@@ -414,12 +475,57 @@ export default function SecretListPage() {
                 <Plus className="mr-1 h-3 w-3" />
                 {t('managed.secrets.addPair')}
               </Button>
+              {testResult && (
+                <div
+                  className={[
+                    'flex items-start gap-2 rounded-md border px-3 py-2 text-sm',
+                    testResult.ok
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                      : 'border-destructive/20 bg-destructive/5 text-destructive',
+                  ].join(' ')}
+                >
+                  {testResult.ok ? (
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                  ) : (
+                    <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  )}
+                  <div className="min-w-0 space-y-1 break-words">
+                    <div>
+                      {testResult.ok
+                        ? t('managed.secrets.testSucceeded')
+                        : testResult.message || t('managed.secrets.testFailed')}
+                      {testResult.status ? ` (HTTP ${testResult.status})` : ''}
+                    </div>
+                    {!testResult.ok && (testResult.endpoint || testResult.error_detail) && (
+                      <div className="space-y-1 rounded border border-current/10 bg-background/70 p-2 font-mono text-xs text-foreground">
+                        {testResult.endpoint && <div>endpoint: {testResult.endpoint}</div>}
+                        {testResult.error_detail && (
+                          <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words">
+                            {testResult.error_detail}
+                          </pre>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>
             <Button
+              onClick={handleTestConnection}
+              disabled={validPairs.length === 0 || testingSecret || creating}
+            >
+              {testingSecret ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Wifi className="h-4 w-4" />
+              )}
+              {testingSecret ? t('managed.secrets.testing') : t('managed.secrets.testConnection')}
+            </Button>
+            <Button
               onClick={handleCreate}
-              disabled={!newName.trim() || validPairs.length === 0 || creating}
+              disabled={!canCreate || creating || testingSecret}
             >
               {creating ? t('common.loading') : t('common.create')}
             </Button>

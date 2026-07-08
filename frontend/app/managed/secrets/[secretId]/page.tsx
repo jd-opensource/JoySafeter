@@ -30,6 +30,7 @@ import {
 import {
   getDefaultProtocol,
   isModelKey,
+  isSecretValueMaskedKey,
   normalizeSecretProvider,
   SECRET_PROTOCOL_OPTIONS,
   SECRET_PROVIDER_GROUPS,
@@ -272,7 +273,7 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
                   value={pair.value}
                   onChange={(e) => updatePair(i, 'value', e.target.value)}
                   className="min-w-0 font-mono text-sm"
-                  type={showValues ? 'text' : 'password'}
+                  type={!isSecretValueMaskedKey(pair.key) || showValues ? 'text' : 'password'}
                 />
               )}
               <Button

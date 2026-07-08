@@ -50,6 +50,27 @@ class UpdateSecretRequest(BaseModel):
         return _trim_secret_values(v)
 
 
+class TestSecretRequest(BaseModel):
+    provider: str = "custom"
+    protocol: str = "custom"
+    data: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("data")
+    @classmethod
+    def _trim_url_values(cls, v: dict[str, str]) -> dict[str, str]:
+        return _trim_secret_values(v)
+
+
+class SecretTestResponse(BaseModel):
+    ok: bool
+    provider: str
+    protocol: str
+    message: str
+    endpoint: Optional[str] = None
+    status: Optional[int] = None
+    error_detail: Optional[str] = None
+
+
 class SecretListItem(BaseModel):
     id: str
     name: str

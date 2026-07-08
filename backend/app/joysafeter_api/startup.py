@@ -22,7 +22,7 @@ async def run_api_startup() -> None:
 
 async def _initialize_session_broadcaster() -> None:
     try:
-        from app.joysafeter_orchestrator.lifespan import ensure_session_broadcaster
+        from app.joysafeter_shared.orchestrator_bridge import ensure_session_broadcaster
         from app.joysafeter_shared.config.settings import joysafeter_config
 
         ensure_session_broadcaster(

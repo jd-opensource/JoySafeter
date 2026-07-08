@@ -144,6 +144,7 @@ export function getDefaultSecretPairs(provider: string, protocol: string) {
     return [
       { key: 'ANTHROPIC_API_KEY', value: '' },
       { key: 'ANTHROPIC_MODEL', value: 'claude-opus-4-20250514' },
+      { key: 'ANTHROPIC_BASE_URL', value: '' },
     ]
   }
   if (provider === 'codex' || (provider === 'native' && isOpenAIProtocol)) {
@@ -158,6 +159,33 @@ export function getDefaultSecretPairs(provider: string, protocol: string) {
 
 export function isModelKey(key: string) {
   return key === 'ANTHROPIC_MODEL' || key === 'OPENAI_MODEL'
+}
+
+function normalizeSecretKey(key: string) {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toUpperCase()
+}
+
+export function isSecretValueMaskedKey(key: string) {
+  const normalized = normalizeSecretKey(key)
+  if (!normalized) return true
+  return (
+    normalized === 'API_KEY' ||
+    normalized === 'AUTH_TOKEN' ||
+    normalized === 'TOKEN' ||
+    normalized === 'SECRET' ||
+    normalized === 'PASSWORD' ||
+    normalized === 'CLIENT_SECRET' ||
+    normalized === 'REFRESH_TOKEN' ||
+    normalized.endsWith('_API_KEY') ||
+    normalized.endsWith('_AUTH_TOKEN') ||
+    normalized.endsWith('_TOKEN') ||
+    normalized.endsWith('_SECRET') ||
+    normalized.endsWith('_PASSWORD')
+  )
 }
 
 export const MODEL_OPTIONS = [

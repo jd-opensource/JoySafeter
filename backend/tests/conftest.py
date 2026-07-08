@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
+from pytest import FixtureRequest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -96,12 +97,17 @@ async def db_session(postgres_url: str) -> AsyncIterator[AsyncSession]:
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def _clean_tables(postgres_url) -> AsyncIterator[None]:
+async def _clean_tables(request: FixtureRequest) -> AsyncIterator[None]:
     """Isolate tests: truncate every table after each test.
 
     The Postgres container is session-scoped and the service commits, so without
     this rows leak between tests. TRUNCATE ... CASCADE resets all app tables.
     """
+    if request.node.get_closest_marker("no_db"):
+        yield
+        return
+
+    postgres_url = request.getfixturevalue("postgres_url")
     yield
     from app.joysafeter_shared.database import Base
 

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import re
 import unicodedata
 import uuid
@@ -38,7 +39,82 @@ from app.joysafeter_shared.database import get_db
 
 router = APIRouter(tags=["joysafeter-memory-stores"])
 
+logger = logging.getLogger(__name__)
+
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+async def _broadcast_memory_update(
+    store_id: uuid.UUID,
+    path: str,
+    content: str,
+    operation: str,
+    db: AsyncSession,
+) -> None:
+    """Broadcast a memory change to all running sandboxes via Redis.
+
+    The orchestrator's CommandListener picks this up and fans it out to all
+    sandboxes that have this store mounted, updating their FUSE caches in
+    real time.
+
+    Key: we must publish to the orchestrator instance that owns each sandbox,
+    not to the API's own instance_id (they are different processes).
+    """
+    try:
+        from app.joysafeter_shared.cache.redis import RedisClient
+
+        redis = RedisClient.get_client()
+        if not redis:
+            return
+
+        # Find the mount_name and all active sandboxes that have this store
+        from sqlalchemy import text
+
+        rows = await db.execute(
+            text(
+                "SELECT DISTINCT sm.mount_name, s.last_sandbox_id "
+                "FROM joysafeter_session_memory_stores sm "
+                "JOIN joysafeter_sessions s ON s.id = sm.session_id "
+                "WHERE sm.store_id = :sid "
+                "  AND s.last_sandbox_id IS NOT NULL "
+                "  AND s.status NOT IN ('ended', 'error')"
+            ),
+            {"sid": store_id},
+        )
+        active_rows = rows.all()
+        if not active_rows:
+            return  # No active session has this store mounted
+
+        mount_name = active_rows[0][0]
+
+        # Find the orchestrator instance_id that owns each sandbox
+        owner_instances: set[str] = set()
+        for _, sandbox_id in active_rows:
+            if sandbox_id:
+                owner = await redis.get(f"joysafeter:sandbox_owner:{sandbox_id}")
+                if owner:
+                    if isinstance(owner, bytes):
+                        owner = owner.decode()
+                    owner_instances.add(owner)
+
+        if not owner_instances:
+            return
+
+        payload = json.dumps({
+            "type": "memory_update",
+            "store_mount_name": mount_name,
+            "relative_path": path,
+            "content": content,
+            "operation": operation,
+        })
+
+        # Publish to each orchestrator instance
+        for instance_id in owner_instances:
+            channel = f"joysafeter:cmd:{instance_id}"
+            await redis.publish(channel, payload)
+            logger.debug(f"Broadcast memory_update to {instance_id}: {path}")
+    except Exception as e:
+        logger.debug(f"Failed to broadcast memory_update: {e}")
 
 
 def _memory_store_conflict_error(store_id: uuid.UUID, exc: ValueError) -> AppError:
@@ -468,6 +544,7 @@ async def create_memory(
             data={"memory_store_id": str(store_id)},
             user_action="fix_input",
         ) from exc
+    await _broadcast_memory_update(store_id, mem.path, mem.content or "", "created", db)
     return _memory_to_response(mem, view=view)
 
 
@@ -602,6 +679,7 @@ async def update_memory(
                 raise _memory_precondition_exception_error(store_id=store_id, memory_id=memory_id, exc=e) from e
             if not mem:
                 raise _memory_not_found_error(store_id, memory_id)
+        await _broadcast_memory_update(store_id, mem.path, mem.content or "", "modified", db)
         return _memory_to_response(mem, view=view)
 
     if req.content is None:
@@ -617,6 +695,7 @@ async def update_memory(
         raise _memory_precondition_exception_error(store_id=store_id, memory_id=memory_id, exc=e) from e
     if not mem:
         raise _memory_not_found_error(store_id, memory_id)
+    await _broadcast_memory_update(store_id, mem.path, mem.content or "", "modified", db)
     return _memory_to_response(mem, view=view)
 
 
@@ -645,9 +724,11 @@ async def delete_memory(
             )
 
     response = _memory_to_response(mem, view="full")
+    mem_path = mem.path
     ok = await svc.delete_memory(store_id, memory_id)
     if not ok:
         raise _memory_not_found_error(store_id, memory_id)
+    await _broadcast_memory_update(store_id, mem_path, "", "deleted", db)
     return response.model_dump(mode="json")
 
 
@@ -748,7 +829,7 @@ async def memory_store_event_stream(
     svc = MemoryService(db)
     await _get_store_or_404(svc, store_id, auth_ctx.project_id)
 
-    from app.joysafeter_orchestrator.lifespan import get_memory_subscribers
+    from app.joysafeter_shared.orchestrator_bridge import get_memory_subscribers
 
     subscribers = get_memory_subscribers()
 

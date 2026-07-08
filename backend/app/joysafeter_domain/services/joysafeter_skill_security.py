@@ -1057,7 +1057,7 @@ import tarfile
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.joysafeter_orchestrator.runtime.adapter import SkillArchive
+from app.joysafeter_shared.orchestrator_bridge.types import SkillArchive
 
 
 class SkillPacker:

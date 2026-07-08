@@ -63,6 +63,8 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([])
   const [showFileDropdown, setShowFileDropdown] = useState(false)
   const [selectedRepos, setSelectedRepos] = useState<SelectedRepo[]>([])
+  const [selectedMemoryStores, setSelectedMemoryStores] = useState<string[]>([])
+  const [showMemoryStoreDropdown, setShowMemoryStoreDropdown] = useState(false)
 
   const { data: agents = [] } = useQuery({
     queryKey: ['agents-for-session'],
@@ -98,6 +100,20 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     if (!filesResp) return []
     return filesResp.data || []
   }, [filesResp])
+
+  const { data: memoryStoresResp } = useQuery({
+    queryKey: ['memory-stores-for-session'],
+    queryFn: () => managedGet<{ data: { id: string; name: string; description?: string }[] }>('/memory_stores?limit=100'),
+    enabled: open,
+  })
+  const memoryStores = useMemo(() => {
+    const stores = memoryStoresResp?.data || []
+    return stores.filter((s: any) => !s.archived_at)
+  }, [memoryStoresResp])
+  const availableMemoryStores = useMemo(
+    () => memoryStores.filter((s: any) => !selectedMemoryStores.includes(s.id)),
+    [memoryStores, selectedMemoryStores],
+  )
 
   const activeAgents = useMemo(() => agents.filter((a) => !a.archived_at), [agents])
   // Group the agent dropdown by engine so picking one is less of a flat scroll.
@@ -168,6 +184,12 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
           mount_path: f.mount_path,
         }))
       }
+      if (selectedMemoryStores.length > 0) {
+        body.resources = selectedMemoryStores.map((id) => ({
+          memory_store_id: stripIdPrefix(id),
+          access: 'read_write',
+        }))
+      }
       const validRepos = selectedRepos.filter((r) => r.url.trim())
       if (validRepos.length > 0) {
         body.repo_resources = validRepos.map((r) => ({
@@ -203,6 +225,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     setSelectedVaultIds([])
     setSelectedFiles([])
     setSelectedRepos([])
+    setSelectedMemoryStores([])
   }
 
   const toggleVault = (id: string) => {
@@ -578,6 +601,77 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                             ? `${f.size_bytes} B`
                             : `${(f.size_bytes / 1024).toFixed(1)} KB`}
                         </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Memory Stores */}
+          <div>
+            <label className="mb-0.5 block text-sm font-medium">
+              {t('managed.sessions.create.memoryStores')}
+            </label>
+            <p className="mb-2 text-xs text-muted-foreground">
+              {t('managed.sessions.create.memoryStoresDesc')}
+            </p>
+
+            {selectedMemoryStores.length > 0 && (
+              <div className="mb-3 space-y-2">
+                {selectedMemoryStores.map((storeId) => {
+                  const store = memoryStores.find((s: any) => s.id === storeId)
+                  return (
+                    <div
+                      key={storeId}
+                      className="flex items-center gap-2 rounded-md border border-border p-2"
+                    >
+                      <span className="text-sm">{store?.name || storeId}</span>
+                      <span className="flex-1" />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedMemoryStores((prev) => prev.filter((id) => id !== storeId))
+                        }
+                        className="shrink-0 text-muted-foreground hover:text-destructive"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            <div className="relative">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowMemoryStoreDropdown(!showMemoryStoreDropdown)}
+                type="button"
+              >
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                {t('managed.sessions.create.addMemoryStore')}
+              </Button>
+              {showMemoryStoreDropdown && (
+                <div className="absolute z-50 mt-1 max-h-48 w-64 overflow-y-auto rounded-md border border-border bg-background py-1 shadow-lg">
+                  {availableMemoryStores.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-muted-foreground">
+                      {t('managed.sessions.create.noMemoryStores')}
+                    </div>
+                  ) : (
+                    availableMemoryStores.map((s: any) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedMemoryStores((prev) => [...prev, s.id])
+                          setShowMemoryStoreDropdown(false)
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50"
+                      >
+                        <span className="truncate">{s.name}</span>
                       </button>
                     ))
                   )}

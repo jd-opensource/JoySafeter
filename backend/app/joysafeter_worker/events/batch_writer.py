@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from app.joysafeter_shared.utils.locks import session_advisory_lock_key
 
 if TYPE_CHECKING:
-    from app.joysafeter_orchestrator.runtime_config import RuntimeConfig
+    from app.joysafeter_shared.orchestrator_bridge import RuntimeConfig
 
 logger = logging.getLogger(__name__)
 

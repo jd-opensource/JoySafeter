@@ -1,10 +1,25 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslation } from '@/lib/i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Archive, Trash2 } from 'lucide-react'
+import {
+  Plus,
+  Archive,
+  Trash2,
+  ChevronRight,
+  ChevronDown,
+  Folder,
+  FolderOpen,
+  FileText,
+  Eye,
+  Code2,
+  Pencil,
+  MoreHorizontal,
+} from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import { stripIdPrefix } from '@/lib/managed/id'
@@ -20,15 +35,23 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
   PageHeader,
   StatusBadge,
   MonoId,
   RelativeTime,
-  DataTable,
-  type Column,
   ConfirmDialog,
   ResourceErrorState,
 } from '@/components/managed/shared'
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface Memory {
   id: string
@@ -42,6 +65,346 @@ interface Memory {
   updated_at: string
 }
 
+interface TreeNode {
+  name: string
+  path: string
+  isDir: boolean
+  size?: number
+  memory?: Memory
+  children: TreeNode[]
+}
+
+type ViewMode = 'view' | 'code' | 'edit'
+
+// ---------------------------------------------------------------------------
+// Tree builder
+// ---------------------------------------------------------------------------
+
+function buildTree(memories: Memory[]): TreeNode[] {
+  const root: TreeNode[] = []
+
+  for (const mem of memories) {
+    const rawPath = mem.path.startsWith('/') ? mem.path.slice(1) : mem.path
+    const parts = rawPath.split('/')
+    let current = root
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]
+      const isLast = i === parts.length - 1
+      const fullPath = '/' + parts.slice(0, i + 1).join('/')
+
+      if (isLast) {
+        current.push({
+          name: part,
+          path: fullPath,
+          isDir: false,
+          size: mem.content_size_bytes,
+          memory: mem,
+          children: [],
+        })
+      } else {
+        let dir = current.find((n) => n.isDir && n.name === part)
+        if (!dir) {
+          dir = { name: part, path: fullPath, isDir: true, children: [] }
+          current.push(dir)
+        }
+        current = dir.children
+      }
+    }
+  }
+
+  // Sort: dirs first, then files; alphabetical within each group
+  const sortNodes = (nodes: TreeNode[]) => {
+    nodes.sort((a, b) => {
+      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
+    for (const n of nodes) {
+      if (n.isDir) sortNodes(n.children)
+    }
+  }
+  sortNodes(root)
+  return root
+}
+
+function collectAllDirPaths(nodes: TreeNode[]): Set<string> {
+  const result = new Set<string>()
+  const walk = (list: TreeNode[]) => {
+    for (const n of list) {
+      if (n.isDir) {
+        result.add(n.path)
+        walk(n.children)
+      }
+    }
+  }
+  walk(nodes)
+  return result
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// ---------------------------------------------------------------------------
+// File tree item
+// ---------------------------------------------------------------------------
+
+function TreeItem({
+  node,
+  depth,
+  expanded,
+  selected,
+  onToggle,
+  onSelect,
+  onDelete,
+  isArchived,
+}: {
+  node: TreeNode
+  depth: number
+  expanded: boolean
+  selected: boolean
+  onToggle: () => void
+  onSelect: () => void
+  onDelete?: () => void
+  isArchived: boolean
+}) {
+  if (node.isDir) {
+    return (
+      <button
+        className="group flex w-full items-center gap-1 rounded px-2 py-1 text-left text-sm hover:bg-accent"
+        style={{ paddingLeft: depth * 16 + 8 }}
+        onClick={onToggle}
+      >
+        {expanded ? (
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        )}
+        {expanded ? (
+          <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+        ) : (
+          <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+        )}
+        <span className="truncate font-medium">{node.name}</span>
+      </button>
+    )
+  }
+
+  return (
+    <div
+      className={`group flex w-full cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-sm ${
+        selected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
+      }`}
+      style={{ paddingLeft: depth * 16 + 8 }}
+      onClick={onSelect}
+    >
+      <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1 truncate">{node.name}</span>
+      <span className="shrink-0 text-xs text-muted-foreground">
+        {node.size != null ? formatSize(node.size) : ''}
+      </span>
+      {!isArchived && onDelete && (
+        <button
+          className="ml-1 hidden shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive group-hover:inline-flex"
+          onClick={(e) => {
+            e.stopPropagation()
+            onDelete()
+          }}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Recursive tree renderer
+// ---------------------------------------------------------------------------
+
+function FileTree({
+  nodes,
+  depth,
+  expandedDirs,
+  selectedPath,
+  onToggleDir,
+  onSelectFile,
+  onDeleteMemory,
+  isArchived,
+}: {
+  nodes: TreeNode[]
+  depth: number
+  expandedDirs: Set<string>
+  selectedPath: string | null
+  onToggleDir: (path: string) => void
+  onSelectFile: (mem: Memory) => void
+  onDeleteMemory: (mem: Memory) => void
+  isArchived: boolean
+}) {
+  return (
+    <>
+      {nodes.map((node) => (
+        <React.Fragment key={node.path}>
+          <TreeItem
+            node={node}
+            depth={depth}
+            expanded={expandedDirs.has(node.path)}
+            selected={!node.isDir && selectedPath === node.path}
+            onToggle={() => onToggleDir(node.path)}
+            onSelect={() => node.memory && onSelectFile(node.memory)}
+            onDelete={node.memory ? () => onDeleteMemory(node.memory!) : undefined}
+            isArchived={isArchived}
+          />
+          {node.isDir && expandedDirs.has(node.path) && (
+            <FileTree
+              nodes={node.children}
+              depth={depth + 1}
+              expandedDirs={expandedDirs}
+              selectedPath={selectedPath}
+              onToggleDir={onToggleDir}
+              onSelectFile={onSelectFile}
+              onDeleteMemory={onDeleteMemory}
+              isArchived={isArchived}
+            />
+          )}
+        </React.Fragment>
+      ))}
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Content pane
+// ---------------------------------------------------------------------------
+
+function ContentPane({
+  memory,
+  viewMode,
+  editContent,
+  editLoading,
+  isArchived,
+  onViewModeChange,
+  onEditContentChange,
+  onSave,
+  onCancel,
+  t,
+}: {
+  memory: Memory | null
+  viewMode: ViewMode
+  editContent: string
+  editLoading: boolean
+  isArchived: boolean
+  onViewModeChange: (mode: ViewMode) => void
+  onEditContentChange: (content: string) => void
+  onSave: () => void
+  onCancel: () => void
+  t: (key: string, params?: Record<string, unknown>) => string
+}) {
+  if (!memory) {
+    return (
+      <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+        {t('managed.memoryStores.selectMemory') || 'Select a memory file to view its content'}
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b px-6 py-3">
+        <div>
+          <div className="font-mono text-sm font-medium">{memory.path}</div>
+          <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <MonoId id={memory.id} truncate />
+            <span>·</span>
+            <span>
+              Updated <RelativeTime date={memory.updated_at} />
+            </span>
+            {memory.version && (
+              <>
+                <span>·</span>
+                <span>v{memory.version}</span>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            variant={viewMode === 'view' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-7 px-2"
+            onClick={() => onViewModeChange('view')}
+            title="View"
+          >
+            <Eye className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant={viewMode === 'code' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-7 px-2"
+            onClick={() => onViewModeChange('code')}
+            title="Code"
+          >
+            <Code2 className="h-3.5 w-3.5" />
+          </Button>
+          {!isArchived && (
+            <Button
+              variant={viewMode === 'edit' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-7 px-2"
+              onClick={() => onViewModeChange('edit')}
+              title="Edit"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="flex-1 overflow-y-auto p-6">
+        {viewMode === 'view' && (
+          <div className="prose prose-sm max-w-none dark:prose-invert">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{memory.content || ''}</ReactMarkdown>
+          </div>
+        )}
+        {viewMode === 'code' && (
+          <pre className="whitespace-pre-wrap break-words rounded-lg border bg-muted p-4 font-mono text-sm leading-relaxed">
+            {memory.content || ''}
+          </pre>
+        )}
+        {viewMode === 'edit' && (
+          <div className="flex h-full flex-col gap-3">
+            <Textarea
+              value={editContent}
+              onChange={(e) => onEditContentChange(e.target.value)}
+              className="min-h-[300px] flex-1 resize-y font-mono text-sm"
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={onCancel}>
+                {t('common.cancel')}
+              </Button>
+              <Button size="sm" onClick={onSave} disabled={editLoading || !editContent.trim()}>
+                {editLoading ? t('common.saving') : t('common.save')}
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
+
 export default function MemoryStoreDetailPage({
   params,
 }: {
@@ -51,13 +414,17 @@ export default function MemoryStoreDetailPage({
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
+
+  // UI state
+  const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null)
+  const [viewMode, setViewMode] = useState<ViewMode>('view')
+  const [editContent, setEditContent] = useState('')
+  const [editLoading, setEditLoading] = useState(false)
+  const [expandedDirs, setExpandedDirs] = useState<Set<string> | null>(null) // null = not initialized
   const [createMemOpen, setCreateMemOpen] = useState(false)
   const [newMemPath, setNewMemPath] = useState('')
   const [newMemContent, setNewMemContent] = useState('')
   const [createMemLoading, setCreateMemLoading] = useState(false)
-  const [editMem, setEditMem] = useState<Memory | null>(null)
-  const [editContent, setEditContent] = useState('')
-  const [editLoading, setEditLoading] = useState(false)
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean
     title: string
@@ -76,6 +443,7 @@ export default function MemoryStoreDetailPage({
 
   const storeId = stripIdPrefix(rawId || '')
 
+  // Fetch store
   const {
     data: store,
     isLoading,
@@ -88,18 +456,28 @@ export default function MemoryStoreDetailPage({
     retry: shouldRetryManagedResourceError,
   })
 
-  const {
-    data: memoriesRes,
-    isLoading: memLoading,
-    isFetching: memFetching,
-  } = useQuery({
+  // Fetch memories
+  const { data: memoriesRes, isLoading: memLoading } = useQuery({
     queryKey: ['memory-store-memories', rawId],
     queryFn: () => managedGet<Memory[]>(`/memory_stores/${storeId}/memories?limit=100&view=full`),
     enabled: !!rawId,
   })
 
-  const memories = Array.isArray(memoriesRes) ? memoriesRes : (memoriesRes as any)?.data || []
+  const memories: Memory[] = Array.isArray(memoriesRes)
+    ? memoriesRes
+    : (memoriesRes as any)?.data || []
 
+  // Build file tree
+  const tree = useMemo(() => buildTree(memories), [memories])
+
+  // Initialize expanded dirs (expand all on first load)
+  if (expandedDirs === null && tree.length > 0) {
+    setExpandedDirs(collectAllDirPaths(tree))
+  }
+
+  const isArchived = !!store?.archived_at
+
+  // Mutations
   const archiveMutation = useMutation({
     mutationFn: () => managedPost(`/memory_stores/${storeId}/archive`, {}),
     onSuccess: () => {
@@ -107,9 +485,7 @@ export default function MemoryStoreDetailPage({
       queryClient.invalidateQueries({ queryKey: ['memory-stores'] })
       setConfirmDialog((prev) => ({ ...prev, open: false }))
     },
-    onError: (error) => {
-      toastOperationError(t, error, 'common.operationFailed')
-    },
+    onError: (error) => toastOperationError(t, error, 'common.operationFailed'),
   })
 
   const deleteMutation = useMutation({
@@ -118,9 +494,7 @@ export default function MemoryStoreDetailPage({
       queryClient.invalidateQueries({ queryKey: ['memory-stores'] })
       router.push('/managed/memory-stores')
     },
-    onError: (error) => {
-      toastOperationError(t, error, 'common.operationFailed')
-    },
+    onError: (error) => toastOperationError(t, error, 'common.operationFailed'),
   })
 
   const deleteMemoryMutation = useMutation({
@@ -129,32 +503,53 @@ export default function MemoryStoreDetailPage({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['memory-store-memories', rawId] })
       setConfirmDialog((prev) => ({ ...prev, open: false }))
+      if (selectedMemory && deleteMemoryMutation.variables === selectedMemory.id) {
+        setSelectedMemory(null)
+      }
     },
-    onError: (error) => {
-      toastOperationError(t, error, 'common.operationFailed')
-    },
+    onError: (error) => toastOperationError(t, error, 'common.operationFailed'),
   })
 
-  const handleArchive = () => {
-    setConfirmDialog({
-      open: true,
-      title: t('managed.memoryStores.archiveStore'),
-      description: t('managed.memoryStores.archiveDescription', { name: store?.name }),
-      confirmLabel: t('common.archive'),
-      destructive: true,
-      onConfirm: () => archiveMutation.mutate(),
+  // Handlers
+  const handleToggleDir = (path: string) => {
+    setExpandedDirs((prev) => {
+      const next = new Set(prev || [])
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
     })
   }
 
-  const handleDelete = () => {
-    setConfirmDialog({
-      open: true,
-      title: t('managed.memoryStores.deleteStore'),
-      description: t('managed.memoryStores.deleteDescription', { name: store?.name }),
-      confirmLabel: t('common.delete'),
-      destructive: true,
-      onConfirm: () => deleteMutation.mutate(),
-    })
+  const handleSelectFile = (mem: Memory) => {
+    setSelectedMemory(mem)
+    setViewMode('view')
+    setEditContent(mem.content || '')
+  }
+
+  const handleViewModeChange = (mode: ViewMode) => {
+    if (mode === 'edit' && selectedMemory) {
+      setEditContent(selectedMemory.content || '')
+    }
+    setViewMode(mode)
+  }
+
+  const handleSaveMemory = async () => {
+    if (!selectedMemory || !editContent.trim()) return
+    setEditLoading(true)
+    try {
+      await managedPost(
+        `/memory_stores/${storeId}/memories/${stripIdPrefix(selectedMemory.id)}`,
+        { content: editContent }
+      )
+      queryClient.invalidateQueries({ queryKey: ['memory-store-memories', rawId] })
+      // Update the selected memory content in place
+      setSelectedMemory((prev) => (prev ? { ...prev, content: editContent } : null))
+      setViewMode('view')
+    } catch (error) {
+      toastOperationError(t, error, 'managed.memoryStores.saveFailed')
+    } finally {
+      setEditLoading(false)
+    }
   }
 
   const handleDeleteMemory = (mem: Memory) => {
@@ -189,6 +584,29 @@ export default function MemoryStoreDetailPage({
     }
   }
 
+  const handleArchive = () => {
+    setConfirmDialog({
+      open: true,
+      title: t('managed.memoryStores.archiveStore'),
+      description: t('managed.memoryStores.archiveDescription', { name: store?.name }),
+      confirmLabel: t('common.archive'),
+      destructive: true,
+      onConfirm: () => archiveMutation.mutate(),
+    })
+  }
+
+  const handleDelete = () => {
+    setConfirmDialog({
+      open: true,
+      title: t('managed.memoryStores.deleteStore'),
+      description: t('managed.memoryStores.deleteDescription', { name: store?.name }),
+      confirmLabel: t('common.delete'),
+      destructive: true,
+      onConfirm: () => deleteMutation.mutate(),
+    })
+  }
+
+  // Loading / error states
   if (isError) {
     return (
       <ResourceErrorState
@@ -203,70 +621,8 @@ export default function MemoryStoreDetailPage({
     return <div className="text-muted-foreground">{t('common.loading')}</div>
   }
 
-  const isArchived = !!store.archived_at
-
-  function formatSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  }
-
-  const handleEditMemory = (mem: Memory) => {
-    setEditMem(mem)
-    setEditContent(mem.content || '')
-  }
-
-  const handleSaveMemory = async () => {
-    if (!editMem || !editContent.trim()) return
-    setEditLoading(true)
-    try {
-      await managedPost(`/memory_stores/${storeId}/memories/${stripIdPrefix(editMem.id)}`, {
-        content: editContent,
-      })
-      setEditMem(null)
-      queryClient.invalidateQueries({ queryKey: ['memory-store-memories', rawId] })
-    } catch (error) {
-      toastOperationError(t, error, 'managed.memoryStores.saveFailed')
-    } finally {
-      setEditLoading(false)
-    }
-  }
-
-  const memColumns: Column<Memory>[] = [
-    {
-      key: 'path',
-      header: t('managed.memoryStores.memPath'),
-      render: (m) => <span className="font-mono text-sm">{m.path}</span>,
-    },
-    {
-      key: 'version',
-      header: t('managed.memoryStores.memVersion'),
-      render: (m) => (
-        <span className="inline-flex items-center rounded bg-muted px-2 py-0.5 text-xs font-medium text-foreground">
-          v{m.version || 1}
-        </span>
-      ),
-    },
-    {
-      key: 'size',
-      header: t('managed.memoryStores.memSize'),
-      render: (m) => (
-        <span className="text-sm text-muted-foreground">{formatSize(m.content_size_bytes)}</span>
-      ),
-    },
-    {
-      key: 'updated_at',
-      header: t('managed.memoryStores.memUpdated'),
-      render: (m) => (
-        <span className="text-sm text-muted-foreground">
-          <RelativeTime date={m.updated_at} />
-        </span>
-      ),
-    },
-  ]
-
   return (
-    <div>
+    <div className="flex h-[calc(100vh-4rem)] flex-col">
       <PageHeader
         title={store.name}
         titleExtra={<StatusBadge status={isArchived ? 'archived' : 'active'} />}
@@ -275,64 +631,92 @@ export default function MemoryStoreDetailPage({
           { label: store.name },
         ]}
         action={
-          !isArchived ? (
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={handleArchive}>
-                <Archive className="mr-1.5 h-3.5 w-3.5" />
-                {t('common.archive')}
+          <div className="flex items-center gap-2">
+            {!isArchived && (
+              <Button size="sm" onClick={() => setCreateMemOpen(true)}>
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                {t('managed.memoryStores.addMemory')}
               </Button>
-              <Button variant="outline" size="sm" onClick={handleDelete}>
-                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                {t('common.delete')}
-              </Button>
-            </div>
-          ) : null
+            )}
+            {!isArchived && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 w-8 p-0">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={handleArchive}>
+                    <Archive className="mr-2 h-4 w-4" />
+                    {t('common.archive')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={handleDelete}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    {t('common.delete')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
         }
       />
 
-      <div className="mb-6 flex items-center gap-1.5 text-sm text-muted-foreground">
+      {/* Store meta */}
+      <div className="mb-3 flex items-center gap-1.5 text-sm text-muted-foreground">
+        {store.description && <span>{store.description}</span>}
+        {store.description && <span>·</span>}
         <MonoId id={store.id} truncate={false} />
-        {store.description && (
-          <>
-            <span>·</span>
-            <span>{store.description}</span>
-          </>
-        )}
         <span>·</span>
-        <RelativeTime date={store.created_at} />
+        <span>
+          Created <RelativeTime date={store.created_at} />
+        </span>
       </div>
 
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold">{t('managed.memoryStores.memories')}</h2>
-        {!isArchived && (
-          <Button size="sm" onClick={() => setCreateMemOpen(true)}>
-            <Plus className="h-4 w-4" />
-            {t('managed.memoryStores.addMemory')}
-          </Button>
-        )}
+      {/* Main split layout */}
+      <div className="flex flex-1 overflow-hidden rounded-lg border">
+        {/* Left: File tree */}
+        <div className="w-72 shrink-0 overflow-y-auto border-r bg-muted/30 py-2">
+          {memLoading ? (
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+              {t('common.loading')}
+            </div>
+          ) : memories.length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+              {t('managed.memoryStores.noMemories')}
+            </div>
+          ) : (
+            <FileTree
+              nodes={tree}
+              depth={0}
+              expandedDirs={expandedDirs || new Set()}
+              selectedPath={selectedMemory?.path || null}
+              onToggleDir={handleToggleDir}
+              onSelectFile={handleSelectFile}
+              onDeleteMemory={handleDeleteMemory}
+              isArchived={isArchived}
+            />
+          )}
+        </div>
+
+        {/* Right: Content pane */}
+        <ContentPane
+          memory={selectedMemory}
+          viewMode={viewMode}
+          editContent={editContent}
+          editLoading={editLoading}
+          isArchived={isArchived}
+          onViewModeChange={handleViewModeChange}
+          onEditContentChange={setEditContent}
+          onSave={handleSaveMemory}
+          onCancel={() => setViewMode('view')}
+          t={t}
+        />
       </div>
 
-      <DataTable
-        columns={memColumns}
-        data={memories}
-        loading={memLoading}
-        fetching={memFetching}
-        onRowClick={(m) => handleEditMemory(m)}
-        actionMenu={(m) =>
-          isArchived
-            ? []
-            : [
-                { label: t('common.edit'), onClick: () => handleEditMemory(m) },
-                {
-                  label: t('common.delete'),
-                  onClick: () => handleDeleteMemory(m),
-                  destructive: true,
-                },
-              ]
-        }
-        emptyMessage={t('managed.memoryStores.noMemories')}
-      />
-
+      {/* Confirm dialog */}
       <ConfirmDialog
         open={confirmDialog.open}
         title={confirmDialog.title}
@@ -343,6 +727,7 @@ export default function MemoryStoreDetailPage({
         onCancel={() => setConfirmDialog((prev) => ({ ...prev, open: false }))}
       />
 
+      {/* Create memory dialog */}
       <Dialog open={createMemOpen} onOpenChange={setCreateMemOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -383,35 +768,6 @@ export default function MemoryStoreDetailPage({
               disabled={createMemLoading || !newMemPath.trim() || !newMemContent.trim()}
             >
               {createMemLoading ? '...' : t('common.create')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Memory Dialog */}
-      <Dialog
-        open={!!editMem}
-        onOpenChange={(open) => {
-          if (!open) setEditMem(null)
-        }}
-      >
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="font-mono text-sm">{editMem?.path}</DialogTitle>
-          </DialogHeader>
-          <div className="py-4">
-            <Textarea
-              value={editContent}
-              onChange={(e) => setEditContent(e.target.value)}
-              className="min-h-[250px] resize-y font-mono text-sm"
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setEditMem(null)}>
-              {t('common.cancel')}
-            </Button>
-            <Button onClick={handleSaveMemory} disabled={editLoading || !editContent.trim()}>
-              {editLoading ? t('common.saving') : t('common.save')}
             </Button>
           </DialogFooter>
         </DialogContent>

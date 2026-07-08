@@ -1,6 +1,11 @@
+import ipaddress
+import json
+import os
 import uuid
 from typing import Optional
+from urllib.parse import urlparse
 
+import httpx
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +16,8 @@ from app.joysafeter_domain.schemas.joysafeter_secret import (
     CreateSecretRequest,
     SecretListItem,
     SecretResponse,
+    SecretTestResponse,
+    TestSecretRequest,
     UpdateSecretRequest,
 )
 from app.joysafeter_shared.common.app_errors import (
@@ -26,8 +33,15 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.security.ssrf_guard import SSRFError, validate_url
 
 router = APIRouter(tags=["joysafeter-secrets"])
+
+SECRET_TEST_TIMEOUT_SECONDS = 20.0
+SECRET_TEST_ERROR_DETAIL_LIMIT = 2000
+SECRET_TEST_MAX_OUTPUT_TOKENS = 32
+ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com"
+OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
 
 def _secret_not_found_error(secret_id: uuid.UUID) -> AppError:
@@ -100,6 +114,259 @@ def _secret_value_error(*, exc: ValueError, operation: str) -> AppError:
     )
 
 
+def _url_join(base_url: str, path: str) -> str:
+    return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+
+
+def _append_anthropic_messages_path(base_url: str) -> str:
+    parsed = urlparse(base_url)
+    path = parsed.path.rstrip("/")
+    if path.endswith("/v1"):
+        return _url_join(base_url, "/messages")
+    return _url_join(base_url, "/v1/messages")
+
+
+def _allowed_llm_hosts() -> list[str]:
+    raw = os.getenv("JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS", "")
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def _normalize_llm_host(raw: str, *, allow_wildcard: bool = False) -> str | None:
+    value = raw.strip().lower()
+    if not value:
+        return None
+    if "://" in value:
+        hostname = urlparse(value).hostname
+        return hostname.strip(".").lower() if hostname else None
+    if "/" in value:
+        value = value.split("/", 1)[0]
+    if value.startswith("["):
+        end = value.find("]")
+        if end < 0:
+            return None
+        value = value[1:end]
+    elif ":" in value:
+        host, port = value.rsplit(":", 1)
+        if ":" not in host and port.isdigit():
+            value = host
+    value = value.strip(".")
+    if not value:
+        return None
+    if value.startswith("*."):
+        suffix = value[2:]
+        if not allow_wildcard or not suffix or "*" in suffix:
+            return None
+        return f"*.{suffix}"
+    if "*" in value:
+        return None
+    return value
+
+
+def _is_blocked_llm_host(host: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return host in {"metadata.google.internal", "metadata.goog"}
+    return ip.is_link_local or ip.is_multicast or str(ip) in {"169.254.169.254", "169.254.170.2", "100.100.100.200"}
+
+
+def _llm_host_matches(host: str, pattern: str) -> bool:
+    if pattern.startswith("*."):
+        suffix = pattern[2:]
+        return host.endswith(f".{suffix}") and host != suffix
+    return host == pattern
+
+
+def _validate_llm_base_url(base_url: str, *, key: str, provider: str) -> str:
+    try:
+        validate_url(base_url, allow_http=True, allow_private=True, context=key)
+    except SSRFError:
+        raise InvalidRequestError(
+            code="SECRET_TEST_BASE_URL_INVALID",
+            message=f"Invalid {key}",
+            data={"provider": provider, "key": key, "base_url": base_url},
+            user_action="fix_input",
+        ) from None
+
+    parsed_host = urlparse(base_url).hostname
+    host = _normalize_llm_host(parsed_host or "")
+    if not host or _is_blocked_llm_host(host):
+        raise InvalidRequestError(
+            code="SECRET_TEST_BASE_URL_INVALID",
+            message=f"Invalid {key}",
+            data={"provider": provider, "key": key, "base_url": base_url},
+            user_action="fix_input",
+        )
+
+    allowed_patterns = [
+        pattern
+        for entry in _allowed_llm_hosts()
+        if (pattern := _normalize_llm_host(entry, allow_wildcard=True))
+    ]
+    if not any(_llm_host_matches(host, pattern) for pattern in allowed_patterns):
+        raise InvalidRequestError(
+            code="SECRET_TEST_BASE_URL_NOT_ALLOWED",
+            message=f"{key} host is not allowlisted.",
+            data={
+                "provider": provider,
+                "key": key,
+                "base_url": base_url,
+                "host": host,
+            },
+            user_action="fix_input",
+        )
+    return base_url
+
+
+def _extract_upstream_error(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            error = payload.get("error")
+            if isinstance(error, dict) and str(error.get("message") or "").strip():
+                return str(error["message"]).strip()
+            if str(payload.get("message") or "").strip():
+                return str(payload["message"]).strip()
+    except ValueError:
+        pass
+    text = response.text.strip()
+    return text[:500] if text else f"HTTP {response.status_code}"
+
+
+def _extract_upstream_error_detail(response: httpx.Response) -> str | None:
+    try:
+        payload = response.json()
+    except ValueError:
+        text = response.text.strip()
+    else:
+        text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return text[:SECRET_TEST_ERROR_DETAIL_LIMIT] if text else None
+
+
+def _provider_family(provider: str, protocol: str) -> str:
+    provider = provider.lower()
+    protocol = protocol.lower()
+    if protocol == "anthropic_messages" or provider in {"claude", "anthropic"}:
+        return "anthropic"
+    if protocol in {"openai_responses", "chat_completions"} or provider in {"codex", "openai"}:
+        return "openai"
+    return "unsupported"
+
+
+async def _test_secret_connectivity(req: TestSecretRequest) -> SecretTestResponse:
+    data = SecretService.apply_provider_aliases({str(k): str(v) for k, v in (req.data or {}).items()})
+    provider = req.provider or "custom"
+    protocol = req.protocol or "custom"
+    family = _provider_family(provider, protocol)
+
+    if family == "anthropic":
+        api_key = data.get("ANTHROPIC_API_KEY") or ""
+        auth_token = data.get("ANTHROPIC_AUTH_TOKEN") or ""
+        credential = auth_token or api_key
+        if not credential:
+            raise InvalidRequestError(
+                code="SECRET_TEST_MISSING_KEY",
+                message="Secret missing ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN.",
+                data={"provider": provider, "required_key": "ANTHROPIC_API_KEY"},
+                user_action="fix_input",
+            )
+
+        base_url = _validate_llm_base_url(
+            data.get("ANTHROPIC_BASE_URL") or ANTHROPIC_DEFAULT_BASE_URL,
+            key="ANTHROPIC_BASE_URL",
+            provider=provider,
+        )
+        endpoint = _append_anthropic_messages_path(base_url)
+        headers = {
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+        if auth_token:
+            headers["authorization"] = f"Bearer {auth_token}"
+        else:
+            headers["x-api-key"] = api_key
+        body = {
+            "model": data.get("ANTHROPIC_MODEL") or data.get("MODEL") or "claude-3-5-haiku-latest",
+            "max_tokens": SECRET_TEST_MAX_OUTPUT_TOKENS,
+            "messages": [{"role": "user", "content": "ping"}],
+        }
+    elif family == "openai":
+        api_key = data.get("OPENAI_API_KEY") or ""
+        if not api_key:
+            raise InvalidRequestError(
+                code="SECRET_TEST_MISSING_KEY",
+                message="Secret missing OPENAI_API_KEY.",
+                data={"provider": provider, "required_key": "OPENAI_API_KEY"},
+                user_action="fix_input",
+            )
+
+        base_url = _validate_llm_base_url(
+            data.get("OPENAI_BASE_URL") or OPENAI_DEFAULT_BASE_URL,
+            key="OPENAI_BASE_URL",
+            provider=provider,
+        )
+        headers = {
+            "authorization": f"Bearer {api_key}",
+            "content-type": "application/json",
+        }
+        if protocol == "chat_completions":
+            endpoint = _url_join(base_url, "/chat/completions")
+            body = {
+                "model": data.get("OPENAI_MODEL") or data.get("MODEL") or "gpt-4.1-mini",
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": SECRET_TEST_MAX_OUTPUT_TOKENS,
+                "stream": False,
+            }
+        else:
+            endpoint = _url_join(base_url, "/responses")
+            body = {
+                "model": data.get("OPENAI_MODEL") or data.get("MODEL") or "gpt-4.1-mini",
+                "input": "ping",
+                "max_output_tokens": SECRET_TEST_MAX_OUTPUT_TOKENS,
+                "stream": False,
+            }
+    else:
+        raise InvalidRequestError(
+            code="SECRET_TEST_PROVIDER_UNSUPPORTED",
+            message="Only Anthropic Messages, OpenAI Responses, and Chat Completions secrets can be tested.",
+            data={"provider": provider, "protocol": protocol},
+            user_action="fix_input",
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=SECRET_TEST_TIMEOUT_SECONDS, follow_redirects=False) as client:
+            response = await client.post(endpoint, headers=headers, json=body)
+    except httpx.HTTPError as exc:
+        return SecretTestResponse(
+            ok=False,
+            provider=provider,
+            protocol=protocol,
+            endpoint=endpoint,
+            message=f"Failed to connect to upstream API ({exc.__class__.__name__}).",
+            error_detail=str(exc)[:SECRET_TEST_ERROR_DETAIL_LIMIT],
+        )
+
+    if 200 <= response.status_code < 300:
+        return SecretTestResponse(
+            ok=True,
+            provider=provider,
+            protocol=protocol,
+            endpoint=endpoint,
+            status=response.status_code,
+            message="Connection test succeeded.",
+        )
+
+    return SecretTestResponse(
+        ok=False,
+        provider=provider,
+        protocol=protocol,
+        endpoint=endpoint,
+        status=response.status_code,
+        message=_extract_upstream_error(response),
+        error_detail=_extract_upstream_error_detail(response),
+    )
+
+
 @router.post("", status_code=201)
 async def create_secret(
     req: CreateSecretRequest,
@@ -136,6 +403,14 @@ async def create_secret(
         created_at=secret.created_at,
         updated_at=secret.updated_at,
     )
+
+
+@router.post("/test")
+async def test_secret(
+    req: TestSecretRequest,
+    _auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+) -> SecretTestResponse:
+    return await _test_secret_connectivity(req)
 
 
 @router.get("")

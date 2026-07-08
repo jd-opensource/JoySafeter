@@ -281,7 +281,7 @@ class MemoryService:
     async def _notify_memory_peers(
         self, store_id: uuid.UUID, session_id: Optional[uuid.UUID], change_type: str, path: str
     ) -> None:
-        from app.joysafeter_orchestrator.lifespan import get_memory_subscribers
+        from app.joysafeter_shared.orchestrator_bridge import get_memory_subscribers
 
         subs = get_memory_subscribers()
         if not subs:

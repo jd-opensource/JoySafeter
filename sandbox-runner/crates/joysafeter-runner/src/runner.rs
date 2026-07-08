@@ -810,6 +810,7 @@ pub async fn handle_memory_update(update: proto::MemoryFileUpdate, config: &Sess
         } else {
             fuse_handle.write_file(mount_name, &update.relative_path, &update.content);
         }
+        info!(mount_name = %mount_name, path = %update.relative_path, "Applied memory update via FUSE");
         return;
     }
 
@@ -829,6 +830,7 @@ pub async fn handle_memory_update(update: proto::MemoryFileUpdate, config: &Sess
                 warn!(path = %file_path.display(), error = %e, "Failed to write memory file from peer update");
             }
         }
+        info!(path = %file_path.display(), "Applied memory update via bind mount");
     }
 }
 

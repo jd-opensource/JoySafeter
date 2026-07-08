@@ -118,8 +118,8 @@ async def _build_image_update(env) -> _EnvironmentImageUpdate:
     Raises an AppError if the build fails so the caller can propagate the
     error to the client.
     """
-    from app.joysafeter_orchestrator.lifespan import get_image_builder
-    from app.joysafeter_orchestrator.sandbox.image_builder import ImageBuilder
+    from app.joysafeter_shared.orchestrator_bridge import get_image_builder
+    from app.joysafeter_shared.orchestrator_bridge import ImageBuilder
 
     config = env.config or {}
     packages = config.get("packages", {}) if isinstance(config, dict) else {}

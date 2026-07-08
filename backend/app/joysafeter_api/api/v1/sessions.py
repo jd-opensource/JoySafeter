@@ -427,7 +427,7 @@ async def create_session(
 
     # Provision sandbox at session creation time (per API spec)
     try:
-        from app.joysafeter_orchestrator.lifespan import get_sandbox_resolver
+        from app.joysafeter_shared.orchestrator_bridge import get_sandbox_resolver
 
         resolver = get_sandbox_resolver()
         if resolver:
@@ -611,7 +611,7 @@ async def delete_session(
             user_action=("retry" if True else "fix_input"),
         )
 
-    from app.joysafeter_orchestrator.lifespan import (
+    from app.joysafeter_shared.orchestrator_bridge import (
         get_bridge_registry,
         get_envoy_manager,
         get_sandbox_provider,
@@ -631,7 +631,7 @@ async def delete_session(
         if bridge_registry:
             bridge = await bridge_registry.get(sandbox.id)
             if bridge:
-                from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
+                from app.joysafeter_shared.orchestrator_bridge.proto import joysafeter_pb2
 
                 shutdown_msg = joysafeter_pb2.OrchestratorMessage(
                     shutdown=joysafeter_pb2.Shutdown(reason="session deleted")
@@ -795,8 +795,8 @@ async def stop_session(
 
     from app.joysafeter_api.services import JoySafeterTaskService as TaskService
     from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
-    from app.joysafeter_orchestrator.grpc.proto import joysafeter_pb2
-    from app.joysafeter_orchestrator.lifespan import (
+    from app.joysafeter_shared.orchestrator_bridge.proto import joysafeter_pb2
+    from app.joysafeter_shared.orchestrator_bridge import (
         get_bridge_registry,
         get_redis_coordinator,
         get_session_broadcaster,
@@ -1501,7 +1501,7 @@ async def send_event(
             code="SESSION_EVENTS_EMPTY", message="No events provided", data={"field": "events"}, user_action="fix_input"
         )
 
-    from app.joysafeter_orchestrator.lifespan import get_bridge_registry, get_session_broadcaster
+    from app.joysafeter_shared.orchestrator_bridge import get_bridge_registry, get_session_broadcaster
 
     broadcaster = get_session_broadcaster()
     bridge_registry = get_bridge_registry()
@@ -2053,7 +2053,7 @@ async def session_event_stream(
             user_action="refresh",
         )
 
-    from app.joysafeter_orchestrator.lifespan import (
+    from app.joysafeter_shared.orchestrator_bridge import (
         ensure_session_broadcaster,
         get_session_broadcaster,
     )

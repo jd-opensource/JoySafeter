@@ -42,7 +42,7 @@ from app.joysafeter_domain.services.joysafeter_vault_service import VaultService
 
 async def enqueue_joysafeter_task(task_id: uuid.UUID) -> None:
     """Enqueue a task from either monolith/orchestrator or API-only processes."""
-    from app.joysafeter_orchestrator.lifespan import get_scheduler
+    from app.joysafeter_shared.orchestrator_bridge import get_scheduler
 
     scheduler = get_scheduler()
     if scheduler:
