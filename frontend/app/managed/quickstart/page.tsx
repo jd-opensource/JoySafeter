@@ -1297,7 +1297,7 @@ export default function QuickstartPage() {
                               { num: 2, label: t('managed.quickstart.envUnrestricted') },
                               { num: 0, label: t('managed.quickstart.envSomethingElse') },
                             ]}
-                            onSelect={(num) => {
+                            onSelect={async (num) => {
                               if (num === 0) {
                                 setEnvSubStep(null)
                                 setEnvUsesAI(true)
@@ -1308,7 +1308,8 @@ export default function QuickstartPage() {
                                 }))
                                 setEnvSubStep('hosts')
                               } else {
-                                createEnvironment('unrestricted', [])
+                                const created = await createEnvironment('unrestricted', [])
+                                if (!created) return
                                 setEnvAnswers((prev) => ({
                                   ...prev,
                                   networkingLabel: t('managed.quickstart.envUnrestricted'),
@@ -1349,12 +1350,13 @@ export default function QuickstartPage() {
                               <Button
                                 className="h-9 rounded-xl px-4 text-sm"
                                 disabled={isCreating}
-                                onClick={() => {
+                                onClick={async () => {
                                   const hosts = envHosts
                                     .split(',')
                                     .map((h) => h.trim())
                                     .filter(Boolean)
-                                  createEnvironment('limited', hosts)
+                                  const created = await createEnvironment('limited', hosts)
+                                  if (!created) return
                                   setEnvSubStep('selected')
                                 }}
                               >
@@ -1467,8 +1469,9 @@ export default function QuickstartPage() {
                               <Button
                                 className="h-9 rounded-xl px-4 text-sm"
                                 disabled={isCreating || !vaultName.trim()}
-                                onClick={() => {
-                                  createVault(vaultName.trim())
+                                onClick={async () => {
+                                  const created = await createVault(vaultName.trim())
+                                  if (!created) return
                                   setVaultAnswers((prev) => ({
                                     ...prev,
                                     choiceLabel: vaultName.trim(),

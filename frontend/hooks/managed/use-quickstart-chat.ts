@@ -401,13 +401,13 @@ export function useQuickstartChat(
 
         const result = await resp.json()
         const environmentId = getCreatedResourceId(result)
-        if (environmentId) {
-          setResourceIds((prev) => {
-            const next = { ...prev, [4]: environmentId }
-            resourceIdsRef.current = next
-            return next
-          })
-        }
+        if (!environmentId) throw new Error(t('managed.quickstart.errors.createEnvironmentFailed'))
+
+        setResourceIds((prev) => {
+          const next = { ...prev, [4]: environmentId }
+          resourceIdsRef.current = next
+          return next
+        })
 
         const envCurl = `curl -X POST ${MANAGED_API_BASE}/environments \\
   -H "Content-Type: application/json" \\
@@ -416,6 +416,7 @@ export function useQuickstartChat(
 
         setCompletedSteps((prev) => new Set([...prev, 4]))
         setCurls((prev) => ({ ...prev, [4]: envCurl }))
+        return true
       } catch (err) {
         setMessages((prev) => [
           ...prev,
@@ -425,6 +426,7 @@ export function useQuickstartChat(
             content: getOperationErrorMessage(t, err, 'managed.quickstart.errors.createEnvironmentFailed'),
           },
         ])
+        return false
       } finally {
         setIsCreating(false)
       }
@@ -450,13 +452,13 @@ export function useQuickstartChat(
 
       const result = await resp.json()
       const vaultId = getCreatedResourceId(result)
-      if (vaultId) {
-        setResourceIds((prev) => {
-          const next = { ...prev, [5]: vaultId }
-          resourceIdsRef.current = next
-          return next
-        })
-      }
+      if (!vaultId) throw new Error(t('managed.quickstart.errors.createVaultFailed'))
+
+      setResourceIds((prev) => {
+        const next = { ...prev, [5]: vaultId }
+        resourceIdsRef.current = next
+        return next
+      })
 
       const vaultCurl = `curl -X POST ${MANAGED_API_BASE}/vaults \\
   -H "Content-Type: application/json" \\
@@ -465,6 +467,7 @@ export function useQuickstartChat(
 
       setCompletedSteps((prev) => new Set([...prev, 5]))
       setCurls((prev) => ({ ...prev, [5]: vaultCurl }))
+      return true
     } catch (err) {
       setMessages((prev) => [
         ...prev,
@@ -474,6 +477,7 @@ export function useQuickstartChat(
           content: getOperationErrorMessage(t, err, 'managed.quickstart.errors.createVaultFailed'),
         },
       ])
+      return false
     } finally {
       setIsCreating(false)
     }
