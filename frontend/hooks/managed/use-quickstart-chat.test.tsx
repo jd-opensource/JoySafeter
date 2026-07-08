@@ -16,6 +16,7 @@ vi.mock('@/lib/auth/csrf', () => ({
 
 const originalFetch = globalThis.fetch
 const dom = new JSDOM('<!doctype html><html><body></body></html>')
+const encoder = new TextEncoder()
 
 Object.assign(globalThis, {
   window: dom.window,
@@ -94,5 +95,52 @@ describe('useQuickstartChat resource creation', () => {
     expect(created).toBe(true)
     expect(result.current.resourceIds[5]).toBe('vlt_123')
     expect(result.current.completedSteps.has(5)).toBe(true)
+  })
+
+  it('keeps generated-step confirmation available when confirmed creation fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const stream = new ReadableStream({
+      start(controller) {
+        for (const event of [
+          {
+            type: 'config_update',
+            step: 2,
+            config: { name: 'Research Agent', system_prompt: 'Research carefully.' },
+          },
+          { type: 'step_complete', step: 2, curl: 'curl -X POST /agents' },
+        ]) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+        }
+        controller.close()
+      },
+    })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(stream, { status: 200 }))
+      .mockResolvedValueOnce(new Response('agent create failed', { status: 500 }))
+    globalThis.fetch = fetchMock as typeof fetch
+
+    const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
+
+    await act(async () => {
+      await result.current.sendMessage('make an agent', { stepOverride: 3 })
+    })
+    expect(result.current.pendingConfirmation).toEqual({
+      step: 3,
+      curl: 'curl -X POST /agents',
+    })
+
+    await act(async () => {
+      await result.current.confirmStep()
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(result.current.pendingConfirmation).toEqual({
+      step: 3,
+      curl: 'curl -X POST /agents',
+    })
+    expect(result.current.resourceIds[3]).toBeUndefined()
+    expect(result.current.completedSteps.has(3)).toBe(false)
+    expect(result.current.messages.at(-1)?.content).toContain('API 500')
   })
 })

@@ -618,7 +618,6 @@ export function useQuickstartChat(
           content: getOperationErrorMessage(t, err, 'managed.quickstart.errors.createResourceFailed'),
         },
       ])
-      setPendingConfirmation(null)
     } finally {
       setIsCreating(false)
     }
