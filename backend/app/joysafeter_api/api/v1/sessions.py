@@ -274,6 +274,13 @@ async def create_session(
             },
             user_action="refresh",
         )
+    if agent.archived_at is not None:
+        raise ResourceConflictError(
+            code="AGENT_ARCHIVED",
+            message="Agent is archived and cannot create new sessions.",
+            data={"agent_id": str(agent.id)},
+            user_action="refresh",
+        )
 
     await _validate_session_environment_ref(db, environment_ref, auth_ctx.project_id)
 

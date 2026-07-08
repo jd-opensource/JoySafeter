@@ -6,6 +6,7 @@ import pytest
 from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import func, select
 
+from app.joysafeter_api.api.v1.environments import archive_environment
 from app.joysafeter_api.api.v1.tasks import cancel_task, create_task
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
@@ -182,6 +183,39 @@ async def test_create_task_rejects_archived_environment_ref_with_structured_erro
     assert redis.rpushed == []
     task_count = await db_session.scalar(select(func.count()).select_from(JoySafeterTask))
     assert task_count == 0
+
+
+@pytest.mark.asyncio
+async def test_create_task_rejects_archived_agent_with_structured_error(db_session, monkeypatch):
+    redis = _FakeRedis()
+    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+
+    agent = JoySafeterAgent(name=f"direct-task-archived-agent-{uuid.uuid4()}", archived_at=utc_now())
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    req = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target")
+    with pytest.raises(AppError) as exc_info:
+        await create_task(req, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "AGENT_ARCHIVED",
+        "message": "Agent is archived and cannot create new tasks.",
+        "data": {"agent_id": str(agent.id)},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+    assert redis.rpushed == []
+    task_count = await db_session.scalar(select(func.count()).select_from(JoySafeterTask))
+    session_count = await db_session.scalar(select(func.count()).select_from(JoySafeterSession))
+    assert task_count == 0
+    assert session_count == 0
 
 
 @pytest.mark.asyncio
@@ -662,6 +696,48 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_environme
         "retryable": False,
         "user_action": "fix_input",
     }
+
+
+@pytest.mark.asyncio
+async def test_create_task_idempotent_retry_allows_original_environment_archived_later(db_session, monkeypatch):
+    redis = _FakeRedis()
+    monkeypatch.setattr("app.joysafeter_orchestrator.lifespan.get_scheduler", lambda: None)
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+
+    env = JoySafeterEnvironment(name=f"idem-archived-env-{uuid.uuid4()}", description="")
+    db_session.add(env)
+    await db_session.commit()
+    await db_session.refresh(env)
+
+    agent = JoySafeterAgent(name=f"direct-task-idem-archived-env-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    env_ref = f"env_{env.id}"
+    key = f"task-retry-archived-env-{uuid.uuid4()}"
+    req = JoySafeterCreateTaskRequest(agent_id=agent.id, environment_ref=env_ref, prompt="scan target")
+
+    first_response = await create_task(req, db_session, _auth_ctx(), idempotency_key=key)
+    task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == first_response.id))).scalar_one()
+    session = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == task.chat_session_id))
+    ).scalar_one()
+    task.status = JoySafeterTaskStatus.COMPLETED.value
+    session.status = "terminated"
+    session.archived_at = utc_now()
+    await db_session.commit()
+
+    await archive_environment(env.id, db_session, _auth_ctx())
+
+    retry_response = await create_task(req, db_session, _auth_ctx(), idempotency_key=key)
+
+    assert retry_response.id == first_response.id
+    assert retry_response.status == JoySafeterTaskStatus.COMPLETED.value
+    assert redis.rpushed == [("joysafeter:global_queue", str(first_response.id))]
 
 
 @pytest.mark.asyncio

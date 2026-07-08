@@ -230,6 +230,25 @@ async def _validate_task_environment_matches_existing_session(
     )
 
 
+async def _task_environment_refs_match_for_replay(
+    db: AsyncSession,
+    requested_environment_ref: str,
+    effective_environment_ref: str | None,
+    project_id: Optional[str],
+) -> bool:
+    if not effective_environment_ref:
+        return False
+    requested = requested_environment_ref.strip()
+    effective = effective_environment_ref.strip()
+    if requested == effective:
+        return True
+
+    env_svc = EnvironmentService(db)
+    requested_env = await env_svc.get_environment_by_ref(requested, project_id=project_id)
+    effective_env = await env_svc.get_environment_by_ref(effective, project_id=project_id)
+    return bool(requested_env and effective_env and requested_env.id == effective_env.id)
+
+
 async def _validate_idempotent_task_environment_replay(
     *,
     db: AsyncSession,
@@ -240,7 +259,6 @@ async def _validate_idempotent_task_environment_replay(
     if not req.environment_ref:
         return
 
-    requested_environment = await _load_task_environment_or_raise(db, req.environment_ref, project_id)
     effective_ref = None
     if existing.chat_session_id is not None:
         session = await SessionService(db).get_session(existing.chat_session_id)
@@ -249,10 +267,8 @@ async def _validate_idempotent_task_environment_replay(
     if not effective_ref:
         agent = await AgentService(db).get_agent(existing.agent_id, project_id=project_id)
         effective_ref = getattr(agent, "environment_ref", None) if agent is not None else None
-    if effective_ref:
-        effective_environment = await EnvironmentService(db).get_environment_by_ref(effective_ref, project_id=project_id)
-        if effective_environment and effective_environment.id == requested_environment.id:
-            return
+    if await _task_environment_refs_match_for_replay(db, req.environment_ref, effective_ref, project_id):
+        return
 
     raise _task_idempotency_conflict_error(
         existing=existing,
@@ -355,6 +371,13 @@ async def create_task(
             code="TASK_AGENT_NOT_FOUND",
             message="Agent not found",
             data=data,
+            user_action="refresh",
+        )
+    if agent.archived_at is not None:
+        raise ResourceConflictError(
+            code="AGENT_ARCHIVED",
+            message="Agent is archived and cannot create new tasks.",
+            data={"agent_id": str(agent.id)},
             user_action="refresh",
         )
 

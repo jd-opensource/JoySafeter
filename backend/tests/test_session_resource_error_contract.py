@@ -167,6 +167,29 @@ async def test_create_session_archived_environment_returns_structured_error_with
 
 
 @pytest.mark.asyncio
+async def test_create_session_archived_agent_returns_structured_error_without_creating_session(db_session):
+    agent = JoySafeterAgent(name=f"archived-session-agent-{uuid.uuid4()}", archived_at=utc_now())
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    req = CreateSessionRequest(agent_id=agent.id)
+
+    with pytest.raises(AppError) as exc_info:
+        await create_session(req, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "AGENT_ARCHIVED",
+        "message": "Agent is archived and cannot create new sessions.",
+        "data": {"agent_id": str(agent.id)},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+    assert await _session_count(db_session) == 0
+
+
+@pytest.mark.asyncio
 async def test_add_session_resource_rejects_non_object_body_with_structured_error(db_session):
     session = await _create_session(db_session)
 
