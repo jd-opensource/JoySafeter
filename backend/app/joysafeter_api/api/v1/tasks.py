@@ -2,14 +2,15 @@ import asyncio
 import json
 import logging
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Header, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.services import JoySafeterAgentService as AgentService
+from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
 from app.joysafeter_api.services import JoySafeterTaskService as TaskService
-from app.joysafeter_api.services import enqueue_joysafeter_task
+from app.joysafeter_api.services import SessionService, enqueue_joysafeter_task
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskRequest as CreateTaskRequest
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskResponse as CreateTaskResponse
@@ -179,6 +180,89 @@ def _validate_idempotent_task_replay(req: CreateTaskRequest, existing) -> None:
         )
 
 
+async def _load_task_environment_or_raise(
+    db: AsyncSession,
+    environment_ref: str,
+    project_id: Optional[str],
+) -> Any:
+    env = await EnvironmentService(db).get_environment_by_ref(environment_ref, project_id=project_id)
+    if not env:
+        raise RequestValidationAppError(
+            code="TASK_ENVIRONMENT_NOT_FOUND",
+            message=f"Environment not found: {environment_ref}",
+            data={"environment_ref": environment_ref},
+            user_action="fix_input",
+        )
+    if getattr(env, "archived_at", None) is not None:
+        raise ResourceConflictError(
+            code="ENVIRONMENT_ARCHIVED",
+            message=f"Environment is archived: {environment_ref}",
+            data={"environment_ref": environment_ref, "environment_id": str(env.id)},
+            user_action="refresh",
+        )
+    return env
+
+
+async def _validate_task_environment_matches_existing_session(
+    *,
+    db: AsyncSession,
+    session,
+    agent,
+    requested_environment_ref: str,
+    requested_environment,
+    project_id: Optional[str],
+) -> None:
+    effective_ref = session.environment_ref or getattr(agent, "environment_ref", None)
+    if effective_ref:
+        effective_environment = await EnvironmentService(db).get_environment_by_ref(effective_ref, project_id=project_id)
+        if effective_environment and effective_environment.id == requested_environment.id:
+            return
+
+    raise ResourceConflictError(
+        code="TASK_SESSION_ENVIRONMENT_MISMATCH",
+        message="Task environment_ref does not match the existing session environment",
+        data={
+            "session_id": str(session.id),
+            "requested_environment_ref": requested_environment_ref,
+            "session_environment_ref": effective_ref,
+        },
+        user_action="fix_input",
+    )
+
+
+async def _validate_idempotent_task_environment_replay(
+    *,
+    db: AsyncSession,
+    req: CreateTaskRequest,
+    existing,
+    project_id: Optional[str],
+) -> None:
+    if not req.environment_ref:
+        return
+
+    requested_environment = await _load_task_environment_or_raise(db, req.environment_ref, project_id)
+    effective_ref = None
+    if existing.chat_session_id is not None:
+        session = await SessionService(db).get_session(existing.chat_session_id)
+        if session is not None:
+            effective_ref = session.environment_ref
+    if not effective_ref:
+        agent = await AgentService(db).get_agent(existing.agent_id, project_id=project_id)
+        effective_ref = getattr(agent, "environment_ref", None) if agent is not None else None
+    if effective_ref:
+        effective_environment = await EnvironmentService(db).get_environment_by_ref(effective_ref, project_id=project_id)
+        if effective_environment and effective_environment.id == requested_environment.id:
+            return
+
+    raise _task_idempotency_conflict_error(
+        existing=existing,
+        field="environment_ref",
+        message="Idempotency-Key was already used for a different environment",
+        requested_value=req.environment_ref,
+        existing_value=effective_ref,
+    )
+
+
 @router.post("", status_code=202, response_model=CreateTaskResponse)
 async def create_task(
     req: CreateTaskRequest,
@@ -198,6 +282,12 @@ async def create_task(
         existing = await TaskService(db).get_by_idempotency_key(idempotency_key, project_id=auth_ctx.project_id)
         if existing is not None:
             _validate_idempotent_task_replay(req, existing)
+            await _validate_idempotent_task_environment_replay(
+                db=db,
+                req=req,
+                existing=existing,
+                project_id=auth_ctx.project_id,
+            )
             if existing.status == "failed" and "Failed to enqueue task" in (existing.error or ""):
                 raise _task_enqueue_failed_error(task_id=existing.id, session_id=existing.chat_session_id)
             return CreateTaskResponse(id=existing.id, status=existing.status)
@@ -268,30 +358,18 @@ async def create_task(
             user_action="refresh",
         )
 
-    # Resolve environment_ref: prefer request field, fall back to agent default
-    environment_ref = req.environment_ref or getattr(agent, "environment_ref", None)
-
-    # Validate environment_ref if provided
-    if environment_ref:
-        from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
-
-        env_svc = EnvironmentService(db)
-        env = await env_svc.get_environment_by_ref(environment_ref, project_id=auth_ctx.project_id)
-        if not env:
-            raise RequestValidationAppError(
-                code="TASK_ENVIRONMENT_NOT_FOUND",
-                message=f"Environment not found: {environment_ref}",
-                data={"environment_ref": environment_ref},
-                user_action="fix_input",
-            )
+    requested_environment = None
+    if req.environment_ref:
+        requested_environment = await _load_task_environment_or_raise(db, req.environment_ref, auth_ctx.project_id)
 
     # Auto-create a ChatSession for the task if none provided
     chat_session_id = req.chat_session_id
     auto_created_session_id: uuid.UUID | None = None
     session_svc = None
     if not chat_session_id:
-        from app.joysafeter_api.services import SessionService
-
+        environment_ref = req.environment_ref or getattr(agent, "environment_ref", None)
+        if environment_ref and requested_environment is None:
+            await _load_task_environment_or_raise(db, environment_ref, auth_ctx.project_id)
         session_svc = SessionService(db)
         session = await session_svc.create_session(
             agent_id=agent.id,
@@ -304,8 +382,6 @@ async def create_task(
         chat_session_id = session.id
         auto_created_session_id = session.id
     else:
-        from app.joysafeter_api.services import SessionService
-
         session_svc = SessionService(db)
         existing_session = await session_svc.get_session(chat_session_id)
         if not existing_session or existing_session.project_id != auth_ctx.project_id:
@@ -326,6 +402,20 @@ async def create_task(
                 },
                 user_action="fix_input",
             )
+        if req.environment_ref:
+            assert requested_environment is not None
+            await _validate_task_environment_matches_existing_session(
+                db=db,
+                session=existing_session,
+                agent=agent,
+                requested_environment_ref=req.environment_ref,
+                requested_environment=requested_environment,
+                project_id=auth_ctx.project_id,
+            )
+        else:
+            effective_environment_ref = existing_session.environment_ref or getattr(agent, "environment_ref", None)
+            if effective_environment_ref:
+                await _load_task_environment_or_raise(db, effective_environment_ref, auth_ctx.project_id)
         if existing_session.archived_at:
             raise ResourceConflictError(
                 code="SESSION_ARCHIVED",
@@ -392,8 +482,6 @@ async def create_task(
     task_created = bool(getattr(task, "_created_by_create_task", True))
     if not task_created:
         if auto_created_session_id is not None and task.chat_session_id != auto_created_session_id:
-            from app.joysafeter_api.services import SessionService
-
             try:
                 await SessionService(db).delete_session(auto_created_session_id)
             except Exception as exc:
@@ -582,7 +670,6 @@ async def cancel_task(
     # Transition the linked ChatSession to idle with cancellation stop_reason
     session_id = task.chat_session_id
     if session_id:
-        from app.joysafeter_api.services import SessionService
         from app.joysafeter_domain.models.joysafeter_session import SessionStatus
 
         session_svc = SessionService(db)

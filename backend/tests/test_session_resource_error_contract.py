@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 
 from app.joysafeter_api.api.v1.sessions import add_session_resource, create_session, delete_session_resource
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.schemas.joysafeter_session import (
     CreateSessionRequest,
@@ -15,6 +16,7 @@ from app.joysafeter_domain.schemas.joysafeter_session import (
 )
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.utils.datetime import utc_now
 
 
 def _auth_ctx() -> JoySafeterAuthContext:
@@ -111,6 +113,55 @@ async def test_create_session_invalid_repo_resource_returns_structured_error_wit
         "source": "api",
         "retryable": False,
         "user_action": "fix_input",
+    }
+    assert await _session_count(db_session) == 0
+
+
+@pytest.mark.asyncio
+async def test_create_session_missing_environment_returns_structured_error_without_creating_session(db_session):
+    agent = await _create_agent(db_session)
+    environment_id = f"env_{uuid.uuid4()}"
+    req = CreateSessionRequest(agent_id=agent.id, environment_id=environment_id)
+
+    with pytest.raises(AppError) as exc_info:
+        await create_session(req, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=422) == {
+        "code": "SESSION_ENVIRONMENT_NOT_FOUND",
+        "message": f"Environment not found: {environment_id}",
+        "data": {"environment_ref": environment_id},
+        "source": "validation",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+    assert await _session_count(db_session) == 0
+
+
+@pytest.mark.asyncio
+async def test_create_session_archived_environment_returns_structured_error_without_creating_session(db_session):
+    agent = await _create_agent(db_session)
+    env = JoySafeterEnvironment(
+        name=f"archived-session-env-{uuid.uuid4()}",
+        description="",
+        archived_at=utc_now(),
+    )
+    db_session.add(env)
+    await db_session.commit()
+    await db_session.refresh(env)
+
+    environment_id = f"env_{env.id}"
+    req = CreateSessionRequest(agent_id=agent.id, environment_id=environment_id)
+
+    with pytest.raises(AppError) as exc_info:
+        await create_session(req, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "ENVIRONMENT_ARCHIVED",
+        "message": f"Environment is archived: {environment_id}",
+        "data": {"environment_ref": environment_id, "environment_id": str(env.id)},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
     }
     assert await _session_count(db_session) == 0
 

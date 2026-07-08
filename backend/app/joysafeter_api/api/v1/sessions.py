@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_session_id as _parse_session_id
 from app.joysafeter_api.services import JoySafeterAgentService as AgentService
+from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
 from app.joysafeter_api.services import SessionService
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
@@ -92,6 +93,30 @@ def _canonical_environment_ref(raw: str | None) -> str:
         return f"env_{env_id}"
     except ValueError:
         return ref
+
+
+async def _validate_session_environment_ref(
+    db: AsyncSession,
+    environment_ref: str,
+    project_id: Optional[str],
+) -> None:
+    if not environment_ref:
+        return
+    env = await EnvironmentService(db).get_environment_by_ref(environment_ref, project_id=project_id)
+    if not env:
+        raise RequestValidationAppError(
+            code="SESSION_ENVIRONMENT_NOT_FOUND",
+            message=f"Environment not found: {environment_ref}",
+            data={"environment_ref": environment_ref},
+            user_action="fix_input",
+        )
+    if env.archived_at is not None:
+        raise ResourceConflictError(
+            code="ENVIRONMENT_ARCHIVED",
+            message=f"Environment is archived: {environment_ref}",
+            data={"environment_ref": environment_ref, "environment_id": str(env.id)},
+            user_action="refresh",
+        )
 
 
 def _extract_host(url: str) -> str | None:
@@ -249,6 +274,8 @@ async def create_session(
             },
             user_action="refresh",
         )
+
+    await _validate_session_environment_ref(db, environment_ref, auth_ctx.project_id)
 
     # --- Build agent_snapshot ---
     agent_version = agent.version
