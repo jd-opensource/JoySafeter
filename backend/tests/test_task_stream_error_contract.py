@@ -33,10 +33,6 @@ class _FailingRedis:
         return _FailingPubSub()
 
 
-class _FakeCoordinator:
-    _redis = _FailingRedis()
-
-
 def test_task_stream_error_payload_uses_async_error_contract():
     task_id = uuid.uuid4()
 
@@ -65,7 +61,7 @@ async def test_redis_task_stream_failure_sends_structured_error_before_close():
     task_id = uuid.uuid4()
     websocket = _FakeWebSocket()
 
-    await _stream_via_redis(websocket, task_id, _FakeCoordinator())
+    await _stream_via_redis(websocket, task_id, _FailingRedis())
 
     assert websocket.sent == [
         {
@@ -80,3 +76,9 @@ async def test_redis_task_stream_failure_sends_structured_error_before_close():
         }
     ]
     assert websocket.closed is True
+
+
+def test_task_stream_does_not_close_before_redis_fallback():
+    source = __import__("inspect").getsource(__import__("app.joysafeter_api.api.v1.tasks", fromlist=["task_stream"]).task_stream)
+
+    assert "TASK_STREAM_KERNEL_UNAVAILABLE" not in source

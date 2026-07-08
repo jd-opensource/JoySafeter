@@ -806,7 +806,24 @@ async def task_stream(websocket: WebSocket, task_id: uuid.UUID):
 
     registry = get_bridge_registry()
     if not registry:
-        await websocket.close(code=1011, reason="TASK_STREAM_KERNEL_UNAVAILABLE")
+        await websocket.accept()
+        from app.joysafeter_shared.cache.redis import RedisClient
+
+        redis_client = RedisClient.get_client()
+        if redis_client:
+            await _stream_via_redis(websocket, task_id, redis_client)
+        else:
+            await websocket.send_json(
+                _task_stream_error_payload(
+                    code="TASK_STREAM_REDIS_UNAVAILABLE",
+                    message="Task stream Redis fallback is unavailable",
+                    task_id=task_id,
+                    source="runtime",
+                    retryable=True,
+                    user_action="retry",
+                )
+            )
+            await websocket.close()
         return
 
     bridge = registry.get_by_task(task_id)
@@ -850,11 +867,11 @@ async def task_stream(websocket: WebSocket, task_id: uuid.UUID):
 
         if not bridge:
             # Cross-instance: try Redis pub/sub for task events
-            from app.joysafeter_shared.orchestrator_bridge import get_redis_coordinator
+            from app.joysafeter_shared.cache.redis import RedisClient
 
-            coordinator = get_redis_coordinator()
-            if coordinator:
-                await _stream_via_redis(websocket, task_id, coordinator)
+            redis_client = RedisClient.get_client()
+            if redis_client:
+                await _stream_via_redis(websocket, task_id, redis_client)
             else:
                 await websocket.send_json(
                     _task_stream_error_payload(
@@ -892,7 +909,7 @@ async def task_stream(websocket: WebSocket, task_id: uuid.UUID):
             pass
 
 
-async def _stream_via_redis(websocket: WebSocket, task_id: uuid.UUID, coordinator):
+async def _stream_via_redis(websocket: WebSocket, task_id: uuid.UUID, redis_client):
     """Stream task events via Redis pub/sub (cross-instance fallback).
 
     Subscribes to the Redis channel first, then checks the DB for terminal
@@ -900,7 +917,7 @@ async def _stream_via_redis(websocket: WebSocket, task_id: uuid.UUID, coordinato
     caller and the subscribe call here.
     """
     channel = f"joysafeter:events:{task_id}"
-    pubsub = coordinator._redis.pubsub()
+    pubsub = redis_client.pubsub()
     try:
         await pubsub.subscribe(channel)
 
