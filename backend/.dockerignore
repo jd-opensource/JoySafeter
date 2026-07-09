@@ -79,3 +79,9 @@ scripts/*
 
 # 测试文件
 tests/
+unit_tests/
+
+# 不需要打包的目录
+data/
+joysafeter_skillspector/
+tools/
