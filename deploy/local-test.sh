@@ -29,6 +29,56 @@ init_env() {
   [ -f "$ROOT/frontend/.env" ] || cp "$ROOT/frontend/env.example" "$ROOT/frontend/.env"
 }
 
+read_env() {
+  # 从 backend/.env 读取 KEY 的值，去掉行内注释和首尾空白；缺失则为空
+  local key="$1"
+  local file="$ROOT/backend/.env"
+  [ -f "$file" ] || return 0
+  awk -v k="$key" '
+    $0 ~ "^" k "=" {
+      v = substr($0, index($0, "=") + 1)
+      sub(/[[:space:]]+#.*$/, "", v)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
+      print v
+      exit
+    }
+  ' "$file"
+}
+
+report_dev_toggles() {
+  # 宿主机开发模式下，api/orchestrator 读的是 backend/.env（默认 skill 扫描与 envoy 都关）。
+  # 本脚本不启动 skillspector / envoy 容器。这里把实际状态打印出来，避免“为什么没扫描/没隔离”
+  # 的静默困惑，并在扫描被打开但 scanner URL 指向宿主机连不到的容器 DNS 时明确告警。
+  local scan envoy scanner
+  scan="$(read_env SKILL_SECURITY_SCAN_ENABLED)"; scan="${scan:-false}"
+  envoy="$(read_env JOYSAFETER_ENVOY_ENABLED)"; envoy="${envoy:-false}"
+  scanner="$(read_env SKILL_SECURITY_SCANNER_URL)"
+
+  log "宿主机开发模式安全开关（来自 backend/.env）"
+  echo "  SKILL_SECURITY_SCAN_ENABLED = $scan"
+  echo "  JOYSAFETER_ENVOY_ENABLED    = $envoy"
+
+  case "$scan" in
+    true|True|TRUE|1)
+      case "$scanner" in
+        *://skillspector:*|*@skillspector:*)
+          printf '\033[1;33m⚠ Skill 扫描已开启，但 SKILL_SECURITY_SCANNER_URL=%s 指向容器 DNS 名 skillspector，宿主机进程无法访问。\033[0m\n' "$scanner"
+          echo "  本脚本不启动 skillspector（compose 里它只 expose 8010、未发布到宿主机）。要在宿主机路径跑扫描，二选一："
+          echo "    - 用完整栈：cd deploy && ./deploy.sh local（skillspector 在 compose 网络内可达）"
+          echo "    - 或把 backend/.env 的 SKILL_SECURITY_SCANNER_URL 改成宿主机可达的扫描器地址"
+          echo "  否则 SKILL_SECURITY_FAIL_CLOSED=true 时，skill 写入/导入会因扫描器不可达而被拒绝。"
+          ;;
+        *)
+          echo "  扫描已开启，scanner URL=${scanner:-未设置}"
+          ;;
+      esac
+      ;;
+    *)
+      echo "  提示：宿主机开发模式默认关闭 skill 扫描与 envoy 出站隔离；要验证这两条链路请用 cd deploy && ./deploy.sh local。"
+      ;;
+  esac
+}
+
 start_infra() {
   log "启动 PostgreSQL / Redis"
   cd "$DEPLOY"
@@ -90,6 +140,7 @@ start_frontend() {
 
 main() {
   init_env
+  report_dev_toggles
   start_infra
   start_backend
   start_frontend
