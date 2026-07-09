@@ -426,11 +426,31 @@ compose_local_env() {
     compose "$@"
 }
 
+wait_for_local_redis() {
+    local timeout_seconds="${LOCAL_REDIS_READY_TIMEOUT_SECONDS:-60}"
+    local elapsed=0
+
+    log_info "等待本地 Redis 就绪..."
+    while [ "$elapsed" -lt "$timeout_seconds" ]; do
+        if compose_local_env --profile local-redis --profile rust-orchestrator exec -T redis redis-cli ping 2>/dev/null | grep -q '^PONG$'; then
+            log_success "本地 Redis 已就绪"
+            return 0
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+
+    log_error "本地 Redis 在 ${timeout_seconds}s 内未就绪；请检查 docker compose logs redis"
+    exit 1
+}
+
 run_local_migrations() {
     (
         cd "$SCRIPT_DIR"
         log_info "启动数据库、Redis、SkillSpector 基础服务..."
         compose_local_env --profile local-redis --profile rust-orchestrator up -d --build db redis skillspector
+
+        wait_for_local_redis
 
         log_info "运行数据库迁移..."
         compose_local_env --profile local-redis --profile rust-orchestrator --profile init run --rm db-init

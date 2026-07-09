@@ -18,7 +18,7 @@ cd deploy
 
 `doctor` 会创建缺失的 env 文件，并检查 Docker、Compose、Docker daemon CPU 架构、
 SkillSpector 源码、Docker socket、端口和 Compose 配置；它不启动容器。`local` 会重复
-这些检查，启动 PostgreSQL/Redis/SkillSpector，执行数据库迁移，然后启动完整本地栈。
+这些检查，启动 PostgreSQL/Redis/SkillSpector，等待本地 Redis 就绪，执行数据库迁移，然后启动完整本地栈。
 
 访问地址：
 

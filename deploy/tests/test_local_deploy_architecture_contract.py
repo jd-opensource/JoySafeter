@@ -60,6 +60,10 @@ def test_local_deploy_script_detects_docker_arch_and_preflights() -> None:
     assert "--profile init run --rm db-init" in body
     assert "compose --profile local-redis --profile rust-orchestrator config >/dev/null" in body
     assert "git clone \"$SKILLSPECTOR_REPO_URL\" \"$DEFAULT_SKILLSPECTOR_SOURCE_PATH\"" in body
+    assert "wait_for_local_redis()" in body
+    assert "redis-cli ping" in body
+    assert "LOCAL_REDIS_READY_TIMEOUT_SECONDS" in body
+    assert "wait_for_local_redis\n\n        log_info \"运行数据库迁移...\"" in body
 
 
 def test_image_lifecycle_includes_rust_orchestrator_and_skillspector() -> None:

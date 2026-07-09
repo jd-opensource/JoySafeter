@@ -16,7 +16,7 @@ arm64 会使用 `linux/arm64`，远程 amd64 Docker daemon 会使用 `linux/amd6
 脚本会创建缺失的 `.env`，并把 compose 构建所需的基础镜像切到 Docker
 Official Images 的多架构镜像源，避免单架构镜像在 arm64 上误走 amd64/QEMU。
 它还会在缺失时自动克隆 NVIDIA SkillSpector 到 `.deps/SkillSpector`，预检
-Docker socket / Compose 配置 / 常用端口，并在启动完整服务前运行数据库迁移。
+Docker socket / Compose 配置 / 常用端口，等待本地 Redis 就绪，并在启动完整服务前运行数据库迁移。
 `doctor` 只做环境准备和预检，不启动容器；`local` 会执行完整部署。
 
 这一个 Compose 文件会直接 build 并启动：

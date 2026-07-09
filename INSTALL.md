@@ -19,7 +19,7 @@ cd deploy
 `doctor` prepares missing env files and checks Docker, Compose, the Docker daemon CPU
 architecture, SkillSpector sources, Docker socket access, ports, and the Compose config. It
 does not start containers. `local` repeats the checks, starts PostgreSQL/Redis/SkillSpector,
-runs database migrations, and then starts the full local stack.
+waits for local Redis, runs database migrations, and then starts the full local stack.
 
 Access points:
 
