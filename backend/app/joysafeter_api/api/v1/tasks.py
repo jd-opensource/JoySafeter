@@ -750,7 +750,6 @@ async def task_stream(websocket: WebSocket, task_id: uuid.UUID):
     from app.joysafeter_domain.models.joysafeter_organization import Member
     from app.joysafeter_domain.models.joysafeter_project import Project
     from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
-    from app.joysafeter_shared.orchestrator_bridge import get_bridge_registry
     from app.joysafeter_shared.security import decode_token
 
     token = None
@@ -804,105 +803,23 @@ async def task_stream(websocket: WebSocket, task_id: uuid.UUID):
             await websocket.close(code=4004, reason="TASK_STREAM_TASK_NOT_FOUND")
             return
 
-    registry = get_bridge_registry()
-    if not registry:
-        await websocket.accept()
-        from app.joysafeter_shared.cache.redis import RedisClient
+    await websocket.accept()
+    from app.joysafeter_shared.cache.redis import RedisClient
 
-        redis_client = RedisClient.get_client()
-        if redis_client:
-            await _stream_via_redis(websocket, task_id, redis_client)
-        else:
-            await websocket.send_json(
-                _task_stream_error_payload(
-                    code="TASK_STREAM_REDIS_UNAVAILABLE",
-                    message="Task stream Redis fallback is unavailable",
-                    task_id=task_id,
-                    source="runtime",
-                    retryable=True,
-                    user_action="retry",
-                )
-            )
-            await websocket.close()
-        return
-
-    bridge = registry.get_by_task(task_id)
-    if not bridge:
-        # Task might not be running yet — accept and send current status
-        await websocket.accept()
-        async with AsyncSessionLocal() as db:
-            svc = TaskService(db)
-            task = await svc.get_task(task_id, project_id=payload.project_id)
-            if not task:
-                await websocket.send_json(
-                    _task_stream_error_payload(
-                        code="TASK_STREAM_TASK_NOT_FOUND",
-                        message="Task not found",
-                        task_id=task_id,
-                        user_action="refresh",
-                    )
-                )
-                await websocket.close()
-                return
-            await websocket.send_json({"type": "status", "status": task.status})
-            from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
-
-            if TaskStatus(task.status).is_terminal():
-                await websocket.send_json(
-                    {
-                        "type": "complete",
-                        "output": task.output,
-                        "error": task.error,
-                    }
-                )
-                await websocket.close()
-                return
-
-        # Wait for bridge to appear (task being scheduled)
-        for _ in range(60):
-            await asyncio.sleep(1)
-            bridge = registry.get_by_task(task_id)
-            if bridge:
-                break
-
-        if not bridge:
-            # Cross-instance: try Redis pub/sub for task events
-            from app.joysafeter_shared.cache.redis import RedisClient
-
-            redis_client = RedisClient.get_client()
-            if redis_client:
-                await _stream_via_redis(websocket, task_id, redis_client)
-            else:
-                await websocket.send_json(
-                    _task_stream_error_payload(
-                        code="TASK_STREAM_TASK_NOT_SCHEDULED",
-                        message="Task is not scheduled yet and no cross-instance stream is available",
-                        task_id=task_id,
-                        source="runtime",
-                        retryable=True,
-                        user_action="retry",
-                    )
-                )
-                await websocket.close()
-            return
+    redis_client = RedisClient.get_client()
+    if redis_client:
+        await _stream_via_redis(websocket, task_id, redis_client)
     else:
-        await websocket.accept()
-
-    # Subscribe to task events (local bridge)
-    q = bridge.subscribe(task_id)
-    try:
-        while True:
-            try:
-                msg = await asyncio.wait_for(q.get(), timeout=30)
-                await websocket.send_json({"type": msg.type, **msg.payload})
-                if msg.type == "complete":
-                    break
-            except asyncio.TimeoutError:
-                await websocket.send_json({"type": "ping"})
-            except WebSocketDisconnect:
-                break
-    finally:
-        bridge.unsubscribe(task_id, q)
+        await websocket.send_json(
+            _task_stream_error_payload(
+                code="TASK_STREAM_REDIS_UNAVAILABLE",
+                message="Task stream Redis fallback is unavailable",
+                task_id=task_id,
+                source="runtime",
+                retryable=True,
+                user_action="retry",
+            )
+        )
         try:
             await websocket.close()
         except Exception:

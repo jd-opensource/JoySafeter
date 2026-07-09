@@ -218,9 +218,6 @@ async def test_force_delete_agent_does_not_hard_delete_when_cancel_fails(db_sess
     agent_id = agent.id
     session_id = session.id
     task_id = task.id
-
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_bridge_registry", lambda: None)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_sandbox_provider", lambda: None)
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
 
     async def cancel_noop(self, task_id):

@@ -37,23 +37,17 @@ async def health_ready():
         )
         postgres_ok = False
 
-    # Probe Redis via RedisCoordinator.is_healthy() if available
+    # Probe Redis directly from the API process. Runtime coordination is owned
+    # by the Rust orchestrator and should not be reached through Python globals.
     try:
-        from app.joysafeter_shared.orchestrator_bridge import get_redis_coordinator
+        from app.joysafeter_shared.cache.redis import RedisClient
 
-        coordinator = get_redis_coordinator()
-        if coordinator:
-            redis_ok = await coordinator.is_healthy()
+        client = RedisClient.get_client()
+        if client:
+            await client.ping()
         else:
-            # No coordinator — fall back to direct ping
-            from app.joysafeter_shared.cache.redis import RedisClient
-
-            client = RedisClient.get_client()
-            if client:
-                await client.ping()
-            else:
-                # Redis not configured — treat as healthy (optional dependency)
-                redis_ok = True
+            # Redis not configured — treat as healthy (optional dependency)
+            redis_ok = True
     except Exception as e:
         log_boundary_failure(
             logger,

@@ -66,6 +66,10 @@ PRODUCTION_PY_ROOTS = (
 )
 REQUIRED_BRIDGE_EXPORTS = {
     "ensure_session_broadcaster",
+    "get_session_broadcaster",
+    "set_session_broadcaster",
+}
+REMOVED_BRIDGE_EXPORTS = {
     "get_bridge_registry",
     "get_envoy_manager",
     "get_image_builder",
@@ -74,7 +78,6 @@ REQUIRED_BRIDGE_EXPORTS = {
     "get_sandbox_provider",
     "get_sandbox_resolver",
     "get_scheduler",
-    "get_session_broadcaster",
     "set_bridge_registry",
     "set_envoy_manager",
     "set_image_builder",
@@ -83,7 +86,7 @@ REQUIRED_BRIDGE_EXPORTS = {
     "set_sandbox_provider",
     "set_sandbox_resolver",
     "set_scheduler",
-    "set_session_broadcaster",
+    "ImageBuilder",
 }
 
 
@@ -307,6 +310,14 @@ def test_orchestrator_bridge_exports_runtime_boundary_contract():
 
     missing = sorted(name for name in REQUIRED_BRIDGE_EXPORTS if not hasattr(orchestrator_bridge, name))
     assert missing == []
+
+
+def test_orchestrator_bridge_does_not_expose_removed_runtime_singletons():
+    from app.joysafeter_shared import orchestrator_bridge
+
+    exposed = sorted(name for name in REMOVED_BRIDGE_EXPORTS if hasattr(orchestrator_bridge, name))
+    assert exposed == []
+    assert not Path("backend/app/joysafeter_shared/orchestrator_bridge/image_builder.py").exists()
 
 
 def test_removed_python_monolith_entrypoint_is_not_reintroduced():

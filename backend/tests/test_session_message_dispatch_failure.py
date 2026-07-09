@@ -33,14 +33,6 @@ from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, 
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
-class _FakeScheduler:
-    def __init__(self):
-        self.pushed: list[uuid.UUID] = []
-
-    async def push_to_global(self, task_id: uuid.UUID) -> None:
-        self.pushed.append(task_id)
-
-
 class _FakeRedis:
     def __init__(self):
         self.rpushed: list[tuple[str, str]] = []
@@ -56,19 +48,6 @@ class _FakeBroadcaster:
 
     async def send(self, session_id: uuid.UUID, payload: dict) -> None:
         self.sent.append((session_id, payload))
-
-
-class _DestroyFailingSandboxProvider:
-    def __init__(self):
-        self.stopped: list[str] = []
-        self.destroyed: list[str] = []
-
-    async def stop(self, external_id: str) -> None:
-        self.stopped.append(external_id)
-
-    async def destroy(self, external_id: str) -> None:
-        self.destroyed.append(external_id)
-        raise RuntimeError("provider destroy failed")
 
 
 class _FakeCommandRedis:
@@ -142,7 +121,6 @@ async def test_user_message_enqueue_failure_returns_503_and_compensates(
     engine = create_async_engine(postgres_url, poolclass=NullPool)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
@@ -362,7 +340,6 @@ async def test_user_message_idempotent_retry_after_enqueue_failure_stays_503(
     engine = create_async_engine(postgres_url, poolclass=NullPool)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
@@ -434,13 +411,12 @@ async def test_user_message_idempotency_key_prevents_duplicate_task(
 ):
     engine = create_async_engine(postgres_url, poolclass=NullPool)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    scheduler = _FakeScheduler()
+    redis = _FakeRedis()
     monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: scheduler)
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
-        staticmethod(lambda: None),
+        staticmethod(lambda: redis),
     )
 
     agent = JoySafeterAgent(name=f"dispatch-idem-agent-{uuid.uuid4()}")
@@ -477,7 +453,7 @@ async def test_user_message_idempotency_key_prevents_duplicate_task(
         await engine.dispose()
 
     assert first["events"][0]["id"] == second["events"][0]["id"]
-    assert len(scheduler.pushed) == 1
+    assert len(redis.rpushed) == 1
 
     task_count = await db_session.scalar(select(func.count()).select_from(JoySafeterTask))
     assert task_count == 1
@@ -501,13 +477,12 @@ async def test_user_message_rejects_idempotency_key_reuse_for_different_message(
 ):
     engine = create_async_engine(postgres_url, poolclass=NullPool)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    scheduler = _FakeScheduler()
+    redis = _FakeRedis()
     monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: scheduler)
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
-        staticmethod(lambda: None),
+        staticmethod(lambda: redis),
     )
 
     agent = JoySafeterAgent(name=f"dispatch-idem-reuse-agent-{uuid.uuid4()}")
@@ -547,7 +522,7 @@ async def test_user_message_rejects_idempotency_key_reuse_for_different_message(
         "message": "Idempotency-Key was already used for a different message",
         "data": {
             "session_id": str(session_id),
-            "task_id": str(scheduler.pushed[0]),
+            "task_id": redis.rpushed[0][1],
             "conflict_field": "message",
             "requested_value": "second",
             "existing_value": "first",
@@ -556,7 +531,7 @@ async def test_user_message_rejects_idempotency_key_reuse_for_different_message(
         "retryable": False,
         "user_action": "fix_input",
     }
-    assert len(scheduler.pushed) == 1
+    assert len(redis.rpushed) == 1
 
 
 @pytest.mark.asyncio
@@ -569,8 +544,6 @@ async def test_tool_confirmation_fallback_enqueues_via_redis_without_local_sched
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     redis = _FakeRedis()
     monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_bridge_registry", lambda: None)
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
@@ -624,8 +597,6 @@ async def test_tool_confirmation_fallback_failure_returns_503_and_marks_task_fai
     engine = create_async_engine(postgres_url, poolclass=NullPool)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_bridge_registry", lambda: None)
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
@@ -701,8 +672,6 @@ async def test_interrupt_requires_cancel_delivery_for_running_session(
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     redis = _FakeCommandRedis(input_receivers=1, cancel_receivers=0)
     monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_scheduler", lambda: None)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_bridge_registry", lambda: None)
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
@@ -764,8 +733,6 @@ async def test_stop_session_does_not_mark_idle_when_task_cancel_write_fails(
     db_session,
     monkeypatch,
 ):
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_bridge_registry", lambda: None)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_redis_coordinator", lambda: None)
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
 
     async def fake_update_task_error(self, task_id, error, new_status, expected_epoch=None):
@@ -909,8 +876,6 @@ async def test_stop_session_marks_idle_only_after_active_tasks_cancelled(
     monkeypatch,
 ):
     redis = _FakeCommandRedis()
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_bridge_registry", lambda: None)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_redis_coordinator", lambda: None)
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
@@ -1084,9 +1049,6 @@ async def test_delete_session_relays_sandbox_destroy_to_rust_when_api_has_no_pro
     broadcaster = _FakeBroadcaster()
     redis = _FakeCommandRedis()
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: broadcaster)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_bridge_registry", lambda: None)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_envoy_manager", lambda: None)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_sandbox_provider", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
@@ -1150,9 +1112,6 @@ async def test_delete_session_relays_sandbox_destroy_to_rust_when_api_has_no_pro
 async def test_delete_session_keeps_session_when_rust_destroy_relay_unavailable(db_session, monkeypatch):
     broadcaster = _FakeBroadcaster()
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: broadcaster)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_bridge_registry", lambda: None)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_envoy_manager", lambda: None)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_sandbox_provider", lambda: None)
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: None),
@@ -1208,64 +1167,3 @@ async def test_delete_session_keeps_session_when_rust_destroy_relay_unavailable(
     ).scalar_one()
     assert session_row.status == "idle"
     assert sandbox_row.status == "idle"
-
-
-@pytest.mark.asyncio
-async def test_delete_session_uses_rust_destroy_even_if_local_provider_is_injected(db_session, monkeypatch):
-    broadcaster = _FakeBroadcaster()
-    provider = _DestroyFailingSandboxProvider()
-    redis = _FakeCommandRedis()
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: broadcaster)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_bridge_registry", lambda: None)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_envoy_manager", lambda: None)
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_sandbox_provider", lambda: provider)
-    monkeypatch.setattr(
-        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
-        staticmethod(lambda: redis),
-    )
-
-    agent = JoySafeterAgent(name=f"delete-sandbox-fail-agent-{uuid.uuid4()}")
-    db_session.add(agent)
-    await db_session.commit()
-    await db_session.refresh(agent)
-
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
-    db_session.add(session)
-    await db_session.commit()
-    await db_session.refresh(session)
-    session_id = session.id
-
-    sandbox = JoySafeterSandbox(
-        chat_session_id=session_id,
-        external_id=f"sandbox-{uuid.uuid4()}",
-        image="test-image",
-        status="running",
-    )
-    db_session.add(sandbox)
-    await db_session.commit()
-    await db_session.refresh(sandbox)
-    sandbox_id = sandbox.id
-
-    auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
-        project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.DEVELOPER,
-    )
-
-    response = await delete_session_endpoint(session_id, db_session, auth_ctx)
-
-    assert response == {"id": f"sess_{session_id}", "object": "session", "deleted": True}
-    assert provider.stopped == []
-    assert provider.destroyed == []
-    assert redis.published[0][1]["type"] == "destroy"
-
-    db_session.expire_all()
-    session_row = (
-        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
-    ).scalar_one_or_none()
-    sandbox_row = (
-        await db_session.execute(select(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id))
-    ).scalar_one()
-    assert session_row is None
-    assert sandbox_row.status == "destroyed"

@@ -1339,10 +1339,9 @@ async def send_event(
             code="SESSION_EVENTS_EMPTY", message="No events provided", data={"field": "events"}, user_action="fix_input"
         )
 
-    from app.joysafeter_shared.orchestrator_bridge import get_bridge_registry, get_session_broadcaster
+    from app.joysafeter_shared.orchestrator_bridge import get_session_broadcaster
 
     broadcaster = get_session_broadcaster()
-    bridge_registry = get_bridge_registry()
 
     results: list[SessionEventResponse] = []
     for single in single_events:
@@ -1604,32 +1603,6 @@ async def send_event(
 
         elif single.type == "user.custom_tool_result":
             injected = False
-            if bridge_registry and session.last_sandbox_id:
-                bridge = await bridge_registry.get(session.last_sandbox_id)
-                if bridge:
-                    resolved_event = single
-                    raw_id = single.resolved_tool_use_id()
-                    if raw_id and raw_id in bridge.pending_control_request_ids:
-                        actual_call_id = bridge.pending_control_request_ids.pop(raw_id)
-                        resolved_event = single.model_copy(update={"tool_use_id": actual_call_id})
-                    live_input = _encode_live_input(resolved_event, source_event_id=str(event.id))
-                    if live_input:
-                        try:
-                            await bridge.send_control_input(live_input)
-                            injected = True
-                            bridge._requires_action_pending = False
-                            await svc.mark_event_processed(event.id)
-                            await _mark_session_running_for_active_task(
-                                svc=svc,
-                                session_id=session_id,
-                                task_id=bridge.current_task_id,
-                                project_id=auth_ctx.project_id,
-                                broadcaster=broadcaster,
-                            )
-                        except Exception:
-                            logger.debug(
-                                "Bridge injection failed for custom_tool_result, falling back to task",
-                            )
             # Cross-process relay: route via Redis to the sandbox owner instance.
             if not injected and await _relay_control_via_redis(single, session=session, event_id=str(event.id)):
                 injected = True
@@ -1678,33 +1651,6 @@ async def send_event(
 
         elif single.type == "user.tool_confirmation":
             injected = False
-            if bridge_registry and session.last_sandbox_id:
-                bridge = await bridge_registry.get(session.last_sandbox_id)
-                if bridge:
-                    resolved_event = single
-                    raw_id = single.resolved_tool_use_id()
-                    if raw_id and raw_id in bridge.pending_control_request_ids:
-                        actual_call_id = bridge.pending_control_request_ids.pop(raw_id)
-                        resolved_event = single.model_copy(update={"tool_use_id": actual_call_id})
-                    live_input = _encode_live_input(resolved_event, source_event_id=str(event.id))
-                    if live_input:
-                        try:
-                            await bridge.send_control_input(live_input)
-                            injected = True
-                            bridge._requires_action_pending = False
-                            await svc.mark_event_processed(event.id)
-                            await _mark_session_running_for_active_task(
-                                svc=svc,
-                                session_id=session_id,
-                                task_id=bridge.current_task_id,
-                                project_id=auth_ctx.project_id,
-                                broadcaster=broadcaster,
-                            )
-                        except Exception:
-                            logger.debug(
-                                "Bridge injection failed for tool_confirmation on session %s",
-                                session_id,
-                            )
             # Cross-process relay: route via Redis to the sandbox owner instance
             # (Rust orchestrator or another API worker) when no local bridge.
             if not injected and await _relay_control_via_redis(single, session=session, event_id=str(event.id)):
@@ -1756,22 +1702,6 @@ async def send_event(
             # Encode interrupt as a live-input with source_event_id
             injected = False
             cancel_requested = False
-            if bridge_registry and session.last_sandbox_id:
-                bridge = await bridge_registry.get(session.last_sandbox_id)
-                if bridge:
-                    bridge.request_cancel()
-                    cancel_requested = True
-                    live_input = _encode_live_input(single, source_event_id=str(event.id))
-                    if live_input:
-                        try:
-                            await bridge.send_control_input(live_input)
-                            injected = True
-                            await svc.mark_event_processed(event.id)
-                        except Exception:
-                            logger.debug(
-                                "Bridge injection failed for interrupt on session %s",
-                                session_id,
-                            )
             # Cross-process relay: route via Redis to the sandbox owner instance.
             if not injected and await _relay_control_via_redis(single, session=session, event_id=str(event.id)):
                 injected = True
@@ -1828,12 +1758,6 @@ async def send_event(
                     )
 
         results.append(event_response)
-
-    # --- After all events: replay pending control inputs for the session ---
-    if bridge_registry and session.last_sandbox_id:
-        bridge = await bridge_registry.get(session.last_sandbox_id)
-        if bridge:
-            await _replay_pending_control_inputs(session_id, bridge, svc)
 
     return {"events": [r.model_dump() for r in results]}
 

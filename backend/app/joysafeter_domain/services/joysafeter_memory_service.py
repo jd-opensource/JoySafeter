@@ -169,7 +169,6 @@ class MemoryService:
         await self.db.commit()
         await self.db.refresh(mem)
 
-        await self._notify_memory_peers(store_id, session_id, "created", path)
         return mem
 
     async def get_memory(self, store_id: uuid.UUID, memory_id: uuid.UUID) -> Optional[JoySafeterMemory]:
@@ -261,7 +260,6 @@ class MemoryService:
         await self.db.commit()
         await self.db.refresh(mem)
 
-        await self._notify_memory_peers(store_id, session_id, "modified", mem.path)
         return mem
 
     async def delete_memory(
@@ -275,22 +273,7 @@ class MemoryService:
         await self.db.delete(mem)
         await self.db.commit()
 
-        await self._notify_memory_peers(store_id, session_id, "deleted", path)
         return True
-
-    async def _notify_memory_peers(
-        self, store_id: uuid.UUID, session_id: Optional[uuid.UUID], change_type: str, path: str
-    ) -> None:
-        from app.joysafeter_shared.orchestrator_bridge import get_memory_subscribers
-
-        subs = get_memory_subscribers()
-        if not subs:
-            return
-
-        if session_id:
-            await subs.notify_peers(store_id, session_id, change_type, path)
-        else:
-            await subs.notify_all(store_id, change_type, path)
 
     # --- Versions ---
 

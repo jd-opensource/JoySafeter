@@ -1,68 +1,14 @@
-"""Global singleton registry for API-side orchestrator bridge seams.
-
-API and Worker services use the getter functions to access orchestrator
-boundary helpers (bridge registry, redis coordinator, etc.).  In normal
-Rust-orchestrator deployments these remain ``None`` and callers fall back to
-Redis-based communication.
-"""
+"""Global singleton registry for API-owned session broadcasting."""
 
 import logging
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Global singletons — initialized to None; set only by tests/local injection.
-# ---------------------------------------------------------------------------
-
-_scheduler = None
 _session_broadcaster = None
-_bridge_registry = None
-_sandbox_resolver = None
-_sandbox_provider = None
-_envoy_manager = None
-_memory_subscribers = None
-_image_builder = None
-_redis_coordinator = None
-
-
-# ---------------------------------------------------------------------------
-# Getters (used by API / Worker)
-# ---------------------------------------------------------------------------
-
-def get_scheduler():
-    return _scheduler
 
 
 def get_session_broadcaster():
     return _session_broadcaster
-
-
-def get_bridge_registry():
-    return _bridge_registry
-
-
-def get_sandbox_resolver():
-    return _sandbox_resolver
-
-
-def get_sandbox_provider():
-    return _sandbox_provider
-
-
-def get_envoy_manager():
-    return _envoy_manager
-
-
-def get_memory_subscribers():
-    return _memory_subscribers
-
-
-def get_image_builder():
-    return _image_builder
-
-
-def get_redis_coordinator():
-    return _redis_coordinator
 
 
 def ensure_session_broadcaster(redis_client=None, instance_id: str | None = None):
@@ -70,8 +16,7 @@ def ensure_session_broadcaster(redis_client=None, instance_id: str | None = None
 
     In split-service deployments the API process does not run the full
     orchestrator startup, but it still owns the SSE endpoint and must subscribe
-    to Redis session events.  This initializes only the broadcaster without
-    starting scheduler / sandbox / gRPC components.
+    to Redis session events.
     """
     global _session_broadcaster
     if _session_broadcaster is None:
@@ -87,50 +32,6 @@ def ensure_session_broadcaster(redis_client=None, instance_id: str | None = None
     return _session_broadcaster
 
 
-# ---------------------------------------------------------------------------
-# Setters (used by orchestrator startup to inject live instances)
-# ---------------------------------------------------------------------------
-
-def set_scheduler(v):
-    global _scheduler
-    _scheduler = v
-
-
 def set_session_broadcaster(v):
     global _session_broadcaster
     _session_broadcaster = v
-
-
-def set_bridge_registry(v):
-    global _bridge_registry
-    _bridge_registry = v
-
-
-def set_sandbox_resolver(v):
-    global _sandbox_resolver
-    _sandbox_resolver = v
-
-
-def set_sandbox_provider(v):
-    global _sandbox_provider
-    _sandbox_provider = v
-
-
-def set_envoy_manager(v):
-    global _envoy_manager
-    _envoy_manager = v
-
-
-def set_memory_subscribers(v):
-    global _memory_subscribers
-    _memory_subscribers = v
-
-
-def set_image_builder(v):
-    global _image_builder
-    _image_builder = v
-
-
-def set_redis_coordinator(v):
-    global _redis_coordinator
-    _redis_coordinator = v

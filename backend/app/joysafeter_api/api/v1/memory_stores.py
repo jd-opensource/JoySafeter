@@ -4,7 +4,7 @@ import logging
 import re
 import unicodedata
 import uuid
-from typing import Optional, cast
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
@@ -829,49 +829,12 @@ async def memory_store_event_stream(
     svc = MemoryService(db)
     await _get_store_or_404(svc, store_id, auth_ctx.project_id)
 
-    from app.joysafeter_shared.orchestrator_bridge import get_memory_subscribers
-
-    subscribers = get_memory_subscribers()
-
     async def event_generator():
-        if not subscribers:
-            while True:
-                if await request.is_disconnected():
-                    break
-                yield ": heartbeat\n\n"
-                await asyncio.sleep(15)
-            return
-
-        q: asyncio.Queue = asyncio.Queue()
-
-        # Register a lightweight listener that puts events into our queue
-        original_notify = subscribers.notify_peers
-
-        async def _intercept_notify(sid: uuid.UUID, source_session_id: uuid.UUID, change_type: str, path: str) -> int:
-            if sid == store_id:
-                event_data = {
-                    "type": change_type,
-                    "store_id": str(sid),
-                    "path": path,
-                }
-                await q.put(event_data)
-            return cast(int, await original_notify(sid, source_session_id, change_type, path))
-
-        subscribers.notify_peers = _intercept_notify
-        try:
-            while True:
-                if await request.is_disconnected():
-                    break
-                try:
-                    event = await asyncio.wait_for(q.get(), timeout=15)
-                    # Apply types filter
-                    if types and event.get("type") not in types:
-                        continue
-                    yield f"data: {json.dumps(event)}\n\n"
-                except asyncio.TimeoutError:
-                    yield ": heartbeat\n\n"
-        finally:
-            subscribers.notify_peers = original_notify
+        while True:
+            if await request.is_disconnected():
+                break
+            yield ": heartbeat\n\n"
+            await asyncio.sleep(15)
 
     return StreamingResponse(
         event_generator(),
