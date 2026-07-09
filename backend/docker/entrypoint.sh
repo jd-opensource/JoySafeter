@@ -1,18 +1,43 @@
 #!/bin/bash
 # JoySafeter Backend entrypoint (JDOS)
-# 由容器运行时环境变量驱动，在 admin 用户下由 ENTRYPOINT 调用。
+# 由容器运行时环境变量驱动,在 admin 用户下由 ENTRYPOINT 调用。
 #
 # 环境变量:
 #   JOYSAFETER_SERVICE_ROLE  api | worker | all (默认 all)
 #   BACKEND_PORT             监听端口 (默认 8000)
 #   WORKERS                  gunicorn worker 数 (默认 1)
 #   BACKEND_APP_MODULE       覆盖 ASGI app 模块 (高级用法)
+#   MIGRATION_ENABLED        true 时启动前执行 alembic 数据库迁移
+#   MODE                     migration 时只跑迁移然后退出
 
 set -e
+
+# UTF-8 编码 (规避容器环境编码问题)
+export LANG=${LANG:-C.UTF-8}
+export LC_ALL=${LC_ALL:-C.UTF-8}
+export PYTHONIOENCODING=${PYTHONIOENCODING:-utf-8}
 
 export PATH="/export/App/backend/.venv/bin:$PATH"
 export PYTHONPATH="/export/App/backend/.venv/lib/python3.12/site-packages:/export/App/backend"
 
+cd /export/App/backend
+
+# ---------------------------------------------------------------------------
+# 数据库迁移 (可选)
+# ---------------------------------------------------------------------------
+if [[ "${MIGRATION_ENABLED}" == "true" ]]; then
+  echo "Running database migrations (alembic upgrade head)"
+  alembic upgrade head
+  # 纯迁移模式: 迁移完就退出,不启动服务
+  if [[ "${MODE}" == "migration" ]]; then
+    echo "Migration completed, exiting normally"
+    exit 0
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# 服务启动
+# ---------------------------------------------------------------------------
 SERVICE_ROLE="${JOYSAFETER_SERVICE_ROLE:-all}"
 PORT="${BACKEND_PORT:-8000}"
 NUM_WORKERS="${WORKERS:-1}"
@@ -24,8 +49,6 @@ case "${SERVICE_ROLE}" in
   *)      DEFAULT_MODULE="app.main:app" ;;
 esac
 APP_MODULE="${BACKEND_APP_MODULE:-$DEFAULT_MODULE}"
-
-cd /export/App/backend
 
 echo "Starting JoySafeter backend: role=${SERVICE_ROLE} module=${APP_MODULE} port=${PORT} workers=${NUM_WORKERS}"
 
