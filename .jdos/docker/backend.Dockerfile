@@ -124,8 +124,8 @@ RUN echo "* soft nofile 1048576" >> /etc/security/limits.conf && \
 # ENTRYPOINT: JDOS 标准启动流程
 #
 # 基础设施准备 (sshd/cron/虎符/复制代码) 后,以 admin 用户执行 entrypoint.sh。
-# 服务角色由容器运行时环境变量 JOYSAFETER_SERVICE_ROLE 决定,在 entrypoint.sh
-# 内部读取 (脚本天然读运行时环境,无需 Dockerfile 转义)。
+# ENTRYPOINT 用单引号,内部 ${VAR} 由运行时 PID1 的 sh 解析(读 JDOS 注入的
+# 环境变量),再显式 export 传给 admin 子 shell(su 可能不保留环境)。
 # -------------------------------------------------------------------------
 ENTRYPOINT /bin/sh -c '\
   /usr/sbin/sshd && \
@@ -137,5 +137,12 @@ ENTRYPOINT /bin/sh -c '\
   cp /entrypoint.sh /export/App/backend/entrypoint.sh && chmod +x /export/App/backend/entrypoint.sh && \
   rm -rf /export/Logs && mkdir -p /export/Logs && chown admin:admin -R /export/Logs && \
   mkdir -p /export/home && chown admin:admin -R /export/home && \
-  su -p admin -c "cd /export/App/backend; ./entrypoint.sh" \
+  su -p admin -c "\
+    export JOYSAFETER_SERVICE_ROLE=${JOYSAFETER_SERVICE_ROLE}; \
+    export BACKEND_PORT=${BACKEND_PORT}; \
+    export WORKERS=${WORKERS}; \
+    export BACKEND_APP_MODULE=${BACKEND_APP_MODULE}; \
+    export MIGRATION_ENABLED=${MIGRATION_ENABLED}; \
+    export MODE=${MODE}; \
+    cd /export/App/backend; ./entrypoint.sh" \
 '
