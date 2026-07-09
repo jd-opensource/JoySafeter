@@ -402,6 +402,7 @@ def test_rust_orchestrator_requires_redis_runtime_queue():
 def test_rust_orchestrator_does_not_keep_removed_compatibility_shims():
     db_queries_text = DB_QUERIES_FILE.read_text()
     sandbox_resolver_text = SANDBOX_RESOLVER_FILE.read_text()
+    main_text = ORCHESTRATOR_MAIN_FILE.read_text()
     rust_sources = "\n".join(path.read_text() for path in sorted(RUST_ORCHESTRATOR_SRC.rglob("*.rs")))
 
     assert "try_advisory_lock" not in db_queries_text
@@ -409,6 +410,17 @@ def test_rust_orchestrator_does_not_keep_removed_compatibility_shims():
     assert "pg_try_advisory_lock" not in db_queries_text
     assert not re.search(r"pub\s+fn\s+image_for_provider\s*\(", sandbox_resolver_text)
     assert "redis_client: Option<redis::Client>" not in rust_sources
+    assert not any((RUST_ORCHESTRATOR_SRC / "runtime").glob("*.rs"))
+    assert "mod runtime;" not in main_text
+    assert "OrchestratorError" not in rust_sources
+    assert "new_noop" not in rust_sources
+    assert "publish_batch" not in rust_sources
+    assert "redis_subscriber_loop" not in rust_sources
+    assert "dispatch_cancel" not in rust_sources
+    assert "dispatch_input" not in rust_sources
+    assert "provider_name" not in rust_sources
+    assert "event_batch_enabled" not in rust_sources
+    assert "task_default_max_retries" not in rust_sources
 
 
 def test_api_v1_async_error_boundaries_use_shared_contract_builders():

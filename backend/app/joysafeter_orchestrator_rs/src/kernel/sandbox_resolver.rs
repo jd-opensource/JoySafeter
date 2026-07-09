@@ -592,31 +592,6 @@ impl SandboxResolver {
         .map_err(Into::into)
     }
 
-    async fn resolve_agent_env(
-        &self,
-        agent_id: Option<Uuid>,
-    ) -> anyhow::Result<HashMap<String, String>> {
-        let agent = match agent_id {
-            Some(agent_id) => queries::get_agent(&self.pool, agent_id).await?,
-            None => None,
-        };
-        let environment = if let Some(agent) = agent.as_ref() {
-            if let Some(env_ref) = agent
-                .environment_ref
-                .as_deref()
-                .filter(|v| !v.trim().is_empty())
-            {
-                self.load_environment(env_ref, agent.project_id.as_deref())
-                    .await?
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        Self::resolve_agent_env_from(&self.pool, agent.as_ref(), environment.as_ref()).await
-    }
-
     async fn resolve_agent_env_from(
         pool: &PgPool,
         agent: Option<&JoySafeterAgent>,
@@ -1108,16 +1083,6 @@ impl SandboxResolver {
         Ok(())
     }
 
-    async fn expected_fingerprint(
-        &self,
-        agent_id: Option<Uuid>,
-    ) -> anyhow::Result<ExpectedFingerprint> {
-        Ok(self
-            .build_resolve_context(None, agent_id, None)
-            .await?
-            .expected)
-    }
-
     async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
         if let Some(ref envoy) = self.envoy_manager {
             envoy.teardown_for_sandbox(sandbox_id).await?;
@@ -1319,38 +1284,6 @@ async fn load_environment_row(
     Ok(None)
 }
 
-/// Compute a sandbox fingerprint from env + engine_kind + image.
-pub fn sandbox_fingerprint(
-    env: &HashMap<String, String>,
-    engine_kind: &str,
-    image: &str,
-    networking: Option<&serde_json::Value>,
-) -> String {
-    let mut hasher = Sha256::new();
-
-    // Sort env keys for deterministic hash
-    let mut env_pairs: Vec<_> = env.iter().collect();
-    env_pairs.sort_by_key(|(k, _)| k.as_str());
-    for (k, v) in env_pairs {
-        hasher.update(k.as_bytes());
-        hasher.update(b"=");
-        hasher.update(v.as_bytes());
-        hasher.update(b"\n");
-    }
-
-    hasher.update(b"engine:");
-    hasher.update(engine_kind.as_bytes());
-    hasher.update(b"\nimage:");
-    hasher.update(image.as_bytes());
-
-    if let Some(net) = networking {
-        hasher.update(b"\nnetworking:");
-        hasher.update(serde_json::to_string(net).unwrap_or_default().as_bytes());
-    }
-
-    hex::encode(hasher.finalize())
-}
-
 #[derive(Debug, Clone)]
 struct ExpectedFingerprint {
     image: String,
@@ -1451,11 +1384,6 @@ fn provisioning_config(
 fn generate_runner_token() -> String {
     let random_bytes: [u8; 32] = rand::random();
     hex::encode(random_bytes)
-}
-
-/// Public wrapper for runner token generation (used by sandbox_controller pool manager).
-pub fn generate_runner_token_public() -> String {
-    generate_runner_token()
 }
 
 fn parse_prefixed_uuid(raw: &str, prefix: &str) -> Option<Uuid> {

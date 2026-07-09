@@ -147,10 +147,6 @@ impl SandboxProvider for E2bProvider {
         Ok(String::new())
     }
 
-    fn provider_name(&self) -> &'static str {
-        "e2b"
-    }
-
     async fn provisioning_status(
         &self,
         external_id: &str,

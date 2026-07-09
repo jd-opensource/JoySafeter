@@ -5,11 +5,9 @@
 
 mod config;
 mod db;
-mod error;
 mod events;
 mod grpc;
 mod kernel;
-mod runtime;
 mod runtime_config;
 mod sandbox;
 
@@ -196,10 +194,6 @@ async fn main() -> anyhow::Result<()> {
         let manager = Arc::new(sandbox::envoy::EnvoyManager::new(
             docker,
             sandbox::envoy::EnvoyConfig {
-                envoy_image: config.envoy_image.clone(),
-                socket_volume: config.envoy_socket_volume.clone(),
-                config_dir: config.envoy_config_dir.clone(),
-                envoy_network: config.envoy_network.clone(),
                 grpc_target_host: config.envoy_grpc_host.clone(),
                 grpc_target_port: config.envoy_grpc_port,
                 container_name: config.envoy_container_name.clone(),

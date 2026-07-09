@@ -14,7 +14,6 @@ use crate::grpc::proto::OrchestratorMessage;
 /// task subscribers, HITL control queue, requires_action state, capabilities.
 #[derive(Debug)]
 pub struct SandboxBridge {
-    pub sandbox_id: Uuid,
     pub sandbox_db_id: Uuid,
     /// Channel to send messages to the connected runner.
     pub runner_tx: mpsc::Sender<OrchestratorMessage>,
@@ -53,15 +52,10 @@ pub struct SandboxBridge {
 }
 
 impl SandboxBridge {
-    pub fn new(
-        sandbox_id: Uuid,
-        sandbox_db_id: Uuid,
-        runner_tx: mpsc::Sender<OrchestratorMessage>,
-    ) -> Self {
+    pub fn new(sandbox_db_id: Uuid, runner_tx: mpsc::Sender<OrchestratorMessage>) -> Self {
         let (confirmation_tx, confirmation_rx) = watch::channel(false);
         let (control_tx, control_rx) = mpsc::channel(64);
         Self {
-            sandbox_id,
             sandbox_db_id,
             runner_tx,
             current_task_id: Mutex::new(None),
@@ -131,25 +125,6 @@ impl SandboxBridge {
         }
     }
 
-    /// Subscribe to per-task events (for WebSocket fan-out).
-    pub async fn subscribe(&self, task_id: Uuid) -> mpsc::Receiver<serde_json::Value> {
-        let (tx, rx) = mpsc::channel(256);
-        let mut subs = self.task_subscribers.lock().await;
-        subs.entry(task_id).or_default().push(tx);
-        rx
-    }
-
-    /// Unsubscribe a specific sender from a task.
-    pub async fn unsubscribe(&self, task_id: Uuid, target: &mpsc::Sender<serde_json::Value>) {
-        let mut subs = self.task_subscribers.lock().await;
-        if let Some(senders) = subs.get_mut(&task_id) {
-            senders.retain(|s| !s.same_channel(target));
-            if senders.is_empty() {
-                subs.remove(&task_id);
-            }
-        }
-    }
-
     /// Remove all subscribers for a task.
     pub async fn remove_task_subscribers(&self, task_id: Uuid) {
         let mut subs = self.task_subscribers.lock().await;
@@ -206,21 +181,6 @@ impl BridgeRegistry {
         self.bridges.insert(external_id, bridge);
     }
 
-    /// Get or register: return existing bridge or create a new one.
-    pub fn get_or_register(
-        &self,
-        external_id: &str,
-        sandbox_db_id: Uuid,
-        runner_tx: mpsc::Sender<OrchestratorMessage>,
-    ) -> Arc<SandboxBridge> {
-        if let Some(existing) = self.get(external_id) {
-            return existing;
-        }
-        let bridge = Arc::new(SandboxBridge::new(sandbox_db_id, sandbox_db_id, runner_tx));
-        self.register(external_id.to_string(), bridge.clone());
-        bridge
-    }
-
     /// Get a bridge by external ID.
     pub fn get(&self, external_id: &str) -> Option<Arc<SandboxBridge>> {
         self.bridges.get(external_id).map(|r| r.value().clone())
@@ -233,20 +193,6 @@ impl BridgeRegistry {
             .and_then(|ext_id| self.bridges.get(ext_id.value()).map(|r| r.value().clone()))
     }
 
-    /// Get a bridge by current task ID.
-    pub fn get_by_task(&self, task_id: Uuid) -> Option<Arc<SandboxBridge>> {
-        for entry in self.bridges.iter() {
-            let bridge = entry.value();
-            // Use try_lock to avoid blocking
-            if let Ok(guard) = bridge.current_task_id.try_lock() {
-                if *guard == Some(task_id) {
-                    return Some(bridge.clone());
-                }
-            }
-        }
-        None
-    }
-
     /// Remove a bridge by external ID.
     pub fn remove(&self, external_id: &str) -> Option<Arc<SandboxBridge>> {
         if let Some((_, bridge)) = self.bridges.remove(external_id) {
@@ -255,11 +201,6 @@ impl BridgeRegistry {
         } else {
             None
         }
-    }
-
-    /// Get count of registered bridges.
-    pub fn count(&self) -> usize {
-        self.bridges.len()
     }
 
     /// Get all bridges as a Vec.

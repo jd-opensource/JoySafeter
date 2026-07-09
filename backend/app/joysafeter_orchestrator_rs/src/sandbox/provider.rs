@@ -85,7 +85,4 @@ pub trait SandboxProvider: Send + Sync + 'static {
     ) -> anyhow::Result<()> {
         Ok(())
     }
-
-    /// Provider name (e.g., "docker", "daytona", "e2b").
-    fn provider_name(&self) -> &'static str;
 }

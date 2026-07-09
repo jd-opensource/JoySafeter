@@ -10,14 +10,10 @@ pub struct JoySafeterConfig {
     pub enabled: bool,
     pub instance_id: String,
 
-    pub api_prefix: String,
-    pub redis_queue_prefix: String,
-
     // Task scheduling
     pub max_concurrent_tasks: usize,
     pub max_scheduling_tasks: usize,
     pub task_default_timeout: u64,
-    pub task_default_max_retries: u32,
     pub task_retry_base_ms: u64,
     pub task_retry_max_ms: u64,
 
@@ -41,7 +37,6 @@ pub struct JoySafeterConfig {
     pub sandbox_workspace_root: Option<String>,
     pub sandbox_cpu: Option<f64>,
     pub sandbox_memory_mb: Option<u64>,
-    pub sandbox_disk_mb: Option<u64>,
 
     // -- Sandbox container hardening (P0.1) -----------------------------------
     // Matches the Python `Settings.sandbox_*` block of the same name. See
@@ -65,17 +60,12 @@ pub struct JoySafeterConfig {
     pub image_native: String,
 
     // Event batching
-    pub event_batch_enabled: bool,
     pub event_batch_max_size: usize,
     pub event_batch_max_delay_ms: u64,
     pub event_stream_enabled: bool,
     pub event_stream_key: String,
-    pub event_stream_group: String,
     pub event_stream_max_len: usize,
-    pub event_stream_batch_size: usize,
-    pub event_stream_block_ms: u64,
     pub event_stream_fallback_to_db: bool,
-    pub event_stream_pending_idle_ms: u64,
 
     // gRPC server
     pub grpc_host: String,
@@ -84,10 +74,7 @@ pub struct JoySafeterConfig {
 
     // Envoy network isolation
     pub envoy_enabled: bool,
-    pub envoy_image: String,
     pub envoy_socket_volume: String,
-    pub envoy_config_dir: String,
-    pub envoy_network: String,
     pub envoy_grpc_host: String,
     pub envoy_grpc_port: u16,
     pub envoy_container_name: String,
@@ -101,9 +88,6 @@ pub struct JoySafeterConfig {
     // Image builder
     pub image_builder_enabled: bool,
     pub image_builder_base: String,
-
-    // Vault
-    pub vault_encryption_key: Option<String>,
 
     // HA
     pub heartbeat_interval: u64,
@@ -134,13 +118,9 @@ impl JoySafeterConfig {
             enabled: env_bool("JOYSAFETER_ENABLED", true),
             instance_id: env_str("JOYSAFETER_INSTANCE_ID", &hostname()),
 
-            api_prefix: env_str("JOYSAFETER_API_PREFIX", "/api/v1"),
-            redis_queue_prefix: env_str("JOYSAFETER_REDIS_QUEUE_PREFIX", "joysafeter"),
-
             max_concurrent_tasks: env_usize("JOYSAFETER_MAX_CONCURRENT_TASKS", 200),
             max_scheduling_tasks: env_usize("JOYSAFETER_MAX_SCHEDULING_TASKS", 50),
             task_default_timeout: env_u64("JOYSAFETER_TASK_DEFAULT_TIMEOUT", 7200),
-            task_default_max_retries: env_u32("JOYSAFETER_TASK_DEFAULT_MAX_RETRIES", 2),
             task_retry_base_ms: env_u64("JOYSAFETER_TASK_RETRY_BASE_MS", 2000),
             task_retry_max_ms: env_u64("JOYSAFETER_TASK_RETRY_MAX_MS", 30000),
 
@@ -165,9 +145,6 @@ impl JoySafeterConfig {
             sandbox_memory_mb: env::var("JOYSAFETER_SANDBOX_MEMORY_MB")
                 .ok()
                 .and_then(|v| v.parse().ok()),
-            sandbox_disk_mb: env::var("JOYSAFETER_SANDBOX_DISK_MB")
-                .ok()
-                .and_then(|v| v.parse().ok()),
 
             // Hardening defaults — keep the secure defaults; only flip these
             // off for targeted debugging. See settings.py for rationale.
@@ -183,7 +160,6 @@ impl JoySafeterConfig {
             image_codex: env_str("JOYSAFETER_IMAGE_CODEX", ""),
             image_native: env_str("JOYSAFETER_IMAGE_NATIVE", ""),
 
-            event_batch_enabled: env_bool("JOYSAFETER_EVENT_BATCH_ENABLED", true),
             event_batch_max_size: env_usize("JOYSAFETER_EVENT_BATCH_MAX_SIZE", 200),
             event_batch_max_delay_ms: env_u64("JOYSAFETER_EVENT_BATCH_MAX_DELAY_MS", 100),
             event_stream_enabled: env_bool("JOYSAFETER_EVENT_STREAM_ENABLED", false),
@@ -191,28 +167,15 @@ impl JoySafeterConfig {
                 "JOYSAFETER_EVENT_STREAM_KEY",
                 "joysafeter:joysafeter:events",
             ),
-            event_stream_group: env_str(
-                "JOYSAFETER_EVENT_STREAM_GROUP",
-                "joysafeter-joysafeter-event-workers",
-            ),
             event_stream_max_len: env_usize("JOYSAFETER_EVENT_STREAM_MAX_LEN", 100_000),
-            event_stream_batch_size: env_usize("JOYSAFETER_EVENT_STREAM_BATCH_SIZE", 100),
-            event_stream_block_ms: env_u64("JOYSAFETER_EVENT_STREAM_BLOCK_MS", 1000),
             event_stream_fallback_to_db: env_bool("JOYSAFETER_EVENT_STREAM_FALLBACK_TO_DB", true),
-            event_stream_pending_idle_ms: env_u64("JOYSAFETER_EVENT_STREAM_PENDING_IDLE_MS", 60000),
 
             grpc_host: env_str("JOYSAFETER_GRPC_HOST", "0.0.0.0"),
             grpc_port: env_u16("JOYSAFETER_GRPC_PORT", 9090),
             grpc_public_url: env::var("JOYSAFETER_GRPC_PUBLIC_URL").ok(),
 
             envoy_enabled: env_bool("JOYSAFETER_ENVOY_ENABLED", false),
-            envoy_image: env_str("JOYSAFETER_ENVOY_IMAGE", "envoyproxy/envoy:v1.31-latest"),
             envoy_socket_volume: env_str("JOYSAFETER_ENVOY_SOCKET_VOLUME", "joysafeter-sockets"),
-            envoy_config_dir: env_str(
-                "JOYSAFETER_ENVOY_CONFIG_DIR",
-                "/tmp/joysafeter-envoy-config",
-            ),
-            envoy_network: env_str("JOYSAFETER_ENVOY_NETWORK", "joysafeter-net"),
             envoy_grpc_host: env_str("JOYSAFETER_ENVOY_GRPC_HOST", "host.docker.internal"),
             envoy_grpc_port: env_u16("JOYSAFETER_ENVOY_GRPC_PORT", 9090),
             envoy_container_name: env_str("JOYSAFETER_ENVOY_CONTAINER_NAME", "joysafeter-envoy"),
@@ -224,8 +187,6 @@ impl JoySafeterConfig {
                 "JOYSAFETER_IMAGE_BUILDER_BASE",
                 "joysafeter-claudecode:latest",
             ),
-
-            vault_encryption_key: env::var("JOYSAFETER_VAULT_ENCRYPTION_KEY").ok(),
 
             heartbeat_interval: env_u64("JOYSAFETER_HEARTBEAT_INTERVAL", 15),
             heartbeat_ttl: env_u64("JOYSAFETER_HEARTBEAT_TTL", 30),

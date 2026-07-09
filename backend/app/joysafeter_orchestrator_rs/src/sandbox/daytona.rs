@@ -158,10 +158,6 @@ impl SandboxProvider for DaytonaProvider {
         Ok(String::new())
     }
 
-    fn provider_name(&self) -> &'static str {
-        "daytona"
-    }
-
     async fn provisioning_status(
         &self,
         external_id: &str,

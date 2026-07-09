@@ -180,16 +180,6 @@ pub async fn get_task(pool: &PgPool, task_id: Uuid) -> Result<Option<JoySafeterT
         .await
 }
 
-/// Count tasks currently in non-terminal states.
-pub async fn count_active_tasks(pool: &PgPool) -> Result<i64, sqlx::Error> {
-    let row: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM joysafeter_tasks WHERE status IN ('pending', 'scheduling', 'running')",
-    )
-    .fetch_one(pool)
-    .await?;
-    Ok(row.0)
-}
-
 // ---------------------------------------------------------------------------
 // Session queries
 // ---------------------------------------------------------------------------
@@ -248,22 +238,6 @@ pub async fn update_session_status(
     Ok(result.rows_affected() > 0)
 }
 
-/// Update session sandbox reference.
-pub async fn update_session_sandbox(
-    pool: &PgPool,
-    session_id: Uuid,
-    sandbox_id: Uuid,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "UPDATE joysafeter_sessions SET last_sandbox_id = $2, updated_at = NOW() WHERE id = $1",
-    )
-    .bind(session_id)
-    .bind(sandbox_id)
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
 /// Accumulate token usage for a session (field-by-field addition, not merge).
 /// Matches Python SessionService.accumulate_usage which adds each token field.
 pub async fn accumulate_session_usage(
@@ -294,36 +268,6 @@ pub async fn accumulate_session_usage(
 // ---------------------------------------------------------------------------
 // Session event queries
 // ---------------------------------------------------------------------------
-
-/// Insert a batch of session events.
-pub async fn batch_insert_events(
-    pool: &PgPool,
-    events: &[(Uuid, Uuid, &str, Option<&serde_json::Value>, Option<i64>)],
-) -> Result<u64, sqlx::Error> {
-    if events.is_empty() {
-        return Ok(0);
-    }
-
-    let mut total = 0u64;
-    for (id, session_id, event_type, payload, seq) in events {
-        let result = sqlx::query(
-            r#"
-            INSERT INTO joysafeter_session_events (id, session_id, event_type, payload, seq, created_at)
-            VALUES ($1, $2, $3, $4, $5, NOW())
-            ON CONFLICT (id) DO NOTHING
-            "#,
-        )
-        .bind(id)
-        .bind(session_id)
-        .bind(event_type)
-        .bind(payload)
-        .bind(seq)
-        .execute(pool)
-        .await?;
-        total += result.rows_affected();
-    }
-    Ok(total)
-}
 
 // ---------------------------------------------------------------------------
 // Sandbox queries
@@ -929,7 +873,7 @@ pub async fn list_session_memory_stores(
 ) -> Result<Vec<SessionMemoryStore>, sqlx::Error> {
     sqlx::query_as::<_, SessionMemoryStore>(
         r#"
-        SELECT sms.store_id, ms.name as store_name, sms.mount_name, sms.access, sms.instructions
+        SELECT sms.store_id, sms.mount_name, sms.access, sms.instructions
         FROM joysafeter_session_memory_stores sms
         JOIN joysafeter_memory_stores ms ON ms.id = sms.store_id
         WHERE sms.session_id = $1
@@ -944,7 +888,6 @@ pub async fn list_session_memory_stores(
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct SessionMemoryStore {
     pub store_id: Uuid,
-    pub store_name: String,
     pub mount_name: String,
     pub access: String,
     pub instructions: Option<String>,

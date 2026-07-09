@@ -107,23 +107,6 @@ impl DockerProvider {
         })
     }
 
-    /// Create a no-op provider (for scheduler fallback when no provider is needed).
-    pub fn new_noop() -> Self {
-        // Will panic if actually used for Docker operations
-        Self {
-            docker: Arc::new(Docker::connect_with_local_defaults().unwrap()),
-            socket_volume: None,
-            // noop never actually creates containers, but keep the field
-            // populated so the struct stays well-formed.
-            hardening: SandboxHardening {
-                drop_all_caps: true,
-                no_new_privileges: true,
-                pids_limit: 256,
-                run_as_user: "1000:1000".to_string(),
-            },
-        }
-    }
-
     async fn upload_file_to_container(
         &self,
         external_id: &str,
@@ -230,47 +213,6 @@ impl DockerProvider {
             .await?;
 
         Ok(true)
-    }
-
-    /// Inject files into a container via Docker archive upload.
-    pub async fn inject_file_pairs(
-        &self,
-        external_id: &str,
-        files: &[(String, Vec<u8>)],
-    ) -> anyhow::Result<()> {
-        for (path, content) in files {
-            let mut tar_buf = Vec::new();
-            {
-                let mut ar = tar::Builder::new(&mut tar_buf);
-                let mut header = tar::Header::new_gnu();
-                header.set_path(path)?;
-                header.set_size(content.len() as u64);
-                header.set_mode(0o644);
-                header.set_cksum();
-                ar.append(&header, content.as_slice())?;
-                ar.finish()?;
-            }
-
-            self.docker
-                .upload_to_container(
-                    external_id,
-                    Some(UploadToContainerOptions {
-                        path: "/",
-                        ..Default::default()
-                    }),
-                    tar_buf.into(),
-                )
-                .await?;
-        }
-
-        Ok(())
-    }
-
-    /// Close the Docker client (cleanup).
-    pub async fn close(&self) {
-        // bollard's Docker client doesn't require explicit close;
-        // connections are dropped when the Arc is dropped.
-        // This method exists for API parity with Python's aiodocker.close().
     }
 
     async fn docker_provisioning_status(
@@ -618,10 +560,6 @@ impl SandboxProvider for DockerProvider {
         }
 
         Ok(output)
-    }
-
-    fn provider_name(&self) -> &'static str {
-        "docker"
     }
 
     async fn list_active(&self) -> anyhow::Result<Vec<ProviderSandboxInfo>> {

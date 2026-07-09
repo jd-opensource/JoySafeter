@@ -241,7 +241,7 @@ impl HarnessInputBuilder {
         if let Some(env_id) = parse_prefixed_uuid(env_ref, "env_") {
             return sqlx::query_as::<_, EnvironmentRow>(
                 r#"
-                SELECT config, image_tag FROM joysafeter_environments
+                SELECT config FROM joysafeter_environments
                 WHERE id = $1 AND deleted_at IS NULL
                   AND ($2::text IS NULL OR project_id = $2)
                 "#,
@@ -255,7 +255,7 @@ impl HarnessInputBuilder {
 
         sqlx::query_as::<_, EnvironmentRow>(
             r#"
-            SELECT config, image_tag FROM joysafeter_environments
+            SELECT config FROM joysafeter_environments
             WHERE name = $1 AND deleted_at IS NULL
               AND ($2::text IS NULL OR project_id = $2)
             "#,
@@ -1692,7 +1692,6 @@ struct SessionRepoRow {
 #[derive(Debug, FromRow)]
 struct EnvironmentRow {
     config: serde_json::Value,
-    image_tag: Option<String>,
 }
 
 /// Extract custom tool names and MCP server names from agent config.

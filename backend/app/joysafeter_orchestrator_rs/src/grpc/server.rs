@@ -215,7 +215,7 @@ impl AgentBridge for AgentBridgeService {
             }
 
             // Create and register bridge
-            let bridge = Arc::new(SandboxBridge::new(sandbox_db_id, sandbox_db_id, tx.clone()));
+            let bridge = Arc::new(SandboxBridge::new(sandbox_db_id, tx.clone()));
             // Store capabilities
             {
                 let mut caps = bridge.runner_capabilities.lock().await;
@@ -916,7 +916,9 @@ async fn run_single_task(
         }
     }
 
-    if task_completed {
+    if cancel_sent && !task_error {
+        TaskResult::Cancelled
+    } else if task_completed {
         TaskResult::Completed
     } else if task_error {
         TaskResult::Failed("Task ended in error state".to_string())
@@ -1664,17 +1666,9 @@ async fn send_setup(
         status: "setup".to_string(),
         prompt: String::new(),
         system_prompt: None,
-        output: None,
-        error: None,
-        usage: None,
         timeout_sec: None,
         retry_count: 0,
         max_retries: 0,
-        started_at: None,
-        completed_at: None,
-        duration_ms: None,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
     };
 
     let builder = HarnessInputBuilder::new(pool.clone());
@@ -2366,38 +2360,6 @@ async fn build_start_task_full(
             }
         }
     }
-}
-
-/// Derive permission_mode from agent tool configs.
-/// If any tool has permission_policy.type == "always_ask", use "default"; otherwise "bypassPermissions".
-fn derive_permission_mode(agent: &Option<crate::db::models::JoySafeterAgent>) -> Option<String> {
-    let agent = match agent {
-        Some(a) => a,
-        None => return None,
-    };
-
-    if let Some(ref pm) = agent.permission_mode {
-        return Some(pm.clone());
-    }
-
-    // Check tools for permission_policy
-    if let Some(ref tools_val) = agent.tools {
-        if let Some(arr) = tools_val.as_array() {
-            for tool in arr {
-                if let Some(configs) = tool.get("configs").and_then(|v| v.as_array()) {
-                    for tcfg in configs {
-                        if let Some(policy) = tcfg.get("permission_policy") {
-                            if policy.get("type").and_then(|v| v.as_str()) == Some("always_ask") {
-                                return Some("default".to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    Some("bypassPermissions".to_string())
 }
 
 // ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use redis::AsyncCommands;
 use tokio::sync::Mutex;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 use uuid::Uuid;
 
 /// Redis-backed HA coordinator for cross-instance orchestration.
@@ -36,10 +36,6 @@ impl RedisCoordinator {
             heartbeat_ttl: Duration::from_secs(heartbeat_ttl),
             _heartbeat_handle: Mutex::new(None),
         }
-    }
-
-    pub fn instance_id(&self) -> &str {
-        &self.instance_id
     }
 
     async fn get_conn(&self) -> Result<redis::aio::MultiplexedConnection, redis::RedisError> {
@@ -119,23 +115,6 @@ impl RedisCoordinator {
         Ok(())
     }
 
-    /// Claim ownership of a sandbox (NX — only if not already owned).
-    /// Returns true if claim succeeded.
-    pub async fn claim_sandbox_owner(&self, sandbox_id: Uuid) -> anyhow::Result<bool> {
-        let mut conn = self.get_conn().await?;
-        let key = format!("joysafeter:sandbox_owner:{sandbox_id}");
-        let result: bool = redis::cmd("SET")
-            .arg(&key)
-            .arg(&self.instance_id)
-            .arg("NX")
-            .arg("EX")
-            .arg(300)
-            .query_async(&mut conn)
-            .await
-            .unwrap_or(false);
-        Ok(result)
-    }
-
     /// Refresh sandbox ownership TTL (CAS — only if we own it).
     pub async fn refresh_sandbox(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
         let mut conn = self.get_conn().await?;
@@ -195,14 +174,6 @@ impl RedisCoordinator {
         conn.set_ex::<_, _, ()>(&key, sandbox_id.to_string(), 7200) // 2h TTL
             .await?;
         Ok(())
-    }
-
-    /// Get the sandbox for a task.
-    pub async fn get_task_sandbox(&self, task_id: Uuid) -> anyhow::Result<Option<Uuid>> {
-        let mut conn = self.get_conn().await?;
-        let key = format!("joysafeter:task_sandbox:{task_id}");
-        let val: Option<String> = conn.get(&key).await?;
-        Ok(val.and_then(|s| s.parse().ok()))
     }
 
     /// Remove task-sandbox mapping.
@@ -266,85 +237,6 @@ impl RedisCoordinator {
         Ok(())
     }
 
-    /// Publish an event to a per-session channel.
-    /// Note: session events use the wrapper format (source_instance + event)
-    /// because SessionBroadcaster subscribes and filters by source_instance.
-    pub async fn publish_session_event(
-        &self,
-        session_id: Uuid,
-        event: &serde_json::Value,
-    ) -> anyhow::Result<()> {
-        let mut conn = self.get_conn().await?;
-        let channel = format!("joysafeter:session_events:{session_id}");
-        let payload = serde_json::json!({
-            "source_instance": self.instance_id,
-            "event": event,
-        });
-        conn.publish::<_, _, ()>(&channel, serde_json::to_string(&payload)?)
-            .await?;
-        Ok(())
-    }
-
-    // -----------------------------------------------------------------------
-    // Cross-instance command dispatch
-    // -----------------------------------------------------------------------
-
-    /// Send a command to a specific instance (for cancel/input relay).
-    pub async fn send_command(
-        &self,
-        target_instance: &str,
-        command: &serde_json::Value,
-    ) -> anyhow::Result<()> {
-        let mut conn = self.get_conn().await?;
-        let channel = format!("joysafeter:cmd:{target_instance}");
-        conn.publish::<_, _, ()>(&channel, serde_json::to_string(command)?)
-            .await?;
-        debug!(target = target_instance, "Sent cross-instance command");
-        Ok(())
-    }
-
-    /// Send a cancel command for a task to the instance that owns it.
-    pub async fn dispatch_cancel(
-        &self,
-        task_id: Uuid,
-        sandbox_id: Uuid,
-        reason: &str,
-    ) -> anyhow::Result<()> {
-        let cmd = serde_json::json!({
-            "type": "cancel",
-            "sandbox_id": sandbox_id.to_string(),
-            "task_id": task_id.to_string(),
-            "reason": reason,
-        });
-        for target in self.list_instance_ids().await? {
-            if target == self.instance_id {
-                continue;
-            }
-            if let Err(e) = self.send_command(&target, &cmd).await {
-                tracing::warn!(target = %target, "dispatch_cancel failed: {e}");
-            }
-        }
-        Ok(())
-    }
-
-    /// Send an input command for HITL confirmation.
-    pub async fn dispatch_input(&self, sandbox_id: Uuid, content: &str) -> anyhow::Result<()> {
-        let cmd = serde_json::json!({
-            "type": "input",
-            "sandbox_id": sandbox_id.to_string(),
-            "content": content,
-        });
-        for target in self.list_instance_ids().await? {
-            if target == self.instance_id {
-                continue;
-            }
-            if let Err(e) = self.send_command(&target, &cmd).await {
-                tracing::warn!(target = %target, "dispatch_input failed: {e}");
-            }
-        }
-        Ok(())
-    }
-
     // -----------------------------------------------------------------------
     // Cleanup
     // -----------------------------------------------------------------------
@@ -357,87 +249,6 @@ impl RedisCoordinator {
         }
         self.deregister_instance().await?;
         Ok(())
-    }
-
-    // -----------------------------------------------------------------------
-    // Additional methods for full Python parity
-    // -----------------------------------------------------------------------
-
-    /// List all active sandbox owners (SCAN operation).
-    pub async fn list_active_sandbox_owners(&self) -> anyhow::Result<Vec<(Uuid, String)>> {
-        let mut conn = self.get_conn().await?;
-        let mut results = Vec::new();
-        let mut cursor = 0u64;
-
-        loop {
-            let (new_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
-                .arg(cursor)
-                .arg("MATCH")
-                .arg("joysafeter:sandbox_owner:*")
-                .arg("COUNT")
-                .arg(100)
-                .query_async(&mut conn)
-                .await?;
-
-            for key in keys {
-                let sandbox_id_str = key.strip_prefix("joysafeter:sandbox_owner:").unwrap_or("");
-                if let Ok(sandbox_id) = sandbox_id_str.parse::<Uuid>() {
-                    let owner: Option<String> = conn.get(&key).await.unwrap_or(None);
-                    if let Some(owner) = owner {
-                        results.push((sandbox_id, owner));
-                    }
-                }
-            }
-
-            cursor = new_cursor;
-            if cursor == 0 {
-                break;
-            }
-        }
-
-        Ok(results)
-    }
-
-    /// List all active instance IDs from the registry.
-    pub async fn list_instance_ids(&self) -> anyhow::Result<Vec<String>> {
-        let mut conn = self.get_conn().await?;
-        let mut results = Vec::new();
-        let mut cursor = 0u64;
-
-        loop {
-            let (new_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
-                .arg(cursor)
-                .arg("MATCH")
-                .arg("joysafeter:instances:*")
-                .arg("COUNT")
-                .arg(100)
-                .query_async(&mut conn)
-                .await?;
-
-            for key in keys {
-                if let Some(instance_id) = key.strip_prefix("joysafeter:instances:") {
-                    results.push(instance_id.to_string());
-                }
-            }
-
-            cursor = new_cursor;
-            if cursor == 0 {
-                break;
-            }
-        }
-
-        Ok(results)
-    }
-
-    /// Check if Redis is healthy (PING).
-    pub async fn is_healthy(&self) -> bool {
-        match self.get_conn().await {
-            Ok(mut conn) => {
-                let result: Result<String, _> = redis::cmd("PING").query_async(&mut conn).await;
-                result.map(|r| r == "PONG").unwrap_or(false)
-            }
-            Err(_) => false,
-        }
     }
 
     /// Remove sandbox queue wakeup key.

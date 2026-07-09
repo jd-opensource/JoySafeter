@@ -22,7 +22,6 @@ struct MemorySubscription {
     session_id: Uuid,
     sandbox_db_id: Uuid,
     mount_name: String,
-    mount_path: String,
 }
 
 impl MemoryStoreSubscribers {
@@ -39,7 +38,7 @@ impl MemoryStoreSubscribers {
         session_id: Uuid,
         sandbox_db_id: Uuid,
         mount_name: &str,
-        mount_path: &str,
+        _mount_path: &str,
     ) {
         let mut subs = self.subscriptions.lock().await;
         let entry = subs.entry(store_id.to_string()).or_default();
@@ -53,7 +52,6 @@ impl MemoryStoreSubscribers {
                 session_id,
                 sandbox_db_id,
                 mount_name: mount_name.to_string(),
-                mount_path: mount_path.to_string(),
             });
             debug!(
                 store_id = store_id,
@@ -113,19 +111,5 @@ impl MemoryStoreSubscribers {
                 }
             }
         }
-    }
-
-    /// Get all peer sandbox IDs for a store (excluding the given sandbox).
-    pub async fn get_peers(&self, store_id: &str, exclude_sandbox: Uuid) -> Vec<Uuid> {
-        let subs = self.subscriptions.lock().await;
-        subs.get(store_id)
-            .map(|entries| {
-                entries
-                    .iter()
-                    .filter(|s| s.sandbox_db_id != exclude_sandbox)
-                    .map(|s| s.sandbox_db_id)
-                    .collect()
-            })
-            .unwrap_or_default()
     }
 }

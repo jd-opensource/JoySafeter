@@ -95,13 +95,6 @@ impl EventBus {
         }
     }
 
-    /// #41: Publish a batch of events (Python L45: persist sequentially, broadcast concurrently).
-    pub async fn publish_batch(&self, envelopes: Vec<EventEnvelope>) {
-        for envelope in envelopes {
-            self.publish(envelope).await;
-        }
-    }
-
     /// Subscribe to events from this bus.
     pub fn subscribe(&self) -> broadcast::Receiver<Arc<EventEnvelope>> {
         self.tx.subscribe()

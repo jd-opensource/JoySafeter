@@ -215,11 +215,6 @@ pub struct GitEgress {
 }
 
 impl SandboxCredentials {
-    /// True when there is nothing to inject.
-    pub fn is_empty(&self) -> bool {
-        self.llm.is_none() && self.mcp.is_empty() && self.git.is_empty()
-    }
-
     /// Flatten into credential routes. The sandbox targets placeholder hosts:
     /// LLM at `/` on `llm-egress.internal`; each MCP server at `/mcp/<name>/` on
     /// `mcp-egress.internal`; each git remote at `/git/<slug>/` on
@@ -449,7 +444,6 @@ impl LdsBackend for FilesystemLds {
 #[async_trait]
 pub trait CdsBackend: Send + Sync {
     async fn upsert(&self, specs: Vec<ClusterSpec>) -> anyhow::Result<()>;
-    async fn remove(&self, names: Vec<String>) -> anyhow::Result<()>;
     /// Remove every cluster whose name starts with `prefix` (used to drop all of
     /// a sandbox's per-upstream clusters without enumerating their hosts).
     async fn remove_by_prefix(&self, prefix: &str) -> anyhow::Result<()>;
@@ -503,14 +497,6 @@ impl CdsBackend for FilesystemCds {
         let mut clusters = self.clusters.lock().await;
         for spec in specs {
             clusters.insert(spec.name.clone(), render_cluster_json(&spec));
-        }
-        self.write_cds(&clusters).await
-    }
-
-    async fn remove(&self, names: Vec<String>) -> anyhow::Result<()> {
-        let mut clusters = self.clusters.lock().await;
-        for name in names {
-            clusters.remove(&name);
         }
         self.write_cds(&clusters).await
     }
@@ -962,12 +948,6 @@ impl CdsBackend for GrpcCds {
                 encode_cluster_any(&spec)?,
             ));
         }
-        self.server.apply(CLUSTER_TYPE_URL, changes).await;
-        Ok(())
-    }
-
-    async fn remove(&self, names: Vec<String>) -> anyhow::Result<()> {
-        let changes = names.into_iter().map(Change::Remove).collect();
         self.server.apply(CLUSTER_TYPE_URL, changes).await;
         Ok(())
     }
