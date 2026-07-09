@@ -1276,7 +1276,7 @@ async fn handle_task_message(
 
             // Fire-and-forget DB write (matching Python's asyncio.create_task)
             tokio::spawn(async move {
-                handle_memory_sync_db(
+                if let Some(store_id) = handle_memory_sync_db(
                     &pool_clone,
                     session_id_clone,
                     &mount_name,
@@ -1284,17 +1284,20 @@ async fn handle_task_message(
                     &content,
                     &operation,
                 )
-                .await;
-                memory_subscribers
-                    .notify_peers(
-                        &mount_name,
-                        &rel_path,
-                        content.as_bytes(),
-                        &operation,
-                        sandbox_db_id,
-                        &bridge_registry,
-                    )
-                    .await;
+                .await
+                {
+                    let store_id = store_id.to_string();
+                    memory_subscribers
+                        .notify_peers(
+                            &store_id,
+                            &rel_path,
+                            content.as_bytes(),
+                            &operation,
+                            sandbox_db_id,
+                            &bridge_registry,
+                        )
+                        .await;
+                }
             });
             (false, false)
         }
@@ -1929,7 +1932,7 @@ async fn handle_memory_sync_db(
     relative_path: &str,
     content: &str,
     operation: &str,
-) {
+) -> Option<Uuid> {
     // Path traversal protection
     let normalized = relative_path.replace('\\', "/");
     if normalized.contains("..") || normalized.contains('\0') {
@@ -1937,12 +1940,12 @@ async fn handle_memory_sync_db(
             path = relative_path,
             "Path traversal attempt in memory sync, rejecting"
         );
-        return;
+        return None;
     }
 
     let session_id = match session_id {
         Some(sid) => sid,
-        None => return,
+        None => return None,
     };
 
     // Normalize path to start with /
@@ -1972,11 +1975,11 @@ async fn handle_memory_sync_db(
                 mount = store_mount_name,
                 "Memory store not found for session"
             );
-            return;
+            return None;
         }
         Err(e) => {
             error!("Memory sync store lookup failed: {e}");
-            return;
+            return None;
         }
     };
 
@@ -1988,14 +1991,14 @@ async fn handle_memory_sync_db(
             store = store_mount_name,
             "Rejecting write to read-only memory store"
         );
-        return;
+        return None;
     }
 
     let mut tx = match pool.begin().await {
         Ok(tx) => tx,
         Err(e) => {
             error!(error = %e, "Memory sync transaction start failed");
-            return;
+            return None;
         }
     };
 
@@ -2005,7 +2008,7 @@ async fn handle_memory_sync_db(
         .await
     {
         error!(error = %e, "Memory store lock failed");
-        return;
+        return None;
     }
 
     match operation {
@@ -2025,13 +2028,13 @@ async fn handle_memory_sync_db(
                 Ok(row) => row,
                 Err(e) => {
                     error!(error = %e, "Memory delete lookup failed");
-                    return;
+                    return None;
                 }
             };
 
             let Some((memory_id,)) = existing else {
                 let _ = tx.commit().await;
-                return;
+                return None;
             };
 
             let version_id = Uuid::now_v7();
@@ -2052,7 +2055,7 @@ async fn handle_memory_sync_db(
             .await
             {
                 error!(error = %e, "Memory delete version insert failed");
-                return;
+                return None;
             }
 
             if let Err(e) =
@@ -2063,12 +2066,12 @@ async fn handle_memory_sync_db(
                     .await
             {
                 error!(error = %e, "Memory delete failed");
-                return;
+                return None;
             }
 
             if let Err(e) = tx.commit().await {
                 error!(error = %e, "Memory delete transaction commit failed");
-                return;
+                return None;
             }
 
             debug!(
@@ -2076,6 +2079,7 @@ async fn handle_memory_sync_db(
                 path = norm_path,
                 "Memory file deleted"
             );
+            Some(store_id)
         }
         _ => {
             let content_bytes = content.as_bytes();
@@ -2097,14 +2101,14 @@ async fn handle_memory_sync_db(
                 Ok(row) => row,
                 Err(e) => {
                     error!(error = %e, "Memory upsert lookup failed");
-                    return;
+                    return None;
                 }
             };
 
             if let Some((memory_id, existing_sha)) = existing {
                 if existing_sha == sha {
                     let _ = tx.commit().await;
-                    return;
+                    return None;
                 }
 
                 let version_id = Uuid::now_v7();
@@ -2128,7 +2132,7 @@ async fn handle_memory_sync_db(
                 .await
                 {
                     error!(error = %e, "Memory modified version insert failed");
-                    return;
+                    return None;
                 }
 
                 if let Err(e) = sqlx::query(
@@ -2153,7 +2157,7 @@ async fn handle_memory_sync_db(
                 .await
                 {
                     error!(error = %e, "Memory update failed");
-                    return;
+                    return None;
                 }
             } else {
                 let count = match sqlx::query_as::<_, (i64,)>(
@@ -2166,7 +2170,7 @@ async fn handle_memory_sync_db(
                     Ok((count,)) => count,
                     Err(e) => {
                         error!(error = %e, "Memory count lookup failed");
-                        return;
+                        return None;
                     }
                 };
 
@@ -2176,7 +2180,7 @@ async fn handle_memory_sync_db(
                         limit = MAX_MEMORIES_PER_STORE,
                         "Rejecting memory create because store limit was reached"
                     );
-                    return;
+                    return None;
                 }
 
                 let memory_id = Uuid::now_v7();
@@ -2201,7 +2205,7 @@ async fn handle_memory_sync_db(
                 .await
                 {
                     error!(error = %e, "Memory created version insert failed");
-                    return;
+                    return None;
                 }
 
                 if let Err(e) = sqlx::query(
@@ -2223,13 +2227,13 @@ async fn handle_memory_sync_db(
                 .await
                 {
                     error!(error = %e, "Memory create failed");
-                    return;
+                    return None;
                 }
             }
 
             if let Err(e) = tx.commit().await {
                 error!(error = %e, "Memory upsert transaction commit failed");
-                return;
+                return None;
             }
 
             debug!(
@@ -2237,6 +2241,7 @@ async fn handle_memory_sync_db(
                 path = norm_path,
                 "Memory file upserted"
             );
+            Some(store_id)
         }
     }
 }

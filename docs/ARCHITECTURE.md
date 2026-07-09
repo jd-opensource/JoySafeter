@@ -422,7 +422,7 @@ concepts live inside the agent (JSONB fields) or in `secrets` / `vaults`.
 | **Skills** | `/skills` | CRUD, `import-zip`, files, versions, security-scans, lifecycle transitions, admin rescan |
 | **Skills AI authoring** | `/skills/ai-authoring` | **SSE** `/chat` (LLM authoring turn), `/save-draft` |
 | **Sandboxes** | `/sandboxes` | list, get, stop |
-| **Memory stores** | `/memory_stores` | store + memory CRUD, versions, redact, **SSE** `/events/stream` |
+| **Memory stores** | `/memory_stores` | store + memory CRUD, versions, redact; sandbox memory sync is relayed through the Rust runtime |
 | **Files** | `/files` | upload, list, metadata, download, delete |
 | **Organizations** | `/organizations` | org + member CRUD, transfer-ownership |
 | **Quickstart** | `/quickstart` | **SSE** `/chat` — guided onboarding LLM proxy |

@@ -1,3 +1,4 @@
+import json
 import uuid
 from types import SimpleNamespace
 
@@ -6,6 +7,7 @@ from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import select
 
 from app.joysafeter_api.api.v1.memory_stores import (
+    _broadcast_memory_update,
     archive_memory_store,
     create_memory,
     delete_memory,
@@ -31,6 +33,19 @@ def _auth_ctx() -> JoySafeterAuthContext:
     )
 
 
+class _FakeRedis:
+    def __init__(self, owners: dict[uuid.UUID, str]):
+        self.owners = owners
+        self.published: list[tuple[str, str]] = []
+
+    async def get(self, key: str):
+        sandbox_id = uuid.UUID(key.rsplit(":", 1)[-1])
+        return self.owners.get(sandbox_id)
+
+    async def publish(self, channel: str, payload: str):
+        self.published.append((channel, payload))
+
+
 async def _mounted_store(db_session):
     store = JoySafeterMemoryStore(name=f"store-{uuid.uuid4()}", description="")
     agent = JoySafeterAgent(name=f"memory-agent-{uuid.uuid4()}")
@@ -53,6 +68,48 @@ async def _mounted_store(db_session):
     db_session.add(mount)
     await db_session.commit()
     return store.id
+
+
+async def _mounted_store_with_active_sandboxes(db_session):
+    store = JoySafeterMemoryStore(name=f"store-{uuid.uuid4()}", description="")
+    agent = JoySafeterAgent(name=f"memory-agent-{uuid.uuid4()}")
+    db_session.add_all([store, agent])
+    await db_session.commit()
+    await db_session.refresh(store)
+    await db_session.refresh(agent)
+
+    sandbox_a = uuid.uuid4()
+    sandbox_b = uuid.uuid4()
+    session_a = JoySafeterSession(agent_id=agent.id, status="running", last_sandbox_id=sandbox_a)
+    db_session.add(session_a)
+    await db_session.commit()
+    await db_session.refresh(session_a)
+
+    session_b = JoySafeterSession(agent_id=agent.id, status="running", last_sandbox_id=sandbox_b)
+    db_session.add(session_b)
+    await db_session.commit()
+    await db_session.refresh(session_b)
+
+    db_session.add(
+        JoySafeterSessionMemoryStore(
+            session_id=session_a.id,
+            store_id=store.id,
+            access="read_write",
+            mount_name="main",
+        )
+    )
+    await db_session.commit()
+
+    db_session.add(
+        JoySafeterSessionMemoryStore(
+            session_id=session_b.id,
+            store_id=store.id,
+            access="read_write",
+            mount_name="renamed",
+        )
+    )
+    await db_session.commit()
+    return store.id, {sandbox_a: "runtime-a", sandbox_b: "runtime-b"}
 
 
 async def _memory_store(db_session):
@@ -107,6 +164,39 @@ async def test_delete_memory_store_rejects_active_session_reference(db_session):
         await db_session.execute(select(JoySafeterMemoryStore).where(JoySafeterMemoryStore.id == store_id))
     ).scalar_one()
     assert store_row.id == store_id
+
+
+@pytest.mark.asyncio
+async def test_memory_update_broadcast_targets_store_id_not_session_local_mount_name(db_session, monkeypatch):
+    store_id, owners = await _mounted_store_with_active_sandboxes(db_session)
+    redis = _FakeRedis(owners)
+    monkeypatch.setattr("app.joysafeter_shared.cache.redis.RedisClient.get_client", lambda: redis)
+
+    await _broadcast_memory_update(store_id, "/notes.txt", "updated", "modified", db_session)
+
+    published = sorted(redis.published, key=lambda item: item[0])
+    assert [channel for channel, _ in published] == [
+        "joysafeter:cmd:runtime-a",
+        "joysafeter:cmd:runtime-b",
+    ]
+    payloads = [json.loads(payload) for _, payload in published]
+    assert payloads == [
+        {
+            "type": "memory_update",
+            "store_id": str(store_id),
+            "relative_path": "/notes.txt",
+            "content": "updated",
+            "operation": "modified",
+        },
+        {
+            "type": "memory_update",
+            "store_id": str(store_id),
+            "relative_path": "/notes.txt",
+            "content": "updated",
+            "operation": "modified",
+        },
+    ]
+    assert all("store_mount_name" not in payload for payload in payloads)
 
 
 @pytest.mark.asyncio

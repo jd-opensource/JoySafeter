@@ -838,22 +838,21 @@ async def _relay_control_via_redis(
     """Relay a control event (tool_confirmation / custom_tool_result / interrupt) to
     the sandbox owner instance via Redis pub/sub.
 
-    Used when the in-process Python bridge isn't available (e.g. the active
-    orchestrator is the Rust binary, or the bridge runs in another worker).
+    Used by the Python API to reach the Rust orchestrator process that owns
+    the active sandbox.
     The Rust orchestrator's command_listener subscribes to
     ``joysafeter:cmd:{instance_id}`` and dispatches ``input`` commands to its
-    local bridge → SendInput gRPC → runner stdin → claude control_response.
+    sandbox bridge -> SendInput gRPC -> runner stdin -> claude control_response.
 
     Returns True only after the owning command listener acknowledges that it
-    delivered the input to the local bridge. This still does not guarantee the
+    delivered the input to the sandbox bridge. This still does not guarantee the
     runner completed the user-visible action; that arrives later as events.
     """
     if not getattr(session, "last_sandbox_id", None):
         return False
 
-    # In the API process the orchestrator's RedisCoordinator may not be
-    # initialized (it lives in the orchestrator process). Use the shared
-    # RedisClient directly — we only need GET + PUBLISH, both stateless.
+    # The owner registry lives in Redis and is maintained by the Rust
+    # orchestrator. The API only needs GET + PUBLISH here, both stateless.
     try:
         from app.joysafeter_shared.cache.redis import RedisClient
     except Exception:
@@ -1495,9 +1494,8 @@ async def send_event(
                     if isinstance(running_event.payload, dict):
                         running_broadcast.update(running_event.payload)
                     await broadcaster.send(session_id, running_broadcast)
-                # Push task to runner queue. In split-service mode the API
-                # process does not own an in-memory scheduler, so publish
-                # directly to the Redis-backed global queue.
+                # Push task to the Rust runtime through the Redis-backed
+                # global queue.
                 await _push_task_to_global_queue(task.id)
             except AppError:
                 raise
@@ -1651,8 +1649,8 @@ async def send_event(
 
         elif single.type == "user.tool_confirmation":
             injected = False
-            # Cross-process relay: route via Redis to the sandbox owner instance
-            # (Rust orchestrator or another API worker) when no local bridge.
+            # Cross-process relay: route via Redis to the Rust orchestrator
+            # instance that owns the sandbox.
             if not injected and await _relay_control_via_redis(single, session=session, event_id=str(event.id)):
                 injected = True
                 await svc.mark_event_processed(event.id)

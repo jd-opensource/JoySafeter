@@ -378,16 +378,16 @@ impl CommandListener {
     /// Handle a `memory_update` broadcast: notify all sandboxes sharing the
     /// given store so their FUSE caches are refreshed in real time.
     ///
-    /// Payload: `{"type": "memory_update", "store_mount_name": "...",
+    /// Payload: `{"type": "memory_update", "store_id": "...",
     ///            "relative_path": "...", "content": "...", "operation": "modified"}`
     async fn handle_memory_update(&self, cmd: &serde_json::Value) -> anyhow::Result<()> {
-        let mount_name = cmd["store_mount_name"].as_str().unwrap_or("");
+        let store_id = cmd["store_id"].as_str().unwrap_or("");
         let rel_path = cmd["relative_path"].as_str().unwrap_or("");
         let content = cmd["content"].as_str().unwrap_or("");
         let operation = cmd["operation"].as_str().unwrap_or("modified");
 
-        if mount_name.is_empty() || rel_path.is_empty() {
-            warn!("memory_update command missing store_mount_name or relative_path");
+        if store_id.is_empty() || rel_path.is_empty() {
+            warn!("memory_update command missing store_id or relative_path");
             return Ok(());
         }
 
@@ -396,7 +396,7 @@ impl CommandListener {
         let no_sender = uuid::Uuid::nil();
         self.memory_subscribers
             .notify_peers(
-                mount_name,
+                store_id,
                 rel_path,
                 content.as_bytes(),
                 operation,
@@ -406,7 +406,7 @@ impl CommandListener {
             .await;
 
         info!(
-            store_mount_name = mount_name,
+            store_id = store_id,
             path = rel_path,
             operation = operation,
             "Relayed memory_update to peers"

@@ -73,11 +73,12 @@ impl MemoryStoreSubscribers {
 
     /// Notify all peers of a memory file change.
     ///
-    /// Sends `MemoryFileUpdate` to all sandbox bridges that share the same
-    /// store, excluding the sender.
+    /// Sends `MemoryFileUpdate` to all sandbox bridges subscribed to the same
+    /// store, excluding the sender. Each subscriber receives its own
+    /// session-local mount name.
     pub async fn notify_peers(
         &self,
-        store_mount_name: &str,
+        store_id: &str,
         relative_path: &str,
         content: &[u8],
         operation: &str,
@@ -86,29 +87,29 @@ impl MemoryStoreSubscribers {
     ) {
         let subs = self.subscriptions.lock().await;
 
-        // Find the store_id by mount_name match
-        for (_store_id, entries) in subs.iter() {
-            for sub in entries {
-                if sub.mount_name == store_mount_name && sub.sandbox_db_id != sender_sandbox_id {
-                    // Send MemoryFileUpdate to this peer
-                    if let Some(bridge) = bridge_registry.get_by_db_id(sub.sandbox_db_id) {
-                        let msg = OrchestratorMessage {
-                            payload: Some(orchestrator_message::Payload::MemoryUpdate(
-                                proto::MemoryFileUpdate {
-                                    store_mount_name: sub.mount_name.clone(),
-                                    relative_path: relative_path.to_string(),
-                                    content: content.to_vec(),
-                                    operation: operation.to_string(),
-                                },
-                            )),
-                        };
-                        let _ = bridge.send_to_runner(msg).await;
-                        debug!(
-                            peer_sandbox = %sub.sandbox_db_id,
-                            path = relative_path,
-                            "Sent memory update to peer"
-                        );
-                    }
+        if let Some(entries) = subs.get(store_id) {
+            for sub in entries
+                .iter()
+                .filter(|s| s.sandbox_db_id != sender_sandbox_id)
+            {
+                if let Some(bridge) = bridge_registry.get_by_db_id(sub.sandbox_db_id) {
+                    let msg = OrchestratorMessage {
+                        payload: Some(orchestrator_message::Payload::MemoryUpdate(
+                            proto::MemoryFileUpdate {
+                                store_mount_name: sub.mount_name.clone(),
+                                relative_path: relative_path.to_string(),
+                                content: content.to_vec(),
+                                operation: operation.to_string(),
+                            },
+                        )),
+                    };
+                    let _ = bridge.send_to_runner(msg).await;
+                    debug!(
+                        store_id = store_id,
+                        peer_sandbox = %sub.sandbox_db_id,
+                        path = relative_path,
+                        "Sent memory update to peer"
+                    );
                 }
             }
         }

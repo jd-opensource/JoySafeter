@@ -395,7 +395,7 @@ runner 从 env 启动（`JOYSAFETER_ORCHESTRATOR_URL`、`JOYSAFETER_SANDBOX_ID`�
 | **Skills** | `/skills` | CRUD、`import-zip`、files、versions、security-scans、生命周期转移、admin 重扫 |
 | **Skills AI 创作** | `/skills/ai-authoring` | **SSE** `/chat`（LLM 创作回合）、`/save-draft` |
 | **Sandboxes** | `/sandboxes` | 列表、获取、停止 |
-| **Memory stores** | `/memory_stores` | store + memory CRUD、versions、redact、**SSE** `/events/stream` |
+| **Memory stores** | `/memory_stores` | store + memory CRUD、versions、redact；沙箱 memory sync 经 Rust runtime 中继 |
 | **Files** | `/files` | 上传、列表、元数据、下载、删除 |
 | **Organizations** | `/organizations` | 组织 + 成员 CRUD、transfer-ownership |
 | **Quickstart** | `/quickstart` | **SSE** `/chat`——引导式 onboarding LLM 代理 |

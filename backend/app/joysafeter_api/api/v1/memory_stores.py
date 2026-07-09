@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import re
@@ -6,8 +5,7 @@ import unicodedata
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.services import (
@@ -67,12 +65,14 @@ async def _broadcast_memory_update(
         if not redis:
             return
 
-        # Find the mount_name and all active sandboxes that have this store
+        # Find all active sandbox owners that have this store mounted. Mount
+        # names are session-local, so the Rust runtime must fan out by store_id
+        # and translate to each subscriber's own mount_name.
         from sqlalchemy import text
 
         rows = await db.execute(
             text(
-                "SELECT DISTINCT sm.mount_name, s.last_sandbox_id "
+                "SELECT DISTINCT s.last_sandbox_id "
                 "FROM joysafeter_session_memory_stores sm "
                 "JOIN joysafeter_sessions s ON s.id = sm.session_id "
                 "WHERE sm.store_id = :sid "
@@ -85,11 +85,9 @@ async def _broadcast_memory_update(
         if not active_rows:
             return  # No active session has this store mounted
 
-        mount_name = active_rows[0][0]
-
         # Find the orchestrator instance_id that owns each sandbox
         owner_instances: set[str] = set()
-        for _, sandbox_id in active_rows:
+        for (sandbox_id,) in active_rows:
             if sandbox_id:
                 owner = await redis.get(f"joysafeter:sandbox_owner:{sandbox_id}")
                 if owner:
@@ -102,7 +100,7 @@ async def _broadcast_memory_update(
 
         payload = json.dumps({
             "type": "memory_update",
-            "store_mount_name": mount_name,
+            "store_id": str(store_id),
             "relative_path": path,
             "content": content,
             "operation": operation,
@@ -809,39 +807,3 @@ async def redact_memory_version(
     if not ok:
         raise _memory_version_not_found_error(store_id, version_id)
     return {"status": "redacted"}
-
-
-# --- SSE Event Stream ---
-
-
-@router.get("/{store_id}/events/stream")
-async def memory_store_event_stream(
-    store_id: uuid.UUID,
-    request: Request,
-    types: Optional[list[str]] = Query(None, alias="types[]"),
-    db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-):
-    """SSE endpoint for real-time memory store event streaming.
-
-    Supports ?types[] query param to filter by event types (e.g. created, modified, deleted).
-    """
-    svc = MemoryService(db)
-    await _get_store_or_404(svc, store_id, auth_ctx.project_id)
-
-    async def event_generator():
-        while True:
-            if await request.is_disconnected():
-                break
-            yield ": heartbeat\n\n"
-            await asyncio.sleep(15)
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )

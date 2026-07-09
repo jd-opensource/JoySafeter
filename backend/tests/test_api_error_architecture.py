@@ -344,6 +344,14 @@ def test_environment_api_does_not_use_python_image_builder_boundary():
     assert "ImageBuilder" not in text
 
 
+def test_memory_store_api_does_not_expose_removed_python_subscriber_stream():
+    text = Path("backend/app/joysafeter_api/api/v1/memory_stores.py").read_text()
+
+    assert 'events/stream' not in text
+    assert "memory_store_event_stream" not in text
+    assert "StreamingResponse" not in text
+
+
 def test_api_v1_async_error_boundaries_use_shared_contract_builders():
     offenders: list[str] = []
     raw_websocket_error_pattern = re.compile(
