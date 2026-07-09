@@ -141,8 +141,13 @@ ENTRYPOINT /bin/sh -c '\
     export BACKEND_PORT=${BACKEND_PORT:-8000}; \
     export WORKERS=${WORKERS:-1}; \
     cd /export/App/backend; \
+    case \${JOYSAFETER_SERVICE_ROLE} in \
+      api)    APP_MODULE=app.joysafeter_api.main:app ;; \
+      worker) APP_MODULE=app.joysafeter_worker.main:app ;; \
+      *)      APP_MODULE=app.main:app ;; \
+    esac; \
     python -m gunicorn \
-      ${BACKEND_APP_MODULE:-app.main:app} \
+      \${BACKEND_APP_MODULE:-\${APP_MODULE}} \
       -w \${WORKERS} \
       -k uvicorn.workers.UvicornWorker \
       --bind 0.0.0.0:\${BACKEND_PORT} \
