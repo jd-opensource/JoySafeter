@@ -33,8 +33,28 @@ start_infra() {
   log "启动 PostgreSQL / Redis"
   cd "$DEPLOY"
   compose -f docker-compose.yml up -d db redis
-  log "运行数据库迁移"
-  compose -f docker-compose.yml --profile init run --rm db-init
+
+  log "等待 PostgreSQL 就绪"
+  local ready=false
+  for _ in $(seq 1 60); do
+    if compose -f docker-compose.yml exec -T db \
+        pg_isready -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-joysafeter}" >/dev/null 2>&1; then
+      ready=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$ready" != true ]; then
+    echo "PostgreSQL 在 60s 内未就绪；请检查 docker compose logs db" >&2
+    exit 1
+  fi
+
+  # 用宿主机源码跑迁移，而不是容器 db-init 镜像。api/worker/orchestrator 都从宿主机
+  # 源码启动，迁移也应如此：容器 db-init 可能是陈旧的 joysafeter-backend:latest，
+  # 会把库迁到旧 head，而宿主机源码期待更新的表，造成崩溃。宿主机 alembic 让 schema
+  # 与代码始终一致，也不必为跑一次迁移去构建整个 backend 镜像。
+  log "运行数据库迁移（宿主机源码 alembic upgrade head）"
+  ( cd "$ROOT/backend" && uv run alembic upgrade head )
 }
 
 start_backend() {

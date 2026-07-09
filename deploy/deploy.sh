@@ -406,6 +406,20 @@ check_local_ports() {
     warn_if_port_busy "Rust orchestrator gRPC" "$(read_env_value "$deploy_env" "JOYSAFETER_GRPC_PORT_HOST")"
 }
 
+warn_if_sandbox_runtime_image_missing() {
+    local deploy_env="$1"
+    local sandbox_image="${JOYSAFETER_SANDBOX_IMAGE:-$(read_env_value "$deploy_env" "JOYSAFETER_SANDBOX_IMAGE")}"
+    sandbox_image="${sandbox_image:-joysafeter-claudecode:latest}"
+
+    if docker image inspect "$sandbox_image" >/dev/null 2>&1; then
+        log_success "Sandbox runtime image: $sandbox_image"
+        return
+    fi
+
+    log_warning "Sandbox runtime image missing: $sandbox_image; agent task execution will fail until it is built/pulled"
+    log_warning "Build it with: ./deploy.sh build --claudecode-only --arch $(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
+}
+
 validate_local_compose_config() {
     (
         cd "$SCRIPT_DIR"
@@ -423,7 +437,55 @@ compose_local_env() {
     BASE_IMAGE_REGISTRY="$LOCAL_OFFICIAL_IMAGE_REGISTRY" \
     RUST_IMAGE="$LOCAL_RUST_IMAGE" \
     RUNTIME_IMAGE="$LOCAL_RUNTIME_IMAGE" \
+    COMPOSE_BAKE="${COMPOSE_BAKE:-false}" \
     compose "$@"
+}
+
+sync_local_core_image_env() {
+    local deploy_env="$1"
+    local normalized_registry
+    normalized_registry="$(normalize_registry "$REGISTRY")"
+
+    if [ -n "$normalized_registry" ]; then
+        set_env_value "$deploy_env" "BACKEND_FULL_IMAGE" "${normalized_registry}/${BACKEND_IMAGE}:${TAG}"
+        set_env_value "$deploy_env" "FRONTEND_FULL_IMAGE" "${normalized_registry}/${FRONTEND_IMAGE}:${TAG}"
+        set_env_value "$deploy_env" "ORCHESTRATOR_RS_FULL_IMAGE" "${normalized_registry}/${ORCHESTRATOR_RS_IMAGE}:${TAG}"
+        set_env_value "$deploy_env" "SKILLSPECTOR_FULL_IMAGE" "${normalized_registry}/${SKILLSPECTOR_IMAGE}:${TAG}"
+    else
+        set_env_value "$deploy_env" "BACKEND_FULL_IMAGE" "${BACKEND_IMAGE}:${TAG}"
+        set_env_value "$deploy_env" "FRONTEND_FULL_IMAGE" "${FRONTEND_IMAGE}:${TAG}"
+        set_env_value "$deploy_env" "ORCHESTRATOR_RS_FULL_IMAGE" "${ORCHESTRATOR_RS_IMAGE}:${TAG}"
+        set_env_value "$deploy_env" "SKILLSPECTOR_FULL_IMAGE" "${SKILLSPECTOR_IMAGE}:${TAG}"
+    fi
+}
+
+build_local_compose_images() {
+    local deploy_env="$SCRIPT_DIR/.env"
+
+    log_info "构建本地 Compose 核心服务镜像..."
+    (
+        BASE_IMAGE_REGISTRY="$LOCAL_OFFICIAL_IMAGE_REGISTRY"
+        PUSH=false
+        BACKEND_ONLY=false
+        FRONTEND_ONLY=false
+        ORCHESTRATOR_ONLY=false
+        SKILLSPECTOR_ONLY=false
+        RUNTIME_ONLY=false
+        CLAUDECODE_ONLY=false
+        CODEX_ONLY=false
+        NATIVE_ONLY=false
+        BUILD_ALL=false
+        BUILD_BACKEND=true
+        BUILD_FRONTEND=true
+        BUILD_ORCHESTRATOR=true
+        BUILD_SKILLSPECTOR=true
+        BUILD_CLAUDECODE=false
+        BUILD_CODEX=false
+        BUILD_NATIVE=false
+        build_all_images
+    )
+
+    sync_local_core_image_env "$deploy_env"
 }
 
 wait_for_local_redis() {
@@ -448,7 +510,7 @@ run_local_migrations() {
     (
         cd "$SCRIPT_DIR"
         log_info "启动数据库、Redis、SkillSpector 基础服务..."
-        compose_local_env --profile local-redis --profile rust-orchestrator up -d --build db redis skillspector
+        compose_local_env --profile local-redis --profile rust-orchestrator up -d --no-build db redis skillspector
 
         wait_for_local_redis
 
@@ -497,6 +559,7 @@ run_local_compose() {
     require_single_platform
     configure_local_compose_env
     check_local_ports "$SCRIPT_DIR/.env"
+    warn_if_sandbox_runtime_image_missing "$SCRIPT_DIR/.env"
     validate_local_compose_config
 
     log_info "Docker daemon 平台: $PLATFORMS"
@@ -504,11 +567,13 @@ run_local_compose() {
     log_info "Rust builder 镜像: $LOCAL_RUST_IMAGE"
     log_info "Rust runtime 镜像: $LOCAL_RUNTIME_IMAGE"
 
+    build_local_compose_images
     run_local_migrations
 
     (
         cd "$SCRIPT_DIR"
-        compose_local_env --profile local-redis --profile rust-orchestrator up -d --build
+        log_info "启动本地 Compose 服务..."
+        compose_local_env --profile local-redis --profile rust-orchestrator up -d --no-build
     )
 }
 
@@ -516,6 +581,7 @@ run_local_doctor() {
     require_single_platform
     configure_local_compose_env
     check_local_ports "$SCRIPT_DIR/.env"
+    warn_if_sandbox_runtime_image_missing "$SCRIPT_DIR/.env"
     validate_local_compose_config
 
     log_success "本地部署环境预检完成"

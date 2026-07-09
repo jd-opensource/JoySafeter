@@ -19,15 +19,24 @@ Official Images 的多架构镜像源，避免单架构镜像在 arm64 上误走
 Docker socket / Compose 配置 / 常用端口，等待本地 Redis 就绪，并在启动完整服务前运行数据库迁移。
 `doctor` 只做环境准备和预检，不启动容器；`local` 会执行完整部署。
 
-这一个 Compose 文件会直接 build 并启动：
+`deploy.sh local` 会先用脚本控制的 Buildx 路径构建核心镜像，再用这个 Compose 文件启动：
 
 - `db`：PostgreSQL
 - `redis`：Redis（仅在启用 `local-redis` profile 时启动；使用云 Redis 时改 `deploy/.env` 的 `REDIS_URL`）
 - `skillspector`：内部 Skill 安全扫描服务，API 在创建、更新、导入和文件变更时调用
+- `joysafeter-envoy`：沙箱出站白名单和 gRPC 回连通道。没有 profile，任何 `up` 都会启动；它会空闲等待 orchestrator 写入 bootstrap 配置，所以 `docker compose ps` 里看到它 running 但暂时不转发流量是正常的
 - `api`：后端 API，端口 `8000`
 - `orchestrator-rs`：Rust 版调度 / gRPC / sandbox 生命周期，gRPC 端口 `9090`
 - `worker`：Redis Stream 消费 / 批量事件落库
 - `frontend`：前端，端口 `3000`
+
+`deploy.sh local` 只构建并启动上面这些控制面服务，不会构建 agent 运行镜像（`joysafeter-claudecode` / `joysafeter-codex` / `joysafeter-native`）。默认 `JOYSAFETER_SANDBOX_IMAGE=joysafeter-claudecode:latest` 缺失时脚本只告警、不阻断：控制面能起来，但真实 agent 任务会因拉不到运行镜像而失败。跑第一个 agent 前先构建或拉取运行镜像：
+
+```bash
+./deploy.sh build --claudecode-only --arch arm64   # 或 --arch amd64
+# 或使用预构建镜像
+./deploy.sh pull --runtime-only --registry registry.example.com/your-org --tag v0.3.2
+```
 
 ## 协同拓扑和职责
 
@@ -150,7 +159,8 @@ profile。也可以通过 `ORCHESTRATOR_RS_FULL_IMAGE` 指向预构建镜像。
 
 ```bash
 ./deploy.sh doctor
-docker compose --profile rust-orchestrator up -d --build
+./deploy.sh build --arch arm64   # 或 --arch amd64
+docker compose --profile rust-orchestrator up -d --no-build
 ```
 
 `doctor` 会先写入 `DOCKER_DEFAULT_PLATFORM` 和多架构镜像默认值；随后手工运行 compose 时会复用 `deploy/.env`。
@@ -218,9 +228,9 @@ cd deploy
 
 | 方案 | 命令 / 做法 | 适用场景 | 注意事项 |
 |---|---|---|---|
-| 全本地 Compose | `./deploy.sh doctor && ./deploy.sh local` | 新用户、本机验证、单机 demo | 会启动 PostgreSQL/Redis/SkillSpector/API/orchestrator/worker/frontend |
+| 全本地 Compose | `./deploy.sh doctor && ./deploy.sh local` | 新用户、本机验证、单机 demo | 会启动 PostgreSQL/Redis/SkillSpector/Envoy/API/orchestrator/worker/frontend；不构建 agent 运行镜像，跑真实 agent 前需先 `build --claudecode-only` 或 `pull --runtime-only` |
 | 宿主机本地开发 | `./local-test.sh` | 开发 API/Rust/Worker/Frontend，数据库和 Redis 仍用 Docker | Python/Node/Rust 进程跑在宿主机；普通用户不要把它当生产部署 |
-| 云 Redis / 本地 PostgreSQL | `./deploy.sh doctor` 后手工 `docker compose --profile rust-orchestrator up -d --build` | Redis 已托管，其他服务仍在单机 | 不启用 `local-redis` profile，设置 `REDIS_URL` |
+| 云 Redis / 本地 PostgreSQL | `./deploy.sh build --arch <arch>` 后手工 `docker compose --profile rust-orchestrator up -d --no-build` | Redis 已托管，其他服务仍在单机 | 不启用 `local-redis` profile，设置 `REDIS_URL` |
 | 云 Redis + 云 PostgreSQL | 同一 compose 文件，覆盖 `REDIS_URL` 和 `POSTGRES_*` | 单机应用服务 + 托管中间件 | 手工运行 `db-init` 或按发布流程执行迁移 |
 | 预构建镜像部署 | `./deploy.sh pull --registry ... --tag ...` 后 `up --no-build` | 生产/准生产，不希望线上机器编译 | `pull` 会写入 `deploy/.env`；镜像 tag 要显式，不要依赖 `latest` 做可审计发布 |
 | 多实例 orchestrator | 启动多个 `orchestrator-rs` 实例 | 更高并发 sandbox 调度 | 每实例必须设置唯一 `JOYSAFETER_INSTANCE_ID`，共享 PostgreSQL/Redis |

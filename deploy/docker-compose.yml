@@ -4,7 +4,8 @@
 # 用法：
 #   cd deploy
 #   Supported local stack:
-#     docker compose --profile local-redis --profile rust-orchestrator up -d --build
+#     ./deploy.sh local
+#     docker compose --profile local-redis --profile rust-orchestrator up -d --no-build
 # =============================================================================
 
 x-backend-build: &backend-build
@@ -248,6 +249,17 @@ services:
       - ../skills:/app/skills:ro
       - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
       - ${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}:${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}
+    # Liveness only: the orchestrator speaks gRPC (no HTTP/gRPC-health service),
+    # so probe that the gRPC listener is accepting TCP. A crash-looping
+    # orchestrator stops listening and turns unhealthy instead of the stack
+    # reporting fully healthy. Relies on bash /dev/tcp, present and enabled in
+    # the default debian:bookworm-slim RUNTIME_IMAGE.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9090"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     networks:
       - joysafeter-network
 

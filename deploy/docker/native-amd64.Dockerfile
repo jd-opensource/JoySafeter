@@ -27,7 +27,7 @@ RUN add-apt-repository -y ppa:deadsnakes/ppa \
     && pip install -i https://pypi.tuna.tsinghua.edu.cn/simple --no-cache-dir uv \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && npm config set registry https://registry.npmmirror.com \
     && npm install -g yarn pnpm \

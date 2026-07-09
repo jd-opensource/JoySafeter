@@ -31,6 +31,17 @@ The backend runtime is split into Python `api`, Rust `orchestrator-rs`, and Pyth
 services, alongside PostgreSQL, Redis, Envoy, and SkillSpector. The Python orchestrator profile
 has been removed; use the `rust-orchestrator` profile through `deploy.sh local`.
 
+`deploy.sh local` starts the control-plane services only. It does not build the agent runtime
+image (`joysafeter-claudecode` / `joysafeter-codex` / `joysafeter-native`), so the control plane
+comes up healthy but real agent tasks fail until you build or pull one:
+
+```bash
+cd deploy
+./deploy.sh build --claudecode-only --arch arm64   # or --arch amd64
+# or use a prebuilt image
+./deploy.sh pull --runtime-only --registry registry.example.com/your-org --tag v0.3.2
+```
+
 For cloud PostgreSQL/Redis, image building, prebuilt images, and troubleshooting, see
 [deploy/README.md](deploy/README.md).
 For service ownership, runtime topology, data flow, and deployment-mode selection, also see
