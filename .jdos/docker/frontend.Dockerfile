@@ -16,7 +16,7 @@ WORKDIR /home/export/App/frontend
 RUN curl -fsSL https://bun.sh/install | bash -s -- bun-v1.3.14 && \
     ln -sf /root/.bun/bin/bun /usr/local/bin/bun
 
-COPY frontend/package.json frontend/bun.lock ./
+COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
 # ---------------------------------------------------------------------------
@@ -30,7 +30,7 @@ RUN curl -fsSL https://bun.sh/install | bash -s -- bun-v1.3.14 && \
     ln -sf /root/.bun/bin/bun /usr/local/bin/bun
 
 COPY --from=packages /home/export/App/frontend .
-COPY frontend/ .
+COPY . .
 
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -87,8 +87,8 @@ COPY --from=builder /home/export/App/frontend/.next/standalone ./
 COPY --from=builder /home/export/App/frontend/.next/static ./.next/static
 
 # entrypoint + pm2 配置
-COPY frontend/docker/entrypoint.sh ./entrypoint.sh
-COPY frontend/docker/pm2.json ./pm2.json
+COPY docker/entrypoint.sh ./entrypoint.sh
+COPY docker/pm2.json ./pm2.json
 RUN chmod +x ./entrypoint.sh
 
 ARG COMMIT_SHA
